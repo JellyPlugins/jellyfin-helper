@@ -7,7 +7,6 @@ on:
 
 env:
   PLUGIN_NAME: FiletreeCleaner
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -47,7 +46,7 @@ jobs:
         zip ../${PLUGIN_NAME}_test-build.zip *
 
     - name: Upload build artifact
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ env.PLUGIN_NAME }}_test-build
         path: ${{ env.PLUGIN_NAME }}_test-build.zip

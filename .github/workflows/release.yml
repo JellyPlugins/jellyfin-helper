@@ -11,7 +11,6 @@ permissions:
 env:
   PLUGIN_NAME: FiletreeCleaner
   TARGET_ABI: "10.11.0.0"
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -58,7 +57,7 @@ jobs:
         zip ../${PLUGIN_NAME}_test-build.zip *
 
     - name: Upload build artifact
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ env.PLUGIN_NAME }}_test-build
         path: ${{ env.PLUGIN_NAME }}_test-build.zip
@@ -92,7 +91,7 @@ jobs:
         echo "EOF" >> $GITHUB_ENV
 
     - name: Download build artifact
-      uses: actions/download-artifact@v5
+      uses: actions/download-artifact@v8
       with:
         name: ${{ env.PLUGIN_NAME }}_test-build
 
