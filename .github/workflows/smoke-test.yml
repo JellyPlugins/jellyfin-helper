@@ -29,163 +29,106 @@ jobs:
       with:
         name: ${{ inputs.artifact-name }}
 
-    - name: Prepare plugin directory
+    - name: Prepare Jellyfin data directory
       run: |
-        mkdir -p jellyfin-plugins/FiletreeCleaner
-        unzip ${PLUGIN_NAME}_test-build.zip -d jellyfin-plugins/FiletreeCleaner/
+        # Pre-configure Jellyfin so it skips the Startup Wizard entirely.
+        # When IsStartupWizardCompleted=true and no users exist, Jellyfin
+        # automatically creates a default "admin" user with an empty password.
+        mkdir -p jellyfin-data/config
+        cat > jellyfin-data/config/system.xml << 'XMLEOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <ServerConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                             xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+          <IsStartupWizardCompleted>true</IsStartupWizardCompleted>
+        </ServerConfiguration>
+        XMLEOF
+
+        # Install the plugin
+        mkdir -p jellyfin-data/plugins/FiletreeCleaner
+        unzip ${PLUGIN_NAME}_test-build.zip -d jellyfin-data/plugins/FiletreeCleaner/
+
+        echo "Jellyfin data directory prepared:"
+        find jellyfin-data -type f
 
     - name: Start Jellyfin container
-      # Image tag must match the targetAbi in manifest.json (currently 10.11.0.0).
-      # Use 'unstable' because 10.11 is not yet a stable release.
       run: |
         docker run -d \
           --name jellyfin-test \
           -p 8096:8096 \
-          -v ${{ github.workspace }}/jellyfin-plugins:/config/plugins \
+          -v ${{ github.workspace }}/jellyfin-data:/config \
           jellyfin/jellyfin:unstable
 
-    - name: Wait for Jellyfin to start
+    - name: Wait for Jellyfin to be fully ready
       run: |
         echo "Waiting for Jellyfin to become fully ready..."
-        # /health returns 200 even during migrations, so we wait for the
-        # Startup API to actually respond with 200 instead of 503.
         for i in $(seq 1 120); do
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8096/Startup/Configuration 2>/dev/null || echo "000")
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "Jellyfin is ready! (attempt $i)"
+          # /System/Info/Public is unauthenticated and only available after
+          # the server is fully initialized (not during migrations).
+          RESPONSE=$(curl -sf http://localhost:8096/System/Info/Public 2>/dev/null || echo "")
+          if echo "$RESPONSE" | jq -e '.StartupWizardCompleted == true' > /dev/null 2>&1; then
+            VERSION=$(echo "$RESPONSE" | jq -r '.Version')
+            echo "✅ Jellyfin $VERSION is ready! (attempt $i)"
             break
           fi
           if [ $i -eq 120 ]; then
-            echo "Jellyfin failed to become ready within 240 seconds (last HTTP: $HTTP_CODE)"
+            echo "❌ Jellyfin failed to become ready within 240 seconds"
+            echo "Last response: $RESPONSE"
             docker logs jellyfin-test
             exit 1
           fi
-          echo "  Waiting... (attempt $i, HTTP $HTTP_CODE)"
           sleep 2
         done
 
-    - name: Complete Startup Wizard
+    - name: Authenticate
       run: |
-        api_post() {
-          local url="$1"
-          local data="$2"
-          echo "→ POST $url"
-          HTTP_CODE=$(curl -s -o /tmp/resp.txt -w "%{http_code}" \
-            -X POST "$url" \
-            -H "Content-Type: application/json" \
-            ${data:+-d "$data"})
-          echo "  HTTP $HTTP_CODE"
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            echo "  ✅ OK"
-            return 0
-          else
-            cat /tmp/resp.txt 2>/dev/null | head -5
-            return 1
-          fi
-        }
-
-        echo "=== Step 1: Set Configuration ==="
-        api_post "http://localhost:8096/Startup/Configuration" \
-          '{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}'
-
-        echo "=== Step 2: Wait for server to settle after configuration ==="
-        sleep 10
-
-        echo "=== Step 3: Check startup state ==="
-        curl -sf http://localhost:8096/Startup/Configuration 2>/dev/null | jq . || echo "(no JSON response)"
-        curl -sf http://localhost:8096/Startup/User 2>/dev/null | jq . || echo "(no user response)"
-
-        echo "=== Step 4: Set admin user ==="
-        # In Jellyfin 10.12+, /Startup/User updates the first existing user.
-        # If that fails (no user yet), try /Startup/Complete first to create the default user.
-        if ! api_post "http://localhost:8096/Startup/User" '{"Name":"admin","Password":"admin123"}'; then
-          echo "  ⚠️ /Startup/User failed, trying to complete wizard first and then set password..."
-          api_post "http://localhost:8096/Startup/Complete" "" || true
-          sleep 5
-
-          # After Complete, there should be a default user. Try setting the user again.
-          if ! api_post "http://localhost:8096/Startup/User" '{"Name":"admin","Password":"admin123"}'; then
-            echo "  ⚠️ /Startup/User still failed. Proceeding with default credentials..."
-          fi
-        else
-          echo "=== Step 5: Complete Wizard ==="
-          api_post "http://localhost:8096/Startup/Complete" ""
-        fi
-
-    - name: Wait for server to settle after wizard
-      run: sleep 10
-
-    - name: Authenticate and get API key
-      run: |
-        echo "Attempting authentication..."
         AUTH_HEADER='X-Emby-Authorization: MediaBrowser Client="CI", Device="GitHub Actions", DeviceId="ci-test", Version="1.0.0"'
 
-        # First, list existing users to see what username to use
-        echo "Checking existing users..."
-        curl -sf http://localhost:8096/Users/Public 2>/dev/null | jq . || echo "(no public users)"
+        # Jellyfin creates a default admin user with empty password when
+        # the wizard is pre-completed and no users exist.
+        RESPONSE=$(curl -sf -X POST http://localhost:8096/Users/AuthenticateByName \
+          -H "Content-Type: application/json" \
+          -H "$AUTH_HEADER" \
+          -d '{"Username":"admin","Pw":""}')
 
-        TOKEN=""
-        # Try multiple combinations: admin/admin123, admin/"", default user names
-        for BODY in \
-          '{"Username":"admin","Pw":"admin123"}' \
-          '{"Username":"admin","Password":"admin123"}' \
-          '{"Username":"admin","Pw":""}' \
-          '{"Username":"admin","Password":""}'; do
-          HTTP_CODE=$(curl -s -o /tmp/auth-resp.txt -w "%{http_code}" \
-            -X POST http://localhost:8096/Users/AuthenticateByName \
-            -H "Content-Type: application/json" \
-            -H "$AUTH_HEADER" \
-            -d "$BODY")
-          echo "Auth attempt: $BODY → HTTP $HTTP_CODE"
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            TOKEN=$(cat /tmp/auth-resp.txt | jq -r '.AccessToken')
-            echo "TOKEN=$TOKEN" >> $GITHUB_ENV
-            echo "✅ Authenticated successfully"
-            break
-          fi
-        done
-
+        TOKEN=$(echo "$RESPONSE" | jq -r '.AccessToken')
         if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
-          echo "❌ All authentication attempts failed"
-          cat /tmp/auth-resp.txt | head -20
-          docker logs jellyfin-test 2>&1 | tail -50
+          echo "❌ Authentication failed"
+          echo "$RESPONSE" | jq .
+          docker logs jellyfin-test 2>&1 | tail -30
           exit 1
         fi
 
+        echo "✅ Authenticated (token: ${TOKEN:0:8}...)"
+        echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+
     - name: Verify plugin is loaded
       run: |
-        echo "Checking installed plugins..."
         PLUGINS=$(curl -sf http://localhost:8096/Plugins \
           -H "X-Emby-Authorization: MediaBrowser Client=\"CI\", Device=\"GitHub Actions\", DeviceId=\"ci-test\", Version=\"1.0.0\", Token=\"$TOKEN\"")
 
-        echo "$PLUGINS" | jq .
+        echo "$PLUGINS" | jq '.[] | {Name, Version, Status}'
 
         if echo "$PLUGINS" | jq -e '.[] | select(.Name == "Jellyfin Cleaner")' > /dev/null 2>&1; then
-          echo "✅ Plugin 'Jellyfin Cleaner' loaded successfully!"
+          echo "✅ Plugin 'Jellyfin Cleaner' is loaded"
         else
-          echo "❌ Plugin 'Jellyfin Cleaner' NOT found in loaded plugins!"
+          echo "❌ Plugin 'Jellyfin Cleaner' NOT found"
           docker logs jellyfin-test
           exit 1
         fi
 
     - name: Verify scheduled tasks are registered
       run: |
-        echo "Checking scheduled tasks..."
         TASKS=$(curl -sf http://localhost:8096/ScheduledTasks \
           -H "X-Emby-Authorization: MediaBrowser Client=\"CI\", Device=\"GitHub Actions\", DeviceId=\"ci-test\", Version=\"1.0.0\", Token=\"$TOKEN\"")
 
-        echo "$TASKS" | jq '.[] | select(.Category == "Jellyfin Cleaner") | {Name, Key, Category, State}'
+        echo "Jellyfin Cleaner tasks:"
+        echo "$TASKS" | jq '[.[] | select(.Category == "Jellyfin Cleaner")] | .[] | {Name, Key, State}'
 
-        CLEANER_TASKS=$(echo "$TASKS" | jq '[.[] | select(.Category == "Jellyfin Cleaner")]')
-        TASK_COUNT=$(echo "$CLEANER_TASKS" | jq 'length')
-
-        echo "Found $TASK_COUNT Jellyfin Cleaner tasks"
-
+        TASK_COUNT=$(echo "$TASKS" | jq '[.[] | select(.Category == "Jellyfin Cleaner")] | length')
         if [ "$TASK_COUNT" -eq 4 ]; then
-          echo "✅ All 4 scheduled tasks registered!"
+          echo "✅ All 4 scheduled tasks registered"
         else
           echo "❌ Expected 4 tasks, found $TASK_COUNT"
-          echo "$TASKS" | jq .
           docker logs jellyfin-test
           exit 1
         fi
