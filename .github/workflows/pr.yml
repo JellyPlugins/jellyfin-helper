@@ -45,7 +45,7 @@ jobs:
         zip ../${PLUGIN_NAME}_test-build.zip *
 
     - name: Upload build artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ env.PLUGIN_NAME }}_test-build
         path: ${{ env.PLUGIN_NAME }}_test-build.zip
@@ -162,7 +162,7 @@ jobs:
 
     - name: Upload Jellyfin logs on failure
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: jellyfin-integration-logs
         path: jellyfin-logs.txt
