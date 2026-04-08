@@ -185,7 +185,7 @@ public class CleanTrickplayTask : IScheduledTask
         [
             new TaskTriggerInfo
             {
-                Type = TaskTriggerInfo.TriggerWeekly,
+                Type = TaskTriggerInfoType.WeeklyTrigger,
                 DayOfWeek = DayOfWeek.Sunday,
                 TimeOfDayTicks = TimeSpan.FromHours(2).Ticks
             }
