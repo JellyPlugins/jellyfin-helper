@@ -94,18 +94,45 @@ jobs:
 
     - name: Complete Startup Wizard
       run: |
-        # Set initial configuration
-        curl -sf -X POST http://localhost:8096/Startup/Configuration \
-          -H "Content-Type: application/json" \
-          -d '{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}'
+        # Helper: POST with visible status & body on failure
+        api_post() {
+          local url="$1"
+          local data="$2"
+          echo "→ POST $url"
+          HTTP_CODE=$(curl -s -o /tmp/resp.txt -w "%{http_code}" \
+            -X POST "$url" \
+            -H "Content-Type: application/json" \
+            ${data:+-d "$data"})
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "  ✅ $HTTP_CODE OK"
+          else
+            echo "  ❌ HTTP $HTTP_CODE"
+            cat /tmp/resp.txt
+            echo ""
+            docker logs jellyfin-test 2>&1 | tail -50
+            exit 1
+          fi
+        }
 
-        # Create admin user
-        curl -sf -X POST http://localhost:8096/Startup/User \
-          -H "Content-Type: application/json" \
-          -d '{"Name":"admin","Password":"admin123"}'
+        # Check current startup state
+        echo "=== Checking startup state ==="
+        curl -s http://localhost:8096/Startup/Configuration | jq . || true
+        curl -s http://localhost:8096/Startup/User | jq . || true
+        curl -s http://localhost:8096/Startup/FirstUser | jq . || true
+
+        echo "=== Running Startup Wizard ==="
+        # Set initial configuration
+        api_post "http://localhost:8096/Startup/Configuration" \
+          '{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}'
+
+        # Create admin user (try both known API variants)
+        api_post "http://localhost:8096/Startup/User" \
+          '{"Name":"admin","Password":"admin123"}' || \
+        api_post "http://localhost:8096/Startup/FirstUser" \
+          '{"Name":"admin","Password":"admin123"}'
 
         # Complete the wizard
-        curl -sf -X POST http://localhost:8096/Startup/Complete
+        api_post "http://localhost:8096/Startup/Complete" ""
 
     - name: Authenticate and get API key
       id: auth
