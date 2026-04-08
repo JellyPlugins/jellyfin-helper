@@ -8,10 +8,10 @@
     "category": "General",
     "versions": [
       {
-        "version": "0.0.1",
+        "version": "1.0.0",
         "changelog": "Initial release. Trickplay folder cleanup, empty media folder cleanup, dry-run modes for both.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-cleaner/releases/download/0.0.1/FiletreeCleaner_0.0.1.zip",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-cleaner/releases/download/1.0.0/FiletreeCleaner_1.0.0.zip",
         "checksum": "placeholder",
         "timestamp": "2026-04-09T00:00:00Z"
       }
