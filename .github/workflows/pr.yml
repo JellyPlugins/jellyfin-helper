@@ -78,17 +78,21 @@ jobs:
 
     - name: Wait for Jellyfin to start
       run: |
-        echo "Waiting for Jellyfin to become ready..."
-        for i in $(seq 1 60); do
-          if curl -sf http://localhost:8096/health > /dev/null 2>&1; then
-            echo "Jellyfin is ready!"
+        echo "Waiting for Jellyfin to become fully ready..."
+        # /health returns 200 even during migrations, so we wait for the
+        # Startup API to actually respond with 200 instead of 503.
+        for i in $(seq 1 120); do
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8096/Startup/Configuration 2>/dev/null || echo "000")
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "Jellyfin is ready! (attempt $i)"
             break
           fi
-          if [ $i -eq 60 ]; then
-            echo "Jellyfin failed to start within 60 seconds"
+          if [ $i -eq 120 ]; then
+            echo "Jellyfin failed to become ready within 240 seconds (last HTTP: $HTTP_CODE)"
             docker logs jellyfin-test
             exit 1
           fi
+          echo "  Waiting... (attempt $i, HTTP $HTTP_CODE)"
           sleep 2
         done
 
