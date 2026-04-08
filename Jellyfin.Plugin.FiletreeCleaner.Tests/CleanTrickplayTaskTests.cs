@@ -23,11 +23,20 @@ public class CleanTrickplayTaskTests
         _task = new CleanTrickplayTask(_libraryManagerMock.Object, _fileSystemMock.Object, _loggerMock.Object);
     }
 
+    /// <summary>
+    /// Builds a platform-native absolute test path from segments.
+    /// This ensures that <see cref="Path.GetDirectoryName"/> returns a value
+    /// consistent with the path used in mock setups, regardless of the OS.
+    /// </summary>
+    private static string TestPath(params string[] segments)
+        => Path.DirectorySeparatorChar + string.Join(Path.DirectorySeparatorChar, segments);
+
     [Fact]
     public async Task ExecuteInternalAsync_OrphanedFolder_DeletesFolder()
     {
-        const string libraryPath = "C:\\Media";
-        const string trickplayPath = "C:\\Media\\Movie.trickplay";
+        var libraryPath = TestPath("media");
+        var trickplayFullName = TestPath("media", "Movie.trickplay");
+        var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
         var virtualFolder = new VirtualFolderInfo
         {
@@ -37,13 +46,13 @@ public class CleanTrickplayTaskTests
 
         var trickplayDir = new FileSystemMetadata
         {
-            FullName = trickplayPath,
+            FullName = trickplayFullName,
             Name = "Movie.trickplay",
             IsDirectory = true
         };
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
@@ -53,9 +62,10 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_MediaExists_DoesNotDelete()
     {
-        const string libraryPath = "C:\\Media";
-        const string trickplayPath = "C:\\Media\\Movie.trickplay";
-        const string mediaPath = "C:\\Media\\Movie.mkv";
+        var libraryPath = TestPath("media");
+        var trickplayFullName = TestPath("media", "Movie.trickplay");
+        var mediaFullName = TestPath("media", "Movie.mkv");
+        var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
         var virtualFolder = new VirtualFolderInfo
         {
@@ -65,19 +75,19 @@ public class CleanTrickplayTaskTests
 
         var trickplayDir = new FileSystemMetadata
         {
-            FullName = trickplayPath,
+            FullName = trickplayFullName,
             Name = "Movie.trickplay",
             IsDirectory = true
         };
 
         var mediaFile = new FileSystemMetadata
         {
-            FullName = mediaPath,
+            FullName = mediaFullName,
             IsDirectory = false
         };
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([mediaFile]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns([mediaFile]);
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
@@ -87,8 +97,9 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_DryRun_LogsWouldDelete()
     {
-        const string libraryPath = "C:\\Media";
-        const string trickplayPath = "C:\\Media\\Movie.trickplay";
+        var libraryPath = TestPath("media");
+        var trickplayFullName = TestPath("media", "Movie.trickplay");
+        var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
         var virtualFolder = new VirtualFolderInfo
         {
@@ -98,13 +109,13 @@ public class CleanTrickplayTaskTests
 
         var trickplayDir = new FileSystemMetadata
         {
-            FullName = trickplayPath,
+            FullName = trickplayFullName,
             Name = "Movie.trickplay",
             IsDirectory = true
         };
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
 
         await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
 
@@ -115,7 +126,7 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_NestedTrickplayFolder_IsSkipped()
     {
-        const string libraryPath = "C:\\Media";
+        var libraryPath = TestPath("media");
 
         var virtualFolder = new VirtualFolderInfo
         {
@@ -126,7 +137,7 @@ public class CleanTrickplayTaskTests
         // A .trickplay folder nested inside another .trickplay folder
         var nestedDir = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Movie.trickplay\\sub.trickplay",
+            FullName = TestPath("media", "Movie.trickplay", "sub.trickplay"),
             Name = "sub.trickplay",
             IsDirectory = true
         };
@@ -141,7 +152,9 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_CaseInsensitiveTrickplayExtension_IsDetected()
     {
-        const string libraryPath = "C:\\Media";
+        var libraryPath = TestPath("media");
+        var trickplayFullName = TestPath("media", "Movie.TRICKPLAY");
+        var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
         var virtualFolder = new VirtualFolderInfo
         {
@@ -149,16 +162,15 @@ public class CleanTrickplayTaskTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        // Uppercase .TRICKPLAY extension
         var trickplayDir = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Movie.TRICKPLAY",
+            FullName = trickplayFullName,
             Name = "Movie.TRICKPLAY",
             IsDirectory = true
         };
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
@@ -178,7 +190,9 @@ public class CleanTrickplayTaskTests
     [InlineData(".Mp4")]
     public async Task ExecuteInternalAsync_VariousMediaExtensions_MediaIsRecognized(string extension)
     {
-        const string libraryPath = "C:\\Media";
+        var libraryPath = TestPath("media");
+        var trickplayFullName = TestPath("media", "Movie.trickplay");
+        var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
         var virtualFolder = new VirtualFolderInfo
         {
@@ -188,19 +202,19 @@ public class CleanTrickplayTaskTests
 
         var trickplayDir = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Movie.trickplay",
+            FullName = trickplayFullName,
             Name = "Movie.trickplay",
             IsDirectory = true
         };
 
         var mediaFile = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Movie" + extension,
+            FullName = TestPath("media", "Movie" + extension),
             IsDirectory = false
         };
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([mediaFile]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns([mediaFile]);
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
@@ -210,7 +224,9 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_NonMediaExtension_IsNotRecognizedAsMedia()
     {
-        const string libraryPath = "C:\\Media";
+        var libraryPath = TestPath("media");
+        var trickplayFullName = TestPath("media", "Movie.trickplay");
+        var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
         var virtualFolder = new VirtualFolderInfo
         {
@@ -220,7 +236,7 @@ public class CleanTrickplayTaskTests
 
         var trickplayDir = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Movie.trickplay",
+            FullName = trickplayFullName,
             Name = "Movie.trickplay",
             IsDirectory = true
         };
@@ -228,12 +244,12 @@ public class CleanTrickplayTaskTests
         // A .txt file should NOT count as a media file
         var textFile = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Movie.txt",
+            FullName = TestPath("media", "Movie.txt"),
             IsDirectory = false
         };
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([textFile]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns([textFile]);
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
@@ -243,7 +259,10 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_MultipleOrphanedFolders_DeletesAllAndReportsCount()
     {
-        const string libraryPath = "C:\\Media";
+        var libraryPath = TestPath("media");
+        var trickplayFullName1 = TestPath("media", "Movie1.trickplay");
+        var trickplayFullName2 = TestPath("media", "Movie2.trickplay");
+        var parentPath = Path.GetDirectoryName(trickplayFullName1)!;
 
         var virtualFolder = new VirtualFolderInfo
         {
@@ -253,20 +272,20 @@ public class CleanTrickplayTaskTests
 
         var trickplayDir1 = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Movie1.trickplay",
+            FullName = trickplayFullName1,
             Name = "Movie1.trickplay",
             IsDirectory = true
         };
 
         var trickplayDir2 = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Movie2.trickplay",
+            FullName = trickplayFullName2,
             Name = "Movie2.trickplay",
             IsDirectory = true
         };
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir1, trickplayDir2]);
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
 
         // Use dry run to avoid Directory.Delete on non-existent paths
         await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
@@ -287,7 +306,7 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_NoTrickplayFolders_DeletesNothing()
     {
-        const string libraryPath = "C:\\Media";
+        var libraryPath = TestPath("media");
 
         var virtualFolder = new VirtualFolderInfo
         {
@@ -297,7 +316,7 @@ public class CleanTrickplayTaskTests
 
         var regularDir = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Subfolder",
+            FullName = TestPath("media", "Subfolder"),
             Name = "Subfolder",
             IsDirectory = true
         };
@@ -313,8 +332,10 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_CancellationRequested_StopsProcessing()
     {
-        const string libraryPath1 = "C:\\Media1";
-        const string libraryPath2 = "C:\\Media2";
+        var libraryPath1 = TestPath("media1");
+        var libraryPath2 = TestPath("media2");
+        var trickplayFullName = TestPath("media1", "Movie.trickplay");
+        var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
         var virtualFolder1 = new VirtualFolderInfo { Locations = [libraryPath1] };
         var virtualFolder2 = new VirtualFolderInfo { Locations = [libraryPath2] };
@@ -322,13 +343,13 @@ public class CleanTrickplayTaskTests
 
         var trickplayDir = new FileSystemMetadata
         {
-            FullName = "C:\\Media1\\Movie.trickplay",
+            FullName = trickplayFullName,
             Name = "Movie.trickplay",
             IsDirectory = true
         };
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath1, false)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
 
         // Cancel immediately after first folder
         var cts = new CancellationTokenSource();
@@ -343,8 +364,10 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_DirectoryScanError_LogsErrorAndContinues()
     {
-        const string libraryPath1 = "C:\\Media1";
-        const string libraryPath2 = "C:\\Media2";
+        var libraryPath1 = TestPath("media1");
+        var libraryPath2 = TestPath("media2");
+        var trickplayFullName = TestPath("media2", "Movie.trickplay");
+        var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
         var virtualFolder1 = new VirtualFolderInfo { Locations = [libraryPath1] };
         var virtualFolder2 = new VirtualFolderInfo { Locations = [libraryPath2] };
@@ -356,12 +379,12 @@ public class CleanTrickplayTaskTests
         // Second folder is fine
         var trickplayDir = new FileSystemMetadata
         {
-            FullName = "C:\\Media2\\Movie.trickplay",
+            FullName = trickplayFullName,
             Name = "Movie.trickplay",
             IsDirectory = true
         };
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath2, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath2, false)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
@@ -374,8 +397,8 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_ProgressIsReported()
     {
-        const string libraryPath1 = "C:\\Media1";
-        const string libraryPath2 = "C:\\Media2";
+        var libraryPath1 = TestPath("media1");
+        var libraryPath2 = TestPath("media2");
 
         var virtualFolder1 = new VirtualFolderInfo { Locations = [libraryPath1] };
         var virtualFolder2 = new VirtualFolderInfo { Locations = [libraryPath2] };
@@ -397,7 +420,9 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_MediaNameMismatch_DeletesTrickplayFolder()
     {
-        const string libraryPath = "C:\\Media";
+        var libraryPath = TestPath("media");
+        var trickplayFullName = TestPath("media", "Movie1.trickplay");
+        var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
         var virtualFolder = new VirtualFolderInfo
         {
@@ -407,7 +432,7 @@ public class CleanTrickplayTaskTests
 
         var trickplayDir = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Movie1.trickplay",
+            FullName = trickplayFullName,
             Name = "Movie1.trickplay",
             IsDirectory = true
         };
@@ -415,12 +440,12 @@ public class CleanTrickplayTaskTests
         // Media file has a different name than the trickplay folder
         var mediaFile = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Movie2.mkv",
+            FullName = TestPath("media", "Movie2.mkv"),
             IsDirectory = false
         };
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([mediaFile]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns([mediaFile]);
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
@@ -430,7 +455,7 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_DuplicateLibraryPaths_ScansOnlyOnce()
     {
-        const string libraryPath = "C:\\Media";
+        var libraryPath = TestPath("media");
 
         // Same path appears in two virtual folders
         var virtualFolder1 = new VirtualFolderInfo { Locations = [libraryPath] };
@@ -448,8 +473,9 @@ public class CleanTrickplayTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_SubdirectoryTrickplayFolder_ChecksCorrectParent()
     {
-        const string libraryPath = "C:\\Media";
-        const string subDir = "C:\\Media\\Shows\\Season1";
+        var libraryPath = TestPath("media");
+        var trickplayFullName = TestPath("media", "Shows", "Season1", "Episode01.trickplay");
+        var expectedParentPath = Path.GetDirectoryName(trickplayFullName)!;
 
         var virtualFolder = new VirtualFolderInfo
         {
@@ -459,24 +485,24 @@ public class CleanTrickplayTaskTests
 
         var trickplayDir = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Shows\\Season1\\Episode01.trickplay",
+            FullName = trickplayFullName,
             Name = "Episode01.trickplay",
             IsDirectory = true
         };
 
         var mediaFile = new FileSystemMetadata
         {
-            FullName = "C:\\Media\\Shows\\Season1\\Episode01.mkv",
+            FullName = TestPath("media", "Shows", "Season1", "Episode01.mkv"),
             IsDirectory = false
         };
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(subDir, false)).Returns([mediaFile]);
+        _fileSystemMock.Setup(f => f.GetFiles(expectedParentPath, false)).Returns([mediaFile]);
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
         // Should check files in the subdirectory (parent of the .trickplay folder), not the library root
-        _fileSystemMock.Verify(f => f.GetFiles(subDir, false), Times.Once);
+        _fileSystemMock.Verify(f => f.GetFiles(expectedParentPath, false), Times.Once);
         VerifyLogNeverContains("Deleting orphaned trickplay folder", LogLevel.Information);
     }
 
