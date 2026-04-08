@@ -66,7 +66,6 @@ jobs:
 
     - name: Complete Startup Wizard
       run: |
-        # Helper: POST with visible status & body on failure
         api_post() {
           local url="$1"
           local data="$2"
@@ -75,45 +74,69 @@ jobs:
             -X POST "$url" \
             -H "Content-Type: application/json" \
             ${data:+-d "$data"})
+          echo "  HTTP $HTTP_CODE"
           if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            echo "  ✅ $HTTP_CODE OK"
+            echo "  ✅ OK"
+            return 0
           else
-            echo "  ❌ HTTP $HTTP_CODE"
-            cat /tmp/resp.txt
-            echo ""
-            docker logs jellyfin-test 2>&1 | tail -50
-            exit 1
+            cat /tmp/resp.txt 2>/dev/null | head -5
+            return 1
           fi
         }
 
-        echo "=== Running Startup Wizard ==="
+        echo "=== Step 1: Set Configuration ==="
         api_post "http://localhost:8096/Startup/Configuration" \
           '{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}'
 
-        # Create admin user (try both known API variants)
-        api_post "http://localhost:8096/Startup/User" \
-          '{"Name":"admin","Password":"admin123"}' || \
-        api_post "http://localhost:8096/Startup/FirstUser" \
-          '{"Name":"admin","Password":"admin123"}'
+        echo "=== Step 2: Wait for server to settle after configuration ==="
+        sleep 10
 
-        api_post "http://localhost:8096/Startup/Complete" ""
+        echo "=== Step 3: Check startup state ==="
+        curl -sf http://localhost:8096/Startup/Configuration 2>/dev/null | jq . || echo "(no JSON response)"
+        curl -sf http://localhost:8096/Startup/User 2>/dev/null | jq . || echo "(no user response)"
+
+        echo "=== Step 4: Set admin user ==="
+        # In Jellyfin 10.12+, /Startup/User updates the first existing user.
+        # If that fails (no user yet), try /Startup/Complete first to create the default user.
+        if ! api_post "http://localhost:8096/Startup/User" '{"Name":"admin","Password":"admin123"}'; then
+          echo "  ⚠️ /Startup/User failed, trying to complete wizard first and then set password..."
+          api_post "http://localhost:8096/Startup/Complete" "" || true
+          sleep 5
+
+          # After Complete, there should be a default user. Try setting the user again.
+          if ! api_post "http://localhost:8096/Startup/User" '{"Name":"admin","Password":"admin123"}'; then
+            echo "  ⚠️ /Startup/User still failed. Proceeding with default credentials..."
+          fi
+        else
+          echo "=== Step 5: Complete Wizard ==="
+          api_post "http://localhost:8096/Startup/Complete" ""
+        fi
 
     - name: Wait for server to settle after wizard
-      run: sleep 5
+      run: sleep 10
 
     - name: Authenticate and get API key
       run: |
         echo "Attempting authentication..."
         AUTH_HEADER='X-Emby-Authorization: MediaBrowser Client="CI", Device="GitHub Actions", DeviceId="ci-test", Version="1.0.0"'
 
-        # Try with "Pw" field first, then "Password"
-        for BODY in '{"Username":"admin","Pw":"admin123"}' '{"Username":"admin","Password":"admin123"}'; do
+        # First, list existing users to see what username to use
+        echo "Checking existing users..."
+        curl -sf http://localhost:8096/Users/Public 2>/dev/null | jq . || echo "(no public users)"
+
+        TOKEN=""
+        # Try multiple combinations: admin/admin123, admin/"", default user names
+        for BODY in \
+          '{"Username":"admin","Pw":"admin123"}' \
+          '{"Username":"admin","Password":"admin123"}' \
+          '{"Username":"admin","Pw":""}' \
+          '{"Username":"admin","Password":""}'; do
           HTTP_CODE=$(curl -s -o /tmp/auth-resp.txt -w "%{http_code}" \
             -X POST http://localhost:8096/Users/AuthenticateByName \
             -H "Content-Type: application/json" \
             -H "$AUTH_HEADER" \
             -d "$BODY")
-          echo "Auth attempt with body=$BODY → HTTP $HTTP_CODE"
+          echo "Auth attempt: $BODY → HTTP $HTTP_CODE"
           if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
             TOKEN=$(cat /tmp/auth-resp.txt | jq -r '.AccessToken')
             echo "TOKEN=$TOKEN" >> $GITHUB_ENV
@@ -125,7 +148,7 @@ jobs:
         if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
           echo "❌ All authentication attempts failed"
           cat /tmp/auth-resp.txt | head -20
-          docker logs jellyfin-test 2>&1 | tail -30
+          docker logs jellyfin-test 2>&1 | tail -50
           exit 1
         fi
 
