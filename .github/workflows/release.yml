@@ -14,7 +14,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,22 +28,10 @@ jobs:
       with:
         dotnet-version: 9.0.x
 
-    - name: Install jq and yq
-      run: |
-        sudo apt-get update && sudo apt-get install -y jq
-        sudo wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-        sudo chmod +x /usr/bin/yq
-
-    - name: Read version and changelog from manifest
+    - name: Read version from manifest
       run: |
         VERSION=$(jq -r '.[0].versions[0].version' manifest.json)
-        CHANGELOG=$(jq -r '.[0].versions[0].changelog' manifest.json)
-        
         echo "VERSION=$VERSION" >> $GITHUB_ENV
-        
-        echo "CHANGELOG<<EOF" >> $GITHUB_ENV
-        echo "$CHANGELOG" >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
 
     - name: Restore
       run: dotnet restore
@@ -61,17 +49,64 @@ jobs:
           -p:FileVersion=${VERSION}.0 \
           -p:InformationalVersion=${VERSION}
 
-    - name: Create package
+    - name: Create test package
       run: |
         mkdir package
         cp publish/*.dll package/
         cp publish/*.pdb package/ 2>/dev/null || true
         cd package
-        zip ../${PLUGIN_NAME}_${VERSION}.zip *
-        cd ..
+        zip ../${PLUGIN_NAME}_test-build.zip *
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.PLUGIN_NAME }}_test-build
+        path: ${{ env.PLUGIN_NAME }}_test-build.zip
+        retention-days: 1
+
+  smoke-test:
+    needs: build
+    uses: ./.github/workflows/smoke-test.yml
+    with:
+      artifact-name: FiletreeCleaner_test-build
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build, smoke-test]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Install jq and yq
+      run: |
+        sudo apt-get update && sudo apt-get install -y jq
+        sudo wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+        sudo chmod +x /usr/bin/yq
+
+    - name: Read version and changelog from manifest
+      run: |
+        VERSION=$(jq -r '.[0].versions[0].version' manifest.json)
+        CHANGELOG=$(jq -r '.[0].versions[0].changelog' manifest.json)
+
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+        echo "CHANGELOG<<EOF" >> $GITHUB_ENV
+        echo "$CHANGELOG" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+
+    - name: Download build artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ env.PLUGIN_NAME }}_test-build
+
+    - name: Rename package for release
+      run: |
+        mv ${PLUGIN_NAME}_test-build.zip ${PLUGIN_NAME}_${VERSION}.zip
 
     - name: Generate checksum
-      id: checksum
       run: |
         md5sum ${PLUGIN_NAME}_${VERSION}.zip | cut -d ' ' -f1 > checksum.txt
         echo "CHECKSUM=$(cat checksum.txt)" >> $GITHUB_ENV

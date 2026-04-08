@@ -1,0 +1,175 @@
+name: Smoke Test
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        required: true
+        type: string
+        description: "Name of the build artifact to download"
+
+env:
+  PLUGIN_NAME: FiletreeCleaner
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Download build artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+
+    - name: Prepare plugin directory
+      run: |
+        mkdir -p jellyfin-plugins/FiletreeCleaner
+        unzip ${PLUGIN_NAME}_test-build.zip -d jellyfin-plugins/FiletreeCleaner/
+
+    - name: Start Jellyfin container
+      # Image tag must match the targetAbi in manifest.json (currently 10.11.0.0).
+      # Use 'unstable' because 10.11 is not yet a stable release.
+      run: |
+        docker run -d \
+          --name jellyfin-test \
+          -p 8096:8096 \
+          -v ${{ github.workspace }}/jellyfin-plugins:/config/plugins \
+          jellyfin/jellyfin:unstable
+
+    - name: Wait for Jellyfin to start
+      run: |
+        echo "Waiting for Jellyfin to become fully ready..."
+        # /health returns 200 even during migrations, so we wait for the
+        # Startup API to actually respond with 200 instead of 503.
+        for i in $(seq 1 120); do
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8096/Startup/Configuration 2>/dev/null || echo "000")
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "Jellyfin is ready! (attempt $i)"
+            break
+          fi
+          if [ $i -eq 120 ]; then
+            echo "Jellyfin failed to become ready within 240 seconds (last HTTP: $HTTP_CODE)"
+            docker logs jellyfin-test
+            exit 1
+          fi
+          echo "  Waiting... (attempt $i, HTTP $HTTP_CODE)"
+          sleep 2
+        done
+
+    - name: Complete Startup Wizard
+      run: |
+        # Helper: POST with visible status & body on failure
+        api_post() {
+          local url="$1"
+          local data="$2"
+          echo "→ POST $url"
+          HTTP_CODE=$(curl -s -o /tmp/resp.txt -w "%{http_code}" \
+            -X POST "$url" \
+            -H "Content-Type: application/json" \
+            ${data:+-d "$data"})
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "  ✅ $HTTP_CODE OK"
+          else
+            echo "  ❌ HTTP $HTTP_CODE"
+            cat /tmp/resp.txt
+            echo ""
+            docker logs jellyfin-test 2>&1 | tail -50
+            exit 1
+          fi
+        }
+
+        echo "=== Running Startup Wizard ==="
+        api_post "http://localhost:8096/Startup/Configuration" \
+          '{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}'
+
+        # Create admin user (try both known API variants)
+        api_post "http://localhost:8096/Startup/User" \
+          '{"Name":"admin","Password":"admin123"}' || \
+        api_post "http://localhost:8096/Startup/FirstUser" \
+          '{"Name":"admin","Password":"admin123"}'
+
+        api_post "http://localhost:8096/Startup/Complete" ""
+
+    - name: Wait for server to settle after wizard
+      run: sleep 5
+
+    - name: Authenticate and get API key
+      run: |
+        echo "Attempting authentication..."
+        AUTH_HEADER='X-Emby-Authorization: MediaBrowser Client="CI", Device="GitHub Actions", DeviceId="ci-test", Version="1.0.0"'
+
+        # Try with "Pw" field first, then "Password"
+        for BODY in '{"Username":"admin","Pw":"admin123"}' '{"Username":"admin","Password":"admin123"}'; do
+          HTTP_CODE=$(curl -s -o /tmp/auth-resp.txt -w "%{http_code}" \
+            -X POST http://localhost:8096/Users/AuthenticateByName \
+            -H "Content-Type: application/json" \
+            -H "$AUTH_HEADER" \
+            -d "$BODY")
+          echo "Auth attempt with body=$BODY → HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            TOKEN=$(cat /tmp/auth-resp.txt | jq -r '.AccessToken')
+            echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+            echo "✅ Authenticated successfully"
+            break
+          fi
+        done
+
+        if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+          echo "❌ All authentication attempts failed"
+          cat /tmp/auth-resp.txt | head -20
+          docker logs jellyfin-test 2>&1 | tail -30
+          exit 1
+        fi
+
+    - name: Verify plugin is loaded
+      run: |
+        echo "Checking installed plugins..."
+        PLUGINS=$(curl -sf http://localhost:8096/Plugins \
+          -H "X-Emby-Authorization: MediaBrowser Client=\"CI\", Device=\"GitHub Actions\", DeviceId=\"ci-test\", Version=\"1.0.0\", Token=\"$TOKEN\"")
+
+        echo "$PLUGINS" | jq .
+
+        if echo "$PLUGINS" | jq -e '.[] | select(.Name == "Jellyfin Cleaner")' > /dev/null 2>&1; then
+          echo "✅ Plugin 'Jellyfin Cleaner' loaded successfully!"
+        else
+          echo "❌ Plugin 'Jellyfin Cleaner' NOT found in loaded plugins!"
+          docker logs jellyfin-test
+          exit 1
+        fi
+
+    - name: Verify scheduled tasks are registered
+      run: |
+        echo "Checking scheduled tasks..."
+        TASKS=$(curl -sf http://localhost:8096/ScheduledTasks \
+          -H "X-Emby-Authorization: MediaBrowser Client=\"CI\", Device=\"GitHub Actions\", DeviceId=\"ci-test\", Version=\"1.0.0\", Token=\"$TOKEN\"")
+
+        echo "$TASKS" | jq '.[] | select(.Category == "Jellyfin Cleaner") | {Name, Key, Category, State}'
+
+        CLEANER_TASKS=$(echo "$TASKS" | jq '[.[] | select(.Category == "Jellyfin Cleaner")]')
+        TASK_COUNT=$(echo "$CLEANER_TASKS" | jq 'length')
+
+        echo "Found $TASK_COUNT Jellyfin Cleaner tasks"
+
+        if [ "$TASK_COUNT" -eq 4 ]; then
+          echo "✅ All 4 scheduled tasks registered!"
+        else
+          echo "❌ Expected 4 tasks, found $TASK_COUNT"
+          echo "$TASKS" | jq .
+          docker logs jellyfin-test
+          exit 1
+        fi
+
+    - name: Cleanup
+      if: always()
+      run: |
+        docker logs jellyfin-test > jellyfin-logs.txt 2>&1 || true
+        docker rm -f jellyfin-test || true
+
+    - name: Upload Jellyfin logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: jellyfin-smoke-test-logs
+        path: jellyfin-logs.txt
+        retention-days: 7
