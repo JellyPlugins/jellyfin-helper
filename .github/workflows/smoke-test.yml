@@ -7,6 +7,13 @@ on:
         required: true
         type: string
         description: "Name of the build artifact to download"
+  workflow_dispatch:
+    inputs:
+      artifact-name:
+        required: true
+        type: string
+        description: "Name of the build artifact to download"
+        default: "FiletreeCleaner_test-build"
 
 env:
   PLUGIN_NAME: FiletreeCleaner
