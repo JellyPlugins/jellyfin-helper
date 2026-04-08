@@ -1,6 +1,6 @@
-# Jellyfin Cleaner
+# Jellyfin Helper
 
-A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks for your media library.
+A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks and media library statistics for your media library.
 
 ## Features
 
@@ -15,6 +15,12 @@ Automatically deletes top-level media folders whose entire directory tree contai
 - **TV show folders are checked as a whole** — if at least one video exists anywhere in the tree (even in a deeply nested subdirectory), the entire show folder is kept untouched
 - **`.trickplay` folders are skipped** — they are handled by the Trickplay Folder Cleaner task
 
+### 📊 Media Library Statistics
+A settings page that provides an overview of your media library disk usage, broken down by category:
+- **Video Data in Movies** / **Video Data in Series** / **Audio Data in Music**
+- **Trickplay Data**, **Subtitle Data**, **Image Data**, **NFO/Metadata Data**
+- Per-library breakdown with file counts
+
 ### 🔍 Dry Run Mode
 Both cleanup tasks have a corresponding **Dry Run** variant that logs what *would* be deleted without actually deleting anything. Use these to verify the cleanup behavior before enabling the actual cleanup tasks.
 
@@ -27,7 +33,7 @@ Both cleanup tasks have a corresponding **Dry Run** variant that logs what *woul
 | **Empty Media Folder Cleaner** | Deletes media folders with no video files | Weekly, Sunday 3:00 AM |
 | **Empty Media Folder Cleaner (Dry Run)** | Logs empty media folders without deleting | No default trigger |
 
-All tasks appear under the **Jellyfin Cleaner** category in the Jellyfin scheduled tasks dashboard.
+All tasks appear under the **Jellyfin Helper** category in the Jellyfin scheduled tasks dashboard.
 
 ## Supported Video Extensions
 
@@ -42,24 +48,25 @@ The plugin recognizes the following video file extensions:
 1. In Jellyfin, go to **Dashboard** → **Plugins** → **Repositories**
 2. Add this repository URL:
    ```
-   https://raw.githubusercontent.com/JellyPlugins/jellyfin-cleaner/main/manifest.json
+   https://raw.githubusercontent.com/JellyPlugins/jellyfin-helper/main/manifest.json
    ```
-3. Go to **Catalog** and install **Jellyfin Cleaner**
+3. Go to **Catalog** and install **Jellyfin Helper**
 4. Restart Jellyfin
 
 ### Manual Installation
 
-1. Download the latest release from the [Releases](https://github.com/JellyPlugins/jellyfin-cleaner/releases) page
-2. Extract the `.dll` file into your Jellyfin plugins directory (e.g., `/config/plugins/JellyfinCleaner/`)
+1. Download the latest release from the [Releases](https://github.com/JellyPlugins/jellyfin-helper/releases) page
+2. Extract the `.dll` file into your Jellyfin plugins directory (e.g., `/config/plugins/JellyfinHelper/`)
 3. Restart Jellyfin
 
 ## Usage
 
 1. After installation, go to **Dashboard** → **Scheduled Tasks**
-2. Look for tasks under the **Jellyfin Cleaner** category
+2. Look for tasks under the **Jellyfin Helper** category
 3. **Recommended:** Run the **Dry Run** tasks first to review what would be deleted
 4. Check the Jellyfin logs to see the results
 5. Once satisfied, enable the actual cleanup tasks or run them manually
+6. Visit the plugin's **Settings** page to view media library statistics
 
 ## Building from Source
 
@@ -72,7 +79,7 @@ dotnet test
 
 This project is based on the original [jellyfin-trickplay-folder-cleaner](https://github.com/Noir1992/jellyfin-trickplay-folder-cleaner) by [@Noir1992](https://github.com/Noir1992), which was inspired by [this community script](https://github.com/jellyfin/jellyfin/issues/12818#issuecomment-2712783498).
 
-This fork evolved into an independent project with significant additions including empty media folder cleanup, comprehensive test coverage, performance optimizations, CI/CD pipeline with integration tests, and Dependabot/CodeRabbit integration.
+This fork evolved into an independent project with significant additions including empty media folder cleanup, media library statistics, comprehensive test coverage, performance optimizations, CI/CD pipeline with integration tests, and Dependabot/CodeRabbit integration.
 
 ## License
 

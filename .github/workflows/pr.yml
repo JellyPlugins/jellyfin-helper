@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  PLUGIN_NAME: FiletreeCleaner
+  PLUGIN_NAME: JellyfinHelper
 
 jobs:
   build:
@@ -32,7 +32,7 @@ jobs:
 
     - name: Publish plugin
       run: |
-        dotnet publish Jellyfin.Plugin.FiletreeCleaner/Jellyfin.Plugin.FiletreeCleaner.csproj \
+        dotnet publish Jellyfin.Plugin.JellyfinHelper/Jellyfin.Plugin.JellyfinHelper.csproj \
           -c Release \
           -o ./publish \
           --no-build
@@ -51,4 +51,3 @@ jobs:
         name: ${{ env.PLUGIN_NAME }}_test-build
         path: ${{ env.PLUGIN_NAME }}_test-build.zip
         retention-days: 14
-

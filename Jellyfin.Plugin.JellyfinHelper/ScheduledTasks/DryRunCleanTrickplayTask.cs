@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,32 +7,32 @@ using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace Jellyfin.Plugin.FiletreeCleaner.ScheduledTasks;
+namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 
 /// <summary>
-/// A scheduled task to perform a dry run of the empty media folder cleanup.
+/// A scheduled task to perform a dry run of the trickplay folder cleanup.
 /// </summary>
-public class DryRunCleanEmptyMediaFoldersTask : CleanEmptyMediaFoldersTask
+public class DryRunCleanTrickplayTask : CleanTrickplayTask
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="DryRunCleanEmptyMediaFoldersTask"/> class.
+    /// Initializes a new instance of the <see cref="DryRunCleanTrickplayTask"/> class.
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="fileSystem">The file system.</param>
     /// <param name="logger">The logger.</param>
-    public DryRunCleanEmptyMediaFoldersTask(ILibraryManager libraryManager, IFileSystem fileSystem, ILogger<DryRunCleanEmptyMediaFoldersTask> logger)
+    public DryRunCleanTrickplayTask(ILibraryManager libraryManager, IFileSystem fileSystem, ILogger<DryRunCleanTrickplayTask> logger)
         : base(libraryManager, fileSystem, logger)
     {
     }
 
     /// <inheritdoc />
-    public override string Name => "Empty Media Folder Cleaner (Dry Run)";
+    public override string Name => "Trickplay Folder Cleaner (Dry Run)";
 
     /// <inheritdoc />
-    public override string Key => "EmptyMediaFolderCleanerDryRun";
+    public override string Key => "TrickplayFolderCleanerDryRun";
 
     /// <inheritdoc />
-    public override string Description => "Logs which empty media folders would be deleted without actually deleting them.";
+    public override string Description => "Logs which .trickplay folders would be deleted without actually deleting them.";
 
     /// <inheritdoc />
     public override Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
@@ -43,6 +43,7 @@ public class DryRunCleanEmptyMediaFoldersTask : CleanEmptyMediaFoldersTask
     /// <inheritdoc />
     public override IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
     {
+        // No default triggers for dry run
         return Array.Empty<TaskTriggerInfo>();
     }
 }

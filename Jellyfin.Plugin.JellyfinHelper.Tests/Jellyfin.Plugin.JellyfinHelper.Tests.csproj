@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
@@ -24,7 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Jellyfin.Plugin.FiletreeCleaner\Jellyfin.Plugin.FiletreeCleaner.csproj" />
+    <ProjectReference Include="..\Jellyfin.Plugin.JellyfinHelper\Jellyfin.Plugin.JellyfinHelper.csproj" />
   </ItemGroup>
 
 </Project>

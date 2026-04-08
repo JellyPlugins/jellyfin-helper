@@ -1,0 +1,419 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Jellyfin Cleaner</title>
+    <style>
+        .stats-container {
+            max-width: 900px;
+            margin: 1em auto;
+        }
+
+        .stats-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5em;
+        }
+
+        .stats-header h2 {
+            margin: 0;
+        }
+
+        .refresh-btn {
+            padding: 0.5em 1.2em;
+            border: none;
+            border-radius: 4px;
+            background: #00a4dc;
+            color: #fff;
+            cursor: pointer;
+            font-size: 0.95em;
+            transition: background 0.2s;
+        }
+
+        .refresh-btn:hover {
+            background: #0088b8;
+        }
+
+        .refresh-btn:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.2em;
+            margin-bottom: 2em;
+        }
+
+        @media (max-width: 600px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1.2em 1.5em;
+            transition: border-color 0.2s;
+        }
+
+        .stat-card:hover {
+            border-color: #00a4dc;
+        }
+
+        .stat-card h3 {
+            margin: 0 0 0.3em 0;
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            opacity: 0.7;
+        }
+
+        .stat-card .stat-value {
+            font-size: 1.8em;
+            font-weight: 700;
+            color: #00a4dc;
+            margin: 0;
+        }
+
+        .stat-card .stat-detail {
+            font-size: 0.85em;
+            opacity: 0.6;
+            margin-top: 0.3em;
+        }
+
+        .library-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 0.5em;
+        }
+
+        .library-table th,
+        .library-table td {
+            padding: 0.6em 0.8em;
+            text-align: right;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 0.9em;
+        }
+
+        .library-table th {
+            text-align: right;
+            font-weight: 600;
+            opacity: 0.7;
+            font-size: 0.8em;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .library-table th:first-child,
+        .library-table td:first-child {
+            text-align: left;
+        }
+
+        .library-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .section-title {
+            font-size: 1.1em;
+            font-weight: 600;
+            margin: 1.5em 0 0.5em 0;
+            padding-bottom: 0.3em;
+            border-bottom: 2px solid #00a4dc;
+        }
+
+        .loading-overlay {
+            text-align: center;
+            padding: 3em;
+            opacity: 0.6;
+        }
+
+        .loading-overlay .spinner {
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+            border-top-color: #00a4dc;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error-msg {
+            color: #e74c3c;
+            padding: 1em;
+            text-align: center;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.15em 0.5em;
+            border-radius: 3px;
+            font-size: 0.75em;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-movies { background: #e67e22; color: #fff; }
+        .badge-tvshows { background: #2ecc71; color: #fff; }
+        .badge-music { background: #9b59b6; color: #fff; }
+        .badge-other { background: #95a5a6; color: #fff; }
+
+        .total-bar {
+            display: flex;
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 1em 0;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .total-bar .bar-segment {
+            height: 100%;
+            transition: width 0.5s ease;
+        }
+
+        .bar-video { background: #00a4dc; }
+        .bar-subtitle { background: #e67e22; }
+        .bar-image { background: #2ecc71; }
+        .bar-trickplay { background: #e74c3c; }
+        .bar-nfo { background: #9b59b6; }
+        .bar-audio { background: #f1c40f; }
+        .bar-other { background: #95a5a6; }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1em;
+            margin-bottom: 1.5em;
+            font-size: 0.85em;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.4em;
+        }
+
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+         data-require="emby-button">
+        <div data-role="content">
+            <div class="content-primary">
+                <div class="stats-container">
+                    <div class="stats-header">
+                        <h2>Jellyfin Cleaner — Media Statistics</h2>
+                        <button id="btnRefresh" class="refresh-btn" is="emby-button">
+                            &#x21bb; Scan Libraries
+                        </button>
+                    </div>
+
+                    <div id="statsContent">
+                        <div class="loading-overlay" id="loadingIndicator" style="display:none;">
+                            <div class="spinner"></div>
+                            <p>Scanning libraries… This may take a while for large collections.</p>
+                        </div>
+                        <div id="statsPlaceholder" style="text-align:center; padding:3em; opacity:0.5;">
+                            <p>Click <strong>Scan Libraries</strong> to analyze your media folders.</p>
+                        </div>
+                        <div id="statsResult" style="display:none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            'use strict';
+
+            function formatBytes(bytes) {
+                if (bytes === 0) return '0 B';
+                var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+                var i = Math.floor(Math.log(bytes) / Math.log(1024));
+                if (i >= units.length) i = units.length - 1;
+                return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + units[i];
+            }
+
+            function formatCount(count, singular, plural) {
+                return count + ' ' + (count === 1 ? singular : (plural || singular + 's'));
+            }
+
+            function getCollectionBadge(type) {
+                var t = (type || '').toLowerCase();
+                if (t === 'tvshows') return '<span class="badge badge-tvshows">TV Shows</span>';
+                if (t === 'movies' || t === '') return '<span class="badge badge-movies">Movies</span>';
+                if (t === 'music') return '<span class="badge badge-music">Music</span>';
+                return '<span class="badge badge-other">' + (type || 'Mixed') + '</span>';
+            }
+
+            function buildBarSegments(data) {
+                var total = data.TotalMovieVideoSize + data.TotalTvShowVideoSize +
+                    data.TotalSubtitleSize + data.TotalImageSize + data.TotalTrickplaySize +
+                    data.TotalNfoSize + data.TotalMusicAudioSize;
+
+                // Add "other" from all libraries
+                var otherSize = 0;
+                for (var i = 0; i < data.Libraries.length; i++) {
+                    otherSize += data.Libraries[i].OtherSize;
+                    total += data.Libraries[i].OtherSize;
+                }
+
+                if (total === 0) return '';
+
+                var videoTotal = data.TotalMovieVideoSize + data.TotalTvShowVideoSize;
+                var segments = [
+                    { cls: 'bar-video', pct: (videoTotal / total * 100), label: 'Video' },
+                    { cls: 'bar-audio', pct: (data.TotalMusicAudioSize / total * 100), label: 'Audio' },
+                    { cls: 'bar-subtitle', pct: (data.TotalSubtitleSize / total * 100), label: 'Subtitles' },
+                    { cls: 'bar-image', pct: (data.TotalImageSize / total * 100), label: 'Images' },
+                    { cls: 'bar-trickplay', pct: (data.TotalTrickplaySize / total * 100), label: 'Trickplay' },
+                    { cls: 'bar-nfo', pct: (data.TotalNfoSize / total * 100), label: 'Metadata' },
+                    { cls: 'bar-other', pct: (otherSize / total * 100), label: 'Other' }
+                ];
+
+                var barHtml = '<div class="total-bar">';
+                for (var s = 0; s < segments.length; s++) {
+                    if (segments[s].pct > 0) {
+                        barHtml += '<div class="bar-segment ' + segments[s].cls + '" style="width:' + segments[s].pct.toFixed(2) + '%" title="' + segments[s].label + '"></div>';
+                    }
+                }
+                barHtml += '</div>';
+
+                barHtml += '<div class="legend">';
+                var legendItems = [
+                    { cls: 'bar-video', label: 'Video (' + formatBytes(videoTotal) + ')' },
+                    { cls: 'bar-audio', label: 'Audio (' + formatBytes(data.TotalMusicAudioSize) + ')' },
+                    { cls: 'bar-subtitle', label: 'Subtitles (' + formatBytes(data.TotalSubtitleSize) + ')' },
+                    { cls: 'bar-image', label: 'Images (' + formatBytes(data.TotalImageSize) + ')' },
+                    { cls: 'bar-trickplay', label: 'Trickplay (' + formatBytes(data.TotalTrickplaySize) + ')' },
+                    { cls: 'bar-nfo', label: 'Metadata (' + formatBytes(data.TotalNfoSize) + ')' },
+                    { cls: 'bar-other', label: 'Other (' + formatBytes(otherSize) + ')' }
+                ];
+                for (var l = 0; l < legendItems.length; l++) {
+                    barHtml += '<div class="legend-item"><div class="legend-dot ' + legendItems[l].cls + '"></div>' + legendItems[l].label + '</div>';
+                }
+                barHtml += '</div>';
+
+                return barHtml;
+            }
+
+            function renderStats(data) {
+                var html = '';
+
+                // Summary cards
+                html += '<div class="stats-grid">';
+                html += '<div class="stat-card"><h3>🎬 Video Data — Movies</h3>';
+                html += '<p class="stat-value">' + formatBytes(data.TotalMovieVideoSize) + '</p>';
+                var movieFiles = 0;
+                for (var m = 0; m < data.Movies.length; m++) movieFiles += data.Movies[m].VideoFileCount;
+                html += '<p class="stat-detail">' + formatCount(movieFiles, 'file') + ' across ' + formatCount(data.Movies.length, 'library', 'libraries') + '</p>';
+                html += '</div>';
+
+                html += '<div class="stat-card"><h3>📺 Video Data — TV Shows</h3>';
+                html += '<p class="stat-value">' + formatBytes(data.TotalTvShowVideoSize) + '</p>';
+                var tvFiles = 0;
+                for (var t = 0; t < data.TvShows.length; t++) tvFiles += data.TvShows[t].VideoFileCount;
+                html += '<p class="stat-detail">' + formatCount(tvFiles, 'episode') + ' across ' + formatCount(data.TvShows.length, 'library', 'libraries') + '</p>';
+                html += '</div>';
+
+                html += '<div class="stat-card"><h3>🖼️ Trickplay Data</h3>';
+                html += '<p class="stat-value">' + formatBytes(data.TotalTrickplaySize) + '</p>';
+                var trickplayFolders = 0;
+                for (var tp = 0; tp < data.Libraries.length; tp++) trickplayFolders += data.Libraries[tp].TrickplayFolderCount;
+                html += '<p class="stat-detail">' + formatCount(trickplayFolders, 'folder') + '</p>';
+                html += '</div>';
+
+                html += '<div class="stat-card"><h3>📝 Subtitles</h3>';
+                html += '<p class="stat-value">' + formatBytes(data.TotalSubtitleSize) + '</p>';
+                var subFiles = 0;
+                for (var sb = 0; sb < data.Libraries.length; sb++) subFiles += data.Libraries[sb].SubtitleFileCount;
+                html += '<p class="stat-detail">' + formatCount(subFiles, 'file') + '</p>';
+                html += '</div>';
+                html += '</div>';
+
+                // Storage distribution bar
+                html += '<div class="section-title">Storage Distribution</div>';
+                html += buildBarSegments(data);
+
+                // Per-library breakdown table
+                html += '<div class="section-title">Per-Library Breakdown</div>';
+                html += '<table class="library-table">';
+                html += '<thead><tr>';
+                html += '<th>Library</th><th>Type</th><th>Video</th><th>Subtitles</th><th>Images</th><th>Trickplay</th><th>Other</th><th>Total</th>';
+                html += '</tr></thead><tbody>';
+
+                for (var i = 0; i < data.Libraries.length; i++) {
+                    var lib = data.Libraries[i];
+                    html += '<tr>';
+                    html += '<td>' + lib.LibraryName + '</td>';
+                    html += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';
+                    html += '<td>' + formatBytes(lib.VideoSize) + '</td>';
+                    html += '<td>' + formatBytes(lib.SubtitleSize) + '</td>';
+                    html += '<td>' + formatBytes(lib.ImageSize) + '</td>';
+                    html += '<td>' + formatBytes(lib.TrickplaySize) + '</td>';
+                    html += '<td>' + formatBytes(lib.OtherSize + lib.NfoSize + lib.AudioSize) + '</td>';
+                    html += '<td><strong>' + formatBytes(lib.TotalSize) + '</strong></td>';
+                    html += '</tr>';
+                }
+
+                html += '</tbody></table>';
+
+                return html;
+            }
+
+            function loadStatistics() {
+                var btn = document.getElementById('btnRefresh');
+                var loading = document.getElementById('loadingIndicator');
+                var placeholder = document.getElementById('statsPlaceholder');
+                var result = document.getElementById('statsResult');
+
+                btn.disabled = true;
+                btn.textContent = '⏳ Scanning…';
+                loading.style.display = 'block';
+                placeholder.style.display = 'none';
+                result.style.display = 'none';
+
+                var apiClient = ApiClient;
+                var url = apiClient.getUrl('JellyfinCleaner/Statistics');
+
+                apiClient.ajax({
+                    type: 'GET',
+                    url: url,
+                    dataType: 'json'
+                }).then(function (data) {
+                    loading.style.display = 'none';
+                    result.innerHTML = renderStats(data);
+                    result.style.display = 'block';
+                    btn.disabled = false;
+                    btn.innerHTML = '&#x21bb; Scan Libraries';
+                }, function (err) {
+                    loading.style.display = 'none';
+                    result.innerHTML = '<div class="error-msg">❌ Failed to load statistics. Make sure you are an administrator.</div>';
+                    result.style.display = 'block';
+                    btn.disabled = false;
+                    btn.innerHTML = '&#x21bb; Scan Libraries';
+                    console.error('Jellyfin Cleaner: Error loading statistics', err);
+                });
+            }
+
+            document.getElementById('btnRefresh').addEventListener('click', loadStatistics);
+        })();
+    </script>
+</body>
+</html>

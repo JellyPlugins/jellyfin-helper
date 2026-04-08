@@ -1,15 +1,17 @@
-using System;
-using Jellyfin.Plugin.FiletreeCleaner.Configuration;
+﻿using System;
+using System.Collections.Generic;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 
-namespace Jellyfin.Plugin.FiletreeCleaner;
+namespace Jellyfin.Plugin.JellyfinHelper;
 
 /// <summary>
 /// The main plugin.
 /// </summary>
-public class Plugin : BasePlugin<PluginConfiguration>
+public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -32,4 +34,17 @@ public class Plugin : BasePlugin<PluginConfiguration>
     /// Gets the current plugin instance.
     /// </summary>
     public static Plugin? Instance { get; private set; }
+
+    /// <inheritdoc />
+    public IEnumerable<PluginPageInfo> GetPages()
+    {
+        return
+        [
+            new PluginPageInfo
+            {
+                Name = Name,
+                EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
+            }
+        ];
+    }
 }

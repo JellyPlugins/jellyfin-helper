@@ -1,17 +1,17 @@
 [
   {
     "guid": "0c737645-5cbb-4bd8-80c7-d377b560aaa4",
-    "name": "Jellyfin Cleaner",
-    "description": "Cleans up orphaned .trickplay folders and media folders that no longer contain any video files.",
-    "overview": "Cleans up orphaned .trickplay folders and empty media folders.",
+    "name": "Jellyfin Helper",
+    "description": "Cleans up orphaned .trickplay folders, media folders without video files, and provides media library statistics.",
+    "overview": "Cleans up orphaned .trickplay folders, empty media folders, and shows library statistics.",
     "owner": "JellyPlugins",
     "category": "General",
     "versions": [
       {
-        "version": "1.0.1",
-        "changelog": "Trickplay folder cleanup, empty media folder cleanup, dry-run modes for both.",
+        "version": "2.0.0",
+        "changelog": "Renamed to Jellyfin Helper. Added media library statistics page. Trickplay folder cleanup, empty media folder cleanup, dry-run modes.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-cleaner/releases/download/1.0.1/FiletreeCleaner_1.0.1.zip",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.0.0/JellyfinHelper_2.0.0.zip",
         "checksum": "placeholder",
         "timestamp": "2026-04-09T00:00:00Z"
       }

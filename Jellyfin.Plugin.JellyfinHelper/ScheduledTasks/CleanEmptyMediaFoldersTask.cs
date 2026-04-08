@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -9,7 +9,7 @@ using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace Jellyfin.Plugin.FiletreeCleaner.ScheduledTasks;
+namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 
 /// <summary>
 /// A scheduled task to clean up media folders that contain files but absolutely no video files

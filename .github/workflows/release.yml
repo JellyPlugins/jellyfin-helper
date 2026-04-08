@@ -11,7 +11,7 @@ permissions:
   pull-requests: write
 
 env:
-  PLUGIN_NAME: FiletreeCleaner
+  PLUGIN_NAME: JellyfinHelper
   TARGET_ABI: "10.11.0.0"
 
 jobs:
@@ -44,7 +44,7 @@ jobs:
 
     - name: Publish plugin
       run: |
-        dotnet publish Jellyfin.Plugin.FiletreeCleaner/Jellyfin.Plugin.FiletreeCleaner.csproj \
+        dotnet publish Jellyfin.Plugin.JellyfinHelper/Jellyfin.Plugin.JellyfinHelper.csproj \
           -c Release \
           -o ./publish \
           -p:Version=${VERSION} \

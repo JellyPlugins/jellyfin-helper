@@ -1,6 +1,6 @@
-using MediaBrowser.Model.Plugins;
+﻿using MediaBrowser.Model.Plugins;
 
-namespace Jellyfin.Plugin.FiletreeCleaner.Configuration;
+namespace Jellyfin.Plugin.JellyfinHelper.Configuration;
 
 /// <summary>
 /// Plugin configuration.

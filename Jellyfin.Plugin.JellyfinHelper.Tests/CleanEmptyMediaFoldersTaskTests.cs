@@ -1,4 +1,4 @@
-using Jellyfin.Plugin.FiletreeCleaner.ScheduledTasks;
+﻿using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
@@ -6,7 +6,7 @@ using Moq;
 using Xunit;
 using MediaBrowser.Model.Entities;
 
-namespace Jellyfin.Plugin.FiletreeCleaner.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests;
 
 public class CleanEmptyMediaFoldersTaskTests
 {
