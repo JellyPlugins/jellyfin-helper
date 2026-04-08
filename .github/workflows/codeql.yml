@@ -21,19 +21,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v6
 
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v4
-      with:
-        languages: csharp
-        build-mode: manual
-
     - name: Setup .NET
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 9.0.x
 
-    - name: Build
-      run: dotnet build --configuration Release
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v4
+      with:
+        languages: csharp
+        build-mode: none
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4
