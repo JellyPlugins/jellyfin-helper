@@ -2,11 +2,13 @@
 
 on:
   push:
+    branches: [main]
     paths:
     - "manifest.json"
 
 permissions:
   contents: write
+  pull-requests: write
 
 env:
   PLUGIN_NAME: FiletreeCleaner
@@ -15,6 +17,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Skip if this push is from the metadata update PR
+    if: "!contains(github.event.head_commit.message, '[skip release]')"
 
     steps:
     - name: Checkout repository
@@ -48,20 +52,20 @@ jobs:
           -p:FileVersion=${VERSION}.0 \
           -p:InformationalVersion=${VERSION}
 
-    - name: Create test package
+    - name: Create release package
       run: |
         mkdir package
         cp publish/*.dll package/
         cp publish/*.pdb package/ 2>/dev/null || true
         cd package
-        zip ../${PLUGIN_NAME}_test-build.zip *
+        zip ../${PLUGIN_NAME}_${VERSION}.zip *
 
     - name: Upload build artifact
       uses: actions/upload-artifact@v7
       with:
-        name: ${{ env.PLUGIN_NAME }}_test-build
-        path: ${{ env.PLUGIN_NAME }}_test-build.zip
-        retention-days: 1
+        name: ${{ env.PLUGIN_NAME }}_${{ env.VERSION }}
+        path: ${{ env.PLUGIN_NAME }}_${{ env.VERSION }}.zip
+        retention-days: 5
 
   release:
     runs-on: ubuntu-latest
@@ -93,18 +97,35 @@ jobs:
     - name: Download build artifact
       uses: actions/download-artifact@v8
       with:
-        name: ${{ env.PLUGIN_NAME }}_test-build
-
-    - name: Rename package for release
-      run: |
-        mv ${PLUGIN_NAME}_test-build.zip ${PLUGIN_NAME}_${VERSION}.zip
+        name: ${{ env.PLUGIN_NAME }}_${{ env.VERSION }}
 
     - name: Generate checksum
       run: |
         md5sum ${PLUGIN_NAME}_${VERSION}.zip | cut -d ' ' -f1 > checksum.txt
         echo "CHECKSUM=$(cat checksum.txt)" >> $GITHUB_ENV
 
-    - name: Update manifest metadata
+    - name: Create tag
+      run: |
+        git tag $VERSION
+        git push origin $VERSION
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ env.VERSION }}
+        name: v${{ env.VERSION }}
+        body: |
+          ## Changelog
+          ${{ env.CHANGELOG }}
+
+          ## Checksum (MD5)
+          `${{ env.CHECKSUM }}`
+
+          ## Installation
+          Download `${{ env.PLUGIN_NAME }}_${{ env.VERSION }}.zip` and extract it into your Jellyfin plugins directory.
+        files: ${{ env.PLUGIN_NAME }}_${{ env.VERSION }}.zip
+
+    - name: Update manifest and build.yaml metadata
       run: |
         DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}/${PLUGIN_NAME}_${VERSION}.zip"
 
@@ -118,8 +139,6 @@ jobs:
 
         mv manifest.tmp manifest.json
 
-    - name: Update build.yaml
-      run: |
         yq eval -i '
           .version = strenv(VERSION) |
           .targetAbi = strenv(TARGET_ABI) |
@@ -127,26 +146,18 @@ jobs:
           .changelog = strenv(CHANGELOG)
         ' build.yaml
 
-    - name: Print build.yaml
-      run: |
-        echo "Updated build.yaml:"
-        cat build.yaml
-
-    - name: Commit updated files
-      run: |
-        git config user.name "github-actions"
-        git config user.email "actions@github.com"
-        git add manifest.json build.yaml
-        git commit -m "Update metadata for $VERSION" || echo "No changes"
-        git push origin HEAD:main
-
-    - name: Create tag
-      run: |
-        git tag $VERSION
-        git push origin $VERSION
-
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
+    - name: Create metadata update PR
+      uses: peter-evans/create-pull-request@v7
       with:
-        tag_name: ${{ env.VERSION }}
-        files: ${{ env.PLUGIN_NAME }}_${{ env.VERSION }}.zip
+        commit-message: "chore: update release metadata for ${{ env.VERSION }} [skip release]"
+        title: "chore: update release metadata for ${{ env.VERSION }}"
+        body: |
+          Automated PR to update `manifest.json` and `build.yaml` with release metadata for version `${{ env.VERSION }}`.
+
+          - ✅ Checksum: `${{ env.CHECKSUM }}`
+          - ✅ Timestamp: updated
+          - ✅ Source URL: updated
+
+          This PR was created automatically by the release workflow.
+        branch: chore/update-metadata-${{ env.VERSION }}
+        delete-branch: true
