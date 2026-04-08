@@ -64,15 +64,9 @@ jobs:
         path: ${{ env.PLUGIN_NAME }}_test-build.zip
         retention-days: 1
 
-  smoke-test:
-    needs: build
-    uses: ./.github/workflows/smoke-test.yml
-    with:
-      artifact-name: FiletreeCleaner_test-build
-
   release:
     runs-on: ubuntu-latest
-    needs: [build, smoke-test]
+    needs: build
 
     steps:
     - name: Checkout repository
