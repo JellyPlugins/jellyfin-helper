@@ -1,0 +1,169 @@
+name: PR Build & Test
+
+on:
+  pull_request:
+    branches: [main]
+
+env:
+  PLUGIN_NAME: FiletreeCleaner
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 9.0.x
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
+    - name: Run tests
+      run: dotnet test --configuration Release --no-restore --verbosity normal
+
+    - name: Publish plugin
+      run: |
+        dotnet publish Jellyfin.Plugin.FiletreeCleaner/Jellyfin.Plugin.FiletreeCleaner.csproj \
+          -c Release \
+          -o ./publish \
+          --no-build
+
+    - name: Create test package
+      run: |
+        mkdir package
+        cp publish/*.dll package/
+        cp publish/*.pdb package/ 2>/dev/null || true
+        cd package
+        zip ../${PLUGIN_NAME}_test-build.zip *
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.PLUGIN_NAME }}_test-build
+        path: ${{ env.PLUGIN_NAME }}_test-build.zip
+        retention-days: 14
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+    - name: Download build artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ env.PLUGIN_NAME }}_test-build
+
+    - name: Prepare plugin directory
+      run: |
+        mkdir -p jellyfin-plugins/FiletreeCleaner
+        unzip ${PLUGIN_NAME}_test-build.zip -d jellyfin-plugins/FiletreeCleaner/
+
+    - name: Start Jellyfin container
+      run: |
+        docker run -d \
+          --name jellyfin-test \
+          -p 8096:8096 \
+          -v ${{ github.workspace }}/jellyfin-plugins:/config/plugins \
+          jellyfin/jellyfin:latest
+
+    - name: Wait for Jellyfin to start
+      run: |
+        echo "Waiting for Jellyfin to become ready..."
+        for i in $(seq 1 60); do
+          if curl -sf http://localhost:8096/health > /dev/null 2>&1; then
+            echo "Jellyfin is ready!"
+            break
+          fi
+          if [ $i -eq 60 ]; then
+            echo "Jellyfin failed to start within 60 seconds"
+            docker logs jellyfin-test
+            exit 1
+          fi
+          sleep 2
+        done
+
+    - name: Complete Startup Wizard
+      run: |
+        # Set initial configuration
+        curl -sf -X POST http://localhost:8096/Startup/Configuration \
+          -H "Content-Type: application/json" \
+          -d '{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}'
+
+        # Create admin user
+        curl -sf -X POST http://localhost:8096/Startup/User \
+          -H "Content-Type: application/json" \
+          -d '{"Name":"admin","Password":"admin123"}'
+
+        # Complete the wizard
+        curl -sf -X POST http://localhost:8096/Startup/Complete
+
+    - name: Authenticate and get API key
+      id: auth
+      run: |
+        RESPONSE=$(curl -sf -X POST http://localhost:8096/Users/AuthenticateByName \
+          -H "Content-Type: application/json" \
+          -H "X-Emby-Authorization: MediaBrowser Client=\"CI\", Device=\"GitHub Actions\", DeviceId=\"ci-test\", Version=\"1.0.0\"" \
+          -d '{"Username":"admin","Pw":"admin123"}')
+
+        TOKEN=$(echo "$RESPONSE" | jq -r '.AccessToken')
+        echo "TOKEN=$TOKEN" >> $GITHUB_ENV
+
+    - name: Verify plugin is loaded
+      run: |
+        echo "Checking installed plugins..."
+        PLUGINS=$(curl -sf http://localhost:8096/Plugins \
+          -H "X-Emby-Authorization: MediaBrowser Client=\"CI\", Device=\"GitHub Actions\", DeviceId=\"ci-test\", Version=\"1.0.0\", Token=\"$TOKEN\"")
+
+        echo "$PLUGINS" | jq .
+
+        if echo "$PLUGINS" | jq -e '.[] | select(.Name == "Jellyfin Cleaner")' > /dev/null 2>&1; then
+          echo "✅ Plugin 'Jellyfin Cleaner' loaded successfully!"
+        else
+          echo "❌ Plugin 'Jellyfin Cleaner' NOT found in loaded plugins!"
+          docker logs jellyfin-test
+          exit 1
+        fi
+
+    - name: Verify scheduled tasks are registered
+      run: |
+        echo "Checking scheduled tasks..."
+        TASKS=$(curl -sf http://localhost:8096/ScheduledTasks \
+          -H "X-Emby-Authorization: MediaBrowser Client=\"CI\", Device=\"GitHub Actions\", DeviceId=\"ci-test\", Version=\"1.0.0\", Token=\"$TOKEN\"")
+
+        echo "$TASKS" | jq '.[] | select(.Category == "Jellyfin Cleaner") | {Name, Key, Category, State}'
+
+        CLEANER_TASKS=$(echo "$TASKS" | jq '[.[] | select(.Category == "Jellyfin Cleaner")]')
+        TASK_COUNT=$(echo "$CLEANER_TASKS" | jq 'length')
+
+        echo "Found $TASK_COUNT Jellyfin Cleaner tasks"
+
+        if [ "$TASK_COUNT" -eq 4 ]; then
+          echo "✅ All 4 scheduled tasks registered!"
+        else
+          echo "❌ Expected 4 tasks, found $TASK_COUNT"
+          echo "$TASKS" | jq .
+          docker logs jellyfin-test
+          exit 1
+        fi
+
+    - name: Cleanup
+      if: always()
+      run: |
+        docker logs jellyfin-test > jellyfin-logs.txt 2>&1 || true
+        docker rm -f jellyfin-test || true
+
+    - name: Upload Jellyfin logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: jellyfin-integration-logs
+        path: jellyfin-logs.txt
+        retention-days: 7
