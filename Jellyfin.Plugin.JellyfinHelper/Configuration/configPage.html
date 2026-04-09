@@ -842,18 +842,130 @@
                 return html;
             }
 
+            var MAX_ARR_INSTANCES = 3;
+
+            function renderArrInstances(type, instances, placeholder) {
+                var h = '';
+                var count = instances ? instances.length : 0;
+                for (var i = 0; i < count; i++) {
+                    h += renderArrInstanceRow(type, i, instances[i]);
+                }
+                h += '<div id="' + type + 'AddBtnWrap">';
+                if (count < MAX_ARR_INSTANCES) {
+                    h += '<button type="button" class="action-btn" id="btnAdd' + type + '" style="margin-top:0.5em;">+ Add another ' + type + ' instance</button>';
+                }
+                h += '</div>';
+                return h;
+            }
+
+            function renderArrInstanceRow(type, index, inst) {
+                var prefix = type + '_' + index;
+                var name = inst ? (inst.Name || '') : '';
+                var url = inst ? (inst.Url || '') : '';
+                var apiKey = inst ? (inst.ApiKey || '') : '';
+                var placeholderUrl = type === 'Radarr' ? 'http://localhost:7878' : 'http://localhost:8989';
+                var h = '<div class="arr-instance-row" data-type="' + type + '" data-index="' + index + '" style="border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:0.8em;margin-top:0.8em;position:relative;">';
+                h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3em;">';
+                h += '<strong>' + type + ' #' + (index + 1) + '</strong>';
+                h += '<button type="button" class="action-btn btnRemoveArr" data-type="' + type + '" data-index="' + index + '" style="padding:0.2em 0.6em;font-size:0.8em;background:#e74c3c;">✕ Remove</button>';
+                h += '</div>';
+                h += '<label>Instance Name</label><input type="text" id="' + prefix + '_name" value="' + escAttr(name) + '" placeholder="e.g. ' + type + ' 4K">';
+                h += '<label>URL</label><input type="text" id="' + prefix + '_url" value="' + escAttr(url) + '" placeholder="' + placeholderUrl + '">';
+                h += '<label>API Key</label><input type="password" id="' + prefix + '_key" value="' + escAttr(apiKey) + '">';
+                h += '</div>';
+                return h;
+            }
+
+            function escAttr(s) { return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+            function collectArrInstances(type) {
+                var rows = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
+                var result = [];
+                for (var i = 0; i < rows.length; i++) {
+                    var idx = rows[i].getAttribute('data-index');
+                    var prefix = type + '_' + idx;
+                    var nameEl = document.getElementById(prefix + '_name');
+                    var urlEl = document.getElementById(prefix + '_url');
+                    var keyEl = document.getElementById(prefix + '_key');
+                    if (nameEl && urlEl && keyEl) {
+                        result.push({ Name: nameEl.value, Url: urlEl.value, ApiKey: keyEl.value });
+                    }
+                }
+                return result;
+            }
+
+            function addArrInstance(type) {
+                var rows = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
+                if (rows.length >= MAX_ARR_INSTANCES) return;
+                var newIndex = rows.length;
+                var wrap = document.getElementById(type + 'AddBtnWrap');
+                if (!wrap) return;
+                var tmp = document.createElement('div');
+                tmp.innerHTML = renderArrInstanceRow(type, newIndex, null);
+                wrap.parentNode.insertBefore(tmp.firstChild, wrap);
+                // Attach remove handler
+                attachRemoveHandlers();
+                // Hide add button if at max
+                if (newIndex + 1 >= MAX_ARR_INSTANCES) {
+                    var btn = document.getElementById('btnAdd' + type);
+                    if (btn) btn.style.display = 'none';
+                }
+            }
+
+            function removeArrInstance(type, index) {
+                var row = document.querySelector('.arr-instance-row[data-type="' + type + '"][data-index="' + index + '"]');
+                if (row) row.remove();
+                // Re-index remaining rows
+                var remaining = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
+                for (var i = 0; i < remaining.length; i++) {
+                    remaining[i].setAttribute('data-index', i);
+                    var prefix = type + '_' + i;
+                    // Update IDs for inputs
+                    var inputs = remaining[i].querySelectorAll('input');
+                    var suffixes = ['_name', '_url', '_key'];
+                    for (var j = 0; j < inputs.length && j < suffixes.length; j++) {
+                        inputs[j].id = prefix + suffixes[j];
+                    }
+                    // Update header text
+                    var strong = remaining[i].querySelector('strong');
+                    if (strong) strong.textContent = type + ' #' + (i + 1);
+                    // Update remove button data-index
+                    var removeBtn = remaining[i].querySelector('.btnRemoveArr');
+                    if (removeBtn) removeBtn.setAttribute('data-index', i);
+                }
+                // Show add button again if below max
+                var btn = document.getElementById('btnAdd' + type);
+                if (btn && remaining.length < MAX_ARR_INSTANCES) btn.style.display = '';
+            }
+
+            function attachRemoveHandlers() {
+                var btns = document.querySelectorAll('.btnRemoveArr');
+                for (var i = 0; i < btns.length; i++) {
+                    btns[i].onclick = function () {
+                        removeArrInstance(this.getAttribute('data-type'), parseInt(this.getAttribute('data-index'), 10));
+                    };
+                }
+            }
+
+            function attachAddHandlers() {
+                var btnRadarr = document.getElementById('btnAddRadarr');
+                var btnSonarr = document.getElementById('btnAddSonarr');
+                if (btnRadarr) btnRadarr.onclick = function () { addArrInstance('Radarr'); };
+                if (btnSonarr) btnSonarr.onclick = function () { addArrInstance('Sonarr'); };
+            }
+
             // --- Settings Tab Logic ---
             function loadSettings() {
                 var form = document.getElementById('settingsForm');
                 if (!form) return;
                 var apiClient = ApiClient;
-apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuration'), dataType: 'json' }).then(function (cfg) {
+                apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuration'), dataType: 'json' }).then(function (cfg) {
                     var h = '';
                     h += '<label>Included Libraries (whitelist, comma-separated)</label>';
-                    h += '<input type="text" id="cfgIncluded" value="' + (cfg.IncludedLibraries || '') + '">';
+                    h += '<input type="text" id="cfgIncluded" value="' + escAttr(cfg.IncludedLibraries || '') + '">';
                     h += '<div class="help-text">Leave empty to include all libraries.</div>';
                     h += '<label>Excluded Libraries (blacklist, comma-separated)</label>';
-                    h += '<input type="text" id="cfgExcluded" value="' + (cfg.ExcludedLibraries || '') + '">';
+                    h += '<input type="text" id="cfgExcluded" value="' + escAttr(cfg.ExcludedLibraries || '') + '">';
                     h += '<label>Orphan Minimum Age (days)</label>';
                     h += '<input type="number" id="cfgOrphanAge" min="0" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
                     h += '<div class="help-text">Items younger than this are protected from deletion.</div>';
@@ -862,7 +974,7 @@ apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuratio
                     h += '<div class="section-divider"></div>';
                     h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label>Use Trash (Recycle Bin)</label></div>';
                     h += '<label>Trash Folder Path</label>';
-                    h += '<input type="text" id="cfgTrashPath" value="' + (cfg.TrashFolderPath || '.jellyfin-trash') + '">';
+                    h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '">';
                     h += '<label>Trash Retention (days)</label>';
                     h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays || 30) + '">';
                     h += '<div class="section-divider"></div>';
@@ -873,15 +985,29 @@ apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuratio
                         h += '<option value="' + langs[i][0] + '"' + (cfg.Language === langs[i][0] ? ' selected' : '') + '>' + langs[i][1] + '</option>';
                     }
                     h += '</select>';
+
+                    // --- Radarr Instances ---
                     h += '<div class="section-divider"></div>';
-                    h += '<label>Radarr URL</label><input type="text" id="cfgRadarrUrl" value="' + (cfg.RadarrUrl || '') + '" placeholder="http://localhost:7878">';
-                    h += '<label>Radarr API Key</label><input type="password" id="cfgRadarrKey" value="' + (cfg.RadarrApiKey || '') + '">';
-                    h += '<label>Sonarr URL</label><input type="text" id="cfgSonarrUrl" value="' + (cfg.SonarrUrl || '') + '" placeholder="http://localhost:8989">';
-                    h += '<label>Sonarr API Key</label><input type="password" id="cfgSonarrKey" value="' + (cfg.SonarrApiKey || '') + '">';
+                    h += '<div class="section-title" style="border-bottom:none;font-size:1em;margin-bottom:0;">🎬 Radarr Instances <span style="font-weight:400;font-size:0.8em;opacity:0.6;">(max ' + MAX_ARR_INSTANCES + ')</span></div>';
+                    var radarrInstances = cfg.RadarrInstances && cfg.RadarrInstances.length > 0
+                        ? cfg.RadarrInstances
+                        : (cfg.RadarrUrl ? [{ Name: 'Radarr', Url: cfg.RadarrUrl, ApiKey: cfg.RadarrApiKey }] : []);
+                    h += renderArrInstances('Radarr', radarrInstances, 'http://localhost:7878');
+
+                    // --- Sonarr Instances ---
+                    h += '<div class="section-divider"></div>';
+                    h += '<div class="section-title" style="border-bottom:none;font-size:1em;margin-bottom:0;">📺 Sonarr Instances <span style="font-weight:400;font-size:0.8em;opacity:0.6;">(max ' + MAX_ARR_INSTANCES + ')</span></div>';
+                    var sonarrInstances = cfg.SonarrInstances && cfg.SonarrInstances.length > 0
+                        ? cfg.SonarrInstances
+                        : (cfg.SonarrUrl ? [{ Name: 'Sonarr', Url: cfg.SonarrUrl, ApiKey: cfg.SonarrApiKey }] : []);
+                    h += renderArrInstances('Sonarr', sonarrInstances, 'http://localhost:8989');
+
                     h += '<div style="margin-top:1.5em;"><button class="refresh-btn" id="btnSaveSettings">Save Settings</button></div>';
                     h += '<div id="settingsMsg" style="margin-top:0.5em;"></div>';
                     form.innerHTML = h;
                     document.getElementById('btnSaveSettings').addEventListener('click', saveSettings);
+                    attachRemoveHandlers();
+                    attachAddHandlers();
                 }, function () {
                     form.innerHTML = '<div class="error-msg">Failed to load settings.</div>';
                 });
@@ -892,6 +1018,10 @@ apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuratio
                 var msg = document.getElementById('settingsMsg');
                 btn.disabled = true;
                 msg.innerHTML = '';
+
+                var radarrInstances = collectArrInstances('Radarr');
+                var sonarrInstances = collectArrInstances('Sonarr');
+
                 var payload = {
                     IncludedLibraries: document.getElementById('cfgIncluded').value,
                     ExcludedLibraries: document.getElementById('cfgExcluded').value,
@@ -902,10 +1032,12 @@ apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuratio
                     TrashFolderPath: document.getElementById('cfgTrashPath').value,
                     TrashRetentionDays: parseInt(document.getElementById('cfgTrashDays').value, 10) || 30,
                     Language: document.getElementById('cfgLang').value,
-                    RadarrUrl: document.getElementById('cfgRadarrUrl').value,
-                    RadarrApiKey: document.getElementById('cfgRadarrKey').value,
-                    SonarrUrl: document.getElementById('cfgSonarrUrl').value,
-                    SonarrApiKey: document.getElementById('cfgSonarrKey').value
+                    RadarrUrl: radarrInstances.length > 0 ? radarrInstances[0].Url : '',
+                    RadarrApiKey: radarrInstances.length > 0 ? radarrInstances[0].ApiKey : '',
+                    SonarrUrl: sonarrInstances.length > 0 ? sonarrInstances[0].Url : '',
+                    SonarrApiKey: sonarrInstances.length > 0 ? sonarrInstances[0].ApiKey : '',
+                    RadarrInstances: radarrInstances,
+                    SonarrInstances: sonarrInstances
                 };
                 var apiClient = ApiClient;
                 apiClient.ajax({

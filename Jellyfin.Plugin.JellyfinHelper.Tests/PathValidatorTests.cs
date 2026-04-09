@@ -100,8 +100,10 @@ public class PathValidatorTests
         var input = $"file{testChar}name.txt";
         var result = PathValidator.SanitizeFileName(input);
 
-        // The invalid char should be replaced with '_'
-        Assert.DoesNotContain(testChar.ToString(), result);
+        // The invalid char should be replaced with '_'.
+        // Use ordinal comparison because the null character ('\0') has zero sort-weight
+        // in culture-sensitive comparisons, causing DoesNotContain to report a false match.
+        Assert.DoesNotContain(testChar.ToString(), result, StringComparison.Ordinal);
         Assert.Contains("name.txt", result);
     }
 }

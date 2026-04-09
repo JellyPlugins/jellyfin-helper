@@ -1,4 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Configuration;
@@ -55,23 +58,37 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets the Radarr API URL (e.g., http://localhost:7878).
+    /// Kept for backwards compatibility — migrated to <see cref="RadarrInstances"/> on first load.
     /// </summary>
     public string RadarrUrl { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the Radarr API key.
+    /// Kept for backwards compatibility — migrated to <see cref="RadarrInstances"/> on first load.
     /// </summary>
     public string RadarrApiKey { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the Sonarr API URL (e.g., http://localhost:8989).
+    /// Kept for backwards compatibility — migrated to <see cref="SonarrInstances"/> on first load.
     /// </summary>
     public string SonarrUrl { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the Sonarr API key.
+    /// Kept for backwards compatibility — migrated to <see cref="SonarrInstances"/> on first load.
     /// </summary>
     public string SonarrApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets the list of Radarr instances (max 3).
+    /// </summary>
+    public Collection<ArrInstanceConfig> RadarrInstances { get; } = new();
+
+    /// <summary>
+    /// Gets the list of Sonarr instances (max 3).
+    /// </summary>
+    public Collection<ArrInstanceConfig> SonarrInstances { get; } = new();
 
     /// <summary>
     /// Gets or sets the UI language code. Default is "en".
@@ -94,4 +111,54 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the timestamp of the last cleanup run.
     /// </summary>
     public DateTime LastCleanupTimestamp { get; set; } = DateTime.MinValue;
+
+    /// <summary>
+    /// Migrates legacy single-instance Radarr/Sonarr settings to the new multi-instance lists
+    /// and returns the effective list of configured Radarr instances (max 3).
+    /// </summary>
+    /// <returns>A read-only list of configured Radarr instances.</returns>
+    public IReadOnlyList<ArrInstanceConfig> GetEffectiveRadarrInstances()
+    {
+        // Migrate legacy single fields if the collection is empty
+        if (RadarrInstances.Count == 0 &&
+            !string.IsNullOrWhiteSpace(RadarrUrl) &&
+            !string.IsNullOrWhiteSpace(RadarrApiKey))
+        {
+            RadarrInstances.Add(new ArrInstanceConfig
+            {
+                Name = "Radarr",
+                Url = RadarrUrl,
+                ApiKey = RadarrApiKey,
+            });
+        }
+
+        return RadarrInstances.Count > 3
+            ? RadarrInstances.Take(3).ToList().AsReadOnly()
+            : RadarrInstances.ToList().AsReadOnly();
+    }
+
+    /// <summary>
+    /// Migrates legacy single-instance Sonarr settings to the new multi-instance lists
+    /// and returns the effective list of configured Sonarr instances (max 3).
+    /// </summary>
+    /// <returns>A read-only list of configured Sonarr instances.</returns>
+    public IReadOnlyList<ArrInstanceConfig> GetEffectiveSonarrInstances()
+    {
+        // Migrate legacy single fields if the collection is empty
+        if (SonarrInstances.Count == 0 &&
+            !string.IsNullOrWhiteSpace(SonarrUrl) &&
+            !string.IsNullOrWhiteSpace(SonarrApiKey))
+        {
+            SonarrInstances.Add(new ArrInstanceConfig
+            {
+                Name = "Sonarr",
+                Url = SonarrUrl,
+                ApiKey = SonarrApiKey,
+            });
+        }
+
+        return SonarrInstances.Count > 3
+            ? SonarrInstances.Take(3).ToList().AsReadOnly()
+            : SonarrInstances.ToList().AsReadOnly();
+    }
 }
