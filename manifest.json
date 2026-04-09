@@ -20,15 +20,15 @@
         "changelog": "Breaking changes: Renamed to Jellyfin Helper. Added media library statistics page. Trickplay folder cleanup, empty media folder cleanup, dry-run modes.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.0.0/JellyfinHelper_2.0.0.zip",
-        "checksum": "placeholder",
-        "timestamp": "2026-04-09T00:00:00Z"
+        "checksum": "4af3ea9e761c74dfd86682914da30c3f",
+        "timestamp": "2026-04-08T22:49:22Z"
       },
       {
         "version": "1.0.1",
         "changelog": "Improvements and bug fixes.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.1/JellyfinHelper_1.0.1.zip",
-        "checksum": "placeholder",
+        "checksum": "9d1ead73e678fa2f51a70a933b0bf017",
         "timestamp": "2026-04-09T00:00:00Z"
       },
       {
@@ -36,7 +36,7 @@
         "changelog": "Initial version with trickplay folder cleanup, empty media folder cleanup, and dry-run modes for both.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.0/JellyfinHelper_1.0.0.zip",
-        "checksum": "placeholder",
+        "checksum": "9d1ead73e678fa2f51a70a933b0bf017",
         "timestamp": "2026-04-09T00:00:00Z"
       }
     ]
