@@ -64,7 +64,7 @@ jobs:
           -c Release \
           -o ./publish \
           -p:Version=${VERSION} \
-          -p:Assee checksum mblyVersion=${VERSION}.0 \
+          -p:AssemblyVersion=${VERSION}.0 \
           -p:FileVersion=${VERSION}.0 \
           -p:InformationalVersion=${VERSION}
 
