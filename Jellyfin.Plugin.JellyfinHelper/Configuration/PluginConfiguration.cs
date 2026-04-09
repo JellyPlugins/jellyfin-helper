@@ -30,10 +30,22 @@ public class PluginConfiguration : BasePluginConfiguration
     public int OrphanMinAgeDays { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether cleanup tasks should run in dry-run mode by default.
-    /// When enabled, the regular cleanup tasks will only log what would be deleted without actually deleting.
+    /// Gets or sets a value indicating whether the Trickplay Folder Cleaner task runs in dry-run mode.
+    /// Default is true (safe mode).
     /// </summary>
-    public bool DryRunByDefault { get; set; }
+    public bool DryRunTrickplay { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the Empty Media Folder Cleaner task runs in dry-run mode.
+    /// Default is true (safe mode).
+    /// </summary>
+    public bool DryRunEmptyMediaFolders { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the Orphaned Subtitle Cleaner task runs in dry-run mode.
+    /// Default is true (safe mode).
+    /// </summary>
+    public bool DryRunOrphanedSubtitles { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether to use a trash folder instead of permanently deleting files.

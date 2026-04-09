@@ -15,27 +15,45 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services;
 public static class CleanupConfigHelper
 {
     /// <summary>
+    /// Gets or sets a configuration override for testing purposes.
+    /// When set, <see cref="GetConfig"/> returns this instead of the plugin configuration.
+    /// </summary>
+    internal static PluginConfiguration? ConfigOverride { get; set; }
+
+    /// <summary>
     /// Gets the current plugin configuration, or a default configuration if the plugin is not available.
     /// </summary>
     /// <returns>The plugin configuration.</returns>
     public static PluginConfiguration GetConfig()
     {
-        return Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        return ConfigOverride ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     }
 
     /// <summary>
-    /// Determines whether the effective mode is dry-run, considering both the explicit parameter and config.
+    /// Determines whether the Trickplay Folder Cleaner should run in dry-run mode.
     /// </summary>
-    /// <param name="explicitDryRun">True if explicitly requested as dry run (e.g., from the DryRun task variant).</param>
     /// <returns>True if the operation should be a dry run.</returns>
-    public static bool IsEffectiveDryRun(bool explicitDryRun)
+    public static bool IsDryRunTrickplay()
     {
-        if (explicitDryRun)
-        {
-            return true;
-        }
+        return GetConfig().DryRunTrickplay;
+    }
 
-        return GetConfig().DryRunByDefault;
+    /// <summary>
+    /// Determines whether the Empty Media Folder Cleaner should run in dry-run mode.
+    /// </summary>
+    /// <returns>True if the operation should be a dry run.</returns>
+    public static bool IsDryRunEmptyMediaFolders()
+    {
+        return GetConfig().DryRunEmptyMediaFolders;
+    }
+
+    /// <summary>
+    /// Determines whether the Orphaned Subtitle Cleaner should run in dry-run mode.
+    /// </summary>
+    /// <returns>True if the operation should be a dry run.</returns>
+    public static bool IsDryRunOrphanedSubtitles()
+    {
+        return GetConfig().DryRunOrphanedSubtitles;
     }
 
     /// <summary>

@@ -109,10 +109,16 @@
             margin-top: 0.3em;
         }
 
+        .library-table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin-top: 0.5em;
+        }
+
         .library-table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 0.5em;
+            min-width: 600px;
         }
 
         .library-table th,
@@ -357,6 +363,18 @@
             gap: 0;
             margin-bottom: 1.5em;
             border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+        }
+
+        .tab-bar::-webkit-scrollbar {
+            height: 4px;
+        }
+
+        .tab-bar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
         }
 
         .tab-btn {
@@ -370,6 +388,8 @@
             border-bottom: 2px solid transparent;
             margin-bottom: -2px;
             transition: opacity 0.2s, border-color 0.2s;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .tab-btn:hover {
@@ -744,12 +764,14 @@
                 html += '</div>';
 
                 // Storage distribution bar
-                html += '<div class="section-title">Storage Distribution</div>';
+                var grandTotal = 0;
+                for (var gt = 0; gt < data.Libraries.length; gt++) grandTotal += data.Libraries[gt].TotalSize;
+                html += '<div class="section-title">Storage Distribution — <span style="color:#00a4dc;">' + formatBytes(grandTotal) + ' Total</span></div>';
                 html += buildBarSegments(data);
 
                 // Per-library breakdown table
                 html += '<div class="section-title">Per-Library Breakdown</div>';
-                html += '<table class="library-table">';
+                html += '<div class="library-table-wrapper"><table class="library-table">';
                 html += '<thead><tr>';
                 html += '<th>Library</th><th>Type</th><th>Video</th><th>Audio</th><th>Subtitles</th><th>Images</th><th>Trickplay</th><th>Total</th>';
                 html += '</tr></thead><tbody>';
@@ -768,7 +790,7 @@
                     html += '</tr>';
                 }
 
-                html += '</tbody></table>';
+                html += '</tbody></table></div>';
                 html += '<div id="cleanup-stats-container"></div>';
                 html += '</div>'; // end overview tab
 
@@ -825,10 +847,7 @@
                 html += '<div class="tab-content" id="tab-arr">';
                 html += '<div class="section-title">🔗 Arr Stack Integration</div>';
                 html += '<div id="arrContent">';
-                html += '<div class="header-actions" style="margin-bottom:1em;">';
-                html += '<button class="action-btn" id="btnCompareRadarr">Compare with Radarr</button>';
-                html += '<button class="action-btn" id="btnCompareSonarr">Compare with Sonarr</button>';
-                html += '</div>';
+                html += '<div id="arrButtons"><div class="loading-overlay" style="padding:1em;"><div class="spinner"></div></div></div>';
                 html += '<div id="arrResult"></div>';
                 html += '</div>';
                 html += '</div>'; // end arr tab
@@ -963,7 +982,13 @@
                     h += '<label>Orphan Minimum Age (days)</label>';
                     h += '<input type="number" id="cfgOrphanAge" min="0" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
                     h += '<div class="help-text">Items younger than this are protected from deletion.</div>';
-                    h += '<div class="checkbox-row"><input type="checkbox" id="cfgDryRun"' + (cfg.DryRunByDefault ? ' checked' : '') + '><label>Dry-Run Mode by Default</label></div>';
+                    h += '<div class="section-divider"></div>';
+                    h += '<div style="font-weight:600;font-size:0.9em;margin-top:0.5em;">Dry-Run Mode (per Task)</div>';
+                    h += '<div class="help-text">When enabled, the task only logs what would be deleted without actually deleting.</div>';
+                    h += '<div class="checkbox-row"><input type="checkbox" id="cfgDryRunTrickplay"' + (cfg.DryRunTrickplay ? ' checked' : '') + '><label>Trickplay Folder Cleaner</label></div>';
+                    h += '<div class="checkbox-row"><input type="checkbox" id="cfgDryRunEmptyMedia"' + (cfg.DryRunEmptyMediaFolders ? ' checked' : '') + '><label>Empty Media Folder Cleaner</label></div>';
+                    h += '<div class="checkbox-row"><input type="checkbox" id="cfgDryRunSubtitles"' + (cfg.DryRunOrphanedSubtitles ? ' checked' : '') + '><label>Orphaned Subtitle Cleaner</label></div>';
+                    h += '<div class="section-divider"></div>';
                     h += '<div class="checkbox-row"><input type="checkbox" id="cfgSubCleaner"' + (cfg.EnableSubtitleCleaner ? ' checked' : '') + '><label>Enable Orphaned Subtitle Cleaner</label></div>';
                     h += '<div class="section-divider"></div>';
                     h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label>Use Trash (Recycle Bin)</label></div>';
@@ -1020,7 +1045,9 @@
                     IncludedLibraries: document.getElementById('cfgIncluded').value,
                     ExcludedLibraries: document.getElementById('cfgExcluded').value,
                     OrphanMinAgeDays: parseInt(document.getElementById('cfgOrphanAge').value, 10) || 0,
-                    DryRunByDefault: document.getElementById('cfgDryRun').checked,
+                    DryRunTrickplay: document.getElementById('cfgDryRunTrickplay').checked,
+                    DryRunEmptyMediaFolders: document.getElementById('cfgDryRunEmptyMedia').checked,
+                    DryRunOrphanedSubtitles: document.getElementById('cfgDryRunSubtitles').checked,
                     EnableSubtitleCleaner: document.getElementById('cfgSubCleaner').checked,
                     UseTrash: document.getElementById('cfgTrash').checked,
                     TrashFolderPath: document.getElementById('cfgTrashPath').value,
@@ -1048,20 +1075,71 @@
 
             // --- Arr Tab Logic ---
             function initArrButtons() {
-                var radarrBtn = document.getElementById('btnCompareRadarr');
-                var sonarrBtn = document.getElementById('btnCompareSonarr');
-                if (radarrBtn) radarrBtn.addEventListener('click', function () { compareArr('Radarr'); });
-                if (sonarrBtn) sonarrBtn.addEventListener('click', function () { compareArr('Sonarr'); });
+                var btnContainer = document.getElementById('arrButtons');
+                if (!btnContainer) return;
+                var apiClient = ApiClient;
+                apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuration'), dataType: 'json' }).then(function (cfg) {
+                    var h = '';
+                    var radarrInstances = cfg.RadarrInstances && cfg.RadarrInstances.length > 0
+                        ? cfg.RadarrInstances
+                        : (cfg.RadarrUrl ? [{ Name: 'Radarr', Url: cfg.RadarrUrl }] : []);
+                    var sonarrInstances = cfg.SonarrInstances && cfg.SonarrInstances.length > 0
+                        ? cfg.SonarrInstances
+                        : (cfg.SonarrUrl ? [{ Name: 'Sonarr', Url: cfg.SonarrUrl }] : []);
+
+                    if (radarrInstances.length === 0 && sonarrInstances.length === 0) {
+                        btnContainer.innerHTML = '<p style="opacity:0.5;">No Radarr or Sonarr instances configured. Add them in the Settings tab.</p>';
+                        return;
+                    }
+
+                    if (radarrInstances.length > 0) {
+                        h += '<div style="margin-bottom:1em;">';
+                        h += '<h4 style="margin:0 0 0.5em 0;opacity:0.7;">🎬 Radarr</h4>';
+                        h += '<div class="header-actions" style="flex-wrap:wrap;">';
+                        for (var r = 0; r < radarrInstances.length; r++) {
+                            var rName = radarrInstances[r].Name || ('Radarr #' + (r + 1));
+                            h += '<button class="action-btn arr-compare-btn" data-type="Radarr" data-index="' + r + '">Compare with ' + escAttr(rName) + '</button>';
+                        }
+                        h += '</div></div>';
+                    }
+
+                    if (sonarrInstances.length > 0) {
+                        h += '<div style="margin-bottom:1em;">';
+                        h += '<h4 style="margin:0 0 0.5em 0;opacity:0.7;">📺 Sonarr</h4>';
+                        h += '<div class="header-actions" style="flex-wrap:wrap;">';
+                        for (var s = 0; s < sonarrInstances.length; s++) {
+                            var sName = sonarrInstances[s].Name || ('Sonarr #' + (s + 1));
+                            h += '<button class="action-btn arr-compare-btn" data-type="Sonarr" data-index="' + s + '">Compare with ' + escAttr(sName) + '</button>';
+                        }
+                        h += '</div></div>';
+                    }
+
+                    btnContainer.innerHTML = h;
+
+                    // Attach click handlers
+                    var compareBtns = btnContainer.querySelectorAll('.arr-compare-btn');
+                    for (var i = 0; i < compareBtns.length; i++) {
+                        compareBtns[i].addEventListener('click', function () {
+                            var type = this.getAttribute('data-type');
+                            var idx = parseInt(this.getAttribute('data-index'), 10);
+                            var label = this.textContent;
+                            compareArr(type, idx, label);
+                        });
+                    }
+                }, function () {
+                    btnContainer.innerHTML = '<div class="error-msg">❌ Failed to load Arr configuration.</div>';
+                });
             }
 
-            function compareArr(type) {
+            function compareArr(type, index, label) {
                 var resultDiv = document.getElementById('arrResult');
                 if (!resultDiv) return;
-                resultDiv.innerHTML = '<div class="loading-overlay" style="padding:1em;"><div class="spinner"></div><p>Comparing…</p></div>';
+                resultDiv.innerHTML = '<div class="loading-overlay" style="padding:1em;"><div class="spinner"></div><p>Comparing ' + (label || type) + '…</p></div>';
                 var apiClient = ApiClient;
-                var url = apiClient.getUrl('JellyfinHelper/Arr/' + type + '/Compare');
+                var url = apiClient.getUrl('JellyfinHelper/Arr/' + type + '/Compare') + '?index=' + index;
                 apiClient.ajax({ type: 'GET', url: url, dataType: 'json' }).then(function (data) {
-                    var h = '';
+                    var instanceLabel = label ? label.replace('Compare with ', '') : type;
+                    var h = '<h3 style="margin-bottom:0.8em;">' + instanceLabel + '</h3>';
                     h += '<div class="arr-section"><h4>✅ In Both — <span class="arr-count">' + data.InBoth.length + '</span></h4>';
                     if (data.InBoth.length > 0) { h += '<div class="arr-list"><ul>'; for (var a = 0; a < Math.min(data.InBoth.length, 50); a++) h += '<li>' + data.InBoth[a] + '</li>'; if (data.InBoth.length > 50) h += '<li>… and ' + (data.InBoth.length - 50) + ' more</li>'; h += '</ul></div>'; }
                     h += '</div>';
@@ -1143,14 +1221,25 @@
             function triggerExport(format) {
                 var apiClient = ApiClient;
                 var url = apiClient.getUrl('JellyfinHelper/Statistics/Export/' + format);
+                var mimeType = format === 'Json' ? 'application/json' : 'text/csv';
+                var ext = format === 'Json' ? 'json' : 'csv';
+                var timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                var filename = 'jellyfin-statistics-' + timestamp + '.' + ext;
 
-                // Create a temporary link and trigger download
-                var link = document.createElement('a');
-                link.href = url;
-                link.download = '';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+                apiClient.ajax({ type: 'GET', url: url }).then(function (data) {
+                    var content = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+                    var blob = new Blob([content], { type: mimeType });
+                    var blobUrl = URL.createObjectURL(blob);
+                    var link = document.createElement('a');
+                    link.href = blobUrl;
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 5000);
+                }, function () {
+                    alert('Export failed. Please try again.');
+                });
             }
 
             function loadStatistics() {

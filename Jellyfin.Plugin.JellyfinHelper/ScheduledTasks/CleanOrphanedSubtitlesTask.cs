@@ -65,22 +65,10 @@ public class CleanOrphanedSubtitlesTask : IScheduledTask
     /// <inheritdoc />
     public virtual Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        return ExecuteInternalAsync(false, progress, cancellationToken);
-    }
-
-    /// <summary>
-    /// Executes the task internally.
-    /// </summary>
-    /// <param name="dryRun">A value indicating whether to perform a dry run.</param>
-    /// <param name="progress">The progress.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>A task representing the operation.</returns>
-    internal Task ExecuteInternalAsync(bool dryRun, IProgress<double> progress, CancellationToken cancellationToken)
-    {
-        var effectiveDryRun = CleanupConfigHelper.IsEffectiveDryRun(dryRun);
+        var effectiveDryRun = CleanupConfigHelper.IsDryRunOrphanedSubtitles();
         var config = CleanupConfigHelper.GetConfig();
 
-        if (!config.EnableSubtitleCleaner && !dryRun)
+        if (!config.EnableSubtitleCleaner && !effectiveDryRun)
         {
             _logger.LogInformation("Orphaned subtitle cleaner is disabled in configuration. Skipping.");
             progress.Report(100);

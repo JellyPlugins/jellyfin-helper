@@ -1,4 +1,6 @@
-﻿using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
+using Jellyfin.Plugin.JellyfinHelper.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
@@ -8,7 +10,8 @@ using MediaBrowser.Model.Entities;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests;
 
-public class CleanEmptyMediaFoldersTaskTests
+[Collection("ConfigOverride")]
+public class CleanEmptyMediaFoldersTaskTests : IDisposable
 {
     private readonly Mock<ILibraryManager> _libraryManagerMock;
     private readonly Mock<IFileSystem> _fileSystemMock;
@@ -21,11 +24,26 @@ public class CleanEmptyMediaFoldersTaskTests
         _fileSystemMock = new Mock<IFileSystem>();
         _loggerMock = new Mock<ILogger<CleanEmptyMediaFoldersTask>>();
         _task = new CleanEmptyMediaFoldersTask(_libraryManagerMock.Object, _fileSystemMock.Object, _loggerMock.Object);
+
+        // Default: DryRun ON — most tests check dry-run log messages
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration
+        {
+            DryRunTrickplay = true,
+            DryRunEmptyMediaFolders = true,
+            DryRunOrphanedSubtitles = true
+        };
+    }
+
+    public void Dispose()
+    {
+        CleanupConfigHelper.ConfigOverride = null;
     }
 
     [Fact]
     public async Task ExecuteInternalAsync_TopLevelFolderWithSubtitlesOnly_DeletesFolder()
     {
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { DryRunEmptyMediaFolders = false };
+
         const string libraryPath = "/media/movies";
         const string movieDir = "/media/movies/Old Movie (2020)";
 
@@ -36,7 +54,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles(movieDir, "movie.nfo", "poster.jpg", "movie.srt");
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("Deleting orphaned media folder", LogLevel.Information);
     }
@@ -50,11 +68,11 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Upcoming Movie (2026)", movieDir));
 
-        // Only metadata/artwork files → likely a wanted-list placeholder → skip
+        // Only metadata/artwork files ? likely a wanted-list placeholder ? skip
         SetupFiles(movieDir, "movie.nfo", "poster.jpg");
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
         VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
@@ -72,7 +90,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles(movieDir, "movie.mkv", "movie.nfo", "poster.jpg");
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
@@ -89,7 +107,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles(movieDir);
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
@@ -106,7 +124,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles(trickplayDir, "index.json", "00001.jpg");
         SetupSubDirs(trickplayDir);
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
@@ -124,7 +142,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles(movieDir, "movie.nfo", "movie.srt");
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
@@ -139,11 +157,11 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Wanted Movie (2026)", movieDir));
 
-        // Only NFO and poster → metadata-only placeholder → should NOT be reported for deletion
+        // Only NFO and poster ? metadata-only placeholder ? should NOT be reported for deletion
         SetupFiles(movieDir, "movie.nfo", "poster.jpg");
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
         VerifyLogContains("Would have deleted 0 folders", LogLevel.Information);
@@ -171,7 +189,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles(season2Dir, "season.nfo");
         SetupSubDirs(season2Dir);
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
@@ -189,11 +207,11 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles(showDir, "tvshow.nfo", "poster.jpg");
         SetupSubDirs(showDir, ("Season 01", season1Dir));
 
-        // Season folder has a subtitle but no video → orphaned
+        // Season folder has a subtitle but no video ? orphaned
         SetupFiles(season1Dir, "season.nfo", "S01E01.srt");
         SetupSubDirs(season1Dir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
@@ -208,14 +226,14 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Cancelled Show (2019)", showDir));
 
-        // Only metadata/artwork → placeholder → skip
+        // Only metadata/artwork ? placeholder ? skip
         SetupFiles(showDir, "tvshow.nfo", "poster.jpg");
         SetupSubDirs(showDir, ("Season 01", season1Dir));
 
         SetupFiles(season1Dir, "season.nfo");
         SetupSubDirs(season1Dir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
     }
@@ -240,7 +258,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles(extrasDir, "behind-the-scenes.mkv");
         SetupSubDirs(extrasDir);
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
@@ -255,14 +273,14 @@ public class CleanEmptyMediaFoldersTaskTests
             ("Old Movie 1 (2018)", "/media/movies/Old Movie 1 (2018)"),
             ("Old Movie 2 (2019)", "/media/movies/Old Movie 2 (2019)"));
 
-        // Both have subtitles (non-metadata) → orphaned
+        // Both have subtitles (non-metadata) ? orphaned
         SetupFiles("/media/movies/Old Movie 1 (2018)", "movie.nfo", "movie.srt");
         SetupSubDirs("/media/movies/Old Movie 1 (2018)");
 
         SetupFiles("/media/movies/Old Movie 2 (2019)", "movie.nfo", "poster.jpg", "movie.ass");
         SetupSubDirs("/media/movies/Old Movie 2 (2019)");
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("Would have deleted 2 folders", LogLevel.Information);
     }
@@ -270,9 +288,11 @@ public class CleanEmptyMediaFoldersTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_NoLibraryFolders_CompletesWithoutError()
     {
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { DryRunEmptyMediaFolders = false };
+
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("Deleted 0 folders", LogLevel.Information);
     }
@@ -294,7 +314,7 @@ public class CleanEmptyMediaFoldersTaskTests
         var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), cts.Token);
+        await _task.ExecuteAsync(new Progress<double>(), cts.Token);
 
         _fileSystemMock.Verify(f => f.GetDirectories(libraryPath2, false), Times.Never);
     }
@@ -302,6 +322,8 @@ public class CleanEmptyMediaFoldersTaskTests
     [Fact]
     public async Task ExecuteInternalAsync_DirectoryScanError_LogsErrorAndContinues()
     {
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { DryRunEmptyMediaFolders = false };
+
         const string libraryPath1 = "/media/movies1";
         const string libraryPath2 = "/media/movies2";
 
@@ -316,7 +338,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles("/media/movies2/Old Movie", "movie.nfo", "movie.srt");
         SetupSubDirs("/media/movies2/Old Movie");
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("Error scanning directory", LogLevel.Error);
         VerifyLogContains("Deleting orphaned media folder", LogLevel.Information);
@@ -338,7 +360,7 @@ public class CleanEmptyMediaFoldersTaskTests
         var reportedValues = new List<double>();
         var progress = new SynchronousProgress<double>(v => reportedValues.Add(v));
 
-        await _task.ExecuteInternalAsync(false, progress, CancellationToken.None);
+        await _task.ExecuteAsync(progress, CancellationToken.None);
 
         Assert.Equal(2, reportedValues.Count);
         Assert.Equal(50, reportedValues[0]);
@@ -365,7 +387,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFilesWithFullNames(movieDir, "/media/movies/SomeMovie/video" + extension);
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
@@ -381,7 +403,7 @@ public class CleanEmptyMediaFoldersTaskTests
 
         SetupTopLevelDirs(libraryPath);
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         _fileSystemMock.Verify(f => f.GetDirectories(libraryPath, false), Times.Once);
     }
@@ -402,7 +424,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles(season1Dir);
         SetupSubDirs(season1Dir);
 
-        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
@@ -420,7 +442,7 @@ public class CleanEmptyMediaFoldersTaskTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([musicFolder]);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         // Music library should never be scanned at all
         _fileSystemMock.Verify(f => f.GetDirectories(musicPath, false), Times.Never);
@@ -439,7 +461,7 @@ public class CleanEmptyMediaFoldersTaskTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([boxsetFolder]);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         // Boxset/Collections library should never be scanned at all
         _fileSystemMock.Verify(f => f.GetDirectories(collectionsPath, false), Times.Never);
@@ -470,7 +492,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles("/media/movies/Old Movie (2020)", "movie.nfo", "movie.srt");
         SetupSubDirs("/media/movies/Old Movie (2020)");
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         // Music should not be scanned
         _fileSystemMock.Verify(f => f.GetDirectories(musicPath, false), Times.Never);
@@ -491,23 +513,23 @@ public class CleanEmptyMediaFoldersTaskTests
             ("Another Good (2020)", "/media/movies/Another Good (2020)"),
             ("Wanted Movie (2026)", "/media/movies/Wanted Movie (2026)"));
 
-        // Good movie with video → keep
+        // Good movie with video ? keep
         SetupFiles("/media/movies/Good Movie (2021)", "movie.mkv", "movie.nfo");
         SetupSubDirs("/media/movies/Good Movie (2021)");
 
-        // Orphaned with subtitle → delete
+        // Orphaned with subtitle ? delete
         SetupFiles("/media/movies/Orphaned Movie (2019)", "movie.nfo", "poster.jpg", "movie.srt");
         SetupSubDirs("/media/movies/Orphaned Movie (2019)");
 
-        // Another good movie with video → keep
+        // Another good movie with video ? keep
         SetupFiles("/media/movies/Another Good (2020)", "film.mp4");
         SetupSubDirs("/media/movies/Another Good (2020)");
 
-        // Wanted movie with only metadata → skip (placeholder)
+        // Wanted movie with only metadata ? skip (placeholder)
         SetupFiles("/media/movies/Wanted Movie (2026)", "movie.nfo", "poster.jpg");
         SetupSubDirs("/media/movies/Wanted Movie (2026)");
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("[Dry Run] Would delete orphaned media folder: /media/movies/Orphaned Movie (2019)", LogLevel.Information);
         VerifyLogContains("Would have deleted 1 folders", LogLevel.Information);
@@ -525,7 +547,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFilesWithFullNames(musicDir, "/media/movies/SomeArtist/track01.mp3", "/media/movies/SomeArtist/track02.flac");
         SetupSubDirs(musicDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
@@ -546,7 +568,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFilesWithFullNames(albumDir, "/media/music/Drake/Album1/song.mp3");
         SetupSubDirs(albumDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
@@ -563,7 +585,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles(boxsetDir);
         SetupSubDirs(boxsetDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
@@ -580,7 +602,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles(collectionDir, "collection.xml");
         SetupSubDirs(collectionDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
@@ -607,7 +629,7 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFilesWithFullNames(artistDir, "/media/music/Artist/track" + extension);
         SetupSubDirs(artistDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
@@ -625,7 +647,7 @@ public class CleanEmptyMediaFoldersTaskTests
         };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([folder]);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         // Should not be scanned due to path-based filter
         _fileSystemMock.Verify(f => f.GetDirectories(collectionsPath, false), Times.Never);
@@ -642,11 +664,11 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Wanted (2026)", movieDir));
 
-        // Only NFO → metadata-only → skip
+        // Only NFO ? metadata-only ? skip
         SetupFiles(movieDir, "movie.nfo");
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
     }
@@ -660,11 +682,11 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Wanted (2026)", movieDir));
 
-        // Only images → metadata-only → skip
+        // Only images ? metadata-only ? skip
         SetupFiles(movieDir, "poster.jpg", "fanart.png", "banner.webp");
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
     }
@@ -678,11 +700,11 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Wanted (2026)", movieDir));
 
-        // NFO + images → metadata-only → skip
+        // NFO + images ? metadata-only ? skip
         SetupFiles(movieDir, "movie.nfo", "poster.jpg", "fanart.png");
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
     }
@@ -696,11 +718,11 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Deleted Movie (2020)", movieDir));
 
-        // NFO + subtitle → has non-metadata file → orphaned → delete
+        // NFO + subtitle ? has non-metadata file ? orphaned ? delete
         SetupFiles(movieDir, "movie.nfo", "movie.srt");
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
@@ -714,11 +736,11 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Strange Movie (2020)", movieDir));
 
-        // NFO + unknown file → has non-metadata → orphaned → delete
+        // NFO + unknown file ? has non-metadata ? orphaned ? delete
         SetupFiles(movieDir, "movie.nfo", "poster.jpg", "readme.txt");
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
@@ -733,14 +755,14 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Wanted Show (2026)", showDir));
 
-        // Show folder with NFO, Season folder with NFO → all metadata-only → skip
+        // Show folder with NFO, Season folder with NFO ? all metadata-only ? skip
         SetupFiles(showDir, "tvshow.nfo", "poster.jpg");
         SetupSubDirs(showDir, ("Season 01", season1Dir));
 
         SetupFiles(season1Dir, "season.nfo");
         SetupSubDirs(season1Dir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
     }
@@ -755,14 +777,14 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Old Show (2019)", showDir));
 
-        // Show has NFO, but Season has a subtitle → non-metadata found deep in tree → orphaned
+        // Show has NFO, but Season has a subtitle ? non-metadata found deep in tree ? orphaned
         SetupFiles(showDir, "tvshow.nfo");
         SetupSubDirs(showDir, ("Season 01", season1Dir));
 
         SetupFiles(season1Dir, "season.nfo", "S01E01.srt");
         SetupSubDirs(season1Dir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
@@ -787,7 +809,7 @@ public class CleanEmptyMediaFoldersTaskTests
             "/media/movies/OrphanedMovie/subtitle" + extension);
         SetupSubDirs(movieDir);
 
-        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }

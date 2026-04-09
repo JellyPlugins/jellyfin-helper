@@ -5,6 +5,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests;
 
+[Collection("ConfigOverride")]
 public class CleanupConfigHelperTests
 {
     // ===== ParseCommaSeparated Tests =====
@@ -88,19 +89,24 @@ public class CleanupConfigHelperTests
         Assert.Contains(".jellyfin-trash", result);
     }
 
-    // ===== IsEffectiveDryRun Tests =====
+    // ===== Per-Task DryRun Tests =====
 
     [Fact]
-    public void IsEffectiveDryRun_ExplicitTrue_ReturnsTrue()
+    public void IsDryRunTrickplay_DefaultConfig_ReturnsTrue()
     {
-        // Explicit dry run always returns true regardless of config
-        Assert.True(CleanupConfigHelper.IsEffectiveDryRun(true));
+        // When Plugin.Instance is null, config defaults have DryRunTrickplay = true
+        Assert.True(CleanupConfigHelper.IsDryRunTrickplay());
     }
 
     [Fact]
-    public void IsEffectiveDryRun_ExplicitFalse_ReturnsDryRunByDefault()
+    public void IsDryRunEmptyMediaFolders_DefaultConfig_ReturnsTrue()
     {
-        // When Plugin.Instance is null, config.DryRunByDefault defaults to false
-        Assert.False(CleanupConfigHelper.IsEffectiveDryRun(false));
+        Assert.True(CleanupConfigHelper.IsDryRunEmptyMediaFolders());
+    }
+
+    [Fact]
+    public void IsDryRunOrphanedSubtitles_DefaultConfig_ReturnsTrue()
+    {
+        Assert.True(CleanupConfigHelper.IsDryRunOrphanedSubtitles());
     }
 }
