@@ -13,8 +13,8 @@
         "changelog": "Fixed subtitle false positives (explicit ISO 639 allowlists instead of naive 2-3 letter heuristic), moved SubtitleFlags/KnownLanguageCodes to MediaExtensions, ArrIntegrationService now uses IHttpClientFactory, CleanupTrackingService thread-safety with lock, specific exception handling, removed _ = ex anti-pattern, 244 tests.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.2/JellyfinHelper_1.0.2.zip",
-        "checksum": "",
-        "timestamp": "2026-04-09T09:50:00Z"
+        "checksum": "d6c4d7e3213d3981e519b41890ba4739",
+        "timestamp": "2026-04-09T08:22:10Z"
       },
       {
         "version": "1.0.1",
