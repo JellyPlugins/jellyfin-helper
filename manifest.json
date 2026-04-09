@@ -12,9 +12,9 @@
         "version": "1.0.0",
         "changelog": "Initial release with trickplay folder cleanup, empty media folder cleanup, orphaned subtitle cleaner, media statistics dashboard, audio codec analysis, export (JSON/CSV), historical trends, trash/recycle bin, Arr stack integration (Radarr/Sonarr), multi-language dashboard (en/de/fr/es/pt/zh/tr), library whitelist/blacklist, and 196 tests.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "",
-        "checksum": "",
-        "timestamp": ""
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.0/JellyfinHelper_1.0.0.zip",
+        "checksum": "9a9318edad522d5f631275a02554ecf4",
+        "timestamp": "2026-04-09T06:33:31Z"
       }
     ]
   }
