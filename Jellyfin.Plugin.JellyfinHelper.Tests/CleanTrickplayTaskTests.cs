@@ -28,9 +28,9 @@ public class CleanTrickplayTaskTests : IDisposable
         // Default: DryRun OFF for most existing tests (non-dry-run behavior)
         CleanupConfigHelper.ConfigOverride = new PluginConfiguration
         {
-            DryRunTrickplay = false,
-            DryRunEmptyMediaFolders = false,
-            DryRunOrphanedSubtitles = false
+            TrickplayTaskMode = TaskMode.Activate,
+            EmptyMediaFolderTaskMode = TaskMode.Activate,
+            OrphanedSubtitleTaskMode = TaskMode.Activate
         };
     }
 
@@ -113,7 +113,7 @@ public class CleanTrickplayTaskTests : IDisposable
     [Fact]
     public async Task ExecuteInternalAsync_DryRun_LogsWouldDelete()
     {
-        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { DryRunTrickplay = true };
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { TrickplayTaskMode = TaskMode.DryRun };
 
         var libraryPath = TestPath("media");
         var trickplayFullName = TestPath("media", "Movie.trickplay");
@@ -144,7 +144,7 @@ public class CleanTrickplayTaskTests : IDisposable
     [Fact]
     public async Task ExecuteInternalAsync_DryRun_NoLibraryFolders_CompletesWithoutError()
     {
-        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { DryRunTrickplay = true };
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { TrickplayTaskMode = TaskMode.DryRun };
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
 
@@ -156,7 +156,7 @@ public class CleanTrickplayTaskTests : IDisposable
     [Fact]
     public async Task ExecuteInternalAsync_DryRun_NoTrickplayFolders_DeletesNothing()
     {
-        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { DryRunTrickplay = true };
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { TrickplayTaskMode = TaskMode.DryRun };
 
         var libraryPath = TestPath("media");
         var virtualFolder = new VirtualFolderInfo { Locations = [libraryPath] };
@@ -179,7 +179,7 @@ public class CleanTrickplayTaskTests : IDisposable
     [Fact]
     public async Task ExecuteInternalAsync_DryRun_DirectoryScanError_LogsErrorAndContinues()
     {
-        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { DryRunTrickplay = true };
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { TrickplayTaskMode = TaskMode.DryRun };
 
         var libraryPath1 = TestPath("media1");
         var libraryPath2 = TestPath("media2");
@@ -343,7 +343,7 @@ public class CleanTrickplayTaskTests : IDisposable
     [Fact]
     public async Task ExecuteInternalAsync_MultipleOrphanedFolders_DeletesAllAndReportsCount()
     {
-        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { DryRunTrickplay = true };
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { TrickplayTaskMode = TaskMode.DryRun };
 
         var libraryPath = TestPath("media");
         var trickplayFullName1 = TestPath("media", "Movie1.trickplay");

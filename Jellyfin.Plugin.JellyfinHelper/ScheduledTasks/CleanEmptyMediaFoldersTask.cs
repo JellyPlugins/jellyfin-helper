@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
-using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
@@ -42,7 +41,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// created by Sonarr/Radarr for wanted media that hasn't been downloaded yet.
 /// </para>
 /// </remarks>
-public class CleanEmptyMediaFoldersTask : IScheduledTask
+public class CleanEmptyMediaFoldersTask
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;
@@ -61,20 +60,13 @@ public class CleanEmptyMediaFoldersTask : IScheduledTask
         _logger = logger;
     }
 
-    /// <inheritdoc />
-    public virtual string Name => "Empty Media Folder Cleaner";
-
-    /// <inheritdoc />
-    public virtual string Key => "EmptyMediaFolderCleaner";
-
-    /// <inheritdoc />
-    public virtual string Description => "Deletes top-level media folders whose entire directory tree contains files but absolutely no video files.";
-
-    /// <inheritdoc />
-    public string Category => "Jellyfin Helper";
-
-    /// <inheritdoc />
-    public virtual Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
+    /// <summary>
+    /// Executes the empty media folder cleanup.
+    /// </summary>
+    /// <param name="progress">Progress reporter.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A completed task.</returns>
+    public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         var effectiveDryRun = CleanupConfigHelper.IsDryRunEmptyMediaFolders();
         var config = CleanupConfigHelper.GetConfig();
@@ -332,19 +324,5 @@ public class CleanEmptyMediaFoldersTask : IScheduledTask
                 }
             }
         }
-    }
-
-    /// <inheritdoc />
-    public virtual IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
-    {
-        return
-        [
-            new TaskTriggerInfo
-            {
-                Type = TaskTriggerInfoType.WeeklyTrigger,
-                DayOfWeek = DayOfWeek.Sunday,
-                TimeOfDayTicks = TimeSpan.FromHours(3).Ticks
-            }
-        ];
     }
 }

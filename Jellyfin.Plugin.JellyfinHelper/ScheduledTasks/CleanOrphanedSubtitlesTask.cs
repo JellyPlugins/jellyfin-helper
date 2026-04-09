@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
-using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
@@ -31,7 +30,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// are NOT touched because they typically don't follow the video-name pattern and serve the entire folder.
 /// </para>
 /// </remarks>
-public class CleanOrphanedSubtitlesTask : IScheduledTask
+public class CleanOrphanedSubtitlesTask
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;
@@ -50,30 +49,16 @@ public class CleanOrphanedSubtitlesTask : IScheduledTask
         _logger = logger;
     }
 
-    /// <inheritdoc />
-    public virtual string Name => "Orphaned Subtitle Cleaner";
-
-    /// <inheritdoc />
-    public virtual string Key => "OrphanedSubtitleCleaner";
-
-    /// <inheritdoc />
-    public virtual string Description => "Deletes subtitle files (.srt, .ass, .sub, etc.) that no longer have a corresponding video file.";
-
-    /// <inheritdoc />
-    public string Category => "Jellyfin Helper";
-
-    /// <inheritdoc />
-    public virtual Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
+    /// <summary>
+    /// Executes the orphaned subtitle cleanup.
+    /// </summary>
+    /// <param name="progress">Progress reporter.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A completed task.</returns>
+    public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         var effectiveDryRun = CleanupConfigHelper.IsDryRunOrphanedSubtitles();
         var config = CleanupConfigHelper.GetConfig();
-
-        if (!config.EnableSubtitleCleaner && !effectiveDryRun)
-        {
-            _logger.LogInformation("Orphaned subtitle cleaner is disabled in configuration. Skipping.");
-            progress.Report(100);
-            return Task.CompletedTask;
-        }
 
         if (effectiveDryRun)
         {
@@ -313,19 +298,5 @@ public class CleanOrphanedSubtitlesTask : IScheduledTask
         }
 
         return MediaExtensions.SubtitleFlags.Contains(segment) || MediaExtensions.KnownLanguageCodes.Contains(segment);
-    }
-
-    /// <inheritdoc />
-    public virtual IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
-    {
-        return
-        [
-            new TaskTriggerInfo
-            {
-                Type = TaskTriggerInfoType.WeeklyTrigger,
-                DayOfWeek = DayOfWeek.Sunday,
-                TimeOfDayTicks = TimeSpan.FromHours(4).Ticks
-            }
-        ];
     }
 }

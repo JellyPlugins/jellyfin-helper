@@ -29,23 +29,78 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public int OrphanMinAgeDays { get; set; }
 
+    // ===== New TaskMode properties (replace old booleans) =====
+
+    /// <summary>
+    /// Gets or sets the execution mode for the Trickplay Folder Cleaner task.
+    /// Default is <see cref="TaskMode.DryRun"/> (safe mode).
+    /// </summary>
+    public TaskMode TrickplayTaskMode { get; set; } = TaskMode.DryRun;
+
+    /// <summary>
+    /// Gets or sets the execution mode for the Empty Media Folder Cleaner task.
+    /// Default is <see cref="TaskMode.DryRun"/> (safe mode).
+    /// </summary>
+    public TaskMode EmptyMediaFolderTaskMode { get; set; } = TaskMode.DryRun;
+
+    /// <summary>
+    /// Gets or sets the execution mode for the Orphaned Subtitle Cleaner task.
+    /// Default is <see cref="TaskMode.DryRun"/> (safe mode).
+    /// </summary>
+    public TaskMode OrphanedSubtitleTaskMode { get; set; } = TaskMode.DryRun;
+
+    /// <summary>
+    /// Gets or sets the execution mode for the .strm File Repair task.
+    /// Default is <see cref="TaskMode.DryRun"/> (safe mode).
+    /// </summary>
+    public TaskMode StrmRepairTaskMode { get; set; } = TaskMode.DryRun;
+
+    // ===== Legacy boolean properties (kept for backward compatibility / config migration) =====
+
     /// <summary>
     /// Gets or sets a value indicating whether the Trickplay Folder Cleaner task runs in dry-run mode.
-    /// Default is true (safe mode).
+    /// Legacy property — use <see cref="TrickplayTaskMode"/> instead.
     /// </summary>
     public bool DryRunTrickplay { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether the Empty Media Folder Cleaner task runs in dry-run mode.
-    /// Default is true (safe mode).
+    /// Legacy property — use <see cref="EmptyMediaFolderTaskMode"/> instead.
     /// </summary>
     public bool DryRunEmptyMediaFolders { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether the Orphaned Subtitle Cleaner task runs in dry-run mode.
-    /// Default is true (safe mode).
+    /// Legacy property — use <see cref="OrphanedSubtitleTaskMode"/> instead.
     /// </summary>
     public bool DryRunOrphanedSubtitles { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the orphaned subtitle cleaner is enabled.
+    /// Legacy property — use <see cref="OrphanedSubtitleTaskMode"/> instead.
+    /// </summary>
+    public bool EnableSubtitleCleaner { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the .strm file repair task is enabled.
+    /// Legacy property — use <see cref="StrmRepairTaskMode"/> instead.
+    /// </summary>
+    public bool EnableStrmRepair { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the .strm repair task runs in dry-run mode.
+    /// Legacy property — use <see cref="StrmRepairTaskMode"/> instead.
+    /// </summary>
+    public bool StrmRepairDryRun { get; set; } = true;
+
+    // ===== Config version for migration =====
+
+    /// <summary>
+    /// Gets or sets the configuration version. Used to detect and apply one-time migrations
+    /// from legacy boolean properties to the new <see cref="TaskMode"/> properties.
+    /// 0 = pre-TaskMode (needs migration), 1 = TaskMode migrated.
+    /// </summary>
+    public int ConfigVersion { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether to use a trash folder instead of permanently deleting files.
@@ -62,22 +117,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Default is 30 days.
     /// </summary>
     public int TrashRetentionDays { get; set; } = 30;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the orphaned subtitle cleaner is enabled.
-    /// </summary>
-    public bool EnableSubtitleCleaner { get; set; } = true;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the .strm file repair task is enabled.
-    /// </summary>
-    public bool EnableStrmRepair { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the .strm repair task runs in dry-run mode.
-    /// Default is true (safe mode).
-    /// </summary>
-    public bool StrmRepairDryRun { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the Radarr API URL (e.g., http://localhost:7878).
@@ -134,6 +173,47 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the timestamp of the last cleanup run.
     /// </summary>
     public DateTime LastCleanupTimestamp { get; set; } = DateTime.MinValue;
+
+    /// <summary>
+    /// Migrates legacy boolean configuration properties to the new <see cref="TaskMode"/> properties.
+    /// This is called once when <see cref="ConfigVersion"/> is 0 (pre-TaskMode config).
+    /// After migration, <see cref="ConfigVersion"/> is set to 1 so migration does not run again.
+    /// </summary>
+    public void MigrateFromLegacyBooleans()
+    {
+        if (ConfigVersion >= 1)
+        {
+            return;
+        }
+
+        // Trickplay: no enable toggle existed, only dry-run
+        TrickplayTaskMode = DryRunTrickplay ? TaskMode.DryRun : TaskMode.Activate;
+
+        // Empty media folders: no enable toggle existed, only dry-run
+        EmptyMediaFolderTaskMode = DryRunEmptyMediaFolders ? TaskMode.DryRun : TaskMode.Activate;
+
+        // Orphaned subtitles: had both enable toggle and dry-run
+        if (!EnableSubtitleCleaner)
+        {
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate;
+        }
+        else
+        {
+            OrphanedSubtitleTaskMode = DryRunOrphanedSubtitles ? TaskMode.DryRun : TaskMode.Activate;
+        }
+
+        // Strm repair: had both enable toggle and dry-run
+        if (!EnableStrmRepair)
+        {
+            StrmRepairTaskMode = TaskMode.Deactivate;
+        }
+        else
+        {
+            StrmRepairTaskMode = StrmRepairDryRun ? TaskMode.DryRun : TaskMode.Activate;
+        }
+
+        ConfigVersion = 1;
+    }
 
     /// <summary>
     /// Migrates legacy single-instance Radarr/Sonarr settings to the new multi-instance lists

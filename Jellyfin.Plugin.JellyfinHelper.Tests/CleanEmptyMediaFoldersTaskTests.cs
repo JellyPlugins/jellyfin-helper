@@ -28,9 +28,9 @@ public class CleanEmptyMediaFoldersTaskTests : IDisposable
         // Default: DryRun ON — most tests check dry-run log messages
         CleanupConfigHelper.ConfigOverride = new PluginConfiguration
         {
-            DryRunTrickplay = true,
-            DryRunEmptyMediaFolders = true,
-            DryRunOrphanedSubtitles = true
+            TrickplayTaskMode = TaskMode.DryRun,
+            EmptyMediaFolderTaskMode = TaskMode.DryRun,
+            OrphanedSubtitleTaskMode = TaskMode.DryRun
         };
     }
 
@@ -42,7 +42,7 @@ public class CleanEmptyMediaFoldersTaskTests : IDisposable
     [Fact]
     public async Task ExecuteInternalAsync_TopLevelFolderWithSubtitlesOnly_DeletesFolder()
     {
-        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { DryRunEmptyMediaFolders = false };
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { EmptyMediaFolderTaskMode = TaskMode.Activate };
 
         const string libraryPath = "/media/movies";
         const string movieDir = "/media/movies/Old Movie (2020)";
@@ -288,7 +288,7 @@ public class CleanEmptyMediaFoldersTaskTests : IDisposable
     [Fact]
     public async Task ExecuteInternalAsync_NoLibraryFolders_CompletesWithoutError()
     {
-        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { DryRunEmptyMediaFolders = false };
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { EmptyMediaFolderTaskMode = TaskMode.Activate };
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
 
@@ -322,7 +322,7 @@ public class CleanEmptyMediaFoldersTaskTests : IDisposable
     [Fact]
     public async Task ExecuteInternalAsync_DirectoryScanError_LogsErrorAndContinues()
     {
-        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { DryRunEmptyMediaFolders = false };
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration { EmptyMediaFolderTaskMode = TaskMode.Activate };
 
         const string libraryPath1 = "/media/movies1";
         const string libraryPath2 = "/media/movies2";

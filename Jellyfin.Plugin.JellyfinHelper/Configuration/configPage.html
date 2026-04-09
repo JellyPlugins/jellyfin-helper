@@ -983,15 +983,21 @@
                     h += '<input type="number" id="cfgOrphanAge" min="0" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
                     h += '<div class="help-text">Items younger than this are protected from deletion.</div>';
                     h += '<div class="section-divider"></div>';
-                    h += '<div style="font-weight:600;font-size:0.9em;margin-top:0.5em;">Dry-Run Mode (per Task)</div>';
-                    h += '<div class="help-text">When enabled, the task only logs what would be deleted without actually deleting.</div>';
-                    h += '<div class="checkbox-row"><input type="checkbox" id="cfgDryRunTrickplay"' + (cfg.DryRunTrickplay ? ' checked' : '') + '><label>Trickplay Folder Cleaner</label></div>';
-                    h += '<div class="checkbox-row"><input type="checkbox" id="cfgDryRunEmptyMedia"' + (cfg.DryRunEmptyMediaFolders ? ' checked' : '') + '><label>Empty Media Folder Cleaner</label></div>';
-                    h += '<div class="checkbox-row"><input type="checkbox" id="cfgDryRunSubtitles"' + (cfg.DryRunOrphanedSubtitles ? ' checked' : '') + '><label>Orphaned Subtitle Cleaner</label></div>';
-                    h += '<div class="checkbox-row"><input type="checkbox" id="cfgDryRunStrm"' + (cfg.StrmRepairDryRun ? ' checked' : '') + '><label>.strm File Repair</label></div>';
-                    h += '<div class="section-divider"></div>';
-                    h += '<div class="checkbox-row"><input type="checkbox" id="cfgSubCleaner"' + (cfg.EnableSubtitleCleaner ? ' checked' : '') + '><label>Enable Orphaned Subtitle Cleaner</label></div>';
-                    h += '<div class="checkbox-row"><input type="checkbox" id="cfgStrmRepair"' + (cfg.EnableStrmRepair ? ' checked' : '') + '><label>Enable .strm File Repair</label></div>';
+                    h += '<div style="font-weight:600;font-size:0.9em;margin-top:0.5em;">Task Mode (per Task)</div>';
+                    h += '<div class="help-text">Choose whether each task is active, runs in dry-run mode (only logs), or is deactivated.</div>';
+                    var taskModes = [['Activate','Activate'],['DryRun','Dry Run'],['Deactivate','Deactivate']];
+                    function renderTaskModeSelect(id, label, currentVal) {
+                        var s = '<label>' + label + '</label><select id="' + id + '">';
+                        for (var tm = 0; tm < taskModes.length; tm++) {
+                            s += '<option value="' + taskModes[tm][0] + '"' + (currentVal === taskModes[tm][0] ? ' selected' : '') + '>' + taskModes[tm][1] + '</option>';
+                        }
+                        s += '</select>';
+                        return s;
+                    }
+                    h += renderTaskModeSelect('cfgTrickplayMode', 'Trickplay Folder Cleaner', cfg.TrickplayTaskMode || 'DryRun');
+                    h += renderTaskModeSelect('cfgEmptyFolderMode', 'Empty Media Folder Cleaner', cfg.EmptyMediaFolderTaskMode || 'DryRun');
+                    h += renderTaskModeSelect('cfgSubtitleMode', 'Orphaned Subtitle Cleaner', cfg.OrphanedSubtitleTaskMode || 'DryRun');
+                    h += renderTaskModeSelect('cfgStrmMode', '.strm File Repair', cfg.StrmRepairTaskMode || 'DryRun');
                     h += '<div class="section-divider"></div>';
                     h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label>Use Trash (Recycle Bin)</label></div>';
                     h += '<label>Trash Folder Path</label>';
@@ -1047,12 +1053,10 @@
                     IncludedLibraries: document.getElementById('cfgIncluded').value,
                     ExcludedLibraries: document.getElementById('cfgExcluded').value,
                     OrphanMinAgeDays: parseInt(document.getElementById('cfgOrphanAge').value, 10) || 0,
-                    DryRunTrickplay: document.getElementById('cfgDryRunTrickplay').checked,
-                    DryRunEmptyMediaFolders: document.getElementById('cfgDryRunEmptyMedia').checked,
-                    DryRunOrphanedSubtitles: document.getElementById('cfgDryRunSubtitles').checked,
-                    StrmRepairDryRun: document.getElementById('cfgDryRunStrm').checked,
-                    EnableSubtitleCleaner: document.getElementById('cfgSubCleaner').checked,
-                    EnableStrmRepair: document.getElementById('cfgStrmRepair').checked,
+                    TrickplayTaskMode: document.getElementById('cfgTrickplayMode').value,
+                    EmptyMediaFolderTaskMode: document.getElementById('cfgEmptyFolderMode').value,
+                    OrphanedSubtitleTaskMode: document.getElementById('cfgSubtitleMode').value,
+                    StrmRepairTaskMode: document.getElementById('cfgStrmMode').value,
                     UseTrash: document.getElementById('cfgTrash').checked,
                     TrashFolderPath: document.getElementById('cfgTrashPath').value,
                     TrashRetentionDays: parseInt(document.getElementById('cfgTrashDays').value, 10) || 30,

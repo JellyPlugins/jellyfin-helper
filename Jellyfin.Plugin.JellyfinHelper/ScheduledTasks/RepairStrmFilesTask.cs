@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
@@ -15,7 +14,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// Scheduled task that scans for broken .strm files and repairs them
 /// by searching the parent directory for a renamed media file.
 /// </summary>
-public class RepairStrmFilesTask : IScheduledTask
+public class RepairStrmFilesTask
 {
     private readonly ILogger<RepairStrmFilesTask> _logger;
     private readonly ILibraryManager _libraryManager;
@@ -56,38 +55,18 @@ public class RepairStrmFilesTask : IScheduledTask
         _strmRepairService = strmRepairService;
     }
 
-    /// <inheritdoc />
-    public string Name => "Repair broken .strm files";
-
-    /// <inheritdoc />
-    public string Key => "RepairStrmFiles";
-
-    /// <inheritdoc />
-    public string Description => "Scans media libraries for .strm files with broken target paths and attempts to repair them by searching the parent directory for renamed media files.";
-
-    /// <inheritdoc />
-    public string Category => "JellyfinHelper";
-
-    /// <inheritdoc />
+    /// <summary>
+    /// Executes the .strm file repair task.
+    /// </summary>
+    /// <param name="progress">Progress reporter.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A completed task.</returns>
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
+        var dryRun = CleanupConfigHelper.IsDryRunStrmRepair();
+
         _logger.LogInformation("Starting .strm file repair task");
         progress.Report(0);
-
-        var config = Plugin.Instance?.Configuration;
-        if (config == null)
-        {
-            _logger.LogError("Plugin configuration is null, cannot execute .strm repair task");
-            progress.Report(100);
-            return Task.CompletedTask;
-        }
-
-        if (!config.EnableStrmRepair)
-        {
-            _logger.LogInformation(".strm repair is disabled in plugin configuration");
-            progress.Report(100);
-            return Task.CompletedTask;
-        }
 
         var libraryPaths = CleanupConfigHelper.GetFilteredLibraryLocations(_libraryManager);
 
@@ -100,13 +79,13 @@ public class RepairStrmFilesTask : IScheduledTask
 
         _logger.LogInformation(
             "Running .strm repair (DryRun: {DryRun}) on {Count} library paths: {Paths}",
-            config.StrmRepairDryRun,
+            dryRun,
             libraryPaths.Count,
             string.Join(", ", libraryPaths));
 
         progress.Report(10);
 
-        var result = _strmRepairService.RepairStrmFiles(libraryPaths, config.StrmRepairDryRun);
+        var result = _strmRepairService.RepairStrmFiles(libraryPaths, dryRun);
 
         progress.Report(90);
 
@@ -120,18 +99,5 @@ public class RepairStrmFilesTask : IScheduledTask
 
         progress.Report(100);
         return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
-    {
-        return
-        [
-            new TaskTriggerInfo
-            {
-                Type = TaskTriggerInfoType.DailyTrigger,
-                TimeOfDayTicks = TimeSpan.FromHours(5).Ticks,
-            },
-        ];
     }
 }
