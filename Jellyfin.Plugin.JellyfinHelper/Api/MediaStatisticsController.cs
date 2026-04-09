@@ -33,7 +33,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 public class MediaStatisticsController : ControllerBase
 {
     private const string StatsCacheKey = "JellyfinHelper_Statistics";
-    private static readonly TimeSpan CacheDuration = TimeSpan.FromDays(7);
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
     private static readonly TimeSpan MinScanInterval = TimeSpan.FromSeconds(30);
     private static readonly object RateLimitLock = new();
@@ -85,7 +85,7 @@ public class MediaStatisticsController : ControllerBase
     }
 
     /// <summary>
-    /// Gets media statistics for all libraries. Results are cached for 7 days.
+    /// Gets media statistics for all libraries. Results are cached for 5 minutes.
     /// </summary>
     /// <param name="forceRefresh">Set to true to bypass the cache and force a fresh scan.</param>
     /// <returns>The media statistics.</returns>
@@ -268,11 +268,12 @@ public class MediaStatisticsController : ControllerBase
             return BadRequest(new { message = "TrashRetentionDays must be >= 0." });
         }
 
-        // Preserve accumulated statistics (don't let the UI overwrite them)
+        // Preserve accumulated statistics and internal state (don't let the UI overwrite them)
         var currentConfig = plugin.Configuration;
         updatedConfig.TotalBytesFreed = currentConfig.TotalBytesFreed;
         updatedConfig.TotalItemsDeleted = currentConfig.TotalItemsDeleted;
         updatedConfig.LastCleanupTimestamp = currentConfig.LastCleanupTimestamp;
+        updatedConfig.ConfigVersion = currentConfig.ConfigVersion;
 
         plugin.UpdateConfiguration(updatedConfig);
 
@@ -312,15 +313,16 @@ public class MediaStatisticsController : ControllerBase
     // === Arr Integration ===
 
     /// <summary>
-    /// Compares all configured Radarr instances with Jellyfin movie libraries.
-    /// Returns a merged result across all instances.
+    /// Compares a single configured Radarr instance (by index) with Jellyfin movie libraries.
+    /// If no index is provided, merges all instances.
     /// </summary>
+    /// <param name="index">Optional zero-based index of the Radarr instance to compare.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The comparison result.</returns>
     [HttpGet("Arr/Radarr/Compare")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ArrComparisonResult>> CompareRadarrAsync(CancellationToken cancellationToken)
+    public async Task<ActionResult<ArrComparisonResult>> CompareRadarrAsync([FromQuery] int? index, CancellationToken cancellationToken)
     {
         var config = CleanupConfigHelper.GetConfig();
         var instances = config.GetEffectiveRadarrInstances();
@@ -328,6 +330,16 @@ public class MediaStatisticsController : ControllerBase
         if (instances.Count == 0)
         {
             return BadRequest(new { message = "At least one Radarr instance must be configured." });
+        }
+
+        if (index.HasValue)
+        {
+            if (index.Value < 0 || index.Value >= instances.Count)
+            {
+                return BadRequest(new { message = $"Invalid instance index {index.Value}. Valid range: 0–{instances.Count - 1}." });
+            }
+
+            instances = new[] { instances[index.Value] }.ToList().AsReadOnly();
         }
 
         var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
@@ -351,15 +363,16 @@ public class MediaStatisticsController : ControllerBase
     }
 
     /// <summary>
-    /// Compares all configured Sonarr instances with Jellyfin TV libraries.
-    /// Returns a merged result across all instances.
+    /// Compares a single configured Sonarr instance (by index) with Jellyfin TV libraries.
+    /// If no index is provided, merges all instances.
     /// </summary>
+    /// <param name="index">Optional zero-based index of the Sonarr instance to compare.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The comparison result.</returns>
     [HttpGet("Arr/Sonarr/Compare")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ArrComparisonResult>> CompareSonarrAsync(CancellationToken cancellationToken)
+    public async Task<ActionResult<ArrComparisonResult>> CompareSonarrAsync([FromQuery] int? index, CancellationToken cancellationToken)
     {
         var config = CleanupConfigHelper.GetConfig();
         var instances = config.GetEffectiveSonarrInstances();
@@ -367,6 +380,16 @@ public class MediaStatisticsController : ControllerBase
         if (instances.Count == 0)
         {
             return BadRequest(new { message = "At least one Sonarr instance must be configured." });
+        }
+
+        if (index.HasValue)
+        {
+            if (index.Value < 0 || index.Value >= instances.Count)
+            {
+                return BadRequest(new { message = $"Invalid instance index {index.Value}. Valid range: 0–{instances.Count - 1}." });
+            }
+
+            instances = new[] { instances[index.Value] }.ToList().AsReadOnly();
         }
 
         var httpClient = _httpClientFactory.CreateClient("ArrIntegration");

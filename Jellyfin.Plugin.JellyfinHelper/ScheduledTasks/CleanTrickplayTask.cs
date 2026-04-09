@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
-using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
@@ -16,7 +15,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// A scheduled task to clean up orphaned trickplay folders.
 /// Supports configuration-driven library filtering, orphan age, trash/delete mode, and storage tracking.
 /// </summary>
-public class CleanTrickplayTask : IScheduledTask
+public class CleanTrickplayTask
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;
@@ -35,34 +34,15 @@ public class CleanTrickplayTask : IScheduledTask
         _logger = logger;
     }
 
-    /// <inheritdoc />
-    public virtual string Name => "Trickplay Folder Cleaner";
-
-    /// <inheritdoc />
-    public virtual string Key => "TrickplayFolderCleaner";
-
-    /// <inheritdoc />
-    public virtual string Description => "Deletes .trickplay folders that no longer have a corresponding media file.";
-
-    /// <inheritdoc />
-    public string Category => "Jellyfin Helper";
-
-    /// <inheritdoc />
-    public virtual Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
-    {
-        return ExecuteInternalAsync(false, progress, cancellationToken);
-    }
-
     /// <summary>
-    /// Executes the task internally.
+    /// Executes the trickplay folder cleanup.
     /// </summary>
-    /// <param name="dryRun">A value indicating whether to perform a dry run.</param>
-    /// <param name="progress">The progress.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>A task representing the operation.</returns>
-    internal Task ExecuteInternalAsync(bool dryRun, IProgress<double> progress, CancellationToken cancellationToken)
+    /// <param name="progress">Progress reporter.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A completed task.</returns>
+    public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var effectiveDryRun = CleanupConfigHelper.IsEffectiveDryRun(dryRun);
+        var effectiveDryRun = CleanupConfigHelper.IsDryRunTrickplay();
         var config = CleanupConfigHelper.GetConfig();
 
         if (effectiveDryRun)
@@ -240,19 +220,5 @@ public class CleanTrickplayTask : IScheduledTask
                 }
             }
         }
-    }
-
-    /// <inheritdoc />
-    public virtual IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
-    {
-        return
-        [
-            new TaskTriggerInfo
-            {
-                Type = TaskTriggerInfoType.WeeklyTrigger,
-                DayOfWeek = DayOfWeek.Sunday,
-                TimeOfDayTicks = TimeSpan.FromHours(2).Ticks
-            }
-        ];
     }
 }

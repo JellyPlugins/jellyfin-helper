@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] — 2026-04-10
+
+### Added
+- **STRM File Repair** — New task that detects and repairs broken `.strm` files whose referenced media file has been renamed or moved. Searches the parent directory for a matching media file and updates the path. URL-based `.strm` files are left untouched.
+- **TaskMode System** — Unified `TaskMode` enum (`Activate`, `DryRun`, `Deactivate`) replaces the previous individual boolean flags (`DryRunTrickplay`, `EnableSubtitleCleaner`, etc.). Each cleanup/repair task can now be independently configured.
+- **Master HelperCleanupTask** — A single orchestrating `IScheduledTask` that runs all sub-tasks (Trickplay, Empty Folders, Orphaned Subtitles, STRM Repair) sequentially, respecting each task's configured mode. Replaces the previous separate scheduled tasks.
+- **Config Migration** — Automatic one-time migration from legacy boolean flags to the new `TaskMode` values via `ConfigVersion`.
+
+### Fixed
+- **ConfigVersion Not Preserved** — `UpdateConfiguration` in the API controller now preserves `ConfigVersion` from the current config, preventing the legacy migration from re-running after every settings save.
+- **DI Resolution** — Removed `System.IO.Abstractions.IFileSystem` from `HelperCleanupTask` constructor (not registered in Jellyfin's DI container). Now instantiated directly in `RunStrmRepair()`.
+
+### Changed
+- **README** — Updated to reflect new STRM Repair feature, TaskMode system, master task architecture, new API endpoints, and revised configuration options.
+- **Test Count** — Increased from 244 to **315 tests** covering STRM repair, TaskMode, HelperCleanupTask orchestration, and config migration.
+
+---
+
 ## [1.0.3] — 2026-04-09
 
 ### Fixed

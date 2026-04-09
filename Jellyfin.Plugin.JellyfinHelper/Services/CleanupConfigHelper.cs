@@ -10,33 +10,98 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services;
 
 /// <summary>
 /// Helper methods that apply plugin configuration rules to cleanup operations.
-/// Provides library filtering, orphan age checking, and trash/delete resolution.
+/// Provides library filtering, orphan age checking, trash/delete resolution, and task mode queries.
 /// </summary>
 public static class CleanupConfigHelper
 {
     /// <summary>
+    /// Gets or sets a configuration override for testing purposes.
+    /// When set, <see cref="GetConfig"/> returns this instead of the plugin configuration.
+    /// </summary>
+    internal static PluginConfiguration? ConfigOverride { get; set; }
+
+    /// <summary>
     /// Gets the current plugin configuration, or a default configuration if the plugin is not available.
+    /// Automatically triggers migration from legacy booleans to <see cref="TaskMode"/> on first access.
     /// </summary>
     /// <returns>The plugin configuration.</returns>
     public static PluginConfiguration GetConfig()
     {
-        return Plugin.Instance?.Configuration ?? new PluginConfiguration();
-    }
-
-    /// <summary>
-    /// Determines whether the effective mode is dry-run, considering both the explicit parameter and config.
-    /// </summary>
-    /// <param name="explicitDryRun">True if explicitly requested as dry run (e.g., from the DryRun task variant).</param>
-    /// <returns>True if the operation should be a dry run.</returns>
-    public static bool IsEffectiveDryRun(bool explicitDryRun)
-    {
-        if (explicitDryRun)
+        if (ConfigOverride != null)
         {
-            return true;
+            return ConfigOverride;
         }
 
-        return GetConfig().DryRunByDefault;
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+
+        // One-time migration from legacy booleans to TaskMode
+        if (config.ConfigVersion < 1)
+        {
+            config.MigrateFromLegacyBooleans();
+            Plugin.Instance?.SaveConfiguration();
+        }
+
+        return config;
     }
+
+    // ===== TaskMode queries =====
+
+    /// <summary>
+    /// Gets the <see cref="TaskMode"/> for the Trickplay Folder Cleaner.
+    /// </summary>
+    /// <returns>The configured task mode.</returns>
+    public static TaskMode GetTrickplayTaskMode() => GetConfig().TrickplayTaskMode;
+
+    /// <summary>
+    /// Gets the <see cref="TaskMode"/> for the Empty Media Folder Cleaner.
+    /// </summary>
+    /// <returns>The configured task mode.</returns>
+    public static TaskMode GetEmptyMediaFolderTaskMode() => GetConfig().EmptyMediaFolderTaskMode;
+
+    /// <summary>
+    /// Gets the <see cref="TaskMode"/> for the Orphaned Subtitle Cleaner.
+    /// </summary>
+    /// <returns>The configured task mode.</returns>
+    public static TaskMode GetOrphanedSubtitleTaskMode() => GetConfig().OrphanedSubtitleTaskMode;
+
+    /// <summary>
+    /// Gets the <see cref="TaskMode"/> for the .strm File Repair task.
+    /// </summary>
+    /// <returns>The configured task mode.</returns>
+    public static TaskMode GetStrmRepairTaskMode() => GetConfig().StrmRepairTaskMode;
+
+    /// <summary>
+    /// Determines whether a task should run in dry-run mode based on its <see cref="TaskMode"/>.
+    /// Returns true for <see cref="TaskMode.DryRun"/>, false for <see cref="TaskMode.Activate"/>.
+    /// Should NOT be called if the task mode is <see cref="TaskMode.Deactivate"/> (check first).
+    /// </summary>
+    /// <param name="mode">The task mode.</param>
+    /// <returns>True if the task should run in dry-run mode.</returns>
+    public static bool IsDryRun(TaskMode mode) => mode != TaskMode.Activate;
+
+    /// <summary>
+    /// Determines whether the Trickplay Folder Cleaner should run in dry-run mode.
+    /// </summary>
+    /// <returns>True if the operation should be a dry run.</returns>
+    public static bool IsDryRunTrickplay() => IsDryRun(GetConfig().TrickplayTaskMode);
+
+    /// <summary>
+    /// Determines whether the Empty Media Folder Cleaner should run in dry-run mode.
+    /// </summary>
+    /// <returns>True if the operation should be a dry run.</returns>
+    public static bool IsDryRunEmptyMediaFolders() => IsDryRun(GetConfig().EmptyMediaFolderTaskMode);
+
+    /// <summary>
+    /// Determines whether the Orphaned Subtitle Cleaner should run in dry-run mode.
+    /// </summary>
+    /// <returns>True if the operation should be a dry run.</returns>
+    public static bool IsDryRunOrphanedSubtitles() => IsDryRun(GetConfig().OrphanedSubtitleTaskMode);
+
+    /// <summary>
+    /// Determines whether the .strm File Repair task should run in dry-run mode.
+    /// </summary>
+    /// <returns>True if the operation should be a dry run.</returns>
+    public static bool IsDryRunStrmRepair() => IsDryRun(GetConfig().StrmRepairTaskMode);
 
     /// <summary>
     /// Gets the filtered library locations based on the whitelist/blacklist configuration.

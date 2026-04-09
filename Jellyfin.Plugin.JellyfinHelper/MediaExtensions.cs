@@ -4,10 +4,15 @@ using System.Collections.Generic;
 namespace Jellyfin.Plugin.JellyfinHelper;
 
 /// <summary>
-/// Provides a shared set of known media file extensions by category.
+/// Provides media file extension constants and utilities.
 /// </summary>
-internal static class MediaExtensions
+public static class MediaExtensions
 {
+    /// <summary>
+    /// Stream file extension used by Jellyfin to reference external media files.
+    /// </summary>
+    public static readonly string StrmExtension = ".strm";
+
     /// <summary>
     /// Gets the set of known video/media file extensions (with leading dot, case-insensitive).
     /// </summary>
@@ -44,7 +49,7 @@ internal static class MediaExtensions
         ".vob",
         ".webm",
         ".wmv",
-        ".wtv"
+        ".wtv",
     };
 
     /// <summary>
@@ -60,7 +65,7 @@ internal static class MediaExtensions
         ".vtt",
         ".smi",
         ".pgs",
-        ".sup"
+        ".sup",
     };
 
     /// <summary>
@@ -76,7 +81,7 @@ internal static class MediaExtensions
         ".svg",
         ".webp",
         ".ico",
-        ".tbn"
+        ".tbn",
     };
 
     /// <summary>
@@ -85,7 +90,7 @@ internal static class MediaExtensions
     internal static HashSet<string> NfoExtensions { get; } = new(StringComparer.OrdinalIgnoreCase)
     {
         ".nfo",
-        ".xml"
+        ".xml",
     };
 
     /// <summary>
@@ -105,8 +110,14 @@ internal static class MediaExtensions
         ".wv",
         ".mka",
         ".dsf",
-        ".dff"
+        ".dff",
     };
+
+    /// <summary>
+    /// Gets the combined set of all known media file extensions (video + audio, case-insensitive).
+    /// Used by the .strm repair service to identify media files.
+    /// </summary>
+    internal static HashSet<string> AllMediaExtensions { get; } = BuildAllMediaExtensions();
 
     /// <summary>
     /// Gets a mapping from audio file extension (with leading dot) to a human-readable codec name.
@@ -126,7 +137,7 @@ internal static class MediaExtensions
         { ".wv", "WavPack" },
         { ".mka", "Unknown" },
         { ".dsf", "DSD" },
-        { ".dff", "DSD" }
+        { ".dff", "DSD" },
     };
 
     /// <summary>
@@ -172,6 +183,7 @@ internal static class MediaExtensions
         "xh",
         "yi", "yo",
         "za", "zh", "zu",
+
         // ISO 639-2/B (3-letter) — most commonly used with subtitles
         "ara", "bul", "cat", "ces", "chi", "cze", "dan", "deu", "dut", "ell",
         "eng", "est", "fas", "fin", "fra", "fre", "ger", "gre", "heb", "hin",
@@ -179,7 +191,24 @@ internal static class MediaExtensions
         "mac", "mkd", "msa", "may", "nld", "nor", "per", "pol", "por", "rum",
         "ron", "rus", "slk", "slo", "slv", "spa", "srp", "swe", "tha", "tur",
         "ukr", "urd", "vie", "zho",
+
         // Common regional/extended tags
         "lat", "gsw", "nob", "nno", "yue", "cmn",
     };
+
+    private static HashSet<string> BuildAllMediaExtensions()
+    {
+        var all = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ext in VideoExtensions)
+        {
+            all.Add(ext);
+        }
+
+        foreach (var ext in AudioExtensions)
+        {
+            all.Add(ext);
+        }
+
+        return all;
+    }
 }
