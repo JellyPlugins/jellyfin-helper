@@ -13,8 +13,8 @@
         "changelog": "Fixed plugin logo 404 (logo.png now included as physical file in release ZIP with meta.json imagePath), fixed SanitizeFileName null-char handling, removed duplicate Cleanup Statistics UI section, removed unused GetThumbImage method, 244 tests.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.3/JellyfinHelper_1.0.3.zip",
-        "checksum": "454d2c0fb66f95ea37a8e98dddf13ce6",
-        "timestamp": "2026-04-09T09:06:48Z"
+        "checksum": "b0f60288eb73f8ac77243592eab38ee5",
+        "timestamp": "2026-04-09T09:21:56Z"
       },
       {
         "version": "1.0.2",
