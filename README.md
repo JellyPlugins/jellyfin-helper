@@ -24,6 +24,7 @@ Automatically deletes top-level media folders whose entire directory tree contai
 **Important behaviors:**
 - **Completely empty folders are skipped** — they are often pre-created by tools like Radarr/Sonarr for upcoming/"wanted" media
 - **TV show folders are checked as a whole** — if at least one video exists anywhere in the tree (even in a deeply nested subdirectory), the entire show folder is kept untouched
+- **Metadata-only folders are skipped** — folders containing only `.nfo` and image files (common for Radarr/Sonarr wanted-list placeholders) are not deleted
 - **`.trickplay` folders are skipped** — they are handled by the Trickplay Folder Cleaner task
 
 ### 🧹 Orphaned Subtitle Cleaner
@@ -155,8 +156,9 @@ All endpoints require admin authorization (`RequiresElevation`).
 3. **Recommended:** Run the **Dry Run** tasks first to review what would be deleted
 4. Check the Jellyfin logs to see the results
 5. Once satisfied, enable the actual cleanup tasks or run them manually
-6. Visit the plugin's **Settings** page to view media library statistics, export data, and review trends
-7. Optionally configure **Arr Integration** to compare your library with Radarr/Sonarr
+6. The plugin appears in the **Jellyfin sidebar menu** — click **Jellyfin Helper** to open the dashboard directly
+7. Visit the plugin's **Settings** page to view media library statistics, export data, and review trends
+8. Optionally configure **Arr Integration** to compare your library with Radarr/Sonarr
 
 ## Building from Source
 

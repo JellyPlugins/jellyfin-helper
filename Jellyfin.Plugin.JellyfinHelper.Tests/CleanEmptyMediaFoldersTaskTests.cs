@@ -24,7 +24,7 @@ public class CleanEmptyMediaFoldersTaskTests
     }
 
     [Fact]
-    public async Task ExecuteInternalAsync_TopLevelFolderWithOnlyMetadata_DeletesFolder()
+    public async Task ExecuteInternalAsync_TopLevelFolderWithSubtitlesOnly_DeletesFolder()
     {
         const string libraryPath = "/media/movies";
         const string movieDir = "/media/movies/Old Movie (2020)";
@@ -32,12 +32,32 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Old Movie (2020)", movieDir));
 
+        // Subtitles are non-metadata files → folder is orphaned and should be deleted
+        SetupFiles(movieDir, "movie.nfo", "poster.jpg", "movie.srt");
+        SetupSubDirs(movieDir);
+
+        await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Deleting orphaned media folder", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_TopLevelFolderWithOnlyMetadata_IsSkipped()
+    {
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Upcoming Movie (2026)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Upcoming Movie (2026)", movieDir));
+
+        // Only metadata/artwork files → likely a wanted-list placeholder → skip
         SetupFiles(movieDir, "movie.nfo", "poster.jpg");
         SetupSubDirs(movieDir);
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogContains("Deleting empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -54,7 +74,7 @@ public class CleanEmptyMediaFoldersTaskTests
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("Deleting empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -71,7 +91,7 @@ public class CleanEmptyMediaFoldersTaskTests
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("Deleting empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -88,7 +108,7 @@ public class CleanEmptyMediaFoldersTaskTests
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("Deleting empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -100,13 +120,33 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Old Movie (2020)", movieDir));
 
-        SetupFiles(movieDir, "movie.nfo");
+        // Include a subtitle so the folder qualifies as orphaned (has non-metadata files)
+        SetupFiles(movieDir, "movie.nfo", "movie.srt");
         SetupSubDirs(movieDir);
 
         await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogContains("[Dry Run] Would delete empty media folder", LogLevel.Information);
-        VerifyLogNeverContains("Deleting empty media folder", LogLevel.Information);
+        VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_DryRun_MetadataOnlyFolder_IsNotReportedForDeletion()
+    {
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Wanted Movie (2026)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Wanted Movie (2026)", movieDir));
+
+        // Only NFO and poster → metadata-only placeholder → should NOT be reported for deletion
+        SetupFiles(movieDir, "movie.nfo", "poster.jpg");
+        SetupSubDirs(movieDir);
+
+        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
+        VerifyLogContains("Would have deleted 0 folders", LogLevel.Information);
     }
 
     [Fact]
@@ -133,11 +173,11 @@ public class CleanEmptyMediaFoldersTaskTests
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("Deleting empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
-    public async Task ExecuteInternalAsync_ShowWithNoVideoAnywhere_IsDeleted()
+    public async Task ExecuteInternalAsync_ShowWithNoVideoButSubtitles_IsDeleted()
     {
         const string libraryPath = "/media/tv";
         const string showDir = "/media/tv/Cancelled Show (2019)";
@@ -149,12 +189,35 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupFiles(showDir, "tvshow.nfo", "poster.jpg");
         SetupSubDirs(showDir, ("Season 01", season1Dir));
 
+        // Season folder has a subtitle but no video → orphaned
+        SetupFiles(season1Dir, "season.nfo", "S01E01.srt");
+        SetupSubDirs(season1Dir);
+
+        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_ShowWithOnlyMetadataNoVideo_IsSkipped()
+    {
+        const string libraryPath = "/media/tv";
+        const string showDir = "/media/tv/Cancelled Show (2019)";
+        const string season1Dir = "/media/tv/Cancelled Show (2019)/Season 01";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Cancelled Show (2019)", showDir));
+
+        // Only metadata/artwork → placeholder → skip
+        SetupFiles(showDir, "tvshow.nfo", "poster.jpg");
+        SetupSubDirs(showDir, ("Season 01", season1Dir));
+
         SetupFiles(season1Dir, "season.nfo");
         SetupSubDirs(season1Dir);
 
         await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogContains("[Dry Run] Would delete empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -179,7 +242,7 @@ public class CleanEmptyMediaFoldersTaskTests
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("Deleting empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -192,10 +255,11 @@ public class CleanEmptyMediaFoldersTaskTests
             ("Old Movie 1 (2018)", "/media/movies/Old Movie 1 (2018)"),
             ("Old Movie 2 (2019)", "/media/movies/Old Movie 2 (2019)"));
 
-        SetupFiles("/media/movies/Old Movie 1 (2018)", "movie.nfo");
+        // Both have subtitles (non-metadata) → orphaned
+        SetupFiles("/media/movies/Old Movie 1 (2018)", "movie.nfo", "movie.srt");
         SetupSubDirs("/media/movies/Old Movie 1 (2018)");
 
-        SetupFiles("/media/movies/Old Movie 2 (2019)", "movie.nfo", "poster.jpg");
+        SetupFiles("/media/movies/Old Movie 2 (2019)", "movie.nfo", "poster.jpg", "movie.ass");
         SetupSubDirs("/media/movies/Old Movie 2 (2019)");
 
         await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
@@ -224,7 +288,7 @@ public class CleanEmptyMediaFoldersTaskTests
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder1, virtualFolder2]);
 
         SetupTopLevelDirs(libraryPath1, ("Movie", "/media/movies1/Movie"));
-        SetupFiles("/media/movies1/Movie", "movie.nfo");
+        SetupFiles("/media/movies1/Movie", "movie.nfo", "movie.srt");
         SetupSubDirs("/media/movies1/Movie");
 
         var cts = new CancellationTokenSource();
@@ -248,13 +312,14 @@ public class CleanEmptyMediaFoldersTaskTests
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1, false)).Throws(new IOException("Access denied"));
 
         SetupTopLevelDirs(libraryPath2, ("Old Movie", "/media/movies2/Old Movie"));
-        SetupFiles("/media/movies2/Old Movie", "movie.nfo");
+        // Include subtitle to make it orphaned
+        SetupFiles("/media/movies2/Old Movie", "movie.nfo", "movie.srt");
         SetupSubDirs("/media/movies2/Old Movie");
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("Error scanning directory", LogLevel.Error);
-        VerifyLogContains("Deleting empty media folder", LogLevel.Information);
+        VerifyLogContains("Deleting orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -302,7 +367,7 @@ public class CleanEmptyMediaFoldersTaskTests
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("Deleting empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -339,7 +404,7 @@ public class CleanEmptyMediaFoldersTaskTests
 
         await _task.ExecuteInternalAsync(false, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("Deleting empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -401,7 +466,8 @@ public class CleanEmptyMediaFoldersTaskTests
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([musicFolder, moviesFolder]);
 
         SetupTopLevelDirs(moviesPath, ("Old Movie (2020)", "/media/movies/Old Movie (2020)"));
-        SetupFiles("/media/movies/Old Movie (2020)", "movie.nfo");
+        // Include subtitle to make it orphaned
+        SetupFiles("/media/movies/Old Movie (2020)", "movie.nfo", "movie.srt");
         SetupSubDirs("/media/movies/Old Movie (2020)");
 
         await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
@@ -410,7 +476,7 @@ public class CleanEmptyMediaFoldersTaskTests
         _fileSystemMock.Verify(f => f.GetDirectories(musicPath, false), Times.Never);
         // Movies should be scanned and orphan detected
         _fileSystemMock.Verify(f => f.GetDirectories(moviesPath, false), Times.Once);
-        VerifyLogContains("[Dry Run] Would delete empty media folder", LogLevel.Information);
+        VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -422,20 +488,28 @@ public class CleanEmptyMediaFoldersTaskTests
         SetupTopLevelDirs(libraryPath,
             ("Good Movie (2021)", "/media/movies/Good Movie (2021)"),
             ("Orphaned Movie (2019)", "/media/movies/Orphaned Movie (2019)"),
-            ("Another Good (2020)", "/media/movies/Another Good (2020)"));
+            ("Another Good (2020)", "/media/movies/Another Good (2020)"),
+            ("Wanted Movie (2026)", "/media/movies/Wanted Movie (2026)"));
 
+        // Good movie with video → keep
         SetupFiles("/media/movies/Good Movie (2021)", "movie.mkv", "movie.nfo");
         SetupSubDirs("/media/movies/Good Movie (2021)");
 
-        SetupFiles("/media/movies/Orphaned Movie (2019)", "movie.nfo", "poster.jpg");
+        // Orphaned with subtitle → delete
+        SetupFiles("/media/movies/Orphaned Movie (2019)", "movie.nfo", "poster.jpg", "movie.srt");
         SetupSubDirs("/media/movies/Orphaned Movie (2019)");
 
+        // Another good movie with video → keep
         SetupFiles("/media/movies/Another Good (2020)", "film.mp4");
         SetupSubDirs("/media/movies/Another Good (2020)");
 
+        // Wanted movie with only metadata → skip (placeholder)
+        SetupFiles("/media/movies/Wanted Movie (2026)", "movie.nfo", "poster.jpg");
+        SetupSubDirs("/media/movies/Wanted Movie (2026)");
+
         await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogContains("[Dry Run] Would delete empty media folder: /media/movies/Orphaned Movie (2019)", LogLevel.Information);
+        VerifyLogContains("[Dry Run] Would delete orphaned media folder: /media/movies/Orphaned Movie (2019)", LogLevel.Information);
         VerifyLogContains("Would have deleted 1 folders", LogLevel.Information);
     }
 
@@ -453,7 +527,7 @@ public class CleanEmptyMediaFoldersTaskTests
 
         await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("[Dry Run] Would delete empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -474,7 +548,7 @@ public class CleanEmptyMediaFoldersTaskTests
 
         await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("[Dry Run] Would delete empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -491,7 +565,7 @@ public class CleanEmptyMediaFoldersTaskTests
 
         await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("[Dry Run] Would delete empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -508,7 +582,7 @@ public class CleanEmptyMediaFoldersTaskTests
 
         await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("[Dry Run] Would delete empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
     [Theory]
@@ -535,7 +609,7 @@ public class CleanEmptyMediaFoldersTaskTests
 
         await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("[Dry Run] Would delete empty media folder", LogLevel.Information);
+        VerifyLogNeverContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -555,6 +629,167 @@ public class CleanEmptyMediaFoldersTaskTests
 
         // Should not be scanned due to path-based filter
         _fileSystemMock.Verify(f => f.GetDirectories(collectionsPath, false), Times.Never);
+    }
+
+    // ========== New metadata-only / placeholder tests ==========
+
+    [Fact]
+    public async Task ExecuteInternalAsync_FolderWithOnlyNfo_IsSkipped()
+    {
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Wanted (2026)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Wanted (2026)", movieDir));
+
+        // Only NFO → metadata-only → skip
+        SetupFiles(movieDir, "movie.nfo");
+        SetupSubDirs(movieDir);
+
+        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_FolderWithOnlyImages_IsSkipped()
+    {
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Wanted (2026)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Wanted (2026)", movieDir));
+
+        // Only images → metadata-only → skip
+        SetupFiles(movieDir, "poster.jpg", "fanart.png", "banner.webp");
+        SetupSubDirs(movieDir);
+
+        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_FolderWithNfoAndImages_IsSkipped()
+    {
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Wanted (2026)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Wanted (2026)", movieDir));
+
+        // NFO + images → metadata-only → skip
+        SetupFiles(movieDir, "movie.nfo", "poster.jpg", "fanart.png");
+        SetupSubDirs(movieDir);
+
+        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_FolderWithSubtitleAndNfo_IsDeleted()
+    {
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Deleted Movie (2020)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Deleted Movie (2020)", movieDir));
+
+        // NFO + subtitle → has non-metadata file → orphaned → delete
+        SetupFiles(movieDir, "movie.nfo", "movie.srt");
+        SetupSubDirs(movieDir);
+
+        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_FolderWithUnknownFileExtension_IsDeleted()
+    {
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Strange Movie (2020)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Strange Movie (2020)", movieDir));
+
+        // NFO + unknown file → has non-metadata → orphaned → delete
+        SetupFiles(movieDir, "movie.nfo", "poster.jpg", "readme.txt");
+        SetupSubDirs(movieDir);
+
+        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_ShowWithNestedMetadataOnly_IsSkipped()
+    {
+        const string libraryPath = "/media/tv";
+        const string showDir = "/media/tv/Wanted Show (2026)";
+        const string season1Dir = "/media/tv/Wanted Show (2026)/Season 01";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Wanted Show (2026)", showDir));
+
+        // Show folder with NFO, Season folder with NFO → all metadata-only → skip
+        SetupFiles(showDir, "tvshow.nfo", "poster.jpg");
+        SetupSubDirs(showDir, ("Season 01", season1Dir));
+
+        SetupFiles(season1Dir, "season.nfo");
+        SetupSubDirs(season1Dir);
+
+        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+
+        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_ShowWithNestedSubtitleNoVideo_IsDeleted()
+    {
+        const string libraryPath = "/media/tv";
+        const string showDir = "/media/tv/Old Show (2019)";
+        const string season1Dir = "/media/tv/Old Show (2019)/Season 01";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Old Show (2019)", showDir));
+
+        // Show has NFO, but Season has a subtitle → non-metadata found deep in tree → orphaned
+        SetupFiles(showDir, "tvshow.nfo");
+        SetupSubDirs(showDir, ("Season 01", season1Dir));
+
+        SetupFiles(season1Dir, "season.nfo", "S01E01.srt");
+        SetupSubDirs(season1Dir);
+
+        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
+    }
+
+    [Theory]
+    [InlineData(".srt")]
+    [InlineData(".ass")]
+    [InlineData(".ssa")]
+    [InlineData(".sub")]
+    [InlineData(".idx")]
+    [InlineData(".vtt")]
+    public async Task ExecuteInternalAsync_VariousSubtitleExtensions_FolderIsDeleted(string extension)
+    {
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/OrphanedMovie";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("OrphanedMovie", movieDir));
+
+        SetupFilesWithFullNames(movieDir,
+            "/media/movies/OrphanedMovie/movie.nfo",
+            "/media/movies/OrphanedMovie/subtitle" + extension);
+        SetupSubDirs(movieDir);
+
+        await _task.ExecuteInternalAsync(true, new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
     // ========== Helper methods ==========

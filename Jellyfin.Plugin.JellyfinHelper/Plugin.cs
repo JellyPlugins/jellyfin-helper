@@ -46,6 +46,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             new PluginPageInfo
             {
                 Name = Name,
+                DisplayName = "Jellyfin Helper",
+                EnableInMainMenu = true,
                 EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
             }
         ];

@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/JellyPlugins/jellyfin-helper/main/logo.png",
     "versions": [
       {
+        "version": "1.0.1",
+        "changelog": "Fixed config page not loading (script/style tags moved inside page div), plugin now visible in Jellyfin sidebar menu with EnableInMainMenu, updated test count to 212.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.1/JellyfinHelper_1.0.1.zip",
+        "checksum": "",
+        "timestamp": "2026-04-09T07:14:00Z"
+      },
+      {
         "version": "1.0.0",
         "changelog": "Initial release with trickplay folder cleanup, empty media folder cleanup, orphaned subtitle cleaner, media statistics dashboard, audio codec analysis, export (JSON/CSV), historical trends, trash/recycle bin, Arr stack integration (Radarr/Sonarr), multi-language dashboard (en/de/fr/es/pt/zh/tr), library whitelist/blacklist, and 196 tests.",
         "targetAbi": "10.11.0.0",

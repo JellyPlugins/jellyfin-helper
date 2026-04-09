@@ -3,6 +3,10 @@
 <head>
     <meta charset="utf-8">
     <title>Jellyfin Helper</title>
+</head>
+<body>
+    <div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+         data-require="emby-input,emby-checkbox,emby-select">
     <style>
         .stats-container {
             max-width: 960px;
@@ -419,9 +423,6 @@
         .arr-list li { padding: 0.15em 0; }
         .arr-count { font-weight: 700; color: #00a4dc; }
     </style>
-</head>
-<body>
-    <div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage">
         <div data-role="content">
             <div class="content-primary">
                 <div class="stats-container">
@@ -449,7 +450,6 @@
                 </div>
             </div>
         </div>
-    </div>
 
     <script type="text/javascript">
         (function () {
@@ -1142,5 +1142,6 @@ apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuratio
             }
         })();
     </script>
+    </div>
 </body>
 </html>
