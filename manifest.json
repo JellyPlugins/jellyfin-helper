@@ -13,8 +13,8 @@
         "changelog": "Added STRM file repair task, unified TaskMode system (Activate/DryRun/Deactivate per task), single master HelperCleanupTask replacing separate scheduled tasks, fixed ConfigVersion not preserved on settings save, fixed DI resolution for System.IO.Abstractions.IFileSystem, updated README, 315 tests.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.4/JellyfinHelper_1.0.4.zip",
-        "checksum": "PLACEHOLDER",
-        "timestamp": "2026-04-10T00:00:00Z"
+        "checksum": "11083b2b941e9d037b3d3b4ca7377a72",
+        "timestamp": "2026-04-09T22:54:24Z"
       },
       {
         "version": "1.0.3",

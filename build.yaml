@@ -1,7 +1,7 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "1.0.3"
+version: "1.0.4"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 overview: "Automated cleanup (trickplay, empty folders, subtitles), media statistics with export/trends, trash bin, Arr integration, and multi-language dashboard."
@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  Fixed plugin logo 404 (logo.png now included as physical file in release ZIP with meta.json imagePath), fixed SanitizeFileName null-char handling, removed duplicate Cleanup Statistics UI section, removed unused GetThumbImage method, 244 tests.
+  Added STRM file repair task, unified TaskMode system (Activate/DryRun/Deactivate per task), single master HelperCleanupTask replacing separate scheduled tasks, fixed ConfigVersion not preserved on settings save, fixed DI resolution for System.IO.Abstractions.IFileSystem, updated README, 315 tests.
