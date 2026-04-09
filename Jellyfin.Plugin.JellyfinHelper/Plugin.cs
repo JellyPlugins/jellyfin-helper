@@ -13,8 +13,6 @@ namespace Jellyfin.Plugin.JellyfinHelper;
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
-    private const string LogoUrl = "https://raw.githubusercontent.com/JellyPlugins/jellyfin-helper/main/logo.png";
-
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
     /// </summary>
@@ -32,10 +30,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <inheritdoc />
     public override Guid Id => Guid.Parse("0c737645-5cbb-4bd8-80c7-d377b560aaa4");
 
-    /// <summary>
-    /// Gets the plugin thumbnail image URL displayed in the Jellyfin dashboard.
-    /// </summary>
-    public string ThumbImageUrl => LogoUrl;
+    /// <inheritdoc />
+    public override string? Description => "Automated cleanup (trickplay, empty folders, subtitles), media statistics, trash bin, Arr integration.";
 
     /// <summary>
     /// Gets the current plugin instance.

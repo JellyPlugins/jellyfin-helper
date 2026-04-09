@@ -1,1 +1,2 @@
-93412df542bb0deb745858c7ae96376c  JellyfinHelper_2.0.2.zip
+00d8351065a28adea8e5830fdb64903e  JellyfinHelper_2.0.3.zip
+

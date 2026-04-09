@@ -1079,6 +1079,8 @@ apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuratio
 
             // --- Page initialization ---
             var _pageInitialized = false;
+            var _initRetries = 0;
+            var _maxInitRetries = 20;
 
             function initPage() {
                 if (_pageInitialized) return;
@@ -1088,24 +1090,46 @@ apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuratio
                 var btnExportCsv = document.getElementById('btnExportCsv');
 
                 if (!btnRefresh) {
-                    console.warn('Jellyfin Helper: DOM not ready, will retry…');
+                    _initRetries++;
+                    if (_initRetries < _maxInitRetries) {
+                        console.warn('Jellyfin Helper: DOM not ready, retry ' + _initRetries + '/' + _maxInitRetries);
+                        setTimeout(initPage, 250);
+                    } else {
+                        console.error('Jellyfin Helper: Could not find btnRefresh after ' + _maxInitRetries + ' retries');
+                    }
                     return;
                 }
 
                 _pageInitialized = true;
 
-                btnRefresh.addEventListener('click', loadStatistics);
-                btnExportJson.addEventListener('click', function () { triggerExport('Json'); });
-                btnExportCsv.addEventListener('click', function () { triggerExport('Csv'); });
+                btnRefresh.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    console.log('Jellyfin Helper: Scan button clicked');
+                    loadStatistics();
+                });
+                if (btnExportJson) {
+                    btnExportJson.addEventListener('click', function () { triggerExport('Json'); });
+                }
+                if (btnExportCsv) {
+                    btnExportCsv.addEventListener('click', function () { triggerExport('Csv'); });
+                }
 
-                console.log('Jellyfin Helper: Page initialized');
+                console.log('Jellyfin Helper: Page initialized successfully');
             }
 
             // Use Jellyfin's page lifecycle events
             var pageEl = document.querySelector('#JellyfinHelperConfigPage');
             if (pageEl) {
-                pageEl.addEventListener('pageshow', function () { setTimeout(initPage, 0); });
-                pageEl.addEventListener('viewshow', function () { setTimeout(initPage, 0); });
+                pageEl.addEventListener('pageshow', function () {
+                    _pageInitialized = false;
+                    _initRetries = 0;
+                    setTimeout(initPage, 0);
+                });
+                pageEl.addEventListener('viewshow', function () {
+                    _pageInitialized = false;
+                    _initRetries = 0;
+                    setTimeout(initPage, 0);
+                });
             }
 
             // Fallback: try immediately in case events already fired or won't fire
