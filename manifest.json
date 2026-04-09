@@ -13,8 +13,8 @@
         "changelog": "Critical bugfix: Music libraries and Boxset/Collection folders are now fully protected from deletion. Audio files (.mp3, .flac, .wav, etc.) are recognized as valid media. Folders containing [boxset] or [collection] tags are always skipped. Collections path locations are filtered at library level. Fixed bug where safeLocations filter was computed but not returned. 196 tests.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.0.4/JellyfinHelper_2.0.4.zip",
-        "checksum": "65020c2f1e58efa41c93de9b98899d8f",
-        "timestamp": "2026-04-09T05:27:12Z"
+        "checksum": "c4691b5d5beadd994720bc088d50f0fa",
+        "timestamp": "2026-04-09T06:07:21Z"
       },
       {
         "version": "2.0.2",
