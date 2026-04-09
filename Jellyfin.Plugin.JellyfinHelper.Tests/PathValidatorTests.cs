@@ -89,9 +89,19 @@ public class PathValidatorTests
     [Fact]
     public void SanitizeFileName_ReplacesInvalidChars()
     {
-        // The '<' character is invalid in filenames on Windows
-        var result = PathValidator.SanitizeFileName("file<name>.txt");
-        Assert.DoesNotContain("<", result);
-        Assert.DoesNotContain(">", result);
+        // Use characters that are invalid on ALL platforms (null char is always invalid)
+        var invalidChars = Path.GetInvalidFileNameChars();
+        if (invalidChars.Length == 0)
+        {
+            return; // Nothing to test on this platform
+        }
+
+        var testChar = invalidChars[0];
+        var input = $"file{testChar}name.txt";
+        var result = PathValidator.SanitizeFileName(input);
+
+        // The invalid char should be replaced with '_'
+        Assert.DoesNotContain(testChar.ToString(), result);
+        Assert.Contains("name.txt", result);
     }
 }
