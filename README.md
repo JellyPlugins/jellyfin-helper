@@ -30,6 +30,9 @@ Automatically deletes top-level media folders whose entire directory tree contai
 ### 🧹 Orphaned Subtitle Cleaner
 Automatically detects and removes orphaned subtitle files (`.srt`, `.sub`, `.ssa`, `.ass`, `.vtt`, etc.) that no longer have a corresponding video file in the same directory. This commonly occurs when media files are replaced, moved, or deleted while leftover subtitles remain behind.
 
+### 🔧 STRM File Repair
+Automatically detects and repairs broken `.strm` files whose referenced media file has been renamed or moved. When a `.strm` file points to a non-existent path, the plugin searches the parent directory for a matching media file and updates the path. URL-based `.strm` files (e.g. `http://`, `rtsp://`) are left untouched.
+
 ### 📊 Media Library Statistics
 A settings page that provides a comprehensive overview of your media library disk usage:
 - **Video Data in Movies** / **Video Data in Series** / **Audio Data in Music**
@@ -62,7 +65,6 @@ The dashboard UI supports **7 languages**: English, German, French, Spanish, Por
 ### ⚙️ Configurable Library Filtering
 - **Whitelist / Blacklist** — Include or exclude specific libraries from cleanup tasks
 - **Orphan Minimum Age** — Protect recently created items from premature deletion (race condition protection for active downloads)
-- **Dry-Run by Default** — Configure cleanup tasks to log-only mode by default
 
 ### 🔐 Security & Performance
 - **5-Minute Cache** — Statistics are cached with `IMemoryCache`; repeated clicks do not trigger a new scan
@@ -70,19 +72,23 @@ The dashboard UI supports **7 languages**: English, German, French, Spanish, Por
 - **Input Validation** — Path traversal protection with null-byte detection and base directory validation
 - **Graceful Handling** — `IOException` and `UnauthorizedAccessException` are logged and skipped per directory
 
-### 🔍 Dry Run Mode
-All cleanup tasks have a corresponding **Dry Run** variant that logs what *would* be deleted without actually deleting anything. Use these to verify the cleanup behavior before enabling the actual cleanup tasks.
+### ⚙️ Task Modes
+Each cleanup/repair task can be individually configured with one of three modes:
+- **Activate** — Performs the actual cleanup/repair operations
+- **Dry Run** — Logs what *would* happen without making any changes (default for all tasks)
+- **Deactivate** — Skips the task entirely during scheduled runs
 
 ## Scheduled Tasks
 
 | Task | Description | Default Schedule |
 |------|-------------|-----------------|
-| **Trickplay Folder Cleaner** | Deletes orphaned `.trickplay` folders | Weekly, Sunday 2:00 AM |
-| **Trickplay Folder Cleaner (Dry Run)** | Logs orphaned `.trickplay` folders without deleting | No default trigger |
-| **Empty Media Folder Cleaner** | Deletes media folders with no video files | Weekly, Sunday 3:00 AM |
-| **Empty Media Folder Cleaner (Dry Run)** | Logs empty media folders without deleting | No default trigger |
-| **Orphaned Subtitle Cleaner** | Deletes orphaned subtitle files | Weekly, Sunday 4:00 AM |
-| **Orphaned Subtitle Cleaner (Dry Run)** | Logs orphaned subtitles without deleting | No default trigger |
+| **Helper Cleanup** | Master task that orchestrates all sub-tasks sequentially | Weekly, Sunday 3:00 AM |
+
+The **Helper Cleanup** task runs the following sub-tasks in order, each respecting its configured task mode:
+1. Trickplay Folder Cleanup
+2. Empty Media Folder Cleanup
+3. Orphaned Subtitle Cleanup
+4. STRM File Repair
 
 All tasks appear under the **Jellyfin Helper** category in the Jellyfin scheduled tasks dashboard.
 
@@ -96,6 +102,9 @@ All tasks appear under the **Jellyfin Helper** category in the Jellyfin schedule
 | `/JellyfinHelper/Statistics/History` | GET | Retrieve historical snapshots for trend graph |
 | `/JellyfinHelper/Translations` | GET | Get UI translations for specified language |
 | `/JellyfinHelper/Configuration` | GET/POST | Get or update plugin settings |
+| `/JellyfinHelper/Libraries` | GET | Get available library names for configuration |
+| `/JellyfinHelper/Cleanup/Statistics` | GET | Get accumulated cleanup statistics |
+| `/JellyfinHelper/Trash/Summary` | GET | Get trash folder summary across libraries |
 | `/JellyfinHelper/Arr/Radarr/Compare` | GET | Compare Jellyfin movies with Radarr |
 | `/JellyfinHelper/Arr/Sonarr/Compare` | GET | Compare Jellyfin TV shows with Sonarr |
 
@@ -108,8 +117,10 @@ All endpoints require admin authorization (`RequiresElevation`).
 | **Included Libraries** | Whitelist of library names (comma-separated) | Empty (all) |
 | **Excluded Libraries** | Blacklist of library names (comma-separated) | Empty (none) |
 | **Orphan Minimum Age** | Minimum age (days) before an item is considered orphaned | 0 |
-| **Dry-Run by Default** | Cleanup tasks log-only without deleting | Off |
-| **Enable Subtitle Cleaner** | Enable the orphaned subtitle cleanup task | On |
+| **Trickplay Task Mode** | Mode for trickplay cleanup (Activate / DryRun / Deactivate) | DryRun |
+| **Empty Folder Task Mode** | Mode for empty media folder cleanup | DryRun |
+| **Subtitle Task Mode** | Mode for orphaned subtitle cleanup | DryRun |
+| **STRM Repair Task Mode** | Mode for STRM file repair | DryRun |
 | **Use Trash** | Move to trash instead of permanent delete | Off |
 | **Trash Folder Path** | Relative or absolute path to the trash folder | `.jellyfin-trash` |
 | **Trash Retention** | Days to keep items in trash before purging | 30 |
@@ -151,13 +162,13 @@ All endpoints require admin authorization (`RequiresElevation`).
 
 ## Usage
 
-1. After installation, go to **Dashboard** → **Scheduled Tasks**
-2. Look for tasks under the **Jellyfin Helper** category
-3. **Recommended:** Run the **Dry Run** tasks first to review what would be deleted
-4. Check the Jellyfin logs to see the results
-5. Once satisfied, enable the actual cleanup tasks or run them manually
-6. The plugin appears in the **Jellyfin sidebar menu** — click **Jellyfin Helper** to open the dashboard directly
-7. Visit the plugin's **Settings** page to view media library statistics, export data, and review trends
+1. After installation, the plugin appears in the **Jellyfin sidebar menu** — click **Jellyfin Helper** to open the dashboard
+2. Visit the plugin's **Settings** page to configure task modes, library filtering, and other options
+3. All tasks default to **Dry Run** mode — check the Jellyfin logs to review what would be affected
+4. Once satisfied, switch individual tasks to **Activate** mode in the settings
+5. Go to **Dashboard** → **Scheduled Tasks** and find **Helper Cleanup** under the **Jellyfin Helper** category
+6. Run the task manually or let it run on its weekly schedule
+7. Use the dashboard to view media library statistics, export data, and review trends
 8. Optionally configure **Arr Integration** to compare your library with Radarr/Sonarr
 
 ## Building from Source

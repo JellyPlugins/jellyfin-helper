@@ -2,12 +2,20 @@
   {
     "guid": "0c737645-5cbb-4bd8-80c7-d377b560aaa4",
     "name": "Jellyfin Helper",
-    "description": "Cleans up orphaned .trickplay folders, empty media folders, and orphaned subtitles. Provides media library statistics with audio codec analysis, export, caching, historical trends, trash/recycle bin, Arr stack integration (Radarr/Sonarr), and a multi-language dashboard (en, de, fr, es, pt, zh, tr).",
-    "overview": "Automated cleanup (trickplay, empty folders, subtitles), media statistics with export/trends, trash bin, Arr integration, and multi-language dashboard.",
+    "description": "Cleans up orphaned .trickplay folders, empty media folders, and orphaned subtitles. Repairs broken .strm files. Provides media library statistics with audio codec analysis, export, caching, historical trends, trash/recycle bin, Arr stack integration (Radarr/Sonarr), and a multi-language dashboard (en, de, fr, es, pt, zh, tr).",
+    "overview": "Automated cleanup (trickplay, empty folders, subtitles), STRM repair, media statistics with export/trends, trash bin, Arr integration, and multi-language dashboard.",
     "owner": "JellyPlugins",
     "category": "General",
     "imageUrl": "https://raw.githubusercontent.com/JellyPlugins/jellyfin-helper/main/Jellyfin.Plugin.JellyfinHelper/logo.png",
     "versions": [
+      {
+        "version": "1.0.4",
+        "changelog": "Added STRM file repair task, unified TaskMode system (Activate/DryRun/Deactivate per task), single master HelperCleanupTask replacing separate scheduled tasks, fixed ConfigVersion not preserved on settings save, fixed DI resolution for System.IO.Abstractions.IFileSystem, updated README, 315 tests.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.4/JellyfinHelper_1.0.4.zip",
+        "checksum": "PLACEHOLDER",
+        "timestamp": "2026-04-10T00:00:00Z"
+      },
       {
         "version": "1.0.3",
         "changelog": "Fixed plugin logo 404 (logo.png now included as physical file in release ZIP with meta.json imagePath), fixed SanitizeFileName null-char handling, removed duplicate Cleanup Statistics UI section, removed unused GetThumbImage method, 244 tests.",

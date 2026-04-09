@@ -268,11 +268,12 @@ public class MediaStatisticsController : ControllerBase
             return BadRequest(new { message = "TrashRetentionDays must be >= 0." });
         }
 
-        // Preserve accumulated statistics (don't let the UI overwrite them)
+        // Preserve accumulated statistics and internal state (don't let the UI overwrite them)
         var currentConfig = plugin.Configuration;
         updatedConfig.TotalBytesFreed = currentConfig.TotalBytesFreed;
         updatedConfig.TotalItemsDeleted = currentConfig.TotalItemsDeleted;
         updatedConfig.LastCleanupTimestamp = currentConfig.LastCleanupTimestamp;
+        updatedConfig.ConfigVersion = currentConfig.ConfigVersion;
 
         plugin.UpdateConfiguration(updatedConfig);
 

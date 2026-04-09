@@ -22,7 +22,6 @@ public class HelperCleanupTask : IScheduledTask
     private readonly IFileSystem _fileSystem;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<HelperCleanupTask> _logger;
-    private readonly global::System.IO.Abstractions.IFileSystem _abstractFileSystem;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HelperCleanupTask"/> class.
@@ -30,18 +29,15 @@ public class HelperCleanupTask : IScheduledTask
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="fileSystem">The file system.</param>
     /// <param name="loggerFactory">The logger factory.</param>
-    /// <param name="abstractFileSystem">The abstract file system.</param>
     public HelperCleanupTask(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
-        ILoggerFactory loggerFactory,
-        global::System.IO.Abstractions.IFileSystem abstractFileSystem)
+        ILoggerFactory loggerFactory)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<HelperCleanupTask>();
-        _abstractFileSystem = abstractFileSystem;
     }
 
     /// <inheritdoc />
@@ -156,7 +152,7 @@ public class HelperCleanupTask : IScheduledTask
         var task = new RepairStrmFilesTask(
             _loggerFactory.CreateLogger<RepairStrmFilesTask>(),
             _libraryManager,
-            _abstractFileSystem,
+            new System.IO.Abstractions.FileSystem(),
             _loggerFactory.CreateLogger<StrmRepairService>());
         return task.ExecuteAsync(progress, cancellationToken);
     }

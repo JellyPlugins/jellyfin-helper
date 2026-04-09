@@ -20,7 +20,6 @@ public class HelperCleanupTaskTests : IDisposable
     private readonly Mock<ILibraryManager> _libraryManagerMock;
     private readonly Mock<IFileSystem> _fileSystemMock;
     private readonly Mock<ILoggerFactory> _loggerFactoryMock;
-    private readonly MockFileSystem _abstractFileSystem;
     private readonly HelperCleanupTask _task;
     private readonly Mock<ILogger<HelperCleanupTask>> _loggerMock;
 
@@ -29,7 +28,6 @@ public class HelperCleanupTaskTests : IDisposable
         _libraryManagerMock = new Mock<ILibraryManager>();
         _fileSystemMock = new Mock<IFileSystem>();
         _loggerFactoryMock = new Mock<ILoggerFactory>();
-        _abstractFileSystem = new MockFileSystem();
         _loggerMock = new Mock<ILogger<HelperCleanupTask>>();
 
         // Setup logger factory to return loggers for all required types
@@ -51,8 +49,7 @@ public class HelperCleanupTaskTests : IDisposable
         _task = new HelperCleanupTask(
             _libraryManagerMock.Object,
             _fileSystemMock.Object,
-            _loggerFactoryMock.Object,
-            _abstractFileSystem);
+            _loggerFactoryMock.Object);
 
         // Default: All tasks activated
         CleanupConfigHelper.ConfigOverride = new PluginConfiguration
