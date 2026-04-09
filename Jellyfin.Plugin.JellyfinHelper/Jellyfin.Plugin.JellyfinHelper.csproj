@@ -34,14 +34,10 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Configuration\configPage.html" />
-    <EmbeddedResource Include="logo.png" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Include="logo.png">
+    <EmbeddedResource Include="logo.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </None>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>
