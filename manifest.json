@@ -13,7 +13,7 @@
         "changelog": "Critical bugfix: Music and Boxset/Collection libraries are now automatically excluded from all cleanup tasks, preventing incorrect deletion of music folders and Jellyfin collection metadata. Test coverage increased to 181 tests.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.0.2/JellyfinHelper_2.0.2.zip",
-        "checksum": "80f818dd5fa3d7151f54a17b9dcd551b",
+        "checksum": "93412df542bb0deb745858c7ae96376c",
         "timestamp": "2026-04-09T01:09:18Z"
       },
       {
