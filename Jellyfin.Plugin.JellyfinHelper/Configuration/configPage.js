@@ -52,6 +52,7 @@
 
     function formatBytes(bytes) {
         if (bytes === 0) return '0 B';
+        if (bytes < 0) return '-' + formatBytes(-bytes);
         var units = ['B', 'KB', 'MB', 'GB', 'TB'];
         var i = Math.floor(Math.log(bytes) / Math.log(1024));
         if (i >= units.length) i = units.length - 1;
@@ -102,7 +103,7 @@
                 'stroke-dasharray="' + dashLen.toFixed(2) + ' ' + dashGap.toFixed(2) + '" ' +
                 'stroke-dashoffset="' + (-offset).toFixed(2) + '" ' +
                 'transform="rotate(-90 ' + cx + ' ' + cy + ')">' +
-                '<title>' + entries[i].label + ': ' + (pct * 100).toFixed(1) + '%</title></circle>';
+                '<title>' + escHtml(entries[i].label) + ': ' + (pct * 100).toFixed(1) + '%</title></circle>';
 
             offset += dashLen;
         }
@@ -116,7 +117,7 @@
             var p = (entries[j].value / total * 100).toFixed(1);
             legend += '<div class="donut-legend-item">' +
                 '<div class="donut-legend-dot" style="background:' + c + '"></div>' +
-                entries[j].label + ' (' + p + '%)</div>';
+                escHtml(entries[j].label) + ' (' + p + '%)</div>';
         }
         legend += '</div>';
 
@@ -841,7 +842,7 @@
         for (var i = 0; i < data.Libraries.length; i++) {
             var lib = data.Libraries[i];
             overviewHtml += '<tr>';
-            overviewHtml += '<td>' + lib.LibraryName + '</td>';
+            overviewHtml += '<td>' + escHtml(lib.LibraryName) + '</td>';
             overviewHtml += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';
             overviewHtml += '<td>' + formatBytes(lib.VideoSize) + '</td>';
             overviewHtml += '<td>' + formatBytes(lib.AudioSize) + '</td>';
