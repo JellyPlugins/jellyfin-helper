@@ -74,7 +74,7 @@
         var entries = [];
         var total = 0;
         for (var key in data) {
-            if (data.hasOwnProperty(key) && data[key] > 0) {
+            if (Object.prototype.hasOwnProperty.call(data, key) && data[key] > 0) {
                 entries.push({ label: key, value: data[key] });
                 total += data[key];
             }
@@ -182,7 +182,7 @@
             var dict = libraries[i][prop];
             if (dict) {
                 for (var key in dict) {
-                    if (dict.hasOwnProperty(key)) {
+                    if (Object.prototype.hasOwnProperty.call(dict, key)) {
                         result[key] = (result[key] || 0) + dict[key];
                     }
                 }
@@ -289,9 +289,9 @@
             h += renderArrInstanceRow(type, i, instances[i]);
         }
         h += '<div id="' + type + 'AddBtnWrap">';
-        if (count < MAX_ARR_INSTANCES) {
-            h += '<button type="button" class="action-btn" id="btnAdd' + type + '" style="margin-top:0.5em;">+ ' + T('addAnother', 'Add another') + ' ' + type + ' ' + T('instance', 'instance') + '</button>';
-        }
+        h += '<button type="button" class="action-btn" id="btnAdd' + type + '"' +
+            (count >= MAX_ARR_INSTANCES ? ' style="display:none;margin-top:0.5em;"' : ' style="margin-top:0.5em;"') +
+            '>+ ' + T('addAnother', 'Add another') + ' ' + type + ' ' + T('instance', 'instance') + '</button>';
         h += '</div>';
         return h;
     }
@@ -429,7 +429,7 @@
             h += '<label>' + T('trashFolder', 'Trash Folder Path') + '</label>';
             h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '">';
             h += '<label>' + T('trashRetention', 'Trash Retention (days)') + '</label>';
-            h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays || 30) + '">';
+            h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
             h += '<div class="section-divider"></div>';
             h += '<label>' + T('language', 'Dashboard Language') + '</label>';
             h += '<select id="cfgLang">';
@@ -485,7 +485,7 @@
             StrmRepairTaskMode: document.getElementById('cfgStrmMode').value,
             UseTrash: document.getElementById('cfgTrash').checked,
             TrashFolderPath: document.getElementById('cfgTrashPath').value,
-            TrashRetentionDays: parseInt(document.getElementById('cfgTrashDays').value, 10) || 30,
+            TrashRetentionDays: (function() { var v = parseInt(document.getElementById('cfgTrashDays').value, 10); return isNaN(v) ? 30 : v; })(),
             Language: document.getElementById('cfgLang').value,
             RadarrUrl: radarrInstances.length > 0 ? radarrInstances[0].Url : '',
             RadarrApiKey: radarrInstances.length > 0 ? radarrInstances[0].ApiKey : '',
