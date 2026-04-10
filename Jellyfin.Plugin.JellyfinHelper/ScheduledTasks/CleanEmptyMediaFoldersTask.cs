@@ -119,7 +119,7 @@ public class CleanEmptyMediaFoldersTask
             _logger.LogInformation("Empty media folder cleanup finished. Deleted {Count} folders, freed {Bytes} bytes.", totalDeleted, totalBytesFreed);
         }
 
-        if (totalDeleted > 0)
+        if (!effectiveDryRun && totalDeleted > 0)
         {
             CleanupTrackingService.RecordCleanup(totalBytesFreed, totalDeleted, _logger);
         }
