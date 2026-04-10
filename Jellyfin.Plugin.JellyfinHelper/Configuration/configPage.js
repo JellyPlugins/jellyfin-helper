@@ -51,6 +51,7 @@
     }
 
     function formatBytes(bytes) {
+        if (!Number.isFinite(bytes)) return '0 B';
         if (bytes === 0) return '0 B';
         if (bytes < 0) return '-' + formatBytes(-bytes);
         var units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -151,7 +152,7 @@
         var barHtml = '<div class="total-bar">';
         for (var s = 0; s < segments.length; s++) {
             if (segments[s].pct > 0) {
-                barHtml += '<div class="bar-segment ' + segments[s].cls + '" style="width:' + segments[s].pct.toFixed(2) + '%" title="' + segments[s].label + '"></div>';
+                barHtml += '<div class="bar-segment ' + segments[s].cls + '" style="width:' + segments[s].pct.toFixed(2) + '%" title="' + escAttr(segments[s].label) + '"></div>';
             }
         }
         barHtml += '</div>';
@@ -577,13 +578,13 @@
             if (data.InBoth.length > 0) { h += '<div class="arr-list"><ul>'; for (var a = 0; a < Math.min(data.InBoth.length, 50); a++) h += '<li>' + escHtml(data.InBoth[a]) + '</li>'; if (data.InBoth.length > 50) h += '<li>… ' + T('andMore', 'and') + ' ' + (data.InBoth.length - 50) + ' ' + T('more', 'more') + '</li>'; h += '</ul></div>'; }
             h += '</div>';
             h += '<div class="arr-section"><h4>📦 ' + T('inArrOnly', 'In Arr Only (with file)') + ' — <span class="arr-count">' + data.InArrOnly.length + '</span></h4>';
-            if (data.InArrOnly.length > 0) { h += '<div class="arr-list"><ul>'; for (var b = 0; b < data.InArrOnly.length; b++) h += '<li>' + escHtml(data.InArrOnly[b]) + '</li>'; h += '</ul></div>'; }
+            if (data.InArrOnly.length > 0) { h += '<div class="arr-list"><ul>'; for (var b = 0; b < Math.min(data.InArrOnly.length, 50); b++) h += '<li>' + escHtml(data.InArrOnly[b]) + '</li>'; if (data.InArrOnly.length > 50) h += '<li>… ' + T('andMore', 'and') + ' ' + (data.InArrOnly.length - 50) + ' ' + T('more', 'more') + '</li>'; h += '</ul></div>'; }
             h += '</div>';
             h += '<div class="arr-section"><h4>⚠️ ' + T('inArrOnlyMissing', 'In Arr Only (no file)') + ' — <span class="arr-count">' + data.InArrOnlyMissing.length + '</span></h4>';
-            if (data.InArrOnlyMissing.length > 0) { h += '<div class="arr-list"><ul>'; for (var c = 0; c < data.InArrOnlyMissing.length; c++) h += '<li>' + escHtml(data.InArrOnlyMissing[c]) + '</li>'; h += '</ul></div>'; }
+            if (data.InArrOnlyMissing.length > 0) { h += '<div class="arr-list"><ul>'; for (var c = 0; c < Math.min(data.InArrOnlyMissing.length, 50); c++) h += '<li>' + escHtml(data.InArrOnlyMissing[c]) + '</li>'; if (data.InArrOnlyMissing.length > 50) h += '<li>… ' + T('andMore', 'and') + ' ' + (data.InArrOnlyMissing.length - 50) + ' ' + T('more', 'more') + '</li>'; h += '</ul></div>'; }
             h += '</div>';
             h += '<div class="arr-section"><h4>🔍 ' + T('inJellyfinOnly', 'In Jellyfin Only') + ' — <span class="arr-count">' + data.InJellyfinOnly.length + '</span></h4>';
-            if (data.InJellyfinOnly.length > 0) { h += '<div class="arr-list"><ul>'; for (var d = 0; d < data.InJellyfinOnly.length; d++) h += '<li>' + escHtml(data.InJellyfinOnly[d]) + '</li>'; h += '</ul></div>'; }
+            if (data.InJellyfinOnly.length > 0) { h += '<div class="arr-list"><ul>'; for (var d = 0; d < Math.min(data.InJellyfinOnly.length, 50); d++) h += '<li>' + escHtml(data.InJellyfinOnly[d]) + '</li>'; if (data.InJellyfinOnly.length > 50) h += '<li>… ' + T('andMore', 'and') + ' ' + (data.InJellyfinOnly.length - 50) + ' ' + T('more', 'more') + '</li>'; h += '</ul></div>'; }
             h += '</div>';
             resultDiv.innerHTML = h;
         }, function () {
@@ -942,6 +943,7 @@
     var _pageInitialized = false;
     var _initRetries = 0;
     var _maxInitRetries = 20;
+    var _handlersBound = false;
 
     function initPage() {
         if (_pageInitialized) return;
@@ -990,16 +992,19 @@
             loadTrendData();
         });
 
-        btnRefresh.addEventListener('click', function (e) {
-            e.preventDefault();
-            console.log('Jellyfin Helper: Scan button clicked');
-            loadStatistics();
-        });
-        if (btnExportJson) {
-            btnExportJson.addEventListener('click', function () { triggerExport('Json'); });
-        }
-        if (btnExportCsv) {
-            btnExportCsv.addEventListener('click', function () { triggerExport('Csv'); });
+        if (!_handlersBound) {
+            btnRefresh.addEventListener('click', function (e) {
+                e.preventDefault();
+                console.log('Jellyfin Helper: Scan button clicked');
+                loadStatistics();
+            });
+            if (btnExportJson) {
+                btnExportJson.addEventListener('click', function () { triggerExport('Json'); });
+            }
+            if (btnExportCsv) {
+                btnExportCsv.addEventListener('click', function () { triggerExport('Csv'); });
+            }
+            _handlersBound = true;
         }
 
         console.log('Jellyfin Helper: Page initialized successfully');
