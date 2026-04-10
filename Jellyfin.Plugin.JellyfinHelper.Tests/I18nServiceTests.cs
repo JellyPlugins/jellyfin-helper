@@ -1,4 +1,7 @@
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Xunit;
 
@@ -117,5 +120,82 @@ public class I18nServiceTests
 
         // Should be separate instances (not the same reference)
         Assert.NotSame(en1, en2);
+    }
+
+    // ===== configPage.html ↔ I18nService sync tests =====
+
+    private static readonly Regex TCallRegex = new(@"T\(\s*'([^']+)'", RegexOptions.Compiled);
+
+    private static string LoadConfigPageHtml()
+    {
+        var assembly = typeof(PluginConfiguration).Assembly;
+        var resourceName = assembly.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith("configPage.html", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(resourceName);
+
+        using var stream = assembly.GetManifestResourceStream(resourceName)!;
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
+    private static HashSet<string> ExtractKeysFromHtml()
+    {
+        var html = LoadConfigPageHtml();
+        var matches = TCallRegex.Matches(html);
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Match match in matches)
+        {
+            keys.Add(match.Groups[1].Value);
+        }
+
+        return keys;
+    }
+
+    [Fact]
+    public void ConfigPage_AllTKeys_ExistInEnglishTranslations()
+    {
+        var htmlKeys = ExtractKeysFromHtml();
+        var english = I18nService.GetTranslations("en");
+
+        var missing = htmlKeys.Where(k => !english.ContainsKey(k)).OrderBy(k => k).ToList();
+
+        Assert.True(missing.Count == 0,
+            $"The following T() keys from configPage.html are missing in English translations: {string.Join(", ", missing)}");
+    }
+
+    [Theory]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("es")]
+    [InlineData("pt")]
+    [InlineData("zh")]
+    [InlineData("tr")]
+    public void ConfigPage_AllTKeys_ExistInLanguageTranslations(string lang)
+    {
+        var htmlKeys = ExtractKeysFromHtml();
+        var translations = I18nService.GetTranslations(lang);
+
+        var missing = htmlKeys.Where(k => !translations.ContainsKey(k)).OrderBy(k => k).ToList();
+
+        Assert.True(missing.Count == 0,
+            $"The following T() keys from configPage.html are missing in '{lang}' translations: {string.Join(", ", missing)}");
+    }
+
+    [Theory]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("es")]
+    [InlineData("pt")]
+    [InlineData("zh")]
+    [InlineData("tr")]
+    public void AllLanguages_HaveSameKeysAsEnglish(string lang)
+    {
+        var english = I18nService.GetTranslations("en");
+        var translations = I18nService.GetTranslations(lang);
+
+        var missingInLang = english.Keys.Where(k => !translations.ContainsKey(k)).OrderBy(k => k).ToList();
+
+        Assert.True(missingInLang.Count == 0,
+            $"Language '{lang}' is missing the following keys present in English: {string.Join(", ", missingInLang)}");
     }
 }

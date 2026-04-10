@@ -484,7 +484,9 @@
             var _translations = {};
 
             function T(key, fallback) {
-                return _translations[key] || fallback || key;
+                return Object.prototype.hasOwnProperty.call(_translations, key)
+                    ? _translations[key]
+                    : (fallback || key);
             }
 
             function loadTranslations(callback) {
@@ -672,16 +674,16 @@
                 var html = '<div class="health-grid">';
 
                 html += '<div class="health-item"><div class="health-value ' + (totalNoSubs > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoSubs + '</div>';
-                html += '<div class="health-label">' + T('healthNoSubs', 'Videos without subtitles') + '</div></div>';
+                html += '<div class="health-label">' + T('noSubtitles', 'Videos without subtitles') + '</div></div>';
 
                 html += '<div class="health-item"><div class="health-value ' + (totalNoImages > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoImages + '</div>';
-                html += '<div class="health-label">' + T('healthNoImages', 'Videos without images') + '</div></div>';
+                html += '<div class="health-label">' + T('noImages', 'Videos without images') + '</div></div>';
 
                 html += '<div class="health-item"><div class="health-value ' + (totalNoNfo > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoNfo + '</div>';
-                html += '<div class="health-label">' + T('healthNoNfo', 'Videos without NFO') + '</div></div>';
+                html += '<div class="health-label">' + T('noNfo', 'Videos without NFO') + '</div></div>';
 
                 html += '<div class="health-item"><div class="health-value ' + (totalOrphaned > 0 ? 'health-bad' : 'health-ok') + '">' + totalOrphaned + '</div>';
-                html += '<div class="health-label">' + T('healthOrphaned', 'Orphaned metadata dirs') + '</div></div>';
+                html += '<div class="health-label">' + T('orphanedDirs', 'Orphaned metadata dirs') + '</div></div>';
 
                 html += '</div>';
                 return html;
@@ -869,7 +871,7 @@
 
                 // === HEALTH TAB ===
                 html += '<div class="tab-content" id="tab-health">';
-                html += '<div class="section-title">' + T('healthTitle', 'Library Health Checks') + '</div>';
+                html += '<div class="section-title">' + T('healthChecks', 'Library Health Checks') + '</div>';
                 html += renderHealthChecks(data);
                 html += '</div>'; // end health tab
 
@@ -934,6 +936,7 @@
             }
 
             function escAttr(s) { return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+            function escHtml(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
             function collectArrInstances(type) {
                 var rows = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
@@ -1044,12 +1047,12 @@
                     h += renderTaskModeSelect('cfgStrmMode', T('strmFileRepair', '.strm File Repair'), cfg.StrmRepairTaskMode || 'DryRun');
                     h += '<div class="section-divider"></div>';
                     h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label>' + T('useTrash', 'Use Trash (Recycle Bin)') + '</label></div>';
-                    h += '<label>' + T('trashFolderPath', 'Trash Folder Path') + '</label>';
+                    h += '<label>' + T('trashFolder', 'Trash Folder Path') + '</label>';
                     h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '">';
                     h += '<label>' + T('trashRetention', 'Trash Retention (days)') + '</label>';
                     h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays || 30) + '">';
                     h += '<div class="section-divider"></div>';
-                    h += '<label>' + T('dashboardLanguage', 'Dashboard Language') + '</label>';
+                    h += '<label>' + T('language', 'Dashboard Language') + '</label>';
                     h += '<select id="cfgLang">';
                     var langs = [['en','English'],['de','Deutsch'],['fr','Français'],['es','Español'],['pt','Português'],['zh','中文'],['tr','Türkçe']];
                     for (var i = 0; i < langs.length; i++) {
@@ -1080,7 +1083,7 @@
                     attachRemoveHandlers();
                     attachAddHandlers();
                 }, function () {
-                    form.innerHTML = '<div class="error-msg">' + T('settingsLoadFailed', 'Failed to load settings.') + '</div>';
+                    form.innerHTML = '<div class="error-msg">' + T('settingsError', 'Failed to load settings.') + '</div>';
                 });
             }
 
@@ -1120,7 +1123,7 @@
                     msg.innerHTML = '<div class="success-msg">✅ ' + T('settingsSaved', 'Settings saved!') + '</div>';
                     btn.disabled = false;
                 }, function () {
-                    msg.innerHTML = '<div class="error-msg">❌ ' + T('settingsSaveFailed', 'Failed to save settings.') + '</div>';
+                    msg.innerHTML = '<div class="error-msg">❌ ' + T('settingsError', 'Failed to save settings.') + '</div>';
                     btn.disabled = false;
                 });
             }
@@ -1140,7 +1143,7 @@
                         : (cfg.SonarrUrl ? [{ Name: 'Sonarr', Url: cfg.SonarrUrl }] : []);
 
                     if (radarrInstances.length === 0 && sonarrInstances.length === 0) {
-                        btnContainer.innerHTML = '<p style="opacity:0.5;">' + T('noArrConfigured', 'No Radarr or Sonarr instances configured. Add them in the Settings tab.') + '</p>';
+                        btnContainer.innerHTML = '<p style="opacity:0.5;">' + T('arrNotConfigured', 'No Radarr or Sonarr instances configured. Add them in the Settings tab.') + '</p>';
                         return;
                     }
 
@@ -1179,7 +1182,7 @@
                         });
                     }
                 }, function () {
-                    btnContainer.innerHTML = '<div class="error-msg">❌ ' + T('arrConfigFailed', 'Failed to load Arr configuration.') + '</div>';
+                    btnContainer.innerHTML = '<div class="error-msg">❌ ' + T('arrConfigError', 'Failed to load Arr configuration.') + '</div>';
                 });
             }
 
@@ -1191,22 +1194,22 @@
                 var url = apiClient.getUrl('JellyfinHelper/Arr/' + type + '/Compare') + '?index=' + index;
                 apiClient.ajax({ type: 'GET', url: url, dataType: 'json' }).then(function (data) {
                     var instanceLabel = label ? label.replace(T('compareWith', 'Compare with') + ' ', '') : type;
-                    var h = '<h3 style="margin-bottom:0.8em;">' + instanceLabel + '</h3>';
-                    h += '<div class="arr-section"><h4>✅ ' + T('arrInBoth', 'In Both') + ' — <span class="arr-count">' + data.InBoth.length + '</span></h4>';
-                    if (data.InBoth.length > 0) { h += '<div class="arr-list"><ul>'; for (var a = 0; a < Math.min(data.InBoth.length, 50); a++) h += '<li>' + data.InBoth[a] + '</li>'; if (data.InBoth.length > 50) h += '<li>… ' + T('andMore', 'and') + ' ' + (data.InBoth.length - 50) + ' ' + T('more', 'more') + '</li>'; h += '</ul></div>'; }
+                    var h = '<h3 style="margin-bottom:0.8em;">' + escHtml(instanceLabel) + '</h3>';
+                    h += '<div class="arr-section"><h4>✅ ' + T('inBoth', 'In Both') + ' — <span class="arr-count">' + data.InBoth.length + '</span></h4>';
+                    if (data.InBoth.length > 0) { h += '<div class="arr-list"><ul>'; for (var a = 0; a < Math.min(data.InBoth.length, 50); a++) h += '<li>' + escHtml(data.InBoth[a]) + '</li>'; if (data.InBoth.length > 50) h += '<li>… ' + T('andMore', 'and') + ' ' + (data.InBoth.length - 50) + ' ' + T('more', 'more') + '</li>'; h += '</ul></div>'; }
                     h += '</div>';
-                    h += '<div class="arr-section"><h4>📦 ' + T('arrInArrOnly', 'In') + ' ' + type + ' ' + T('arrOnlyWithFile', 'Only (with file)') + ' — <span class="arr-count">' + data.InArrOnly.length + '</span></h4>';
-                    if (data.InArrOnly.length > 0) { h += '<div class="arr-list"><ul>'; for (var b = 0; b < data.InArrOnly.length; b++) h += '<li>' + data.InArrOnly[b] + '</li>'; h += '</ul></div>'; }
+                    h += '<div class="arr-section"><h4>📦 ' + T('inArrOnly', 'In Arr Only (with file)') + ' — <span class="arr-count">' + data.InArrOnly.length + '</span></h4>';
+                    if (data.InArrOnly.length > 0) { h += '<div class="arr-list"><ul>'; for (var b = 0; b < data.InArrOnly.length; b++) h += '<li>' + escHtml(data.InArrOnly[b]) + '</li>'; h += '</ul></div>'; }
                     h += '</div>';
-                    h += '<div class="arr-section"><h4>⚠️ ' + T('arrInArrOnly', 'In') + ' ' + type + ' ' + T('arrOnlyNoFile', 'Only (no file)') + ' — <span class="arr-count">' + data.InArrOnlyMissing.length + '</span></h4>';
-                    if (data.InArrOnlyMissing.length > 0) { h += '<div class="arr-list"><ul>'; for (var c = 0; c < data.InArrOnlyMissing.length; c++) h += '<li>' + data.InArrOnlyMissing[c] + '</li>'; h += '</ul></div>'; }
+                    h += '<div class="arr-section"><h4>⚠️ ' + T('inArrOnlyMissing', 'In Arr Only (no file)') + ' — <span class="arr-count">' + data.InArrOnlyMissing.length + '</span></h4>';
+                    if (data.InArrOnlyMissing.length > 0) { h += '<div class="arr-list"><ul>'; for (var c = 0; c < data.InArrOnlyMissing.length; c++) h += '<li>' + escHtml(data.InArrOnlyMissing[c]) + '</li>'; h += '</ul></div>'; }
                     h += '</div>';
-                    h += '<div class="arr-section"><h4>🔍 ' + T('arrInJellyfinOnly', 'In Jellyfin Only') + ' — <span class="arr-count">' + data.InJellyfinOnly.length + '</span></h4>';
-                    if (data.InJellyfinOnly.length > 0) { h += '<div class="arr-list"><ul>'; for (var d = 0; d < data.InJellyfinOnly.length; d++) h += '<li>' + data.InJellyfinOnly[d] + '</li>'; h += '</ul></div>'; }
+                    h += '<div class="arr-section"><h4>🔍 ' + T('inJellyfinOnly', 'In Jellyfin Only') + ' — <span class="arr-count">' + data.InJellyfinOnly.length + '</span></h4>';
+                    if (data.InJellyfinOnly.length > 0) { h += '<div class="arr-list"><ul>'; for (var d = 0; d < data.InJellyfinOnly.length; d++) h += '<li>' + escHtml(data.InJellyfinOnly[d]) + '</li>'; h += '</ul></div>'; }
                     h += '</div>';
                     resultDiv.innerHTML = h;
                 }, function () {
-                    resultDiv.innerHTML = '<div class="error-msg">❌ ' + T('arrCompareFailed', 'Failed to compare. Check settings.') + '</div>';
+                    resultDiv.innerHTML = '<div class="error-msg">❌ ' + T('arrCompareError', 'Failed to compare. Check settings.') + '</div>';
                 });
             }
 
@@ -1218,7 +1221,7 @@
                     if (!cleanupContainer) return;
                     var h = '<div class="section-title">🧹 ' + T('cleanupStatistics', 'Cleanup Statistics') + '</div>';
                     h += '<div class="stats-grid">';
-                    h += '<div class="stat-card highlight"><h3>' + T('totalSpaceFreed', 'Total Space Freed') + '</h3>';
+                    h += '<div class="stat-card highlight"><h3>' + T('totalBytesFreed', 'Total Space Freed') + '</h3>';
                     h += '<p class="stat-value">' + formatBytes(stats.TotalBytesFreed) + '</p></div>';
                     h += '<div class="stat-card highlight"><h3>' + T('totalItemsDeleted', 'Total Items Deleted') + '</h3>';
                     h += '<p class="stat-value">' + stats.TotalItemsDeleted + '</p>';
@@ -1265,7 +1268,7 @@
                 }, function () {
                     var container = document.getElementById('trendChartContainer');
                     if (container) {
-                        container.innerHTML = '<div class="trend-empty">' + T('trendLoadFailed', 'Could not load trend data.') + '</div>';
+                        container.innerHTML = '<div class="trend-empty">' + T('trendError', 'Could not load trend data.') + '</div>';
                     }
                 });
             }
@@ -1290,7 +1293,7 @@
                     document.body.removeChild(link);
                     setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 5000);
                 }, function () {
-                    alert(T('exportFailed', 'Export failed. Please try again.'));
+                    alert(T('exportError', 'Export failed. Please try again.'));
                 });
             }
 
@@ -1336,7 +1339,7 @@
                     loadCleanupStats();
                 }, function (err) {
                     loading.style.display = 'none';
-                    result.innerHTML = '<div class="error-msg">❌ ' + T('statsLoadFailed', 'Failed to load statistics. Make sure you are an administrator.') + '</div>';
+                    result.innerHTML = '<div class="error-msg">❌ ' + T('error', 'Failed to load statistics. Make sure you are an administrator.') + '</div>';
                     result.style.display = 'block';
                     btn.disabled = false;
                     btn.innerHTML = '&#x21bb; ' + T('scanLibraries', 'Scan Libraries');
