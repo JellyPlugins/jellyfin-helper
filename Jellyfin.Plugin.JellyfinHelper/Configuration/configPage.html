@@ -1,4 +1,4 @@
-﻿    <div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+﻿<div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
          data-require="emby-input,emby-checkbox,emby-select">
     <style>
         .stats-container {
@@ -446,10 +446,10 @@
             <div class="content-primary">
                 <div class="stats-container">
                     <div class="stats-header">
-                        <h2>Jellyfin Helper — Media Statistics</h2>
+                        <h2>Jellyfin Helper &#x2014; Media Statistics</h2>
                         <div class="header-actions">
-                            <button id="btnExportJson" class="export-btn" disabled>📥 JSON</button>
-                            <button id="btnExportCsv" class="export-btn" disabled>📥 CSV</button>
+                            <button id="btnExportJson" class="export-btn" disabled>&#x1f4e5; JSON</button>
+                            <button id="btnExportCsv" class="export-btn" disabled>&#x1f4e5; CSV</button>
                             <button id="btnRefresh" class="refresh-btn">
                                 &#x21bb; Scan Libraries
                             </button>
@@ -459,7 +459,7 @@
                     <div id="statsContent">
                         <div class="loading-overlay" id="loadingIndicator" style="display:none;">
                             <div class="spinner"></div>
-                            <p>Scanning libraries… This may take a while for large collections.</p>
+                            <p>Scanning libraries&#x2026; This may take a while for large collections.</p>
                         </div>
                         <div id="statsPlaceholder" style="text-align:center; padding:3em; opacity:0.5;">
                             <p>Click <strong>Scan Libraries</strong> to analyze your media folders.</p>
@@ -503,6 +503,24 @@
                 }
             }
 
+            function applyStaticTranslations() {
+                var title = document.querySelector('.stats-header h2');
+                if (title) title.textContent = T('title', 'Jellyfin Helper \u2014 Media Statistics');
+
+                var btnRefresh = document.getElementById('btnRefresh');
+                if (btnRefresh) btnRefresh.innerHTML = '&#x21bb; ' + T('scanLibraries', 'Scan Libraries');
+
+                var btnExportJson = document.getElementById('btnExportJson');
+                if (btnExportJson) btnExportJson.textContent = '\ud83d\udce5 ' + T('exportJson', 'JSON');
+                var btnExportCsv = document.getElementById('btnExportCsv');
+                if (btnExportCsv) btnExportCsv.textContent = '\ud83d\udce5 ' + T('exportCsv', 'CSV');
+
+                var loadingText = document.querySelector('#loadingIndicator p');
+                if (loadingText) loadingText.textContent = T('scanDescription', 'Scanning libraries\u2026 This may take a while for large collections.');
+                var placeholder = document.querySelector('#statsPlaceholder p');
+                if (placeholder) placeholder.innerHTML = T('scanPlaceholder', 'Click <strong>Scan Libraries</strong> to analyze your media folders.');
+            }
+
             function formatBytes(bytes) {
                 if (bytes === 0) return '0 B';
                 var units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -530,7 +548,7 @@
                         total += data[key];
                     }
                 }
-                if (total === 0) return '<p style="opacity:0.5;">No data</p>';
+                if (total === 0) return '<p style="opacity:0.5;">' + T('noData', 'No data') + '</p>';
 
                 // Sort by value descending
                 entries.sort(function (a, b) { return b.value - a.value; });
@@ -591,13 +609,13 @@
 
                 var videoTotal = data.TotalMovieVideoSize + data.TotalTvShowVideoSize;
                 var segments = [
-                    { cls: 'bar-video', pct: (videoTotal / total * 100), label: 'Video' },
-                    { cls: 'bar-audio', pct: (data.TotalMusicAudioSize / total * 100), label: 'Audio' },
-                    { cls: 'bar-subtitle', pct: (data.TotalSubtitleSize / total * 100), label: 'Subtitles' },
-                    { cls: 'bar-image', pct: (data.TotalImageSize / total * 100), label: 'Images' },
-                    { cls: 'bar-trickplay', pct: (data.TotalTrickplaySize / total * 100), label: 'Trickplay' },
-                    { cls: 'bar-nfo', pct: (data.TotalNfoSize / total * 100), label: 'Metadata' },
-                    { cls: 'bar-other', pct: (otherSize / total * 100), label: 'Other' }
+                    { cls: 'bar-video', pct: (videoTotal / total * 100), label: T('video', 'Video') },
+                    { cls: 'bar-audio', pct: (data.TotalMusicAudioSize / total * 100), label: T('audio', 'Audio') },
+                    { cls: 'bar-subtitle', pct: (data.TotalSubtitleSize / total * 100), label: T('subtitles', 'Subtitles') },
+                    { cls: 'bar-image', pct: (data.TotalImageSize / total * 100), label: T('images', 'Images') },
+                    { cls: 'bar-trickplay', pct: (data.TotalTrickplaySize / total * 100), label: T('trickplay', 'Trickplay') },
+                    { cls: 'bar-nfo', pct: (data.TotalNfoSize / total * 100), label: T('metadata', 'Metadata') },
+                    { cls: 'bar-other', pct: (otherSize / total * 100), label: T('other', 'Other') }
                 ];
 
                 var barHtml = '<div class="total-bar">';
@@ -610,13 +628,13 @@
 
                 barHtml += '<div class="legend">';
                 var legendItems = [
-                    { cls: 'bar-video', label: 'Video (' + formatBytes(videoTotal) + ')' },
-                    { cls: 'bar-audio', label: 'Audio (' + formatBytes(data.TotalMusicAudioSize) + ')' },
-                    { cls: 'bar-subtitle', label: 'Subtitles (' + formatBytes(data.TotalSubtitleSize) + ')' },
-                    { cls: 'bar-image', label: 'Images (' + formatBytes(data.TotalImageSize) + ')' },
-                    { cls: 'bar-trickplay', label: 'Trickplay (' + formatBytes(data.TotalTrickplaySize) + ')' },
-                    { cls: 'bar-nfo', label: 'Metadata (' + formatBytes(data.TotalNfoSize) + ')' },
-                    { cls: 'bar-other', label: 'Other (' + formatBytes(otherSize) + ')' }
+                    { cls: 'bar-video', label: T('video', 'Video') + ' (' + formatBytes(videoTotal) + ')' },
+                    { cls: 'bar-audio', label: T('audio', 'Audio') + ' (' + formatBytes(data.TotalMusicAudioSize) + ')' },
+                    { cls: 'bar-subtitle', label: T('subtitles', 'Subtitles') + ' (' + formatBytes(data.TotalSubtitleSize) + ')' },
+                    { cls: 'bar-image', label: T('images', 'Images') + ' (' + formatBytes(data.TotalImageSize) + ')' },
+                    { cls: 'bar-trickplay', label: T('trickplay', 'Trickplay') + ' (' + formatBytes(data.TotalTrickplaySize) + ')' },
+                    { cls: 'bar-nfo', label: T('metadata', 'Metadata') + ' (' + formatBytes(data.TotalNfoSize) + ')' },
+                    { cls: 'bar-other', label: T('other', 'Other') + ' (' + formatBytes(otherSize) + ')' }
                 ];
                 for (var l = 0; l < legendItems.length; l++) {
                     barHtml += '<div class="legend-item"><div class="legend-dot ' + legendItems[l].cls + '"></div>' + legendItems[l].label + '</div>';
@@ -654,16 +672,16 @@
                 var html = '<div class="health-grid">';
 
                 html += '<div class="health-item"><div class="health-value ' + (totalNoSubs > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoSubs + '</div>';
-                html += '<div class="health-label">Videos without subtitles</div></div>';
+                html += '<div class="health-label">' + T('healthNoSubs', 'Videos without subtitles') + '</div></div>';
 
                 html += '<div class="health-item"><div class="health-value ' + (totalNoImages > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoImages + '</div>';
-                html += '<div class="health-label">Videos without images</div></div>';
+                html += '<div class="health-label">' + T('healthNoImages', 'Videos without images') + '</div></div>';
 
                 html += '<div class="health-item"><div class="health-value ' + (totalNoNfo > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoNfo + '</div>';
-                html += '<div class="health-label">Videos without NFO</div></div>';
+                html += '<div class="health-label">' + T('healthNoNfo', 'Videos without NFO') + '</div></div>';
 
                 html += '<div class="health-item"><div class="health-value ' + (totalOrphaned > 0 ? 'health-bad' : 'health-ok') + '">' + totalOrphaned + '</div>';
-                html += '<div class="health-label">Orphaned metadata dirs</div></div>';
+                html += '<div class="health-label">' + T('healthOrphaned', 'Orphaned metadata dirs') + '</div></div>';
 
                 html += '</div>';
                 return html;
@@ -851,7 +869,7 @@
 
                 // === HEALTH TAB ===
                 html += '<div class="tab-content" id="tab-health">';
-                html += '<div class="section-title">Library Health Checks</div>';
+                html += '<div class="section-title">' + T('healthTitle', 'Library Health Checks') + '</div>';
                 html += renderHealthChecks(data);
                 html += '</div>'; // end health tab
 
@@ -891,7 +909,7 @@
                 }
                 h += '<div id="' + type + 'AddBtnWrap">';
                 if (count < MAX_ARR_INSTANCES) {
-                    h += '<button type="button" class="action-btn" id="btnAdd' + type + '" style="margin-top:0.5em;">+ Add another ' + type + ' instance</button>';
+                    h += '<button type="button" class="action-btn" id="btnAdd' + type + '" style="margin-top:0.5em;">+ ' + T('addAnother', 'Add another') + ' ' + type + ' ' + T('instance', 'instance') + '</button>';
                 }
                 h += '</div>';
                 return h;
@@ -906,11 +924,11 @@
                 var h = '<div class="arr-instance-row" data-type="' + type + '" data-index="' + index + '" style="border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:0.8em;margin-top:0.8em;position:relative;">';
                 h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3em;">';
                 h += '<strong>' + type + ' #' + (index + 1) + '</strong>';
-                h += '<button type="button" class="action-btn btnRemoveArr" data-type="' + type + '" data-index="' + index + '" style="padding:0.2em 0.6em;font-size:0.8em;background:#e74c3c;">✕ Remove</button>';
+                h += '<button type="button" class="action-btn btnRemoveArr" data-type="' + type + '" data-index="' + index + '" style="padding:0.2em 0.6em;font-size:0.8em;background:#e74c3c;">✕ ' + T('remove', 'Remove') + '</button>';
                 h += '</div>';
-                h += '<label>Instance Name</label><input type="text" id="' + prefix + '_name" value="' + escAttr(name) + '" placeholder="e.g. ' + type + ' 4K">';
-                h += '<label>URL</label><input type="text" id="' + prefix + '_url" value="' + escAttr(url) + '" placeholder="' + placeholderUrl + '">';
-                h += '<label>API Key</label><input type="password" id="' + prefix + '_key" value="' + escAttr(apiKey) + '">';
+                h += '<label>' + T('instanceName', 'Instance Name') + '</label><input type="text" id="' + prefix + '_name" value="' + escAttr(name) + '" placeholder="e.g. ' + type + ' 4K">';
+                h += '<label>' + T('url', 'URL') + '</label><input type="text" id="' + prefix + '_url" value="' + escAttr(url) + '" placeholder="' + placeholderUrl + '">';
+                h += '<label>' + T('apiKey', 'API Key') + '</label><input type="password" id="' + prefix + '_key" value="' + escAttr(apiKey) + '">';
                 h += '</div>';
                 return h;
             }
@@ -1025,13 +1043,13 @@
                     h += renderTaskModeSelect('cfgSubtitleMode', T('orphanedSubtitleCleaner', 'Orphaned Subtitle Cleaner'), cfg.OrphanedSubtitleTaskMode || 'DryRun');
                     h += renderTaskModeSelect('cfgStrmMode', T('strmFileRepair', '.strm File Repair'), cfg.StrmRepairTaskMode || 'DryRun');
                     h += '<div class="section-divider"></div>';
-                    h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label>Use Trash (Recycle Bin)</label></div>';
-                    h += '<label>Trash Folder Path</label>';
+                    h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label>' + T('useTrash', 'Use Trash (Recycle Bin)') + '</label></div>';
+                    h += '<label>' + T('trashFolderPath', 'Trash Folder Path') + '</label>';
                     h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '">';
-                    h += '<label>Trash Retention (days)</label>';
+                    h += '<label>' + T('trashRetention', 'Trash Retention (days)') + '</label>';
                     h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays || 30) + '">';
                     h += '<div class="section-divider"></div>';
-                    h += '<label>Dashboard Language</label>';
+                    h += '<label>' + T('dashboardLanguage', 'Dashboard Language') + '</label>';
                     h += '<select id="cfgLang">';
                     var langs = [['en','English'],['de','Deutsch'],['fr','Français'],['es','Español'],['pt','Português'],['zh','中文'],['tr','Türkçe']];
                     for (var i = 0; i < langs.length; i++) {
@@ -1041,7 +1059,7 @@
 
                     // --- Radarr Instances ---
                     h += '<div class="section-divider"></div>';
-                    h += '<div class="section-title" style="border-bottom:none;font-size:1em;margin-bottom:0;">🎬 Radarr Instances <span style="font-weight:400;font-size:0.8em;opacity:0.6;">(max ' + MAX_ARR_INSTANCES + ')</span></div>';
+                    h += '<div class="section-title" style="border-bottom:none;font-size:1em;margin-bottom:0;">🎬 ' + T('radarrInstances', 'Radarr Instances') + ' <span style="font-weight:400;font-size:0.8em;opacity:0.6;">(max ' + MAX_ARR_INSTANCES + ')</span></div>';
                     var radarrInstances = cfg.RadarrInstances && cfg.RadarrInstances.length > 0
                         ? cfg.RadarrInstances
                         : (cfg.RadarrUrl ? [{ Name: 'Radarr', Url: cfg.RadarrUrl, ApiKey: cfg.RadarrApiKey }] : []);
@@ -1049,20 +1067,20 @@
 
                     // --- Sonarr Instances ---
                     h += '<div class="section-divider"></div>';
-                    h += '<div class="section-title" style="border-bottom:none;font-size:1em;margin-bottom:0;">📺 Sonarr Instances <span style="font-weight:400;font-size:0.8em;opacity:0.6;">(max ' + MAX_ARR_INSTANCES + ')</span></div>';
+                    h += '<div class="section-title" style="border-bottom:none;font-size:1em;margin-bottom:0;">📺 ' + T('sonarrInstances', 'Sonarr Instances') + ' <span style="font-weight:400;font-size:0.8em;opacity:0.6;">(max ' + MAX_ARR_INSTANCES + ')</span></div>';
                     var sonarrInstances = cfg.SonarrInstances && cfg.SonarrInstances.length > 0
                         ? cfg.SonarrInstances
                         : (cfg.SonarrUrl ? [{ Name: 'Sonarr', Url: cfg.SonarrUrl, ApiKey: cfg.SonarrApiKey }] : []);
                     h += renderArrInstances('Sonarr', sonarrInstances);
 
-                    h += '<div style="margin-top:1.5em;"><button class="refresh-btn" id="btnSaveSettings">Save Settings</button></div>';
+                    h += '<div style="margin-top:1.5em;"><button class="refresh-btn" id="btnSaveSettings">' + T('saveSettings', 'Save Settings') + '</button></div>';
                     h += '<div id="settingsMsg" style="margin-top:0.5em;"></div>';
                     form.innerHTML = h;
                     document.getElementById('btnSaveSettings').addEventListener('click', saveSettings);
                     attachRemoveHandlers();
                     attachAddHandlers();
                 }, function () {
-                    form.innerHTML = '<div class="error-msg">Failed to load settings.</div>';
+                    form.innerHTML = '<div class="error-msg">' + T('settingsLoadFailed', 'Failed to load settings.') + '</div>';
                 });
             }
 
@@ -1099,10 +1117,10 @@
                     type: 'POST', url: apiClient.getUrl('JellyfinHelper/Configuration'),
                     data: JSON.stringify(payload), contentType: 'application/json'
                 }).then(function () {
-                    msg.innerHTML = '<div class="success-msg">✅ Settings saved!</div>';
+                    msg.innerHTML = '<div class="success-msg">✅ ' + T('settingsSaved', 'Settings saved!') + '</div>';
                     btn.disabled = false;
                 }, function () {
-                    msg.innerHTML = '<div class="error-msg">❌ Failed to save settings.</div>';
+                    msg.innerHTML = '<div class="error-msg">❌ ' + T('settingsSaveFailed', 'Failed to save settings.') + '</div>';
                     btn.disabled = false;
                 });
             }
@@ -1122,7 +1140,7 @@
                         : (cfg.SonarrUrl ? [{ Name: 'Sonarr', Url: cfg.SonarrUrl }] : []);
 
                     if (radarrInstances.length === 0 && sonarrInstances.length === 0) {
-                        btnContainer.innerHTML = '<p style="opacity:0.5;">No Radarr or Sonarr instances configured. Add them in the Settings tab.</p>';
+                        btnContainer.innerHTML = '<p style="opacity:0.5;">' + T('noArrConfigured', 'No Radarr or Sonarr instances configured. Add them in the Settings tab.') + '</p>';
                         return;
                     }
 
@@ -1132,7 +1150,7 @@
                         h += '<div class="header-actions" style="flex-wrap:wrap;">';
                         for (var r = 0; r < radarrInstances.length; r++) {
                             var rName = radarrInstances[r].Name || ('Radarr #' + (r + 1));
-                            h += '<button class="action-btn arr-compare-btn" data-type="Radarr" data-index="' + r + '">Compare with ' + escAttr(rName) + '</button>';
+                            h += '<button class="action-btn arr-compare-btn" data-type="Radarr" data-index="' + r + '">' + T('compareWith', 'Compare with') + ' ' + escAttr(rName) + '</button>';
                         }
                         h += '</div></div>';
                     }
@@ -1143,7 +1161,7 @@
                         h += '<div class="header-actions" style="flex-wrap:wrap;">';
                         for (var s = 0; s < sonarrInstances.length; s++) {
                             var sName = sonarrInstances[s].Name || ('Sonarr #' + (s + 1));
-                            h += '<button class="action-btn arr-compare-btn" data-type="Sonarr" data-index="' + s + '">Compare with ' + escAttr(sName) + '</button>';
+                            h += '<button class="action-btn arr-compare-btn" data-type="Sonarr" data-index="' + s + '">' + T('compareWith', 'Compare with') + ' ' + escAttr(sName) + '</button>';
                         }
                         h += '</div></div>';
                     }
@@ -1161,34 +1179,34 @@
                         });
                     }
                 }, function () {
-                    btnContainer.innerHTML = '<div class="error-msg">❌ Failed to load Arr configuration.</div>';
+                    btnContainer.innerHTML = '<div class="error-msg">❌ ' + T('arrConfigFailed', 'Failed to load Arr configuration.') + '</div>';
                 });
             }
 
             function compareArr(type, index, label) {
                 var resultDiv = document.getElementById('arrResult');
                 if (!resultDiv) return;
-                resultDiv.innerHTML = '<div class="loading-overlay" style="padding:1em;"><div class="spinner"></div><p>Comparing ' + (label || type) + '…</p></div>';
+                resultDiv.innerHTML = '<div class="loading-overlay" style="padding:1em;"><div class="spinner"></div><p>' + T('comparing', 'Comparing') + ' ' + (label || type) + '…</p></div>';
                 var apiClient = ApiClient;
                 var url = apiClient.getUrl('JellyfinHelper/Arr/' + type + '/Compare') + '?index=' + index;
                 apiClient.ajax({ type: 'GET', url: url, dataType: 'json' }).then(function (data) {
-                    var instanceLabel = label ? label.replace('Compare with ', '') : type;
+                    var instanceLabel = label ? label.replace(T('compareWith', 'Compare with') + ' ', '') : type;
                     var h = '<h3 style="margin-bottom:0.8em;">' + instanceLabel + '</h3>';
-                    h += '<div class="arr-section"><h4>✅ In Both — <span class="arr-count">' + data.InBoth.length + '</span></h4>';
-                    if (data.InBoth.length > 0) { h += '<div class="arr-list"><ul>'; for (var a = 0; a < Math.min(data.InBoth.length, 50); a++) h += '<li>' + data.InBoth[a] + '</li>'; if (data.InBoth.length > 50) h += '<li>… and ' + (data.InBoth.length - 50) + ' more</li>'; h += '</ul></div>'; }
+                    h += '<div class="arr-section"><h4>✅ ' + T('arrInBoth', 'In Both') + ' — <span class="arr-count">' + data.InBoth.length + '</span></h4>';
+                    if (data.InBoth.length > 0) { h += '<div class="arr-list"><ul>'; for (var a = 0; a < Math.min(data.InBoth.length, 50); a++) h += '<li>' + data.InBoth[a] + '</li>'; if (data.InBoth.length > 50) h += '<li>… ' + T('andMore', 'and') + ' ' + (data.InBoth.length - 50) + ' ' + T('more', 'more') + '</li>'; h += '</ul></div>'; }
                     h += '</div>';
-                    h += '<div class="arr-section"><h4>📦 In ' + type + ' Only (with file) — <span class="arr-count">' + data.InArrOnly.length + '</span></h4>';
+                    h += '<div class="arr-section"><h4>📦 ' + T('arrInArrOnly', 'In') + ' ' + type + ' ' + T('arrOnlyWithFile', 'Only (with file)') + ' — <span class="arr-count">' + data.InArrOnly.length + '</span></h4>';
                     if (data.InArrOnly.length > 0) { h += '<div class="arr-list"><ul>'; for (var b = 0; b < data.InArrOnly.length; b++) h += '<li>' + data.InArrOnly[b] + '</li>'; h += '</ul></div>'; }
                     h += '</div>';
-                    h += '<div class="arr-section"><h4>⚠️ In ' + type + ' Only (no file) — <span class="arr-count">' + data.InArrOnlyMissing.length + '</span></h4>';
+                    h += '<div class="arr-section"><h4>⚠️ ' + T('arrInArrOnly', 'In') + ' ' + type + ' ' + T('arrOnlyNoFile', 'Only (no file)') + ' — <span class="arr-count">' + data.InArrOnlyMissing.length + '</span></h4>';
                     if (data.InArrOnlyMissing.length > 0) { h += '<div class="arr-list"><ul>'; for (var c = 0; c < data.InArrOnlyMissing.length; c++) h += '<li>' + data.InArrOnlyMissing[c] + '</li>'; h += '</ul></div>'; }
                     h += '</div>';
-                    h += '<div class="arr-section"><h4>🔍 In Jellyfin Only — <span class="arr-count">' + data.InJellyfinOnly.length + '</span></h4>';
+                    h += '<div class="arr-section"><h4>🔍 ' + T('arrInJellyfinOnly', 'In Jellyfin Only') + ' — <span class="arr-count">' + data.InJellyfinOnly.length + '</span></h4>';
                     if (data.InJellyfinOnly.length > 0) { h += '<div class="arr-list"><ul>'; for (var d = 0; d < data.InJellyfinOnly.length; d++) h += '<li>' + data.InJellyfinOnly[d] + '</li>'; h += '</ul></div>'; }
                     h += '</div>';
                     resultDiv.innerHTML = h;
                 }, function () {
-                    resultDiv.innerHTML = '<div class="error-msg">❌ Failed to compare. Check settings.</div>';
+                    resultDiv.innerHTML = '<div class="error-msg">❌ ' + T('arrCompareFailed', 'Failed to compare. Check settings.') + '</div>';
                 });
             }
 
@@ -1198,14 +1216,14 @@
                 apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Cleanup/Statistics'), dataType: 'json' }).then(function (stats) {
                     var cleanupContainer = document.getElementById('cleanup-stats-container');
                     if (!cleanupContainer) return;
-                    var h = '<div class="section-title">🧹 Cleanup Statistics</div>';
+                    var h = '<div class="section-title">🧹 ' + T('cleanupStatistics', 'Cleanup Statistics') + '</div>';
                     h += '<div class="stats-grid">';
-                    h += '<div class="stat-card highlight"><h3>Total Space Freed</h3>';
+                    h += '<div class="stat-card highlight"><h3>' + T('totalSpaceFreed', 'Total Space Freed') + '</h3>';
                     h += '<p class="stat-value">' + formatBytes(stats.TotalBytesFreed) + '</p></div>';
-                    h += '<div class="stat-card highlight"><h3>Total Items Deleted</h3>';
+                    h += '<div class="stat-card highlight"><h3>' + T('totalItemsDeleted', 'Total Items Deleted') + '</h3>';
                     h += '<p class="stat-value">' + stats.TotalItemsDeleted + '</p>';
-                    var lastTs = stats.LastCleanupTimestamp && stats.LastCleanupTimestamp !== '0001-01-01T00:00:00' ? new Date(stats.LastCleanupTimestamp).toLocaleString() : 'Never';
-                    h += '<p class="stat-detail">Last cleanup: ' + lastTs + '</p></div>';
+                    var lastTs = stats.LastCleanupTimestamp && stats.LastCleanupTimestamp !== '0001-01-01T00:00:00' ? new Date(stats.LastCleanupTimestamp).toLocaleString() : T('never', 'Never');
+                    h += '<p class="stat-detail">' + T('lastCleanup', 'Last cleanup') + ': ' + lastTs + '</p></div>';
                     h += '</div>';
                     cleanupContainer.innerHTML = h;
                 });
@@ -1247,7 +1265,7 @@
                 }, function () {
                     var container = document.getElementById('trendChartContainer');
                     if (container) {
-                        container.innerHTML = '<div class="trend-empty">Could not load trend data.</div>';
+                        container.innerHTML = '<div class="trend-empty">' + T('trendLoadFailed', 'Could not load trend data.') + '</div>';
                     }
                 });
             }
@@ -1272,7 +1290,7 @@
                     document.body.removeChild(link);
                     setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 5000);
                 }, function () {
-                    alert('Export failed. Please try again.');
+                    alert(T('exportFailed', 'Export failed. Please try again.'));
                 });
             }
 
@@ -1283,7 +1301,7 @@
                 var result = document.getElementById('statsResult');
 
                 btn.disabled = true;
-                btn.textContent = '⏳ Scanning…';
+                btn.textContent = '⏳ ' + T('scanning', 'Scanning…');
                 loading.style.display = 'block';
                 placeholder.style.display = 'none';
                 result.style.display = 'none';
@@ -1300,7 +1318,7 @@
                     result.innerHTML = renderStats(data);
                     result.style.display = 'block';
                     btn.disabled = false;
-                    btn.innerHTML = '&#x21bb; Scan Libraries';
+                    btn.innerHTML = '&#x21bb; ' + T('scanLibraries', 'Scan Libraries');
 
                     // Enable export buttons
                     document.getElementById('btnExportJson').disabled = false;
@@ -1318,10 +1336,10 @@
                     loadCleanupStats();
                 }, function (err) {
                     loading.style.display = 'none';
-                    result.innerHTML = '<div class="error-msg">❌ Failed to load statistics. Make sure you are an administrator.</div>';
+                    result.innerHTML = '<div class="error-msg">❌ ' + T('statsLoadFailed', 'Failed to load statistics. Make sure you are an administrator.') + '</div>';
                     result.style.display = 'block';
                     btn.disabled = false;
-                    btn.innerHTML = '&#x21bb; Scan Libraries';
+                    btn.innerHTML = '&#x21bb; ' + T('scanLibraries', 'Scan Libraries');
                     console.error('Jellyfin Helper: Error loading statistics', err);
                 });
             }
@@ -1351,8 +1369,10 @@
 
                 _pageInitialized = true;
 
-                // Load translations first
-                loadTranslations();
+                // Load translations first, then apply shell text
+                loadTranslations(function () {
+                    applyStaticTranslations();
+                });
 
                 btnRefresh.addEventListener('click', function (e) {
                     e.preventDefault();
