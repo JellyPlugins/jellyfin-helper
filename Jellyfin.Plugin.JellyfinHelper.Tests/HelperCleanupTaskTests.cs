@@ -2,6 +2,7 @@ using System.IO.Abstractions.TestingHelpers;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Jellyfin.Plugin.JellyfinHelper.Services;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
@@ -19,6 +20,7 @@ public class HelperCleanupTaskTests : IDisposable
 {
     private readonly Mock<ILibraryManager> _libraryManagerMock;
     private readonly Mock<IFileSystem> _fileSystemMock;
+    private readonly Mock<IApplicationPaths> _applicationPathsMock;
     private readonly Mock<ILoggerFactory> _loggerFactoryMock;
     private readonly HelperCleanupTask _task;
     private readonly Mock<ILogger<HelperCleanupTask>> _loggerMock;
@@ -27,6 +29,8 @@ public class HelperCleanupTaskTests : IDisposable
     {
         _libraryManagerMock = new Mock<ILibraryManager>();
         _fileSystemMock = new Mock<IFileSystem>();
+        _applicationPathsMock = new Mock<IApplicationPaths>();
+        _applicationPathsMock.Setup(p => p.DataPath).Returns(Path.GetTempPath());
         _loggerFactoryMock = new Mock<ILoggerFactory>();
         _loggerMock = new Mock<ILogger<HelperCleanupTask>>();
 
@@ -49,6 +53,7 @@ public class HelperCleanupTaskTests : IDisposable
         _task = new HelperCleanupTask(
             _libraryManagerMock.Object,
             _fileSystemMock.Object,
+            _applicationPathsMock.Object,
             _loggerFactoryMock.Object);
 
         // Default: All tasks activated

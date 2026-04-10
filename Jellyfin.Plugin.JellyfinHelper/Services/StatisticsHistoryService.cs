@@ -8,11 +8,13 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
 
 /// <summary>
-/// Persists statistics snapshots to a JSON file for historical trend tracking.
+/// Persists statistics snapshots to a JSON file for historical trend tracking,
+/// and caches the latest full scan result to disk for persistence across restarts.
 /// </summary>
 public class StatisticsHistoryService
 {
     private const string HistoryFileName = "jellyfin-helper-statistics-history.json";
+    private const string LatestResultFileName = "jellyfin-helper-statistics-latest.json";
     private const int MaxSnapshots = 365;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -22,6 +24,7 @@ public class StatisticsHistoryService
     };
 
     private readonly string _historyFilePath;
+    private readonly string _latestResultFilePath;
     private readonly ILogger<StatisticsHistoryService> _logger;
     private readonly object _fileLock = new();
 
@@ -34,6 +37,7 @@ public class StatisticsHistoryService
     {
         _logger = logger;
         _historyFilePath = Path.Combine(applicationPaths.DataPath, HistoryFileName);
+        _latestResultFilePath = Path.Combine(applicationPaths.DataPath, LatestResultFileName);
     }
 
     /// <summary>
@@ -101,6 +105,62 @@ public class StatisticsHistoryService
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 _logger.LogWarning(ex, "Could not save statistics history to {Path}", _historyFilePath);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Saves the latest full statistics result to disk for persistence across server restarts.
+    /// </summary>
+    /// <param name="result">The statistics result to persist.</param>
+    public void SaveLatestResult(MediaStatisticsResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        lock (_fileLock)
+        {
+            try
+            {
+                var directory = Path.GetDirectoryName(_latestResultFilePath);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                var json = JsonSerializer.Serialize(result, JsonOptions);
+                File.WriteAllText(_latestResultFilePath, json);
+
+                _logger.LogDebug("Saved latest statistics result to {Path}", _latestResultFilePath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Could not save latest statistics result to {Path}", _latestResultFilePath);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Loads the latest full statistics result from disk.
+    /// </summary>
+    /// <returns>The last saved statistics result, or null if none exists.</returns>
+    public MediaStatisticsResult? LoadLatestResult()
+    {
+        lock (_fileLock)
+        {
+            try
+            {
+                if (!File.Exists(_latestResultFilePath))
+                {
+                    return null;
+                }
+
+                var json = File.ReadAllText(_latestResultFilePath);
+                return JsonSerializer.Deserialize<MediaStatisticsResult>(json, JsonOptions);
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Could not load latest statistics result from {Path}", _latestResultFilePath);
+                return null;
             }
         }
     }

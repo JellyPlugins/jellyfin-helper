@@ -4,3 +4,6 @@ obj/
 .idea/
 artifacts
 *.zip
+
+# Generated at build time from template + CSS + JS
+Jellyfin.Plugin.JellyfinHelper/Configuration/configPage.html

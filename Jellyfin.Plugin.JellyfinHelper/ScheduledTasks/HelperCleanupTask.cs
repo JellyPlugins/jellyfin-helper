@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
@@ -20,6 +21,7 @@ public class HelperCleanupTask : IScheduledTask
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;
+    private readonly IApplicationPaths _applicationPaths;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<HelperCleanupTask> _logger;
 
@@ -28,14 +30,17 @@ public class HelperCleanupTask : IScheduledTask
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="fileSystem">The file system.</param>
+    /// <param name="applicationPaths">The application paths.</param>
     /// <param name="loggerFactory">The logger factory.</param>
     public HelperCleanupTask(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
+        IApplicationPaths applicationPaths,
         ILoggerFactory loggerFactory)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
+        _applicationPaths = applicationPaths;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<HelperCleanupTask>();
     }
@@ -102,6 +107,22 @@ public class HelperCleanupTask : IScheduledTask
 
             _logger.LogInformation("Finished {TaskName}.", name);
             progress.Report((double)(i + 1) / totalTasks * 100);
+        }
+
+        // Run a statistics scan at the end to refresh persisted data
+        try
+        {
+            _logger.LogInformation("Running post-cleanup statistics scan...");
+            var statsService = new MediaStatisticsService(_libraryManager, _fileSystem, _loggerFactory.CreateLogger<MediaStatisticsService>());
+            var historyService = new StatisticsHistoryService(_applicationPaths, _loggerFactory.CreateLogger<StatisticsHistoryService>());
+            var result = statsService.CalculateStatistics();
+            historyService.SaveSnapshot(result);
+            historyService.SaveLatestResult(result);
+            _logger.LogInformation("Post-cleanup statistics scan completed and persisted.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to run post-cleanup statistics scan.");
         }
 
         _logger.LogInformation("Helper Cleanup finished.");

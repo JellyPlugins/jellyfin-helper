@@ -33,8 +33,46 @@
     <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" Version="1.1.31" PrivateAssets="All" />
   </ItemGroup>
 
+  <!-- Compose configPage.html from template + CSS + JS at build time -->
+  <UsingTask TaskName="ComposeConfigPage" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <TemplateFile ParameterType="System.String" Required="true" />
+      <CssFile ParameterType="System.String" Required="true" />
+      <JsFile ParameterType="System.String" Required="true" />
+      <OutputFile ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Fragment" Language="cs">
+        <![CDATA[
+        var template = System.IO.File.ReadAllText(TemplateFile);
+        var css = System.IO.File.ReadAllText(CssFile);
+        var js = System.IO.File.ReadAllText(JsFile);
+        var result = template.Replace("/* CSS_CONTENT */", css).Replace("/* JS_CONTENT */", js);
+        var dir = System.IO.Path.GetDirectoryName(OutputFile);
+        if (!string.IsNullOrEmpty(dir) && !System.IO.Directory.Exists(dir))
+            System.IO.Directory.CreateDirectory(dir);
+        System.IO.File.WriteAllText(OutputFile, result);
+        Log.LogMessage(MessageImportance.High, "Composed configPage.html from template + CSS + JS");
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="ComposeConfigPageHtml" BeforeTargets="BeforeBuild;BeforeRebuild">
+    <ComposeConfigPage
+      TemplateFile="$(MSBuildProjectDirectory)\Configuration\configPage.template.html"
+      CssFile="$(MSBuildProjectDirectory)\Configuration\configPage.css"
+      JsFile="$(MSBuildProjectDirectory)\Configuration\configPage.js"
+      OutputFile="$(MSBuildProjectDirectory)\Configuration\configPage.html" />
+  </Target>
+
   <ItemGroup>
+    <!-- The generated configPage.html is the embedded resource -->
     <EmbeddedResource Include="Configuration\configPage.html" />
+    <!-- Source files are NOT embedded but kept for development -->
+    <None Include="Configuration\configPage.template.html" />
+    <None Include="Configuration\configPage.css" />
+    <None Include="Configuration\configPage.js" />
     <EmbeddedResource Include="..\media\logo.png">
       <LogicalName>Jellyfin.Plugin.JellyfinHelper.logo.png</LogicalName>
       <Link>logo.png</Link>

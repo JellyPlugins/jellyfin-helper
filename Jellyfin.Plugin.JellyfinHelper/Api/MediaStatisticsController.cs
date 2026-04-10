@@ -125,10 +125,11 @@ public class MediaStatisticsController : ControllerBase
         // Cache the result
         _cache.Set(StatsCacheKey, result, CacheDuration);
 
-        // Save snapshot for historical tracking
+        // Save snapshot for historical tracking + persist latest result to disk
         try
         {
             _historyService.SaveSnapshot(result);
+            _historyService.SaveLatestResult(result);
         }
         catch (Exception ex)
         {
@@ -136,6 +137,43 @@ public class MediaStatisticsController : ControllerBase
         }
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Gets the latest persisted statistics without triggering a new scan.
+    /// Returns the most recent scan result that was saved to disk, surviving server restarts.
+    /// </summary>
+    /// <returns>The latest statistics, or 204 No Content if no scan has been performed yet.</returns>
+    [HttpGet("Statistics/Latest")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public ActionResult<MediaStatisticsResult> GetLatestStatistics()
+    {
+        // Try memory cache first
+        if (_cache.TryGetValue(StatsCacheKey, out MediaStatisticsResult? cached) && cached != null)
+        {
+            _logger.LogDebug("Returning cached statistics for /Latest");
+            return Ok(cached);
+        }
+
+        // Fall back to disk-persisted result
+        try
+        {
+            var persisted = _historyService.LoadLatestResult();
+            if (persisted != null)
+            {
+                // Re-populate memory cache from disk
+                _cache.Set(StatsCacheKey, persisted, CacheDuration);
+                _logger.LogDebug("Loaded persisted statistics from disk for /Latest");
+                return Ok(persisted);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load persisted statistics");
+        }
+
+        return NoContent();
     }
 
     /// <summary>
