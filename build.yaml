@@ -1,16 +1,16 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "1.0.4"
+version: "1.0.5"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
-overview: "Automated cleanup (trickplay, empty folders, subtitles), media statistics with export/trends, trash bin, Arr integration, and multi-language dashboard."
+overview: "Automated cleanup (trickplay, empty folders, subtitles, STRM repair), media statistics with codec/health analysis, export/trends, trash bin, multi-instance Arr integration, and multi-language 6-tab dashboard."
 description: >
-  A Jellyfin plugin that automatically cleans up orphaned .trickplay folders, media folders that no longer contain any video files, and provides media library statistics.
+  A Jellyfin plugin providing automated cleanup tasks (trickplay, empty folders, subtitles, STRM repair), media library statistics with codec/resolution/health analysis, export (JSON/CSV), historical trends, trash/recycle bin, multi-instance Arr stack integration (Radarr/Sonarr), and a multi-language 6-tab dashboard.
 
 category: "General"
 owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  Added STRM file repair task, unified TaskMode system (Activate/DryRun/Deactivate per task), single master HelperCleanupTask replacing separate scheduled tasks, fixed ConfigVersion not preserved on settings save, fixed DI resolution for System.IO.Abstractions.IFileSystem, updated README, 315 tests.
+  Multi-instance Arr support (up to 3 Radarr + 3 Sonarr), Arr connection test endpoint, persisted latest scan results (survives restarts), post-cleanup statistics scan, embedded subtitle detection in health checks, video vs music audio codec split, codec file path tracking with clickable drill-down, trash contents detail API, trash folder management UI, trash disable dialog, other file tracking, 6-tab modular dashboard, modular CSS/JS build system, XSS protection, boxset/collection health check skipping, comprehensive README rewrite, 572 tests.

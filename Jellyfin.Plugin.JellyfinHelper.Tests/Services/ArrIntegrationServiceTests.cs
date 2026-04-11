@@ -245,7 +245,6 @@ public class ArrIntegrationServiceTests
     public async Task TestConnection_CancellationToken_IsRespected()
     {
         using var cts = new CancellationTokenSource();
-        cts.Cancel(); // Pre-cancel so HttpClient throws before reaching SendAsync
 
         var mockHandler = new Mock<HttpMessageHandler>(MockBehavior.Strict);
         mockHandler.Protected()
@@ -260,6 +259,8 @@ public class ArrIntegrationServiceTests
 
         await Assert.ThrowsAsync<TaskCanceledException>(
             () => service.TestConnectionAsync("http://localhost:7878", "testapikey", cts.Token));
+
+        mockHandler.Verify();
     }
 
     // === GetRadarrMoviesAsync ===

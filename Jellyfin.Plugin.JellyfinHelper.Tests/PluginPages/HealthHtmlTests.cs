@@ -74,6 +74,13 @@ public class HealthHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_CollectHealthPaths_UsesOther()
+    {
+        // collectHealthPaths should iterate over data.Other
+        Assert.Contains("data.Other", HtmlContent);
+    }
+
+    [Fact]
     public void Html_CollectHealthPaths_ReturnsMusicEmpty()
     {
         // collectHealthPaths should always return music: [] because health checks don't apply to music

@@ -545,9 +545,15 @@ public class MediaStatisticsController : ControllerBase
         var libraryFolders = CleanupConfigHelper.GetFilteredLibraryLocations(_libraryManager);
         var libraries = new List<object>();
 
+        var seenTrashPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var folder in libraryFolders)
         {
             var trashPath = CleanupConfigHelper.GetTrashPath(folder);
+            if (!seenTrashPaths.Add(Path.GetFullPath(trashPath)))
+            {
+                continue;
+            }
+
             var items = TrashService.GetTrashContents(trashPath, config.TrashRetentionDays);
 
             if (items.Count > 0)
