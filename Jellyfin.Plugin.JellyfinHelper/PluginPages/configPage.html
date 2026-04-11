@@ -1,3 +1,511 @@
+<div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+         data-require="emby-input,emby-checkbox,emby-select">
+    <style>
+        .stats-container {
+    max-width: 960px;
+    margin: 1em auto;
+}
+
+.stats-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5em;
+    flex-wrap: wrap;
+    gap: 0.5em;
+}
+
+.stats-header h2 {
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    gap: 0.5em;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.last-scan-badge {
+    font-size: 0.78em;
+    color: rgba(255,255,255,0.6);
+    background: rgba(255,255,255,0.08);
+    padding: 0.3em 0.8em;
+    border-radius: 12px;
+    white-space: nowrap;
+}
+
+.refresh-btn, .export-btn {
+    padding: 0.5em 1.2em;
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 0.95em;
+    transition: background 0.2s;
+}
+
+.refresh-btn {
+    background: #00a4dc;
+}
+
+.refresh-btn:hover {
+    background: #0088b8;
+}
+
+.refresh-btn:disabled {
+    background: #555;
+    cursor: not-allowed;
+}
+
+.export-btn {
+    background: #2ecc71;
+}
+
+.export-btn:hover {
+    background: #27ae60;
+}
+
+.export-btn:disabled {
+    background: #555;
+    cursor: not-allowed;
+}
+
+.section-title {
+    font-size: 1.1em;
+    font-weight: 600;
+    margin: 1.5em 0 0.5em 0;
+    padding-bottom: 0.3em;
+    border-bottom: 2px solid #00a4dc;
+}
+
+.loading-overlay {
+    text-align: center;
+    padding: 3em;
+    opacity: 0.6;
+}
+
+.loading-overlay .spinner {
+    display: inline-block;
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #00a4dc;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.error-msg {
+    color: #e74c3c;
+    padding: 1em;
+    text-align: center;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.15em 0.5em;
+    border-radius: 3px;
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge-movies { background: #e67e22; color: #fff; }
+.badge-tvshows { background: #2ecc71; color: #fff; }
+.badge-music { background: #9b59b6; color: #fff; }
+.badge-other { background: #95a5a6; color: #fff; }
+
+/* Tabs */
+.tab-bar {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1.5em;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+
+.tab-bar::-webkit-scrollbar {
+    height: 4px;
+}
+
+.tab-bar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+.tab-btn {
+    padding: 0.6em 1.2em;
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.95em;
+    opacity: 0.6;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: opacity 0.2s, border-color 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.tab-btn:hover {
+    opacity: 0.9;
+}
+
+.tab-btn.active {
+    opacity: 1;
+    border-bottom-color: #00a4dc;
+    font-weight: 600;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.success-msg { color: #2ecc71; padding: 0.5em; text-align: center; font-weight: 600; }
+.action-btn { padding: 0.5em 1.2em; border: none; border-radius: 4px; color: #fff; cursor: pointer; font-size: 0.95em; transition: background 0.2s; background: #e67e22; }
+.action-btn:hover { background: #d35400; }
+.action-btn:disabled { background: #555; cursor: not-allowed; }
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.2em;
+    margin-bottom: 2em;
+}
+
+@media (max-width: 600px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.stat-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 1.2em 1.5em;
+    transition: border-color 0.2s;
+}
+
+.stat-card:hover {
+    border-color: #00a4dc;
+}
+
+.stat-card h3 {
+    margin: 0 0 0.3em 0;
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.7;
+}
+
+/* noinspection CssUnusedSymbol */
+.stat-card .stat-value {
+    font-size: 1.8em;
+    font-weight: 700;
+    color: #00a4dc;
+    margin: 0;
+}
+
+/* noinspection CssUnusedSymbol */
+.stat-card .stat-detail {
+    font-size: 0.85em;
+    opacity: 0.6;
+    margin-top: 0.3em;
+}
+
+.stat-card.highlight { border-color: #2ecc71; }
+/* noinspection CssUnusedSymbol */
+.stat-card.highlight .stat-value { color: #2ecc71; }
+
+.library-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-top: 0.5em;
+}
+
+.library-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 600px;
+}
+
+.library-table th,
+.library-table td {
+    padding: 0.6em 0.8em;
+    text-align: right;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.9em;
+}
+
+.library-table th {
+    text-align: right;
+    font-weight: 600;
+    opacity: 0.7;
+    font-size: 0.8em;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.library-table th:first-child,
+.library-table td:first-child {
+    text-align: left;
+}
+
+.library-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.total-bar {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 1em 0;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* noinspection CssUnusedSymbol */
+.total-bar .bar-segment {
+    height: 100%;
+    transition: width 0.5s ease;
+}
+
+/* noinspection CssUnusedSymbol */
+.bar-video { background: #00a4dc; }
+/* noinspection CssUnusedSymbol */
+.bar-subtitle { background: #e67e22; }
+/* noinspection CssUnusedSymbol */
+.bar-image { background: #2ecc71; }
+/* noinspection CssUnusedSymbol */
+.bar-trickplay { background: #e74c3c; }
+/* noinspection CssUnusedSymbol */
+.bar-nfo { background: #9b59b6; }
+/* noinspection CssUnusedSymbol */
+.bar-audio { background: #f1c40f; }
+/* noinspection CssUnusedSymbol */
+.bar-other { background: #95a5a6; }
+
+.legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1em;
+    margin-bottom: 1.5em;
+    font-size: 0.85em;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+}
+
+.legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+/* Donut chart styles */
+.charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5em;
+    margin: 1em 0 2em 0;
+}
+
+@media (max-width: 700px) {
+    .charts-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.chart-box {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 1.2em;
+    text-align: center;
+}
+
+.chart-box h4 {
+    margin: 0 0 0.8em 0;
+    font-size: 0.95em;
+    opacity: 0.8;
+}
+
+.donut-container {
+    position: relative;
+    display: inline-block;
+}
+
+.donut-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em;
+    justify-content: center;
+    margin-top: 0.8em;
+    font-size: 0.8em;
+}
+
+.donut-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3em;
+}
+
+.donut-legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+/* Health check styles */
+.health-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1em;
+    margin: 1em 0;
+}
+
+.health-item {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 0.8em 1em;
+    text-align: center;
+}
+
+.health-item .health-value {
+    font-size: 1.5em;
+    font-weight: 700;
+}
+
+/* noinspection CssUnusedSymbol */
+.health-ok { color: #2ecc71; }
+/* noinspection CssUnusedSymbol */
+.health-warn { color: #e67e22; }
+/* noinspection CssUnusedSymbol */
+.health-bad { color: #e74c3c; }
+
+/* noinspection CssUnusedSymbol */
+.health-item .health-label {
+    font-size: 0.8em;
+    opacity: 0.6;
+    margin-top: 0.2em;
+}
+
+/* Health clickable items */
+.health-clickable { cursor: pointer; transition: border-color 0.2s, background 0.2s, transform 0.1s; }
+.health-clickable:hover { border-color: #00a4dc; background: rgba(0,164,220,0.08); }
+.health-clickable:active { transform: scale(0.97); }
+.health-clickable.health-active { border-color: #00a4dc; background: rgba(0,164,220,0.12); box-shadow: 0 0 0 2px rgba(0,164,220,0.3); }
+
+/* Health detail list */
+.health-detail-list { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.8em 1em; margin-top: 0.5em; max-height: 400px; overflow-y: auto; font-size: 0.85em; }
+.health-detail-list ul { margin: 0; padding-left: 1.5em; }
+.health-detail-list li { padding: 0.15em 0; word-break: break-all; }
+.health-detail-header { font-weight: 600; margin-bottom: 0.5em; color: #00a4dc; }
+/* Trend graph */
+.trend-container {
+    margin: 1em 0 2em 0;
+}
+
+.trend-chart {
+    width: 100%;
+    height: 200px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.trend-empty {
+    text-align: center;
+    padding: 2em;
+    opacity: 0.5;
+    font-size: 0.9em;
+}
+/* Settings form styles */
+.settings-form { max-width: 640px; }
+.settings-form label { display: block; margin-top: 1em; font-weight: 600; font-size: 0.9em; }
+.settings-form input[type="text"],
+.settings-form input[type="number"],
+.settings-form input[type="password"],
+.settings-form select { width: 100%; padding: 0.5em; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; background: rgba(255,255,255,0.05); color: inherit; font-size: 0.95em; margin-top: 0.3em; box-sizing: border-box; color-scheme: light dark; }
+.settings-form select option { background: #2b2b2b; color: #e0e0e0; }
+@media (prefers-color-scheme: light) {
+    .settings-form select { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.15); }
+    .settings-form select option { background: #ffffff; color: #111111; }
+}
+/* noinspection CssUnusedSymbol */
+.settings-form .help-text { font-size: 0.8em; opacity: 0.5; margin-top: 0.2em; }
+/* noinspection CssUnusedSymbol */
+.settings-form .checkbox-row { display: flex; align-items: center; gap: 0.5em; margin-top: 1em; }
+/* noinspection CssUnusedSymbol */
+.settings-form .checkbox-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: #00a4dc; }
+/* noinspection CssUnusedSymbol */
+.settings-form .checkbox-row label { margin: 0; font-weight: 400; }
+/* noinspection CssUnusedSymbol */
+.settings-form .section-divider { border-top: 1px solid rgba(255,255,255,0.1); margin-top: 1.5em; padding-top: 0.5em; }
+/* Arr comparison */
+.arr-section { margin-top: 1em; }
+.arr-list { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.8em 1em; margin-top: 0.5em; max-height: 300px; overflow-y: auto; font-size: 0.85em; }
+.arr-list ul { margin: 0; padding-left: 1.5em; }
+.arr-list li { padding: 0.15em 0; }
+.arr-count { font-weight: 700; color: #00a4dc; }
+
+/* Arr connection test result indicators */
+.arr-test-result { font-size: 0.85em; font-weight: 600; transition: color 0.3s; }
+.arr-test-ok { color: #2ecc71; }
+.arr-test-fail { color: #e74c3c; }
+.arr-test-pending { color: #f1c40f; }
+
+    </style>
+        <div data-role="content">
+            <div class="content-primary">
+                <div class="stats-container">
+                    <div class="stats-header">
+                        <h2>Jellyfin Helper &#x2014; Media Statistics</h2>
+                        <div class="header-actions">
+                            <span id="lastScanBadge" class="last-scan-badge" style="display:none;"></span>
+                            <button id="btnExportJson" class="export-btn" disabled>&#x1f4e5; JSON</button>
+                            <button id="btnExportCsv" class="export-btn" disabled>&#x1f4e5; CSV</button>
+                            <button id="btnRefresh" class="refresh-btn">
+                                &#x21bb; Scan Libraries
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="statsContent">
+                        <div class="loading-overlay" id="loadingIndicator" style="display:none;">
+                            <div class="spinner"></div>
+                            <p>Scanning libraries&#x2026; This may take a while for large collections.</p>
+                        </div>
+                        <div id="statsPlaceholder" style="text-align:center; padding:3em; opacity:0.5;">
+                            <p>Click <strong>Scan Libraries</strong> to analyze your media folders.</p>
+                        </div>
+                        <div id="statsResult" style="display:none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    <script type="text/javascript">
+        // noinspection JSUnusedLocalSymbols,JSUnresolvedReference
+// This file is the FIRST module concatenated into configPage.html — it opens the IIFE.
+// Do NOT add a closing })(); here — that lives in main.js.
 (function () {
     'use strict';
 
@@ -61,6 +569,26 @@
         return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + units[i];
     }
 
+    function escAttr(s) { return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+    function escHtml(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+    // Aggregate dictionaries across libraries
+    function aggregateDict(libraries, prop) {
+        var result = {};
+        for (var i = 0; i < libraries.length; i++) {
+            var dict = libraries[i][prop];
+            if (dict) {
+                for (var key in dict) {
+                    if (Object.prototype.hasOwnProperty.call(dict, key)) {
+                        result[key] = (result[key] || 0) + dict[key];
+                    }
+                }
+            }
+        }
+        return result;
+    }
+// --- Overview Tab ---
+
     function getCollectionBadge(type) {
         var t = (type || '').toLowerCase();
         if (t === 'tvshows') return '<span class="badge badge-tvshows">TV Shows</span>';
@@ -68,6 +596,156 @@
         if (t === 'music') return '<span class="badge badge-music">Music</span>';
         return '<span class="badge badge-other">' + escHtml(type || 'Mixed') + '</span>';
     }
+
+    function buildBarSegments(data) {
+        var total = data.TotalMovieVideoSize + data.TotalTvShowVideoSize +
+            data.TotalSubtitleSize + data.TotalImageSize + data.TotalTrickplaySize +
+            data.TotalNfoSize + data.TotalMusicAudioSize;
+
+        var otherSize = 0;
+        for (var i = 0; i < data.Libraries.length; i++) {
+            otherSize += data.Libraries[i].OtherSize;
+            total += data.Libraries[i].OtherSize;
+        }
+
+        if (total === 0) return '';
+
+        var videoTotal = data.TotalMovieVideoSize + data.TotalTvShowVideoSize;
+        var segments = [
+            { cls: 'bar-video', pct: (videoTotal / total * 100), label: T('video', 'Video') },
+            { cls: 'bar-audio', pct: (data.TotalMusicAudioSize / total * 100), label: T('audio', 'Audio') },
+            { cls: 'bar-subtitle', pct: (data.TotalSubtitleSize / total * 100), label: T('subtitles', 'Subtitles') },
+            { cls: 'bar-image', pct: (data.TotalImageSize / total * 100), label: T('images', 'Images') },
+            { cls: 'bar-trickplay', pct: (data.TotalTrickplaySize / total * 100), label: T('trickplay', 'Trickplay') },
+            { cls: 'bar-nfo', pct: (data.TotalNfoSize / total * 100), label: T('metadata', 'Metadata') },
+            { cls: 'bar-other', pct: (otherSize / total * 100), label: T('other', 'Other') }
+        ];
+
+        var barHtml = '<div class="total-bar">';
+        for (var s = 0; s < segments.length; s++) {
+            if (segments[s].pct > 0) {
+                barHtml += '<div class="bar-segment ' + segments[s].cls + '" style="width:' + segments[s].pct.toFixed(2) + '%" title="' + escAttr(segments[s].label) + '"></div>';
+            }
+        }
+        barHtml += '</div>';
+
+        barHtml += '<div class="legend">';
+        var legendItems = [
+            { cls: 'bar-video', label: T('video', 'Video') + ' (' + formatBytes(videoTotal) + ')' },
+            { cls: 'bar-audio', label: T('audio', 'Audio') + ' (' + formatBytes(data.TotalMusicAudioSize) + ')' },
+            { cls: 'bar-subtitle', label: T('subtitles', 'Subtitles') + ' (' + formatBytes(data.TotalSubtitleSize) + ')' },
+            { cls: 'bar-image', label: T('images', 'Images') + ' (' + formatBytes(data.TotalImageSize) + ')' },
+            { cls: 'bar-trickplay', label: T('trickplay', 'Trickplay') + ' (' + formatBytes(data.TotalTrickplaySize) + ')' },
+            { cls: 'bar-nfo', label: T('metadata', 'Metadata') + ' (' + formatBytes(data.TotalNfoSize) + ')' },
+            { cls: 'bar-other', label: T('other', 'Other') + ' (' + formatBytes(otherSize) + ')' }
+        ];
+        for (var l = 0; l < legendItems.length; l++) {
+            barHtml += '<div class="legend-item"><div class="legend-dot ' + legendItems[l].cls + '"></div>' + legendItems[l].label + '</div>';
+        }
+        barHtml += '</div>';
+
+        return barHtml;
+    }
+
+    function loadCleanupStats() {
+        var apiClient = ApiClient;
+        apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Cleanup/Statistics'), dataType: 'json' }).then(function (stats) {
+            var cleanupContainer = document.getElementById('cleanup-stats-container');
+            if (!cleanupContainer) return;
+            var h = '<div class="section-title">🧹 ' + T('cleanupStatistics', 'Cleanup Statistics') + '</div>';
+            h += '<div class="stats-grid">';
+            h += '<div class="stat-card highlight"><h3>' + T('totalBytesFreed', 'Total Space Freed') + '</h3>';
+            h += '<p class="stat-value">' + formatBytes(stats.TotalBytesFreed) + '</p></div>';
+            h += '<div class="stat-card highlight"><h3>' + T('totalItemsDeleted', 'Total Items Deleted') + '</h3>';
+            h += '<p class="stat-value">' + stats.TotalItemsDeleted + '</p>';
+            var lastTs = stats.LastCleanupTimestamp && stats.LastCleanupTimestamp !== '0001-01-01T00:00:00' ? new Date(stats.LastCleanupTimestamp).toLocaleString() : T('never', 'Never');
+            h += '<p class="stat-detail">' + T('lastCleanup', 'Last cleanup') + ': ' + lastTs + '</p></div>';
+            h += '</div>';
+            cleanupContainer.innerHTML = h;
+        }, function () {
+            var cleanupContainer = document.getElementById('cleanup-stats-container');
+            if (cleanupContainer) {
+                cleanupContainer.innerHTML = '<div class="section-title">🧹 ' + T('cleanupStatistics', 'Cleanup Statistics') + '</div>' +
+                    '<p style="opacity:0.5;">' + T('cleanupStatsError', 'Could not load cleanup statistics.') + '</p>';
+            }
+        });
+    }
+
+    function fillOverviewData(data) {
+        var overviewHtml = '';
+        overviewHtml += '<div class="stats-grid">';
+        overviewHtml += '<div class="stat-card"><h3>' + T('movieVideoData', '🎬 Video Data — Movies') + '</h3>';
+        overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalMovieVideoSize) + '</p>';
+        var movieFiles = 0;
+        for (var m = 0; m < data.Movies.length; m++) movieFiles += data.Movies[m].VideoFileCount;
+        overviewHtml += '<p class="stat-detail">' + movieFiles + ' ' + (movieFiles === 1 ? T('file', 'file') : T('files', 'files')) + ' ' + T('across', 'across') + ' ' + data.Movies.length + ' ' + T('libraries', 'libraries') + '</p>';
+        overviewHtml += '</div>';
+
+        overviewHtml += '<div class="stat-card"><h3>' + T('tvVideoData', '📺 Video Data — TV Shows') + '</h3>';
+        overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalTvShowVideoSize) + '</p>';
+        var tvFiles = 0;
+        for (var t = 0; t < data.TvShows.length; t++) tvFiles += data.TvShows[t].VideoFileCount;
+        overviewHtml += '<p class="stat-detail">' + tvFiles + ' ' + (tvFiles === 1 ? T('episode', 'episode') : T('episodes', 'episodes')) + ' ' + T('across', 'across') + ' ' + data.TvShows.length + ' ' + T('libraries', 'libraries') + '</p>';
+        overviewHtml += '</div>';
+
+        overviewHtml += '<div class="stat-card"><h3>' + T('musicAudioData', '🎵 Music / Audio') + '</h3>';
+        overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalMusicAudioSize) + '</p>';
+        overviewHtml += '<p class="stat-detail">' + data.TotalAudioFileCount + ' ' + (data.TotalAudioFileCount === 1 ? T('file', 'file') : T('files', 'files')) + '</p>';
+        overviewHtml += '</div>';
+
+        overviewHtml += '<div class="stat-card"><h3>' + T('trickplayData', '🖼️ Trickplay Data') + '</h3>';
+        overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalTrickplaySize) + '</p>';
+        var trickplayFolders = 0;
+        for (var tp = 0; tp < data.Libraries.length; tp++) trickplayFolders += data.Libraries[tp].TrickplayFolderCount;
+        overviewHtml += '<p class="stat-detail">' + trickplayFolders + ' ' + (trickplayFolders === 1 ? T('folder', 'folder') : T('folders', 'folders')) + '</p>';
+        overviewHtml += '</div>';
+
+        overviewHtml += '<div class="stat-card"><h3>' + T('subtitleData', '📝 Subtitles') + '</h3>';
+        overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalSubtitleSize) + '</p>';
+        var subFiles = 0;
+        for (var sb = 0; sb < data.Libraries.length; sb++) subFiles += data.Libraries[sb].SubtitleFileCount;
+        overviewHtml += '<p class="stat-detail">' + subFiles + ' ' + (subFiles === 1 ? T('file', 'file') : T('files', 'files')) + '</p>';
+        overviewHtml += '</div>';
+
+        overviewHtml += '<div class="stat-card"><h3>' + T('totalFiles', '📊 Total Files') + '</h3>';
+        var totalMediaFiles = data.TotalVideoFileCount + data.TotalAudioFileCount;
+        overviewHtml += '<p class="stat-value">' + totalMediaFiles + ' ' + (totalMediaFiles === 1 ? T('mediaFile', 'media file') : T('mediaFiles', 'media files')) + '</p>';
+        overviewHtml += '<p class="stat-detail">' + data.TotalVideoFileCount + ' ' + T('video', 'video') + ', ' + data.TotalAudioFileCount + ' ' + T('audio', 'audio') + '</p>';
+        overviewHtml += '</div>';
+        overviewHtml += '</div>';
+
+        var grandTotal = 0;
+        for (var gt = 0; gt < data.Libraries.length; gt++) grandTotal += data.Libraries[gt].TotalSize;
+        overviewHtml += '<div class="section-title">' + T('storageDistribution', 'Storage Distribution') + ' — <span style="color:#00a4dc;">' + formatBytes(grandTotal) + ' ' + T('total', 'Total') + '</span></div>';
+        overviewHtml += buildBarSegments(data);
+
+        overviewHtml += '<div class="section-title">' + T('perLibraryBreakdown', 'Per-Library Breakdown') + '</div>';
+        overviewHtml += '<div class="library-table-wrapper"><table class="library-table">';
+        overviewHtml += '<thead><tr>';
+        overviewHtml += '<th>' + T('library', 'Library') + '</th><th>' + T('type', 'Type') + '</th><th>' + T('video', 'Video') + '</th><th>' + T('audio', 'Audio') + '</th><th>' + T('subtitles', 'Subtitles') + '</th><th>' + T('images', 'Images') + '</th><th>' + T('trickplay', 'Trickplay') + '</th><th>' + T('total', 'Total') + '</th>';
+        overviewHtml += '</tr></thead><tbody>';
+
+        for (var i = 0; i < data.Libraries.length; i++) {
+            var lib = data.Libraries[i];
+            overviewHtml += '<tr>';
+            overviewHtml += '<td>' + escHtml(lib.LibraryName) + '</td>';
+            overviewHtml += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';
+            overviewHtml += '<td>' + formatBytes(lib.VideoSize) + '</td>';
+            overviewHtml += '<td>' + formatBytes(lib.AudioSize) + '</td>';
+            overviewHtml += '<td>' + formatBytes(lib.SubtitleSize) + '</td>';
+            overviewHtml += '<td>' + formatBytes(lib.ImageSize) + '</td>';
+            overviewHtml += '<td>' + formatBytes(lib.TrickplaySize) + '</td>';
+            overviewHtml += '<td><strong>' + formatBytes(lib.TotalSize) + '</strong></td>';
+            overviewHtml += '</tr>';
+        }
+
+        overviewHtml += '</tbody></table></div>';
+        overviewHtml += '<div id="cleanup-stats-container"></div>';
+
+        var overviewContainer = document.getElementById('overviewContent');
+        if (overviewContainer) overviewContainer.innerHTML = overviewHtml;
+    }
+// --- Codecs Tab ---
 
     // SVG donut chart generator
     function renderDonutChart(data, size) {
@@ -126,71 +804,44 @@
         return '<div class="donut-container">' + svg + '</div>' + legend;
     }
 
-    function buildBarSegments(data) {
-        var total = data.TotalMovieVideoSize + data.TotalTvShowVideoSize +
-            data.TotalSubtitleSize + data.TotalImageSize + data.TotalTrickplaySize +
-            data.TotalNfoSize + data.TotalMusicAudioSize;
+    function fillCodecsData(data) {
+        var videoCodecs = aggregateDict(data.Libraries, 'VideoCodecs');
+        var videoAudioCodecs = aggregateDict(data.Libraries, 'VideoAudioCodecs');
+        var musicAudioCodecs = aggregateDict(data.Libraries, 'MusicAudioCodecs');
+        var containers = aggregateDict(data.Libraries, 'ContainerFormats');
+        var resolutions = aggregateDict(data.Libraries, 'Resolutions');
 
-        var otherSize = 0;
-        for (var i = 0; i < data.Libraries.length; i++) {
-            otherSize += data.Libraries[i].OtherSize;
-            total += data.Libraries[i].OtherSize;
+        var codecsHtml = '<div class="charts-row">';
+        codecsHtml += '<div class="chart-box"><h4>' + T('videoCodecs', '🎬 Video Codecs') + '</h4>';
+        codecsHtml += renderDonutChart(videoCodecs);
+        codecsHtml += '</div>';
+        var hasVideoAudio = Object.keys(videoAudioCodecs).length > 0;
+        var hasMusicAudio = Object.keys(musicAudioCodecs).length > 0;
+        if (hasVideoAudio) {
+            codecsHtml += '<div class="chart-box"><h4>' + T('videoAudioCodecs', '🔊 Video Audio Codecs') + '</h4>';
+            codecsHtml += renderDonutChart(videoAudioCodecs);
+            codecsHtml += '</div>';
         }
-
-        if (total === 0) return '';
-
-        var videoTotal = data.TotalMovieVideoSize + data.TotalTvShowVideoSize;
-        var segments = [
-            { cls: 'bar-video', pct: (videoTotal / total * 100), label: T('video', 'Video') },
-            { cls: 'bar-audio', pct: (data.TotalMusicAudioSize / total * 100), label: T('audio', 'Audio') },
-            { cls: 'bar-subtitle', pct: (data.TotalSubtitleSize / total * 100), label: T('subtitles', 'Subtitles') },
-            { cls: 'bar-image', pct: (data.TotalImageSize / total * 100), label: T('images', 'Images') },
-            { cls: 'bar-trickplay', pct: (data.TotalTrickplaySize / total * 100), label: T('trickplay', 'Trickplay') },
-            { cls: 'bar-nfo', pct: (data.TotalNfoSize / total * 100), label: T('metadata', 'Metadata') },
-            { cls: 'bar-other', pct: (otherSize / total * 100), label: T('other', 'Other') }
-        ];
-
-        var barHtml = '<div class="total-bar">';
-        for (var s = 0; s < segments.length; s++) {
-            if (segments[s].pct > 0) {
-                barHtml += '<div class="bar-segment ' + segments[s].cls + '" style="width:' + segments[s].pct.toFixed(2) + '%" title="' + escAttr(segments[s].label) + '"></div>';
-            }
+        if (hasMusicAudio) {
+            codecsHtml += '<div class="chart-box"><h4>' + T('musicAudioCodecs', '🎵 Music Audio Codecs') + '</h4>';
+            codecsHtml += renderDonutChart(musicAudioCodecs);
+            codecsHtml += '</div>';
         }
-        barHtml += '</div>';
+        codecsHtml += '<div class="chart-box"><h4>' + T('containerFormats', '📦 Container Formats') + '</h4>';
+        codecsHtml += renderDonutChart(containers);
+        codecsHtml += '</div>';
+        codecsHtml += '<div class="chart-box"><h4>' + T('resolutions', '📐 Resolutions') + '</h4>';
+        codecsHtml += renderDonutChart(resolutions);
+        codecsHtml += '</div>';
+        codecsHtml += '</div>';
 
-        barHtml += '<div class="legend">';
-        var legendItems = [
-            { cls: 'bar-video', label: T('video', 'Video') + ' (' + formatBytes(videoTotal) + ')' },
-            { cls: 'bar-audio', label: T('audio', 'Audio') + ' (' + formatBytes(data.TotalMusicAudioSize) + ')' },
-            { cls: 'bar-subtitle', label: T('subtitles', 'Subtitles') + ' (' + formatBytes(data.TotalSubtitleSize) + ')' },
-            { cls: 'bar-image', label: T('images', 'Images') + ' (' + formatBytes(data.TotalImageSize) + ')' },
-            { cls: 'bar-trickplay', label: T('trickplay', 'Trickplay') + ' (' + formatBytes(data.TotalTrickplaySize) + ')' },
-            { cls: 'bar-nfo', label: T('metadata', 'Metadata') + ' (' + formatBytes(data.TotalNfoSize) + ')' },
-            { cls: 'bar-other', label: T('other', 'Other') + ' (' + formatBytes(otherSize) + ')' }
-        ];
-        for (var l = 0; l < legendItems.length; l++) {
-            barHtml += '<div class="legend-item"><div class="legend-dot ' + legendItems[l].cls + '"></div>' + legendItems[l].label + '</div>';
-        }
-        barHtml += '</div>';
-
-        return barHtml;
+        var codecsContainer = document.getElementById('codecsContent');
+        if (codecsContainer) codecsContainer.innerHTML = codecsHtml;
     }
+// --- Health Tab ---
 
-    // Aggregate dictionaries across libraries
-    function aggregateDict(libraries, prop) {
-        var result = {};
-        for (var i = 0; i < libraries.length; i++) {
-            var dict = libraries[i][prop];
-            if (dict) {
-                for (var key in dict) {
-                    if (Object.prototype.hasOwnProperty.call(dict, key)) {
-                        result[key] = (result[key] || 0) + dict[key];
-                    }
-                }
-            }
-        }
-        return result;
-    }
+    // Store last scan data for health detail clicks
+    var _lastScanData = null;
 
     function collectHealthPaths(data, prop) {
         var paths = [];
@@ -216,9 +867,6 @@
         html += '</ul></div>';
         return html;
     }
-
-    // Store last scan data for health detail clicks
-    var _lastScanData = null;
 
     function renderHealthChecks(data) {
         _lastScanData = data;
@@ -364,6 +1012,19 @@
         });
     }
 
+    function fillHealthData(data) {
+        var healthHtml = '<div class="section-title">' + T('healthChecks', 'Library Health Checks') + '</div>';
+        healthHtml += renderHealthChecks(data);
+
+        var healthContainer = document.getElementById('healthContent');
+        if (healthContainer) {
+            healthContainer.innerHTML = healthHtml;
+            attachHealthClickHandlers();
+            loadTrashHealthSection();
+        }
+    }
+// --- Trends Tab ---
+
     function renderTrendChart(snapshots) {
         if (!snapshots || snapshots.length < 2) {
             return '<div class="trend-empty">' + T('trendEmpty', 'Not enough historical data yet. Trend data is collected with each scan.') + '</div>';
@@ -426,183 +1087,33 @@
         return '<div class="trend-chart">' + svg + '</div>';
     }
 
+    function loadTrendData() {
+        var apiClient = ApiClient;
+        var url = apiClient.getUrl('JellyfinHelper/Statistics/History');
+
+        apiClient.ajax({
+            type: 'GET',
+            url: url,
+            dataType: 'json'
+        }).then(function (snapshots) {
+            var container = document.getElementById('trendChartContainer');
+            if (container) {
+                container.innerHTML = renderTrendChart(snapshots);
+            }
+        }, function () {
+            var container = document.getElementById('trendChartContainer');
+            if (container) {
+                container.innerHTML = '<div class="trend-empty">' + T('trendError', 'Could not load trend data.') + '</div>';
+            }
+        });
+    }
+// --- Settings Tab ---
+
     // Track current language for detecting changes on save
     var _currentLang = '';
 
     // Track whether trash was enabled when settings were loaded (for deactivation dialog)
     var _wasTrashEnabled = false;
-
-    var MAX_ARR_INSTANCES = 3;
-
-    function renderArrInstances(type, instances) {
-        var h = '';
-        var count = instances ? instances.length : 0;
-        for (var i = 0; i < count; i++) {
-            h += renderArrInstanceRow(type, i, instances[i]);
-        }
-        h += '<div id="' + type + 'AddBtnWrap">';
-        h += '<button type="button" class="action-btn" id="btnAdd' + type + '"' +
-            (count >= MAX_ARR_INSTANCES ? ' style="display:none;margin-top:0.5em;"' : ' style="margin-top:0.5em;"') +
-            '>+ ' + T('addAnother', 'Add another') + ' ' + type + ' ' + T('instance', 'instance') + '</button>';
-        h += '</div>';
-        return h;
-    }
-
-    function renderArrInstanceRow(type, index, inst) {
-        var prefix = type + '_' + index;
-        var name = inst ? (inst.Name || '') : '';
-        var url = inst ? (inst.Url || '') : '';
-        var apiKey = inst ? (inst.ApiKey || '') : '';
-        var placeholderUrl = type === 'Radarr' ? 'http://localhost:7878' : 'http://localhost:8989';
-        var h = '<div class="arr-instance-row" data-type="' + type + '" data-index="' + index + '" style="border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:0.8em;margin-top:0.8em;position:relative;">';
-        h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3em;">';
-        h += '<strong>' + type + ' #' + (index + 1) + '</strong>';
-        h += '<button type="button" class="action-btn btnRemoveArr" data-type="' + type + '" data-index="' + index + '" style="padding:0.2em 0.6em;font-size:0.8em;background:#e74c3c;">✕ ' + T('remove', 'Remove') + '</button>';
-        h += '</div>';
-        h += '<label>' + T('instanceName', 'Instance Name') + '</label><input type="text" id="' + prefix + '_name" value="' + escAttr(name) + '" placeholder="e.g. ' + type + ' 4K">';
-        h += '<label>' + T('url', 'URL') + '</label><input type="text" id="' + prefix + '_url" value="' + escAttr(url) + '" placeholder="' + placeholderUrl + '">';
-        h += '<label>' + T('apiKey', 'API Key') + '</label><input type="password" id="' + prefix + '_key" value="' + escAttr(apiKey) + '">';
-        h += '<div style="margin-top:0.5em;display:flex;align-items:center;gap:0.5em;">';
-        h += '<button type="button" class="action-btn btnTestArr" data-type="' + type + '" data-index="' + index + '" style="padding:0.3em 0.8em;font-size:0.85em;background:#3498db;">🔌 ' + T('testConnection', 'Test Connection') + '</button>';
-        h += '<span class="arr-test-result" id="' + prefix + '_testResult"></span>';
-        h += '</div>';
-        h += '</div>';
-        return h;
-    }
-
-    function escAttr(s) { return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
-    function escHtml(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-
-    function collectArrInstances(type) {
-        var rows = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
-        var result = [];
-        for (var i = 0; i < rows.length; i++) {
-            var idx = rows[i].getAttribute('data-index');
-            var prefix = type + '_' + idx;
-            var nameEl = document.getElementById(prefix + '_name');
-            var urlEl = document.getElementById(prefix + '_url');
-            var keyEl = document.getElementById(prefix + '_key');
-            if (nameEl && urlEl && keyEl) {
-                result.push({ Name: nameEl.value, Url: urlEl.value, ApiKey: keyEl.value });
-            }
-        }
-        return result;
-    }
-
-    function addArrInstance(type) {
-        var rows = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
-        if (rows.length >= MAX_ARR_INSTANCES) return;
-        var newIndex = rows.length;
-        var wrap = document.getElementById(type + 'AddBtnWrap');
-        if (!wrap) return;
-        var tmp = document.createElement('div');
-        tmp.innerHTML = renderArrInstanceRow(type, newIndex, null);
-        wrap.parentNode.insertBefore(tmp.firstChild, wrap);
-        // Attach remove and test handlers
-        attachRemoveHandlers();
-        attachTestHandlers();
-        // Hide add button if at max
-        if (newIndex + 1 >= MAX_ARR_INSTANCES) {
-            var btn = document.getElementById('btnAdd' + type);
-            if (btn) btn.style.display = 'none';
-        }
-    }
-
-    function removeArrInstance(type, index) {
-        var row = document.querySelector('.arr-instance-row[data-type="' + type + '"][data-index="' + index + '"]');
-        if (row) row.remove();
-        // Re-index remaining rows
-        var remaining = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
-        for (var i = 0; i < remaining.length; i++) {
-            remaining[i].setAttribute('data-index', i);
-            var prefix = type + '_' + i;
-            // Update IDs for inputs
-            var inputs = remaining[i].querySelectorAll('input');
-            var suffixes = ['_name', '_url', '_key'];
-            for (var j = 0; j < inputs.length && j < suffixes.length; j++) {
-                inputs[j].id = prefix + suffixes[j];
-            }
-            // Update header text
-            var strong = remaining[i].querySelector('strong');
-            if (strong) strong.textContent = type + ' #' + (i + 1);
-            // Update remove button data-index
-            var removeBtn = remaining[i].querySelector('.btnRemoveArr');
-            if (removeBtn) removeBtn.setAttribute('data-index', i);
-            // Update test button data-index and test result ID
-            var testBtn = remaining[i].querySelector('.btnTestArr');
-            if (testBtn) testBtn.setAttribute('data-index', i);
-            var resultSpan = remaining[i].querySelector('.arr-test-result');
-            if (resultSpan) resultSpan.id = prefix + '_testResult';
-        }
-        // Show add button again if below max
-        var btn = document.getElementById('btnAdd' + type);
-        if (btn && remaining.length < MAX_ARR_INSTANCES) btn.style.display = '';
-    }
-
-    function testArrConnection(type, index) {
-        var prefix = type + '_' + index;
-        var urlEl = document.getElementById(prefix + '_url');
-        var keyEl = document.getElementById(prefix + '_key');
-        var resultEl = document.getElementById(prefix + '_testResult');
-        if (!urlEl || !keyEl || !resultEl) return;
-
-        var url = urlEl.value.trim();
-        var apiKey = keyEl.value.trim();
-
-        if (!url || !apiKey) {
-            resultEl.className = 'arr-test-result arr-test-fail';
-            resultEl.textContent = '❌ ' + T('testMissingFields', 'URL and API Key are required.');
-            return;
-        }
-
-        resultEl.className = 'arr-test-result arr-test-pending';
-        resultEl.textContent = '⏳ ' + T('testing', 'Testing…');
-
-        var apiClient = ApiClient;
-        apiClient.ajax({
-            type: 'POST',
-            url: apiClient.getUrl('JellyfinHelper/Arr/TestConnection'),
-            data: JSON.stringify({ Url: url, ApiKey: apiKey }),
-            contentType: 'application/json',
-            dataType: 'json'
-        }).then(function (data) {
-            if (data.success) {
-                resultEl.className = 'arr-test-result arr-test-ok';
-                resultEl.textContent = '✅ ' + data.message;
-            } else {
-                resultEl.className = 'arr-test-result arr-test-fail';
-                resultEl.textContent = '❌ ' + data.message;
-            }
-        }, function () {
-            resultEl.className = 'arr-test-result arr-test-fail';
-            resultEl.textContent = '❌ ' + T('testConnectionFailed', 'Connection test failed.');
-        });
-    }
-
-    function attachTestHandlers() {
-        var btns = document.querySelectorAll('.btnTestArr');
-        for (var i = 0; i < btns.length; i++) {
-            btns[i].onclick = function () {
-                testArrConnection(this.getAttribute('data-type'), parseInt(this.getAttribute('data-index'), 10));
-            };
-        }
-    }
-
-    function attachRemoveHandlers() {
-        var btns = document.querySelectorAll('.btnRemoveArr');
-        for (var i = 0; i < btns.length; i++) {
-            btns[i].onclick = function () {
-                removeArrInstance(this.getAttribute('data-type'), parseInt(this.getAttribute('data-index'), 10));
-            };
-        }
-    }
-
-    function attachAddHandlers() {
-        var btnRadarr = document.getElementById('btnAddRadarr');
-        var btnSonarr = document.getElementById('btnAddSonarr');
-        if (btnRadarr) btnRadarr.onclick = function () { addArrInstance('Radarr'); };
-        if (btnSonarr) btnSonarr.onclick = function () { addArrInstance('Sonarr'); };
-    }
 
     // Rebuild the entire UI after a language change
     function rebuildUI() {
@@ -627,7 +1138,6 @@
         if (settingsBtn) settingsBtn.click();
     }
 
-    // --- Settings Tab Logic ---
     function loadSettings() {
         var form = document.getElementById('settingsForm');
         if (!form) return;
@@ -772,17 +1282,14 @@
         var btn = document.getElementById('btnSaveSettings');
         var apiClient = ApiClient;
 
-        // Check if trash folders actually exist on disk
         apiClient.ajax({
             type: 'GET', url: apiClient.getUrl('JellyfinHelper/Trash/Folders'), dataType: 'json'
         }).then(function (data) {
             if (!data.Paths || data.Paths.length === 0) {
-                // No trash folders exist, just save
                 doSaveSettings(payload);
                 return;
             }
 
-            // Build first dialog: "What should happen with the trash folders?"
             var pathList = '';
             for (var i = 0; i < data.Paths.length; i++) {
                 pathList += '\n  • ' + data.Paths[i];
@@ -792,10 +1299,8 @@
                 + pathList
                 + '\n\n' + T('trashDisableQuestion', 'What should happen with these folders?');
 
-            // Remove any existing dialog
             removeTrashDialog();
 
-            // Create modal overlay
             var overlay = document.createElement('div');
             overlay.id = 'trashDialogOverlay';
             overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;';
@@ -828,7 +1333,6 @@
             btnDelete.textContent = '🗑️ ' + T('trashDelete', 'Delete Folders');
             btnDelete.style.cssText = 'padding:0.5em 1.2em;border:none;border-radius:4px;background:#e74c3c;color:#fff;cursor:pointer;font-size:0.9em;';
             btnDelete.onclick = function () {
-                // Show confirmation dialog
                 removeTrashDialog();
                 showTrashDeleteConfirmation(payload, data.Paths);
             };
@@ -838,7 +1342,6 @@
             btnCancel.style.cssText = 'padding:0.5em 1.2em;border:1px solid rgba(255,255,255,0.2);border-radius:4px;background:transparent;color:#fff;cursor:pointer;font-size:0.9em;';
             btnCancel.onclick = function () {
                 removeTrashDialog();
-                // Re-check the trash checkbox since user canceled
                 var chk = document.getElementById('cfgTrash');
                 if (chk) chk.checked = true;
                 btn.disabled = false;
@@ -851,7 +1354,6 @@
             overlay.appendChild(dialog);
             document.body.appendChild(overlay);
         }, function () {
-            // If we can't check trash folders, just save normally
             doSaveSettings(payload);
         });
     }
@@ -892,7 +1394,6 @@
         btnCancel.style.cssText = 'padding:0.5em 1.2em;border:1px solid rgba(255,255,255,0.2);border-radius:4px;background:transparent;color:#fff;cursor:pointer;font-size:0.9em;';
         btnCancel.onclick = function () {
             removeTrashDialog();
-            // Re-check the trash checkbox since user canceled
             var chk = document.getElementById('cfgTrash');
             if (chk) chk.checked = true;
             btn.disabled = false;
@@ -919,7 +1420,6 @@
                 if (summary) {
                     msg.innerHTML = '<div class="success-msg">' + summary + '</div>';
                 }
-                // Now save the configuration
                 doSaveSettings(payload);
             }, function () {
                 msg.innerHTML = '<div class="error-msg">❌ ' + T('trashDeleteError', 'Failed to delete trash folders.') + '</div>';
@@ -955,8 +1455,169 @@
 
         doSaveSettings(payload);
     }
+// --- Arr Integration Tab ---
 
-    // --- Arr Tab Logic ---
+    var MAX_ARR_INSTANCES = 3;
+
+    function renderArrInstances(type, instances) {
+        var h = '';
+        var count = instances ? instances.length : 0;
+        for (var i = 0; i < count; i++) {
+            h += renderArrInstanceRow(type, i, instances[i]);
+        }
+        h += '<div id="' + type + 'AddBtnWrap">';
+        h += '<button type="button" class="action-btn" id="btnAdd' + type + '"' +
+            (count >= MAX_ARR_INSTANCES ? ' style="display:none;margin-top:0.5em;"' : ' style="margin-top:0.5em;"') +
+            '>+ ' + T('addAnother', 'Add another') + ' ' + type + ' ' + T('instance', 'instance') + '</button>';
+        h += '</div>';
+        return h;
+    }
+
+    function renderArrInstanceRow(type, index, inst) {
+        var prefix = type + '_' + index;
+        var name = inst ? (inst.Name || '') : '';
+        var url = inst ? (inst.Url || '') : '';
+        var apiKey = inst ? (inst.ApiKey || '') : '';
+        var placeholderUrl = type === 'Radarr' ? 'http://localhost:7878' : 'http://localhost:8989';
+        var h = '<div class="arr-instance-row" data-type="' + type + '" data-index="' + index + '" style="border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:0.8em;margin-top:0.8em;position:relative;">';
+        h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3em;">';
+        h += '<strong>' + type + ' #' + (index + 1) + '</strong>';
+        h += '<button type="button" class="action-btn btnRemoveArr" data-type="' + type + '" data-index="' + index + '" style="padding:0.2em 0.6em;font-size:0.8em;background:#e74c3c;">✕ ' + T('remove', 'Remove') + '</button>';
+        h += '</div>';
+        h += '<label>' + T('instanceName', 'Instance Name') + '</label><input type="text" id="' + prefix + '_name" value="' + escAttr(name) + '" placeholder="e.g. ' + type + ' 4K">';
+        h += '<label>' + T('url', 'URL') + '</label><input type="text" id="' + prefix + '_url" value="' + escAttr(url) + '" placeholder="' + placeholderUrl + '">';
+        h += '<label>' + T('apiKey', 'API Key') + '</label><input type="password" id="' + prefix + '_key" value="' + escAttr(apiKey) + '">';
+        h += '<div style="margin-top:0.5em;display:flex;align-items:center;gap:0.5em;">';
+        h += '<button type="button" class="action-btn btnTestArr" data-type="' + type + '" data-index="' + index + '" style="padding:0.3em 0.8em;font-size:0.85em;background:#3498db;">🔌 ' + T('testConnection', 'Test Connection') + '</button>';
+        h += '<span class="arr-test-result" id="' + prefix + '_testResult"></span>';
+        h += '</div>';
+        h += '</div>';
+        return h;
+    }
+
+    function collectArrInstances(type) {
+        var rows = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
+        var result = [];
+        for (var i = 0; i < rows.length; i++) {
+            var idx = rows[i].getAttribute('data-index');
+            var prefix = type + '_' + idx;
+            var nameEl = document.getElementById(prefix + '_name');
+            var urlEl = document.getElementById(prefix + '_url');
+            var keyEl = document.getElementById(prefix + '_key');
+            if (nameEl && urlEl && keyEl) {
+                result.push({ Name: nameEl.value, Url: urlEl.value, ApiKey: keyEl.value });
+            }
+        }
+        return result;
+    }
+
+    function addArrInstance(type) {
+        var rows = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
+        if (rows.length >= MAX_ARR_INSTANCES) return;
+        var newIndex = rows.length;
+        var wrap = document.getElementById(type + 'AddBtnWrap');
+        if (!wrap) return;
+        var tmp = document.createElement('div');
+        tmp.innerHTML = renderArrInstanceRow(type, newIndex, null);
+        wrap.parentNode.insertBefore(tmp.firstChild, wrap);
+        attachRemoveHandlers();
+        attachTestHandlers();
+        if (newIndex + 1 >= MAX_ARR_INSTANCES) {
+            var btn = document.getElementById('btnAdd' + type);
+            if (btn) btn.style.display = 'none';
+        }
+    }
+
+    function removeArrInstance(type, index) {
+        var row = document.querySelector('.arr-instance-row[data-type="' + type + '"][data-index="' + index + '"]');
+        if (row) row.remove();
+        var remaining = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
+        for (var i = 0; i < remaining.length; i++) {
+            remaining[i].setAttribute('data-index', i);
+            var prefix = type + '_' + i;
+            var inputs = remaining[i].querySelectorAll('input');
+            var suffixes = ['_name', '_url', '_key'];
+            for (var j = 0; j < inputs.length && j < suffixes.length; j++) {
+                inputs[j].id = prefix + suffixes[j];
+            }
+            var strong = remaining[i].querySelector('strong');
+            if (strong) strong.textContent = type + ' #' + (i + 1);
+            var removeBtn = remaining[i].querySelector('.btnRemoveArr');
+            if (removeBtn) removeBtn.setAttribute('data-index', i);
+            var testBtn = remaining[i].querySelector('.btnTestArr');
+            if (testBtn) testBtn.setAttribute('data-index', i);
+            var resultSpan = remaining[i].querySelector('.arr-test-result');
+            if (resultSpan) resultSpan.id = prefix + '_testResult';
+        }
+        var btn = document.getElementById('btnAdd' + type);
+        if (btn && remaining.length < MAX_ARR_INSTANCES) btn.style.display = '';
+    }
+
+    function testArrConnection(type, index) {
+        var prefix = type + '_' + index;
+        var urlEl = document.getElementById(prefix + '_url');
+        var keyEl = document.getElementById(prefix + '_key');
+        var resultEl = document.getElementById(prefix + '_testResult');
+        if (!urlEl || !keyEl || !resultEl) return;
+
+        var url = urlEl.value.trim();
+        var apiKey = keyEl.value.trim();
+
+        if (!url || !apiKey) {
+            resultEl.className = 'arr-test-result arr-test-fail';
+            resultEl.textContent = '❌ ' + T('testMissingFields', 'URL and API Key are required.');
+            return;
+        }
+
+        resultEl.className = 'arr-test-result arr-test-pending';
+        resultEl.textContent = '⏳ ' + T('testing', 'Testing…');
+
+        var apiClient = ApiClient;
+        apiClient.ajax({
+            type: 'POST',
+            url: apiClient.getUrl('JellyfinHelper/Arr/TestConnection'),
+            data: JSON.stringify({ Url: url, ApiKey: apiKey }),
+            contentType: 'application/json',
+            dataType: 'json'
+        }).then(function (data) {
+            if (data.success) {
+                resultEl.className = 'arr-test-result arr-test-ok';
+                resultEl.textContent = '✅ ' + data.message;
+            } else {
+                resultEl.className = 'arr-test-result arr-test-fail';
+                resultEl.textContent = '❌ ' + data.message;
+            }
+        }, function () {
+            resultEl.className = 'arr-test-result arr-test-fail';
+            resultEl.textContent = '❌ ' + T('testConnectionFailed', 'Connection test failed.');
+        });
+    }
+
+    function attachTestHandlers() {
+        var btns = document.querySelectorAll('.btnTestArr');
+        for (var i = 0; i < btns.length; i++) {
+            btns[i].onclick = function () {
+                testArrConnection(this.getAttribute('data-type'), parseInt(this.getAttribute('data-index'), 10));
+            };
+        }
+    }
+
+    function attachRemoveHandlers() {
+        var btns = document.querySelectorAll('.btnRemoveArr');
+        for (var i = 0; i < btns.length; i++) {
+            btns[i].onclick = function () {
+                removeArrInstance(this.getAttribute('data-type'), parseInt(this.getAttribute('data-index'), 10));
+            };
+        }
+    }
+
+    function attachAddHandlers() {
+        var btnRadarr = document.getElementById('btnAddRadarr');
+        var btnSonarr = document.getElementById('btnAddSonarr');
+        if (btnRadarr) btnRadarr.onclick = function () { addArrInstance('Radarr'); };
+        if (btnSonarr) btnSonarr.onclick = function () { addArrInstance('Sonarr'); };
+    }
+
     function initArrButtons() {
         var btnContainer = document.getElementById('arrButtons');
         if (!btnContainer) return;
@@ -999,7 +1660,6 @@
 
             btnContainer.innerHTML = h;
 
-            // Attach click handlers
             var compareBtns = btnContainer.querySelectorAll('.arr-compare-btn');
             for (var i = 0; i < compareBtns.length; i++) {
                 compareBtns[i].addEventListener('click', function () {
@@ -1040,31 +1700,9 @@
             resultDiv.innerHTML = '<div class="error-msg">❌ ' + T('arrCompareError', 'Failed to compare. Check settings.') + '</div>';
         });
     }
-
-    // --- Cleanup Stats (loaded async into overview) ---
-    function loadCleanupStats() {
-        var apiClient = ApiClient;
-        apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Cleanup/Statistics'), dataType: 'json' }).then(function (stats) {
-            var cleanupContainer = document.getElementById('cleanup-stats-container');
-            if (!cleanupContainer) return;
-            var h = '<div class="section-title">🧹 ' + T('cleanupStatistics', 'Cleanup Statistics') + '</div>';
-            h += '<div class="stats-grid">';
-            h += '<div class="stat-card highlight"><h3>' + T('totalBytesFreed', 'Total Space Freed') + '</h3>';
-            h += '<p class="stat-value">' + formatBytes(stats.TotalBytesFreed) + '</p></div>';
-            h += '<div class="stat-card highlight"><h3>' + T('totalItemsDeleted', 'Total Items Deleted') + '</h3>';
-            h += '<p class="stat-value">' + stats.TotalItemsDeleted + '</p>';
-            var lastTs = stats.LastCleanupTimestamp && stats.LastCleanupTimestamp !== '0001-01-01T00:00:00' ? new Date(stats.LastCleanupTimestamp).toLocaleString() : T('never', 'Never');
-            h += '<p class="stat-detail">' + T('lastCleanup', 'Last cleanup') + ': ' + lastTs + '</p></div>';
-            h += '</div>';
-            cleanupContainer.innerHTML = h;
-        }, function () {
-            var cleanupContainer = document.getElementById('cleanup-stats-container');
-            if (cleanupContainer) {
-                cleanupContainer.innerHTML = '<div class="section-title">🧹 ' + T('cleanupStatistics', 'Cleanup Statistics') + '</div>' +
-                    '<p style="opacity:0.5;">' + T('cleanupStatsError', 'Could not load cleanup statistics.') + '</p>';
-            }
-        });
-    }
+// noinspection JSUnusedLocalSymbols,JSUnresolvedReference
+// This file is the LAST module concatenated into configPage.html — it closes the IIFE from shared.js.
+// --- Main / Page Initialization ---
 
     function initTabs() {
         var tabBtns = document.querySelectorAll('.tab-btn');
@@ -1084,27 +1722,6 @@
                 if (target) target.classList.add('active');
             });
         }
-    }
-
-    function loadTrendData() {
-        var apiClient = ApiClient;
-        var url = apiClient.getUrl('JellyfinHelper/Statistics/History');
-
-        apiClient.ajax({
-            type: 'GET',
-            url: url,
-            dataType: 'json'
-        }).then(function (snapshots) {
-            var container = document.getElementById('trendChartContainer');
-            if (container) {
-                container.innerHTML = renderTrendChart(snapshots);
-            }
-        }, function () {
-            var container = document.getElementById('trendChartContainer');
-            if (container) {
-                container.innerHTML = '<div class="trend-empty">' + T('trendError', 'Could not load trend data.') + '</div>';
-            }
-        });
     }
 
     function triggerExport(format) {
@@ -1241,126 +1858,9 @@
 
     // Fill scan-dependent tabs with data after a successful scan
     function fillScanData(data) {
-        // === OVERVIEW ===
-        var overviewHtml = '';
-        overviewHtml += '<div class="stats-grid">';
-        overviewHtml += '<div class="stat-card"><h3>' + T('movieVideoData', '🎬 Video Data — Movies') + '</h3>';
-        overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalMovieVideoSize) + '</p>';
-        var movieFiles = 0;
-        for (var m = 0; m < data.Movies.length; m++) movieFiles += data.Movies[m].VideoFileCount;
-        overviewHtml += '<p class="stat-detail">' + movieFiles + ' ' + (movieFiles === 1 ? T('file', 'file') : T('files', 'files')) + ' ' + T('across', 'across') + ' ' + data.Movies.length + ' ' + T('libraries', 'libraries') + '</p>';
-        overviewHtml += '</div>';
-
-        overviewHtml += '<div class="stat-card"><h3>' + T('tvVideoData', '📺 Video Data — TV Shows') + '</h3>';
-        overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalTvShowVideoSize) + '</p>';
-        var tvFiles = 0;
-        for (var t = 0; t < data.TvShows.length; t++) tvFiles += data.TvShows[t].VideoFileCount;
-        overviewHtml += '<p class="stat-detail">' + tvFiles + ' ' + (tvFiles === 1 ? T('episode', 'episode') : T('episodes', 'episodes')) + ' ' + T('across', 'across') + ' ' + data.TvShows.length + ' ' + T('libraries', 'libraries') + '</p>';
-        overviewHtml += '</div>';
-
-        overviewHtml += '<div class="stat-card"><h3>' + T('musicAudioData', '🎵 Music / Audio') + '</h3>';
-        overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalMusicAudioSize) + '</p>';
-        overviewHtml += '<p class="stat-detail">' + data.TotalAudioFileCount + ' ' + (data.TotalAudioFileCount === 1 ? T('file', 'file') : T('files', 'files')) + '</p>';
-        overviewHtml += '</div>';
-
-        overviewHtml += '<div class="stat-card"><h3>' + T('trickplayData', '🖼️ Trickplay Data') + '</h3>';
-        overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalTrickplaySize) + '</p>';
-        var trickplayFolders = 0;
-        for (var tp = 0; tp < data.Libraries.length; tp++) trickplayFolders += data.Libraries[tp].TrickplayFolderCount;
-        overviewHtml += '<p class="stat-detail">' + trickplayFolders + ' ' + (trickplayFolders === 1 ? T('folder', 'folder') : T('folders', 'folders')) + '</p>';
-        overviewHtml += '</div>';
-
-        overviewHtml += '<div class="stat-card"><h3>' + T('subtitleData', '📝 Subtitles') + '</h3>';
-        overviewHtml += '<p class="stat-value">' + formatBytes(data.TotalSubtitleSize) + '</p>';
-        var subFiles = 0;
-        for (var sb = 0; sb < data.Libraries.length; sb++) subFiles += data.Libraries[sb].SubtitleFileCount;
-        overviewHtml += '<p class="stat-detail">' + subFiles + ' ' + (subFiles === 1 ? T('file', 'file') : T('files', 'files')) + '</p>';
-        overviewHtml += '</div>';
-
-        overviewHtml += '<div class="stat-card"><h3>' + T('totalFiles', '📊 Total Files') + '</h3>';
-        var totalMediaFiles = data.TotalVideoFileCount + data.TotalAudioFileCount;
-        overviewHtml += '<p class="stat-value">' + totalMediaFiles + ' ' + (totalMediaFiles === 1 ? T('mediaFile', 'media file') : T('mediaFiles', 'media files')) + '</p>';
-        overviewHtml += '<p class="stat-detail">' + data.TotalVideoFileCount + ' ' + T('video', 'video') + ', ' + data.TotalAudioFileCount + ' ' + T('audio', 'audio') + '</p>';
-        overviewHtml += '</div>';
-        overviewHtml += '</div>';
-
-        var grandTotal = 0;
-        for (var gt = 0; gt < data.Libraries.length; gt++) grandTotal += data.Libraries[gt].TotalSize;
-        overviewHtml += '<div class="section-title">' + T('storageDistribution', 'Storage Distribution') + ' — <span style="color:#00a4dc;">' + formatBytes(grandTotal) + ' ' + T('total', 'Total') + '</span></div>';
-        overviewHtml += buildBarSegments(data);
-
-        overviewHtml += '<div class="section-title">' + T('perLibraryBreakdown', 'Per-Library Breakdown') + '</div>';
-        overviewHtml += '<div class="library-table-wrapper"><table class="library-table">';
-        overviewHtml += '<thead><tr>';
-        overviewHtml += '<th>' + T('library', 'Library') + '</th><th>' + T('type', 'Type') + '</th><th>' + T('video', 'Video') + '</th><th>' + T('audio', 'Audio') + '</th><th>' + T('subtitles', 'Subtitles') + '</th><th>' + T('images', 'Images') + '</th><th>' + T('trickplay', 'Trickplay') + '</th><th>' + T('total', 'Total') + '</th>';
-        overviewHtml += '</tr></thead><tbody>';
-
-        for (var i = 0; i < data.Libraries.length; i++) {
-            var lib = data.Libraries[i];
-            overviewHtml += '<tr>';
-            overviewHtml += '<td>' + escHtml(lib.LibraryName) + '</td>';
-            overviewHtml += '<td>' + getCollectionBadge(lib.CollectionType) + '</td>';
-            overviewHtml += '<td>' + formatBytes(lib.VideoSize) + '</td>';
-            overviewHtml += '<td>' + formatBytes(lib.AudioSize) + '</td>';
-            overviewHtml += '<td>' + formatBytes(lib.SubtitleSize) + '</td>';
-            overviewHtml += '<td>' + formatBytes(lib.ImageSize) + '</td>';
-            overviewHtml += '<td>' + formatBytes(lib.TrickplaySize) + '</td>';
-            overviewHtml += '<td><strong>' + formatBytes(lib.TotalSize) + '</strong></td>';
-            overviewHtml += '</tr>';
-        }
-
-        overviewHtml += '</tbody></table></div>';
-        overviewHtml += '<div id="cleanup-stats-container"></div>';
-
-        var overviewContainer = document.getElementById('overviewContent');
-        if (overviewContainer) overviewContainer.innerHTML = overviewHtml;
-
-        // === CODECS ===
-        var videoCodecs = aggregateDict(data.Libraries, 'VideoCodecs');
-        var videoAudioCodecs = aggregateDict(data.Libraries, 'VideoAudioCodecs');
-        var musicAudioCodecs = aggregateDict(data.Libraries, 'MusicAudioCodecs');
-        var containers = aggregateDict(data.Libraries, 'ContainerFormats');
-        var resolutions = aggregateDict(data.Libraries, 'Resolutions');
-
-        var codecsHtml = '<div class="charts-row">';
-        codecsHtml += '<div class="chart-box"><h4>' + T('videoCodecs', '🎬 Video Codecs') + '</h4>';
-        codecsHtml += renderDonutChart(videoCodecs);
-        codecsHtml += '</div>';
-        var hasVideoAudio = Object.keys(videoAudioCodecs).length > 0;
-        var hasMusicAudio = Object.keys(musicAudioCodecs).length > 0;
-        if (hasVideoAudio) {
-            codecsHtml += '<div class="chart-box"><h4>' + T('videoAudioCodecs', '🔊 Video Audio Codecs') + '</h4>';
-            codecsHtml += renderDonutChart(videoAudioCodecs);
-            codecsHtml += '</div>';
-        }
-        if (hasMusicAudio) {
-            codecsHtml += '<div class="chart-box"><h4>' + T('musicAudioCodecs', '🎵 Music Audio Codecs') + '</h4>';
-            codecsHtml += renderDonutChart(musicAudioCodecs);
-            codecsHtml += '</div>';
-        }
-        codecsHtml += '<div class="chart-box"><h4>' + T('containerFormats', '📦 Container Formats') + '</h4>';
-        codecsHtml += renderDonutChart(containers);
-        codecsHtml += '</div>';
-        codecsHtml += '<div class="chart-box"><h4>' + T('resolutions', '📐 Resolutions') + '</h4>';
-        codecsHtml += renderDonutChart(resolutions);
-        codecsHtml += '</div>';
-        codecsHtml += '</div>';
-
-        var codecsContainer = document.getElementById('codecsContent');
-        if (codecsContainer) codecsContainer.innerHTML = codecsHtml;
-
-        // === HEALTH ===
-        var healthHtml = '<div class="section-title">' + T('healthChecks', 'Library Health Checks') + '</div>';
-        healthHtml += renderHealthChecks(data);
-
-        var healthContainer = document.getElementById('healthContent');
-        if (healthContainer) {
-            healthContainer.innerHTML = healthHtml;
-            attachHealthClickHandlers();
-            loadTrashHealthSection();
-        }
-
-        // Load cleanup stats into overview
+        fillOverviewData(data);
+        fillCodecsData(data);
+        fillHealthData(data);
         loadCleanupStats();
     }
 
@@ -1503,3 +2003,6 @@
         });
     }
 })();
+
+    </script>
+    </div>

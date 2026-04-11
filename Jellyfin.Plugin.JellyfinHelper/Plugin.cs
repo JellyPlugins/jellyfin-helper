@@ -49,7 +49,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 DisplayName = "Jellyfin Helper",
                 EnableInMainMenu = true,
                 MenuIcon = "handyman",
-                EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
+                EmbeddedResourcePath = GetType().Namespace + ".PluginPages.configPage.html"
             }
         ];
     }

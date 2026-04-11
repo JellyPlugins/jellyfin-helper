@@ -1,0 +1,12 @@
+/* Arr comparison */
+.arr-section { margin-top: 1em; }
+.arr-list { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.8em 1em; margin-top: 0.5em; max-height: 300px; overflow-y: auto; font-size: 0.85em; }
+.arr-list ul { margin: 0; padding-left: 1.5em; }
+.arr-list li { padding: 0.15em 0; }
+.arr-count { font-weight: 700; color: #00a4dc; }
+
+/* Arr connection test result indicators */
+.arr-test-result { font-size: 0.85em; font-weight: 600; transition: color 0.3s; }
+.arr-test-ok { color: #2ecc71; }
+.arr-test-fail { color: #e74c3c; }
+.arr-test-pending { color: #f1c40f; }

@@ -1,0 +1,22 @@
+/* Settings form styles */
+.settings-form { max-width: 640px; }
+.settings-form label { display: block; margin-top: 1em; font-weight: 600; font-size: 0.9em; }
+.settings-form input[type="text"],
+.settings-form input[type="number"],
+.settings-form input[type="password"],
+.settings-form select { width: 100%; padding: 0.5em; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; background: rgba(255,255,255,0.05); color: inherit; font-size: 0.95em; margin-top: 0.3em; box-sizing: border-box; color-scheme: light dark; }
+.settings-form select option { background: #2b2b2b; color: #e0e0e0; }
+@media (prefers-color-scheme: light) {
+    .settings-form select { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.15); }
+    .settings-form select option { background: #ffffff; color: #111111; }
+}
+/* noinspection CssUnusedSymbol */
+.settings-form .help-text { font-size: 0.8em; opacity: 0.5; margin-top: 0.2em; }
+/* noinspection CssUnusedSymbol */
+.settings-form .checkbox-row { display: flex; align-items: center; gap: 0.5em; margin-top: 1em; }
+/* noinspection CssUnusedSymbol */
+.settings-form .checkbox-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: #00a4dc; }
+/* noinspection CssUnusedSymbol */
+.settings-form .checkbox-row label { margin: 0; font-weight: 400; }
+/* noinspection CssUnusedSymbol */
+.settings-form .section-divider { border-top: 1px solid rgba(255,255,255,0.1); margin-top: 1.5em; padding-top: 0.5em; }

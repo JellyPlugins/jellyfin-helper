@@ -33,46 +33,91 @@
     <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" Version="1.1.31" PrivateAssets="All" />
   </ItemGroup>
 
-  <!-- Compose configPage.html from template + CSS + JS at build time -->
+  <!-- Compose configPage.html from template + multiple CSS + multiple JS files at build time -->
   <UsingTask TaskName="ComposeConfigPage" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
     <ParameterGroup>
       <TemplateFile ParameterType="System.String" Required="true" />
-      <CssFile ParameterType="System.String" Required="true" />
-      <JsFile ParameterType="System.String" Required="true" />
+      <CssFiles ParameterType="System.String" Required="true" />
+      <JsFiles ParameterType="System.String" Required="true" />
       <OutputFile ParameterType="System.String" Required="true" />
     </ParameterGroup>
     <Task>
       <Code Type="Fragment" Language="cs">
         <![CDATA[
         var template = System.IO.File.ReadAllText(TemplateFile);
-        var css = System.IO.File.ReadAllText(CssFile);
-        var js = System.IO.File.ReadAllText(JsFile);
-        var result = template.Replace("/* CSS_CONTENT */", css).Replace("/* JS_CONTENT */", js);
+
+        // Concatenate all CSS files (semicolon-separated list)
+        var cssBuilder = new System.Text.StringBuilder();
+        foreach (var cssFile in CssFiles.Split(new char[] { ';' }, System.StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = cssFile.Trim();
+            if (!string.IsNullOrEmpty(trimmed) && System.IO.File.Exists(trimmed))
+            {
+                cssBuilder.AppendLine(System.IO.File.ReadAllText(trimmed));
+            }
+        }
+
+        // Concatenate all JS files (semicolon-separated list)
+        var jsBuilder = new System.Text.StringBuilder();
+        foreach (var jsFile in JsFiles.Split(new char[] { ';' }, System.StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = jsFile.Trim();
+            if (!string.IsNullOrEmpty(trimmed) && System.IO.File.Exists(trimmed))
+            {
+                jsBuilder.AppendLine(System.IO.File.ReadAllText(trimmed));
+            }
+        }
+
+        var result = template.Replace("/* CSS_CONTENT */", cssBuilder.ToString()).Replace("/* JS_CONTENT */", jsBuilder.ToString());
         var dir = System.IO.Path.GetDirectoryName(OutputFile);
         if (!string.IsNullOrEmpty(dir) && !System.IO.Directory.Exists(dir))
             System.IO.Directory.CreateDirectory(dir);
         System.IO.File.WriteAllText(OutputFile, result);
-        Log.LogMessage(MessageImportance.High, "Composed configPage.html from template + CSS + JS");
+        Log.LogMessage(MessageImportance.High, "Composed configPage.html from template + CSS modules + JS modules");
         ]]>
       </Code>
     </Task>
   </UsingTask>
 
+  <!-- Define CSS and JS module files in concatenation order -->
+  <ItemGroup>
+    <CssModule Include="PluginPages\css\shared.css" />
+    <CssModule Include="PluginPages\css\Overview.css" />
+    <CssModule Include="PluginPages\css\Codecs.css" />
+    <CssModule Include="PluginPages\css\Health.css" />
+    <CssModule Include="PluginPages\css\Trends.css" />
+    <CssModule Include="PluginPages\css\Settings.css" />
+    <CssModule Include="PluginPages\css\ArrIntegration.css" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <JsModule Include="PluginPages\js\shared.js" />
+    <JsModule Include="PluginPages\js\Overview.js" />
+    <JsModule Include="PluginPages\js\Codecs.js" />
+    <JsModule Include="PluginPages\js\Health.js" />
+    <JsModule Include="PluginPages\js\Trends.js" />
+    <JsModule Include="PluginPages\js\Settings.js" />
+    <JsModule Include="PluginPages\js\ArrIntegration.js" />
+    <JsModule Include="PluginPages\js\main.js" />
+  </ItemGroup>
+
   <Target Name="ComposeConfigPageHtml" BeforeTargets="BeforeBuild;BeforeRebuild">
     <ComposeConfigPage
-      TemplateFile="$(MSBuildProjectDirectory)\Configuration\configPage.template.html"
-      CssFile="$(MSBuildProjectDirectory)\Configuration\configPage.css"
-      JsFile="$(MSBuildProjectDirectory)\Configuration\configPage.js"
-      OutputFile="$(MSBuildProjectDirectory)\Configuration\configPage.html" />
+      TemplateFile="$(MSBuildProjectDirectory)\PluginPages\configPage.template.html"
+      CssFiles="@(CssModule->'$(MSBuildProjectDirectory)\%(Identity)', ';')"
+      JsFiles="@(JsModule->'$(MSBuildProjectDirectory)\%(Identity)', ';')"
+      OutputFile="$(MSBuildProjectDirectory)\PluginPages\configPage.html" />
   </Target>
 
   <ItemGroup>
+    <!-- i18n language files as embedded resources -->
+    <EmbeddedResource Include="i18n\*.json" />
     <!-- The generated configPage.html is the embedded resource -->
-    <EmbeddedResource Include="Configuration\configPage.html" />
-    <!-- Source files are NOT embedded but kept for development -->
-    <None Include="Configuration\configPage.template.html" />
-    <None Include="Configuration\configPage.css" />
-    <None Include="Configuration\configPage.js" />
+    <EmbeddedResource Include="PluginPages\configPage.html" />
+    <!-- Source module files are NOT embedded but kept for development -->
+    <None Include="PluginPages\configPage.template.html" />
+    <None Include="PluginPages\css\*.css" />
+    <None Include="PluginPages\js\*.js" />
     <EmbeddedResource Include="..\media\logo.png">
       <LogicalName>Jellyfin.Plugin.JellyfinHelper.logo.png</LogicalName>
       <Link>logo.png</Link>

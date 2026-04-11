@@ -1,0 +1,15 @@
+{
+  "env": {
+    "browser": true
+  },
+  "globals": {
+    "ApiClient": "readonly"
+  },
+  "parserOptions": {
+    "ecmaVersion": 5
+  },
+  "rules": {
+    "no-unused-vars": "off",
+    "no-undef": "off"
+  }
+}
