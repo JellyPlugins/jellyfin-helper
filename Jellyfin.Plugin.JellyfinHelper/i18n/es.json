@@ -180,5 +180,7 @@
   "movies": "Películas",
   "music": "Música",
   "mixed": "Mixto",
-  "noFilesFound": "No se encontraron archivos."
+  "noFilesFound": "No se encontraron archivos.",
+  "expandAll": "Expandir todo",
+  "collapseAll": "Contraer todo"
 }

@@ -180,5 +180,7 @@
   "movies": "电影",
   "music": "音乐",
   "mixed": "混合",
-  "noFilesFound": "未找到文件。"
+  "noFilesFound": "未找到文件。",
+  "expandAll": "展开全部",
+  "collapseAll": "折叠全部"
 }

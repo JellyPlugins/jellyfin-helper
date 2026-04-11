@@ -180,5 +180,7 @@
   "movies": "Filmler",
   "music": "Müzik",
   "mixed": "Karışık",
-  "noFilesFound": "Dosya bulunamadı."
+  "noFilesFound": "Dosya bulunamadı.",
+  "expandAll": "Tümünü Genişlet",
+  "collapseAll": "Tümünü Daralt"
 }

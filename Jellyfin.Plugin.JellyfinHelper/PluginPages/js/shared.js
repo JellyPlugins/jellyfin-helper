@@ -184,7 +184,7 @@
         html += '<span class="file-tree-count">' + totalFiles + ' ' + (totalFiles === 1 ? T('file', 'file') : T('files', 'files')) + '</span>';
         html += '</div></div>';
 
-        html += '<div class=' + (sectionCount > 1 ? ' file-tree-multi' : '') + '"file-tree-columns">';
+        html += '<div class="file-tree-columns' + (sectionCount > 1 ? ' file-tree-multi' : '') + '">';
 
         var roots = result.rootPaths || {};
 

@@ -180,5 +180,7 @@
   "movies": "Movies",
   "music": "Music",
   "mixed": "Mixed",
-  "noFilesFound": "No files found."
+  "noFilesFound": "No files found.",
+  "expandAll": "Expand All",
+  "collapseAll": "Collapse All"
 }

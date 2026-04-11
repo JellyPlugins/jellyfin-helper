@@ -39,10 +39,10 @@ public class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_ContainsSharedFileListRenderer()
+    public void Html_ContainsSharedFileTreeRenderer()
     {
-        // renderCodecFileList was replaced by the shared renderFileList in shared.js
-        Assert.Contains("function renderFileList", HtmlContent);
+        // renderFileList was replaced by the tree-based renderFileTree in shared.js
+        Assert.Contains("function renderFileTree", HtmlContent);
     }
 
     [Fact]
@@ -150,25 +150,27 @@ public class CodecsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("codec-breakdown", HtmlContent);
         Assert.Contains("codec-clickable", HtmlContent);
-        Assert.Contains("codec-detail-panel", HtmlContent);
+        Assert.Contains("file-tree-panel", HtmlContent);
         Assert.Contains("codec-row-active", HtmlContent);
     }
 
     [Fact]
-    public void Html_ContainsCodecFileListCssClasses()
+    public void Html_ContainsFileTreeCssClasses()
     {
-        Assert.Contains("codec-files-header", HtmlContent);
-        Assert.Contains("codec-files-columns", HtmlContent);
-        Assert.Contains("codec-files-multi", HtmlContent);
-        Assert.Contains("codec-files-section", HtmlContent);
-        Assert.Contains("codec-file-item", HtmlContent);
-        Assert.Contains("codec-file-name", HtmlContent);
+        Assert.Contains("file-tree-header", HtmlContent);
+        Assert.Contains("file-tree-columns", HtmlContent);
+        Assert.Contains("file-tree-multi", HtmlContent);
+        Assert.Contains("file-tree-section", HtmlContent);
+        Assert.Contains("tree-view", HtmlContent);
+        Assert.Contains("tree-node", HtmlContent);
+        Assert.Contains("tree-folder", HtmlContent);
+        Assert.Contains("tree-leaf", HtmlContent);
     }
 
     [Fact]
-    public void Html_ContainsCodecDetailAnimationCss()
+    public void Html_ContainsFileTreePanelVisibilityCss()
     {
-        Assert.Contains("codec-detail-visible", HtmlContent);
+        Assert.Contains("file-tree-panel-visible", HtmlContent);
         Assert.Contains("max-height", HtmlContent);
     }
 
