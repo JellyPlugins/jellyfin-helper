@@ -476,16 +476,33 @@ public class MediaStatisticsController : ControllerBase
         var pathsToDelete = new List<string>();
         if (!string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathRooted(config.TrashFolderPath))
         {
-            if (Directory.Exists(config.TrashFolderPath))
+            var fullPath = Path.GetFullPath(config.TrashFolderPath);
+            if (!IsPathSafeForDeletion(fullPath, libraryFolders))
             {
-                pathsToDelete.Add(config.TrashFolderPath);
+                _logger.LogWarning("Refusing to delete unsafe trash path: {Path}", fullPath);
+                return BadRequest(new { Error = "Configured trash path is unsafe for deletion (filesystem root or library root)." });
+            }
+
+            if (Directory.Exists(fullPath))
+            {
+                pathsToDelete.Add(fullPath);
             }
         }
         else
         {
             foreach (var folder in libraryFolders)
             {
-                var trashPath = CleanupConfigHelper.GetTrashPath(folder);
+                var trashPath = Path.GetFullPath(CleanupConfigHelper.GetTrashPath(folder));
+                var libraryRoot = Path.GetFullPath(folder);
+                if (!trashPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning(
+                        "Refusing to delete trash path {TrashPath}: it escapes library root {LibraryRoot}.",
+                        trashPath,
+                        libraryRoot);
+                    continue;
+                }
+
                 if (Directory.Exists(trashPath))
                 {
                     pathsToDelete.Add(trashPath);
@@ -782,6 +799,53 @@ public class MediaStatisticsController : ControllerBase
         }
 
         return JsonSerializer.Serialize(list);
+    }
+
+    /// <summary>
+    /// Validates that a path is safe for recursive deletion.
+    /// Rejects filesystem roots and paths that match or contain library root folders.
+    /// </summary>
+    private static bool IsPathSafeForDeletion(string fullPath, IReadOnlyList<string> libraryFolders)
+    {
+        // Reject filesystem roots (e.g., "/", "C:\")
+        var root = Path.GetPathRoot(fullPath);
+        var normalizedPath = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedRoot = root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Reject paths containing ".." traversal
+        if (fullPath.Contains("..", StringComparison.Ordinal))
+        {
+            // Re-check after GetFullPath resolved it
+            var resolved = Path.GetFullPath(fullPath);
+            if (resolved.Contains("..", StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        // Reject if the path equals any library root
+        foreach (var folder in libraryFolders)
+        {
+            var libraryRoot = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var candidate = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            if (string.Equals(candidate, libraryRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // Reject if a library root is inside the trash path (would delete library contents)
+            if (libraryRoot.StartsWith(candidate + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

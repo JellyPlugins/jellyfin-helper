@@ -1288,6 +1288,7 @@ public class MediaStatisticsServiceTests
         Assert.Equal(0, stats.VideoFileCount);
         Assert.Equal(5_000_000, stats.AudioSize);
         Assert.Equal(1, stats.MusicAudioCodecs["Vorbis"]);
+        Assert.Equal(5_000_000, stats.MusicAudioCodecSizes["Vorbis"]);
     }
 
     // ===== Resolution & Codec Tracking in Statistics =====

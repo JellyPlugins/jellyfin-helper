@@ -77,7 +77,7 @@ public class HealthHtmlTests : ConfigPageTestBase
     public void Html_CollectHealthPaths_ReturnsMusicEmpty()
     {
         // collectHealthPaths should always return music: [] because health checks don't apply to music
-        Assert.Contains("return { movies: moviePaths, tvShows: tvPaths, music: [] }", HtmlContent);
+        Assert.Contains("return { movies: moviePaths, tvShows: tvPaths, other: otherPaths, music: [] }", HtmlContent);
     }
 
     [Fact]

@@ -8,6 +8,7 @@
     function collectHealthPaths(data, prop) {
         var moviePaths = [];
         var tvPaths = [];
+        var otherPaths = [];
 
         if (data.Movies) {
             for (var m = 0; m < data.Movies.length; m++) {
@@ -31,7 +32,18 @@
             }
         }
 
-        return { movies: moviePaths, tvShows: tvPaths, music: [] };
+        if (data.Other) {
+            for (var o = 0; o < data.Other.length; o++) {
+                var otherLibPaths = data.Other[o][prop];
+                if (otherLibPaths) {
+                    for (var k = 0; k < otherLibPaths.length; k++) {
+                        otherPaths.push(otherLibPaths[k]);
+                    }
+                }
+            }
+        }
+
+        return { movies: moviePaths, tvShows: tvPaths, other: otherPaths, music: [] };
     }
 
     function renderHealthChecks(data) {

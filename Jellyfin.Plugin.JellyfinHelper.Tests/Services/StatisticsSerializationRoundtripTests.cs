@@ -233,6 +233,13 @@ public class StatisticsSerializationRoundtripTests
         Assert.Equal(original.VideosWithoutImages, deserialized.VideosWithoutImages);
         Assert.Equal(original.VideosWithoutNfo, deserialized.VideosWithoutNfo);
         Assert.Equal(original.OrphanedMetadataDirectories, deserialized.OrphanedMetadataDirectories);
+
+        // Health check paths
+        Assert.Equal(original.VideosWithoutSubtitlesPaths.Count, deserialized.VideosWithoutSubtitlesPaths.Count);
+        Assert.Contains("/media/movies/NoSub1.mkv", deserialized.VideosWithoutSubtitlesPaths);
+        Assert.Equal(original.VideosWithoutImagesPaths.Count, deserialized.VideosWithoutImagesPaths.Count);
+        Assert.Equal(original.VideosWithoutNfoPaths.Count, deserialized.VideosWithoutNfoPaths.Count);
+        Assert.Equal(original.OrphanedMetadataDirectoriesPaths.Count, deserialized.OrphanedMetadataDirectoriesPaths.Count);
     }
 
     [Fact]
@@ -424,6 +431,12 @@ public class StatisticsSerializationRoundtripTests
             VideosWithoutNfo = 10,
             OrphanedMetadataDirectories = 5,
         };
+
+        lib.VideosWithoutSubtitlesPaths.Add("/media/movies/NoSub1.mkv");
+        lib.VideosWithoutSubtitlesPaths.Add("/media/movies/NoSub2.mkv");
+        lib.VideosWithoutImagesPaths.Add("/media/movies/NoImg1.mkv");
+        lib.VideosWithoutNfoPaths.Add("/media/movies/NoNfo1.mkv");
+        lib.OrphanedMetadataDirectoriesPaths.Add("/media/movies/OrphanedDir");
 
         lib.ContainerFormats["MKV"] = 200;
         lib.ContainerFormats["MP4"] = 100;

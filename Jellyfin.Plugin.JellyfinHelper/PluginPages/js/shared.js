@@ -90,13 +90,14 @@
         var hasMovies = result.movies && result.movies.length > 0;
         var hasTvShows = result.tvShows && result.tvShows.length > 0;
         var hasMusic = result.music && result.music.length > 0;
-        var totalFiles = (result.movies ? result.movies.length : 0) + (result.tvShows ? result.tvShows.length : 0) + (result.music ? result.music.length : 0);
+        var hasOther = result.other && result.other.length > 0;
+        var totalFiles = (result.movies ? result.movies.length : 0) + (result.tvShows ? result.tvShows.length : 0) + (result.music ? result.music.length : 0) + (result.other ? result.other.length : 0);
 
         if (totalFiles === 0) {
             return '<div class="codec-files-empty">' + T('noFilesFound', 'No files found.') + '</div>';
         }
 
-        var sectionCount = (hasMovies ? 1 : 0) + (hasTvShows ? 1 : 0) + (hasMusic ? 1 : 0);
+        var sectionCount = (hasMovies ? 1 : 0) + (hasTvShows ? 1 : 0) + (hasMusic ? 1 : 0) + (hasOther ? 1 : 0);
         var html = '<div class="codec-files-header">';
         html += '<span class="codec-files-title">' + escHtml(title) + '</span>';
         html += '<span class="codec-files-count">' + totalFiles + ' ' + (totalFiles === 1 ? T('file', 'file') : T('files', 'files')) + '</span>';
@@ -141,6 +142,20 @@
                 html += '<span class="codec-file-icon">🎵</span>';
                 html += '<span class="codec-file-name">' + escHtml(getFileName(result.music[k])) + '</span>';
                 html += '<span class="codec-file-folder">' + escHtml(getParentFolder(result.music[k])) + '</span>';
+                html += '</div>';
+            }
+            html += '</div></div>';
+        }
+
+        if (hasOther) {
+            html += '<div class="codec-files-section">';
+            html += '<div class="codec-files-section-header"><span class="badge badge-other">' + T('other', 'Other') + '</span> <span class="codec-files-section-count">(' + result.other.length + ')</span></div>';
+            html += '<div class="codec-files-list">';
+            for (var l = 0; l < result.other.length; l++) {
+                html += '<div class="codec-file-item" title="' + escAttr(result.other[l]) + '">';
+                html += '<span class="codec-file-icon">📄</span>';
+                html += '<span class="codec-file-name">' + escHtml(getFileName(result.other[l])) + '</span>';
+                html += '<span class="codec-file-folder">' + escHtml(getParentFolder(result.other[l])) + '</span>';
                 html += '</div>';
             }
             html += '</div></div>';
