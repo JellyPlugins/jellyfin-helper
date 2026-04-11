@@ -246,6 +246,63 @@ public class HelperCleanupTaskTests : IDisposable
         VerifyLogContains("Finished STRM File Repair", LogLevel.Information);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_TrashEnabled_RunsTrashPurge()
+    {
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            StrmRepairTaskMode = TaskMode.Deactivate,
+            UseTrash = true,
+            TrashRetentionDays = 30,
+            TrashFolderPath = ".jellyfin-trash"
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Running trash purge (retention: 30 days)", LogLevel.Information);
+        VerifyLogContains("Trash purge completed", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TrashDisabled_SkipsTrashPurge()
+    {
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            StrmRepairTaskMode = TaskMode.Deactivate,
+            UseTrash = false,
+            TrashRetentionDays = 30
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogNeverContains("Running trash purge", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TrashEnabledRetentionZero_RunsTrashPurge()
+    {
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            StrmRepairTaskMode = TaskMode.Deactivate,
+            UseTrash = true,
+            TrashRetentionDays = 0,
+            TrashFolderPath = ".jellyfin-trash"
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Running trash purge (retention: 0 days)", LogLevel.Information);
+    }
+
     /// <summary>
     /// A synchronous implementation of IProgress that invokes the callback immediately.
     /// </summary>

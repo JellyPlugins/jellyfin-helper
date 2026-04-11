@@ -109,6 +109,49 @@ public class HelperCleanupTask : IScheduledTask
             progress.Report((double)(i + 1) / totalTasks * 100);
         }
 
+        // Purge expired trash items if trash is enabled
+        if (config.UseTrash && config.TrashRetentionDays >= 0)
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                _logger.LogInformation("Running trash purge (retention: {Days} days)...", config.TrashRetentionDays);
+
+                var libraryLocations = LibraryPathResolver.GetDistinctLibraryLocations(_libraryManager);
+                long totalBytesFreed = 0;
+                int totalItemsPurged = 0;
+
+                foreach (var location in libraryLocations)
+                {
+                    var trashPath = System.IO.Path.Combine(location, config.TrashFolderPath);
+                    var (bytesFreed, itemsPurged) = TrashService.PurgeExpiredTrash(trashPath, config.TrashRetentionDays, _logger);
+                    totalBytesFreed += bytesFreed;
+                    totalItemsPurged += itemsPurged;
+                }
+
+                if (totalItemsPurged > 0)
+                {
+                    _logger.LogInformation(
+                        "Trash purge completed: {Items} items removed, {Bytes} bytes freed.",
+                        totalItemsPurged,
+                        totalBytesFreed);
+                }
+                else
+                {
+                    _logger.LogInformation("Trash purge completed: no expired items found.");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Helper Cleanup was cancelled during trash purge.");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during trash purge. Continuing.");
+            }
+        }
+
         // Run a statistics scan at the end to refresh persisted data
         try
         {
