@@ -20,7 +20,6 @@
 
         initTabs();
         loadSettings();
-        initArrButtons();
         loadLatestStatistics();
         loadTrendData();
 
@@ -39,17 +38,31 @@
             // Remember trash state for deactivation dialog
             _wasTrashEnabled = !!cfg.UseTrash;
             var h = '';
+            h += '<div class="section-title">' + T('settingsGeneralTitle', 'General settings') + '</div>';
+
             h += '<label>' + T('includedLibraries', 'Included Libraries (whitelist, comma-separated)') + '</label>';
             h += '<input type="text" id="cfgIncluded" value="' + escAttr(cfg.IncludedLibraries || '') + '">';
             h += '<div class="help-text">' + T('includedLibrariesHelp', 'Leave empty to include all libraries.') + '</div>';
+
             h += '<label>' + T('excludedLibraries', 'Excluded Libraries (blacklist, comma-separated)') + '</label>';
             h += '<input type="text" id="cfgExcluded" value="' + escAttr(cfg.ExcludedLibraries || '') + '">';
+
             h += '<label>' + T('orphanMinAgeDays', 'Orphan Minimum Age (days)') + '</label>';
             h += '<input type="number" id="cfgOrphanAge" min="0" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
             h += '<div class="help-text">' + T('orphanMinAgeDaysHelp', 'Items younger than this are protected from deletion.') + '</div>';
-            h += '<div class="section-divider"></div>';
+
+            h += '<label>' + T('language', 'Dashboard Language') + '</label>';
+            h += '<select id="cfgLang">';
+            var langs = [['en','English'],['de','Deutsch'],['fr','Français'],['es','Español'],['pt','Português'],['zh','中文'],['tr','Türkçe']];
+            for (var i = 0; i < langs.length; i++) {
+                h += '<option value="' + langs[i][0] + '"' + (cfg.Language === langs[i][0] ? ' selected' : '') + '>' + langs[i][1] + '</option>';
+            }
+            h += '</select>';
+
+            h += '<div class="section-title">' + T('settingsTaskTitle', 'Task settings') + '</div>';
             h += '<div style="font-weight:600;font-size:0.9em;margin-top:0.5em;">' + T('taskModeTitle', 'Task Mode (per Task)') + '</div>';
             h += '<div class="help-text">' + T('taskModeHelp', 'Choose whether each task is active, runs in dry-run mode (only logs), or is deactivated.') + '</div>';
+            
             var taskModes = [['Activate', T('activate', 'Activate')],['DryRun', T('dryRun', 'Dry Run')],['Deactivate', T('deactivate', 'Deactivate')]];
             function renderTaskModeSelect(id, label, currentVal) {
                 var s = '<label>' + label + '</label><select id="' + id + '">';
@@ -59,48 +72,47 @@
                 s += '</select>';
                 return s;
             }
+            
             h += renderTaskModeSelect('cfgTrickplayMode', T('trickplayFolderCleaner', 'Trickplay Folder Cleaner'), cfg.TrickplayTaskMode || 'DryRun');
             h += renderTaskModeSelect('cfgEmptyFolderMode', T('emptyMediaFolderCleaner', 'Empty Media Folder Cleaner'), cfg.EmptyMediaFolderTaskMode || 'DryRun');
             h += renderTaskModeSelect('cfgSubtitleMode', T('orphanedSubtitleCleaner', 'Orphaned Subtitle Cleaner'), cfg.OrphanedSubtitleTaskMode || 'DryRun');
             h += renderTaskModeSelect('cfgStrmMode', T('strmFileRepair', '.strm File Repair'), cfg.StrmRepairTaskMode || 'DryRun');
-            h += '<div class="section-divider"></div>';
+
+            h += '<div class="section-title">' + T('settingsTrashTitle', 'Trash settings') + '</div>';
             h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label>' + T('useTrash', 'Use Trash (Recycle Bin)') + '</label></div>';
+            
             h += '<label>' + T('trashFolder', 'Trash Folder Path') + '</label>';
             h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '">';
+            
             h += '<label>' + T('trashRetention', 'Trash Retention (days)') + '</label>';
             h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
-            h += '<div class="section-divider"></div>';
-            h += '<label>' + T('language', 'Dashboard Language') + '</label>';
-            h += '<select id="cfgLang">';
-            var langs = [['en','English'],['de','Deutsch'],['fr','Français'],['es','Español'],['pt','Português'],['zh','中文'],['tr','Türkçe']];
-            for (var i = 0; i < langs.length; i++) {
-                h += '<option value="' + langs[i][0] + '"' + (cfg.Language === langs[i][0] ? ' selected' : '') + '>' + langs[i][1] + '</option>';
-            }
-            h += '</select>';
 
             // --- Radarr Instances ---
-            h += '<div class="section-divider"></div>';
-            h += '<div class="section-title" style="border-bottom:none;font-size:1em;margin-bottom:0;">🎬 ' + T('radarrInstances', 'Radarr Instances') + ' <span style="font-weight:400;font-size:0.8em;opacity:0.6;">(max ' + MAX_ARR_INSTANCES + ')</span></div>';
+            h += '<div class="section-title">' + T('settingsArrTitle', 'Arr stack settings') + '</div>';
+            h += '<div class="section-sub-title">🎬 ' + T('radarrInstances', 'Radarr Instances') + ' <span class="help-text">(max ' + MAX_ARR_INSTANCES + ')</span></div>';
             var radarrInstances = cfg.RadarrInstances && cfg.RadarrInstances.length > 0
                 ? cfg.RadarrInstances
                 : (cfg.RadarrUrl ? [{ Name: 'Radarr', Url: cfg.RadarrUrl, ApiKey: cfg.RadarrApiKey }] : []);
             h += renderArrInstances('Radarr', radarrInstances);
 
-            // --- Sonarr Instances ---
             h += '<div class="section-divider"></div>';
-            h += '<div class="section-title" style="border-bottom:none;font-size:1em;margin-bottom:0;">📺 ' + T('sonarrInstances', 'Sonarr Instances') + ' <span style="font-weight:400;font-size:0.8em;opacity:0.6;">(max ' + MAX_ARR_INSTANCES + ')</span></div>';
+            
+            // --- Sonarr Instances ---
+            h += '<div class="section-sub-title">📺 ' + T('sonarrInstances', 'Sonarr Instances') + ' <span class="help-text">(max ' + MAX_ARR_INSTANCES + ')</span></div>';
             var sonarrInstances = cfg.SonarrInstances && cfg.SonarrInstances.length > 0
                 ? cfg.SonarrInstances
                 : (cfg.SonarrUrl ? [{ Name: 'Sonarr', Url: cfg.SonarrUrl, ApiKey: cfg.SonarrApiKey }] : []);
             h += renderArrInstances('Sonarr', sonarrInstances);
 
-            h += '<div style="margin-top:1.5em;"><button class="refresh-btn" id="btnSaveSettings">' + T('saveSettings', 'Save Settings') + '</button></div>';
+            h += '<div style="margin-top:2em;"><button class="refresh-btn" id="btnSaveSettings">' + T('saveSettings', 'Save Settings') + '</button></div>';
             h += '<div id="settingsMsg" style="margin-top:0.5em;"></div>';
             form.innerHTML = h;
             document.getElementById('btnSaveSettings').addEventListener('click', saveSettings);
             attachRemoveHandlers();
             attachTestHandlers();
             attachAddHandlers();
+
+            initArrButtons(cfg);
         }, function () {
             form.innerHTML = '<div class="error-msg">' + T('settingsLoadError', 'Failed to load settings.') + '</div>';
         });
@@ -132,7 +144,8 @@
 
     function doSaveSettings(payload) {
         var btn = document.getElementById('btnSaveSettings');
-        var msg = document.getElementById('settingsMsg');
+        btn.innerHTML = '<span class="btn-spinner"></span>' + T('savingSettings', 'Saving Settings...');
+
         var apiClient = ApiClient;
         apiClient.ajax({
             type: 'POST', url: apiClient.getUrl('JellyfinHelper/Configuration'),
@@ -148,24 +161,31 @@
                 if (langChanged) {
                     loadTranslations(function () {
                         rebuildUI();
-                        var newMsg = document.getElementById('settingsMsg');
-                        if (newMsg) newMsg.innerHTML = '<div class="success-msg">✅ ' + T('settingsSaved', 'Settings saved!') + '</div>';
                     });
                 } else {
                     rebuildUI();
-                    var newMsg = document.getElementById('settingsMsg');
-                    if (newMsg) newMsg.innerHTML = '<div class="success-msg">✅ ' + T('settingsSaved', 'Settings saved!') + '</div>';
                 }
-            } else {
-                msg.innerHTML = '<div class="success-msg">✅ ' + T('settingsSaved', 'Settings saved!') + '</div>';
-                btn.disabled = false;
-                initArrButtons();
-                var arrResult = document.getElementById('arrResult');
-                if (arrResult) arrResult.innerHTML = '';
             }
-        }, function () {
-            msg.innerHTML = '<div class="error-msg">❌ ' + T('settingsError', 'Failed to save settings.') + '</div>';
+
+            btn.innerHTML = '<div style="display: flex; align-items: center"><span class="btn-icon">✔</span>' + T('settingsSaved', 'Settings saved!') + '</div>';
+            btn.classList.add('success');
             btn.disabled = false;
+            setTimeout(function() {
+                btn.innerHTML = T('saveSettings', 'Save Settings');
+                btn.classList.remove('success');
+            }, 3000);
+
+            initArrButtons(payload);
+            var arrResult = document.getElementById('arrResult');
+            if (arrResult) arrResult.innerHTML = '';
+        }, function () {
+            btn.disabled = false;
+            btn.innerHTML = '<div style="display: flex; align-items: center"><span class="btn-icon">X</span>' + T('settingsError', 'Failed to save settings.') + '</div>';
+            btn.classList.add('error');
+            setTimeout(function() {
+                btn.innerHTML = T('saveSettings', 'Save Settings');
+                btn.classList.remove('error');
+            }, 5000);
         });
     }
 

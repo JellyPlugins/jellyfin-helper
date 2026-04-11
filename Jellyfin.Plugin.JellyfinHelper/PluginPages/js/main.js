@@ -84,8 +84,7 @@
             url: url,
             dataType: 'json'
         }).then(function (data) {
-            if (data && data.Libraries && data.Libraries.length > 0) {
-                console.log('Jellyfin Helper: Loaded persisted statistics from server');
+            if (data && data.Libraries) {
                 fillScanData(data);
                 updateLastScanBadge(data.ScanTimestamp);
 
@@ -108,9 +107,9 @@
         html += '<button class="tab-btn active" data-tab="overview">' + T('tabOverview', 'Overview') + '</button>';
         html += '<button class="tab-btn" data-tab="codecs">' + T('tabCodecs', 'Codecs') + '</button>';
         html += '<button class="tab-btn" data-tab="health">' + T('tabHealth', 'Health') + '</button>';
-        html += '<button class="tab-btn" data-tab="trends">' + T('tabTrends', 'Trends') + '</button>';
-        html += '<button class="tab-btn" data-tab="settings">' + T('tabSettings', '⚙️ Settings') + '</button>';
-        html += '<button class="tab-btn" data-tab="arr">' + T('tabArr', '🔗 Arr') + '</button>';
+        html += '<button class="tab-btn" data-tab="trends">📈 ' + T('tabTrends', 'Trends') + '</button>';
+        html += '<button class="tab-btn" data-tab="settings">⚙️ ' + T('tabSettings', 'Settings') + '</button>';
+        html += '<button class="tab-btn" data-tab="arr">🔗 ' + T('tabArr', 'Arr') + '</button>';
         html += '</div>';
 
         // === OVERVIEW TAB (placeholder until scan) ===
@@ -130,13 +129,12 @@
 
         // === TRENDS TAB ===
         html += '<div class="tab-content" id="tab-trends">';
-        html += '<div class="section-title">' + T('trendTitle', 'Library Growth Trend') + '</div>';
+        html += '<div class="section-title">📈 ' + T('trendTitle', 'Library Growth Trend') + '</div>';
         html += '<div id="trendChartContainer" class="trend-container"><div class="trend-empty">' + T('loadingTrends', 'Loading trend data…') + '</div></div>';
         html += '</div>';
 
         // === SETTINGS TAB ===
         html += '<div class="tab-content" id="tab-settings">';
-        html += '<div class="section-title">' + T('settingsTitle', '⚙️ Plugin Settings') + '</div>';
         html += '<div class="settings-form" id="settingsForm">';
         html += '<div class="loading-overlay" style="padding:1em;"><div class="spinner"></div></div>';
         html += '</div>';
@@ -144,7 +142,7 @@
 
         // === ARR TAB ===
         html += '<div class="tab-content" id="tab-arr">';
-        html += '<div class="section-title">' + T('arrTitle', '🔗 Arr Stack Integration') + '</div>';
+        html += '<div class="section-title">🔗 ' + T('arrTitle', 'Arr Stack Integration') + '</div>';
         html += '<div id="arrContent">';
         html += '<div id="arrButtons"><div class="loading-overlay" style="padding:1em;"><div class="spinner"></div></div></div>';
         html += '<div id="arrResult"></div>';
@@ -250,8 +248,7 @@
 
             // Load settings and arr buttons immediately (no scan needed)
             loadSettings();
-            initArrButtons();
-
+    
             // Load persisted statistics from server (if any previous scan exists)
             loadLatestStatistics();
 
@@ -262,7 +259,6 @@
         if (!_handlersBound) {
             btnRefresh.addEventListener('click', function (e) {
                 e.preventDefault();
-                console.log('Jellyfin Helper: Scan button clicked');
                 loadStatistics();
             });
             if (btnExportJson) {
@@ -273,8 +269,6 @@
             }
             _handlersBound = true;
         }
-
-        console.log('Jellyfin Helper: Page initialized successfully');
     }
 
     // Use Jellyfin's page lifecycle events

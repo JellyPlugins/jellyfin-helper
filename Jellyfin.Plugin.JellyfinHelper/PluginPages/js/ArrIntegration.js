@@ -1,6 +1,7 @@
 // --- Arr Integration Tab ---
 
     var MAX_ARR_INSTANCES = 3;
+    var _testTimers = {};
 
     function renderArrInstances(type, instances) {
         var h = '';
@@ -11,7 +12,7 @@
         h += '<div id="' + type + 'AddBtnWrap">';
         h += '<button type="button" class="action-btn" id="btnAdd' + type + '"' +
             (count >= MAX_ARR_INSTANCES ? ' style="display:none;margin-top:0.5em;"' : ' style="margin-top:0.5em;"') +
-            '>+ ' + T('addAnother', 'Add another') + ' ' + type + ' ' + T('instance', 'instance') + '</button>';
+            '>+ ' + T('addInstance', 'Add instance') + '</button>';
         h += '</div>';
         return h;
     }
@@ -25,14 +26,13 @@
         var h = '<div class="arr-instance-row" data-type="' + type + '" data-index="' + index + '" style="border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:0.8em;margin-top:0.8em;position:relative;">';
         h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3em;">';
         h += '<strong>' + type + ' #' + (index + 1) + '</strong>';
-        h += '<button type="button" class="action-btn btnRemoveArr" data-type="' + type + '" data-index="' + index + '" style="padding:0.2em 0.6em;font-size:0.8em;background:#e74c3c;">✕ ' + T('remove', 'Remove') + '</button>';
+        h += '<button type="button" class="action-btn btn-arr-remove btnRemoveArr" data-type="' + type + '" data-index="' + index + '" style="padding:0.2em 0.6em;font-size:0.8em;">✕ ' + T('remove', 'Remove') + '</button>';
         h += '</div>';
         h += '<label>' + T('instanceName', 'Instance Name') + '</label><input type="text" id="' + prefix + '_name" value="' + escAttr(name) + '" placeholder="e.g. ' + type + ' 4K">';
         h += '<label>' + T('url', 'URL') + '</label><input type="text" id="' + prefix + '_url" value="' + escAttr(url) + '" placeholder="' + placeholderUrl + '">';
         h += '<label>' + T('apiKey', 'API Key') + '</label><input type="password" id="' + prefix + '_key" value="' + escAttr(apiKey) + '">';
         h += '<div style="margin-top:0.5em;display:flex;align-items:center;gap:0.5em;">';
-        h += '<button type="button" class="action-btn btnTestArr" data-type="' + type + '" data-index="' + index + '" style="padding:0.3em 0.8em;font-size:0.85em;background:#3498db;">🔌 ' + T('testConnection', 'Test Connection') + '</button>';
-        h += '<span class="arr-test-result" id="' + prefix + '_testResult"></span>';
+        h += '<button type="button" class="action-btn btn-arr-test btnTestArr" id="' + prefix + '_btnTest" data-type="' + type + '" data-index="' + index + '" style="padding:0.3em 0.8em;font-size:0.85em;">🔌 ' + T('testConnection', 'Test Connection') + '</button>';
         h += '</div>';
         h += '</div>';
         return h;
@@ -72,6 +72,21 @@
     }
 
     function removeArrInstance(type, index) {
+        // Clear all pending test timers for this type to prevent stale callbacks after reindexing
+        for (var key in _testTimers) {
+            if (key.indexOf(type + '_') === 0 && _testTimers[key]) {
+                clearTimeout(_testTimers[key]);
+                delete _testTimers[key];
+            }
+        }
+        // Reset any test buttons that are in success/error state
+        var testBtns = document.querySelectorAll('.btnTestArr[data-type="' + type + '"]');
+        for (var b = 0; b < testBtns.length; b++) {
+            testBtns[b].classList.remove('success', 'error');
+            testBtns[b].disabled = false;
+            testBtns[b].innerHTML = '🔌 ' + T('testConnection', 'Test Connection');
+        }
+
         var row = document.querySelector('.arr-instance-row[data-type="' + type + '"][data-index="' + index + '"]');
         if (row) row.remove();
         var remaining = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
@@ -88,9 +103,10 @@
             var removeBtn = remaining[i].querySelector('.btnRemoveArr');
             if (removeBtn) removeBtn.setAttribute('data-index', i);
             var testBtn = remaining[i].querySelector('.btnTestArr');
-            if (testBtn) testBtn.setAttribute('data-index', i);
-            var resultSpan = remaining[i].querySelector('.arr-test-result');
-            if (resultSpan) resultSpan.id = prefix + '_testResult';
+            if (testBtn) {
+                testBtn.setAttribute('data-index', i);
+                testBtn.id = prefix + '_btnTest';
+            }
         }
         var btn = document.getElementById('btnAdd' + type);
         if (btn && remaining.length < MAX_ARR_INSTANCES) btn.style.display = '';
@@ -100,20 +116,33 @@
         var prefix = type + '_' + index;
         var urlEl = document.getElementById(prefix + '_url');
         var keyEl = document.getElementById(prefix + '_key');
-        var resultEl = document.getElementById(prefix + '_testResult');
-        if (!urlEl || !keyEl || !resultEl) return;
+        var btn = document.getElementById(prefix + '_btnTest');
+        if (!urlEl || !keyEl || !btn) return;
 
         var url = urlEl.value.trim();
         var apiKey = keyEl.value.trim();
 
+        var originalHtml = '🔌 ' + T('testConnection', 'Test Connection');
+
+        var timerKey = type + '_' + index;
+        if (_testTimers[timerKey]) {
+            clearTimeout(_testTimers[timerKey]);
+            _testTimers[timerKey] = null;
+        }
+
         if (!url || !apiKey) {
-            resultEl.className = 'arr-test-result arr-test-fail';
-            resultEl.textContent = '❌ ' + T('testMissingFields', 'URL and API Key are required.');
+            btn.innerHTML = '<span class="btn-icon">X</span>' + T('testMissingFields', 'URL and API Key are required.');
+            btn.classList.add('error');
+            _testTimers[timerKey] = setTimeout(function() {
+                btn.innerHTML = originalHtml;
+                btn.classList.remove('error');
+                _testTimers[timerKey] = null;
+            }, 3000);
             return;
         }
 
-        resultEl.className = 'arr-test-result arr-test-pending';
-        resultEl.textContent = '⏳ ' + T('testing', 'Testing…');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-spinner"></span>' + T('testing', 'Testing…');
 
         var apiClient = ApiClient;
         apiClient.ajax({
@@ -123,16 +152,33 @@
             contentType: 'application/json',
             dataType: 'json'
         }).then(function (data) {
+            btn.disabled = false;
             if (data.success) {
-                resultEl.className = 'arr-test-result arr-test-ok';
-                resultEl.textContent = '✅ ' + data.message;
+                btn.innerHTML = '<span class="btn-icon">✔</span>' + escHtml(data.message);
+                btn.classList.add('success');
+                _testTimers[timerKey] = setTimeout(function() {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('success');
+                    _testTimers[timerKey] = null;
+                }, 3000);
             } else {
-                resultEl.className = 'arr-test-result arr-test-fail';
-                resultEl.textContent = '❌ ' + data.message;
+                btn.innerHTML = '<span class="btn-icon">X</span>' + escHtml(data.message);
+                btn.classList.add('error');
+                _testTimers[timerKey] = setTimeout(function() {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('error');
+                    _testTimers[timerKey] = null;
+                }, 5000);
             }
         }, function () {
-            resultEl.className = 'arr-test-result arr-test-fail';
-            resultEl.textContent = '❌ ' + T('testConnectionFailed', 'Connection test failed.');
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon">X</span>' + T('testConnectionFailed', 'Connection test failed.');
+            btn.classList.add('error');
+            _testTimers[timerKey] = setTimeout(function() {
+                btn.innerHTML = originalHtml;
+                btn.classList.remove('error');
+                _testTimers[timerKey] = null;
+            }, 5000);
         });
     }
 
@@ -161,66 +207,68 @@
         if (btnSonarr) btnSonarr.onclick = function () { addArrInstance('Sonarr'); };
     }
 
-    function initArrButtons() {
+    function initArrButtons(cfg) {
         var btnContainer = document.getElementById('arrButtons');
         if (!btnContainer) return;
-        var apiClient = ApiClient;
-        apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuration'), dataType: 'json' }).then(function (cfg) {
-            var h = '';
-            var radarrInstances = cfg.RadarrInstances && cfg.RadarrInstances.length > 0
-                ? cfg.RadarrInstances
-                : (cfg.RadarrUrl ? [{ Name: 'Radarr', Url: cfg.RadarrUrl }] : []);
-            var sonarrInstances = cfg.SonarrInstances && cfg.SonarrInstances.length > 0
-                ? cfg.SonarrInstances
-                : (cfg.SonarrUrl ? [{ Name: 'Sonarr', Url: cfg.SonarrUrl }] : []);
-
-            if (radarrInstances.length === 0 && sonarrInstances.length === 0) {
-                btnContainer.innerHTML = '<p style="opacity:0.5;">' + T('arrNotConfigured', 'No Radarr or Sonarr instances configured. Add them in the Settings tab.') + '</p>';
-                return;
-            }
-
-            if (radarrInstances.length > 0) {
-                h += '<div style="margin-bottom:1em;">';
-                h += '<h4 style="margin:0 0 0.5em 0;opacity:0.7;">🎬 Radarr</h4>';
-                h += '<div class="header-actions" style="flex-wrap:wrap;">';
-                for (var r = 0; r < radarrInstances.length; r++) {
-                    var rName = radarrInstances[r].Name || ('Radarr #' + (r + 1));
-                    h += '<button class="action-btn arr-compare-btn" data-type="Radarr" data-index="' + r + '">' + T('compareWith', 'Compare with') + ' ' + escHtml(rName) + '</button>';
-                }
-                h += '</div></div>';
-            }
-
-            if (sonarrInstances.length > 0) {
-                h += '<div style="margin-bottom:1em;">';
-                h += '<h4 style="margin:0 0 0.5em 0;opacity:0.7;">📺 Sonarr</h4>';
-                h += '<div class="header-actions" style="flex-wrap:wrap;">';
-                for (var s = 0; s < sonarrInstances.length; s++) {
-                    var sName = sonarrInstances[s].Name || ('Sonarr #' + (s + 1));
-                    h += '<button class="action-btn arr-compare-btn" data-type="Sonarr" data-index="' + s + '">' + T('compareWith', 'Compare with') + ' ' + escHtml(sName) + '</button>';
-                }
-                h += '</div></div>';
-            }
-
-            btnContainer.innerHTML = h;
-
-            var compareBtns = btnContainer.querySelectorAll('.arr-compare-btn');
-            for (var i = 0; i < compareBtns.length; i++) {
-                compareBtns[i].addEventListener('click', function () {
-                    var type = this.getAttribute('data-type');
-                    var idx = parseInt(this.getAttribute('data-index'), 10);
-                    var label = this.textContent;
-                    compareArr(type, idx, label);
-                });
-            }
-        }, function () {
-            btnContainer.innerHTML = '<div class="error-msg">❌ ' + T('arrConfigError', 'Failed to load Arr configuration.') + '</div>';
+        var h = '';
+        var radarrInstances = (cfg.RadarrInstances || []).filter(function (inst) {
+            return inst && inst.Url && inst.ApiKey;
         });
+        if (radarrInstances.length === 0 && cfg.RadarrUrl && cfg.RadarrApiKey) {
+            radarrInstances = [{ Name: 'Radarr', Url: cfg.RadarrUrl, ApiKey: cfg.RadarrApiKey }];
+        }
+
+        var sonarrInstances = (cfg.SonarrInstances || []).filter(function (inst) {
+            return inst && inst.Url && inst.ApiKey;
+        });
+        if (sonarrInstances.length === 0 && cfg.SonarrUrl && cfg.SonarrApiKey) {
+            sonarrInstances = [{ Name: 'Sonarr', Url: cfg.SonarrUrl, ApiKey: cfg.SonarrApiKey }];
+        }
+
+        if (radarrInstances.length === 0 && sonarrInstances.length === 0) {
+            btnContainer.innerHTML = '<div class="no-data-container"><p>' + T('arrNotConfigured', 'Not configured. Please set URL and API key in Settings.') + '</p></div>';
+            return;
+        }
+
+        if (radarrInstances.length > 0) {
+            h += '<div style="margin-bottom:1em;">';
+            h += '<h4 style="margin:0 0 0.5em 0;opacity:0.7;">🎬 Radarr</h4>';
+            h += '<div class="header-actions" style="flex-wrap:wrap;">';
+            for (var r = 0; r < radarrInstances.length; r++) {
+                var rName = radarrInstances[r].Name || ('Radarr #' + (r + 1));
+                h += '<button class="action-btn arr-compare-btn" data-type="Radarr" data-index="' + r + '">' + T('compareWith', 'Compare with') + ' ' + escHtml(rName) + '</button>';
+            }
+            h += '</div></div>';
+        }
+
+        if (sonarrInstances.length > 0) {
+            h += '<div style="margin-bottom:1em;">';
+            h += '<h4 style="margin:0 0 0.5em 0;opacity:0.7;">📺 Sonarr</h4>';
+            h += '<div class="header-actions" style="flex-wrap:wrap;">';
+            for (var s = 0; s < sonarrInstances.length; s++) {
+                var sName = sonarrInstances[s].Name || ('Sonarr #' + (s + 1));
+                h += '<button class="action-btn arr-compare-btn" data-type="Sonarr" data-index="' + s + '">' + T('compareWith', 'Compare with') + ' ' + escHtml(sName) + '</button>';
+            }
+            h += '</div></div>';
+        }
+
+        btnContainer.innerHTML = h;
+
+        var compareBtns = btnContainer.querySelectorAll('.arr-compare-btn');
+        for (var i = 0; i < compareBtns.length; i++) {
+            compareBtns[i].addEventListener('click', function () {
+                var type = this.getAttribute('data-type');
+                var idx = parseInt(this.getAttribute('data-index'), 10);
+                var label = this.textContent;
+                compareArr(type, idx, label);
+            });
+        }
     }
 
     function compareArr(type, index, label) {
         var resultDiv = document.getElementById('arrResult');
         if (!resultDiv) return;
-        resultDiv.innerHTML = '<div class="loading-overlay" style="padding:1em;"><div class="spinner"></div><p>' + T('comparing', 'Comparing') + ' ' + (label || type) + '…</p></div>';
+        resultDiv.innerHTML = '<div class="loading-overlay" style="padding:1em;"><div class="spinner"></div><p>' + T('comparing', 'Comparing') + ' ' + escHtml(label || type) + '…</p></div>';
         var apiClient = ApiClient;
         var url = apiClient.getUrl('JellyfinHelper/Arr/' + type + '/Compare') + '?index=' + index;
         apiClient.ajax({ type: 'GET', url: url, dataType: 'json' }).then(function (data) {
