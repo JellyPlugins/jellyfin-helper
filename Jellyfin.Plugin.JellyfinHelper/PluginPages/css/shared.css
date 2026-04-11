@@ -1,0 +1,306 @@
+.stats-container {
+    max-width: 960px;
+    margin: 1em auto;
+}
+
+.stats-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5em;
+    flex-wrap: wrap;
+    gap: 0.5em;
+}
+
+.stats-header h2 {
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    gap: 0.5em;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.last-scan-badge {
+    font-size: 0.78em;
+    color: rgba(255,255,255,0.6);
+    background: rgba(255,255,255,0.08);
+    padding: 0.3em 0.8em;
+    border-radius: 12px;
+    white-space: nowrap;
+}
+
+.refresh-btn, .export-btn {
+    padding: 0.5em 1.2em;
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 0.95em;
+    transition: background 0.2s;
+}
+
+.refresh-btn {
+    background: #00a4dc;
+}
+
+.refresh-btn:hover {
+    background: #0088b8;
+}
+
+.refresh-btn:disabled {
+    background: #555;
+    cursor: not-allowed;
+}
+
+.export-btn {
+    background: #2ecc71;
+}
+
+.export-btn:hover {
+    background: #27ae60;
+}
+
+.export-btn:disabled {
+    background: #555;
+    cursor: not-allowed;
+}
+
+.section-title {
+    font-size: 1.1em;
+    font-weight: 600;
+    margin: 1.5em 0 0.5em 0;
+    padding-bottom: 0.3em;
+    border-bottom: 2px solid #00a4dc;
+}
+
+.loading-overlay {
+    text-align: center;
+    padding: 3em;
+    opacity: 0.6;
+}
+
+.loading-overlay .spinner {
+    display: inline-block;
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #00a4dc;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.error-msg {
+    color: #e74c3c;
+    padding: 1em;
+    text-align: center;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.15em 0.5em;
+    border-radius: 3px;
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge-movies { background: #e67e22; color: #fff; }
+.badge-tvshows { background: #2ecc71; color: #fff; }
+.badge-music { background: #9b59b6; color: #fff; }
+.badge-other { background: #95a5a6; color: #fff; }
+
+/* Tabs */
+.tab-bar {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1.5em;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+
+.tab-bar::-webkit-scrollbar {
+    height: 4px;
+}
+
+.tab-bar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+.tab-btn {
+    padding: 0.6em 1.2em;
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.95em;
+    opacity: 0.6;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: opacity 0.2s, border-color 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.tab-btn:hover {
+    opacity: 0.9;
+}
+
+.tab-btn.active {
+    opacity: 1;
+    border-bottom-color: #00a4dc;
+    font-weight: 600;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.success-msg { color: #2ecc71; padding: 0.5em; text-align: center; font-weight: 600; }
+.action-btn { padding: 0.5em 1.2em; border: none; border-radius: 4px; color: #fff; cursor: pointer; font-size: 0.95em; transition: background 0.2s; background: #e67e22; }
+.action-btn:hover { background: #d35400; }
+.action-btn:disabled { background: #555; cursor: not-allowed; }
+
+/* === Shared File List Styles (used by Codecs + Health tabs) === */
+
+/* File List Header */
+.codec-files-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.7em;
+    padding-bottom: 0.5em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.codec-files-title {
+    font-weight: 700;
+    font-size: 0.95em;
+    color: #00a4dc;
+}
+
+.codec-files-count {
+    font-size: 0.8em;
+    opacity: 0.5;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.15em 0.5em;
+    border-radius: 10px;
+}
+
+/* noinspection CssUnusedSymbol */
+.codec-files-empty {
+    text-align: center;
+    padding: 1em;
+    opacity: 0.4;
+    font-size: 0.85em;
+}
+
+/* File List Columns (Movies / TV Shows / Music split) */
+.codec-files-columns {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8em;
+}
+
+/* noinspection CssUnusedSymbol */
+.codec-files-columns.codec-files-multi {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 0.8em;
+}
+
+@media (max-width: 600px) {
+    /* noinspection CssUnusedSymbol */
+    .codec-files-columns.codec-files-multi {
+        grid-template-columns: 1fr;
+    }
+}
+
+.codec-files-section {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    padding: 0.6em;
+}
+
+.codec-files-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    margin-bottom: 0.5em;
+    font-size: 0.85em;
+}
+
+.codec-files-section-count {
+    opacity: 0.45;
+    font-size: 0.85em;
+}
+
+.codec-files-list {
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.codec-files-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.codec-files-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+}
+
+/* Individual File Item */
+.codec-file-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    padding: 0.3em 0.4em;
+    border-radius: 4px;
+    transition: background 0.15s;
+    cursor: default;
+}
+
+.codec-file-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.codec-file-icon {
+    flex-shrink: 0;
+    font-size: 0.75em;
+    width: 1.2em;
+    text-align: center;
+}
+
+.codec-file-name {
+    font-size: 0.78em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+}
+
+.codec-file-folder {
+    font-size: 0.68em;
+    opacity: 0.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+    flex-shrink: 0;
+}

@@ -35,6 +35,53 @@ public class ArrIntegrationService
     }
 
     /// <summary>
+    /// Tests connectivity to a Radarr or Sonarr instance by calling its /api/v3/system/status endpoint.
+    /// </summary>
+    /// <param name="baseUrl">The base URL of the Arr instance.</param>
+    /// <param name="apiKey">The API key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A tuple indicating success and a status message.</returns>
+    public async Task<(bool Success, string Message)> TestConnectionAsync(string baseUrl, string apiKey, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            return (false, "URL is empty.");
+        }
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            return (false, "API key is empty.");
+        }
+
+        try
+        {
+            var url = $"{baseUrl.TrimEnd('/')}/api/v3/system/status";
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("X-Api-Key", apiKey);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var status = JsonSerializer.Deserialize<ArrSystemStatusDto>(json, JsonOptions);
+            var appName = status?.AppName ?? "Unknown";
+            var version = status?.Version ?? "?";
+
+            return (true, $"{appName} v{version}");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Arr connection test failed for {Url}", baseUrl);
+            return (false, $"Connection failed: {ex.Message}");
+        }
+        catch (Exception ex) when (ex is JsonException or UriFormatException)
+        {
+            _logger.LogWarning(ex, "Arr connection test failed for {Url}", baseUrl);
+            return (false, $"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Gets all movies from Radarr.
     /// </summary>
     /// <param name="baseUrl">The Radarr base URL.</param>
@@ -229,6 +276,13 @@ public class ArrIntegrationService
     }
 
     // --- DTOs for Radarr/Sonarr API responses ---
+
+    private sealed class ArrSystemStatusDto
+    {
+        public string? AppName { get; set; }
+
+        public string? Version { get; set; }
+    }
 
     private sealed class RadarrMovieDto
     {

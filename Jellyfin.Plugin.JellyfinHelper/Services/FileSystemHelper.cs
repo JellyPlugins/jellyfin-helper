@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using MediaBrowser.Model.IO;
@@ -78,5 +79,22 @@ public static class FileSystemHelper
         {
             dict[key] = value;
         }
+    }
+
+    /// <summary>
+    /// Adds a file path to a dictionary of path collections, creating the collection if needed.
+    /// </summary>
+    /// <param name="dict">The dictionary mapping keys to path collections.</param>
+    /// <param name="key">The key (e.g. codec name) to add the path under.</param>
+    /// <param name="path">The file path to add.</param>
+    public static void AddPath(Dictionary<string, Collection<string>> dict, string key, string path)
+    {
+        if (!dict.TryGetValue(key, out var collection))
+        {
+            collection = new Collection<string>();
+            dict[key] = collection;
+        }
+
+        collection.Add(path);
     }
 }

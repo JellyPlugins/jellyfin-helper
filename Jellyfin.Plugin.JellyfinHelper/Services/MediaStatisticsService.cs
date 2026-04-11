@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
@@ -45,6 +46,8 @@ public partial class MediaStatisticsService
         foreach (var vf in virtualFolders)
         {
             var collectionType = vf.CollectionType;
+
+            var isBoxsets = collectionType is CollectionTypeOptions.boxsets;
             var isMovies = collectionType is CollectionTypeOptions.movies
                 or CollectionTypeOptions.homevideos
                 or CollectionTypeOptions.musicvideos;
@@ -57,10 +60,14 @@ public partial class MediaStatisticsService
                 CollectionType = collectionType?.ToString() ?? "mixed"
             };
 
+            // Health checks only apply to video libraries (Movies, TV Shows).
+            // Music and boxset/collection libraries are excluded.
+            var skipHealth = isBoxsets || isMusic;
+
             foreach (var location in vf.Locations)
             {
                 _logger.LogDebug("Scanning library location: {Location} (type: {Type})", location, collectionType);
-                AnalyzeDirectoryRecursive(location, libraryStats);
+                AnalyzeDirectoryRecursive(location, libraryStats, skipHealthChecks: skipHealth);
             }
 
             result.Libraries.Add(libraryStats);
@@ -91,7 +98,8 @@ public partial class MediaStatisticsService
     /// </summary>
     /// <param name="directoryPath">The directory to analyze.</param>
     /// <param name="stats">The statistics accumulator.</param>
-    private void AnalyzeDirectoryRecursive(string directoryPath, LibraryStatistics stats)
+    /// <param name="skipHealthChecks">When true, skip health check counters (e.g. for boxset/collection libraries).</param>
+    private void AnalyzeDirectoryRecursive(string directoryPath, LibraryStatistics stats, bool skipHealthChecks = false)
     {
         try
         {
@@ -119,16 +127,28 @@ public partial class MediaStatisticsService
                     var container = ext.TrimStart('.').ToUpperInvariant();
                     FileSystemHelper.IncrementCount(stats.ContainerFormats, container);
                     FileSystemHelper.AccumulateValue(stats.ContainerSizes, container, size);
+                    FileSystemHelper.AddPath(stats.ContainerFormatPaths, container, file.FullName);
 
                     // Resolution parsing from filename
                     var resolution = ParseResolution(file.Name);
                     FileSystemHelper.IncrementCount(stats.Resolutions, resolution);
                     FileSystemHelper.AccumulateValue(stats.ResolutionSizes, resolution, size);
+                    FileSystemHelper.AddPath(stats.ResolutionPaths, resolution, file.FullName);
 
                     // Video codec parsing from filename
                     var codec = ParseVideoCodec(file.Name);
                     FileSystemHelper.IncrementCount(stats.VideoCodecs, codec);
                     FileSystemHelper.AccumulateValue(stats.VideoCodecSizes, codec, size);
+                    FileSystemHelper.AddPath(stats.VideoCodecPaths, codec, file.FullName);
+
+                    // Audio codec parsing from video filename (e.g. "Movie.DTS.mkv")
+                    var audioCodec = ParseAudioCodec(file.Name, ext);
+                    if (!string.Equals(audioCodec, "Unknown", StringComparison.Ordinal))
+                    {
+                        FileSystemHelper.IncrementCount(stats.VideoAudioCodecs, audioCodec);
+                        FileSystemHelper.AccumulateValue(stats.VideoAudioCodecSizes, audioCodec, size);
+                        FileSystemHelper.AddPath(stats.VideoAudioCodecPaths, audioCodec, file.FullName);
+                    }
                 }
                 else if (MediaExtensions.SubtitleExtensions.Contains(ext))
                 {
@@ -155,8 +175,9 @@ public partial class MediaStatisticsService
 
                     // Audio codec parsing from filename and extension
                     var audioCodec = ParseAudioCodec(file.Name, ext);
-                    FileSystemHelper.IncrementCount(stats.AudioCodecs, audioCodec);
-                    FileSystemHelper.AccumulateValue(stats.AudioCodecSizes, audioCodec, size);
+                    FileSystemHelper.IncrementCount(stats.MusicAudioCodecs, audioCodec);
+                    FileSystemHelper.AccumulateValue(stats.MusicAudioCodecSizes, audioCodec, size);
+                    FileSystemHelper.AddPath(stats.MusicAudioCodecPaths, audioCodec, file.FullName);
                 }
                 else
                 {
@@ -166,27 +187,52 @@ public partial class MediaStatisticsService
             }
 
             // Health checks — per-directory analysis
-            if (hasVideo)
+            // Boxset/collection libraries are excluded: they are Jellyfin-internal virtual folders
+            // that group related movies and typically only contain posters/images, not real media.
+            if (!skipHealthChecks)
             {
-                int videoCount = files.Count(f => MediaExtensions.VideoExtensions.Contains(Path.GetExtension(f.FullName)));
-                if (!hasSubs)
+                if (hasVideo)
                 {
-                    stats.VideosWithoutSubtitles += videoCount;
-                }
+                    var videoFiles = files
+                        .Where(f => MediaExtensions.VideoExtensions.Contains(Path.GetExtension(f.FullName)))
+                        .ToList();
+                    int videoCount = videoFiles.Count;
 
-                if (!hasImage)
-                {
-                    stats.VideosWithoutImages += videoCount;
-                }
+                    if (!hasSubs)
+                    {
+                        foreach (var vf2 in videoFiles)
+                        {
+                            if (!HasEmbeddedSubtitles(vf2.FullName))
+                            {
+                                stats.VideosWithoutSubtitles++;
+                                stats.VideosWithoutSubtitlesPaths.Add(vf2.FullName);
+                            }
+                        }
+                    }
 
-                if (!hasNfo)
-                {
-                    stats.VideosWithoutNfo += videoCount;
+                    if (!hasImage)
+                    {
+                        stats.VideosWithoutImages += videoCount;
+                        foreach (var vf2 in videoFiles)
+                        {
+                            stats.VideosWithoutImagesPaths.Add(vf2.FullName);
+                        }
+                    }
+
+                    if (!hasNfo)
+                    {
+                        stats.VideosWithoutNfo += videoCount;
+                        foreach (var vf2 in videoFiles)
+                        {
+                            stats.VideosWithoutNfoPaths.Add(vf2.FullName);
+                        }
+                    }
                 }
-            }
-            else if (hasAnyNonTrickplayFile && (hasSubs || hasImage || hasNfo))
-            {
-                stats.OrphanedMetadataDirectories++;
+                else if (hasAnyNonTrickplayFile && (hasSubs || hasImage || hasNfo))
+                {
+                    stats.OrphanedMetadataDirectories++;
+                    stats.OrphanedMetadataDirectoriesPaths.Add(directoryPath);
+                }
             }
 
             // Recurse into subdirectories
@@ -201,7 +247,7 @@ public partial class MediaStatisticsService
                 }
                 else
                 {
-                    AnalyzeDirectoryRecursive(subDir.FullName, stats);
+                    AnalyzeDirectoryRecursive(subDir.FullName, stats, skipHealthChecks);
                 }
             }
         }
@@ -354,6 +400,32 @@ public partial class MediaStatisticsService
         return MediaExtensions.AudioExtensionToCodec.TryGetValue(extension, out var codecFromExt)
             ? codecFromExt
             : "Unknown";
+    }
+
+    /// <summary>
+    /// Checks whether the given video file has embedded (non-external) subtitle streams
+    /// according to Jellyfin's library metadata.
+    /// </summary>
+    /// <param name="filePath">Full path to the video file.</param>
+    /// <returns><c>true</c> when at least one embedded subtitle stream exists.</returns>
+    internal virtual bool HasEmbeddedSubtitles(string filePath)
+    {
+        try
+        {
+            var item = _libraryManager.FindByPath(filePath, false);
+            if (item is null)
+            {
+                return false;
+            }
+
+            var streams = item.GetMediaStreams();
+            return streams is not null && streams.Any(s => s.Type == MediaStreamType.Subtitle && !s.IsExternal);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not check embedded subtitles for {Path}", filePath);
+            return false;
+        }
     }
 
     // Source-generated regex patterns for resolution detection

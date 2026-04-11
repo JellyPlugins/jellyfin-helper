@@ -39,7 +39,6 @@ public static class MediaExtensions
         ".mpeg",
         ".mpg",
         ".mts",
-        ".ogg",
         ".ogm",
         ".ogv",
         ".rec",

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -7,6 +8,7 @@ using System.Net.Http;
 using System.Net.Mime;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
@@ -41,6 +43,7 @@ public class MediaStatisticsController : ControllerBase
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
     };
 
     // Simple in-memory rate limiting
@@ -135,7 +138,54 @@ public class MediaStatisticsController : ControllerBase
             _logger.LogWarning(ex, "Failed to save statistics snapshot");
         }
 
+        // Persist latest result to disk
+        try
+        {
+            _historyService.SaveLatestResult(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist latest statistics result");
+        }
+
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Gets the latest persisted statistics without triggering a new scan.
+    /// Returns the most recent scan result that was saved to disk, surviving server restarts.
+    /// </summary>
+    /// <returns>The latest statistics, or 204 No Content if no scan has been performed yet.</returns>
+    [HttpGet("Statistics/Latest")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public ActionResult<MediaStatisticsResult> GetLatestStatistics()
+    {
+        // Try memory cache first
+        if (_cache.TryGetValue(StatsCacheKey, out MediaStatisticsResult? cached) && cached != null)
+        {
+            _logger.LogDebug("Returning cached statistics for /Latest");
+            return Ok(cached);
+        }
+
+        // Fall back to disk-persisted result
+        try
+        {
+            var persisted = _historyService.LoadLatestResult();
+            if (persisted != null)
+            {
+                // Re-populate memory cache from disk
+                _cache.Set(StatsCacheKey, persisted, CacheDuration);
+                _logger.LogDebug("Loaded persisted statistics from disk for /Latest");
+                return Ok(persisted);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load persisted statistics");
+        }
+
+        return NoContent();
     }
 
     /// <summary>
@@ -157,6 +207,8 @@ public class MediaStatisticsController : ControllerBase
 
     /// <summary>
     /// Exports the current statistics as a CSV file download.
+    /// Includes all fields matching the JSON export: file counts, sizes, codec/resolution breakdowns,
+    /// health check counters, and detail paths.
     /// </summary>
     /// <returns>A CSV file containing the per-library statistics.</returns>
     [HttpGet("Statistics/Export/Csv")]
@@ -166,7 +218,43 @@ public class MediaStatisticsController : ControllerBase
         var result = GetCachedOrCalculate();
 
         var sb = new StringBuilder();
-        sb.AppendLine("Library,CollectionType,VideoFiles,VideoSizeBytes,AudioFiles,AudioSizeBytes,SubtitleFiles,SubtitleSizeBytes,ImageFiles,ImageSizeBytes,NfoFiles,NfoSizeBytes,TrickplayFolders,TrickplaySizeBytes,OtherFiles,OtherSizeBytes,TotalSizeBytes");
+        sb.AppendLine(string.Join(
+            ",",
+            "Library",
+            "CollectionType",
+            "VideoFiles",
+            "VideoSizeBytes",
+            "AudioFiles",
+            "AudioSizeBytes",
+            "SubtitleFiles",
+            "SubtitleSizeBytes",
+            "ImageFiles",
+            "ImageSizeBytes",
+            "NfoFiles",
+            "NfoSizeBytes",
+            "TrickplayFolders",
+            "TrickplaySizeBytes",
+            "OtherFiles",
+            "OtherSizeBytes",
+            "TotalSizeBytes",
+            "ContainerFormats",
+            "Resolutions",
+            "VideoCodecs",
+            "VideoAudioCodecs",
+            "MusicAudioCodecs",
+            "ContainerSizes",
+            "ResolutionSizes",
+            "VideoCodecSizes",
+            "VideoAudioCodecSizes",
+            "MusicAudioCodecSizes",
+            "VideosWithoutSubtitles",
+            "VideosWithoutImages",
+            "VideosWithoutNfo",
+            "OrphanedMetadataDirectories",
+            "VideosWithoutSubtitlesPaths",
+            "VideosWithoutImagesPaths",
+            "VideosWithoutNfoPaths",
+            "OrphanedMetadataDirectoriesPaths"));
 
         foreach (var lib in result.Libraries)
         {
@@ -188,7 +276,25 @@ public class MediaStatisticsController : ControllerBase
                 lib.TrickplaySize,
                 lib.OtherFileCount,
                 lib.OtherSize,
-                lib.TotalSize));
+                lib.TotalSize,
+                EscapeCsv(SerializeDictionary(lib.ContainerFormats)),
+                EscapeCsv(SerializeDictionary(lib.Resolutions)),
+                EscapeCsv(SerializeDictionary(lib.VideoCodecs)),
+                EscapeCsv(SerializeDictionary(lib.VideoAudioCodecs)),
+                EscapeCsv(SerializeDictionary(lib.MusicAudioCodecs)),
+                EscapeCsv(SerializeDictionary(lib.ContainerSizes)),
+                EscapeCsv(SerializeDictionary(lib.ResolutionSizes)),
+                EscapeCsv(SerializeDictionary(lib.VideoCodecSizes)),
+                EscapeCsv(SerializeDictionary(lib.VideoAudioCodecSizes)),
+                EscapeCsv(SerializeDictionary(lib.MusicAudioCodecSizes)),
+                lib.VideosWithoutSubtitles,
+                lib.VideosWithoutImages,
+                lib.VideosWithoutNfo,
+                lib.OrphanedMetadataDirectories,
+                EscapeCsv(SerializeCollection(lib.VideosWithoutSubtitlesPaths)),
+                EscapeCsv(SerializeCollection(lib.VideosWithoutImagesPaths)),
+                EscapeCsv(SerializeCollection(lib.VideosWithoutNfoPaths)),
+                EscapeCsv(SerializeCollection(lib.OrphanedMetadataDirectoriesPaths))));
         }
 
         var bytes = Encoding.UTF8.GetBytes(sb.ToString());
@@ -310,7 +416,187 @@ public class MediaStatisticsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Gets the list of existing trash folder paths on disk.
+    /// Used by the UI to show which folders would be affected when disabling trash.
+    /// For a relative trash path (default), returns one folder per library.
+    /// For an absolute trash path, returns at most one folder.
+    /// </summary>
+    /// <returns>An object containing the list of existing trash folder paths.</returns>
+    [HttpGet("Trash/Folders")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult GetTrashFolders()
+    {
+        var config = CleanupConfigHelper.GetConfig();
+        var libraryFolders = CleanupConfigHelper.GetFilteredLibraryLocations(_libraryManager);
+        var existingPaths = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathRooted(config.TrashFolderPath))
+        {
+            // Absolute path: only one trash folder
+            if (Directory.Exists(config.TrashFolderPath))
+            {
+                existingPaths.Add(config.TrashFolderPath);
+            }
+        }
+        else
+        {
+            // Relative path: one trash folder per library
+            foreach (var folder in libraryFolders)
+            {
+                var trashPath = CleanupConfigHelper.GetTrashPath(folder);
+                if (Directory.Exists(trashPath))
+                {
+                    existingPaths.Add(trashPath);
+                }
+            }
+        }
+
+        return Ok(new
+        {
+            Paths = existingPaths,
+            IsAbsolute = !string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathRooted(config.TrashFolderPath),
+        });
+    }
+
+    /// <summary>
+    /// Deletes all existing trash folders from disk.
+    /// Called when the user disables trash and chooses to delete the folders.
+    /// </summary>
+    /// <returns>A result indicating how many folders were deleted.</returns>
+    [HttpDelete("Trash/Folders")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult DeleteTrashFolders()
+    {
+        var config = CleanupConfigHelper.GetConfig();
+        var libraryFolders = CleanupConfigHelper.GetFilteredLibraryLocations(_libraryManager);
+        var deleted = new List<string>();
+        var failed = new List<string>();
+
+        var pathsToDelete = new List<string>();
+        if (!string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathRooted(config.TrashFolderPath))
+        {
+            var fullPath = Path.GetFullPath(config.TrashFolderPath);
+            if (!IsPathSafeForDeletion(fullPath, libraryFolders))
+            {
+                _logger.LogWarning("Refusing to delete unsafe trash path: {Path}", fullPath);
+                return BadRequest(new { Error = "Configured trash path is unsafe for deletion (filesystem root or library root)." });
+            }
+
+            if (Directory.Exists(fullPath))
+            {
+                pathsToDelete.Add(fullPath);
+            }
+        }
+        else
+        {
+            foreach (var folder in libraryFolders)
+            {
+                var trashPath = Path.GetFullPath(CleanupConfigHelper.GetTrashPath(folder));
+                var libraryRoot = Path.GetFullPath(folder);
+                if (!trashPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning(
+                        "Refusing to delete trash path {TrashPath}: it escapes library root {LibraryRoot}.",
+                        trashPath,
+                        libraryRoot);
+                    continue;
+                }
+
+                if (Directory.Exists(trashPath))
+                {
+                    pathsToDelete.Add(trashPath);
+                }
+            }
+        }
+
+        foreach (var path in pathsToDelete)
+        {
+            try
+            {
+                Directory.Delete(path, true);
+                deleted.Add(path);
+                _logger.LogInformation("Deleted trash folder: {Path}", path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                failed.Add(path);
+                _logger.LogError(ex, "Failed to delete trash folder: {Path}", path);
+            }
+        }
+
+        return Ok(new
+        {
+            Deleted = deleted,
+            Failed = failed,
+        });
+    }
+
+    /// <summary>
+    /// Gets the detailed contents of all trash folders across libraries.
+    /// Each item includes its original name, size, trashed date, and expected purge date.
+    /// </summary>
+    /// <returns>The trash contents grouped by library.</returns>
+    [HttpGet("Trash/Contents")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult GetTrashContents()
+    {
+        var config = CleanupConfigHelper.GetConfig();
+        var libraryFolders = CleanupConfigHelper.GetFilteredLibraryLocations(_libraryManager);
+        var libraries = new List<object>();
+
+        var seenTrashPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in libraryFolders)
+        {
+            var trashPath = CleanupConfigHelper.GetTrashPath(folder);
+            if (!seenTrashPaths.Add(Path.GetFullPath(trashPath)))
+            {
+                continue;
+            }
+
+            var items = TrashService.GetTrashContents(trashPath, config.TrashRetentionDays);
+
+            if (items.Count > 0)
+            {
+                libraries.Add(new
+                {
+                    LibraryPath = folder,
+                    LibraryName = Path.GetFileName(folder),
+                    Items = items,
+                });
+            }
+        }
+
+        return Ok(new
+        {
+            UseTrash = config.UseTrash,
+            RetentionDays = config.TrashRetentionDays,
+            Libraries = libraries,
+        });
+    }
+
     // === Arr Integration ===
+
+    /// <summary>
+    /// Tests the connection to an Arr instance (Radarr or Sonarr) using the provided URL and API key.
+    /// </summary>
+    /// <param name="request">The connection test request containing URL and API key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A result indicating success or failure with a message.</returns>
+    [HttpPost("Arr/TestConnection")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult> TestArrConnectionAsync([FromBody] ArrTestConnectionRequest request, CancellationToken cancellationToken)
+    {
+        var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
+        var arrService = new ArrIntegrationService(httpClient, _logger);
+
+        var (success, message) = await arrService.TestConnectionAsync(
+            request.Url ?? string.Empty,
+            request.ApiKey ?? string.Empty,
+            cancellationToken).ConfigureAwait(false);
+
+        return Ok(new { success, message });
+    }
 
     /// <summary>
     /// Compares a single configured Radarr instance (by index) with Jellyfin movie libraries.
@@ -493,6 +779,79 @@ public class MediaStatisticsController : ControllerBase
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Serializes a dictionary to a compact JSON string for CSV embedding.
+    /// </summary>
+    private static string SerializeDictionary<TValue>(Dictionary<string, TValue>? dict)
+    {
+        if (dict == null || dict.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return JsonSerializer.Serialize(dict);
+    }
+
+    /// <summary>
+    /// Serializes a collection (list) to a compact JSON array string for CSV embedding.
+    /// </summary>
+    private static string SerializeCollection(Collection<string>? list)
+    {
+        if (list == null || list.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return JsonSerializer.Serialize(list);
+    }
+
+    /// <summary>
+    /// Validates that a path is safe for recursive deletion.
+    /// Rejects filesystem roots and paths that match or contain library root folders.
+    /// </summary>
+    private static bool IsPathSafeForDeletion(string fullPath, IReadOnlyList<string> libraryFolders)
+    {
+        // Reject filesystem roots (e.g., "/", "C:\")
+        var root = Path.GetPathRoot(fullPath);
+        var normalizedPath = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedRoot = root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Reject paths containing ".." traversal
+        if (fullPath.Contains("..", StringComparison.Ordinal))
+        {
+            // Re-check after GetFullPath resolved it
+            var resolved = Path.GetFullPath(fullPath);
+            if (resolved.Contains("..", StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        // Reject if the path equals any library root
+        foreach (var folder in libraryFolders)
+        {
+            var libraryRoot = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var candidate = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            if (string.Equals(candidate, libraryRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // Reject if a library root is inside the trash path (would delete library contents)
+            if (libraryRoot.StartsWith(candidate + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

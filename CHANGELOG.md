@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] — 2026-11-04
+
+### Added
+- **Multi-Instance Arr Support** — Up to 3 Radarr and 3 Sonarr instances simultaneously (e.g. "Radarr 4K", "Radarr Anime") with per-instance comparison and merged views. Automatic migration from legacy single-instance configuration.
+- **Arr Connection Test** — New `/Arr/TestConnection` endpoint with a test button in the Settings UI to validate URL + API key before saving.
+- **Persisted Latest Scan Result** — Statistics are now persisted to disk via `StatisticsHistoryService.SaveLatestResult()` and loaded on dashboard open via `/Statistics/Latest` without requiring a new scan. Results survive server restarts.
+- **Post-Cleanup Statistics Scan** — After each `HelperCleanupTask` run, a statistics scan is automatically executed and persisted.
+- **Embedded Subtitle Detection** — Health check "Videos without subtitles" now considers embedded subtitle streams (via Jellyfin's `MediaStream` data), not just external `.srt` files.
+- **Video vs Music Audio Codecs** — Audio codec analysis is now split into two categories: codecs parsed from video filenames (`VideoAudioCodecs`) and codecs from music files (`MusicAudioCodecs`) with extension-based fallback.
+- **Codec File Path Tracking** — Each codec, container format, and resolution entry now tracks individual file paths (`VideoCodecPaths`, `VideoAudioCodecPaths`, `MusicAudioCodecPaths`, `ContainerFormatPaths`, `ResolutionPaths`) for drill-down inspection in the UI.
+- **Trash Contents Detail API** — New `/Trash/Contents` endpoint returning per-library trash items with original name, size, trashed date, and expected purge date. New `/Trash/Folders` GET/DELETE endpoints for trash folder management.
+- **Trash Disable Dialog** — When unchecking "Use Trash" in Settings, a dialog shows which trash folders exist and offers to delete them.
+- **Other File Tracking** — Statistics now track unrecognized/other files (`OtherSize`, `OtherFileCount`) per library.
+- **6-Tab Dashboard** — Refactored into modular tabs: Overview, Codecs, Health, Trends, Settings, Arr Integration.
+- **Modular CSS/JS Build** — New `ComposeConfigPage` MSBuild task that concatenates separate CSS and JS modules into the final `configPage.html` at build time. Each tab has its own `.css` and `.js` file.
+- **XSS Protection** — HTML escaping in badge rendering and configuration page inputs.
+- **Boxset/Collection Skipping** — Health checks automatically skip boxset/collection libraries.
+
+### Changed
+- **Dashboard Architecture** — Migrated from monolithic config page to modular 6-tab architecture with shared utilities (`shared.js`, `shared.css`).
+- **README** — Comprehensive rewrite reflecting all new features, API endpoints, configuration options, and architecture.
+- **Test Count** — Increased from 315 to **572 tests** covering multi-instance Arr, connection testing, persisted statistics, embedded subtitles, codec path tracking, trash contents, modular build, and all new UI features.
+
+---
+
 ## [1.0.4] — 2026-04-10
 
 ### Added

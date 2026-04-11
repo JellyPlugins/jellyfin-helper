@@ -2,6 +2,7 @@ using System.IO.Abstractions.TestingHelpers;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Jellyfin.Plugin.JellyfinHelper.Services;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
@@ -19,7 +20,9 @@ public class HelperCleanupTaskTests : IDisposable
 {
     private readonly Mock<ILibraryManager> _libraryManagerMock;
     private readonly Mock<IFileSystem> _fileSystemMock;
+    private readonly Mock<IApplicationPaths> _applicationPathsMock;
     private readonly Mock<ILoggerFactory> _loggerFactoryMock;
+    private readonly string _testDataPath;
     private readonly HelperCleanupTask _task;
     private readonly Mock<ILogger<HelperCleanupTask>> _loggerMock;
 
@@ -27,6 +30,10 @@ public class HelperCleanupTaskTests : IDisposable
     {
         _libraryManagerMock = new Mock<ILibraryManager>();
         _fileSystemMock = new Mock<IFileSystem>();
+        _applicationPathsMock = new Mock<IApplicationPaths>();
+        _testDataPath = Path.Combine(Path.GetTempPath(), "JellyfinHelperTests_Data_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_testDataPath);
+        _applicationPathsMock.Setup(p => p.DataPath).Returns(_testDataPath);
         _loggerFactoryMock = new Mock<ILoggerFactory>();
         _loggerMock = new Mock<ILogger<HelperCleanupTask>>();
 
@@ -49,6 +56,7 @@ public class HelperCleanupTaskTests : IDisposable
         _task = new HelperCleanupTask(
             _libraryManagerMock.Object,
             _fileSystemMock.Object,
+            _applicationPathsMock.Object,
             _loggerFactoryMock.Object);
 
         // Default: All tasks activated
@@ -64,6 +72,11 @@ public class HelperCleanupTaskTests : IDisposable
     public void Dispose()
     {
         CleanupConfigHelper.ConfigOverride = null;
+        if (Directory.Exists(_testDataPath))
+        {
+            try { Directory.Delete(_testDataPath, true); }
+            catch { /* best effort cleanup */ }
+        }
     }
 
     [Fact]
@@ -239,6 +252,63 @@ public class HelperCleanupTaskTests : IDisposable
         VerifyLogContains("Finished Empty Media Folder Cleanup", LogLevel.Information);
         VerifyLogContains("Finished Orphaned Subtitle Cleanup", LogLevel.Information);
         VerifyLogContains("Finished STRM File Repair", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TrashEnabled_RunsTrashPurge()
+    {
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            StrmRepairTaskMode = TaskMode.Deactivate,
+            UseTrash = true,
+            TrashRetentionDays = 30,
+            TrashFolderPath = ".jellyfin-trash"
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Running trash purge (retention: 30 days)", LogLevel.Information);
+        VerifyLogContains("Trash purge completed", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TrashDisabled_SkipsTrashPurge()
+    {
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            StrmRepairTaskMode = TaskMode.Deactivate,
+            UseTrash = false,
+            TrashRetentionDays = 30
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogNeverContains("Running trash purge", LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TrashEnabledRetentionZero_RunsTrashPurge()
+    {
+        CleanupConfigHelper.ConfigOverride = new PluginConfiguration
+        {
+            TrickplayTaskMode = TaskMode.Deactivate,
+            EmptyMediaFolderTaskMode = TaskMode.Deactivate,
+            OrphanedSubtitleTaskMode = TaskMode.Deactivate,
+            StrmRepairTaskMode = TaskMode.Deactivate,
+            UseTrash = true,
+            TrashRetentionDays = 0,
+            TrashFolderPath = ".jellyfin-trash"
+        };
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogContains("Running trash purge (retention: 0 days)", LogLevel.Information);
     }
 
     /// <summary>

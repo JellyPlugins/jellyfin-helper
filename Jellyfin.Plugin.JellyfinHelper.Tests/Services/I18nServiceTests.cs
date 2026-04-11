@@ -84,7 +84,7 @@ public class I18nServiceTests
             "movieVideoData", "tvVideoData", "musicAudio", "trickplayData", "subtitles", "totalFiles",
             "storageDistribution", "perLibrary",
             "cleanupStatistics", "totalBytesFreed", "totalItemsDeleted", "lastCleanup", "never",
-            "videoCodecs", "audioCodecs", "containerFormats", "resolutions", "noData",
+            "videoCodecs", "videoAudioCodecs", "musicAudioCodecs", "containerFormats", "resolutions", "noData",
             "healthChecks", "noSubtitles", "noImages", "noNfo", "orphanedDirs",
             "growthTrend", "trendEmpty", "trendLoading", "trendError",
             "settingsTitle", "includedLibraries", "excludedLibraries",
@@ -96,6 +96,12 @@ public class I18nServiceTests
             "inBoth", "inArrOnly", "inArrOnlyMissing", "inJellyfinOnly",
             "arrNotConfigured", "comparing",
             "exportJson", "exportCsv",
+            // Trash disable dialog keys
+            "trashDisablePrompt", "trashDisableQuestion", "trashDisableTitle",
+            "trashKeep", "trashDelete",
+            "trashDeleteConfirmTitle", "trashDeleteConfirmMsg", "trashDeleteConfirmWarn", "trashDeleteConfirmOk",
+            "trashDeleting", "trashDeletedCount", "trashFailedCount", "trashDeleteError",
+            "folders", "cancel",
         };
 
         foreach (var key in expectedKeys)
@@ -197,5 +203,177 @@ public class I18nServiceTests
 
         Assert.True(missingInLang.Count == 0,
             $"Language '{lang}' is missing the following keys present in English: {string.Join(", ", missingInLang)}");
+    }
+
+    // ===== No extra keys in non-EN languages =====
+
+    [Theory]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("es")]
+    [InlineData("pt")]
+    [InlineData("zh")]
+    [InlineData("tr")]
+    public void AllLanguages_HaveNoExtraKeysNotInEnglish(string lang)
+    {
+        var english = I18nService.GetTranslations("en");
+        var translations = I18nService.GetTranslations(lang);
+
+        var extraKeys = translations.Keys.Where(k => !english.ContainsKey(k)).OrderBy(k => k).ToList();
+
+        Assert.True(extraKeys.Count == 0,
+            $"Language '{lang}' has extra keys not in English: {string.Join(", ", extraKeys)}");
+    }
+
+    // ===== No empty or whitespace values in any language =====
+
+    [Theory]
+    [InlineData("en")]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("es")]
+    [InlineData("pt")]
+    [InlineData("zh")]
+    [InlineData("tr")]
+    public void AllLanguages_NoEmptyOrWhitespaceValues(string lang)
+    {
+        var translations = I18nService.GetTranslations(lang);
+
+        var emptyKeys = translations
+            .Where(kv => string.IsNullOrWhiteSpace(kv.Value))
+            .Select(kv => kv.Key)
+            .OrderBy(k => k)
+            .ToList();
+
+        Assert.True(emptyKeys.Count == 0,
+            $"Language '{lang}' has empty/whitespace values for keys: {string.Join(", ", emptyKeys)}");
+    }
+
+    // ===== Singular/Plural pairs must both exist =====
+
+    [Theory]
+    [InlineData("en")]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("es")]
+    [InlineData("pt")]
+    [InlineData("zh")]
+    [InlineData("tr")]
+    public void AllLanguages_SingularPluralPairsExist(string lang)
+    {
+        var translations = I18nService.GetTranslations(lang);
+
+        // Singular/Plural pairs that must both be present
+        var pairs = new[]
+        {
+            ("minuteAgo", "minutesAgo"),
+            ("hourAgo", "hoursAgo"),
+            ("dayAgo", "daysAgo"),
+            ("file", "files"),
+            ("folder", "folders"),
+            ("library", "libraries"),
+            ("episode", "episodes"),
+            ("mediaFile", "mediaFiles"),
+        };
+
+        foreach (var (singular, plural) in pairs)
+        {
+            Assert.True(translations.ContainsKey(singular),
+                $"Language '{lang}' is missing singular key '{singular}'");
+            Assert.True(translations.ContainsKey(plural),
+                $"Language '{lang}' is missing plural key '{plural}'");
+        }
+    }
+
+    // ===== Translations should actually differ from English (smoke test for real translation) =====
+
+    [Theory]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("es")]
+    [InlineData("pt")]
+    [InlineData("zh")]
+    [InlineData("tr")]
+    public void NonEnglishLanguages_TitleDiffersFromEnglish(string lang)
+    {
+        var english = I18nService.GetTranslations("en");
+        var translations = I18nService.GetTranslations(lang);
+
+        Assert.NotEqual(english["title"], translations["title"]);
+    }
+
+    // ===== Keys that are expected to be the same across languages (technical terms) =====
+
+    [Theory]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("es")]
+    [InlineData("pt")]
+    [InlineData("zh")]
+    [InlineData("tr")]
+    public void AllLanguages_TechnicalKeysAreUnchanged(string lang)
+    {
+        var translations = I18nService.GetTranslations(lang);
+
+        // These are technical terms that should not be translated
+        Assert.Equal("JSON", translations["exportJson"]);
+        Assert.Equal("CSV", translations["exportCsv"]);
+        Assert.Equal("URL", translations["url"]);
+    }
+
+    // ===== EnglishHasAllExpectedKeys should include new keys =====
+
+    [Fact]
+    public void GetTranslations_EnglishHasNewSingularAndLoadErrorKeys()
+    {
+        var translations = I18nService.GetTranslations("en");
+
+        var newKeys = new[]
+        {
+            "settingsLoadError",
+            "minuteAgo", "hourAgo", "dayAgo",
+        };
+
+        foreach (var key in newKeys)
+        {
+            Assert.True(translations.ContainsKey(key), $"English translations missing new key: '{key}'");
+            Assert.False(string.IsNullOrWhiteSpace(translations[key]), $"English translation for '{key}' is empty");
+        }
+    }
+
+    // ===== settingsError and settingsLoadError should have different values =====
+
+    [Theory]
+    [InlineData("en")]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("es")]
+    [InlineData("pt")]
+    [InlineData("zh")]
+    [InlineData("tr")]
+    public void AllLanguages_SettingsErrorAndLoadErrorAreDifferent(string lang)
+    {
+        var translations = I18nService.GetTranslations(lang);
+
+        Assert.True(translations.ContainsKey("settingsError"), $"'{lang}' missing settingsError");
+        Assert.True(translations.ContainsKey("settingsLoadError"), $"'{lang}' missing settingsLoadError");
+        Assert.NotEqual(translations["settingsError"], translations["settingsLoadError"]);
+    }
+
+    // ===== Key count consistency — all languages have same count =====
+
+    [Theory]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("es")]
+    [InlineData("pt")]
+    [InlineData("zh")]
+    [InlineData("tr")]
+    public void AllLanguages_HaveSameKeyCountAsEnglish(string lang)
+    {
+        var english = I18nService.GetTranslations("en");
+        var translations = I18nService.GetTranslations(lang);
+
+        Assert.Equal(english.Count, translations.Count);
     }
 }

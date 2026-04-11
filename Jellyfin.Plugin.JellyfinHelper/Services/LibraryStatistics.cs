@@ -1,11 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
 
 /// <summary>
 /// Statistics for a single library.
 /// </summary>
+[JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
 public class LibraryStatistics
 {
     /// <summary>
@@ -111,9 +114,16 @@ public class LibraryStatistics
     public Dictionary<string, int> VideoCodecs { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the audio codec breakdown (codec → count), e.g. "AAC" → 40, "FLAC" → 30.
+    /// Gets the audio codec breakdown for video files (codec → count), e.g. "DTS" → 40, "AAC" → 30.
+    /// Parsed from video filenames.
     /// </summary>
-    public Dictionary<string, int> AudioCodecs { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, int> VideoAudioCodecs { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the audio codec breakdown for music files (codec → count), e.g. "FLAC" → 100, "MP3" → 50.
+    /// Parsed from filename tags with extension-based fallback.
+    /// </summary>
+    public Dictionary<string, int> MusicAudioCodecs { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Gets the container format size breakdown (extension → total bytes).
@@ -131,9 +141,41 @@ public class LibraryStatistics
     public Dictionary<string, long> VideoCodecSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the audio codec size breakdown (codec → total bytes).
+    /// Gets the audio codec size breakdown for video files (codec → total bytes).
     /// </summary>
-    public Dictionary<string, long> AudioCodecSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, long> VideoAudioCodecSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the audio codec size breakdown for music files (codec → total bytes).
+    /// </summary>
+    public Dictionary<string, long> MusicAudioCodecSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    // === Codec File Path Tracking ===
+
+    /// <summary>
+    /// Gets the video codec file paths (codec → list of file paths).
+    /// </summary>
+    public Dictionary<string, Collection<string>> VideoCodecPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the video audio codec file paths (codec → list of file paths).
+    /// </summary>
+    public Dictionary<string, Collection<string>> VideoAudioCodecPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the music audio codec file paths (codec → list of file paths).
+    /// </summary>
+    public Dictionary<string, Collection<string>> MusicAudioCodecPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the container format file paths (format → list of file paths).
+    /// </summary>
+    public Dictionary<string, Collection<string>> ContainerFormatPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the resolution file paths (resolution → list of file paths).
+    /// </summary>
+    public Dictionary<string, Collection<string>> ResolutionPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     // === Health Check Counters ===
 
@@ -156,4 +198,26 @@ public class LibraryStatistics
     /// Gets or sets the number of directories with only metadata but no video (orphaned metadata).
     /// </summary>
     public int OrphanedMetadataDirectories { get; set; }
+
+    // === Health Check Detail Paths ===
+
+    /// <summary>
+    /// Gets the list of video file paths that have no subtitle file in the same directory.
+    /// </summary>
+    public Collection<string> VideosWithoutSubtitlesPaths { get; } = new();
+
+    /// <summary>
+    /// Gets the list of video file paths that have no image/poster in the same directory.
+    /// </summary>
+    public Collection<string> VideosWithoutImagesPaths { get; } = new();
+
+    /// <summary>
+    /// Gets the list of video file paths that have no NFO metadata in the same directory.
+    /// </summary>
+    public Collection<string> VideosWithoutNfoPaths { get; } = new();
+
+    /// <summary>
+    /// Gets the list of directory paths that contain only metadata but no video (orphaned metadata).
+    /// </summary>
+    public Collection<string> OrphanedMetadataDirectoriesPaths { get; } = new();
 }

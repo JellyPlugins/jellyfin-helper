@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -198,6 +199,109 @@ public static class TrashService
         }
 
         return (totalSize, itemCount);
+    }
+
+    /// <summary>
+    /// Gets detailed contents of the trash folder, including item name, size, trashed date, and purge date.
+    /// </summary>
+    /// <param name="trashBasePath">The base path of the trash folder.</param>
+    /// <param name="retentionDays">The configured retention days to calculate purge dates.</param>
+    /// <returns>A list of trash item details.</returns>
+    public static IReadOnlyList<TrashItemInfo> GetTrashContents(string trashBasePath, int retentionDays)
+    {
+        var items = new List<TrashItemInfo>();
+
+        if (!Directory.Exists(trashBasePath))
+        {
+            return items;
+        }
+
+        try
+        {
+            // Directories
+            foreach (var dir in Directory.GetDirectories(trashBasePath))
+            {
+                var dirName = Path.GetFileName(dir);
+                var originalName = ExtractOriginalName(dirName);
+                long size = CalculateDirectorySize(dir);
+
+                DateTime? trashedAt = null;
+                DateTime? purgesAt = null;
+                if (TryParseTrashTimestamp(dirName, out var timestamp))
+                {
+                    trashedAt = timestamp;
+                    purgesAt = timestamp.AddDays(retentionDays);
+                }
+
+                items.Add(new TrashItemInfo
+                {
+                    Name = originalName,
+                    FullName = dirName,
+                    Size = size,
+                    IsDirectory = true,
+                    TrashedAt = trashedAt,
+                    PurgesAt = purgesAt,
+                });
+            }
+
+            // Files
+            foreach (var file in Directory.GetFiles(trashBasePath))
+            {
+                var fileName = Path.GetFileName(file);
+                var originalName = ExtractOriginalName(fileName);
+                long size = new FileInfo(file).Length;
+
+                DateTime? trashedAt = null;
+                DateTime? purgesAt = null;
+                if (TryParseTrashTimestamp(fileName, out var timestamp))
+                {
+                    trashedAt = timestamp;
+                    purgesAt = timestamp.AddDays(retentionDays);
+                }
+
+                items.Add(new TrashItemInfo
+                {
+                    Name = originalName,
+                    FullName = fileName,
+                    Size = size,
+                    IsDirectory = false,
+                    TrashedAt = trashedAt,
+                    PurgesAt = purgesAt,
+                });
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Access errors are expected for inaccessible trash directories
+        }
+
+        // Sort by trashed date descending (newest first)
+        items.Sort((a, b) => (b.TrashedAt ?? DateTime.MinValue).CompareTo(a.TrashedAt ?? DateTime.MinValue));
+
+        return items;
+    }
+
+    /// <summary>
+    /// Extracts the original name from a timestamped trash item name.
+    /// Format: "yyyyMMdd-HHmmss_originalname" → "originalname".
+    /// </summary>
+    /// <param name="trashItemName">The full trash item name including timestamp prefix.</param>
+    /// <returns>The original name, or the full name if no timestamp prefix was found.</returns>
+    internal static string ExtractOriginalName(string trashItemName)
+    {
+        if (string.IsNullOrEmpty(trashItemName) || trashItemName.Length <= TimestampFormat.Length + 1)
+        {
+            return trashItemName;
+        }
+
+        // Check if it matches the expected pattern: "yyyyMMdd-HHmmss_..."
+        if (trashItemName[TimestampFormat.Length] == '_' &&
+            TryParseTrashTimestamp(trashItemName, out _))
+        {
+            return trashItemName[(TimestampFormat.Length + 1)..];
+        }
+
+        return trashItemName;
     }
 
     /// <summary>

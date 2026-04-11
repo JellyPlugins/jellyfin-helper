@@ -4,3 +4,9 @@ obj/
 .idea/
 artifacts
 *.zip
+*.bat
+*.sh
+*.ps1
+publish_output/
+# Generated at build time from template + CSS + JS
+Jellyfin.Plugin.JellyfinHelper/PluginPages/configPage.html

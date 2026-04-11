@@ -2,12 +2,14 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
 
 /// <summary>
 /// The result of a media statistics scan.
 /// </summary>
+[JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
 public class MediaStatisticsResult
 {
     /// <summary>
@@ -105,9 +107,14 @@ public class MediaStatisticsResult
     public Dictionary<string, int> TotalVideoCodecs => AggregateDictionaries(Libraries.Select(l => l.VideoCodecs));
 
     /// <summary>
-    /// Gets the aggregated audio codec breakdown across all libraries.
+    /// Gets the aggregated video audio codec breakdown across all libraries.
     /// </summary>
-    public Dictionary<string, int> TotalAudioCodecs => AggregateDictionaries(Libraries.Select(l => l.AudioCodecs));
+    public Dictionary<string, int> TotalVideoAudioCodecs => AggregateDictionaries(Libraries.Select(l => l.VideoAudioCodecs));
+
+    /// <summary>
+    /// Gets the aggregated music audio codec breakdown across all libraries.
+    /// </summary>
+    public Dictionary<string, int> TotalMusicAudioCodecs => AggregateDictionaries(Music.Select(l => l.MusicAudioCodecs));
 
     /// <summary>
     /// Gets the aggregated container sizes across all libraries.
@@ -125,9 +132,14 @@ public class MediaStatisticsResult
     public Dictionary<string, long> TotalVideoCodecSizes => AggregateLongDictionaries(Libraries.Select(l => l.VideoCodecSizes));
 
     /// <summary>
-    /// Gets the aggregated audio codec sizes across all libraries.
+    /// Gets the aggregated video audio codec sizes across all libraries.
     /// </summary>
-    public Dictionary<string, long> TotalAudioCodecSizes => AggregateLongDictionaries(Libraries.Select(l => l.AudioCodecSizes));
+    public Dictionary<string, long> TotalVideoAudioCodecSizes => AggregateLongDictionaries(Libraries.Select(l => l.VideoAudioCodecSizes));
+
+    /// <summary>
+    /// Gets the aggregated music audio codec sizes across all libraries.
+    /// </summary>
+    public Dictionary<string, long> TotalMusicAudioCodecSizes => AggregateLongDictionaries(Music.Select(l => l.MusicAudioCodecSizes));
 
     // === Aggregated Health Checks ===
 
@@ -150,6 +162,32 @@ public class MediaStatisticsResult
     /// Gets the total number of orphaned metadata directories.
     /// </summary>
     public int TotalOrphanedMetadataDirectories => Libraries.Sum(l => l.OrphanedMetadataDirectories);
+
+    // === Aggregated Health Check Detail Paths ===
+
+    /// <summary>
+    /// Gets the aggregated list of video file paths that have no subtitle file in the same directory.
+    /// </summary>
+    public Collection<string> TotalVideosWithoutSubtitlesPaths =>
+        new(Libraries.SelectMany(l => l.VideosWithoutSubtitlesPaths).ToList());
+
+    /// <summary>
+    /// Gets the aggregated list of video file paths that have no image/poster in the same directory.
+    /// </summary>
+    public Collection<string> TotalVideosWithoutImagesPaths =>
+        new(Libraries.SelectMany(l => l.VideosWithoutImagesPaths).ToList());
+
+    /// <summary>
+    /// Gets the aggregated list of video file paths that have no NFO metadata in the same directory.
+    /// </summary>
+    public Collection<string> TotalVideosWithoutNfoPaths =>
+        new(Libraries.SelectMany(l => l.VideosWithoutNfoPaths).ToList());
+
+    /// <summary>
+    /// Gets the aggregated list of directory paths that contain only metadata but no video.
+    /// </summary>
+    public Collection<string> TotalOrphanedMetadataDirectoriesPaths =>
+        new(Libraries.SelectMany(l => l.OrphanedMetadataDirectoriesPaths).ToList());
 
     private static Dictionary<string, int> AggregateDictionaries(IEnumerable<Dictionary<string, int>> dictionaries)
     {
