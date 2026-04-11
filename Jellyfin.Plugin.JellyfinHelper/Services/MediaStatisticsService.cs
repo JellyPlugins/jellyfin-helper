@@ -191,8 +191,18 @@ public partial class MediaStatisticsService
             // Recurse into subdirectories
             var subDirs = _fileSystem.GetDirectories(directoryPath);
             bool subDirHasVideo = false;
+
+            var config = CleanupConfigHelper.GetConfig();
+            var trashFolderName = config.TrashFolderPath;
+            bool isTrashRelative = !Path.IsPathRooted(trashFolderName);
+
             foreach (var subDir in subDirs)
             {
+                if (isTrashRelative && string.Equals(subDir.Name, trashFolderName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 if (subDir.Name.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
                 {
                     var trickplaySize = FileSystemHelper.CalculateDirectorySize(_fileSystem, subDir.FullName, _logger);
