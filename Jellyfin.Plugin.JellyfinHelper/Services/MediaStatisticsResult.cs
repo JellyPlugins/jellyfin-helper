@@ -163,6 +163,32 @@ public class MediaStatisticsResult
     /// </summary>
     public int TotalOrphanedMetadataDirectories => Libraries.Sum(l => l.OrphanedMetadataDirectories);
 
+    // === Aggregated Health Check Detail Paths ===
+
+    /// <summary>
+    /// Gets the aggregated list of video file paths that have no subtitle file in the same directory.
+    /// </summary>
+    public Collection<string> TotalVideosWithoutSubtitlesPaths =>
+        new(Libraries.SelectMany(l => l.VideosWithoutSubtitlesPaths).ToList());
+
+    /// <summary>
+    /// Gets the aggregated list of video file paths that have no image/poster in the same directory.
+    /// </summary>
+    public Collection<string> TotalVideosWithoutImagesPaths =>
+        new(Libraries.SelectMany(l => l.VideosWithoutImagesPaths).ToList());
+
+    /// <summary>
+    /// Gets the aggregated list of video file paths that have no NFO metadata in the same directory.
+    /// </summary>
+    public Collection<string> TotalVideosWithoutNfoPaths =>
+        new(Libraries.SelectMany(l => l.VideosWithoutNfoPaths).ToList());
+
+    /// <summary>
+    /// Gets the aggregated list of directory paths that contain only metadata but no video.
+    /// </summary>
+    public Collection<string> TotalOrphanedMetadataDirectoriesPaths =>
+        new(Libraries.SelectMany(l => l.OrphanedMetadataDirectoriesPaths).ToList());
+
     private static Dictionary<string, int> AggregateDictionaries(IEnumerable<Dictionary<string, int>> dictionaries)
     {
         var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);

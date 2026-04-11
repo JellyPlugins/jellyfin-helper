@@ -59,10 +59,14 @@ public partial class MediaStatisticsService
                 CollectionType = collectionType?.ToString() ?? "mixed"
             };
 
+            // Health checks only apply to video libraries (Movies, TV Shows).
+            // Music and boxset/collection libraries are excluded.
+            var skipHealth = isBoxsets || isMusic;
+
             foreach (var location in vf.Locations)
             {
                 _logger.LogDebug("Scanning library location: {Location} (type: {Type})", location, collectionType);
-                AnalyzeDirectoryRecursive(location, libraryStats, skipHealthChecks: isBoxsets);
+                AnalyzeDirectoryRecursive(location, libraryStats, skipHealthChecks: skipHealth);
             }
 
             result.Libraries.Add(libraryStats);
@@ -183,25 +187,42 @@ public partial class MediaStatisticsService
             {
                 if (hasVideo)
                 {
-                    int videoCount = files.Count(f => MediaExtensions.VideoExtensions.Contains(Path.GetExtension(f.FullName)));
+                    var videoFiles = files
+                        .Where(f => MediaExtensions.VideoExtensions.Contains(Path.GetExtension(f.FullName)))
+                        .ToList();
+                    int videoCount = videoFiles.Count;
+
                     if (!hasSubs)
                     {
                         stats.VideosWithoutSubtitles += videoCount;
+                        foreach (var vf2 in videoFiles)
+                        {
+                            stats.VideosWithoutSubtitlesPaths.Add(vf2.FullName);
+                        }
                     }
 
                     if (!hasImage)
                     {
                         stats.VideosWithoutImages += videoCount;
+                        foreach (var vf2 in videoFiles)
+                        {
+                            stats.VideosWithoutImagesPaths.Add(vf2.FullName);
+                        }
                     }
 
                     if (!hasNfo)
                     {
                         stats.VideosWithoutNfo += videoCount;
+                        foreach (var vf2 in videoFiles)
+                        {
+                            stats.VideosWithoutNfoPaths.Add(vf2.FullName);
+                        }
                     }
                 }
                 else if (hasAnyNonTrickplayFile && (hasSubs || hasImage || hasNfo))
                 {
                     stats.OrphanedMetadataDirectories++;
+                    stats.OrphanedMetadataDirectoriesPaths.Add(directoryPath);
                 }
             }
 

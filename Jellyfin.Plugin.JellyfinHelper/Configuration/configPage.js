@@ -192,7 +192,36 @@
         return result;
     }
 
+    function collectHealthPaths(data, prop) {
+        var paths = [];
+        for (var i = 0; i < data.Libraries.length; i++) {
+            var libPaths = data.Libraries[i][prop];
+            if (libPaths) {
+                for (var j = 0; j < libPaths.length; j++) {
+                    paths.push(libPaths[j]);
+                }
+            }
+        }
+        return paths;
+    }
+
+    function renderHealthDetailList(paths) {
+        if (!paths || paths.length === 0) {
+            return '<div class="health-detail-list"><p style="opacity:0.5;padding:0.5em;">' + T('noEntries', 'No entries found.') + '</p></div>';
+        }
+        var html = '<div class="health-detail-list"><div class="health-detail-header">' + paths.length + ' ' + (paths.length === 1 ? T('entry', 'entry') : T('entries', 'entries')) + '</div><ul>';
+        for (var i = 0; i < paths.length; i++) {
+            html += '<li>' + escHtml(paths[i]) + '</li>';
+        }
+        html += '</ul></div>';
+        return html;
+    }
+
+    // Store last scan data for health detail clicks
+    var _lastScanData = null;
+
     function renderHealthChecks(data) {
+        _lastScanData = data;
         var totalNoSubs = 0, totalNoImages = 0, totalNoNfo = 0, totalOrphaned = 0;
         for (var i = 0; i < data.Libraries.length; i++) {
             totalNoSubs += data.Libraries[i].VideosWithoutSubtitles || 0;
@@ -203,20 +232,71 @@
 
         var html = '<div class="health-grid">';
 
-        html += '<div class="health-item"><div class="health-value ' + (totalNoSubs > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoSubs + '</div>';
+        html += '<div class="health-item health-clickable" data-health-type="noSubs"><div class="health-value ' + (totalNoSubs > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoSubs + '</div>';
         html += '<div class="health-label">' + T('noSubtitles', 'Videos without subtitles') + '</div></div>';
 
-        html += '<div class="health-item"><div class="health-value ' + (totalNoImages > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoImages + '</div>';
+        html += '<div class="health-item health-clickable" data-health-type="noImages"><div class="health-value ' + (totalNoImages > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoImages + '</div>';
         html += '<div class="health-label">' + T('noImages', 'Videos without images') + '</div></div>';
 
-        html += '<div class="health-item"><div class="health-value ' + (totalNoNfo > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoNfo + '</div>';
+        html += '<div class="health-item health-clickable" data-health-type="noNfo"><div class="health-value ' + (totalNoNfo > 0 ? 'health-warn' : 'health-ok') + '">' + totalNoNfo + '</div>';
         html += '<div class="health-label">' + T('noNfo', 'Videos without NFO') + '</div></div>';
 
-        html += '<div class="health-item"><div class="health-value ' + (totalOrphaned > 0 ? 'health-bad' : 'health-ok') + '">' + totalOrphaned + '</div>';
+        html += '<div class="health-item health-clickable" data-health-type="orphaned"><div class="health-value ' + (totalOrphaned > 0 ? 'health-bad' : 'health-ok') + '">' + totalOrphaned + '</div>';
         html += '<div class="health-label">' + T('orphanedDirs', 'Orphaned metadata dirs') + '</div></div>';
 
         html += '</div>';
+        html += '<div id="healthDetailContainer"></div>';
         return html;
+    }
+
+    function attachHealthClickHandlers() {
+        var items = document.querySelectorAll('.health-clickable');
+        for (var i = 0; i < items.length; i++) {
+            items[i].addEventListener('click', function () {
+                var type = this.getAttribute('data-health-type');
+                var container = document.getElementById('healthDetailContainer');
+                if (!container || !_lastScanData) return;
+
+                // Toggle: if same type is already shown, hide it
+                if (container.getAttribute('data-active-type') === type) {
+                    container.innerHTML = '';
+                    container.removeAttribute('data-active-type');
+                    // Remove active state from all items
+                    var toggleItems = document.querySelectorAll('.health-clickable');
+                    for (var j = 0; j < toggleItems.length; j++) toggleItems[j].classList.remove('health-active');
+                    return;
+                }
+
+                var pathProp;
+                var title;
+                if (type === 'noSubs') {
+                    pathProp = 'VideosWithoutSubtitlesPaths';
+                    title = T('noSubtitles', 'Videos without subtitles');
+                } else if (type === 'noImages') {
+                    pathProp = 'VideosWithoutImagesPaths';
+                    title = T('noImages', 'Videos without images');
+                } else if (type === 'noNfo') {
+                    pathProp = 'VideosWithoutNfoPaths';
+                    title = T('noNfo', 'Videos without NFO');
+                } else if (type === 'orphaned') {
+                    pathProp = 'OrphanedMetadataDirectoriesPaths';
+                    title = T('orphanedDirs', 'Orphaned metadata dirs');
+                }
+
+                var paths = collectHealthPaths(_lastScanData, pathProp);
+
+                var html = '<div class="section-title" style="margin-top:1.5em;">' + escHtml(title) + '</div>';
+                html += renderHealthDetailList(paths);
+                container.innerHTML = html;
+                container.setAttribute('data-active-type', type);
+
+                // Update active state styling
+                var allItems = document.querySelectorAll('.health-clickable');
+                for (var k = 0; k < allItems.length; k++) {
+                    allItems[k].classList.toggle('health-active', allItems[k].getAttribute('data-health-type') === type);
+                }
+            });
+        }
     }
 
     function renderTrendChart(snapshots) {
@@ -1010,7 +1090,10 @@
         healthHtml += renderHealthChecks(data);
 
         var healthContainer = document.getElementById('healthContent');
-        if (healthContainer) healthContainer.innerHTML = healthHtml;
+        if (healthContainer) {
+            healthContainer.innerHTML = healthHtml;
+            attachHealthClickHandlers();
+        }
 
         // Load cleanup stats into overview
         loadCleanupStats();

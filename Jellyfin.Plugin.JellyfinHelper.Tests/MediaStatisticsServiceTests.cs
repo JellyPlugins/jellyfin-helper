@@ -893,6 +893,12 @@ public class MediaStatisticsServiceTests
         Assert.Equal(1, stats.VideosWithoutSubtitles);
         Assert.Equal(0, stats.VideosWithoutImages);
         Assert.Equal(0, stats.VideosWithoutNfo);
+
+        // Verify paths are populated
+        Assert.Single(stats.VideosWithoutSubtitlesPaths);
+        Assert.Contains(TestPath("media", "movies", "Film.mkv"), stats.VideosWithoutSubtitlesPaths);
+        Assert.Empty(stats.VideosWithoutImagesPaths);
+        Assert.Empty(stats.VideosWithoutNfoPaths);
     }
 
     [Fact]
@@ -926,6 +932,12 @@ public class MediaStatisticsServiceTests
         Assert.Equal(0, stats.VideosWithoutImages);
         Assert.Equal(0, stats.VideosWithoutNfo);
         Assert.Equal(0, stats.OrphanedMetadataDirectories);
+
+        // Verify path lists are empty when no health issues
+        Assert.Empty(stats.VideosWithoutSubtitlesPaths);
+        Assert.Empty(stats.VideosWithoutImagesPaths);
+        Assert.Empty(stats.VideosWithoutNfoPaths);
+        Assert.Empty(stats.OrphanedMetadataDirectoriesPaths);
     }
 
     [Fact]
@@ -955,6 +967,221 @@ public class MediaStatisticsServiceTests
         var stats = result.Libraries[0];
 
         Assert.Equal(1, stats.OrphanedMetadataDirectories);
+
+        // Verify orphaned metadata path is recorded
+        Assert.Single(stats.OrphanedMetadataDirectoriesPaths);
+        Assert.Contains(libraryPath, stats.OrphanedMetadataDirectoriesPaths);
+    }
+
+    [Fact]
+    public void CalculateStatistics_HealthCheckPaths_MultipleVideosWithoutSubtitles_AllPathsRecorded()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var subDirPath = TestPath("media", "movies", "SubFolder");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        // Root: video without subtitles but with image and nfo
+        var rootFiles = new[]
+        {
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "Film1.mkv"), Name = "Film1.mkv", Length = 1_000_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "poster.jpg"), Name = "poster.jpg", Length = 100_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "Film1.nfo"), Name = "Film1.nfo", Length = 5_000, IsDirectory = false },
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(rootFiles);
+
+        var subDir = new FileSystemMetadata { FullName = subDirPath, Name = "SubFolder", IsDirectory = true };
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([subDir]);
+
+        // SubFolder: video without subtitles and without images
+        var subFiles = new[]
+        {
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "SubFolder", "Film2.mkv"), Name = "Film2.mkv", Length = 2_000_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "SubFolder", "Film2.nfo"), Name = "Film2.nfo", Length = 3_000, IsDirectory = false },
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(subDirPath, false)).Returns(subFiles);
+        _fileSystemMock.Setup(f => f.GetDirectories(subDirPath, false)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        // Both videos lack subtitles
+        Assert.Equal(2, stats.VideosWithoutSubtitles);
+        Assert.Equal(2, stats.VideosWithoutSubtitlesPaths.Count);
+        Assert.Contains(TestPath("media", "movies", "Film1.mkv"), stats.VideosWithoutSubtitlesPaths);
+        Assert.Contains(TestPath("media", "movies", "SubFolder", "Film2.mkv"), stats.VideosWithoutSubtitlesPaths);
+
+        // Only SubFolder video lacks images
+        Assert.Equal(1, stats.VideosWithoutImages);
+        Assert.Single(stats.VideosWithoutImagesPaths);
+        Assert.Contains(TestPath("media", "movies", "SubFolder", "Film2.mkv"), stats.VideosWithoutImagesPaths);
+
+        // Both have NFO
+        Assert.Equal(0, stats.VideosWithoutNfo);
+        Assert.Empty(stats.VideosWithoutNfoPaths);
+    }
+
+    [Fact]
+    public void CalculateStatistics_HealthCheckPaths_VideoWithoutNfo_PathRecorded()
+    {
+        var libraryPath = TestPath("media", "movies");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var files = new[]
+        {
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.mkv"), Name = "Film.mkv", Length = 1_000_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.srt"), Name = "Film.srt", Length = 50_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "poster.jpg"), Name = "poster.jpg", Length = 100_000, IsDirectory = false },
+            // no .nfo file
+        };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Equal(1, stats.VideosWithoutNfo);
+        Assert.Single(stats.VideosWithoutNfoPaths);
+        Assert.Contains(TestPath("media", "movies", "Film.mkv"), stats.VideosWithoutNfoPaths);
+        Assert.Equal(0, stats.VideosWithoutSubtitles);
+        Assert.Empty(stats.VideosWithoutSubtitlesPaths);
+    }
+
+    [Fact]
+    public void CalculateStatistics_HealthCheckPaths_VideoWithoutImages_PathRecorded()
+    {
+        var libraryPath = TestPath("media", "movies");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var files = new[]
+        {
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.mkv"), Name = "Film.mkv", Length = 1_000_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.srt"), Name = "Film.srt", Length = 50_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.nfo"), Name = "Film.nfo", Length = 5_000, IsDirectory = false },
+            // no image file
+        };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Equal(1, stats.VideosWithoutImages);
+        Assert.Single(stats.VideosWithoutImagesPaths);
+        Assert.Contains(TestPath("media", "movies", "Film.mkv"), stats.VideosWithoutImagesPaths);
+    }
+
+    [Fact]
+    public void CalculateStatistics_HealthCheckPaths_BoxsetLibrary_NoPathsRecorded()
+    {
+        var boxsetPath = TestPath("config", "data", "collections");
+
+        var boxsetFolder = new VirtualFolderInfo
+        {
+            Name = "Collections",
+            CollectionType = CollectionTypeOptions.boxsets,
+            Locations = [boxsetPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([boxsetFolder]);
+
+        var posterFile = new FileSystemMetadata
+        {
+            FullName = TestPath("config", "data", "collections", "poster.jpg"),
+            Name = "poster.jpg",
+            Length = 200_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(boxsetPath, false)).Returns([posterFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(boxsetPath, false)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        // Boxsets skip health checks, so all path lists should be empty
+        Assert.Empty(stats.VideosWithoutSubtitlesPaths);
+        Assert.Empty(stats.VideosWithoutImagesPaths);
+        Assert.Empty(stats.VideosWithoutNfoPaths);
+        Assert.Empty(stats.OrphanedMetadataDirectoriesPaths);
+    }
+
+    [Fact]
+    public void CalculateStatistics_HealthCheckPaths_MultipleLibraries_PathsSeparatePerLibrary()
+    {
+        var moviePath = TestPath("media", "movies");
+        var tvPath = TestPath("media", "tv");
+
+        var movieFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [moviePath]
+        };
+        var tvFolder = new VirtualFolderInfo
+        {
+            Name = "TV Shows",
+            CollectionType = CollectionTypeOptions.tvshows,
+            Locations = [tvPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([movieFolder, tvFolder]);
+
+        // Movies: video without subtitles
+        var movieFiles = new[]
+        {
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.mkv"), Name = "Film.mkv", Length = 1_000_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "poster.jpg"), Name = "poster.jpg", Length = 100_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("media", "movies", "Film.nfo"), Name = "Film.nfo", Length = 5_000, IsDirectory = false },
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(moviePath, false)).Returns(movieFiles);
+        _fileSystemMock.Setup(f => f.GetDirectories(moviePath, false)).Returns([]);
+
+        // TV: video with all metadata
+        var tvFiles = new[]
+        {
+            new FileSystemMetadata { FullName = TestPath("media", "tv", "Episode.mkv"), Name = "Episode.mkv", Length = 500_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("media", "tv", "Episode.srt"), Name = "Episode.srt", Length = 30_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("media", "tv", "poster.jpg"), Name = "poster.jpg", Length = 50_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = TestPath("media", "tv", "Episode.nfo"), Name = "Episode.nfo", Length = 3_000, IsDirectory = false },
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(tvPath, false)).Returns(tvFiles);
+        _fileSystemMock.Setup(f => f.GetDirectories(tvPath, false)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+
+        var movieStats = result.Libraries.First(l => l.LibraryName == "Movies");
+        var tvStats = result.Libraries.First(l => l.LibraryName == "TV Shows");
+
+        // Movie library: missing subtitles, path recorded
+        Assert.Equal(1, movieStats.VideosWithoutSubtitles);
+        Assert.Single(movieStats.VideosWithoutSubtitlesPaths);
+        Assert.Contains(TestPath("media", "movies", "Film.mkv"), movieStats.VideosWithoutSubtitlesPaths);
+
+        // TV library: all good, no paths
+        Assert.Equal(0, tvStats.VideosWithoutSubtitles);
+        Assert.Empty(tvStats.VideosWithoutSubtitlesPaths);
+        Assert.Empty(tvStats.VideosWithoutImagesPaths);
+        Assert.Empty(tvStats.VideosWithoutNfoPaths);
     }
 
     // ===== Audio Codec Tracking from Video Filenames =====
@@ -1016,6 +1243,7 @@ public class MediaStatisticsServiceTests
         var stats = result.Libraries[0];
 
         Assert.Empty(stats.VideoAudioCodecs);
+        Assert.Empty(stats.VideoAudioCodecSizes);
     }
 
     [Fact]
@@ -1321,6 +1549,85 @@ public class MediaStatisticsServiceTests
         Assert.Equal(0, boxsetStats.VideosWithoutImages);
         Assert.Equal(0, boxsetStats.VideosWithoutNfo);
         Assert.Equal(0, boxsetStats.OrphanedMetadataDirectories); // would be 1 without skipHealthChecks
+
+        // Movie library: health checks still work normally
+        var movieStats = result.Libraries.First(l => l.LibraryName == "Movies");
+        Assert.Equal(1, movieStats.VideosWithoutSubtitles);
+        Assert.Equal(1, movieStats.VideosWithoutImages);
+        Assert.Equal(1, movieStats.VideosWithoutNfo);
+    }
+
+    [Fact]
+    public void CalculateStatistics_MusicLibrary_HealthChecksSkipped()
+    {
+        var musicPath = TestPath("media", "music");
+
+        var musicFolder = new VirtualFolderInfo
+        {
+            Name = "Music",
+            CollectionType = CollectionTypeOptions.music,
+            Locations = [musicPath]
+        };
+
+        var moviePath = TestPath("media", "movies");
+        var movieFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [moviePath]
+        };
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([musicFolder, movieFolder]);
+
+        // Music folder contains only an image (cover art) and NFO — would normally trigger orphaned metadata
+        var coverFile = new FileSystemMetadata
+        {
+            FullName = TestPath("media", "music", "cover.jpg"),
+            Name = "cover.jpg",
+            Length = 150_000,
+            IsDirectory = false
+        };
+        var nfoFile = new FileSystemMetadata
+        {
+            FullName = TestPath("media", "music", "artist.nfo"),
+            Name = "artist.nfo",
+            Length = 5_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(musicPath, false)).Returns([coverFile, nfoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(musicPath, false)).Returns([]);
+
+        // Movie folder has a video without subtitles — should trigger health check warning
+        var mkvFile = new FileSystemMetadata
+        {
+            FullName = TestPath("media", "movies", "Film.mkv"),
+            Name = "Film.mkv",
+            Length = 1_000_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(moviePath, false)).Returns([mkvFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(moviePath, false)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+
+        // Both libraries should be present
+        Assert.Equal(2, result.Libraries.Count);
+        Assert.Single(result.Music);
+        Assert.Single(result.Movies);
+
+        // Music library: files are scanned but no health check flags
+        var musicStats = result.Libraries.First(l => l.LibraryName == "Music");
+        Assert.Equal(1, musicStats.ImageFileCount);
+        Assert.Equal(150_000, musicStats.ImageSize);
+        Assert.Equal(1, musicStats.NfoFileCount);
+        Assert.Equal(0, musicStats.VideosWithoutSubtitles);
+        Assert.Equal(0, musicStats.VideosWithoutImages);
+        Assert.Equal(0, musicStats.VideosWithoutNfo);
+        Assert.Equal(0, musicStats.OrphanedMetadataDirectories); // would be 1 without skipHealthChecks
+        Assert.Empty(musicStats.VideosWithoutSubtitlesPaths);
+        Assert.Empty(musicStats.VideosWithoutImagesPaths);
+        Assert.Empty(musicStats.VideosWithoutNfoPaths);
+        Assert.Empty(musicStats.OrphanedMetadataDirectoriesPaths);
 
         // Movie library: health checks still work normally
         var movieStats = result.Libraries.First(l => l.LibraryName == "Movies");

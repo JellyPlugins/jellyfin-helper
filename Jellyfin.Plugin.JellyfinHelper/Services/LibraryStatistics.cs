@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
@@ -170,4 +171,26 @@ public class LibraryStatistics
     /// Gets or sets the number of directories with only metadata but no video (orphaned metadata).
     /// </summary>
     public int OrphanedMetadataDirectories { get; set; }
+
+    // === Health Check Detail Paths ===
+
+    /// <summary>
+    /// Gets the list of video file paths that have no subtitle file in the same directory.
+    /// </summary>
+    public Collection<string> VideosWithoutSubtitlesPaths { get; } = new();
+
+    /// <summary>
+    /// Gets the list of video file paths that have no image/poster in the same directory.
+    /// </summary>
+    public Collection<string> VideosWithoutImagesPaths { get; } = new();
+
+    /// <summary>
+    /// Gets the list of video file paths that have no NFO metadata in the same directory.
+    /// </summary>
+    public Collection<string> VideosWithoutNfoPaths { get; } = new();
+
+    /// <summary>
+    /// Gets the list of directory paths that contain only metadata but no video (orphaned metadata).
+    /// </summary>
+    public Collection<string> OrphanedMetadataDirectoriesPaths { get; } = new();
 }

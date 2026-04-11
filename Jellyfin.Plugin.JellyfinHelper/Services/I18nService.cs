@@ -206,6 +206,9 @@ public static class I18nService
         ["apiKey"] = "API Key",
         ["andMore"] = "and",
         ["more"] = "more",
+        ["entry"] = "entry",
+        ["entries"] = "entries",
+        ["noEntries"] = "No entries found.",
     };
 
     private static Dictionary<string, string> German() => new(StringComparer.Ordinal)
@@ -350,6 +353,9 @@ public static class I18nService
         ["apiKey"] = "API-Schlüssel",
         ["andMore"] = "und",
         ["more"] = "weitere",
+        ["entry"] = "Eintrag",
+        ["entries"] = "Einträge",
+        ["noEntries"] = "Keine Einträge gefunden.",
     };
 
     private static Dictionary<string, string> French() => new(StringComparer.Ordinal)
@@ -494,6 +500,9 @@ public static class I18nService
         ["apiKey"] = "Clé API",
         ["andMore"] = "et",
         ["more"] = "de plus",
+        ["entry"] = "entrée",
+        ["entries"] = "entrées",
+        ["noEntries"] = "Aucune entrée trouvée.",
     };
 
     private static Dictionary<string, string> Spanish() => new(StringComparer.Ordinal)
@@ -638,6 +647,9 @@ public static class I18nService
         ["apiKey"] = "Clave API",
         ["andMore"] = "y",
         ["more"] = "más",
+        ["entry"] = "entrada",
+        ["entries"] = "entradas",
+        ["noEntries"] = "No se encontraron entradas.",
     };
 
     private static Dictionary<string, string> Portuguese() => new(StringComparer.Ordinal)
@@ -782,6 +794,9 @@ public static class I18nService
         ["apiKey"] = "Chave API",
         ["andMore"] = "e",
         ["more"] = "mais",
+        ["entry"] = "entrada",
+        ["entries"] = "entradas",
+        ["noEntries"] = "Nenhuma entrada encontrada.",
     };
 
     private static Dictionary<string, string> Chinese() => new(StringComparer.Ordinal)
@@ -926,6 +941,9 @@ public static class I18nService
         ["apiKey"] = "API 密钥",
         ["andMore"] = "和",
         ["more"] = "更多",
+        ["entry"] = "条目",
+        ["entries"] = "条目",
+        ["noEntries"] = "未找到条目。",
     };
 
     private static Dictionary<string, string> Turkish() => new(StringComparer.Ordinal)
@@ -1070,5 +1088,8 @@ public static class I18nService
         ["apiKey"] = "API Anahtarı",
         ["andMore"] = "ve",
         ["more"] = "daha",
+        ["entry"] = "kayıt",
+        ["entries"] = "kayıt",
+        ["noEntries"] = "Kayıt bulunamadı.",
     };
 }
