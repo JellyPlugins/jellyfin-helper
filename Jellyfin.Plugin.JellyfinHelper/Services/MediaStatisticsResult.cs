@@ -189,6 +189,32 @@ public class MediaStatisticsResult
     public Collection<string> TotalOrphanedMetadataDirectoriesPaths =>
         new(Libraries.SelectMany(l => l.OrphanedMetadataDirectoriesPaths).ToList());
 
+    // === Root Path Aggregation ===
+
+    /// <summary>
+    /// Gets the set of root paths for all movie libraries.
+    /// </summary>
+    [JsonInclude]
+    public HashSet<string> MovieRootPaths => new(Movies.SelectMany(l => l.RootPaths), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the set of root paths for all TV show libraries.
+    /// </summary>
+    [JsonInclude]
+    public HashSet<string> TvShowRootPaths => new(TvShows.SelectMany(l => l.RootPaths), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the set of root paths for all music libraries.
+    /// </summary>
+    [JsonInclude]
+    public HashSet<string> MusicRootPaths => new(Music.SelectMany(l => l.RootPaths), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the set of root paths for all other libraries.
+    /// </summary>
+    [JsonInclude]
+    public HashSet<string> OtherRootPaths => new(Other.SelectMany(l => l.RootPaths), StringComparer.OrdinalIgnoreCase);
+
     private static Dictionary<string, int> AggregateDictionaries(IEnumerable<Dictionary<string, int>> dictionaries)
     {
         var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);

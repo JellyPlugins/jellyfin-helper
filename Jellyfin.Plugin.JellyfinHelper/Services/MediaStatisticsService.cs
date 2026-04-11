@@ -66,6 +66,7 @@ public partial class MediaStatisticsService
 
             foreach (var location in vf.Locations)
             {
+                libraryStats.RootPaths.Add(location);
                 _logger.LogDebug("Scanning library location: {Location} (type: {Type})", location, collectionType);
                 AnalyzeDirectoryRecursive(location, libraryStats, location, skipHealthChecks: skipHealth);
             }

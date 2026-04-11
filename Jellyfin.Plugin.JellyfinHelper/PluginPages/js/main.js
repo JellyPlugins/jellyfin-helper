@@ -104,9 +104,9 @@
 
         // Tab bar
         html += '<div class="tab-bar">';
-        html += '<button class="tab-btn active" data-tab="overview">' + T('tabOverview', 'Overview') + '</button>';
-        html += '<button class="tab-btn" data-tab="codecs">' + T('tabCodecs', 'Codecs') + '</button>';
-        html += '<button class="tab-btn" data-tab="health">' + T('tabHealth', 'Health') + '</button>';
+        html += '<button class="tab-btn active" data-tab="overview">🖵 ' + T('tabOverview', 'Overview') + '</button>';
+        html += '<button class="tab-btn" data-tab="codecs">🎞️ ' + T('tabCodecs', 'Codecs') + '</button>';
+        html += '<button class="tab-btn" data-tab="health">🩺 ' + T('tabHealth', 'Health') + '</button>';
         html += '<button class="tab-btn" data-tab="trends">📈 ' + T('tabTrends', 'Trends') + '</button>';
         html += '<button class="tab-btn" data-tab="settings">⚙️ ' + T('tabSettings', 'Settings') + '</button>';
         html += '<button class="tab-btn" data-tab="arr">🔗 ' + T('tabArr', 'Arr') + '</button>';

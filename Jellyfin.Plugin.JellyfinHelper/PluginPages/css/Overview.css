@@ -84,6 +84,11 @@
     text-align: left;
 }
 
+.library-table th:nth-child(2),
+.library-table td:nth-child(2) {
+    text-align: center;
+}
+
 .library-table tbody tr:hover {
     background: rgba(255, 255, 255, 0.03);
 }

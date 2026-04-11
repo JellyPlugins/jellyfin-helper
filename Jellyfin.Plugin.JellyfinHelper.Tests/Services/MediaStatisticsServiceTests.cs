@@ -670,6 +670,34 @@ public class MediaStatisticsServiceTests
     }
 
     [Fact]
+    public void CalculateStatistics_LibraryPaths_PreservedInResult()
+    {
+        var libraryPath1 = TestPath("media", "movies1");
+        var libraryPath2 = TestPath("media", "movies2");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "My Movie Collections",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath1, libraryPath2]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        _fileSystemMock.Setup(f => f.GetFiles(It.IsAny<string>(), false)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(It.IsAny<string>(), false)).Returns([]);
+
+        var result = _service.CalculateStatistics();
+
+        Assert.Single(result.Libraries);
+        Assert.Equal(2, result.Libraries[0].RootPaths.Count);
+        Assert.Contains(libraryPath1, result.Libraries[0].RootPaths);
+        Assert.Contains(libraryPath2, result.Libraries[0].RootPaths);
+        
+        Assert.Contains(libraryPath1, result.MovieRootPaths);
+        Assert.Contains(libraryPath2, result.MovieRootPaths);
+    }
+
+    [Fact]
     public void CalculateStatistics_LibraryName_PreservedInResult()
     {
         var libraryPath = TestPath("media", "movies");

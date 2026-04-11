@@ -67,14 +67,12 @@
     function escAttr(s) { return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
     function escHtml(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
-    // Get the file name from a full path
     function getFileName(fullPath) {
         if (!fullPath) return '';
         var parts = fullPath.replace(/\\/g, '/').split('/');
         return parts[parts.length - 1] || fullPath;
     }
 
-    // Get a display-friendly directory (parent folder)
     function getParentFolder(fullPath) {
         if (!fullPath) return '';
         var normalized = fullPath.replace(/\\/g, '/');
@@ -83,10 +81,90 @@
         return '';
     }
 
+    function getPathSegments(fullPath, rootPaths) {
+        if (!fullPath) return [];
+        var normalized = fullPath.replace(/\\/g, '/');
+
+        for (let rootPath of rootPaths) {
+            if (normalized.startsWith(rootPath)) {
+                normalized = normalized.substring(rootPath.length + 1);
+                break;
+            }
+        }
+
+        return normalized.split('/');
+    }
+
+    // Builds a nested tree structure from a list of paths
+    function buildPathTree(paths, rootPaths) {
+        var root = { name: 'root', children: {}, items: [] };
+        for (var i = 0; i < paths.length; i++) {
+            var path = paths[i];
+            var segments = getPathSegments(path, rootPaths ?? []);
+            var currentNode = root;
+
+            for (var j = 0; j < segments.length - 1; j++) {
+                var segment = segments[j];
+                if (!currentNode.children[segment]) {
+                    currentNode.children[segment] = { name: segment, children: {}, items: [] };
+                }
+                currentNode = currentNode.children[segment];
+            }
+
+            var leafName = segments.length > 0 ? segments[segments.length - 1] : path;
+            currentNode.items.push({ name: leafName, fullPath: path });
+        }
+        return root;
+    }
+
+    function countTreeItems(node) {
+        var count = node.items.length;
+        for (var childName in node.children) {
+            if (Object.prototype.hasOwnProperty.call(node.children, childName)) {
+                count += countTreeItems(node.children[childName]);
+            }
+        }
+        return count;
+    }
+
+    function renderTreeLevel(node, level, icon) {
+        var html = '';
+        var sortedChildren = Object.keys(node.children).sort();
+        
+        for (var i = 0; i < sortedChildren.length; i++) {
+            var childName = sortedChildren[i];
+            var childNode = node.children[childName];
+            var hasContent = Object.keys(childNode.children).length > 0 || childNode.items.length > 0;
+            
+            html += '<div class="tree-node">';
+            html += '<div class="tree-folder' + (hasContent ? ' tree-toggle' : '') + '" onclick="this.parentElement.classList.toggle(\'tree-expanded\')">';
+            html += '<span class="tree-icon">' + (hasContent ? '📁' : '📂') + '</span>';
+            html += '<span class="tree-name">' + escHtml(childName) + '</span> <span class="tree-name-count">(' + countTreeItems(childNode) + ')</span>';
+            html += '</div>';
+            
+            if (hasContent) {
+                html += '<div class="tree-children">';
+                html += renderTreeLevel(childNode, level + 1, icon);
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+
+        for (var j = 0; j < node.items.length; j++) {
+            var item = node.items[j];
+            html += '<div class="tree-leaf" title="' + escAttr(item.fullPath) + '">';
+            html += '<span class="tree-leaf-icon">' + icon + '</span>';
+            html += '<span class="tree-leaf-file-name">' + escHtml(item.name) + '</span>';
+            html += '</div>';
+        }
+
+        return html;
+    }
+
     // Render a file list panel grouped by media type (movies, tvShows, music)
-    // result: { movies: string[], tvShows: string[], music: string[] }
+    // result: { movies: string[], tvShows: string[], music: string[], rootPaths: { movies: string[], tvShows: string[], music: string[], other: string[] } }
     // title: string displayed in the header
-    function renderFileList(result, title) {
+    function renderFileTree(result, title) {
         var hasMovies = result.movies && result.movies.length > 0;
         var hasTvShows = result.tvShows && result.tvShows.length > 0;
         var hasMusic = result.music && result.music.length > 0;
@@ -94,70 +172,51 @@
         var totalFiles = (result.movies ? result.movies.length : 0) + (result.tvShows ? result.tvShows.length : 0) + (result.music ? result.music.length : 0) + (result.other ? result.other.length : 0);
 
         if (totalFiles === 0) {
-            return '<div class="codec-files-empty">' + T('noFilesFound', 'No files found.') + '</div>';
+            return '<div class="file-tree-empty">' + T('noFilesFound', 'No files found.') + '</div>';
         }
 
         var sectionCount = (hasMovies ? 1 : 0) + (hasTvShows ? 1 : 0) + (hasMusic ? 1 : 0) + (hasOther ? 1 : 0);
-        var html = '<div class="codec-files-header">';
-        html += '<span class="codec-files-title">' + escHtml(title) + '</span>';
-        html += '<span class="codec-files-count">' + totalFiles + ' ' + (totalFiles === 1 ? T('file', 'file') : T('files', 'files')) + '</span>';
-        html += '</div>';
+        var html = '<div class="file-tree-header">';
+        html += '<span class="file-tree-title">' + escHtml(title) + '</span>';
+        html += '<div style="display:flex;gap:0.5em;align-items:center;">';
+        html += '<button class="tree-action-btn" onclick="var nodes=this.closest(\'.file-tree-panel\').querySelectorAll(\'.tree-node\');for(var i=0;i<nodes.length;i++)nodes[i].classList.add(\'tree-expanded\')">' + T('expandAll', 'Expand All') + '</button>';
+        html += '<button class="tree-action-btn" onclick="var nodes=this.closest(\'.file-tree-panel\').querySelectorAll(\'.tree-node\');for(var i=0;i<nodes.length;i++)nodes[i].classList.remove(\'tree-expanded\')">' + T('collapseAll', 'Collapse All') + '</button>';
+        html += '<span class="file-tree-count">' + totalFiles + ' ' + (totalFiles === 1 ? T('file', 'file') : T('files', 'files')) + '</span>';
+        html += '</div></div>';
 
-        html += '<div class="codec-files-columns' + (sectionCount > 1 ? ' codec-files-multi' : '') + '">';
+        html += '<div class=' + (sectionCount > 1 ? ' file-tree-multi' : '') + '"file-tree-columns">';
+
+        var roots = result.rootPaths || {};
 
         if (hasMovies) {
-            html += '<div class="codec-files-section">';
-            html += '<div class="codec-files-section-header"><span class="badge badge-movies">' + T('movies', 'Movies') + '</span> <span class="codec-files-section-count">(' + result.movies.length + ')</span></div>';
-            html += '<div class="codec-files-list">';
-            for (var i = 0; i < result.movies.length; i++) {
-                html += '<div class="codec-file-item" title="' + escAttr(result.movies[i]) + '">';
-                html += '<span class="codec-file-icon">🎬</span>';
-                html += '<span class="codec-file-name">' + escHtml(getFileName(result.movies[i])) + '</span>';
-                html += '<span class="codec-file-folder">' + escHtml(getParentFolder(result.movies[i])) + '</span>';
-                html += '</div>';
-            }
+            html += '<div class="file-tree-section">';
+            html += '<div class="file-tree-section-header"><span class="badge badge-movies">' + T('movies', 'Movies') + '</span> <span class="file-tree-section-count">(' + result.movies.length + ')</span></div>';
+            html += '<div class="tree-view">';
+            html += renderTreeLevel(buildPathTree(result.movies, roots.movies), 0, '🎬');
             html += '</div></div>';
         }
 
         if (hasTvShows) {
-            html += '<div class="codec-files-section">';
-            html += '<div class="codec-files-section-header"><span class="badge badge-tvshows">' + T('tvShows', 'TV Shows') + '</span> <span class="codec-files-section-count">(' + result.tvShows.length + ')</span></div>';
-            html += '<div class="codec-files-list">';
-            for (var j = 0; j < result.tvShows.length; j++) {
-                html += '<div class="codec-file-item" title="' + escAttr(result.tvShows[j]) + '">';
-                html += '<span class="codec-file-icon">📺</span>';
-                html += '<span class="codec-file-name">' + escHtml(getFileName(result.tvShows[j])) + '</span>';
-                html += '<span class="codec-file-folder">' + escHtml(getParentFolder(result.tvShows[j])) + '</span>';
-                html += '</div>';
-            }
+            html += '<div class="file-tree-section">';
+            html += '<div class="file-tree-section-header"><span class="badge badge-tvshows">' + T('tvShows', 'TV Shows') + '</span> <span class="file-tree-section-count">(' + result.tvShows.length + ')</span></div>';
+            html += '<div class="tree-view">';
+            html += renderTreeLevel(buildPathTree(result.tvShows, roots.tvShows), 0, '📺');
             html += '</div></div>';
         }
 
         if (hasMusic) {
-            html += '<div class="codec-files-section">';
-            html += '<div class="codec-files-section-header"><span class="badge badge-music">' + T('music', 'Music') + '</span> <span class="codec-files-section-count">(' + result.music.length + ')</span></div>';
-            html += '<div class="codec-files-list">';
-            for (var k = 0; k < result.music.length; k++) {
-                html += '<div class="codec-file-item" title="' + escAttr(result.music[k]) + '">';
-                html += '<span class="codec-file-icon">🎵</span>';
-                html += '<span class="codec-file-name">' + escHtml(getFileName(result.music[k])) + '</span>';
-                html += '<span class="codec-file-folder">' + escHtml(getParentFolder(result.music[k])) + '</span>';
-                html += '</div>';
-            }
+            html += '<div class="file-tree-section">';
+            html += '<div class="file-tree-section-header"><span class="badge badge-music">' + T('music', 'Music') + '</span> <span class="file-tree-section-count">(' + result.music.length + ')</span></div>';
+            html += '<div class="tree-view">';
+            html += renderTreeLevel(buildPathTree(result.music, roots.music), 0, '🎵');
             html += '</div></div>';
         }
 
         if (hasOther) {
-            html += '<div class="codec-files-section">';
-            html += '<div class="codec-files-section-header"><span class="badge badge-other">' + T('other', 'Other') + '</span> <span class="codec-files-section-count">(' + result.other.length + ')</span></div>';
-            html += '<div class="codec-files-list">';
-            for (var l = 0; l < result.other.length; l++) {
-                html += '<div class="codec-file-item" title="' + escAttr(result.other[l]) + '">';
-                html += '<span class="codec-file-icon">📄</span>';
-                html += '<span class="codec-file-name">' + escHtml(getFileName(result.other[l])) + '</span>';
-                html += '<span class="codec-file-folder">' + escHtml(getParentFolder(result.other[l])) + '</span>';
-                html += '</div>';
-            }
+            html += '<div class="file-tree-section">';
+            html += '<div class="file-tree-section-header"><span class="badge badge-other">' + T('other', 'Other') + '</span> <span class="file-tree-section-count">(' + result.other.length + ')</span></div>';
+            html += '<div class="tree-view">';
+            html += renderTreeLevel(buildPathTree(result.other, roots.other), 0, '📄');
             html += '</div></div>';
         }
 

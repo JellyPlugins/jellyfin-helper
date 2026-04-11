@@ -79,7 +79,7 @@
         html += '</div>';
 
         // Detail panel placeholder
-        html += '<div class="codec-detail-panel" id="codecDetail_' + chartId + '"></div>';
+        html += '<div class="file-tree-panel" id="codecDetail_' + chartId + '"></div>';
 
         return html;
     }
@@ -140,7 +140,16 @@
             }
         }
 
-        return { movies: moviePaths, tvShows: tvPaths, music: musicPaths };
+        return {
+            movies: moviePaths,
+            tvShows: tvPaths,
+            music: musicPaths,
+            rootPaths: {
+                movies: data.MovieRootPaths || [],
+                tvShows: data.TvShowRootPaths || [],
+                music: data.MusicRootPaths || []
+            }
+        };
     }
 
 
@@ -178,7 +187,7 @@
                 // Toggle: if same codec is already shown, close it
                 if (this.classList.contains('codec-row-active')) {
                     panel.innerHTML = '';
-                    panel.classList.remove('codec-detail-visible');
+                    panel.classList.remove('file-tree-panel-visible');
                     this.classList.remove('codec-row-active');
                     return;
                 }
@@ -190,11 +199,11 @@
                 }
 
                 // Close all other detail panels
-                var allPanels = document.querySelectorAll('.codec-detail-panel');
+                var allPanels = document.querySelectorAll('.file-tree-panel');
                 for (var p = 0; p < allPanels.length; p++) {
                     if (allPanels[p].id !== 'codecDetail_' + chartId) {
                         allPanels[p].innerHTML = '';
-                        allPanels[p].classList.remove('codec-detail-visible');
+                        allPanels[p].classList.remove('file-tree-panel-visible');
                     }
                 }
                 // Also deactivate rows in other charts
@@ -210,8 +219,8 @@
                 var pathsProp = CODEC_PATH_MAP[chartId];
                 var categories = CODEC_CATEGORY_MAP[chartId];
                 var result = collectCodecPaths(_lastCodecData, pathsProp, codecName, categories);
-                panel.innerHTML = renderFileList(result, codecName);
-                panel.classList.add('codec-detail-visible');
+                panel.innerHTML = renderFileTree(result, codecName);
+                panel.classList.add('file-tree-panel-visible');
 
                 // Smooth scroll the panel into view
                 setTimeout(function () { panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50);

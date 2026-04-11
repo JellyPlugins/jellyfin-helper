@@ -204,135 +204,7 @@
 .action-btn.error,
 .action-btn.error:hover { background: #e74c3c; }
 
-/* === Shared File List Styles (used by Codecs + Health tabs) === */
 
-/* File List Header */
-.codec-files-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 0.7em;
-    padding-bottom: 0.5em;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.codec-files-title {
-    font-weight: 700;
-    font-size: 0.95em;
-    color: #00a4dc;
-}
-
-.codec-files-count {
-    font-size: 0.8em;
-    opacity: 0.5;
-    background: rgba(255, 255, 255, 0.06);
-    padding: 0.15em 0.5em;
-    border-radius: 10px;
-}
-
-/* noinspection CssUnusedSymbol */
-.codec-files-empty {
-    text-align: center;
-    padding: 1em;
-    opacity: 0.4;
-    font-size: 0.85em;
-}
-
-/* File List Columns (Movies / TV Shows / Music split) */
-.codec-files-columns {
-    display: flex;
-    flex-direction: column;
-    gap: 0.8em;
-}
-
-/* noinspection CssUnusedSymbol */
-.codec-files-columns.codec-files-multi {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 0.8em;
-}
-
-@media (max-width: 600px) {
-    /* noinspection CssUnusedSymbol */
-    .codec-files-columns.codec-files-multi {
-        grid-template-columns: 1fr;
-    }
-}
-
-.codec-files-section {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
-    padding: 0.6em;
-}
-
-.codec-files-section-header {
-    display: flex;
-    align-items: center;
-    gap: 0.4em;
-    margin-bottom: 0.5em;
-    font-size: 0.85em;
-}
-
-.codec-files-section-count {
-    opacity: 0.45;
-    font-size: 0.85em;
-}
-
-.codec-files-list {
-    max-height: 280px;
-    overflow-y: auto;
-}
-
-.codec-files-list::-webkit-scrollbar {
-    width: 4px;
-}
-
-.codec-files-list::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 2px;
-}
-
-/* Individual File Item */
-.codec-file-item {
-    display: flex;
-    align-items: center;
-    gap: 0.4em;
-    padding: 0.3em 0.4em;
-    border-radius: 4px;
-    transition: background 0.15s;
-    cursor: default;
-}
-
-.codec-file-item:hover {
-    background: rgba(255, 255, 255, 0.04);
-}
-
-.codec-file-icon {
-    flex-shrink: 0;
-    font-size: 0.75em;
-    width: 1.2em;
-    text-align: center;
-}
-
-.codec-file-name {
-    font-size: 0.78em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex: 1;
-    min-width: 0;
-}
-
-.codec-file-folder {
-    font-size: 0.68em;
-    opacity: 0.35;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 120px;
-    flex-shrink: 0;
-}
 
 /* Arr button variants */
 .btn-arr-test { background: #3498db; }
@@ -364,6 +236,215 @@
     display: inline-block;
     margin-right: 0.5em;
     vertical-align: middle;
+}
+
+.file-tree-panel {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    opacity 0.3s ease,
+    margin 0.3s ease;
+    margin: 0;
+}
+
+/* noinspection CssUnusedSymbol */
+.file-tree-panel.file-tree-panel-visible {
+    max-height: 500px;
+    opacity: 1;
+    margin-top: 0.8em;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(0, 164, 220, 0.2);
+    border-radius: 8px;
+    padding: 0.8em;
+}
+
+/* Scrollbar styling for the detail panel */
+.file-tree-panel::-webkit-scrollbar {
+    width: 6px;
+}
+
+.file-tree-panel::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.file-tree-panel::-webkit-scrollbar-thumb {
+    background: rgba(0, 164, 220, 0.3);
+    border-radius: 3px;
+}
+
+.file-tree-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 164, 220, 0.5);
+}
+
+.file-tree-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.7em;
+    padding-bottom: 0.5em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.file-tree-title {
+    font-weight: 700;
+    font-size: 0.95em;
+    color: #00a4dc;
+}
+
+.file-tree-count {
+    font-size: 0.8em;
+    opacity: 0.5;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.15em 0.5em;
+    border-radius: 10px;
+}
+
+/* File List Columns (Movies / TV Shows / Music split) */
+.file-tree-columns {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8em;
+}
+
+/* noinspection CssUnusedSymbol */
+.file-tree-columns.file-tree-multi {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 0.8em;
+}
+
+@media (max-width: 600px) {
+    /* noinspection CssUnusedSymbol */
+    .file-tree-columns.file-tree-multi {
+        grid-template-columns: 1fr;
+    }
+}
+
+.file-tree-section {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    padding: 0.6em;
+}
+
+.file-tree-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    margin-bottom: 0.5em;
+    font-size: 0.85em;
+}
+
+.file-tree-section-count {
+    opacity: 0.45;
+    font-size: 0.85em;
+}
+
+/* Tree View Styles */
+.tree-view {
+    font-family: monospace;
+    text-align: left;
+}
+
+.file-tree-empty {
+     text-align: center;
+     padding: 1em;
+     opacity: 0.4;
+     font-size: 0.85em;
+ }
+
+.tree-node {
+    margin-left: 1em;
+    border-left: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tree-folder {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    padding: 0.2em 0.4em;
+    cursor: default;
+    border-radius: 4px;
+    transition: background 0.15s;
+    user-select: none;
+}
+
+.tree-toggle {
+    cursor: pointer;
+}
+
+.tree-folder:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.tree-icon {
+    width: 1.2em;
+    text-align: center;
+}
+
+.tree-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.8;
+}
+
+.tree-name-count {
+    opacity: 0.45;
+}
+
+.tree-children {
+    display: none;
+}
+
+.tree-expanded > .tree-children {
+    display: block;
+}
+
+.tree-leaf {
+    display: flex;
+    gap: 0.4em;
+    margin-left: 1.2em;
+    padding: 0.1em 0.4em 0.1em 0.8em;
+    border-left: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 0.9em;
+}
+
+.tree-leaf:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 4px;
+}
+
+.tree-leaf-icon {
+     flex-shrink: 0;
+     width: 1.2em;
+     text-align: center;
+ }
+
+.tree-leaf-file-name {
+    white-space: nowrap;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tree-action-btn {
+    font-size: 0.7em;
+    padding: 0.2em 0.6em;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s, background 0.2s;
+}
+
+.tree-action-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.2);
 }
 
 @media (prefers-reduced-motion: reduce) {
