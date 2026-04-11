@@ -67,7 +67,7 @@ public partial class MediaStatisticsService
             foreach (var location in vf.Locations)
             {
                 _logger.LogDebug("Scanning library location: {Location} (type: {Type})", location, collectionType);
-                AnalyzeDirectoryRecursive(location, libraryStats, skipHealthChecks: skipHealth);
+                AnalyzeDirectoryRecursive(location, libraryStats, location, skipHealthChecks: skipHealth);
             }
 
             result.Libraries.Add(libraryStats);
@@ -98,8 +98,9 @@ public partial class MediaStatisticsService
     /// </summary>
     /// <param name="directoryPath">The directory to analyze.</param>
     /// <param name="stats">The statistics accumulator.</param>
+    /// <param name="libraryRoot">The library root path (used for trash folder resolution).</param>
     /// <param name="skipHealthChecks">When true, skip health check counters (e.g. for boxset/collection libraries).</param>
-    private bool AnalyzeDirectoryRecursive(string directoryPath, LibraryStatistics stats, bool skipHealthChecks = false)
+    private bool AnalyzeDirectoryRecursive(string directoryPath, LibraryStatistics stats, string? libraryRoot = null, bool skipHealthChecks = false)
     {
         bool containsVideo = false;
         try
@@ -195,10 +196,14 @@ public partial class MediaStatisticsService
             var config = CleanupConfigHelper.GetConfig();
             var trashFolderName = config.TrashFolderPath;
             bool isTrashRelative = !Path.IsPathRooted(trashFolderName);
+            var fullTrashPath = libraryRoot != null
+                ? Path.GetFullPath(isTrashRelative ? Path.Combine(libraryRoot, trashFolderName) : trashFolderName)
+                : null;
 
             foreach (var subDir in subDirs)
             {
-                if (isTrashRelative && string.Equals(subDir.Name, trashFolderName, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(subDir.Name, trashFolderName, StringComparison.OrdinalIgnoreCase)
+                    || (fullTrashPath != null && string.Equals(Path.GetFullPath(subDir.FullName), fullTrashPath, StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
@@ -209,7 +214,7 @@ public partial class MediaStatisticsService
                     stats.TrickplaySize += trickplaySize;
                     stats.TrickplayFolderCount++;
                 }
-                else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, skipHealthChecks))
+                else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, libraryRoot, skipHealthChecks))
                 {
                     subDirHasVideo = true;
                     containsVideo = true;
