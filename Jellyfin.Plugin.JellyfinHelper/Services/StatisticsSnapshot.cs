@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
 
 /// <summary>
 /// A lightweight snapshot of statistics for historical trend tracking.
 /// </summary>
+[JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
 public class StatisticsSnapshot
 {
     /// <summary>
