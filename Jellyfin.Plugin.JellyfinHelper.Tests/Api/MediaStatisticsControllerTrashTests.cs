@@ -13,6 +13,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
+[Collection("ConfigOverride")]
 public class MediaStatisticsControllerTrashTests : IDisposable
 {
     private readonly MediaStatisticsController _controller;
