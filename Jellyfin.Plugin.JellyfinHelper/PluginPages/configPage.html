@@ -591,10 +591,10 @@
 
     function getCollectionBadge(type) {
         var t = (type || '').toLowerCase();
-        if (t === 'tvshows') return '<span class="badge badge-tvshows">TV Shows</span>';
-        if (t === 'movies' || t === '') return '<span class="badge badge-movies">Movies</span>';
-        if (t === 'music') return '<span class="badge badge-music">Music</span>';
-        return '<span class="badge badge-other">' + escHtml(type || 'Mixed') + '</span>';
+        if (t === 'tvshows') return '<span class="badge badge-tvshows">' + T('tvShows', 'TV Shows') + '</span>';
+        if (t === 'movies' || t === '') return '<span class="badge badge-movies">' + T('movies', 'Movies') + '</span>';
+        if (t === 'music') return '<span class="badge badge-music">' + T('music', 'Music') + '</span>';
+        return '<span class="badge badge-other">' + escHtml(type || T('mixed', 'Mixed')) + '</span>';
     }
 
     function buildBarSegments(data) {
