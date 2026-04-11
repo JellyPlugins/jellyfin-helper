@@ -85,14 +85,21 @@
         if (!fullPath) return [];
         var normalized = fullPath.replace(/\\/g, '/');
 
-        for (let rootPath of rootPaths) {
-            if (normalized.startsWith(rootPath)) {
-                normalized = normalized.substring(rootPath.length + 1);
-                break;
+        var bestRoot = '';
+        for (var i = 0; i < rootPaths.length; i++) {
+            var root = rootPaths[i].replace(/\\/g, '/');
+            if (normalized.startsWith(root) && root.length > bestRoot.length) {
+                bestRoot = root;
             }
         }
 
-        return normalized.split('/');
+        if (bestRoot) {
+            var offset = bestRoot.length;
+            if (normalized[offset] === '/') offset++;
+            normalized = normalized.substring(offset);
+        }
+
+        return normalized.split('/').filter(function (s) { return s.length > 0; });
     }
 
     // Builds a nested tree structure from a list of paths
@@ -239,3 +246,4 @@
         }
         return result;
     }
+})();

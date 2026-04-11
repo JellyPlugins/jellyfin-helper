@@ -81,10 +81,16 @@ public class HealthHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_CollectHealthPaths_ReturnsMusicEmpty()
+    public void Html_CollectHealthPaths_ReturnsExpectedResultStructure()
     {
-        // collectHealthPaths should always return music: [] because health checks don't apply to music
+        // collectHealthPaths should return an object with movies, tvShows, other, music, AND rootPaths
+        // music and rootPaths.music should always be empty
         Assert.Contains("return {", HtmlContent);
+        Assert.Contains("music: []", HtmlContent);
+        Assert.Contains("rootPaths: {", HtmlContent);
+        Assert.Contains("movies: data.MovieRootPaths || []", HtmlContent);
+        Assert.Contains("tvShows: data.TvShowRootPaths || []", HtmlContent);
+        Assert.Contains("other: data.OtherRootPaths || []", HtmlContent);
         Assert.Contains("music: []", HtmlContent);
     }
 
