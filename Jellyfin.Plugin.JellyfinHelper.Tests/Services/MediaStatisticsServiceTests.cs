@@ -1822,6 +1822,7 @@ public class MediaStatisticsServiceTests
         // include it when aggregating MusicAudioCodecs (only Music libraries)
         Assert.Single(result.Movies);
         Assert.Empty(result.Music);
+        Assert.Empty(result.TotalMusicAudioCodecs);
     }
 
     [Fact]

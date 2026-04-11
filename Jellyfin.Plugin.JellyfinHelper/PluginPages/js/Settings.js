@@ -176,14 +176,15 @@
         apiClient.ajax({
             type: 'GET', url: apiClient.getUrl('JellyfinHelper/Trash/Folders'), dataType: 'json'
         }).then(function (data) {
-            if (!data.Paths || data.Paths.length === 0) {
+            var paths = data.trashFolders || [];
+            if (paths.length === 0) {
                 doSaveSettings(payload);
                 return;
             }
 
             var pathList = '';
-            for (var i = 0; i < data.Paths.length; i++) {
-                pathList += '\n  • ' + data.Paths[i];
+            for (var i = 0; i < paths.length; i++) {
+                pathList += '\n  • ' + paths[i];
             }
 
             var firstMsg = T('trashDisablePrompt', 'Trash is being disabled. The following trash folder(s) exist on disk:')
@@ -225,7 +226,7 @@
             btnDelete.style.cssText = 'padding:0.5em 1.2em;border:none;border-radius:4px;background:#e74c3c;color:#fff;cursor:pointer;font-size:0.9em;';
             btnDelete.onclick = function () {
                 removeTrashDialog();
-                showTrashDeleteConfirmation(payload, data.Paths);
+                showTrashDeleteConfirmation(payload, paths);
             };
 
             var btnCancel = document.createElement('button');
@@ -302,11 +303,11 @@
                 type: 'DELETE', url: apiClient.getUrl('JellyfinHelper/Trash/Folders'), dataType: 'json'
             }).then(function (result) {
                 var summary = '';
-                if (result.Deleted && result.Deleted.length > 0) {
-                    summary += '✅ ' + T('trashDeletedCount', 'Deleted') + ': ' + result.Deleted.length + ' ' + T('folders', 'folders');
+                if (result.deleted > 0) {
+                    summary += '✅ ' + T('trashDeletedCount', 'Deleted') + ': ' + result.deleted + ' ' + T('folders', 'folders');
                 }
-                if (result.Failed && result.Failed.length > 0) {
-                    summary += (summary ? ' | ' : '') + '❌ ' + T('trashFailedCount', 'Failed') + ': ' + result.Failed.length;
+                if (result.failed > 0) {
+                    summary += (summary ? ' | ' : '') + '❌ ' + T('trashFailedCount', 'Failed') + ': ' + result.failed;
                 }
                 if (summary) {
                     msg.innerHTML = '<div class="success-msg">' + summary + '</div>';

@@ -130,7 +130,11 @@ public class SettingsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_TrashDisableDialog_CallsGetTrashFoldersEndpoint()
     {
-        Assert.Contains("JellyfinHelper/Trash/Folders", HtmlContent);
+        Assert.Matches(
+            new System.Text.RegularExpressions.Regex(
+                @"type\s*:\s*['""]GET['""].*JellyfinHelper/Trash/Folders",
+                System.Text.RegularExpressions.RegexOptions.Singleline),
+            HtmlContent);
     }
 
     [Fact]
