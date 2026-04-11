@@ -67,7 +67,7 @@ public partial class MediaStatisticsService
             foreach (var location in vf.Locations)
             {
                 _logger.LogDebug("Scanning library location: {Location} (type: {Type})", location, collectionType);
-                AnalyzeDirectoryRecursive(location, libraryStats, skipHealthChecks: skipHealth);
+                AnalyzeDirectoryRecursive(location, libraryStats, location, skipHealthChecks: skipHealth);
             }
 
             result.Libraries.Add(libraryStats);
@@ -98,12 +98,14 @@ public partial class MediaStatisticsService
     /// </summary>
     /// <param name="directoryPath">The directory to analyze.</param>
     /// <param name="stats">The statistics accumulator.</param>
+    /// <param name="libraryRoot">The library root path (used for trash folder resolution).</param>
     /// <param name="skipHealthChecks">When true, skip health check counters (e.g. for boxset/collection libraries).</param>
-    private void AnalyzeDirectoryRecursive(string directoryPath, LibraryStatistics stats, bool skipHealthChecks = false)
+    private bool AnalyzeDirectoryRecursive(string directoryPath, LibraryStatistics stats, string? libraryRoot = null, bool skipHealthChecks = false)
     {
+        bool containsVideo = false;
         try
         {
-            var files = _fileSystem.GetFiles(directoryPath, false).ToList();
+            var files = _fileSystem.GetFiles(directoryPath).ToList();
 
             bool hasVideo = false;
             bool hasSubs = false;
@@ -122,6 +124,7 @@ public partial class MediaStatisticsService
                     stats.VideoSize += size;
                     stats.VideoFileCount++;
                     hasVideo = true;
+                    containsVideo = true;
 
                     // Container format tracking
                     var container = ext.TrimStart('.').ToUpperInvariant();
@@ -186,6 +189,39 @@ public partial class MediaStatisticsService
                 }
             }
 
+            // Recurse into subdirectories
+            var subDirs = _fileSystem.GetDirectories(directoryPath);
+            bool subDirHasVideo = false;
+
+            var config = CleanupConfigHelper.GetConfig();
+            var trashFolderName = config.TrashFolderPath.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var fullTrashPath = libraryRoot != null
+                ? Path.GetFullPath(CleanupConfigHelper.GetTrashPath(libraryRoot)).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                : null;
+
+            foreach (var subDir in subDirs)
+            {
+                var normalizedSubDirFullName = Path.GetFullPath(subDir.FullName).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                if (string.Equals(subDir.Name.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), trashFolderName, StringComparison.OrdinalIgnoreCase)
+                    || (fullTrashPath != null && string.Equals(normalizedSubDirFullName, fullTrashPath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                if (subDir.Name.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
+                {
+                    var trickplaySize = FileSystemHelper.CalculateDirectorySize(_fileSystem, subDir.FullName, _logger);
+                    stats.TrickplaySize += trickplaySize;
+                    stats.TrickplayFolderCount++;
+                }
+                else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, libraryRoot, skipHealthChecks))
+                {
+                    subDirHasVideo = true;
+                    containsVideo = true;
+                }
+            }
+
             // Health checks — per-directory analysis
             // Boxset/collection libraries are excluded: they are Jellyfin-internal virtual folders
             // that group related movies and typically only contain posters/images, not real media.
@@ -230,24 +266,27 @@ public partial class MediaStatisticsService
                 }
                 else if (hasAnyNonTrickplayFile && (hasSubs || hasImage || hasNfo))
                 {
-                    stats.OrphanedMetadataDirectories++;
-                    stats.OrphanedMetadataDirectoriesPaths.Add(directoryPath);
-                }
-            }
+                    // Special case for TV Shows: Don't mark as orphaned if it contains subdirectories with videos
+                    // (e.g. "Series 1" folder containing "Season 01")
+                    // OR if it is a known TV show container folder (Specials, Season XX)
+                    bool isTvShow = string.Equals(stats.CollectionType, "tvshows", StringComparison.OrdinalIgnoreCase);
+                    bool isTvContainer = false;
+                    if (isTvShow)
+                    {
+                        var dirName = Path.GetFileName(directoryPath);
+                        if (string.Equals(dirName, "Specials", StringComparison.OrdinalIgnoreCase) ||
+                            dirName.StartsWith("Season ", StringComparison.OrdinalIgnoreCase) ||
+                            dirName.StartsWith("Staffel ", StringComparison.OrdinalIgnoreCase))
+                        {
+                            isTvContainer = true;
+                        }
+                    }
 
-            // Recurse into subdirectories
-            var subDirs = _fileSystem.GetDirectories(directoryPath, false);
-            foreach (var subDir in subDirs)
-            {
-                if (subDir.Name.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
-                {
-                    var trickplaySize = FileSystemHelper.CalculateDirectorySize(_fileSystem, subDir.FullName, _logger);
-                    stats.TrickplaySize += trickplaySize;
-                    stats.TrickplayFolderCount++;
-                }
-                else
-                {
-                    AnalyzeDirectoryRecursive(subDir.FullName, stats, skipHealthChecks);
+                    if (!isTvShow || (!subDirHasVideo && !isTvContainer))
+                    {
+                        stats.OrphanedMetadataDirectories++;
+                        stats.OrphanedMetadataDirectoriesPaths.Add(directoryPath);
+                    }
                 }
             }
         }
@@ -255,6 +294,8 @@ public partial class MediaStatisticsService
         {
             _logger.LogWarning(ex, "Could not access directory {Path}", directoryPath);
         }
+
+        return containsVideo;
     }
 
     /// <summary>
@@ -397,9 +438,7 @@ public partial class MediaStatisticsService
         }
 
         // Fall back to extension-based detection via MediaExtensions mapping
-        return MediaExtensions.AudioExtensionToCodec.TryGetValue(extension, out var codecFromExt)
-            ? codecFromExt
-            : "Unknown";
+        return MediaExtensions.AudioExtensionToCodec.GetValueOrDefault(extension, "Unknown");
     }
 
     /// <summary>

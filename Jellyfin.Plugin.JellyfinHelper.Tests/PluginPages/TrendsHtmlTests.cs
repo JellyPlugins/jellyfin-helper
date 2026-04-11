@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Xunit;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
 public class TrendsHtmlTests : ConfigPageTestBase
 {

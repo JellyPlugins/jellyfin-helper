@@ -4,7 +4,7 @@ using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Xunit;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 /// <summary>
 /// Roundtrip serialization tests to ensure statistics data survives JSON

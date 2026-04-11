@@ -1,10 +1,9 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
-using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Xunit;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
 public class SettingsHtmlTests : ConfigPageTestBase
 {
@@ -131,9 +130,7 @@ public class SettingsHtmlTests : ConfigPageTestBase
     public void Html_TrashDisableDialog_CallsGetTrashFoldersEndpoint()
     {
         Assert.Matches(
-            new System.Text.RegularExpressions.Regex(
-                @"type\s*:\s*['""]GET['""].*JellyfinHelper/Trash/Folders",
-                System.Text.RegularExpressions.RegexOptions.Singleline),
+            new Regex(@"type\s*:\s*['""]GET['""].*JellyfinHelper/Trash/Folders", RegexOptions.Singleline),
             HtmlContent);
     }
 

@@ -569,7 +569,7 @@ public class MediaStatisticsController : ControllerBase
 
         return Ok(new
         {
-            UseTrash = config.UseTrash,
+            config.UseTrash,
             RetentionDays = config.TrashRetentionDays,
             Libraries = libraries,
         });
@@ -759,15 +759,24 @@ public class MediaStatisticsController : ControllerBase
 
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        var config = CleanupConfigHelper.GetConfig();
+        var trashFolderName = config.TrashFolderPath;
+        bool isTrashRelative = !Path.IsPathRooted(trashFolderName);
+
         foreach (var folder in folders)
         {
             foreach (var location in folder.Locations)
             {
                 try
                 {
-                    var dirs = _fileSystem.GetDirectories(location, false);
+                    var dirs = _fileSystem.GetDirectories(location);
                     foreach (var dir in dirs)
                     {
+                        if (isTrashRelative && string.Equals(dir.Name, trashFolderName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
                         result.Add(dir.Name);
                     }
                 }

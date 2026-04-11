@@ -1,6 +1,6 @@
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
 /// <summary>
 /// Shared base class for all configPage.html tests.

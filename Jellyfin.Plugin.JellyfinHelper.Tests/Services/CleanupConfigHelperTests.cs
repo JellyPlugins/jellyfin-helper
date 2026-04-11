@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Xunit;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 [Collection("ConfigOverride")]
 public class CleanupConfigHelperTests

@@ -1,7 +1,7 @@
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Xunit;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 
 /// <summary>
 /// Tests for <see cref="CleanOrphanedSubtitlesTask"/> subtitle name parsing logic.

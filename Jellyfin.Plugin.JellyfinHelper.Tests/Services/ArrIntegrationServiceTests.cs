@@ -9,7 +9,7 @@ using Moq;
 using Moq.Protected;
 using Xunit;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 public class ArrIntegrationServiceTests
 {

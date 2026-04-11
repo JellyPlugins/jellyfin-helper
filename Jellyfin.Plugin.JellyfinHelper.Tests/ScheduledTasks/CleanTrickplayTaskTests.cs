@@ -8,7 +8,7 @@ using Moq;
 using Xunit;
 using MediaBrowser.Model.Entities;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 
 [Collection("ConfigOverride")]
 public class CleanTrickplayTaskTests : IDisposable

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] — 2026-04-11
+
+### Fixed
+- **Trash exclusion in statistics** — Trash folders are now explicitly excluded from media statistics calculations to avoid distorted results.
+- **TV show metadata false positives** — Fixed a bug where empty metadata directories of TV shows were incorrectly marked as orphaned.
+- **Trash dialog in UI** — Fix for the confirmation dialog when disabling the trash, which was not showing under certain conditions.
+
+---
+
 ## [1.0.5] — 2026-11-04
 
 ### Added

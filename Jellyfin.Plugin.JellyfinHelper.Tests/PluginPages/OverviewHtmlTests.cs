@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.PluginPages;
 
 /// <summary>
 /// Tests for the Overview tab in the composed configPage.html.

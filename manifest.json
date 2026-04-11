@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/JellyPlugins/jellyfin-helper/main/media/logo.png",
     "versions": [
       {
+        "version": "1.0.6",
+        "changelog": "Exclude trash folders from media statistics, fix false positives for orphaned TV show metadata directories, fix trash disable dialog in UI.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.6/JellyfinHelper_1.0.6.zip",
+        "checksum": "",
+        "timestamp": "2026-04-11T18:27:00Z"
+      },
+      {
         "version": "1.0.5",
         "changelog": "Multi-instance Arr support (up to 3 Radarr + 3 Sonarr), Arr connection test endpoint, persisted latest scan results (survives restarts), post-cleanup statistics scan, embedded subtitle detection in health checks, video vs music audio codec split, codec file path tracking with clickable drill-down, trash contents detail API, trash folder management UI, trash disable dialog, other file tracking, 6-tab modular dashboard (Overview/Codecs/Health/Trends/Settings/Arr), modular CSS/JS build system, XSS protection, boxset/collection health check skipping, comprehensive README rewrite, 573 tests.",
         "targetAbi": "10.11.0.0",

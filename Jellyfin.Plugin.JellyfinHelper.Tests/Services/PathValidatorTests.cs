@@ -1,7 +1,7 @@
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Xunit;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 /// <summary>
 /// Tests for <see cref="PathValidator"/>.

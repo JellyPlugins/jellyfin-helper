@@ -79,7 +79,7 @@
             h += renderTaskModeSelect('cfgStrmMode', T('strmFileRepair', '.strm File Repair'), cfg.StrmRepairTaskMode || 'DryRun');
 
             h += '<div class="section-title">' + T('settingsTrashTitle', 'Trash settings') + '</div>';
-            h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label>' + T('useTrash', 'Use Trash (Recycle Bin)') + '</label></div>';
+            h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label for="cfgTrash">' + T('useTrash', 'Use Trash (Recycle Bin)') + '</label></div>';
             
             h += '<label>' + T('trashFolder', 'Trash Folder Path') + '</label>';
             h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '">';
@@ -196,7 +196,7 @@
         apiClient.ajax({
             type: 'GET', url: apiClient.getUrl('JellyfinHelper/Trash/Folders'), dataType: 'json'
         }).then(function (data) {
-            var paths = data.trashFolders || [];
+            var paths = data.Paths || [];
             if (paths.length === 0) {
                 doSaveSettings(payload);
                 return;
