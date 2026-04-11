@@ -249,7 +249,7 @@ The project includes **573 automated tests** covering all services, API endpoint
 
 The dashboard UI is assembled at build time via a custom `ComposeConfigPage` MSBuild target. Each tab has its own dedicated CSS and JS module:
 
-```
+```text
 PluginPages/
 ├── css/
 │   ├── shared.css          # Common styles (file lists, modals, layout)
