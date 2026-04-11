@@ -13,8 +13,8 @@
         "changelog": "Exclude trash folders from media statistics, fix false positives for orphaned TV show metadata directories, fix trash disable dialog in UI.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.6/JellyfinHelper_1.0.6.zip",
-        "checksum": "",
-        "timestamp": "2026-04-11T18:27:00Z"
+        "checksum": "7b4e031de54e48169f61bcef0626e775",
+        "timestamp": "2026-04-11T17:10:31Z"
       },
       {
         "version": "1.0.5",

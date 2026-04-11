@@ -1,7 +1,7 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "1.0.5"
+version: "1.0.6"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 overview: "Automated cleanup (trickplay, empty folders, subtitles, STRM repair), media statistics with codec/health analysis, export/trends, trash bin, multi-instance Arr integration, and multi-language 6-tab dashboard."
@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  Multi-instance Arr support (up to 3 Radarr + 3 Sonarr), Arr connection test endpoint, persisted latest scan results (survives restarts), post-cleanup statistics scan, embedded subtitle detection in health checks, video vs music audio codec split, codec file path tracking with clickable drill-down, trash contents detail API, trash folder management UI, trash disable dialog, other file tracking, 6-tab modular dashboard (Overview/Codecs/Health/Trends/Settings/Arr), modular CSS/JS build system, XSS protection, boxset/collection health check skipping, comprehensive README rewrite, 573 tests.
+  Exclude trash folders from media statistics, fix false positives for orphaned TV show metadata directories, fix trash disable dialog in UI.
