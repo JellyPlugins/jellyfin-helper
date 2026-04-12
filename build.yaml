@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  Project restructure, bug fix for Jellyfin versions below 10.11.8, backup/restore data functionality, enhanced TrendChart with improved scaling and labels, relocated download buttons, responsive Data Tree for touch devices.
+  v1.0.8: Project restructure, bug fix for Jellyfin versions below 10.11.8, backup/restore data, enhanced TrendChart, relocated download buttons, responsive Data Tree for touch devices.

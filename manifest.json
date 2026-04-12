@@ -12,9 +12,9 @@
         "version": "1.0.8",
         "changelog": "v1.0.8: Project restructure, bug fix for Jellyfin versions below 10.11.8, backup/restore data, enhanced TrendChart, relocated download buttons, responsive Data Tree for touch devices.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/v1.0.8/jellyfin-helper-v1.0.8.zip",
-        "checksum": "",
-        "timestamp": "2026-04-13T00:00:00Z"
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.8/JellyfinHelper_1.0.8.zip",
+        "checksum": "6031a9160a5b4690c5cd2b5d8d813770",
+        "timestamp": "2026-04-12T23:09:21Z"
       },
       {
         "version": "1.0.7",
