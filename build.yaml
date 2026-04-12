@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  Plugin-specific log viewer tab with level/source filtering, auto-refresh, download, and clear. Dedicated per-tab CSS/JS modules. Enhanced backend logging. Log level persisted to plugin configuration. 737 tests.
+  Plugin-specific log viewer tab with level/source filtering, auto-refresh, download, and clear. Dedicated per-tab CSS/JS modules (Overview, Codecs, Health, Trends, Settings, Logs). Enhanced backend logging in MediaStatisticsService. Log level persisted to plugin configuration. 737 tests.
