@@ -91,96 +91,87 @@
     <script>
     // ========== MOCK DATA ==========
     var MOCK_TRANSLATIONS = null; // loaded from en.json
+    // Helper: create a library object matching C# LibraryStatistics shape
+    function _lib(name, type, opts) {
+        var totalSize = (opts.VideoSize||0) + (opts.AudioSize||0) + (opts.SubtitleSize||0) +
+            (opts.ImageSize||0) + (opts.NfoSize||0) + (opts.TrickplaySize||0) + (opts.OtherSize||0);
+        return Object.assign({
+            LibraryName: name, CollectionType: type, RootPaths: opts.RootPaths || [],
+            VideoSize: 0, AudioSize: 0, SubtitleSize: 0, ImageSize: 0, NfoSize: 0, TrickplaySize: 0, OtherSize: 0,
+            VideoFileCount: 0, AudioFileCount: 0, SubtitleFileCount: 0, ImageFileCount: 0, NfoFileCount: 0,
+            TrickplayFileCount: 0, TrickplayFolderCount: opts.TrickplayFolderCount || 0, OtherFileCount: 0,
+            TotalSize: totalSize,
+            VideoCodecs: {}, VideoAudioCodecs: {}, MusicAudioCodecs: {},
+            ContainerFormats: {}, Resolutions: {},
+            VideoCodecPaths: {}, VideoAudioCodecPaths: {}, MusicAudioCodecPaths: {},
+            ContainerFormatPaths: {}, ResolutionPaths: {},
+            VideoCodecSizes: {}, VideoAudioCodecSizes: {}, MusicAudioCodecSizes: {},
+            ContainerSizes: {}, ResolutionSizes: {},
+            VideosWithoutSubtitles: 0, VideosWithoutImages: 0, VideosWithoutNfo: 0, OrphanedMetadataDirectories: 0,
+            VideosWithoutSubtitlesPaths: [], VideosWithoutImagesPaths: [], VideosWithoutNfoPaths: [], OrphanedMetadataDirectoriesPaths: []
+        }, opts);
+    }
+
+    var _moviesLib = _lib("Movies", "movies", {
+        RootPaths: ["/data/movies"],
+        VideoSize: 3298534883328, SubtitleSize: 3221225472,
+        ImageSize: 4294967296, NfoSize: 536870912, TrickplaySize: 19327352832, OtherSize: 268435456,
+        VideoFileCount: 1800, SubtitleFileCount: 3600, ImageFileCount: 7200, NfoFileCount: 1800,
+        TrickplayFileCount: 1500, TrickplayFolderCount: 1500, OtherFileCount: 64,
+        VideoCodecs: { "HEVC": 900, "H.264": 750, "AV1": 100, "VP9": 30, "MPEG-2": 20 },
+        VideoAudioCodecs: { "AAC": 900, "AC3": 450, "DTS": 300, "TrueHD": 150 },
+        ContainerFormats: { "MKV": 1100, "MP4": 600, "AVI": 80, "WebM": 20 },
+        Resolutions: { "4K": 500, "1080p": 1000, "720p": 200, "480p": 80, "576p": 20 },
+        VideoCodecPaths: { "HEVC": ["/data/movies/Inception (2010)/Inception.mkv", "/data/movies/Interstellar (2014)/Interstellar.mkv"], "H.264": ["/data/movies/The Matrix (1999)/The Matrix.mp4"], "AV1": ["/data/movies/Dune (2021)/Dune.mkv"] },
+        VideosWithoutSubtitles: 12, VideosWithoutImages: 3, VideosWithoutNfo: 1,
+        VideosWithoutSubtitlesPaths: ["/data/movies/Old Movie (1995)/Old Movie.avi"], VideosWithoutImagesPaths: [], VideosWithoutNfoPaths: []
+    });
+
+    var _tvLib = _lib("TV Shows", "tvshows", {
+        RootPaths: ["/data/tv"],
+        VideoSize: 2199023255552, SubtitleSize: 2147483648,
+        ImageSize: 3221225472, NfoSize: 536870912, TrickplaySize: 12884901888, OtherSize: 268435456,
+        VideoFileCount: 2042, SubtitleFileCount: 4080, ImageFileCount: 6000, NfoFileCount: 2040,
+        TrickplayFileCount: 1700, TrickplayFolderCount: 1700, OtherFileCount: 64,
+        VideoCodecs: { "HEVC": 1020, "H.264": 850, "AV1": 80, "VP9": 52, "MPEG-2": 40 },
+        VideoAudioCodecs: { "AAC": 900, "AC3": 450, "DTS": 300, "Opus": 142, "FLAC": 100, "TrueHD": 150 },
+        ContainerFormats: { "MKV": 1300, "MP4": 600, "AVI": 62, "WebM": 60, "TS": 20 },
+        Resolutions: { "4K": 300, "1080p": 1200, "720p": 400, "480p": 120, "576p": 22 },
+        VideoCodecPaths: { "HEVC": ["/data/tv/Breaking Bad/S01E01.mkv"], "H.264": ["/data/tv/Friends/S01E01.mp4"] },
+        VideosWithoutSubtitles: 45, VideosWithoutImages: 8, OrphanedMetadataDirectories: 1,
+        VideosWithoutSubtitlesPaths: ["/data/tv/New Show/S01E01.mkv"], VideosWithoutImagesPaths: ["/data/tv/New Show/S01E01.mkv", "/data/tv/New Show/S01E02.mkv"],
+        OrphanedMetadataDirectoriesPaths: ["/data/tv/Cancelled Show/"]
+    });
+
+    var _musicLib = _lib("Music", "music", {
+        RootPaths: ["/data/music"],
+        AudioSize: 214748364800, ImageSize: 1073741824,
+        AudioFileCount: 12450, ImageFileCount: 2000,
+        MusicAudioCodecs: { "FLAC": 6000, "MP3": 3200, "Opus": 1500, "AAC": 1000, "ALAC": 500, "WavPack": 250 },
+        MusicAudioCodecPaths: { "FLAC": ["/data/music/Pink Floyd/Dark Side of the Moon/01 - Speak to Me.flac"] }
+    });
+
     var MOCK_STATISTICS = {
         ScanTimestamp: new Date(Date.now() - 300000).toISOString(),
-        TotalVideoSize: 5497558138880,
-        TotalAudioSize: 214748364800,
-        TotalSubtitleSize: 5368709120,
-        TotalImageSize: 8589934592,
-        TotalNfoSize: 1073741824,
-        TotalTrickplaySize: 32212254720,
-        TotalOtherSize: 536870912,
-        TotalVideoFileCount: 3842,
-        TotalAudioFileCount: 12450,
-        TotalSubtitleFileCount: 7680,
-        TotalImageFileCount: 15200,
-        TotalNfoFileCount: 3840,
-        TotalTrickplayFileCount: 3200,
-        TotalOtherFileCount: 128,
-        VideoCodecs: { "HEVC": 1920, "H.264": 1600, "AV1": 180, "VP9": 82, "MPEG-2": 60 },
-        VideoAudioCodecs: { "AAC": 1800, "AC3": 900, "DTS": 600, "TrueHD": 300, "Opus": 142, "FLAC": 100 },
-        MusicAudioCodecs: { "FLAC": 6000, "MP3": 3200, "Opus": 1500, "AAC": 1000, "ALAC": 500, "WavPack": 250 },
-        ContainerFormats: { "MKV": 2400, "MP4": 1200, "AVI": 142, "WebM": 80, "TS": 20 },
-        Resolutions: { "4K": 800, "1080p": 2200, "720p": 600, "480p": 200, "576p": 42 },
-        VideoCodecPaths: {
-            "HEVC": ["/movies/Inception (2010)/Inception.mkv", "/movies/Interstellar (2014)/Interstellar.mkv", "/tv/Breaking Bad/S01E01.mkv"],
-            "H.264": ["/movies/The Matrix (1999)/The Matrix.mp4", "/tv/Friends/S01E01.mp4"],
-            "AV1": ["/movies/Dune (2021)/Dune.mkv"]
-        },
-        VideoAudioCodecPaths: { "AAC": ["/movies/Inception (2010)/Inception.mkv"], "DTS": ["/movies/Interstellar (2014)/Interstellar.mkv"] },
-        MusicAudioCodecPaths: { "FLAC": ["/music/Pink Floyd/Dark Side of the Moon/01 - Speak to Me.flac"] },
-        ContainerFormatPaths: { "MKV": ["/movies/Inception (2010)/Inception.mkv"], "MP4": ["/movies/The Matrix (1999)/The Matrix.mp4"] },
-        ResolutionPaths: { "4K": ["/movies/Dune (2021)/Dune.mkv"], "1080p": ["/movies/Inception (2010)/Inception.mkv"] },
-        VideosWithoutSubtitles: ["/movies/Old Movie (1995)/Old Movie.avi"],
-        VideosWithoutSubtitlePaths: ["/movies/Old Movie (1995)/Old Movie.avi", "/movies/Foreign Film (2020)/Foreign Film.mkv"],
-        VideosWithoutImages: ["/tv/New Show/S01E01.mkv"],
-        VideosWithoutImagePaths: ["/tv/New Show/S01E01.mkv", "/tv/New Show/S01E02.mkv"],
-        VideosWithoutNfo: [],
-        VideosWithoutNfoPaths: ["/movies/Random (2023)/Random.mp4"],
-        OrphanedMetadataDirs: [],
-        OrphanedMetadataDirPaths: ["/tv/Cancelled Show/"],
-        Libraries: [
-            {
-                Name: "Movies",
-                CollectionType: "movies",
-                VideoSize: 3298534883328, AudioSize: 0, SubtitleSize: 3221225472,
-                ImageSize: 4294967296, NfoSize: 536870912, TrickplaySize: 19327352832, OtherSize: 268435456,
-                VideoFileCount: 1800, AudioFileCount: 0, SubtitleFileCount: 3600,
-                ImageFileCount: 7200, NfoFileCount: 1800, TrickplayFileCount: 1500, OtherFileCount: 64,
-                VideoCodecs: { "HEVC": 900, "H.264": 750, "AV1": 100, "VP9": 30, "MPEG-2": 20 },
-                VideoAudioCodecs: { "AAC": 900, "AC3": 450, "DTS": 300, "TrueHD": 150 },
-                MusicAudioCodecs: {},
-                ContainerFormats: { "MKV": 1100, "MP4": 600, "AVI": 80, "WebM": 20 },
-                Resolutions: { "4K": 500, "1080p": 1000, "720p": 200, "480p": 80, "576p": 20 },
-                VideoCodecPaths: {}, VideoAudioCodecPaths: {}, MusicAudioCodecPaths: {},
-                ContainerFormatPaths: {}, ResolutionPaths: {},
-                VideosWithoutSubtitles: 12, VideosWithoutImages: 3, VideosWithoutNfo: 1, OrphanedMetadataDirs: 0,
-                VideosWithoutSubtitlePaths: [], VideosWithoutImagePaths: [], VideosWithoutNfoPaths: [], OrphanedMetadataDirPaths: []
-            },
-            {
-                Name: "TV Shows",
-                CollectionType: "tvshows",
-                VideoSize: 2199023255552, AudioSize: 0, SubtitleSize: 2147483648,
-                ImageSize: 3221225472, NfoSize: 536870912, TrickplaySize: 12884901888, OtherSize: 268435456,
-                VideoFileCount: 2042, AudioFileCount: 0, SubtitleFileCount: 4080,
-                ImageFileCount: 6000, NfoFileCount: 2040, TrickplayFileCount: 1700, OtherFileCount: 64,
-                VideoCodecs: { "HEVC": 1020, "H.264": 850, "AV1": 80, "VP9": 52, "MPEG-2": 40 },
-                VideoAudioCodecs: { "AAC": 900, "AC3": 450, "DTS": 300, "Opus": 142, "FLAC": 100, "TrueHD": 150 },
-                MusicAudioCodecs: {},
-                ContainerFormats: { "MKV": 1300, "MP4": 600, "AVI": 62, "WebM": 60, "TS": 20 },
-                Resolutions: { "4K": 300, "1080p": 1200, "720p": 400, "480p": 120, "576p": 22 },
-                VideoCodecPaths: {}, VideoAudioCodecPaths: {}, MusicAudioCodecPaths: {},
-                ContainerFormatPaths: {}, ResolutionPaths: {},
-                VideosWithoutSubtitles: 45, VideosWithoutImages: 8, VideosWithoutNfo: 0, OrphanedMetadataDirs: 1,
-                VideosWithoutSubtitlePaths: [], VideosWithoutImagePaths: [], VideosWithoutNfoPaths: [], OrphanedMetadataDirPaths: []
-            },
-            {
-                Name: "Music",
-                CollectionType: "music",
-                VideoSize: 0, AudioSize: 214748364800, SubtitleSize: 0,
-                ImageSize: 1073741824, NfoSize: 0, TrickplaySize: 0, OtherSize: 0,
-                VideoFileCount: 0, AudioFileCount: 12450, SubtitleFileCount: 0,
-                ImageFileCount: 2000, NfoFileCount: 0, TrickplayFileCount: 0, OtherFileCount: 0,
-                VideoCodecs: {}, VideoAudioCodecs: {},
-                MusicAudioCodecs: { "FLAC": 6000, "MP3": 3200, "Opus": 1500, "AAC": 1000, "ALAC": 500, "WavPack": 250 },
-                ContainerFormats: {},
-                Resolutions: {},
-                VideoCodecPaths: {}, VideoAudioCodecPaths: {}, MusicAudioCodecPaths: {},
-                ContainerFormatPaths: {}, ResolutionPaths: {},
-                VideosWithoutSubtitles: 0, VideosWithoutImages: 0, VideosWithoutNfo: 0, OrphanedMetadataDirs: 0,
-                VideosWithoutSubtitlePaths: [], VideosWithoutImagePaths: [], VideosWithoutNfoPaths: [], OrphanedMetadataDirPaths: []
-            }
-        ]
+        Libraries: [_moviesLib, _tvLib, _musicLib],
+        Movies: [_moviesLib],
+        TvShows: [_tvLib],
+        Music: [_musicLib],
+        Other: [],
+        // Computed totals (matching C# MediaStatisticsResult computed properties)
+        TotalMovieVideoSize: _moviesLib.VideoSize,
+        TotalTvShowVideoSize: _tvLib.VideoSize,
+        TotalMusicAudioSize: _musicLib.AudioSize,
+        TotalTrickplaySize: _moviesLib.TrickplaySize + _tvLib.TrickplaySize,
+        TotalSubtitleSize: _moviesLib.SubtitleSize + _tvLib.SubtitleSize,
+        TotalImageSize: _moviesLib.ImageSize + _tvLib.ImageSize + _musicLib.ImageSize,
+        TotalNfoSize: _moviesLib.NfoSize + _tvLib.NfoSize,
+        TotalVideoFileCount: _moviesLib.VideoFileCount + _tvLib.VideoFileCount,
+        TotalAudioFileCount: _musicLib.AudioFileCount,
+        MovieRootPaths: ["/data/movies"],
+        TvShowRootPaths: ["/data/tv"],
+        MusicRootPaths: ["/data/music"],
+        OtherRootPaths: []
     };
 
     var MOCK_CONFIG = {
@@ -229,6 +220,7 @@
                 TotalOtherSize: 500000000,
                 TotalVideoFileCount: 3700 + (30 - i) * 5,
                 TotalAudioFileCount: 12000 + (30 - i) * 15,
+                TotalSize: 5444500000000 + growth + (30 - i) * 570000000,
                 LibraryCount: 3
             });
         }
@@ -257,7 +249,7 @@
 
     var MOCK_ARR_COMPARE = {
         InBoth: ["Inception (2010)", "Interstellar (2014)", "The Dark Knight (2008)", "Dune (2021)", "Oppenheimer (2023)"],
-        InArrOnlyWithFile: ["Arrival (2016)"],
+        InArrOnly: ["Arrival (2016)"],
         InArrOnlyMissing: ["Tenet (2020)", "Blade Runner 2049 (2017)"],
         InJellyfinOnly: ["Home Video (2023)", "Family Recording (2024)"]
     };
