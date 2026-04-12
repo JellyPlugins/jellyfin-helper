@@ -1,0 +1,221 @@
+/* === Logs Tab === */
+.logs-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1em;
+}
+
+.logs-toolbar {
+    display: flex;
+    gap: 0.8em;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 0.8em 1em;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+}
+
+.logs-toolbar label {
+    font-size: 0.85em;
+    opacity: 0.7;
+    margin-right: 0.3em;
+}
+
+.logs-toolbar select,
+.logs-toolbar input {
+    padding: 0.4em 0.6em;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.05);
+    color: inherit;
+    font-size: 0.85em;
+    color-scheme: light dark;
+}
+
+.logs-toolbar select option {
+    background: #2b2b2b;
+    color: #e0e0e0;
+}
+
+@media (prefers-color-scheme: light) {
+    .logs-toolbar select,
+    .logs-toolbar input {
+        background: rgba(0,0,0,0.05);
+        border-color: rgba(0,0,0,0.15);
+    }
+    .logs-toolbar select option {
+        background: #ffffff;
+        color: #111111;
+    }
+}
+
+.logs-toolbar .logs-spacer {
+    flex: 1;
+}
+
+.logs-toolbar .logs-count {
+    font-size: 0.8em;
+    opacity: 0.5;
+}
+
+.logs-btn-group {
+    display: flex;
+    gap: 0.5em;
+}
+
+.logs-btn {
+    padding: 0.4em 0.9em;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 4px;
+    background: rgba(255,255,255,0.05);
+    color: #fff;
+    cursor: pointer;
+    font-size: 0.82em;
+    transition: background 0.2s, border-color 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+}
+
+.logs-btn:hover {
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.25);
+}
+
+.logs-btn.danger {
+    border-color: rgba(231,76,60,0.3);
+    color: #e74c3c;
+}
+
+.logs-btn.danger:hover {
+    background: rgba(231,76,60,0.15);
+    border-color: rgba(231,76,60,0.5);
+}
+
+.logs-btn.primary {
+    border-color: rgba(46,204,113,0.3);
+    color: #2ecc71;
+}
+
+.logs-btn.primary:hover {
+    background: rgba(46,204,113,0.15);
+    border-color: rgba(46,204,113,0.5);
+}
+
+/* Log entries table */
+.logs-table-wrapper {
+    max-height: 520px;
+    overflow-y: auto;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    background: rgba(0,0,0,0.2);
+}
+
+.logs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82em;
+    font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+}
+
+.logs-table th {
+    position: sticky;
+    top: 0;
+    background: rgba(30,30,32,0.98);
+    padding: 0.6em 0.8em;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.9em;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+    z-index: 1;
+}
+
+.logs-table td {
+    padding: 0.45em 0.8em;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    vertical-align: top;
+    line-height: 1.4;
+}
+
+.logs-table tr:hover {
+    background: rgba(255,255,255,0.03);
+}
+
+.logs-table .col-time {
+    width: 145px;
+    white-space: nowrap;
+    opacity: 0.6;
+}
+
+.logs-table .col-level {
+    width: 60px;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.logs-table .col-source {
+    width: 140px;
+    white-space: nowrap;
+    opacity: 0.7;
+}
+
+.logs-table .col-message {
+    overflow-wrap: break-word;
+}
+
+/* Level colors */
+.log-level-DEBUG { color: #7f8c8d; }
+.log-level-INFO  { color: #3498db; }
+.log-level-WARN  { color: #f39c12; }
+.log-level-ERROR { color: #e74c3c; }
+
+/* Exception detail */
+.log-exception {
+    margin-top: 0.3em;
+    padding: 0.4em 0.6em;
+    background: rgba(231,76,60,0.08);
+    border-left: 3px solid rgba(231,76,60,0.4);
+    border-radius: 3px;
+    font-size: 0.9em;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 120px;
+    overflow-y: auto;
+    opacity: 0.8;
+}
+
+/* Empty state */
+.logs-empty {
+    text-align: center;
+    padding: 3em 1em;
+    opacity: 0.4;
+    font-size: 0.95em;
+}
+
+.logs-empty .logs-empty-icon {
+    font-size: 2.5em;
+    margin-bottom: 0.3em;
+}
+
+/* Auto-refresh indicator */
+.logs-auto-refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    font-size: 0.8em;
+    opacity: 0.5;
+}
+
+.logs-auto-refresh .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #2ecc71;
+    animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+}

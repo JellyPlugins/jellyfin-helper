@@ -36,6 +36,7 @@ public class MediaStatisticsControllerTrashTests : IDisposable
         var loggerMock = new Mock<ILogger<MediaStatisticsController>>();
         var serviceLoggerMock = new Mock<ILogger<MediaStatisticsService>>();
         var historyLoggerMock = new Mock<ILogger<StatisticsHistoryService>>();
+        var growthTimelineLoggerMock = new Mock<ILogger<GrowthTimelineService>>();
 
         _controller = new MediaStatisticsController(
             _libraryManagerMock.Object,
@@ -45,7 +46,8 @@ public class MediaStatisticsControllerTrashTests : IDisposable
             cache,
             loggerMock.Object,
             serviceLoggerMock.Object,
-            historyLoggerMock.Object);
+            historyLoggerMock.Object,
+            growthTimelineLoggerMock.Object);
             
         CleanupConfigHelper.ConfigOverride = new PluginConfiguration();
     }

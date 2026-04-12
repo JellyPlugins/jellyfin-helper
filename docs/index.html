@@ -286,6 +286,44 @@
         TotalCount: 10
     };
 
+    var MOCK_GROWTH_TIMELINE = (function() {
+        // Simulate ~10 years of monthly library growth (2016-2026)
+        var dataPoints = [];
+        var startDate = new Date(2016, 5, 1);
+        var now = new Date();
+        var cumulativeSize = 0;
+        var cumulativeFileCount = 0;
+        var month = new Date(startDate);
+        var seed = 42;
+        function pseudoRandom() {
+            seed = (seed * 16807) % 2147483647;
+            return (seed - 1) / 2147483646;
+        }
+        while (month <= now) {
+            var year = month.getFullYear();
+            var m = month.getMonth();
+            var yearIndex = year - 2016;
+            var baseFiles = Math.floor(10 + yearIndex * 8 + pseudoRandom() * (15 + yearIndex * 5));
+            if (m === 0 || m === 9 || m === 11) baseFiles = Math.floor(baseFiles * (1.3 + pseudoRandom() * 0.4));
+            var avgFileSize = (1.5 + yearIndex * 0.5 + pseudoRandom() * 1.5) * 1073741824;
+            cumulativeSize += Math.floor(baseFiles * avgFileSize);
+            cumulativeFileCount += baseFiles;
+            dataPoints.push({
+                date: new Date(year, m, 1).toISOString(),
+                cumulativeSize: cumulativeSize,
+                cumulativeFileCount: cumulativeFileCount
+            });
+            month.setMonth(month.getMonth() + 1);
+        }
+        return {
+            granularity: "monthly",
+            earliestFileDate: startDate.toISOString(),
+            computedAt: now.toISOString(),
+            totalFilesScanned: cumulativeFileCount,
+            dataPoints: dataPoints
+        };
+    })();
+
     var MOCK_LIBRARIES = [
         { Name: "Movies", CollectionType: "movies" },
         { Name: "TV Shows", CollectionType: "tvshows" },
@@ -301,7 +339,7 @@
             var url = opts.url || '';
             var method = (opts.type || 'GET').toUpperCase();
 
-            return new Promise(function(resolve, reject) {
+            return new Promise(function(resolve) {
                 // Simulate network delay
                 setTimeout(function() {
                     // Route to mock data
@@ -313,6 +351,8 @@
                         resolve(JSON.stringify(MOCK_STATISTICS, null, 2));
                     } else if (url.indexOf('Statistics/Export/Csv') !== -1) {
                         resolve('Library,VideoSize,AudioSize,VideoFiles\nMovies,3298534883328,0,1800\nTV Shows,2199023255552,0,2042\nMusic,0,214748364800,0');
+                    } else if (url.indexOf('Statistics/GrowthTimeline') !== -1) {
+                        resolve(JSON.parse(JSON.stringify(MOCK_GROWTH_TIMELINE)));
                     } else if (url.indexOf('Statistics/History') !== -1) {
                         resolve(MOCK_HISTORY);
                     } else if (url.indexOf('Statistics') !== -1 && url.indexOf('forceRefresh') !== -1) {

@@ -178,6 +178,17 @@ public class HelperCleanupTask : IScheduledTask
             historyService.SaveSnapshot(result);
             historyService.SaveLatestResult(result);
             PluginLogService.LogInfo("HelperCleanup", "Post-cleanup statistics scan completed and persisted.", _logger);
+
+            // Recompute growth timeline
+            cancellationToken.ThrowIfCancellationRequested();
+            PluginLogService.LogInfo("HelperCleanup", "Recomputing growth timeline...", _logger);
+            var growthService = new GrowthTimelineService(
+                _libraryManager,
+                _fileSystem,
+                _applicationPaths,
+                _loggerFactory.CreateLogger<GrowthTimelineService>());
+            growthService.ComputeTimeline();
+            PluginLogService.LogInfo("HelperCleanup", "Growth timeline recomputed and persisted.", _logger);
         }
         catch (OperationCanceledException)
         {

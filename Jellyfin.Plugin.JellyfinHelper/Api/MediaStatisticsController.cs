@@ -53,6 +53,7 @@ public class MediaStatisticsController : ControllerBase
     private readonly IFileSystem _fileSystem;
     private readonly MediaStatisticsService _statisticsService;
     private readonly StatisticsHistoryService _historyService;
+    private readonly GrowthTimelineService _growthTimelineService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IMemoryCache _cache;
     private readonly ILogger<MediaStatisticsController> _logger;
@@ -68,6 +69,7 @@ public class MediaStatisticsController : ControllerBase
     /// <param name="logger">The controller logger.</param>
     /// <param name="serviceLogger">The statistics service logger.</param>
     /// <param name="historyLogger">The history service logger.</param>
+    /// <param name="growthTimelineLogger">The growth timeline service logger.</param>
     public MediaStatisticsController(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
@@ -76,12 +78,14 @@ public class MediaStatisticsController : ControllerBase
         IMemoryCache cache,
         ILogger<MediaStatisticsController> logger,
         ILogger<MediaStatisticsService> serviceLogger,
-        ILogger<StatisticsHistoryService> historyLogger)
+        ILogger<StatisticsHistoryService> historyLogger,
+        ILogger<GrowthTimelineService> growthTimelineLogger)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
         _statisticsService = new MediaStatisticsService(libraryManager, fileSystem, serviceLogger);
         _historyService = new StatisticsHistoryService(applicationPaths, historyLogger);
+        _growthTimelineService = new GrowthTimelineService(libraryManager, fileSystem, applicationPaths, growthTimelineLogger);
         _httpClientFactory = httpClientFactory;
         _cache = cache;
         _logger = logger;
@@ -303,7 +307,7 @@ public class MediaStatisticsController : ControllerBase
     }
 
     /// <summary>
-    /// Gets the historical statistics trend data.
+    /// Gets the historical statistics trend data (legacy scan-based snapshots).
     /// </summary>
     /// <returns>A list of historical snapshots.</returns>
     [HttpGet("Statistics/History")]
@@ -312,6 +316,31 @@ public class MediaStatisticsController : ControllerBase
     {
         var history = _historyService.LoadHistory();
         return Ok(history);
+    }
+
+    /// <summary>
+    /// Gets the library growth timeline based on media file creation dates.
+    /// Returns the cached timeline if available, otherwise computes it.
+    /// The timeline uses automatic granularity (daily/weekly/monthly/quarterly/yearly)
+    /// based on the age of the oldest media file.
+    /// </summary>
+    /// <param name="forceRefresh">Set to true to force recomputation instead of using cached data.</param>
+    /// <returns>The growth timeline with cumulative data points.</returns>
+    [HttpGet("Statistics/GrowthTimeline")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<GrowthTimelineResult> GetGrowthTimeline([FromQuery] bool forceRefresh = false)
+    {
+        if (!forceRefresh)
+        {
+            var cached = _growthTimelineService.LoadTimeline();
+            if (cached != null)
+            {
+                return Ok(cached);
+            }
+        }
+
+        var result = _growthTimelineService.ComputeTimeline();
+        return Ok(result);
     }
 
     // === Cleanup Statistics ===

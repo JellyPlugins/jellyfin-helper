@@ -48,6 +48,7 @@ public class MediaStatisticsControllerExportTests
         var loggerMock = new Mock<ILogger<MediaStatisticsController>>();
         var serviceLoggerMock = new Mock<ILogger<MediaStatisticsService>>();
         var historyLoggerMock = new Mock<ILogger<StatisticsHistoryService>>();
+        var growthTimelineLoggerMock = new Mock<ILogger<GrowthTimelineService>>();
 
         _controller = new MediaStatisticsController(
             libraryManagerMock.Object,
@@ -57,7 +58,8 @@ public class MediaStatisticsControllerExportTests
             _cache,
             loggerMock.Object,
             serviceLoggerMock.Object,
-            historyLoggerMock.Object);
+            historyLoggerMock.Object,
+            growthTimelineLoggerMock.Object);
     }
 
     // ======================== Helpers ========================

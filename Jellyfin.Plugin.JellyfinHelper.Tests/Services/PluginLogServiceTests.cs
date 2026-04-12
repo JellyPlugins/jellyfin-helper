@@ -927,6 +927,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void ExportAsText_EmptyBuffer_ProducesHeaderOnly()
     {
+        PluginLogService.Clear();
         var text = PluginLogService.ExportAsText();
         Assert.Contains("Jellyfin Helper Plugin Logs", text, StringComparison.Ordinal);
         Assert.Contains("Entries: 0", text, StringComparison.Ordinal);
