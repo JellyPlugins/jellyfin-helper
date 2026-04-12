@@ -217,6 +217,7 @@
   "backupImportSuccess": "备份导入成功。",
   "backupImportError": "备份导入失败。",
   "backupFileTooLarge": "文件太大。最大大小为 50 MB。",
+  "backupInvalidJson": "无效的备份文件。该文件不包含有效的 JSON。",
   "backupImportConfirmTitle": "导入备份",
   "backupImportConfirmMsg": "这将用备份数据覆盖您当前的设置、Arr 集成和趋势数据。",
   "backupImportConfirmFile": "文件",

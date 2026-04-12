@@ -217,6 +217,7 @@
   "backupImportSuccess": "Copia importada correctamente.",
   "backupImportError": "Error al importar la copia.",
   "backupFileTooLarge": "Archivo demasiado grande. Tamaño máximo: 50 MB.",
+  "backupInvalidJson": "Archivo de copia no válido. El archivo no contiene JSON válido.",
   "backupImportConfirmTitle": "Importar copia",
   "backupImportConfirmMsg": "Esto sobrescribirá tus ajustes actuales, integraciones Arr y datos de tendencias con los datos de la copia.",
   "backupImportConfirmFile": "Archivo",

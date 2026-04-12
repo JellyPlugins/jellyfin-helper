@@ -217,6 +217,7 @@
   "backupImportSuccess": "Sauvegarde importée avec succès.",
   "backupImportError": "Échec de l'import de la sauvegarde.",
   "backupFileTooLarge": "Fichier trop volumineux. Taille maximale : 50 Mo.",
+  "backupInvalidJson": "Fichier de sauvegarde invalide. Le fichier ne contient pas de JSON valide.",
   "backupImportConfirmTitle": "Importer la sauvegarde",
   "backupImportConfirmMsg": "Cela écrasera vos paramètres actuels, intégrations Arr et données de tendances avec les données de la sauvegarde.",
   "backupImportConfirmFile": "Fichier",

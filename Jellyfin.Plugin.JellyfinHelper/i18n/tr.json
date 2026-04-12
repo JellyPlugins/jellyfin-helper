@@ -217,6 +217,7 @@
   "backupImportSuccess": "Yedek başarıyla içe aktarıldı.",
   "backupImportError": "Yedek içe aktarılamadı.",
   "backupFileTooLarge": "Dosya çok büyük. Maksimum boyut: 50 MB.",
+  "backupInvalidJson": "Geçersiz yedek dosyası. Dosya geçerli JSON içermiyor.",
   "backupImportConfirmTitle": "Yedeği içe aktar",
   "backupImportConfirmMsg": "Bu, mevcut ayarlarınızı, Arr entegrasyonlarınızı ve trend verilerinizi yedek verileriyle değiştirecektir.",
   "backupImportConfirmFile": "Dosya",
