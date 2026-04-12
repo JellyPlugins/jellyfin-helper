@@ -61,7 +61,7 @@ public class StatisticsHistoryService
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
-                _logger.LogWarning(ex, "Could not load statistics history from {Path}", _historyFilePath);
+                PluginLogService.LogWarning("StatisticsHistory", $"Could not load statistics history from {_historyFilePath}", ex, _logger);
                 return Array.Empty<StatisticsSnapshot>();
             }
         }
@@ -100,11 +100,11 @@ public class StatisticsHistoryService
                 var json = JsonSerializer.Serialize(history, JsonOptions);
                 File.WriteAllText(_historyFilePath, json);
 
-                _logger.LogInformation("Saved statistics snapshot ({Count} total entries)", history.Count);
+                PluginLogService.LogInfo("StatisticsHistory", $"Saved statistics snapshot ({history.Count} total entries)", _logger);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                _logger.LogWarning(ex, "Could not save statistics history to {Path}", _historyFilePath);
+                PluginLogService.LogWarning("StatisticsHistory", $"Could not save statistics history to {_historyFilePath}", ex, _logger);
             }
         }
     }
@@ -130,11 +130,11 @@ public class StatisticsHistoryService
                 var json = JsonSerializer.Serialize(result, JsonOptions);
                 File.WriteAllText(_latestResultFilePath, json);
 
-                _logger.LogDebug("Saved latest statistics result to {Path}", _latestResultFilePath);
+                PluginLogService.LogDebug("StatisticsHistory", $"Saved latest statistics result to {_latestResultFilePath}", _logger);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                _logger.LogWarning(ex, "Could not save latest statistics result to {Path}", _latestResultFilePath);
+                PluginLogService.LogWarning("StatisticsHistory", $"Could not save latest statistics result to {_latestResultFilePath}", ex, _logger);
             }
         }
     }
@@ -159,7 +159,7 @@ public class StatisticsHistoryService
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
-                _logger.LogWarning(ex, "Could not load latest statistics result from {Path}", _latestResultFilePath);
+                PluginLogService.LogWarning("StatisticsHistory", $"Could not load latest statistics result from {_latestResultFilePath}", ex, _logger);
                 return null;
             }
         }
@@ -183,7 +183,7 @@ public class StatisticsHistoryService
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
-            _logger.LogWarning(ex, "Could not load statistics history from {Path}", _historyFilePath);
+            PluginLogService.LogWarning("StatisticsHistory", $"Could not load statistics history from {_historyFilePath}", ex, _logger);
             return new List<StatisticsSnapshot>();
         }
     }

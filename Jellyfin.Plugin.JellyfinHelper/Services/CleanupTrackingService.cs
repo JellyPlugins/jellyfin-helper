@@ -23,7 +23,7 @@ public static class CleanupTrackingService
         var plugin = Plugin.Instance;
         if (plugin == null)
         {
-            logger.LogWarning("Plugin instance is null, cannot record cleanup statistics.");
+            PluginLogService.LogWarning("CleanupTracking", "Plugin instance is null, cannot record cleanup statistics.", logger: logger);
             return;
         }
 
@@ -36,12 +36,7 @@ public static class CleanupTrackingService
 
             plugin.SaveConfiguration();
 
-            logger.LogInformation(
-                "Cleanup recorded: {BytesFreed} bytes freed, {ItemsDeleted} items deleted. Lifetime total: {TotalBytes} bytes, {TotalItems} items.",
-                bytesFreed,
-                itemsDeleted,
-                config.TotalBytesFreed,
-                config.TotalItemsDeleted);
+            PluginLogService.LogInfo("CleanupTracking", $"Cleanup recorded: {bytesFreed} bytes freed, {itemsDeleted} items deleted. Lifetime total: {config.TotalBytesFreed} bytes, {config.TotalItemsDeleted} items.", logger);
         }
     }
 

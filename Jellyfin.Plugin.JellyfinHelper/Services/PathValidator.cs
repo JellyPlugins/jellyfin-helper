@@ -19,6 +19,7 @@ internal static class PathValidator
     {
         if (string.IsNullOrWhiteSpace(path))
         {
+            PluginLogService.LogDebug("PathValidator", "Rejected empty or whitespace path.");
             return false;
         }
 
@@ -26,6 +27,7 @@ internal static class PathValidator
         if (path.Contains("..", StringComparison.Ordinal) ||
             path.Contains('\0', StringComparison.Ordinal))
         {
+            PluginLogService.LogWarning("PathValidator", $"Rejected path with traversal pattern: {path}");
             return false;
         }
 
@@ -44,6 +46,7 @@ internal static class PathValidator
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
+            PluginLogService.LogWarning("PathValidator", $"Path validation failed for '{path}': {ex.Message}");
             return false;
         }
     }

@@ -14,10 +14,18 @@
                 for (var j = 0; j < allBtns.length; j++) allBtns[j].classList.remove('active');
                 for (var k = 0; k < allContent.length; k++) allContent[k].classList.remove('active');
 
+                // Cleanup previous tab (e.g. stop auto-refresh timers)
+                if (typeof destroyLogsTab === 'function') destroyLogsTab();
+
                 // Activate selected
                 this.classList.add('active');
                 var target = document.getElementById('tab-' + tabId);
                 if (target) target.classList.add('active');
+
+                // Initialize tab-specific logic
+                if (tabId === 'logs' && typeof initLogsTab === 'function') {
+                    initLogsTab();
+                }
             });
         }
     }
@@ -104,12 +112,13 @@
 
         // Tab bar
         html += '<div class="tab-bar">';
-        html += '<button class="tab-btn active" data-tab="overview">' + T('tabOverview', 'Overview') + '</button>';
-        html += '<button class="tab-btn" data-tab="codecs">' + T('tabCodecs', 'Codecs') + '</button>';
-        html += '<button class="tab-btn" data-tab="health">' + T('tabHealth', 'Health') + '</button>';
+        html += '<button class="tab-btn active" data-tab="overview">📱 ' + T('tabOverview', 'Overview') + '</button>';
+        html += '<button class="tab-btn" data-tab="codecs">🎞️ ' + T('tabCodecs', 'Codecs') + '</button>';
+        html += '<button class="tab-btn" data-tab="health">🩺 ' + T('tabHealth', 'Health') + '</button>';
         html += '<button class="tab-btn" data-tab="trends">📈 ' + T('tabTrends', 'Trends') + '</button>';
         html += '<button class="tab-btn" data-tab="settings">⚙️ ' + T('tabSettings', 'Settings') + '</button>';
         html += '<button class="tab-btn" data-tab="arr">🔗 ' + T('tabArr', 'Arr') + '</button>';
+        html += '<button class="tab-btn" data-tab="logs">📋 ' + T('tabLogs', 'Logs') + '</button>';
         html += '</div>';
 
         // === OVERVIEW TAB (placeholder until scan) ===
@@ -147,6 +156,11 @@
         html += '<div id="arrButtons"><div class="loading-overlay" style="padding:1em;"><div class="spinner"></div></div></div>';
         html += '<div id="arrResult"></div>';
         html += '</div>';
+        html += '</div>';
+
+        // === LOGS TAB ===
+        html += '<div class="tab-content" id="tab-logs">';
+        html += renderLogsTab();
         html += '</div>';
 
         return html;

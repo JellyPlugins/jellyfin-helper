@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] — 2026-04-12
+
+### Added
+- **Plugin Log Viewer** — New **Logs** tab in the dashboard providing real-time access to plugin-specific log entries with level filtering (DEBUG/INFO/WARN/ERROR), source component filtering, auto-refresh (10s), download as `.log` file, and clear with confirmation dialog.
+- **Log API Endpoints** — `GET /Logs` (with `?limit`, `?minLevel`, `?source` query params), `GET /Logs/Download`, `DELETE /Logs`.
+- **Log Level Persistence** — Selected log level is persisted to the plugin configuration (`PluginLogLevel`) and restored on page load.
+- **Enhanced Backend Logging** — `MediaStatisticsService` now logs scan start/end summaries, per-library file counts, and detailed breakdowns at DEBUG level.
+- **Dedicated Per-Tab CSS Modules** — Each tab now has its own CSS file: `Overview.css`, `Codecs.css`, `Health.css`, `Trends.css`, `Settings.css`, `ArrIntegration.css`, `Logs.css`.
+
+### Changed
+- **7-Tab Dashboard** — Dashboard expanded from 6 to 7 tabs with the addition of the Logs tab.
+- **Log Level Moved to Logs Tab** — The log level dropdown was removed from the Settings tab and is now exclusively in the Logs tab for direct context.
+- **README** — Updated to reflect 7-tab dashboard, new Logs feature section, 3 new API endpoints, Plugin Log Level configuration option, complete folder structure with all CSS/JS modules, and updated test count.
+- **Test Count** — Increased from 669 to **737 tests** with new `LogsHtmlTests` (68 tests) covering all Logs tab UI elements, API calls, i18n keys, auto-refresh, download mechanism, and log level persistence.
+
+---
+
 ## [1.0.6] — 2026-04-11
 
 ### Fixed
@@ -14,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.0.5] — 2026-11-04
+## [1.0.5] — 2026-04-11
 
 ### Added
 - **Multi-Instance Arr Support** — Up to 3 Radarr and 3 Sonarr instances simultaneously (e.g. "Radarr 4K", "Radarr Anime") with per-instance comparison and merged views. Automatic migration from legacy single-instance configuration.

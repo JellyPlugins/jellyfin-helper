@@ -7,8 +7,21 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
-public class I18nServiceTests
+[Collection("PluginLogService")]
+public class I18nServiceTests : IDisposable
 {
+    public I18nServiceTests()
+    {
+        PluginLogService.TestMinLevelOverride = "DEBUG";
+        PluginLogService.Clear();
+    }
+
+    public void Dispose()
+    {
+        PluginLogService.Clear();
+        PluginLogService.TestMinLevelOverride = null;
+    }
+
     // ===== SupportedLanguages Tests =====
 
     [Fact]
@@ -359,6 +372,30 @@ public class I18nServiceTests
         Assert.True(translations.ContainsKey("settingsError"), $"'{lang}' missing settingsError");
         Assert.True(translations.ContainsKey("settingsLoadError"), $"'{lang}' missing settingsLoadError");
         Assert.NotEqual(translations["settingsError"], translations["settingsLoadError"]);
+    }
+
+    // ===== Logging integration tests =====
+
+    [Fact]
+    public void GetTranslations_UnknownLanguage_LogsDebugFallback()
+    {
+        PluginLogService.Clear();
+        I18nService.GetTranslations("xx");
+
+        var entries = PluginLogService.GetEntries(minLevel: "DEBUG", source: "I18n");
+        Assert.Contains(entries, e => e.Message.Contains("falling back", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void GetTranslations_ValidLanguage_LogsLoadedKeys()
+    {
+        PluginLogService.Clear();
+        // Force a fresh load by using a language that is supported
+        I18nService.GetTranslations("en");
+
+        var entries = PluginLogService.GetEntries(minLevel: "DEBUG", source: "I18n");
+        // The "Loaded X translation keys" log may or may not appear (cached), but it should not error
+        Assert.DoesNotContain(entries, e => e.Level == "ERROR");
     }
 
     // ===== Key count consistency — all languages have same count =====

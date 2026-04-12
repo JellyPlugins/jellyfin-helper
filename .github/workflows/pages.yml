@@ -1,0 +1,39 @@
+name: Deploy GitHub Pages Demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Jellyfin.Plugin.JellyfinHelper/PluginPages/**'
+      - 'Jellyfin.Plugin.JellyfinHelper/i18n/**'
+      - 'docs/**'
+      - '.github/workflows/pages.yml'
+      - '.github/scripts/prepare-demo-site.ps1'
+  workflow_dispatch:
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare demo site
+        shell: pwsh
+        run: ./.github/scripts/prepare-demo-site.ps1
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./docs
+          # Keep existing pr-preview directories intact
+          keep_files: true

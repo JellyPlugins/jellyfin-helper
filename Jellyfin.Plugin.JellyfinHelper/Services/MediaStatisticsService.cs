@@ -42,6 +42,7 @@ public partial class MediaStatisticsService
         var result = new MediaStatisticsResult();
 
         var virtualFolders = _libraryManager.GetVirtualFolders();
+        PluginLogService.LogInfo("MediaStatistics", $"Starting media statistics scan for {virtualFolders.Count} libraries", _logger);
 
         foreach (var vf in virtualFolders)
         {
@@ -66,10 +67,16 @@ public partial class MediaStatisticsService
 
             foreach (var location in vf.Locations)
             {
-                _logger.LogDebug("Scanning library location: {Location} (type: {Type})", location, collectionType);
+                libraryStats.RootPaths.Add(location);
+                PluginLogService.LogDebug("MediaStatistics", $"Scanning library location: {location} (type: {collectionType})", _logger);
                 AnalyzeDirectoryRecursive(location, libraryStats, location, skipHealthChecks: skipHealth);
             }
 
+            PluginLogService.LogDebug(
+                "MediaStatistics",
+                $"Library '{libraryStats.LibraryName}': {libraryStats.VideoFileCount} videos, {libraryStats.AudioFileCount} audio, " +
+                $"{libraryStats.SubtitleFileCount} subs, {libraryStats.TrickplayFolderCount} trickplay folders",
+                _logger);
             result.Libraries.Add(libraryStats);
 
             if (isTvShows)
@@ -89,6 +96,17 @@ public partial class MediaStatisticsService
                 result.Other.Add(libraryStats);
             }
         }
+
+        // Log summary
+        var totalFiles = result.Libraries.Sum(l => l.VideoFileCount + l.AudioFileCount + l.SubtitleFileCount + l.ImageFileCount + l.NfoFileCount + l.OtherFileCount);
+        var totalSize = result.Libraries.Sum(l => l.TotalSize);
+        PluginLogService.LogInfo(
+            "MediaStatistics",
+            $"Scan complete: {result.Libraries.Count} libraries, {totalFiles} files, {totalSize / (1024 * 1024)} MB total, " +
+            $"{result.Libraries.Sum(l => l.VideosWithoutSubtitles)} videos without subs, " +
+            $"{result.Libraries.Sum(l => l.VideosWithoutImages)} without images, " +
+            $"{result.Libraries.Sum(l => l.OrphanedMetadataDirectories)} orphaned metadata dirs",
+            _logger);
 
         return result;
     }
@@ -292,7 +310,7 @@ public partial class MediaStatisticsService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _logger.LogWarning(ex, "Could not access directory {Path}", directoryPath);
+            PluginLogService.LogWarning("MediaStatistics", $"Could not access directory: {directoryPath}", ex, _logger);
         }
 
         return containsVideo;
@@ -462,7 +480,7 @@ public partial class MediaStatisticsService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Could not check embedded subtitles for {Path}", filePath);
+            PluginLogService.LogDebug("MediaStatistics", $"Could not check embedded subtitles for: {filePath}. {ex.GetType().Name}: {ex.Message}", _logger);
             return false;
         }
     }

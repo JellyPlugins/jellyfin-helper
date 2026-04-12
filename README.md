@@ -5,6 +5,12 @@
 
 A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks, media library statistics, health checks, and Arr stack integration — all from a single, multi-tab dashboard.
 
+## 🎮 Live Demo
+
+**[Try the interactive demo →](https://jellyplugins.github.io/jellyfin-helper/)**
+
+Explore the full 7-tab dashboard with realistic sample data — no Jellyfin server required.
+
 ## 📸 Screenshots
 
 ![Dashboard Demo](media/Jellyfin-Helper-Media-Statistics.gif)
@@ -13,7 +19,7 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 
 ### 📊 Multi-Tab Dashboard
 
-The plugin provides a **6-tab dashboard** directly in the Jellyfin sidebar:
+The plugin provides a **7-tab dashboard** directly in the Jellyfin sidebar:
 
 | Tab | Description |
 |-----|-------------|
@@ -23,6 +29,7 @@ The plugin provides a **6-tab dashboard** directly in the Jellyfin sidebar:
 | **Trends** | Historical library growth trend graph from up to 365 daily snapshots |
 | **Settings** | Full plugin configuration UI with task modes, trash settings, language selector, and Arr instances |
 | **Arr** | Radarr/Sonarr library comparison with instance selection and connection testing |
+| **Logs** | Plugin-specific log viewer with level/source filtering, auto-refresh, download, and clear functionality |
 
 The dashboard loads **persisted scan results** on page open — no scan required to see the last result. Results survive server restarts.
 
@@ -83,6 +90,16 @@ Instead of permanently deleting files, the plugin can move them to a configurabl
 - **Trash folder management** — View, list, and delete trash folders from the UI
 - **Disable dialog** — When disabling trash, a dialog shows which folders exist and offers to delete them
 - **Path safety checks** — Refuses to delete filesystem roots, library roots, or paths with traversal attacks
+
+### 📋 Plugin Log Viewer
+A dedicated **Logs** tab provides real-time access to plugin-specific log entries:
+- **Level Filtering** — Filter by DEBUG, INFO, WARN, or ERROR (persisted to plugin configuration)
+- **Source Filtering** — Narrow down by source component (e.g. TrickplayCleaner, MediaStatistics)
+- **Auto-Refresh** — Logs refresh automatically every 10 seconds
+- **Download** — Export filtered logs as a `.log` text file
+- **Clear** — Delete all buffered log entries with confirmation dialog
+- **Color-Coded Levels** — Visual distinction for WARN (amber) and ERROR (red) entries
+- **Exception Details** — Stack traces displayed inline when available
 
 ### 🔗 Arr Stack Integration
 Compare your Jellyfin library with Radarr and Sonarr to identify:
@@ -160,6 +177,9 @@ All tasks appear under the **Jellyfin Helper** category in the Jellyfin schedule
 | `/JellyfinHelper/Arr/TestConnection` | POST | Test connection to a Radarr/Sonarr instance |
 | `/JellyfinHelper/Arr/Radarr/Compare` | GET | Compare Jellyfin movies with Radarr (optional `?index=N` for specific instance) |
 | `/JellyfinHelper/Arr/Sonarr/Compare` | GET | Compare Jellyfin TV shows with Sonarr (optional `?index=N` for specific instance) |
+| `/JellyfinHelper/Logs` | GET | Retrieve plugin log entries (supports `?limit=N&minLevel=LEVEL&source=NAME`) |
+| `/JellyfinHelper/Logs/Download` | GET | Download plugin logs as a text file |
+| `/JellyfinHelper/Logs` | DELETE | Clear all buffered plugin log entries |
 
 All endpoints require admin authorization (`RequiresElevation`) except `/Translations` (anonymous).
 
@@ -180,6 +200,7 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 | **Trash Folder Path** | Relative or absolute path to the trash folder | `.jellyfin-trash` |
 | **Trash Retention** | Days to keep items in trash before purging | 30 |
 | **Dashboard Language** | UI language (en, de, fr, es, pt, zh, tr) | en |
+| **Plugin Log Level** | Minimum log level for the plugin log viewer (DEBUG, INFO, WARN, ERROR) | INFO |
 | **Radarr Instances** | Up to 3 Radarr instances with name, URL, and API key | Empty |
 | **Sonarr Instances** | Up to 3 Sonarr instances with name, URL, and API key | Empty |
 
@@ -243,7 +264,7 @@ dotnet build
 dotnet test
 ```
 
-The project includes **573 automated tests** covering all services, API endpoints, configuration migration, UI structure, and serialization roundtrips.
+The project includes **737 automated tests** covering all services, API endpoints, configuration migration, UI structure, plugin logging, and serialization roundtrips.
 
 ### Modular Build System
 
@@ -251,18 +272,26 @@ The dashboard UI is assembled at build time via a custom `ComposeConfigPage` MSB
 
 ```text
 PluginPages/
+├── configPage.template.html  # HTML shell with placeholders for CSS/JS injection
 ├── css/
-│   ├── shared.css          # Common styles (file lists, modals, layout)
-│   ├── Codecs.css          # Codec tab charts & file explorer
-│   ├── Health.css          # Health check tiles & detail panel
-│   └── ArrIntegration.css  # Arr comparison tables
+│   ├── shared.css            # Common styles (file lists, modals, layout)
+│   ├── Overview.css          # Overview tab disk usage bars
+│   ├── Codecs.css            # Codec tab charts & file explorer
+│   ├── Health.css            # Health check tiles & detail panel
+│   ├── Trends.css            # Trend graph styling
+│   ├── Settings.css          # Settings form layout
+│   ├── ArrIntegration.css    # Arr comparison tables
+│   └── Logs.css              # Log viewer table, toolbar & level colors
 └── js/
-    ├── shared.js           # Utilities (formatting, renderFileList, getFileName)
-    ├── main.js             # Tab routing, scan trigger, i18n loader
-    ├── Overview.js         # Overview tab (disk usage bars)
-    ├── Codecs.js           # Codec tab (donut charts, file drill-down)
-    ├── Health.js           # Health tab (tiles, clickable details, trash section)
-    └── ...
+    ├── shared.js             # Utilities (formatting, renderFileList, escHtml)
+    ├── main.js               # Tab routing, scan trigger, i18n loader
+    ├── Overview.js           # Overview tab (disk usage bars)
+    ├── Codecs.js             # Codec tab (donut charts, file drill-down)
+    ├── Health.js             # Health tab (tiles, clickable details, trash section)
+    ├── Trends.js             # Trends tab (history graph)
+    ├── Settings.js           # Settings tab (task modes, trash, language, Arr config)
+    ├── ArrIntegration.js     # Arr tab (instance comparison, connection testing)
+    └── Logs.js               # Logs tab (level/source filtering, download, auto-refresh)
 ```
 
 These are concatenated into the final `configPage.html` during `dotnet build`, keeping the source modular while delivering a single file to Jellyfin.
@@ -275,7 +304,7 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed version history.
 
 This project is based on the original [jellyfin-trickplay-folder-cleaner](https://github.com/Noir1992/jellyfin-trickplay-folder-cleaner) by [@Noir1992](https://github.com/Noir1992), which was inspired by [this community script](https://github.com/jellyfin/jellyfin/issues/12818#issuecomment-2712783498).
 
-This fork evolved into an independent project with significant additions including empty media folder cleanup, orphaned subtitle cleanup, STRM file repair, media library statistics with codec/resolution/container analysis, audio codec analysis (separate for video and music), health checks with embedded subtitle detection, export/history/trend features, trash/recycle bin with detailed contents UI, multi-instance Arr stack integration with connection testing, multi-language dashboard (7 languages), persisted scan results, caching, rate limiting, XSS protection, comprehensive test coverage, CI/CD pipeline with integration tests, and Dependabot/CodeRabbit integration.
+This fork evolved into an independent project with significant additions including empty media folder cleanup, orphaned subtitle cleanup, STRM file repair, media library statistics with codec/resolution/container analysis, audio codec analysis (separate for video and music), health checks with embedded subtitle detection, export/history/trend features, trash/recycle bin with detailed contents UI, multi-instance Arr stack integration with connection testing, plugin-specific log viewer with download and filtering, multi-language dashboard (7 languages), persisted scan results, caching, rate limiting, XSS protection, comprehensive test coverage, CI/CD pipeline with integration tests, and Dependabot/CodeRabbit integration.
 
 ## License
 

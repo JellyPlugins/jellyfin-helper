@@ -44,6 +44,7 @@ public static class I18nService
 
         if (!SupportedLanguages.Contains(lang))
         {
+            PluginLogService.LogDebug("I18n", $"Unsupported language '{languageCode}', falling back to 'en'.");
             lang = "en";
         }
 
@@ -65,6 +66,7 @@ public static class I18nService
         using var stream = ThisAssembly.GetManifestResourceStream(resourceName);
         if (stream is null)
         {
+            PluginLogService.LogError("I18n", $"Embedded i18n resource '{resourceName}' not found. Available: {string.Join(", ", ThisAssembly.GetManifestResourceNames())}");
             throw new InvalidOperationException(
                 $"Embedded i18n resource '{resourceName}' not found. Available: {string.Join(", ", ThisAssembly.GetManifestResourceNames())}");
         }
@@ -75,8 +77,11 @@ public static class I18nService
         var dict = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
         if (dict is null)
         {
+            PluginLogService.LogError("I18n", $"Failed to deserialize i18n resource '{resourceName}'.");
             throw new InvalidOperationException($"Failed to deserialize i18n resource '{resourceName}'.");
         }
+
+        PluginLogService.LogDebug("I18n", $"Loaded {dict.Count} translation keys for language '{lang}'.");
 
         // Re-create with ordinal comparer for consistent key lookups.
         return new Dictionary<string, string>(dict, StringComparer.Ordinal);

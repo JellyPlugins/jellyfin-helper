@@ -159,6 +159,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public string Language { get; set; } = "en";
 
     /// <summary>
+    /// Gets or sets the minimum log level for the plugin's in-memory log buffer.
+    /// Supported values: DEBUG, INFO, WARN, ERROR. Default is "INFO".
+    /// </summary>
+    public string PluginLogLevel { get; set; } = "INFO";
+
+    /// <summary>
     /// Gets or sets the total bytes freed by all cleanup operations since the plugin was installed.
     /// This value is persisted and accumulated across runs.
     /// </summary>

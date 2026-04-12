@@ -43,7 +43,18 @@
             }
         }
 
-        return { movies: moviePaths, tvShows: tvPaths, other: otherPaths, music: [] };
+        return {
+            movies: moviePaths,
+            tvShows: tvPaths,
+            other: otherPaths,
+            music: [],
+            rootPaths: {
+                movies: data.MovieRootPaths || [],
+                tvShows: data.TvShowRootPaths || [],
+                other: data.OtherRootPaths || [],
+                music: []
+            }
+        };
     }
 
     function renderHealthChecks(data) {
@@ -71,7 +82,7 @@
         html += '<div class="health-label">' + T('orphanedDirs', 'Orphaned metadata dirs') + '</div></div>';
 
         html += '</div>';
-        html += '<div class="health-detail-panel" id="healthDetailPanel"></div>';
+        html += '<div class="file-tree-panel" id="healthDetailPanel"></div>';
         return html;
     }
 
@@ -94,7 +105,7 @@
                 // Toggle: if same type is already shown, hide it
                 if (this.classList.contains('health-active')) {
                     panel.innerHTML = '';
-                    panel.classList.remove('codec-detail-visible');
+                    panel.classList.remove('file-tree-panel-visible');
                     // Remove active state from all items
                     var toggleItems = document.querySelectorAll('.health-clickable');
                     for (var j = 0; j < toggleItems.length; j++) toggleItems[j].classList.remove('health-active');
@@ -114,8 +125,8 @@
 
                 var result = collectHealthPaths(_lastScanData, mapping.prop);
                 var title = T(mapping.titleKey, mapping.titleFallback);
-                panel.innerHTML = renderFileList(result, title);
-                panel.classList.add('codec-detail-visible');
+                panel.innerHTML = renderFileTree(result, title);
+                panel.classList.add('file-tree-panel-visible');
 
                 // Smooth scroll the panel into view
                 setTimeout(function () { panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50);

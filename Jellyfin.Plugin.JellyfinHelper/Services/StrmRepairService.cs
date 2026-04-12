@@ -40,7 +40,7 @@ public class StrmRepairService
         var result = new StrmRepairResult();
         var strmFiles = FindStrmFiles(libraryPaths);
 
-        _logger.LogInformation("Found {Count} .strm files to check", strmFiles.Count);
+        PluginLogService.LogInfo("StrmRepair", $"Found {strmFiles.Count} .strm files to check", _logger);
 
         foreach (var strmFile in strmFiles)
         {
@@ -49,13 +49,7 @@ public class StrmRepairService
             result.FileResults.Add(fileResult);
         }
 
-        _logger.LogInformation(
-            "STRM repair complete: {Valid} valid, {Repaired} repaired, {Broken} broken, {Ambiguous} ambiguous, {Invalid} invalid content",
-            result.ValidCount,
-            result.RepairedCount,
-            result.BrokenCount,
-            result.AmbiguousCount,
-            result.InvalidContentCount);
+        PluginLogService.LogInfo("StrmRepair", $"STRM repair complete: {result.ValidCount} valid, {result.RepairedCount} repaired, {result.BrokenCount} broken, {result.AmbiguousCount} ambiguous, {result.InvalidContentCount} invalid content", _logger);
 
         return result;
     }
@@ -73,7 +67,7 @@ public class StrmRepairService
         {
             if (!_fileSystem.Directory.Exists(libraryPath))
             {
-                _logger.LogWarning("Library path does not exist: {Path}", libraryPath);
+                PluginLogService.LogWarning("StrmRepair", $"Library path does not exist: {libraryPath}", logger: _logger);
                 continue;
             }
 
@@ -111,7 +105,7 @@ public class StrmRepairService
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
         {
-            _logger.LogWarning("Cannot access directory: {Directory} - {Message}", directory, ex.Message);
+            PluginLogService.LogWarning("StrmRepair", $"Cannot access directory: {directory} - {ex.Message}", ex, _logger);
         }
 
         return result;
@@ -135,14 +129,14 @@ public class StrmRepairService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Failed to read .strm file {Path}: {Message}", strmFilePath, ex.Message);
+            PluginLogService.LogWarning("StrmRepair", $"Failed to read .strm file {strmFilePath}: {ex.Message}", ex, _logger);
             fileResult.Status = StrmFileStatus.InvalidContent;
             return fileResult;
         }
 
         if (string.IsNullOrWhiteSpace(targetPath))
         {
-            _logger.LogDebug("Empty .strm file: {Path}", strmFilePath);
+            PluginLogService.LogDebug("StrmRepair", $"Empty .strm file: {strmFilePath}", _logger);
             fileResult.Status = StrmFileStatus.InvalidContent;
             return fileResult;
         }
@@ -150,7 +144,7 @@ public class StrmRepairService
         // Skip URL-based .strm files (e.g. http://, https://, rtsp://)
         if (targetPath.Contains("://", StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogDebug("Skipping URL-based .strm file: {Path}", strmFilePath);
+            PluginLogService.LogDebug("StrmRepair", $"Skipping URL-based .strm file: {strmFilePath}", _logger);
             fileResult.OriginalTargetPath = targetPath;
             fileResult.Status = StrmFileStatus.Valid;
             return fileResult;
@@ -161,13 +155,13 @@ public class StrmRepairService
         // Check if the target path is still valid
         if (_fileSystem.File.Exists(targetPath))
         {
-            _logger.LogDebug("Valid .strm file: {Path} -> {Target}", strmFilePath, targetPath);
+            PluginLogService.LogDebug("StrmRepair", $"Valid .strm file: {strmFilePath} -> {targetPath}", _logger);
             fileResult.Status = StrmFileStatus.Valid;
             return fileResult;
         }
 
         // Target path is broken - try to repair
-        _logger.LogInformation("Broken .strm file: {Path} -> {Target}", strmFilePath, targetPath);
+        PluginLogService.LogInfo("StrmRepair", $"Broken .strm file: {strmFilePath} -> {targetPath}", _logger);
 
         return TryRepairStrmFile(fileResult, dryRun);
     }
@@ -185,10 +179,7 @@ public class StrmRepairService
 
         if (string.IsNullOrEmpty(parentDir) || !_fileSystem.Directory.Exists(parentDir))
         {
-            _logger.LogWarning(
-                "Parent directory does not exist for broken .strm target: {Target} (parent: {Parent})",
-                fileResult.OriginalTargetPath,
-                parentDir ?? "null");
+            PluginLogService.LogWarning("StrmRepair", $"Parent directory does not exist for broken .strm target: {fileResult.OriginalTargetPath} (parent: {parentDir ?? "null"})", logger: _logger);
             fileResult.Status = StrmFileStatus.Broken;
             return fileResult;
         }
@@ -198,10 +189,7 @@ public class StrmRepairService
 
         if (mediaFiles.Count == 0)
         {
-            _logger.LogWarning(
-                "No media files found in parent directory {Parent} for broken .strm: {StrmFile}",
-                parentDir,
-                fileResult.StrmFilePath);
+            PluginLogService.LogWarning("StrmRepair", $"No media files found in parent directory {parentDir} for broken .strm: {fileResult.StrmFilePath}", logger: _logger);
             fileResult.Status = StrmFileStatus.Broken;
             return fileResult;
         }
@@ -215,19 +203,11 @@ public class StrmRepairService
 
             if (dryRun)
             {
-                _logger.LogInformation(
-                    "[DRY RUN] Would repair .strm file: {StrmFile} | {OldTarget} -> {NewTarget}",
-                    fileResult.StrmFilePath,
-                    fileResult.OriginalTargetPath,
-                    newTargetPath);
+                PluginLogService.LogInfo("StrmRepair", $"[DRY RUN] Would repair .strm file: {fileResult.StrmFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}", _logger);
             }
             else
             {
-                _logger.LogInformation(
-                    "Repairing .strm file: {StrmFile} | {OldTarget} -> {NewTarget}",
-                    fileResult.StrmFilePath,
-                    fileResult.OriginalTargetPath,
-                    newTargetPath);
+                PluginLogService.LogInfo("StrmRepair", $"Repairing .strm file: {fileResult.StrmFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}", _logger);
 
                 try
                 {
@@ -235,7 +215,7 @@ public class StrmRepairService
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    _logger.LogError("Failed to write repaired .strm file {Path}: {Message}", fileResult.StrmFilePath, ex.Message);
+                    PluginLogService.LogError("StrmRepair", $"Failed to write repaired .strm file {fileResult.StrmFilePath}: {ex.Message}", ex, _logger);
                     fileResult.Status = StrmFileStatus.Broken;
                     fileResult.NewTargetPath = null;
                     return fileResult;
@@ -246,12 +226,7 @@ public class StrmRepairService
         }
 
         // Multiple media files found - ambiguous
-        _logger.LogWarning(
-            "Multiple media files ({Count}) found in parent directory {Parent} for broken .strm: {StrmFile}. Candidates: {Candidates}",
-            mediaFiles.Count,
-            parentDir,
-            fileResult.StrmFilePath,
-            string.Join(", ", mediaFiles.Select(f => _fileSystem.Path.GetFileName(f))));
+        PluginLogService.LogWarning("StrmRepair", $"Multiple media files ({mediaFiles.Count}) found in parent directory {parentDir} for broken .strm: {fileResult.StrmFilePath}. Candidates: {string.Join(", ", mediaFiles.Select(f => _fileSystem.Path.GetFileName(f)))}", logger: _logger);
         fileResult.Status = StrmFileStatus.Ambiguous;
         return fileResult;
     }
@@ -278,7 +253,7 @@ public class StrmRepairService
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
         {
-            _logger.LogWarning("Cannot access directory: {Directory} - {Message}", directory, ex.Message);
+            PluginLogService.LogWarning("StrmRepair", $"Cannot access directory: {directory} - {ex.Message}", ex, _logger);
         }
 
         return mediaFiles;

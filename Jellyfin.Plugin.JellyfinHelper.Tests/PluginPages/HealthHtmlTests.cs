@@ -81,10 +81,17 @@ public class HealthHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_CollectHealthPaths_ReturnsMusicEmpty()
+    public void Html_CollectHealthPaths_ReturnsExpectedResultStructure()
     {
-        // collectHealthPaths should always return music: [] because health checks don't apply to music
-        Assert.Contains("return { movies: moviePaths, tvShows: tvPaths, other: otherPaths, music: [] }", HtmlContent);
+        // collectHealthPaths should return an object with movies, tvShows, other, music, AND rootPaths
+        // music and rootPaths.music should always be empty
+        Assert.Contains("return {", HtmlContent);
+        Assert.Contains("music: []", HtmlContent);
+        Assert.Contains("rootPaths: {", HtmlContent);
+        Assert.Contains("movies: data.MovieRootPaths || []", HtmlContent);
+        Assert.Contains("tvShows: data.TvShowRootPaths || []", HtmlContent);
+        Assert.Contains("other: data.OtherRootPaths || []", HtmlContent);
+        Assert.Contains("music: []", HtmlContent);
     }
 
     [Fact]
@@ -105,10 +112,10 @@ public class HealthHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_HealthClickHandler_UsesSharedRenderFileList()
+    public void Html_HealthClickHandler_UsesSharedRenderFileTree()
     {
-        // The health click handler should use the shared renderFileList function
-        Assert.Contains("renderFileList(result, title)", HtmlContent);
+        // The health click handler should use the shared renderFileTree function
+        Assert.Contains("renderFileTree(result, title)", HtmlContent);
     }
 
     [Fact]
@@ -146,19 +153,19 @@ public class HealthHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_ContainsSharedRenderFileListFunction()
+    public void Html_ContainsSharedRenderFileTreeFunction()
     {
-        // renderFileList should be in shared.js (available to both Codecs + Health)
-        Assert.Contains("function renderFileList", HtmlContent);
+        // renderFileTree should be in shared.js (available to both Codecs + Health)
+        Assert.Contains("function renderFileTree", HtmlContent);
     }
 
     [Fact]
-    public void Html_FileListCssInShared()
+    public void Html_FileTreeCssInShared()
     {
-        // File list CSS classes should be present (now in shared.css)
-        Assert.Contains("codec-files-header", HtmlContent);
-        Assert.Contains("codec-files-columns", HtmlContent);
-        Assert.Contains("codec-file-item", HtmlContent);
-        Assert.Contains("codec-file-name", HtmlContent);
+        // File tree CSS classes should be present (now in shared.css)
+        Assert.Contains("file-tree-header", HtmlContent);
+        Assert.Contains("file-tree-columns", HtmlContent);
+        Assert.Contains("tree-view", HtmlContent);
+        Assert.Contains("tree-node", HtmlContent);
     }
 }

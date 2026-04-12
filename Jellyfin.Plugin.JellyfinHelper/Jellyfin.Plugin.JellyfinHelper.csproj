@@ -102,6 +102,7 @@
     <CssModule Include="PluginPages\css\Trends.css" />
     <CssModule Include="PluginPages\css\Settings.css" />
     <CssModule Include="PluginPages\css\ArrIntegration.css" />
+    <CssModule Include="PluginPages\css\Logs.css" />
   </ItemGroup>
 
   <ItemGroup>
@@ -112,6 +113,7 @@
     <JsModule Include="PluginPages\js\Trends.js" />
     <JsModule Include="PluginPages\js\Settings.js" />
     <JsModule Include="PluginPages\js\ArrIntegration.js" />
+    <JsModule Include="PluginPages\js\Logs.js" />
     <JsModule Include="PluginPages\js\main.js" />
   </ItemGroup>
 

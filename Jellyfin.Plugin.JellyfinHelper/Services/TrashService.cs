@@ -28,7 +28,7 @@ public static class TrashService
         {
             if (!Directory.Exists(sourcePath))
             {
-                logger.LogWarning("Source path does not exist for trash: {Path}", sourcePath);
+                PluginLogService.LogWarning("Trash", $"Source path does not exist for trash: {sourcePath}", logger: logger);
                 return 0;
             }
 
@@ -46,12 +46,12 @@ public static class TrashService
             // Move to trash
             Directory.Move(sourcePath, trashItemPath);
 
-            logger.LogInformation("Moved to trash: {Source} → {Destination} ({Size} bytes)", sourcePath, trashItemPath, size);
+            PluginLogService.LogInfo("Trash", $"Moved to trash: {sourcePath} → {trashItemPath} ({size} bytes)", logger);
             return size;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            logger.LogError(ex, "Failed to move directory to trash: {Path}", sourcePath);
+            PluginLogService.LogError("Trash", $"Failed to move directory to trash: {sourcePath}", ex, logger);
             return 0;
         }
     }
@@ -69,7 +69,7 @@ public static class TrashService
         {
             if (!File.Exists(sourceFilePath))
             {
-                logger.LogWarning("Source file does not exist for trash: {Path}", sourceFilePath);
+                PluginLogService.LogWarning("Trash", $"Source file does not exist for trash: {sourceFilePath}", logger: logger);
                 return 0;
             }
 
@@ -87,12 +87,12 @@ public static class TrashService
             // Move to trash
             File.Move(sourceFilePath, trashItemPath);
 
-            logger.LogInformation("Moved file to trash: {Source} → {Destination} ({Size} bytes)", sourceFilePath, trashItemPath, size);
+            PluginLogService.LogInfo("Trash", $"Moved file to trash: {sourceFilePath} → {trashItemPath} ({size} bytes)", logger);
             return size;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            logger.LogError(ex, "Failed to move file to trash: {Path}", sourceFilePath);
+            PluginLogService.LogError("Trash", $"Failed to move file to trash: {sourceFilePath}", ex, logger);
             return 0;
         }
     }
@@ -130,11 +130,11 @@ public static class TrashService
                         Directory.Delete(dir, true);
                         totalBytesFreed += size;
                         itemsPurged++;
-                        logger.LogInformation("Purged expired trash directory: {Path} ({Size} bytes, created {Timestamp})", dir, size, timestamp);
+                        PluginLogService.LogInfo("Trash", $"Purged expired trash directory: {dir} ({size} bytes, created {timestamp})", logger);
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        logger.LogError(ex, "Failed to purge trash directory: {Path}", dir);
+                        PluginLogService.LogError("Trash", $"Failed to purge trash directory: {dir}", ex, logger);
                     }
                 }
             }
@@ -151,18 +151,18 @@ public static class TrashService
                         File.Delete(file);
                         totalBytesFreed += size;
                         itemsPurged++;
-                        logger.LogInformation("Purged expired trash file: {Path} ({Size} bytes, created {Timestamp})", file, size, timestamp);
+                        PluginLogService.LogInfo("Trash", $"Purged expired trash file: {file} ({size} bytes, created {timestamp})", logger);
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        logger.LogError(ex, "Failed to purge trash file: {Path}", file);
+                        PluginLogService.LogError("Trash", $"Failed to purge trash file: {file}", ex, logger);
                     }
                 }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            logger.LogError(ex, "Failed to enumerate trash folder: {Path}", trashBasePath);
+            PluginLogService.LogError("Trash", $"Failed to enumerate trash folder: {trashBasePath}", ex, logger);
         }
 
         return (totalBytesFreed, itemsPurged);

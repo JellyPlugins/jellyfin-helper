@@ -7,6 +7,8 @@ artifacts
 *.bat
 *.sh
 *.ps1
+# But include CI scripts that must be checked in
+!.github/scripts/*.ps1
 publish_output/
 # Generated at build time from template + CSS + JS
 Jellyfin.Plugin.JellyfinHelper/PluginPages/configPage.html

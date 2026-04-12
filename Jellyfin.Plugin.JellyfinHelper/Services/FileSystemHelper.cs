@@ -40,7 +40,7 @@ public static class FileSystemHelper
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            logger.LogWarning(ex, "Could not access directory {Path}", directoryPath);
+            PluginLogService.LogWarning("FileSystem", $"Could not access directory: {directoryPath}", ex, logger);
         }
 
         return totalSize;

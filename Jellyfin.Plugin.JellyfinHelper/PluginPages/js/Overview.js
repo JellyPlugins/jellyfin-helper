@@ -127,7 +127,7 @@
 
         var grandTotal = 0;
         for (var gt = 0; gt < data.Libraries.length; gt++) grandTotal += data.Libraries[gt].TotalSize;
-        overviewHtml += '<div class="section-title">🖴  ' + T('storageDistribution', 'Storage Distribution') + ' — <span style="color:#00a4dc;">' + formatBytes(grandTotal) + ' ' + T('total', 'Total') + '</span></div>';
+        overviewHtml += '<div class="section-title">⛃ ' + T('storageDistribution', 'Storage Distribution') + ' — <span style="color:#00a4dc;">' + formatBytes(grandTotal) + ' ' + T('total', 'Total') + '</span></div>';
         overviewHtml += buildBarSegments(data);
 
         overviewHtml += '<div class="section-title">📚 ' + T('perLibraryBreakdown', 'Per-Library Breakdown') + '</div>';

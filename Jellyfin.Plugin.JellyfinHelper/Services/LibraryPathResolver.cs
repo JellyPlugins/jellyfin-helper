@@ -19,9 +19,12 @@ public static class LibraryPathResolver
     {
         ArgumentNullException.ThrowIfNull(libraryManager);
 
-        return libraryManager.GetVirtualFolders()
+        var locations = libraryManager.GetVirtualFolders()
             .SelectMany(f => f.Locations)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        PluginLogService.LogDebug("LibraryPath", $"Resolved {locations.Count} distinct library locations.");
+        return locations;
     }
 }

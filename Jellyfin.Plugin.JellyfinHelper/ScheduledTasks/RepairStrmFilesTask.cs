@@ -65,23 +65,19 @@ public class RepairStrmFilesTask
     {
         var dryRun = CleanupConfigHelper.IsDryRunStrmRepair();
 
-        _logger.LogInformation("Starting .strm file repair task");
+        PluginLogService.LogInfo("StrmRepair", "Task started.", _logger);
         progress.Report(0);
 
         var libraryPaths = CleanupConfigHelper.GetFilteredLibraryLocations(_libraryManager);
 
         if (libraryPaths.Count == 0)
         {
-            _logger.LogWarning("No library paths configured for .strm repair");
+            PluginLogService.LogWarning("StrmRepair", "No library paths configured for .strm repair", logger: _logger);
             progress.Report(100);
             return Task.CompletedTask;
         }
 
-        _logger.LogInformation(
-            "Running .strm repair (DryRun: {DryRun}) on {Count} library paths: {Paths}",
-            dryRun,
-            libraryPaths.Count,
-            string.Join(", ", libraryPaths));
+        PluginLogService.LogInfo("StrmRepair", $"Running .strm repair (DryRun: {dryRun}) on {libraryPaths.Count} library paths: {string.Join(", ", libraryPaths)}", _logger);
 
         progress.Report(10);
 
@@ -91,13 +87,7 @@ public class RepairStrmFilesTask
 
         progress.Report(90);
 
-        _logger.LogInformation(
-            ".strm repair task finished. Results: {Valid} valid, {Repaired} repaired, {Broken} broken (unfixable), {Ambiguous} ambiguous, {Invalid} invalid content",
-            result.ValidCount,
-            result.RepairedCount,
-            result.BrokenCount,
-            result.AmbiguousCount,
-            result.InvalidContentCount);
+        PluginLogService.LogInfo("StrmRepair", $"Task finished. Valid: {result.ValidCount}, Repaired: {result.RepairedCount}, Broken: {result.BrokenCount}, Ambiguous: {result.AmbiguousCount}, Invalid: {result.InvalidContentCount}", _logger);
 
         progress.Report(100);
         return Task.CompletedTask;

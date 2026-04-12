@@ -6,8 +6,28 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 /// <summary>
 /// Tests for <see cref="PathValidator"/>.
 /// </summary>
-public class PathValidatorTests
+[Collection("PluginLogService")]
+public class PathValidatorTests : IDisposable
 {
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PathValidatorTests"/> class.
+    /// Clears the plugin log buffer before each test.
+    /// </summary>
+    public PathValidatorTests()
+    {
+        PluginLogService.TestMinLevelOverride = "DEBUG";
+        PluginLogService.Clear();
+    }
+
+    /// <summary>
+    /// Cleans up after each test.
+    /// </summary>
+    public void Dispose()
+    {
+        PluginLogService.Clear();
+        PluginLogService.TestMinLevelOverride = null;
+    }
+
     // === IsSafePath ===
 
     [Fact]
@@ -105,5 +125,34 @@ public class PathValidatorTests
         // in culture-sensitive comparisons, causing DoesNotContain to report a false match.
         Assert.DoesNotContain(testChar.ToString(), result, StringComparison.Ordinal);
         Assert.Contains("name.txt", result);
+    }
+
+    // === Logging integration tests ===
+
+    [Fact]
+    public void IsSafePath_EmptyPath_LogsDebugEntry()
+    {
+        PathValidator.IsSafePath(string.Empty, "/base");
+
+        var entries = PluginLogService.GetEntries(minLevel: "DEBUG", source: "PathValidator");
+        Assert.Contains(entries, e => e.Message.Contains("empty", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void IsSafePath_TraversalPath_LogsWarningEntry()
+    {
+        PathValidator.IsSafePath("/base/../etc/passwd", "/base");
+
+        var entries = PluginLogService.GetEntries(minLevel: "WARN", source: "PathValidator");
+        Assert.Contains(entries, e => e.Message.Contains("traversal", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void IsSafePath_NullCharPath_LogsWarningEntry()
+    {
+        PathValidator.IsSafePath("/base/file\0.txt", "/base");
+
+        var entries = PluginLogService.GetEntries(minLevel: "WARN", source: "PathValidator");
+        Assert.Contains(entries, e => e.Message.Contains("traversal", StringComparison.OrdinalIgnoreCase));
     }
 }

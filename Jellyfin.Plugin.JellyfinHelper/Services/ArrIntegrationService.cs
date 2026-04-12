@@ -71,12 +71,12 @@ public class ArrIntegrationService
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogWarning(ex, "Arr connection test failed for {Url}", baseUrl);
+            PluginLogService.LogWarning("ArrIntegration", $"Arr connection test failed for {baseUrl}: {ex.Message}", ex, _logger);
             return (false, $"Connection failed: {ex.Message}");
         }
         catch (Exception ex) when (ex is JsonException or UriFormatException)
         {
-            _logger.LogWarning(ex, "Arr connection test failed for {Url}", baseUrl);
+            PluginLogService.LogWarning("ArrIntegration", $"Arr connection test failed for {baseUrl}: {ex.Message}", ex, _logger);
             return (false, $"Error: {ex.Message}");
         }
     }
@@ -119,7 +119,7 @@ public class ArrIntegrationService
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
         {
-            _logger.LogError(ex, "Failed to fetch movies from Radarr at {Url}", baseUrl);
+            PluginLogService.LogError("ArrIntegration", $"Failed to fetch movies from Radarr at {baseUrl}", ex, _logger);
             return new List<ArrMovie>();
         }
     }
@@ -163,7 +163,7 @@ public class ArrIntegrationService
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
         {
-            _logger.LogError(ex, "Failed to fetch series from Sonarr at {Url}", baseUrl);
+            PluginLogService.LogError("ArrIntegration", $"Failed to fetch series from Sonarr at {baseUrl}", ex, _logger);
             return new List<ArrSeries>();
         }
     }

@@ -22,6 +22,11 @@ public class LibraryStatistics
     public string CollectionType { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets the list of root directory paths for this library.
+    /// </summary>
+    public Collection<string> RootPaths { get; } = new();
+
+    /// <summary>
     /// Gets or sets the total video file size in bytes.
     /// </summary>
     public long VideoSize { get; set; }

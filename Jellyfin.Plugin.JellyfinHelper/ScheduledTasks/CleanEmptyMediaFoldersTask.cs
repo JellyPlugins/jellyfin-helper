@@ -73,21 +73,21 @@ public class CleanEmptyMediaFoldersTask
 
         if (effectiveDryRun)
         {
-            _logger.LogInformation("Starting empty media folder cleanup (Dry Run). No folders will be deleted.");
+            PluginLogService.LogInfo("EmptyFolderCleaner", "Task started (Dry Run). No folders will be deleted.", _logger);
         }
         else
         {
-            _logger.LogInformation("Starting empty media folder cleanup.");
+            PluginLogService.LogInfo("EmptyFolderCleaner", "Task started.", _logger);
         }
 
         if (config.OrphanMinAgeDays > 0)
         {
-            _logger.LogInformation("Orphan minimum age: {Days} days", config.OrphanMinAgeDays);
+            PluginLogService.LogInfo("EmptyFolderCleaner", $"Orphan minimum age: {config.OrphanMinAgeDays} days", _logger);
         }
 
         if (config.UseTrash && !effectiveDryRun)
         {
-            _logger.LogInformation("Trash mode enabled. Items will be moved to trash instead of permanent deletion.");
+            PluginLogService.LogInfo("EmptyFolderCleaner", "Trash mode enabled. Items will be moved to trash instead of permanent deletion.", _logger);
         }
 
         var libraryFolders = CleanupConfigHelper.GetFilteredLibraryLocations(_libraryManager);
@@ -103,7 +103,7 @@ public class CleanEmptyMediaFoldersTask
             }
 
             var folder = libraryFolders[i];
-            _logger.LogDebug("Scanning library folder: {Folder}", folder);
+            PluginLogService.LogDebug("EmptyFolderCleaner", $"Scanning library folder: {folder}", _logger);
             var (deleted, bytesFreed) = CleanLibraryRoot(folder, effectiveDryRun, cancellationToken);
             totalDeleted += deleted;
             totalBytesFreed += bytesFreed;
@@ -112,11 +112,11 @@ public class CleanEmptyMediaFoldersTask
 
         if (effectiveDryRun)
         {
-            _logger.LogInformation("Empty media folder cleanup (Dry Run) finished. Would have deleted {Count} folders.", totalDeleted);
+            PluginLogService.LogInfo("EmptyFolderCleaner", $"Task finished (Dry Run). Would have deleted {totalDeleted} folders.", _logger);
         }
         else
         {
-            _logger.LogInformation("Empty media folder cleanup finished. Deleted {Count} folders, freed {Bytes} bytes.", totalDeleted, totalBytesFreed);
+            PluginLogService.LogInfo("EmptyFolderCleaner", $"Task finished. Deleted {totalDeleted} folders, freed {totalBytesFreed} bytes.", _logger);
         }
 
         if (!effectiveDryRun && totalDeleted > 0)
@@ -198,7 +198,7 @@ public class CleanEmptyMediaFoldersTask
                 // for upcoming media → skip it.
                 if (!hasNonMetadataFiles)
                 {
-                    _logger.LogDebug("Skipping metadata-only folder (likely a wanted-list placeholder): {Path}", topDir.FullName);
+                    PluginLogService.LogDebug("EmptyFolderCleaner", $"Skipping metadata-only folder (likely a wanted-list placeholder): {topDir.FullName}", _logger);
                     continue;
                 }
 
@@ -208,13 +208,13 @@ public class CleanEmptyMediaFoldersTask
                 // Check orphan age
                 if (!CleanupConfigHelper.IsOldEnoughForDeletion(topDir.FullName))
                 {
-                    _logger.LogDebug("Skipping too-new orphan (min age {Days}d): {Path}", config.OrphanMinAgeDays, topDir.FullName);
+                    PluginLogService.LogDebug("EmptyFolderCleaner", $"Skipping too-new orphan (min age {config.OrphanMinAgeDays}d): {topDir.FullName}", _logger);
                     continue;
                 }
 
                 if (dryRun)
                 {
-                    _logger.LogInformation("[Dry Run] Would delete orphaned media folder: {Path}", topDir.FullName);
+                    PluginLogService.LogInfo("EmptyFolderCleaner", $"[Dry Run] Would delete orphaned media folder: {topDir.FullName}", _logger);
                     deletedCount++;
                 }
                 else if (config.UseTrash)
@@ -229,7 +229,7 @@ public class CleanEmptyMediaFoldersTask
                 }
                 else
                 {
-                    _logger.LogInformation("Deleting orphaned media folder: {Path}", topDir.FullName);
+                    PluginLogService.LogInfo("EmptyFolderCleaner", $"Deleting orphaned media folder: {topDir.FullName}", _logger);
                     try
                     {
                         long size = FileSystemHelper.CalculateDirectorySize(_fileSystem, topDir.FullName, _logger);
@@ -239,14 +239,14 @@ public class CleanEmptyMediaFoldersTask
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        _logger.LogError(ex, "Error deleting directory {Path}", topDir.FullName);
+                        PluginLogService.LogError("EmptyFolderCleaner", $"Failed to delete directory: {topDir.FullName}", ex, _logger);
                     }
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error scanning directory {Path}", libraryRootPath);
+            PluginLogService.LogError("EmptyFolderCleaner", $"Error scanning directory: {libraryRootPath}", ex, _logger);
         }
 
         return (deletedCount, bytesFreed);
@@ -320,7 +320,7 @@ public class CleanEmptyMediaFoldersTask
                 var (bytesFreed, itemsPurged) = TrashService.PurgeExpiredTrash(trashPath, retentionDays, _logger);
                 if (itemsPurged > 0)
                 {
-                    _logger.LogInformation("Purged {Count} expired items from trash ({Bytes} bytes): {Path}", itemsPurged, bytesFreed, trashPath);
+                    PluginLogService.LogInfo("EmptyFolderCleaner", $"Purged {itemsPurged} expired items from trash ({bytesFreed} bytes): {trashPath}", _logger);
                 }
             }
         }

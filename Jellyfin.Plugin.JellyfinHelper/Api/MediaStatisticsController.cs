@@ -100,7 +100,7 @@ public class MediaStatisticsController : ControllerBase
         // Try cache first (unless force refresh)
         if (!forceRefresh && _cache.TryGetValue(StatsCacheKey, out MediaStatisticsResult? cached) && cached != null)
         {
-            _logger.LogDebug("Returning cached statistics");
+            PluginLogService.LogDebug("API", "Returning cached statistics", _logger);
             return Ok(cached);
         }
 
@@ -116,7 +116,7 @@ public class MediaStatisticsController : ControllerBase
                     return Ok(recentCached);
                 }
 
-                _logger.LogWarning("Rate limit exceeded for statistics scan");
+                PluginLogService.LogWarning("API", "Rate limit exceeded for statistics scan", logger: _logger);
                 return StatusCode(StatusCodes.Status429TooManyRequests, new { message = "Please wait before requesting another scan." });
             }
 
@@ -135,7 +135,7 @@ public class MediaStatisticsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to save statistics snapshot");
+            PluginLogService.LogWarning("API", "Failed to save statistics snapshot", ex, _logger);
         }
 
         // Persist latest result to disk
@@ -145,7 +145,7 @@ public class MediaStatisticsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to persist latest statistics result");
+            PluginLogService.LogWarning("API", "Failed to persist latest statistics result", ex, _logger);
         }
 
         return Ok(result);
@@ -164,7 +164,7 @@ public class MediaStatisticsController : ControllerBase
         // Try memory cache first
         if (_cache.TryGetValue(StatsCacheKey, out MediaStatisticsResult? cached) && cached != null)
         {
-            _logger.LogDebug("Returning cached statistics for /Latest");
+            PluginLogService.LogDebug("API", "Returning cached statistics for /Latest", _logger);
             return Ok(cached);
         }
 
@@ -176,13 +176,13 @@ public class MediaStatisticsController : ControllerBase
             {
                 // Re-populate memory cache from disk
                 _cache.Set(StatsCacheKey, persisted, CacheDuration);
-                _logger.LogDebug("Loaded persisted statistics from disk for /Latest");
+                PluginLogService.LogDebug("API", "Loaded persisted statistics from disk for /Latest", _logger);
                 return Ok(persisted);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to load persisted statistics");
+            PluginLogService.LogWarning("API", "Failed to load persisted statistics", ex, _logger);
         }
 
         return NoContent();
@@ -383,7 +383,7 @@ public class MediaStatisticsController : ControllerBase
 
         plugin.UpdateConfiguration(updatedConfig);
 
-        _logger.LogInformation("Plugin configuration updated.");
+        PluginLogService.LogInfo("API", "Plugin configuration updated.", _logger);
         return Ok(new { message = "Configuration saved." });
     }
 
@@ -479,7 +479,7 @@ public class MediaStatisticsController : ControllerBase
             var fullPath = Path.GetFullPath(config.TrashFolderPath);
             if (!IsPathSafeForDeletion(fullPath, libraryFolders))
             {
-                _logger.LogWarning("Refusing to delete unsafe trash path: {Path}", fullPath);
+                PluginLogService.LogWarning("API", $"Refusing to delete unsafe trash path: {fullPath}", logger: _logger);
                 return BadRequest(new { Error = "Configured trash path is unsafe for deletion (filesystem root or library root)." });
             }
 
@@ -496,10 +496,7 @@ public class MediaStatisticsController : ControllerBase
                 var libraryRoot = Path.GetFullPath(folder);
                 if (!trashPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogWarning(
-                        "Refusing to delete trash path {TrashPath}: it escapes library root {LibraryRoot}.",
-                        trashPath,
-                        libraryRoot);
+                    PluginLogService.LogWarning("API", $"Refusing to delete trash path {trashPath}: it escapes library root {libraryRoot}.", logger: _logger);
                     continue;
                 }
 
@@ -516,12 +513,12 @@ public class MediaStatisticsController : ControllerBase
             {
                 Directory.Delete(path, true);
                 deleted.Add(path);
-                _logger.LogInformation("Deleted trash folder: {Path}", path);
+                PluginLogService.LogInfo("API", $"Deleted trash folder: {path}", _logger);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 failed.Add(path);
-                _logger.LogError(ex, "Failed to delete trash folder: {Path}", path);
+                PluginLogService.LogError("API", $"Failed to delete trash folder: {path}", ex, _logger);
             }
         }
 
@@ -713,6 +710,68 @@ public class MediaStatisticsController : ControllerBase
         return Ok(translations);
     }
 
+    // === Plugin Logs ===
+
+    /// <summary>
+    /// Gets the plugin-specific log entries from the in-memory ring buffer.
+    /// </summary>
+    /// <param name="minLevel">Optional minimum log level filter (DEBUG, INFO, WARN, ERROR).</param>
+    /// <param name="source">Optional source component filter (partial match).</param>
+    /// <param name="limit">Maximum number of entries to return (default 500, max 2000).</param>
+    /// <returns>A list of log entries, newest first.</returns>
+    [HttpGet("Logs")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult GetLogs([FromQuery] string? minLevel = null, [FromQuery] string? source = null, [FromQuery] int limit = 500)
+    {
+        if (limit < 1)
+        {
+            limit = 1;
+        }
+
+        if (limit > PluginLogService.MaxEntries)
+        {
+            limit = PluginLogService.MaxEntries;
+        }
+
+        var entries = PluginLogService.GetEntries(minLevel, source, limit);
+        return Ok(new
+        {
+            TotalBuffered = PluginLogService.GetCount(),
+            Returned = entries.Count,
+            Entries = entries,
+        });
+    }
+
+    /// <summary>
+    /// Downloads the plugin logs as a plain-text file.
+    /// </summary>
+    /// <param name="minLevel">Optional minimum log level filter (DEBUG, INFO, WARN, ERROR).</param>
+    /// <param name="source">Optional source filter (partial match).</param>
+    /// <returns>A text file containing the log entries.</returns>
+    [HttpGet("Logs/Download")]
+    [Produces("text/plain")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult DownloadLogs([FromQuery] string? minLevel = null, [FromQuery] string? source = null)
+    {
+        var text = PluginLogService.ExportAsText(minLevel, source);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        return File(bytes, "text/plain", $"jellyfin-helper-logs-{timestamp}.txt");
+    }
+
+    /// <summary>
+    /// Clears all plugin log entries from the in-memory buffer.
+    /// </summary>
+    /// <returns>A status result.</returns>
+    [HttpDelete("Logs")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult ClearLogs()
+    {
+        PluginLogService.Clear();
+        _logger.LogInformation("Plugin log buffer cleared by admin");
+        return Ok(new { message = "Logs cleared." });
+    }
+
     /// <summary>
     /// Gets the list of available library names for the configuration UI.
     /// </summary>
@@ -782,7 +841,7 @@ public class MediaStatisticsController : ControllerBase
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    _logger.LogWarning(ex, "Could not list directories in {Path}", location);
+                    PluginLogService.LogWarning("API", $"Could not list directories in {location}", ex, _logger);
                 }
             }
         }

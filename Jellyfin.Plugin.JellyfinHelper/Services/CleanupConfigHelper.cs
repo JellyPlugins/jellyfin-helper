@@ -37,8 +37,10 @@ public static class CleanupConfigHelper
         // One-time migration from legacy booleans to TaskMode
         if (config.ConfigVersion < 1)
         {
+            PluginLogService.LogInfo("Config", "Migrating configuration from legacy booleans to TaskMode (ConfigVersion < 1).");
             config.MigrateFromLegacyBooleans();
             Plugin.Instance?.SaveConfiguration();
+            PluginLogService.LogInfo("Config", "Configuration migration completed.");
         }
 
         return config;
@@ -118,6 +120,8 @@ public static class CleanupConfigHelper
         var includedSet = ParseCommaSeparated(config.IncludedLibraries);
         var excludedSet = ParseCommaSeparated(config.ExcludedLibraries);
 
+        PluginLogService.LogDebug("Config", $"Library filter: included=[{string.Join(", ", includedSet)}], excluded=[{string.Join(", ", excludedSet)}]");
+
         var filteredFolders = virtualFolders.Where(f =>
         {
             var name = f.Name ?? string.Empty;
@@ -189,8 +193,9 @@ public static class CleanupConfigHelper
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // If we can't check, assume it's old enough
-            return true;
+            // If we can't check, err on the safe side and skip cleanup
+            PluginLogService.LogWarning("Config", $"Could not check directory age for: {directoryPath}", ex);
+            return false;
         }
     }
 
@@ -220,7 +225,9 @@ public static class CleanupConfigHelper
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return true;
+            // If we can't check, err on the safe side and skip cleanup
+            PluginLogService.LogWarning("Config", $"Could not check file age for: {filePath}", ex);
+            return false;
         }
     }
 
