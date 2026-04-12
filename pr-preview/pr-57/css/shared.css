@@ -1,0 +1,455 @@
+.stats-container {
+    max-width: 960px;
+    margin: 1em auto;
+}
+
+.stats-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5em;
+    flex-wrap: wrap;
+    gap: 0.5em;
+}
+
+.stats-header h2 {
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    gap: 0.5em;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.last-scan-badge {
+    font-size: 0.78em;
+    color: rgba(255,255,255,0.6);
+    background: rgba(255,255,255,0.08);
+    padding: 0.3em 0.8em;
+    border-radius: 12px;
+    white-space: nowrap;
+}
+
+.refresh-btn, .export-btn {
+    padding: 0.5em 1.2em;
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 0.95em;
+    transition: background 0.2s;
+}
+
+.refresh-btn {
+    background: #00a4dc;
+}
+
+.refresh-btn:hover {
+    background: #0088b8;
+}
+
+.refresh-btn:disabled {
+    background: #555;
+    cursor: not-allowed;
+}
+
+.refresh-btn.success,
+.refresh-btn.success:hover {
+    background: #2ecc71;
+}
+
+.refresh-btn.error,
+.refresh-btn.error:hover {
+    background: #e74c3c;
+}
+
+.export-btn {
+    background: #2ecc71;
+}
+
+.export-btn:hover {
+    background: #27ae60;
+}
+
+.export-btn:disabled {
+    background: #555;
+    cursor: not-allowed;
+}
+
+.section-title {
+    font-size: 1.1em;
+    font-weight: 600;
+    margin: 3em 0 0.5em 0;
+    padding-bottom: 0.3em;
+    border-bottom: 2px solid #00a4dc;
+}
+
+.tab-content > .section-title:first-child,
+.tab-content > :first-child > .section-title:first-child {
+    margin-top: 0;
+}
+
+.section-sub-title {
+    font-size: 1em;
+    font-weight: 600;
+    margin-bottom: 0.3em;
+}
+
+.section-sub-title > .help-text {
+    font-size: 0.8em;
+    opacity: 0.5;
+}
+
+.loading-overlay {
+    text-align: center;
+    padding: 3em;
+    opacity: 0.6;
+}
+
+.loading-overlay .spinner {
+    display: inline-block;
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #00a4dc;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.error-msg {
+    color: #e74c3c;
+    padding: 1em;
+    text-align: center;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.15em 0.5em;
+    border-radius: 3px;
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge-movies { background: #e67e22; color: #fff; }
+.badge-tvshows { background: #2ecc71; color: #fff; }
+.badge-music { background: #9b59b6; color: #fff; }
+.badge-other { background: #95a5a6; color: #fff; }
+
+/* Tabs */
+.tab-bar {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1.5em;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+
+.tab-bar::-webkit-scrollbar {
+    height: 4px;
+}
+
+.tab-bar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+}
+
+.tab-btn {
+    padding: 0.6em 1.2em;
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.95em;
+    opacity: 0.6;
+    border-bottom: 2px solid transparent;
+    transition: opacity 0.2s, border-color 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.tab-btn:hover {
+    opacity: 0.9;
+}
+
+.tab-btn.active {
+    opacity: 1;
+    border-bottom-color: #00a4dc;
+    font-weight: 600;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.success-msg { color: #2ecc71; padding: 0.5em; text-align: center; font-weight: 600; }
+.action-btn { display: inline-flex; align-items: center; padding: 0.5em 1.2em; border: none; border-radius: 4px; color: #fff; cursor: pointer; font-size: 0.95em; transition: background 0.2s; background: #e67e22; }
+.action-btn:hover { background: #d35400; }
+.action-btn:disabled { background: #555; cursor: not-allowed; }
+.action-btn.success,
+.action-btn.success:hover { background: #2ecc71; }
+.action-btn.error,
+.action-btn.error:hover { background: #e74c3c; }
+
+
+
+/* Arr button variants */
+.btn-arr-test { background: #3498db; }
+.btn-arr-test:hover { background: #2980b9; }
+.btn-arr-remove { background: #e74c3c; }
+.btn-arr-remove:hover { background: #c0392b; }
+
+/* No data placeholder */
+.no-data-container {
+    text-align: center;
+    padding: 2em 1em;
+    opacity: 0.5;
+    font-size: 0.9em;
+}
+
+.btn-icon {
+    margin-right: 0.5em;
+    vertical-align: middle;
+    display: inline-block;
+}
+
+.btn-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+    margin-right: 0.5em;
+    vertical-align: middle;
+}
+
+.file-tree-panel {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    opacity 0.3s ease,
+    margin 0.3s ease;
+    margin: 0;
+}
+
+/* noinspection CssUnusedSymbol */
+.file-tree-panel.file-tree-panel-visible {
+    max-height: 500px;
+    opacity: 1;
+    margin-top: 0.8em;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(0, 164, 220, 0.2);
+    border-radius: 8px;
+    padding: 0.8em;
+}
+
+/* Scrollbar styling for the detail panel */
+.file-tree-panel::-webkit-scrollbar {
+    width: 6px;
+}
+
+.file-tree-panel::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.file-tree-panel::-webkit-scrollbar-thumb {
+    background: rgba(0, 164, 220, 0.3);
+    border-radius: 3px;
+}
+
+.file-tree-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 164, 220, 0.5);
+}
+
+.file-tree-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.7em;
+    padding-bottom: 0.5em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.file-tree-title {
+    font-weight: 700;
+    font-size: 0.95em;
+    color: #00a4dc;
+}
+
+.file-tree-count {
+    font-size: 0.8em;
+    opacity: 0.5;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.15em 0.5em;
+    border-radius: 10px;
+}
+
+/* File List Columns (Movies / TV Shows / Music split) */
+.file-tree-columns {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8em;
+}
+
+/* noinspection CssUnusedSymbol */
+.file-tree-columns.file-tree-multi {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 0.8em;
+}
+
+@media (max-width: 600px) {
+    /* noinspection CssUnusedSymbol */
+    .file-tree-columns.file-tree-multi {
+        grid-template-columns: 1fr;
+    }
+}
+
+.file-tree-section {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    padding: 0.6em;
+}
+
+.file-tree-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    margin-bottom: 0.5em;
+    font-size: 0.85em;
+}
+
+.file-tree-section-count {
+    opacity: 0.45;
+    font-size: 0.85em;
+}
+
+/* Tree View Styles */
+.tree-view {
+    font-family: monospace;
+    text-align: left;
+}
+
+.file-tree-empty {
+     text-align: center;
+     padding: 1em;
+     opacity: 0.4;
+     font-size: 0.85em;
+ }
+
+.tree-node {
+    margin-left: 1em;
+    border-left: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tree-folder {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    padding: 0.2em 0.4em;
+    cursor: default;
+    border-radius: 4px;
+    transition: background 0.15s;
+    user-select: none;
+}
+
+.tree-toggle {
+    cursor: pointer;
+}
+
+.tree-folder:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.tree-icon {
+    width: 1.2em;
+    text-align: center;
+}
+
+.tree-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.8;
+}
+
+.tree-name-count {
+    opacity: 0.45;
+}
+
+.tree-children {
+    display: none;
+}
+
+.tree-expanded > .tree-children {
+    display: block;
+}
+
+.tree-leaf {
+    display: flex;
+    gap: 0.4em;
+    margin-left: 1.2em;
+    padding: 0.1em 0.4em 0.1em 0.8em;
+    border-left: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 0.9em;
+}
+
+.tree-leaf:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 4px;
+}
+
+.tree-leaf-icon {
+     flex-shrink: 0;
+     width: 1.2em;
+     text-align: center;
+ }
+
+.tree-leaf-file-name {
+    white-space: nowrap;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tree-action-btn {
+    font-size: 0.7em;
+    padding: 0.2em 0.6em;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s, background 0.2s;
+}
+
+.tree-action-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .btn-spinner,
+    .loading-overlay .spinner {
+        animation: none;
+    }
+}
