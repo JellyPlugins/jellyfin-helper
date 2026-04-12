@@ -35,7 +35,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services
             // root
             //  +- Series 1 (metadata here: folder.jpg, series.nfo)
             //      +- Season 01
-            //      �   +- S01E01.mkv
+            //          +- S01E01.mkv
             //      +- Specials
             //          +- S00E01.mkv
 

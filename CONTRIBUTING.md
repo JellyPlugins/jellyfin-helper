@@ -68,32 +68,58 @@ Jellyfin.Plugin.JellyfinHelper/
 │   └── MediaStatisticsController.cs  # All REST API endpoints
 ├── Configuration/
 │   ├── PluginConfiguration.cs   # Settings model with migration logic
-│   └── ArrInstanceConfig.cs     # Radarr/Sonarr instance model
+│   ├── ArrInstanceConfig.cs     # Radarr/Sonarr instance model
+│   └── TaskMode.cs              # Activate / DryRun / Deactivate enum
 ├── Services/
+│   ├── FileSystemHelper.cs           # File system utility methods
+│   ├── I18nService.cs                # Internationalization service
 │   ├── LibraryPathResolver.cs        # Jellyfin library path resolution
 │   ├── PathValidator.cs              # Path traversal & safety checks
-│   ├── PluginLogService.cs           # In-memory plugin log ring buffer
 │   ├── Arr/                          # Radarr/Sonarr integration
 │   │   ├── ArrIntegrationService.cs
-│   │   └── ...
+│   │   ├── ArrComparisonResult.cs
+│   │   ├── ArrMovie.cs
+│   │   └── ArrSeries.cs
+│   ├── Backup/                       # Configuration backup & restore
+│   │   ├── BackupService.cs
+│   │   ├── BackupData.cs
+│   │   ├── BackupArrInstance.cs
+│   │   ├── BackupRestoreSummary.cs
+│   │   └── BackupValidationResult.cs
 │   ├── Cleanup/                      # Cleanup config & trash logic
 │   │   ├── CleanupConfigHelper.cs
+│   │   ├── CleanupTrackingService.cs
 │   │   ├── TrashService.cs
-│   │   └── ...
+│   │   └── TrashItemInfo.cs
+│   ├── PluginLog/                    # Plugin-specific logging
+│   │   ├── PluginLogService.cs       # In-memory ring buffer
+│   │   └── PluginLogEntry.cs
 │   ├── Statistics/                   # Library scanning & statistics
 │   │   ├── MediaStatisticsService.cs
+│   │   ├── MediaStatisticsResult.cs
+│   │   ├── LibraryStatistics.cs
 │   │   ├── StatisticsHistoryService.cs
-│   │   └── ...
+│   │   └── StatisticsSnapshot.cs
 │   ├── Strm/                         # STRM file repair
 │   │   ├── StrmRepairService.cs
-│   │   └── ...
+│   │   ├── StrmRepairResult.cs
+│   │   ├── StrmFileResult.cs
+│   │   └── StrmFileStatus.cs
 │   └── Timeline/                     # Growth timeline computation
 │       ├── GrowthTimelineService.cs
-│       └── ...
+│       ├── GrowthTimelineResult.cs
+│       ├── GrowthTimelinePoint.cs
+│       ├── GrowthTimelineBaseline.cs
+│       └── BaselineDirectoryEntry.cs
 ├── ScheduledTasks/
-│   └── HelperCleanupTask.cs     # Master scheduled task
+│   ├── HelperCleanupTask.cs          # Master scheduled task
+│   ├── CleanTrickplayTask.cs
+│   ├── CleanEmptyMediaFoldersTask.cs
+│   ├── CleanOrphanedSubtitlesTask.cs
+│   └── RepairStrmFilesTask.cs
 └── PluginPages/
     ├── configPage.template.html # HTML shell (build-time composition)
+    ├── configPage.html          # Generated output (do not edit)
     ├── css/                     # Per-tab CSS modules
     └── js/                      # Per-tab JS modules
 ```
@@ -101,11 +127,13 @@ Jellyfin.Plugin.JellyfinHelper/
 ### Key Design Decisions
 
 - **Single controller** — All endpoints live in `MediaStatisticsController.cs` for simplicity
+- **Domain-organized Services** — Services grouped by domain (Arr, Backup, Cleanup, PluginLog, Statistics, Strm, Timeline)
 - **Build-time UI composition** — CSS and JS modules are concatenated into `configPage.html` at build time (no runtime bundler needed)
 - **Persisted scan results** — Latest statistics are saved to disk and survive server restarts
 - **5-minute cache** — `IMemoryCache` prevents redundant scans; `?forceRefresh=true` bypasses it
 - **Rate limiting** — 30-second minimum between scans (HTTP 429 on violation)
 - **Dry Run by default** — All cleanup tasks start in DryRun mode for safety
+- **Backup & Restore** — Full plugin state (config + history) exportable/importable as JSON
 
 ---
 
@@ -132,8 +160,8 @@ PluginPages/
     ├── Overview.js           # Overview tab rendering
     ├── Codecs.js             # Codec tab (donut charts, file drill-down)
     ├── Health.js             # Health tab (tiles, clickable details, trash)
-    ├── Trends.js             # Trends tab (history graph)
-    ├── Settings.js           # Settings tab (task modes, trash, language, Arr)
+    ├── Trends.js             # Trends tab (history graph, growth timeline)
+    ├── Settings.js           # Settings tab (task modes, trash, language, Arr, backup/restore)
     ├── ArrIntegration.js     # Arr tab (instance comparison, connection test)
     ├── Logs.js               # Logs tab (filtering, download, auto-refresh)
     └── main.js               # Tab routing, scan trigger, IIFE close
@@ -162,6 +190,7 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 | `/JellyfinHelper/Statistics/Export/Json` | GET | Download statistics as JSON |
 | `/JellyfinHelper/Statistics/Export/Csv` | GET | Download per-library breakdown as CSV |
 | `/JellyfinHelper/Statistics/History` | GET | Historical snapshots for trend graph |
+| `/JellyfinHelper/Statistics/GrowthTimeline` | GET | Cumulative growth timeline with bucketing (`?granularity=daily\|weekly\|monthly\|quarterly\|yearly`) |
 
 ### Configuration
 
@@ -197,6 +226,13 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 | `/JellyfinHelper/Logs` | GET | Log entries (`?limit=N&minLevel=LEVEL&source=NAME`) |
 | `/JellyfinHelper/Logs/Download` | GET | Download logs as text file |
 | `/JellyfinHelper/Logs` | DELETE | Clear all buffered log entries |
+
+### Backup & Restore
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/JellyfinHelper/Backup/Export` | GET | Export plugin configuration and historical data as JSON |
+| `/JellyfinHelper/Backup/Import` | POST | Import plugin configuration and historical data from JSON |
 
 ---
 
@@ -269,6 +305,18 @@ Sub-tasks executed in order (each respecting its configured task mode):
 - **Health Checks:** Detects embedded subtitle streams (not just external files)
 - **Boxset/Collection libraries** are automatically skipped for health checks
 
+### Growth Timeline
+
+- Cumulative media growth visualization over time
+- Granularity options: daily, weekly, monthly, quarterly, yearly
+- Baseline scanning for accurate file creation date tracking
+
+### Backup & Restore
+
+- Export complete plugin state (configuration + statistics history + Arr instances) as JSON
+- Import with validation — detects format errors and version mismatches
+- Restore summary shows what was imported (config fields, history entries, Arr instances)
+
 ### Security
 
 - **Path traversal protection** with null-byte detection and base directory validation
@@ -296,9 +344,9 @@ Sub-tasks executed in order (each respecting its configured task mode):
 
 ## 🧪 Testing
 
-The project includes **737 automated tests** covering:
+The project includes **950 automated tests** covering:
 
-- All services (cleanup, statistics, path validation, Arr integration)
+- All services (cleanup, statistics, path validation, Arr integration, backup/restore, growth timeline)
 - API endpoints (controller tests with mocked dependencies)
 - Configuration migration (legacy format → current)
 - UI structure (HTML element presence, tab structure)
@@ -316,12 +364,25 @@ dotnet test --filter "FullyQualifiedName~Api"       # Run API tests only
 ```text
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── Api/                    # Controller endpoint tests
+│   ├── MediaStatisticsControllerBackupTests.cs
+│   ├── MediaStatisticsControllerExportTests.cs
+│   └── MediaStatisticsControllerTrashTests.cs
 ├── Configuration/          # Config migration tests
 ├── PluginPages/            # HTML structure tests
+│   ├── ConfigPageHtmlTests.cs
+│   ├── OverviewHtmlTests.cs
+│   ├── CodecsHtmlTests.cs
+│   ├── HealthHtmlTests.cs
+│   ├── TrendsHtmlTests.cs
+│   ├── SettingsHtmlTests.cs
+│   ├── ArrIntegrationHtmlTests.cs
+│   └── LogsHtmlTests.cs
 ├── ScheduledTasks/         # Task orchestration tests
 └── Services/               # Service logic tests
     ├── Arr/                # Arr integration tests
+    ├── Backup/             # Backup & restore tests
     ├── Cleanup/            # Cleanup & trash tests
+    ├── PluginLog/          # Plugin log tests
     ├── Statistics/         # Statistics service tests
     ├── Strm/               # STRM repair tests
     └── Timeline/           # Growth timeline tests

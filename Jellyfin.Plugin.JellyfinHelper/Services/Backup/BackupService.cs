@@ -531,6 +531,12 @@ public class BackupService
         {
             result.Errors.Add($"{fieldName} contains potentially dangerous characters (|, `, $, ;).");
         }
+
+        // Check for newline characters (potential log/header injection)
+        if (path.Contains('\n', StringComparison.Ordinal) || path.Contains('\r', StringComparison.Ordinal))
+        {
+            result.Errors.Add($"{fieldName} contains newline characters.");
+        }
     }
 
     internal static void ValidateArrInstances(BackupValidationResult result, List<BackupArrInstance>? instances, string fieldName)

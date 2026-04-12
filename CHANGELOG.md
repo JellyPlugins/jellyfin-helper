@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] — 2026-07-12
+
+### Added
+- **Backup & Restore** — New backup/restore functionality to export and import plugin configuration and historical data as JSON.
+- **Growth Timeline** — New growth timeline visualization displaying cumulative media growth over time with granular bucketing (daily/weekly/monthly/quarterly/yearly).
+
+### Changed
+- **Project Restructure** — Reorganized project structure for better maintainability and modularity.
+- **TrendChart Enhancements** — Improved scaling, labels, and mobile responsiveness for the trend chart visualization.
+- **Download Buttons Relocated** — JSON/CSV download buttons moved for better UX placement.
+- **Responsive Data Tree** — Data tree component made responsive for touch devices.
+
+### Fixed
+- **Jellyfin Compatibility** — Fixed bug preventing plugin usage on Jellyfin versions below 10.11.8 by downgrading Jellyfin.Controller and Jellyfin.Model package versions to 10.11.0.
+
+---
+
 ## [1.0.7] — 2026-04-12
 
 ### Added

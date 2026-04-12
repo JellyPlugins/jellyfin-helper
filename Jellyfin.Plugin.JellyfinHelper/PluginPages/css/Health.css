@@ -37,6 +37,7 @@
 .health-clickable { cursor: pointer; transition: border-color 0.2s, background 0.2s, transform 0.1s; }
 .health-clickable:hover { border-color: #00a4dc; background: rgba(0,164,220,0.08); }
 .health-clickable:active { transform: scale(0.97); }
+.health-clickable:focus-visible { outline: 2px solid #00a4dc; outline-offset: 2px; border-color: #00a4dc; background: rgba(0,164,220,0.12); }
 /* noinspection CssUnusedSymbol */
 .health-clickable.health-active { border-color: #00a4dc; background: rgba(0,164,220,0.12); box-shadow: 0 0 0 2px rgba(0,164,220,0.3); }
 

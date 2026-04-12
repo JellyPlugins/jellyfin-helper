@@ -5,7 +5,7 @@
 A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks, media library statistics, health checks, and Arr stack integration — all from a single, multi-tab dashboard.
 
 [![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square)](https://github.com/JellyPlugins/jellyfin-helper/releases)
-[![Tests](https://img.shields.io/badge/tests-737%20passing-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
+[![Tests](https://img.shields.io/badge/tests-950%20passing-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
 [![License](https://img.shields.io/github/license/JellyPlugins/jellyfin-helper?style=flat-square)](LICENSE)
 
 ## 🎮 Live Demo
@@ -26,14 +26,18 @@ Explore the full 7-tab dashboard with realistic sample data — no Jellyfin serv
 | **🧹 Subtitle Cleaner** | Removes orphaned subtitle files with smart language-code detection |
 | **🔧 STRM Repair** | Fixes broken `.strm` files by locating renamed/moved media |
 | **📈 Statistics & Trends** | Per-library disk usage, codec/resolution/container analysis, historical growth graphs |
+| **📈 Growth Timeline** | Cumulative media growth visualization with daily/weekly/monthly/quarterly/yearly bucketing |
 | **🩺 Health Checks** | Detects missing subtitles, artwork, NFO, and orphaned metadata directories |
 | **🔗 Arr Integration** | Compare Jellyfin with up to 3 Radarr + 3 Sonarr instances |
+| **💾 Backup & Restore** | Export/import plugin configuration and historical data as JSON |
 | **📋 Log Viewer** | Plugin-specific logs with level/source filtering, auto-refresh, and download |
 | **🗑️ Trash / Recycle Bin** | Move-to-trash with configurable retention instead of permanent deletion |
 | **🌐 7 Languages** | English, German, French, Spanish, Portuguese, Chinese, Turkish |
 | **🔐 Security** | 5-min cache, rate limiting, path traversal protection, XSS escaping |
 
 All cleanup tasks default to **Dry Run** mode — nothing is deleted until you explicitly activate them.
+
+**Compatibility:** Jellyfin **10.11.0+**
 
 ---
 
@@ -51,8 +55,8 @@ All cleanup tasks default to **Dry Run** mode — nothing is deleted until you e
 
 ### Manual Installation
 
-1. Download the latest `.dll` from [Releases](https://github.com/JellyPlugins/jellyfin-helper/releases)
-2. Place it in your Jellyfin plugins directory (e.g. `/config/plugins/JellyfinHelper/`)
+1. Download the latest release package from [Releases](https://github.com/JellyPlugins/jellyfin-helper/releases)
+2. Extract the package and copy all files into your Jellyfin plugin directory (e.g. `/config/plugins/JellyfinHelper/`)
 3. Restart Jellyfin
 
 ---

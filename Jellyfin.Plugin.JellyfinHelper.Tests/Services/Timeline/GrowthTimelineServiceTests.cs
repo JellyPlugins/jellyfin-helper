@@ -1,11 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Jellyfin.Plugin.JellyfinHelper.Services;
-using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
-using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
-using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
-using Jellyfin.Plugin.JellyfinHelper.Services.Strm;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Xunit;
 
@@ -892,7 +887,7 @@ public class GrowthTimelineServiceTests
     // ── Path comparison ───────────────────────────────────────────────────
 
     [Fact]
-    public void BuildIncrementalEntries_PathComparison_IsCaseInsensitive()
+    public void BuildIncrementalEntries_PathComparison_IsOsAware()
     {
         var baseline = new GrowthTimelineBaseline
         {
@@ -912,7 +907,15 @@ public class GrowthTimelineServiceTests
         var now = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc);
         var entries = GrowthTimelineService.BuildIncrementalEntries(currentDirs, baseline, now);
 
-        // Should match (no duplicate, no diff)
-        Assert.Single(entries);
+        if (OperatingSystem.IsWindows())
+        {
+            // On Windows, paths are case-insensitive → should match (no duplicate, no diff)
+            Assert.Single(entries);
+        }
+        else
+        {
+            // On Linux/macOS, paths are case-sensitive → treated as different directories
+            Assert.Equal(2, entries.Count);
+        }
     }
 }

@@ -11,6 +11,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 /// </summary>
 public class GrowthTimelineBaseline
 {
+    private static readonly StringComparer PathComparer =
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
     /// <summary>
     /// Gets or sets the timestamp of the first scan that created this baseline.
     /// Directories created after this timestamp are treated as "new additions"
@@ -26,5 +29,5 @@ public class GrowthTimelineBaseline
     /// </summary>
     [JsonPropertyName("directories")]
     [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
-    public Dictionary<string, BaselineDirectoryEntry> Directories { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, BaselineDirectoryEntry> Directories { get; } = new(PathComparer);
 }
