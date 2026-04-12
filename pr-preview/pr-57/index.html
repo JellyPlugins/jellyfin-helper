@@ -332,7 +332,7 @@
                         try {
                             var newCfg = JSON.parse(opts.data);
                             Object.assign(MOCK_CONFIG, newCfg);
-                        } catch(e) {}
+                        } catch(e) { console.warn('Mock ApiClient: failed to parse config data', e); }
                         resolve({});
                     } else if (url.indexOf('Configuration') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_CONFIG)));
