@@ -22,6 +22,13 @@ Copy-Item (Join-Path $repoRoot 'Jellyfin.Plugin.JellyfinHelper\i18n\en.json') $i
 $noJekyllPath = Join-Path $docsRoot '.nojekyll'
 Set-Content -Path $noJekyllPath -Value '' -NoNewline
 
+# Remove docs/.gitignore so the deploy action does NOT skip generated css/js/i18n folders
+$docsGitignore = Join-Path $docsRoot '.gitignore'
+if (Test-Path $docsGitignore) {
+    Remove-Item $docsGitignore -Force
+    Write-Host "Removed $docsGitignore (would hide generated assets from deploy)"
+}
+
 Write-Host 'Demo site prepared:'
 Get-ChildItem -Path $docsRoot -Recurse -File |
     Sort-Object FullName |
