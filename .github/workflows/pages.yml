@@ -1,0 +1,62 @@
+name: Deploy GitHub Pages Demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Jellyfin.Plugin.JellyfinHelper/PluginPages/**'
+      - 'Jellyfin.Plugin.JellyfinHelper/i18n/**'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare demo site
+        run: |
+          # Copy CSS modules into docs/css/
+          mkdir -p docs/css docs/js docs/i18n
+
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/css/shared.css         docs/css/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/css/Overview.css        docs/css/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/css/Codecs.css          docs/css/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/css/Health.css          docs/css/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/css/Trends.css          docs/css/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/css/Settings.css        docs/css/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/css/ArrIntegration.css  docs/css/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/css/Logs.css            docs/css/
+
+          # Copy JS modules into docs/js/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/js/shared.js            docs/js/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/js/Overview.js          docs/js/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/js/Codecs.js            docs/js/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/js/Health.js            docs/js/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/js/Trends.js            docs/js/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/js/Settings.js          docs/js/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/js/ArrIntegration.js    docs/js/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/js/Logs.js              docs/js/
+          cp Jellyfin.Plugin.JellyfinHelper/PluginPages/js/main.js              docs/js/
+
+          # Copy i18n translations
+          cp Jellyfin.Plugin.JellyfinHelper/i18n/en.json docs/i18n/
+
+          # Add .nojekyll to prevent GitHub from ignoring underscore files
+          touch docs/.nojekyll
+
+          echo "Demo site prepared:"
+          find docs -type f | sort
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
+          # Keep existing pr-preview directories intact
+          keep_files: true
