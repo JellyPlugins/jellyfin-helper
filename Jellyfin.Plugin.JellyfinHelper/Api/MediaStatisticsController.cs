@@ -925,9 +925,20 @@ public class MediaStatisticsController : ControllerBase
             }
 
             var jsonLength = Encoding.UTF8.GetByteCount(json);
+
+            // Enforce size limit on actual body (Content-Length may be absent for chunked transfers)
+            if (jsonLength > BackupService.MaxBackupSizeBytes)
+            {
+                PluginLogService.LogWarning("API", $"Backup import rejected: actual body too large ({FormatBackupSize(jsonLength)}, max {FormatBackupSize(BackupService.MaxBackupSizeBytes)}).", logger: _logger);
+                return BadRequest(new { message = $"Backup too large ({FormatBackupSize(jsonLength)}). Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB." });
+            }
+
             PluginLogService.LogInfo("API", $"Backup import started: size={jsonLength} bytes", _logger);
 
-            PluginLogService.LogInfo("API", $"Backup file read successfully: {json.Length} characters", _logger);
+            if (jsonLength >= BackupService.LargeBackupWarningThresholdBytes)
+            {
+                PluginLogService.LogWarning("API", $"Large backup body detected: {FormatBackupSize(jsonLength)} of {FormatBackupSize(BackupService.MaxBackupSizeBytes)} limit.", logger: _logger);
+            }
 
             // Deserialize
             var backup = BackupService.DeserializeBackup(json);

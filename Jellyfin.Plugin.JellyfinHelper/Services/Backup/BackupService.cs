@@ -408,6 +408,12 @@ public class BackupService
     {
         ArgumentNullException.ThrowIfNull(backup);
 
+        // Normalize nullable collections (JSON deserialization can set them to null
+        // even though the model has default initializers, e.g. "radarrInstances": null)
+        backup.RadarrInstances ??= new List<BackupArrInstance>();
+        backup.SonarrInstances ??= new List<BackupArrInstance>();
+        backup.StatisticsHistory ??= new List<Statistics.StatisticsSnapshot>();
+
         // Language
         if (string.IsNullOrEmpty(backup.Language) || !ValidLanguages.Contains(backup.Language))
         {

@@ -113,6 +113,7 @@ public class GrowthTimelineService
             {
                 CreatedUtc = d.CreatedUtc,
                 Size = d.Size,
+                CountDelta = 1,
             }).ToList();
         }
         else
@@ -286,6 +287,7 @@ public class GrowthTimelineService
             {
                 CreatedUtc = kvp.Value.CreatedUtc,
                 Size = kvp.Value.Size,
+                CountDelta = 1,
             });
         }
 
@@ -299,20 +301,23 @@ public class GrowthTimelineService
                 if (sizeDiff > 0)
                 {
                     // Directory grew: add the positive diff at the current scan time
+                    // CountDelta = 0 because this is a size adjustment, not a new directory
                     entries.Add(new FileEntry
                     {
                         CreatedUtc = now,
                         Size = sizeDiff,
+                        CountDelta = 0,
                     });
                 }
                 else if (sizeDiff < 0)
                 {
                     // Directory shrank: add a negative entry at the current scan time
-                    // This allows the cumulative total to decrease (e.g. files were deleted)
+                    // CountDelta = 0 because this is a size adjustment, not a removal
                     entries.Add(new FileEntry
                     {
                         CreatedUtc = now,
                         Size = sizeDiff,
+                        CountDelta = 0,
                     });
                 }
 
@@ -328,6 +333,7 @@ public class GrowthTimelineService
                     {
                         CreatedUtc = dir.CreatedUtc,
                         Size = dir.Size,
+                        CountDelta = 1,
                     });
                 }
                 else
@@ -338,6 +344,7 @@ public class GrowthTimelineService
                     {
                         CreatedUtc = dir.CreatedUtc,
                         Size = dir.Size,
+                        CountDelta = 1,
                     });
                 }
             }
@@ -354,6 +361,7 @@ public class GrowthTimelineService
                 {
                     CreatedUtc = now,
                     Size = -kvp.Value.Size,
+                    CountDelta = -1,
                 });
             }
         }
@@ -449,7 +457,7 @@ public class GrowthTimelineService
                     }
 
                     // Sum up all file sizes recursively within this directory
-                    var totalSize = GetDirectorySize(subDir.FullName, trashFolderName);
+                    var totalSize = GetDirectorySize(subDir.FullName, trashFolderName, cancellationToken);
                     if (totalSize > 0)
                     {
                         entries.Add(new DirectoryEntry
@@ -504,18 +512,20 @@ public class GrowthTimelineService
     /// <summary>
     /// Calculates the total size of all files within a directory (recursively).
     /// </summary>
-    private long GetDirectorySize(string directoryPath, string? trashFolderName)
+    private long GetDirectorySize(string directoryPath, string? trashFolderName, CancellationToken cancellationToken)
     {
         long total = 0;
         try
         {
             foreach (var file in _fileSystem.GetFiles(directoryPath))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 total += file.Length;
             }
 
             foreach (var subDir in _fileSystem.GetDirectories(directoryPath))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var dirName = Path.GetFileName(subDir.FullName);
 
                 // Skip trickplay and trash subdirectories
@@ -530,7 +540,7 @@ public class GrowthTimelineService
                     continue;
                 }
 
-                total += GetDirectorySize(subDir.FullName, trashFolderName);
+                total += GetDirectorySize(subDir.FullName, trashFolderName, cancellationToken);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -577,7 +587,7 @@ public class GrowthTimelineService
             while (fileIndex < sortedEntries.Count && sortedEntries[fileIndex].CreatedUtc < bucketEnd)
             {
                 cumulativeSize += sortedEntries[fileIndex].Size;
-                cumulativeCount++;
+                cumulativeCount += sortedEntries[fileIndex].CountDelta;
                 fileIndex++;
             }
 
@@ -767,6 +777,7 @@ public class GrowthTimelineService
     {
         public DateTime CreatedUtc;
         public long Size;
+        public int CountDelta;
     }
 
     /// <summary>
