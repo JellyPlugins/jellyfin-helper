@@ -2,6 +2,7 @@
 
     var _logsAutoRefreshTimer = null;
     var _logsAutoRefreshEnabled = true;
+    var _logsLoadSeq = 0;
 
     function renderLogsTab() {
         var h = '';
@@ -146,7 +147,9 @@
         if (minLevel) url += '&minLevel=' + encodeURIComponent(minLevel);
         if (source) url += '&source=' + encodeURIComponent(source);
 
+        var requestSeq = ++_logsLoadSeq;
         apiClient.ajax({ type: 'GET', url: url, dataType: 'json' }).then(function(data) {
+            if (requestSeq !== _logsLoadSeq) return;
             var entries = data.Entries || [];
             var totalBuffered = data.TotalBuffered || 0;
             var returned = data.Returned || 0;
@@ -188,6 +191,7 @@
             h += '</tbody></table>';
             wrapper.innerHTML = h;
         }, function() {
+            if (requestSeq !== _logsLoadSeq) return;
             wrapper.innerHTML = '<div class="logs-empty"><div class="logs-empty-icon">⚠️</div>' + T('logsLoadError', 'Failed to load logs.') + '</div>';
         });
     }
@@ -197,11 +201,15 @@
         if (btn) btn.disabled = true;
 
         var levelFilter = document.getElementById('logsLevelFilter');
+        var sourceFilter = document.getElementById('logsSourceFilter');
         var minLevel = levelFilter ? levelFilter.value : '';
+        var source = sourceFilter ? sourceFilter.value.trim() : '';
 
         var apiClient = ApiClient;
         var url = apiClient.getUrl('JellyfinHelper/Logs/Download');
-        if (minLevel) url += '?minLevel=' + encodeURIComponent(minLevel);
+        var sep = '?';
+        if (minLevel) { url += sep + 'minLevel=' + encodeURIComponent(minLevel); sep = '&'; }
+        if (source) { url += sep + 'source=' + encodeURIComponent(source); }
 
         // Use fetch to get the file as blob and trigger download
         fetch(url, {

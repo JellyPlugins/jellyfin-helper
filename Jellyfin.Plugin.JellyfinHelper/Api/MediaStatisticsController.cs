@@ -746,13 +746,14 @@ public class MediaStatisticsController : ControllerBase
     /// Downloads the plugin logs as a plain-text file.
     /// </summary>
     /// <param name="minLevel">Optional minimum log level filter (DEBUG, INFO, WARN, ERROR).</param>
+    /// <param name="source">Optional source filter (partial match).</param>
     /// <returns>A text file containing the log entries.</returns>
     [HttpGet("Logs/Download")]
     [Produces("text/plain")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult DownloadLogs([FromQuery] string? minLevel = null)
+    public ActionResult DownloadLogs([FromQuery] string? minLevel = null, [FromQuery] string? source = null)
     {
-        var text = PluginLogService.ExportAsText(minLevel);
+        var text = PluginLogService.ExportAsText(minLevel, source);
         var bytes = System.Text.Encoding.UTF8.GetBytes(text);
         var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         return File(bytes, "text/plain", $"jellyfin-helper-logs-{timestamp}.log");
@@ -767,7 +768,7 @@ public class MediaStatisticsController : ControllerBase
     public ActionResult ClearLogs()
     {
         PluginLogService.Clear();
-        PluginLogService.LogInfo("API", "Plugin log buffer cleared by admin", _logger);
+        _logger.LogInformation("Plugin log buffer cleared by admin");
         return Ok(new { message = "Logs cleared." });
     }
 

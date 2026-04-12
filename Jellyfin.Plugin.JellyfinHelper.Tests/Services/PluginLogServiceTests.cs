@@ -691,7 +691,7 @@ public class PluginLogServiceTests : IDisposable
         PluginLogService.LogError("__PLT_Subtitle__", "Subtitle message");
         PluginLogService.LogError("__PLT_Trickplay__", "Another trickplay");
 
-        var entries = PluginLogService.GetEntries(source: "__PLT_Trickplay__");
+        var entries = PluginLogService.GetEntries(source: "plt_trickplay");
         Assert.Equal(2, entries.Count);
         Assert.All(entries, e => Assert.Contains("Trickplay", e.Source, StringComparison.OrdinalIgnoreCase));
     }

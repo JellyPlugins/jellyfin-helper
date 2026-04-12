@@ -158,10 +158,11 @@ public static class PluginLogService
     /// Exports all entries (or filtered entries) as a plain-text log string for download.
     /// </summary>
     /// <param name="minLevel">Optional minimum level filter.</param>
+    /// <param name="source">Optional source filter (partial match).</param>
     /// <returns>A formatted log string.</returns>
-    public static string ExportAsText(string? minLevel = null)
+    public static string ExportAsText(string? minLevel = null, string? source = null)
     {
-        var entries = new List<PluginLogEntry>(GetEntries(minLevel, null, MaxEntries));
+        var entries = new List<PluginLogEntry>(GetEntries(minLevel, source, MaxEntries));
         var sb = new StringBuilder();
         sb.AppendLine("=== Jellyfin Helper Plugin Logs ===");
         sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"Exported: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC"));
