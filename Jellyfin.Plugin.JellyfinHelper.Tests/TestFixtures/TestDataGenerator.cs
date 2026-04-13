@@ -266,7 +266,7 @@ public static class TestDataGenerator
             throw new InvalidOperationException("Temporary directory name must be a relative path segment.");
         }
 
-        var tempDir = Path.Combine(Path.GetTempPath(), directoryName);
+        var tempDir = Path.Join(Path.GetTempPath(), directoryName);
         Directory.CreateDirectory(tempDir);
         return tempDir;
     }
