@@ -3,6 +3,7 @@ using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -44,7 +45,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var trickplayFullName = TestPath("media", "Movie.trickplay");
         var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
-        var virtualFolder = new MediaBrowser.Model.Entities.VirtualFolderInfo
+        var virtualFolder = new VirtualFolderInfo
         {
             Locations = [libraryPath]
         };
@@ -73,7 +74,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var mediaFullName = TestPath("media", "Movie.mkv");
         var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
-        var virtualFolder = new MediaBrowser.Model.Entities.VirtualFolderInfo
+        var virtualFolder = new VirtualFolderInfo
         {
             Locations = [libraryPath]
         };
@@ -109,7 +110,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var trickplayFullName = TestPath("media", "Movie.trickplay");
         var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
-        var virtualFolder = new MediaBrowser.Model.Entities.VirtualFolderInfo
+        var virtualFolder = new VirtualFolderInfo
         {
             Locations = [libraryPath]
         };
@@ -149,7 +150,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         CleanupConfigHelper.ConfigOverride = new PluginConfiguration { TrickplayTaskMode = TaskMode.DryRun };
 
         var libraryPath = TestPath("media");
-        var virtualFolder = new MediaBrowser.Model.Entities.VirtualFolderInfo { Locations = [libraryPath] };
+        var virtualFolder = new VirtualFolderInfo { Locations = [libraryPath] };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
         var regularDir = new FileSystemMetadata
@@ -176,8 +177,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var trickplayFullName = TestPath("media2", "Movie.trickplay");
         var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
-        var virtualFolder1 = new MediaBrowser.Model.Entities.VirtualFolderInfo { Locations = [libraryPath1] };
-        var virtualFolder2 = new MediaBrowser.Model.Entities.VirtualFolderInfo { Locations = [libraryPath2] };
+        var virtualFolder1 = new VirtualFolderInfo { Locations = [libraryPath1] };
+        var virtualFolder2 = new VirtualFolderInfo { Locations = [libraryPath2] };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder1, virtualFolder2]);
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1, true)).Throws(new IOException("Access denied"));
@@ -202,7 +203,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
     {
         var libraryPath = TestPath("media");
 
-        var virtualFolder = new MediaBrowser.Model.Entities.VirtualFolderInfo
+        var virtualFolder = new VirtualFolderInfo
         {
             Locations = [libraryPath]
         };
@@ -230,7 +231,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var trickplayFullName = TestPath("media", "Movie.TRICKPLAY");
         var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
-        var virtualFolder = new MediaBrowser.Model.Entities.VirtualFolderInfo
+        var virtualFolder = new VirtualFolderInfo
         {
             Locations = [libraryPath]
         };
@@ -268,7 +269,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var trickplayFullName = TestPath("media", "Movie.trickplay");
         var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
-        var virtualFolder = new MediaBrowser.Model.Entities.VirtualFolderInfo
+        var virtualFolder = new VirtualFolderInfo
         {
             Locations = [libraryPath]
         };
@@ -302,7 +303,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var trickplayFullName = TestPath("media", "Movie.trickplay");
         var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
-        var virtualFolder = new MediaBrowser.Model.Entities.VirtualFolderInfo
+        var virtualFolder = new VirtualFolderInfo
         {
             Locations = [libraryPath]
         };
@@ -340,7 +341,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var trickplayFullName2 = TestPath("media", "Movie2.trickplay");
         var parentPath = Path.GetDirectoryName(trickplayFullName1)!;
 
-        var virtualFolder = new MediaBrowser.Model.Entities.VirtualFolderInfo
+        var virtualFolder = new VirtualFolderInfo
         {
             Locations = [libraryPath]
         };
@@ -383,7 +384,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
     {
         var libraryPath = TestPath("media");
 
-        var virtualFolder = new MediaBrowser.Model.Entities.VirtualFolderInfo
+        var virtualFolder = new VirtualFolderInfo
         {
             Locations = [libraryPath]
         };
@@ -412,8 +413,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var trickplayFullName = TestPath("media1", "Movie.trickplay");
         var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
-        var virtualFolder1 = new MediaBrowser.Model.Entities.VirtualFolderInfo { Locations = [libraryPath1] };
-        var virtualFolder2 = new MediaBrowser.Model.Entities.VirtualFolderInfo { Locations = [libraryPath2] };
+        var virtualFolder1 = new VirtualFolderInfo { Locations = [libraryPath1] };
+        var virtualFolder2 = new VirtualFolderInfo { Locations = [libraryPath2] };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder1, virtualFolder2]);
 
         var trickplayDir = new FileSystemMetadata
@@ -444,8 +445,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var trickplayFullName = TestPath("media2", "Movie.trickplay");
         var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
-        var virtualFolder1 = new MediaBrowser.Model.Entities.VirtualFolderInfo { Locations = [libraryPath1] };
-        var virtualFolder2 = new MediaBrowser.Model.Entities.VirtualFolderInfo { Locations = [libraryPath2] };
+        var virtualFolder1 = new VirtualFolderInfo { Locations = [libraryPath1] };
+        var virtualFolder2 = new VirtualFolderInfo { Locations = [libraryPath2] };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder1, virtualFolder2]);
 
         // First folder throws an exception
@@ -475,8 +476,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var libraryPath1 = TestPath("media1");
         var libraryPath2 = TestPath("media2");
 
-        var virtualFolder1 = new MediaBrowser.Model.Entities.VirtualFolderInfo { Locations = [libraryPath1] };
-        var virtualFolder2 = new MediaBrowser.Model.Entities.VirtualFolderInfo { Locations = [libraryPath2] };
+        var virtualFolder1 = new VirtualFolderInfo { Locations = [libraryPath1] };
+        var virtualFolder2 = new VirtualFolderInfo { Locations = [libraryPath2] };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder1, virtualFolder2]);
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1, true)).Returns([]);
@@ -499,7 +500,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var trickplayFullName = TestPath("media", "Movie1.trickplay");
         var parentPath = Path.GetDirectoryName(trickplayFullName)!;
 
-        var virtualFolder = new MediaBrowser.Model.Entities.VirtualFolderInfo
+        var virtualFolder = new VirtualFolderInfo
         {
             Locations = [libraryPath]
         };
@@ -533,8 +534,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var libraryPath = TestPath("media");
 
         // Same path appears in two virtual folders
-        var virtualFolder1 = new MediaBrowser.Model.Entities.VirtualFolderInfo { Locations = [libraryPath] };
-        var virtualFolder2 = new MediaBrowser.Model.Entities.VirtualFolderInfo { Locations = [libraryPath] };
+        var virtualFolder1 = new VirtualFolderInfo { Locations = [libraryPath] };
+        var virtualFolder2 = new VirtualFolderInfo { Locations = [libraryPath] };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder1, virtualFolder2]);
 
         _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([]);
@@ -552,7 +553,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var trickplayFullName = TestPath("media", "Shows", "Season1", "Episode01.trickplay");
         var expectedParentPath = Path.GetDirectoryName(trickplayFullName)!;
 
-        var virtualFolder = new MediaBrowser.Model.Entities.VirtualFolderInfo
+        var virtualFolder = new VirtualFolderInfo
         {
             Locations = [libraryPath]
         };

@@ -214,9 +214,9 @@ public class FileSystemHelperTests
         var dict = new Dictionary<string, Collection<string>>();
         FileSystemHelper.AddPath(dict, "HEVC", "/media/movie.mkv");
 
-        Assert.True(dict.ContainsKey("HEVC"));
-        Assert.Single(dict["HEVC"]);
-        Assert.Equal("/media/movie.mkv", dict["HEVC"][0]);
+        Assert.True(dict.TryGetValue("HEVC", out var paths));
+        Assert.Single(paths);
+        Assert.Equal("/media/movie.mkv", paths[0]);
     }
 
     [Fact]
@@ -232,7 +232,7 @@ public class FileSystemHelperTests
     }
 
     [Fact]
-    public void AddPath_MultipleDifferentKeys_CreatesSeperateCollections()
+    public void AddPath_MultipleDifferentKeys_CreatesSeparateCollections()
     {
         var dict = new Dictionary<string, Collection<string>>();
         FileSystemHelper.AddPath(dict, "HEVC", "/media/hevc.mkv");

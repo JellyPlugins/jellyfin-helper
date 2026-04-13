@@ -11,6 +11,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 /// the null-instance fallback paths. The tracking logic itself is straightforward
 /// (increment + save), so the null-safety is the critical path to verify.
 /// </summary>
+[Collection("ConfigOverride")]
 public class CleanupTrackingServiceTests
 {
     private readonly Mock<ILogger> _loggerMock = new();

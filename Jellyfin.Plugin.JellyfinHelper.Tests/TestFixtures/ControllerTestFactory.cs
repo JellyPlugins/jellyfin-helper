@@ -18,12 +18,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 public static class ControllerTestFactory
 {
     /// <summary>
-    /// Creates a <see cref="MediaStatisticsController"/> with all dependencies mocked.
+    /// Core factory that creates a <see cref="MediaStatisticsController"/> with all dependencies mocked,
+    /// returning the controller, the library manager mock, and the memory cache.
     /// </summary>
-    /// <param name="dataPath">The data path returned by IApplicationPaths.DataPath.</param>
-    /// <param name="cache">Optional memory cache; a new one is created if null.</param>
-    /// <returns>A tuple of the controller and its memory cache (for pre-populating stats).</returns>
-    public static (MediaStatisticsController Controller, IMemoryCache Cache) CreateController(
+    private static (MediaStatisticsController Controller, Mock<ILibraryManager> LibraryManagerMock, IMemoryCache Cache) CreateControllerCore(
         string? dataPath = null,
         IMemoryCache? cache = null)
     {
@@ -44,6 +42,20 @@ public static class ControllerTestFactory
             new Mock<ILogger<StatisticsHistoryService>>().Object,
             new Mock<ILogger<GrowthTimelineService>>().Object);
 
+        return (controller, libraryManagerMock, memoryCache);
+    }
+
+    /// <summary>
+    /// Creates a <see cref="MediaStatisticsController"/> with all dependencies mocked.
+    /// </summary>
+    /// <param name="dataPath">The data path returned by IApplicationPaths.DataPath.</param>
+    /// <param name="cache">Optional memory cache; a new one is created if null.</param>
+    /// <returns>A tuple of the controller and its memory cache (for pre-populating stats).</returns>
+    public static (MediaStatisticsController Controller, IMemoryCache Cache) CreateController(
+        string? dataPath = null,
+        IMemoryCache? cache = null)
+    {
+        var (controller, _, memoryCache) = CreateControllerCore(dataPath, cache);
         return (controller, memoryCache);
     }
 
@@ -55,23 +67,7 @@ public static class ControllerTestFactory
         string? dataPath = null,
         IMemoryCache? cache = null)
     {
-        var libraryManagerMock = TestMockFactory.CreateLibraryManager();
-        var fileSystemMock = TestMockFactory.CreateFileSystem();
-        var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: dataPath ?? Path.GetTempPath());
-        var httpClientFactoryMock = TestMockFactory.CreateHttpClientFactory();
-        var memoryCache = cache ?? TestMockFactory.CreateMemoryCache();
-
-        var controller = new MediaStatisticsController(
-            libraryManagerMock.Object,
-            fileSystemMock.Object,
-            appPathsMock.Object,
-            httpClientFactoryMock.Object,
-            memoryCache,
-            new Mock<ILogger<MediaStatisticsController>>().Object,
-            new Mock<ILogger<MediaStatisticsService>>().Object,
-            new Mock<ILogger<StatisticsHistoryService>>().Object,
-            new Mock<ILogger<GrowthTimelineService>>().Object);
-
+        var (controller, libraryManagerMock, _) = CreateControllerCore(dataPath, cache);
         return (controller, libraryManagerMock);
     }
 

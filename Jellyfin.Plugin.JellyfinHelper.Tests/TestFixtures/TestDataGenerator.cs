@@ -24,15 +24,15 @@ public static class TestDataGenerator
 
     /// <summary>Creates a <see cref="VirtualFolderInfo"/> for a movie library.</summary>
     public static VirtualFolderInfo CreateMovieLibrary(string name = "Movies", params string[] locations)
-        => CreateLibrary(name, CollectionTypeOptions.movies, locations.Length > 0 ? locations : ["/media/movies"]);
+        => CreateLibrary(name, CollectionTypeOptions.movies, locations.Length > 0 ? locations : [TestPath("media", "movies")]);
 
     /// <summary>Creates a <see cref="VirtualFolderInfo"/> for a TV show library.</summary>
     public static VirtualFolderInfo CreateTvShowLibrary(string name = "TV Shows", params string[] locations)
-        => CreateLibrary(name, CollectionTypeOptions.tvshows, locations.Length > 0 ? locations : ["/media/tv"]);
+        => CreateLibrary(name, CollectionTypeOptions.tvshows, locations.Length > 0 ? locations : [TestPath("media", "tv")]);
 
     /// <summary>Creates a <see cref="VirtualFolderInfo"/> for a music library.</summary>
     public static VirtualFolderInfo CreateMusicLibrary(string name = "Music", params string[] locations)
-        => CreateLibrary(name, CollectionTypeOptions.music, locations.Length > 0 ? locations : ["/media/music"]);
+        => CreateLibrary(name, CollectionTypeOptions.music, locations.Length > 0 ? locations : [TestPath("media", "music")]);
 
     /// <summary>Creates a <see cref="VirtualFolderInfo"/> with custom settings.</summary>
     public static VirtualFolderInfo CreateLibrary(string name, CollectionTypeOptions? collectionType, params string[] locations)
@@ -66,23 +66,23 @@ public static class TestDataGenerator
 
     /// <summary>Creates a video file metadata with common video extension (.mkv).</summary>
     public static FileSystemMetadata CreateVideoFile(string directory, string fileName = "movie.mkv", long length = 1_500_000_000)
-        => CreateFile(Path.Combine(directory, fileName), length);
+        => CreateFile(Path.Combine(directory, Path.GetFileName(fileName)), length);
 
     /// <summary>Creates a subtitle file metadata.</summary>
     public static FileSystemMetadata CreateSubtitleFile(string directory, string fileName = "movie.en.srt", long length = 50_000)
-        => CreateFile(Path.Combine(directory, fileName), length);
+        => CreateFile(Path.Combine(directory, Path.GetFileName(fileName)), length);
 
     /// <summary>Creates an image file metadata.</summary>
     public static FileSystemMetadata CreateImageFile(string directory, string fileName = "poster.jpg", long length = 200_000)
-        => CreateFile(Path.Combine(directory, fileName), length);
+        => CreateFile(Path.Combine(directory, Path.GetFileName(fileName)), length);
 
     /// <summary>Creates an NFO file metadata.</summary>
     public static FileSystemMetadata CreateNfoFile(string directory, string fileName = "movie.nfo", long length = 10_000)
-        => CreateFile(Path.Combine(directory, fileName), length);
+        => CreateFile(Path.Combine(directory, Path.GetFileName(fileName)), length);
 
     /// <summary>Creates an audio file metadata.</summary>
     public static FileSystemMetadata CreateAudioFile(string directory, string fileName = "track.flac", long length = 30_000_000)
-        => CreateFile(Path.Combine(directory, fileName), length);
+        => CreateFile(Path.Combine(directory, Path.GetFileName(fileName)), length);
 
     // ===== LibraryStatistics =====
 
@@ -224,7 +224,13 @@ public static class TestDataGenerator
     /// </summary>
     public static string CreateTempDirectory(string prefix = "jh-test")
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"{prefix}-{Guid.NewGuid():N}");
+        var safePrefix = Path.GetFileName(prefix);
+        if (string.IsNullOrWhiteSpace(safePrefix))
+        {
+            safePrefix = "jh-test";
+        }
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"{safePrefix}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
         return tempDir;
     }
