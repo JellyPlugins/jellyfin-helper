@@ -84,7 +84,9 @@ public static class ControllerTestFactory
 
         var httpContext = new DefaultHttpContext();
         var bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
+#pragma warning disable CA2000 // Stream is registered for disposal via HttpContext
         var requestBodyStream = new MemoryStream(bodyBytes);
+#pragma warning restore CA2000
         httpContext.Request.Body = requestBodyStream;
         httpContext.Response.RegisterForDispose(requestBodyStream);
         httpContext.Request.ContentType = "application/json";

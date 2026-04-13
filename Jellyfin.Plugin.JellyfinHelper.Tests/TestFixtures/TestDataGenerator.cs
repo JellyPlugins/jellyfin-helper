@@ -66,7 +66,7 @@ public static class TestDataGenerator
 
     /// <summary>Safely combines a directory with a file name, stripping any path from fileName.</summary>
     private static string CombineWithFileName(string directory, string fileName)
-        => Path.Combine(directory, Path.GetFileName(fileName));
+        => Path.Join(directory, Path.GetFileName(fileName));
 
     /// <summary>Creates a video file metadata with common video extension (.mkv).</summary>
     public static FileSystemMetadata CreateVideoFile(string directory, string fileName = "movie.mkv", long length = 1_500_000_000)
@@ -157,7 +157,7 @@ public static class TestDataGenerator
     // ===== MediaStatisticsResult =====
 
     /// <summary>
-    /// Creates a complete <see cref="MediaStatisticsResult"/> with movie, TV, and music libraries.
+    /// Creates a <see cref="MediaStatisticsResult"/> with a single movie library.
     /// Used by export tests and serialization roundtrip tests.
     /// </summary>
     public static MediaStatisticsResult CreateSampleStatisticsResult()
@@ -208,6 +208,32 @@ public static class TestDataGenerator
         var musicLib = CreateSampleLibraryStatistics("Music", "music");
         musicLib.VideoSize = 0;
         musicLib.VideoFileCount = 0;
+        musicLib.SubtitleSize = 0;
+        musicLib.SubtitleFileCount = 0;
+        musicLib.ImageSize = 0;
+        musicLib.ImageFileCount = 0;
+        musicLib.NfoSize = 0;
+        musicLib.NfoFileCount = 0;
+        musicLib.TrickplaySize = 0;
+        musicLib.TrickplayFolderCount = 0;
+        musicLib.OtherSize = 0;
+        musicLib.OtherFileCount = 0;
+        musicLib.ContainerFormats.Clear();
+        musicLib.Resolutions.Clear();
+        musicLib.VideoCodecs.Clear();
+        musicLib.VideoAudioCodecs.Clear();
+        musicLib.ContainerSizes.Clear();
+        musicLib.ResolutionSizes.Clear();
+        musicLib.VideoCodecSizes.Clear();
+        musicLib.VideoAudioCodecSizes.Clear();
+        musicLib.VideosWithoutSubtitles = 0;
+        musicLib.VideosWithoutImages = 0;
+        musicLib.VideosWithoutNfo = 0;
+        musicLib.OrphanedMetadataDirectories = 0;
+        musicLib.VideosWithoutSubtitlesPaths.Clear();
+        musicLib.VideosWithoutImagesPaths.Clear();
+        musicLib.VideosWithoutNfoPaths.Clear();
+        musicLib.OrphanedMetadataDirectoriesPaths.Clear();
         musicLib.AudioSize = 50_000_000_000L;
         musicLib.AudioFileCount = 1000;
         musicLib.MusicAudioCodecs["FLAC"] = 600;
@@ -235,6 +261,11 @@ public static class TestDataGenerator
         }
 
         var directoryName = $"{safePrefix}-{Guid.NewGuid():N}";
+        if (Path.IsPathRooted(directoryName))
+        {
+            throw new InvalidOperationException("Temporary directory name must be a relative path segment.");
+        }
+
         var tempDir = Path.Combine(Path.GetTempPath(), directoryName);
         Directory.CreateDirectory(tempDir);
         return tempDir;
