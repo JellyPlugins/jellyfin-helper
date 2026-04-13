@@ -145,11 +145,11 @@ public static class TestDataGenerator
         lib.MusicAudioCodecSizes["FLAC"] = 5_000_000_000L;
 
         // Health check paths
-        lib.VideosWithoutSubtitlesPaths.Add("/media/movies/NoSub1.mkv");
-        lib.VideosWithoutSubtitlesPaths.Add("/media/movies/NoSub2.mkv");
-        lib.VideosWithoutImagesPaths.Add("/media/movies/NoImg1.mkv");
-        lib.VideosWithoutNfoPaths.Add("/media/movies/NoNfo1.mkv");
-        lib.OrphanedMetadataDirectoriesPaths.Add("/media/movies/OrphanedDir");
+        lib.VideosWithoutSubtitlesPaths.Add(TestPath("media", "movies", "NoSub1.mkv"));
+        lib.VideosWithoutSubtitlesPaths.Add(TestPath("media", "movies", "NoSub2.mkv"));
+        lib.VideosWithoutImagesPaths.Add(TestPath("media", "movies", "NoImg1.mkv"));
+        lib.VideosWithoutNfoPaths.Add(TestPath("media", "movies", "NoNfo1.mkv"));
+        lib.OrphanedMetadataDirectoriesPaths.Add(TestPath("media", "movies", "OrphanedDir"));
 
         return lib;
     }
@@ -170,14 +170,14 @@ public static class TestDataGenerator
         var movieLib = CreateSampleLibraryStatistics("Movies", "movies");
         // Add specific paths for export tests
         movieLib.VideosWithoutSubtitlesPaths.Clear();
-        movieLib.VideosWithoutSubtitlesPaths.Add("/media/movies/Film1/Film1.mkv");
-        movieLib.VideosWithoutSubtitlesPaths.Add("/media/movies/Film2/Film2.mp4");
+        movieLib.VideosWithoutSubtitlesPaths.Add(TestPath("media", "movies", "Film1", "Film1.mkv"));
+        movieLib.VideosWithoutSubtitlesPaths.Add(TestPath("media", "movies", "Film2", "Film2.mp4"));
         movieLib.VideosWithoutImagesPaths.Clear();
-        movieLib.VideosWithoutImagesPaths.Add("/media/movies/Film3/Film3.mkv");
+        movieLib.VideosWithoutImagesPaths.Add(TestPath("media", "movies", "Film3", "Film3.mkv"));
         movieLib.VideosWithoutNfoPaths.Clear();
-        movieLib.VideosWithoutNfoPaths.Add("/media/movies/Film4/Film4.mkv");
+        movieLib.VideosWithoutNfoPaths.Add(TestPath("media", "movies", "Film4", "Film4.mkv"));
         movieLib.OrphanedMetadataDirectoriesPaths.Clear();
-        movieLib.OrphanedMetadataDirectoriesPaths.Add("/media/movies/OldMovie/.metadata");
+        movieLib.OrphanedMetadataDirectoriesPaths.Add(TestPath("media", "movies", "OldMovie", ".metadata"));
         result.Libraries.Add(movieLib);
         result.Movies.Add(movieLib);
 
