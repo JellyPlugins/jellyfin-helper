@@ -20,9 +20,10 @@ public static class CleanupTrackingService
     /// <param name="bytesFreed">The number of bytes freed.</param>
     /// <param name="itemsDeleted">The number of items deleted.</param>
     /// <param name="logger">The logger.</param>
-    public static void RecordCleanup(long bytesFreed, int itemsDeleted, ILogger logger)
+    /// <param name="pluginInstance">Optional plugin instance to use; if null, uses the static <see cref="Plugin.Instance"/>.</param>
+    public static void RecordCleanup(long bytesFreed, int itemsDeleted, ILogger logger, Plugin? pluginInstance = null)
     {
-        var plugin = Plugin.Instance;
+        var plugin = pluginInstance ?? Plugin.Instance;
         if (plugin == null)
         {
             PluginLogService.LogWarning("CleanupTracking", "Plugin instance is null, cannot record cleanup statistics.", logger: logger);
@@ -45,10 +46,11 @@ public static class CleanupTrackingService
     /// <summary>
     /// Gets the current cleanup statistics from the plugin configuration.
     /// </summary>
+    /// <param name="pluginInstance">Optional plugin instance to use; if null, uses the static <see cref="Plugin.Instance"/>.</param>
     /// <returns>The cleanup statistics or default values if the plugin is not available.</returns>
-    public static (long TotalBytesFreed, int TotalItemsDeleted, DateTime LastCleanupTimestamp) GetStatistics()
+    public static (long TotalBytesFreed, int TotalItemsDeleted, DateTime LastCleanupTimestamp) GetStatistics(Plugin? pluginInstance = null)
     {
-        var plugin = Plugin.Instance;
+        var plugin = pluginInstance ?? Plugin.Instance;
         if (plugin == null)
         {
             return (0, 0, DateTime.MinValue);

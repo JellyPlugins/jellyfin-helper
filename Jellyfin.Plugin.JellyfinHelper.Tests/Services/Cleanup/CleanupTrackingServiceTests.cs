@@ -12,22 +12,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 /// (increment + save), so the null-safety is the critical path to verify.
 /// </summary>
 [Collection("ConfigOverride")]
-public class CleanupTrackingServiceTests : IDisposable
+public class CleanupTrackingServiceTests
 {
     private readonly Mock<ILogger> _loggerMock = new();
-
-    public CleanupTrackingServiceTests()
-    {
-        // Ensure Plugin.Instance is null for these tests.
-        // It might be set by other tests in the same process.
-        Plugin.Instance = null;
-    }
-
-    public void Dispose()
-    {
-        // Clean up after tests just in case.
-        Plugin.Instance = null;
-    }
 
     [Fact]
     public void GetStatistics_WhenPluginInstanceNull_ReturnsDefaults()
