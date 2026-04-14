@@ -345,10 +345,6 @@
                         resolve(MOCK_TRANSLATIONS || {});
                     } else if (url.indexOf('Statistics/Latest') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
-                    } else if (url.indexOf('Statistics/Export/Json') !== -1) {
-                        resolve(JSON.stringify(MOCK_STATISTICS, null, 2));
-                    } else if (url.indexOf('Statistics/Export/Csv') !== -1) {
-                        resolve('Library,VideoSize,AudioSize,VideoFiles\nMovies,3298534883328,0,1800\nTV Shows,2199023255552,0,2042\nMusic,0,214748364800,0');
                     } else if (url.indexOf('Statistics/GrowthTimeline') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_GROWTH_TIMELINE)));
                     } else if (url.indexOf('Statistics/History') !== -1) {
