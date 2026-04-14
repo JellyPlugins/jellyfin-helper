@@ -64,6 +64,7 @@ public static class TestMockFactory
     public static Mock<HttpMessageHandler> CreateHttpMessageHandler(HttpStatusCode statusCode, string content)
     {
         var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mock.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
         mock.Protected()
             .Setup<Task<HttpResponseMessage>>(
                 "SendAsync",

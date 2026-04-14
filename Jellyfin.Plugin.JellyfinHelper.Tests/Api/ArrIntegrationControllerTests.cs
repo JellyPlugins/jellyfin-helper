@@ -25,7 +25,7 @@ public class ArrIntegrationControllerTests : IDisposable
     public ArrIntegrationControllerTests()
     {
         var tempDirectoryName = "JellyfinHelperArrTests_" + Guid.NewGuid();
-        _tempPath = Path.Combine(Path.GetTempPath(), Path.GetFileName(tempDirectoryName));
+        _tempPath = Path.Combine(Path.GetTempPath(), tempDirectoryName);
         Directory.CreateDirectory(_tempPath);
 
         (_controller, _libraryManagerMock, _fileSystemMock, _httpClientFactoryMock) = ControllerTestFactory.CreateArrIntegrationController();
