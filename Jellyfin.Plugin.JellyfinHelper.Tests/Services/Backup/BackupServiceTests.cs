@@ -278,7 +278,7 @@ public class BackupServiceTests
     [Theory]
     [InlineData("path|command")]
     [InlineData("path`command`")]
-    [InlineData("$HOME/trash")]
+    [InlineData("$(HOME)/trash")]
     [InlineData("path;rm -rf /")]
     public void Validate_CommandInjectionInTrashPath_ReturnsError(string path)
     {

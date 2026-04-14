@@ -16,10 +16,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 /// </summary>
 public class ArrIntegrationService : IArrIntegrationService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IPluginLogService _pluginLog;

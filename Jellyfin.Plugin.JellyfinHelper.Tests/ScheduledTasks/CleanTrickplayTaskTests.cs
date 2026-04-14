@@ -437,7 +437,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        await _task.ExecuteAsync(new Progress<double>(), cts.Token);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => _task.ExecuteAsync(new Progress<double>(), cts.Token));
 
         // Second library folder should never be scanned
         _fileSystemMock.Verify(f => f.GetDirectories(libraryPath2, true), Times.Never);

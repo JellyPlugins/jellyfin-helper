@@ -147,10 +147,7 @@ public abstract class BaseLibraryCleanupTask
         // Iterate over library locations
         for (int i = 0; i < libraryFolders.Count; i++)
         {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
+            cancellationToken.ThrowIfCancellationRequested();
 
             var folder = libraryFolders[i];
             PluginLog.LogDebug(TaskName, $"Scanning library folder: {folder}", Logger);

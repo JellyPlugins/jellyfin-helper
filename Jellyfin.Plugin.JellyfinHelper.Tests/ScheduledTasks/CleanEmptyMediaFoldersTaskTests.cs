@@ -317,7 +317,8 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        await _task.ExecuteAsync(new Progress<double>(), cts.Token);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => _task.ExecuteAsync(new Progress<double>(), cts.Token));
 
         _fileSystemMock.Verify(f => f.GetDirectories(libraryPath2, false), Times.Never);
     }

@@ -5,7 +5,7 @@
 A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks, media library statistics, health checks, and Arr stack integration — all from a single, multi-tab dashboard.
 
 [![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square)](https://github.com/JellyPlugins/jellyfin-helper/releases)
-[![Tests](https://img.shields.io/badge/tests-988%20passing-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
+[![Tests](https://img.shields.io/badge/tests-comprehensive%20suite-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
 [![License](https://img.shields.io/github/license/JellyPlugins/jellyfin-helper?style=flat-square)](LICENSE)
 
 ## 🎮 Live Demo
@@ -29,15 +29,15 @@ Explore the full 7-tab dashboard with realistic sample data — no Jellyfin serv
 | **📈 Growth Timeline** | Cumulative media growth visualization with daily/weekly/monthly/quarterly/yearly bucketing |
 | **🩺 Health Checks** | Detects missing subtitles, artwork, NFO, and orphaned metadata directories |
 | **🔗 Arr Integration** | Compare Jellyfin with up to 3 Radarr + 3 Sonarr instances |
-| **💾 Backup & Restore** | Export/import plugin configuration and historical data as JSON |
+| **💾 Backup & Restore** | Export/import plugin configuration and historical data as validated JSON |
 | **📋 Log Viewer** | Plugin-specific logs with level/source filtering, auto-refresh, and download |
 | **🗑️ Trash / Recycle Bin** | Move-to-trash with configurable retention instead of permanent deletion |
 | **🌐 7 Languages** | English, German, French, Spanish, Portuguese, Chinese, Turkish |
-| **🔐 Security** | 5-min cache, rate limiting, path traversal protection, XSS escaping |
+| **🔐 Security** | 5-min cache, rate limiting, path traversal protection, XSS escaping, backup payload validation |
 
 All cleanup tasks default to **Dry Run** mode — nothing is deleted until you explicitly activate them.
 
-**Compatibility:** Jellyfin **10.11.0+**
+**Compatibility:** Jellyfin **10.11.0+** · .NET **9.0**
 
 ---
 
@@ -75,7 +75,7 @@ All cleanup tasks default to **Dry Run** mode — nothing is deleted until you e
 
 | Resource | Description |
 |----------|-------------|
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Architecture, build system, API reference, configuration details, testing |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Architecture, design patterns, build system, API reference, configuration, testing |
 | [CHANGELOG.md](CHANGELOG.md) | Detailed version history |
 | [Live Demo](https://jellyplugins.github.io/jellyfin-helper/) | Interactive dashboard demo |
 

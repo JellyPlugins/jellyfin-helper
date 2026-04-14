@@ -26,11 +26,7 @@ public class GrowthTimelineService : IGrowthTimelineService, IDisposable
     private const string TimelineFileName = "jellyfin-helper-growth-timeline.json";
     private const string BaselineFileName = "jellyfin-helper-growth-baseline.json";
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
 
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;

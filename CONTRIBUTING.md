@@ -1,6 +1,6 @@
 # Contributing to Jellyfin Helper
 
-Thank you for your interest in contributing! This document covers the project architecture, build system, API reference, and development workflow.
+Thank you for your interest in contributing! This document covers the project architecture, design patterns, build system, API reference, and development workflow.
 
 ---
 
@@ -8,6 +8,7 @@ Thank you for your interest in contributing! This document covers the project ar
 
 - [Getting Started](#-getting-started)
 - [Architecture Overview](#️-architecture-overview)
+- [Design Patterns & Principles](#-design-patterns--principles)
 - [Build System](#-build-system)
 - [API Reference](#-api-reference)
 - [Configuration Options](#️-configuration-options)
@@ -60,69 +61,82 @@ Then restart Jellyfin to load the plugin.
 
 ## 🏗️ Architecture Overview
 
+### Project Structure
+
 ```text
 Jellyfin.Plugin.JellyfinHelper/
 ├── Plugin.cs                    # Plugin entry point, GUID, configuration
-├── PluginServiceRegistrator.cs  # Dependency injection registration
-├── MediaExtensions.cs           # Centralized file extension lists
+├── PluginServiceRegistrator.cs  # Dependency injection registration (all singletons)
+├── MediaExtensions.cs           # Centralized file extension lists (video, audio, subtitle, image)
 ├── Api/
 │   ├── ArrIntegrationController.cs   # Arr comparison & connection test endpoints
 │   ├── ArrTestConnectionRequest.cs   # Request DTO for Arr connection tests
-│   ├── BackupController.cs           # Backup export/import endpoints
+│   ├── BackupController.cs           # Backup export/import with payload validation
 │   ├── CleanupStatisticsController.cs # Cleanup statistics endpoint
 │   ├── ConfigurationController.cs    # Configuration GET/POST endpoints
 │   ├── ConfigurationUpdateRequest.cs # Request DTO for config updates
 │   ├── GrowthTimelineController.cs   # Growth timeline endpoint
 │   ├── LogsController.cs             # Log viewer endpoints
-│   ├── MediaStatisticsController.cs  # Statistics & library scan endpoints
-│   ├── TranslationsController.cs     # UI translation endpoint (anonymous)
+│   ├── MediaStatisticsController.cs  # Statistics & library scan endpoints (with caching)
+│   ├── TranslationsController.cs     # UI translation endpoint (anonymous access)
 │   └── TrashController.cs            # Trash management endpoints
 ├── Configuration/
-│   ├── PluginConfiguration.cs   # Settings model with migration logic
+│   ├── PluginConfiguration.cs   # Settings model with legacy migration (ConfigVersion)
 │   ├── ArrInstanceConfig.cs     # Radarr/Sonarr instance model
 │   └── TaskMode.cs              # Activate / DryRun / Deactivate enum
 ├── Services/
 │   ├── FileSystemHelper.cs           # File system utility methods
-│   ├── I18nService.cs                # Internationalization service
+│   ├── I18nService.cs                # Internationalization (embedded JSON resources)
 │   ├── LibraryPathResolver.cs        # Jellyfin library path resolution
 │   ├── PathValidator.cs              # Path traversal & safety checks
 │   ├── Arr/                          # Radarr/Sonarr integration
-│   │   ├── ArrIntegrationService.cs
+│   │   ├── IArrIntegrationService.cs
+│   │   ├── ArrIntegrationService.cs  # HTTP client with named HttpClient factory
 │   │   ├── ArrComparisonResult.cs
 │   │   ├── ArrMovie.cs
 │   │   └── ArrSeries.cs
 │   ├── Backup/                       # Configuration backup & restore
-│   │   ├── BackupService.cs
-│   │   ├── BackupData.cs
+│   │   ├── IBackupService.cs
+│   │   ├── BackupService.cs          # Create, validate, sanitize, restore
+│   │   ├── BackupData.cs             # Backup payload model
 │   │   ├── BackupArrInstance.cs
 │   │   ├── BackupRestoreSummary.cs
 │   │   └── BackupValidationResult.cs
 │   ├── Cleanup/                      # Cleanup config & trash logic
-│   │   ├── CleanupConfigHelper.cs
-│   │   ├── CleanupTrackingService.cs
-│   │   ├── TrashService.cs
+│   │   ├── ICleanupConfigHelper.cs
+│   │   ├── CleanupConfigHelper.cs    # Library filtering, orphan age, task mode queries
+│   │   ├── ICleanupTrackingService.cs
+│   │   ├── CleanupTrackingService.cs # Persisted cleanup statistics
+│   │   ├── ITrashService.cs
+│   │   ├── TrashService.cs           # Move-to-trash with retention
 │   │   └── TrashItemInfo.cs
 │   ├── PluginLog/                    # Plugin-specific logging
-│   │   ├── PluginLogService.cs       # In-memory ring buffer
+│   │   ├── IPluginLogService.cs
+│   │   ├── PluginLogService.cs       # In-memory ring buffer (1000 entries)
 │   │   └── PluginLogEntry.cs
 │   ├── Statistics/                   # Library scanning & statistics
-│   │   ├── MediaStatisticsService.cs
+│   │   ├── IMediaStatisticsService.cs
+│   │   ├── MediaStatisticsService.cs # Full library scan with codec/resolution parsing
+│   │   ├── IStatisticsCacheService.cs
+│   │   ├── StatisticsCacheService.cs # IMemoryCache wrapper (5-min TTL)
 │   │   ├── MediaStatisticsResult.cs
-│   │   ├── LibraryStatistics.cs
-│   │   └── StatisticsCacheService.cs
+│   │   └── LibraryStatistics.cs
 │   ├── Strm/                         # STRM file repair
-│   │   ├── StrmRepairService.cs
+│   │   ├── IStrmRepairService.cs
+│   │   ├── StrmRepairService.cs      # Locates renamed/moved media for broken .strm
 │   │   ├── StrmRepairResult.cs
 │   │   ├── StrmFileResult.cs
 │   │   └── StrmFileStatus.cs
 │   └── Timeline/                     # Growth timeline computation
-│       ├── GrowthTimelineService.cs
+│       ├── IGrowthTimelineService.cs
+│       ├── GrowthTimelineService.cs  # Baseline diff + append-only snapshots
 │       ├── GrowthTimelineResult.cs
 │       ├── GrowthTimelinePoint.cs
 │       ├── GrowthTimelineBaseline.cs
 │       └── BaselineDirectoryEntry.cs
 ├── ScheduledTasks/
-│   ├── HelperCleanupTask.cs          # Master scheduled task
+│   ├── BaseLibraryCleanupTask.cs     # Abstract base (Template Method pattern)
+│   ├── HelperCleanupTask.cs          # Master scheduled task (orchestrates sub-tasks)
 │   ├── CleanTrickplayTask.cs
 │   ├── CleanEmptyMediaFoldersTask.cs
 │   ├── CleanOrphanedSubtitlesTask.cs
@@ -134,6 +148,40 @@ Jellyfin.Plugin.JellyfinHelper/
     └── js/                      # Per-tab JS modules
 ```
 
+### Service Registration
+
+All services are registered as **singletons** in `PluginServiceRegistrator.cs`:
+
+```csharp
+serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
+serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();
+serviceCollection.AddSingleton<ITrashService, TrashService>();
+serviceCollection.AddSingleton<IPluginLogService, PluginLogService>();
+serviceCollection.AddSingleton<IMediaStatisticsService, MediaStatisticsService>();
+serviceCollection.AddSingleton<IStatisticsCacheService, StatisticsCacheService>();
+serviceCollection.AddSingleton<IGrowthTimelineService, GrowthTimelineService>();
+serviceCollection.AddSingleton<IBackupService, BackupService>();
+serviceCollection.AddSingleton<IStrmRepairService, StrmRepairService>();
+serviceCollection.AddSingleton<IArrIntegrationService, ArrIntegrationService>();
+```
+
+A named `HttpClient` (`"ArrIntegration"`) is configured with a 15-second timeout for Radarr/Sonarr API calls.
+
+---
+
+## 🧩 Design Patterns & Principles
+
+| Pattern | Where Used | Description |
+|---------|-----------|-------------|
+| **Template Method** | `BaseLibraryCleanupTask` | Abstract base class orchestrates the cleanup lifecycle (config → log → iterate → process → summary → record). Concrete subclasses only implement `ProcessLocation()`. |
+| **Interface Segregation** | All services | Every service has a dedicated `I*Service` interface enabling mock-based testing and loose coupling. |
+| **Strategy** | `TaskMode` enum | Each cleanup task can be independently set to `Activate`, `DryRun`, or `Deactivate`. |
+| **Singleton** | DI registration | All plugin services are singletons — shared state (caches, tracking, ring buffer) is thread-safe. |
+| **Build-time Composition** | UI pipeline | CSS/JS modules concatenated into a single `configPage.html` at build time (MSBuild target). |
+| **Append-only Snapshots** | `GrowthTimelineService` | Historical timeline data points are immutable; only the current time-bucket is updated. Deletions show as drops at the current point. |
+| **Validation + Sanitization** | `BackupService` | Backup imports go through 3 stages: `Validate()` → `Sanitize()` → `RestoreBackup()`. Includes XSS/injection detection, size limits, path traversal checks. |
+| **Ring Buffer** | `PluginLogService` | Fixed-capacity in-memory log (1000 entries) with auto-eviction of oldest entries. |
+
 ### Key Design Decisions
 
 - **Domain-organized Controllers** — Each API domain has its own controller (Configuration, Statistics, Arr, Logs, Backup, Trash, Cleanup, Timeline, Translations)
@@ -143,7 +191,8 @@ Jellyfin.Plugin.JellyfinHelper/
 - **5-minute cache** — `IMemoryCache` prevents redundant scans; `?forceRefresh=true` bypasses it
 - **Rate limiting** — 30-second minimum between scans (HTTP 429 on violation)
 - **Dry Run by default** — All cleanup tasks start in DryRun mode for safety
-- **Backup & Restore** — Full plugin state (config + growth timeline + Arr instances) exportable/importable as JSON
+- **Backup & Restore** — Full plugin state (config + growth timeline + baseline + Arr instances) exportable/importable as JSON with comprehensive validation
+- **Legacy Migration** — `PluginConfiguration.ConfigVersion` enables forward-compatible config upgrades via `MigrateFromLegacyBooleans()`
 
 ---
 
@@ -160,7 +209,7 @@ PluginPages/
 │   ├── shared.css            # Common styles (layout, modals, file lists)
 │   ├── Overview.css          # Overview tab (disk usage bars, stat cards)
 │   ├── Codecs.css            # Codec tab (donut charts, file explorer)
-│   ├── Health.css            # Health check (tiles, detail panels)
+│   ├── Health.css             # Health check (tiles, detail panels)
 │   ├── Trends.css            # Trend graph styling
 │   ├── Settings.css          # Settings form layout
 │   ├── ArrIntegration.css    # Arr comparison tables
@@ -239,7 +288,7 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/JellyfinHelper/Backup/Export` | GET | Export plugin configuration and historical data as JSON |
-| `/JellyfinHelper/Backup/Import` | POST | Import plugin configuration and historical data from JSON |
+| `/JellyfinHelper/Backup/Import` | POST | Import plugin configuration and historical data from JSON (validates → sanitizes → restores) |
 
 ---
 
@@ -316,18 +365,23 @@ Sub-tasks executed in order (each respecting its configured task mode):
 
 - Cumulative media growth visualization over time
 - Granularity options: daily, weekly, monthly, quarterly, yearly
+- Auto-selection of granularity based on time span (≤90d → daily, ≤1y → weekly, ≤2y → monthly, ≤5y → quarterly, >5y → yearly)
 - Baseline scanning for accurate file creation date tracking
+- Append-only snapshot approach: historical data points are immutable, deletions show as drops at the current time-bucket
 
 ### Backup & Restore
 
 - Export complete plugin state (configuration + growth timeline + baseline + Arr instances) as JSON
-- Import with validation — detects format errors and version mismatches
+- Import with 3-stage pipeline: Validate → Sanitize → Restore
+- Validation includes: version checks, size limits (10 MB), XSS/injection detection, path traversal prevention, enum validation, numeric range checks
 - Restore summary shows what was imported (config, timeline, baseline)
 
 ### Security
 
-- **Path traversal protection** with null-byte detection and base directory validation
-- **XSS protection** in badge rendering and configuration page
+- **Path traversal protection** with null-byte detection and base directory validation (`PathValidator`)
+- **XSS protection** in badge rendering, configuration page, and backup import
+- **Script injection detection** via regex for `<script>`, `javascript:`, event handlers, `<iframe>`, etc.
+- **Backup payload validation** — size limits, null-byte checks, URL scheme validation for Arr instances
 - **Graceful error handling** — `IOException` / `UnauthorizedAccessException` logged and skipped per directory
 - **Trash path safety** — refuses filesystem roots, library roots, and `..` traversal
 
@@ -351,9 +405,9 @@ Sub-tasks executed in order (each respecting its configured task mode):
 
 ## 🧪 Testing
 
-The project includes **987 automated tests** covering:
+The project includes a **comprehensive automated test suite** covering:
 
-- All services (cleanup, statistics, path validation, Arr integration, backup/restore, growth timeline)
+- All services (cleanup, statistics, path validation, Arr integration, backup/restore, growth timeline, STRM repair)
 - API endpoints (controller tests with mocked dependencies)
 - Configuration migration (legacy format → current)
 - UI structure (HTML element presence, tab structure)
@@ -414,7 +468,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── TestMockFactory.cs          # Central mock factory (ILibraryManager, IFileSystem, etc.)
 │   ├── TestDataGenerator.cs        # Sample data factory (libraries, files, statistics)
 │   ├── ControllerTestFactory.cs    # Controller instantiation with mocked dependencies
-│   └── CleanupTaskTestBase.cs      # Base class for cleanup task tests (config lifecycle)
+│   ├── CleanupTaskTestBase.cs      # Base class for cleanup task tests (config lifecycle)
+│   └── ConfigOverrideCollection.cs # xUnit collection for ConfigOverride isolation
 ├── Api/                    # Controller endpoint tests (use ControllerTestFactory)
 │   ├── ArrIntegrationControllerTests.cs
 │   ├── BackupControllerTests.cs

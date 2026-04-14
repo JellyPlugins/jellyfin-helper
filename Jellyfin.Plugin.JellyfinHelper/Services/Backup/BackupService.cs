@@ -104,12 +104,7 @@ public class BackupService : IBackupService
         "daily", "weekly", "monthly", "quarterly", "yearly",
     };
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true,
-    };
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
 
     // Regex to detect script injection in string fields
     private static readonly Regex ScriptPattern = new(
@@ -436,7 +431,7 @@ public class BackupService : IBackupService
         }
 
         // Baseline directories limit
-        if (backup.GrowthBaseline is not { Directories.Count: > MaxBaselineDirectories })
+        if (backup.GrowthBaseline == null || backup.GrowthBaseline.Directories.Count <= MaxBaselineDirectories)
         {
             return;
         }
@@ -499,9 +494,16 @@ public class BackupService : IBackupService
         }
 
         // Check for pipe/command injection
-        if (path.Contains('|', StringComparison.Ordinal) || path.Contains('`', StringComparison.Ordinal) || path.Contains('$', StringComparison.Ordinal) || path.Contains(';', StringComparison.Ordinal))
+        if (path.Contains('|', StringComparison.Ordinal) || path.Contains('`', StringComparison.Ordinal) || path.Contains(';', StringComparison.Ordinal))
         {
-            result.Errors.Add($"{fieldName} contains potentially dangerous characters (|, `, $, ;).");
+            result.Errors.Add($"{fieldName} contains potentially dangerous characters (|, `, ;).");
+        }
+
+        // Check for shell substitution patterns ($(...) or ${...}) but allow bare '$'
+        // since it's valid in Windows UNC paths (e.g. \\server\C$\share)
+        if (path.Contains("$(", StringComparison.Ordinal) || path.Contains("${", StringComparison.Ordinal))
+        {
+            result.Errors.Add($"{fieldName} contains shell substitution pattern ($( or ${{).");
         }
 
         // Check for newline characters (potential log/header injection)

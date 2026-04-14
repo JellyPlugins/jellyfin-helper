@@ -15,11 +15,7 @@ public class StatisticsCacheService : IStatisticsCacheService
 {
     private const string LatestResultFileName = "jellyfin-helper-statistics-latest.json";
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
+    private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
 
     private readonly string _latestResultFilePath;
     private readonly IPluginLogService _pluginLog;
