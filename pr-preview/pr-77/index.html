@@ -353,6 +353,13 @@
                         resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
                     } else if (url.indexOf('Cleanup/Statistics') !== -1) {
                         resolve(MOCK_CLEANUP_STATS);
+                    } else if (url.indexOf('Configuration/LogLevel') !== -1 && method === 'PUT') {
+                        // Update log level only
+                        try {
+                            var body = JSON.parse(opts.data);
+                            if (body.PluginLogLevel) MOCK_CONFIG.PluginLogLevel = body.PluginLogLevel;
+                        } catch(e) { console.warn('Mock ApiClient: failed to parse log level data', e); }
+                        resolve({ message: "Log level updated.", pluginLogLevel: MOCK_CONFIG.PluginLogLevel });
                     } else if (url.indexOf('Configuration') !== -1 && method === 'POST') {
                         // Save config — just succeed
                         try {
