@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using MediaBrowser.Model.Plugins;
 
@@ -144,13 +144,21 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets the list of Radarr instances (max 3).
+    /// Using <see cref="List{T}"/> instead of <c>Collection&lt;T&gt;</c> because
+    /// <c>System.Text.Json</c> cannot reliably round-trip <c>Collection&lt;T&gt;</c>
+    /// (items are lost on deserialization when the property has a default initializer).
     /// </summary>
-    public Collection<ArrInstanceConfig> RadarrInstances { get; set; } = new();
+    [SuppressMessage("Usage", "CA1002:DoNotExposeGenericLists", Justification = "Collection<T> breaks System.Text.Json round-trip deserialization")]
+    public List<ArrInstanceConfig> RadarrInstances { get; set; } = [];
 
     /// <summary>
     /// Gets or sets the list of Sonarr instances (max 3).
+    /// Using <see cref="List{T}"/> instead of <c>Collection&lt;T&gt;</c> because
+    /// <c>System.Text.Json</c> cannot reliably round-trip <c>Collection&lt;T&gt;</c>
+    /// (items are lost on deserialization when the property has a default initializer).
     /// </summary>
-    public Collection<ArrInstanceConfig> SonarrInstances { get; set; } = new();
+    [SuppressMessage("Usage", "CA1002:DoNotExposeGenericLists", Justification = "Collection<T> breaks System.Text.Json round-trip deserialization")]
+    public List<ArrInstanceConfig> SonarrInstances { get; set; } = [];
 
     /// <summary>
     /// Gets or sets the UI language code. Default is "en".

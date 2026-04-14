@@ -1,4 +1,5 @@
-﻿using Jellyfin.Plugin.JellyfinHelper.Api;
+﻿using System.Text.Json;
+using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -19,7 +20,7 @@ public class ConfigurationControllerTests : IDisposable
         ControllerTestFactory.InitializePluginInstance();
         var loggerMock = new Mock<ILogger<ConfigurationController>>();
         _controller = new ConfigurationController(loggerMock.Object);
-        CleanupConfigHelper.ConfigOverride = new PluginConfiguration();
+        CleanupConfigHelper.ConfigOverride = Plugin.Instance!.Configuration;
     }
 
     public void Dispose()
@@ -71,5 +72,129 @@ public class ConfigurationControllerTests : IDisposable
         var result = _controller.UpdateConfiguration(request);
 
         Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void UpdateConfiguration_MultipleRadarrInstances_AllPersisted()
+    {
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances = new[]
+            {
+                new ArrInstanceConfig { Name = "Radarr-1", Url = "http://r1:7878", ApiKey = "key1" },
+                new ArrInstanceConfig { Name = "Radarr-2", Url = "http://r2:7878", ApiKey = "key2" },
+                new ArrInstanceConfig { Name = "Radarr-3", Url = "http://r3:7878", ApiKey = "key3" },
+            },
+        };
+
+        var result = _controller.UpdateConfiguration(request);
+
+        Assert.IsType<OkObjectResult>(result);
+        var config = Plugin.Instance!.Configuration;
+        Assert.Equal(3, config.RadarrInstances.Count);
+        Assert.Equal("Radarr-2", config.RadarrInstances[1].Name);
+        Assert.Equal("http://r3:7878", config.RadarrInstances[2].Url);
+    }
+
+    [Fact]
+    public void UpdateConfiguration_MultipleInstances_SurviveGetAfterSave()
+    {
+        // Simulate POST: save 3 Radarr + 2 Sonarr instances
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances = new[]
+            {
+                new ArrInstanceConfig { Name = "R1", Url = "http://r1:7878", ApiKey = "rk1" },
+                new ArrInstanceConfig { Name = "R2", Url = "http://r2:7878", ApiKey = "rk2" },
+                new ArrInstanceConfig { Name = "R3", Url = "http://r3:7878", ApiKey = "rk3" },
+            },
+            SonarrInstances = new[]
+            {
+                new ArrInstanceConfig { Name = "S1", Url = "http://s1:8989", ApiKey = "sk1" },
+                new ArrInstanceConfig { Name = "S2", Url = "http://s2:8989", ApiKey = "sk2" },
+            },
+        };
+
+        _controller.UpdateConfiguration(request);
+
+        // Simulate GET: retrieve the config and serialize to JSON (like Jellyfin API)
+        var getResult = _controller.GetConfiguration();
+        var okResult = Assert.IsType<OkObjectResult>(getResult.Result);
+        var config = Assert.IsType<PluginConfiguration>(okResult.Value);
+
+        // Jellyfin uses PropertyNamingPolicy = null (PascalCase) and PropertyNameCaseInsensitive = true
+        var jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = null,
+            PropertyNameCaseInsensitive = true,
+        };
+
+        var json = JsonSerializer.Serialize(config, jsonOptions);
+
+        // Verify the JSON contains all instances with PascalCase keys
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        Assert.True(root.TryGetProperty("RadarrInstances", out var radarrArr), "JSON must contain RadarrInstances (PascalCase)");
+        Assert.Equal(3, radarrArr.GetArrayLength());
+        Assert.Equal("R2", radarrArr[1].GetProperty("Name").GetString());
+        Assert.Equal("http://r3:7878", radarrArr[2].GetProperty("Url").GetString());
+
+        Assert.True(root.TryGetProperty("SonarrInstances", out var sonarrArr), "JSON must contain SonarrInstances (PascalCase)");
+        Assert.Equal(2, sonarrArr.GetArrayLength());
+        Assert.Equal("S1", sonarrArr[0].GetProperty("Name").GetString());
+
+        // Also verify it deserializes back correctly (simulating JS → server round-trip)
+        var restored = JsonSerializer.Deserialize<PluginConfiguration>(json, jsonOptions);
+        Assert.NotNull(restored);
+        Assert.Equal(3, restored!.RadarrInstances.Count);
+        Assert.Equal(2, restored.SonarrInstances.Count);
+    }
+
+    [Fact]
+    public void JsonRoundTrip_ConfigurationUpdateRequest_DeserializesMultipleInstances()
+    {
+        // Simulate the exact JSON the frontend sends (PascalCase)
+        var frontendJson = """
+        {
+            "IncludedLibraries": "",
+            "ExcludedLibraries": "",
+            "OrphanMinAgeDays": 0,
+            "TrickplayTaskMode": "DryRun",
+            "EmptyMediaFolderTaskMode": "DryRun",
+            "OrphanedSubtitleTaskMode": "DryRun",
+            "StrmRepairTaskMode": "DryRun",
+            "UseTrash": false,
+            "TrashFolderPath": ".jellyfin-trash",
+            "TrashRetentionDays": 30,
+            "Language": "en",
+            "RadarrUrl": "http://r1:7878",
+            "RadarrApiKey": "key1",
+            "SonarrUrl": "",
+            "SonarrApiKey": "",
+            "RadarrInstances": [
+                { "Name": "Radarr-1", "Url": "http://r1:7878", "ApiKey": "key1" },
+                { "Name": "Radarr-2", "Url": "http://r2:7878", "ApiKey": "key2" },
+                { "Name": "Radarr-3", "Url": "http://r3:7878", "ApiKey": "key3" }
+            ],
+            "SonarrInstances": []
+        }
+        """;
+
+        var jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = null,
+            PropertyNameCaseInsensitive = true,
+        };
+
+        var request = JsonSerializer.Deserialize<ConfigurationUpdateRequest>(frontendJson, jsonOptions);
+
+        Assert.NotNull(request);
+        Assert.Equal(3, request!.RadarrInstances.Count);
+        Assert.Equal("Radarr-1", request.RadarrInstances[0].Name);
+        Assert.Equal("Radarr-2", request.RadarrInstances[1].Name);
+        Assert.Equal("Radarr-3", request.RadarrInstances[2].Name);
+        Assert.Equal("http://r2:7878", request.RadarrInstances[1].Url);
+        Assert.Equal("key3", request.RadarrInstances[2].ApiKey);
     }
 }
