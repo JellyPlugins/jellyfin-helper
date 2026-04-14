@@ -1,7 +1,7 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "1.0.8"
+version: "1.0.9"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 overview: "Automated cleanup (trickplay, empty folders, subtitles, STRM repair), media statistics with codec/health analysis, export/trends, trash bin, plugin log viewer, multi-instance Arr integration, and multi-language 7-tab dashboard."
@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  v1.0.8: Project restructure, bug fix for Jellyfin versions below 10.11.8, backup/restore data, enhanced TrendChart, relocated download buttons, responsive Data Tree for touch devices.
+  v1.0.9: Removed legacy statistics history (replaced by growth timeline), removed Export/CSV endpoints, new StatisticsCacheService, legacy history file cleanup, growth timeline interpolation & deduplication, reduced backup size limit, 957 tests.

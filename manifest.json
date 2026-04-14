@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/JellyPlugins/jellyfin-helper/main/media/logo.png",
     "versions": [
       {
+        "version": "1.0.9",
+        "changelog": "v1.0.9: Removed legacy statistics history (replaced by growth timeline), removed Export/CSV endpoints, new StatisticsCacheService, legacy history file cleanup, growth timeline interpolation & deduplication, reduced backup size limit, 957 tests.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.9/JellyfinHelper_1.0.9.zip",
+        "checksum": "",
+        "timestamp": "2026-04-14T12:00:00Z"
+      },
+      {
         "version": "1.0.8",
         "changelog": "v1.0.8: Project restructure, bug fix for Jellyfin versions below 10.11.8, backup/restore data, enhanced TrendChart, relocated download buttons, responsive Data Tree for touch devices.",
         "targetAbi": "10.11.0.0",
