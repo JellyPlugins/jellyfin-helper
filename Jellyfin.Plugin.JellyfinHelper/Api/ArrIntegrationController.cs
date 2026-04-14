@@ -96,7 +96,7 @@ public class ArrIntegrationController : ControllerBase
                 return BadRequest(new { message = $"Invalid instance index {index.Value}. Valid range: 0-{instances.Count - 1}." });
             }
 
-            instances = new[] { instances[index.Value] }.ToList().AsReadOnly();
+            instances = [instances[index.Value]];
         }
 
         var movieFolders = GetJellyfinFolderNames("movies");
@@ -144,7 +144,7 @@ public class ArrIntegrationController : ControllerBase
                 return BadRequest(new { message = $"Invalid instance index {index.Value}. Valid range: 0-{instances.Count - 1}." });
             }
 
-            instances = new[] { instances[index.Value] }.ToList().AsReadOnly();
+            instances = [instances[index.Value]];
         }
 
         var tvFolders = GetJellyfinFolderNames("tvshows");

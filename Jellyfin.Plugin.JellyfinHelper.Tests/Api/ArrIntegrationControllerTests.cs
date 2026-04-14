@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
@@ -53,8 +54,8 @@ public class ArrIntegrationControllerTests : IDisposable
         var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        dynamic data = okResult.Value!;
-        Assert.True((bool)data.success);
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
     }
 
     [Fact]
@@ -68,9 +69,9 @@ public class ArrIntegrationControllerTests : IDisposable
         var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        dynamic data = okResult.Value!;
-        Assert.False((bool)data.success);
-        Assert.Contains("Unauthorized", (string)data.message);
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
+        Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
+        Assert.Contains("Unauthorized", doc.RootElement.GetProperty("message").GetString());
     }
 
     [Fact]

@@ -53,8 +53,7 @@ public class ConfigurationControllerTests : IDisposable
         var result = _controller.GetConfiguration();
 
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
-        var config = Assert.IsType<PluginConfiguration>(okResult.Value);
-        Assert.NotNull(config);
+        Assert.IsType<PluginConfiguration>(okResult.Value);
     }
 
     [Fact]

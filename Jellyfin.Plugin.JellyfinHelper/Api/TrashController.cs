@@ -231,17 +231,6 @@ public class TrashController : ControllerBase
             return false;
         }
 
-        // Reject paths containing ".." traversal
-        if (fullPath.Contains("..", StringComparison.Ordinal))
-        {
-            // Re-check after GetFullPath resolved it
-            var resolved = Path.GetFullPath(fullPath);
-            if (resolved.Contains("..", StringComparison.Ordinal))
-            {
-                return false;
-            }
-        }
-
         // Reject if the path equals any library root
         foreach (var folder in libraryFolders)
         {

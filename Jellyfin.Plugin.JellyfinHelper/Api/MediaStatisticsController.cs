@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
 /// API controller for media statistics.
-/// Provides library scanning, latest results, and export functionality.
+/// Provides library scanning and latest cached results.
 /// </summary>
 [ApiController]
 [Authorize(Policy = "RequiresElevation")]

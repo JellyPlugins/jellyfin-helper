@@ -68,15 +68,15 @@ public class ConfigurationController : ControllerBase
             return BadRequest(new { message = "Plugin not initialized." });
         }
 
-        // Validate numeric fields
-        if (request.OrphanMinAgeDays < 0)
+        // Validate numeric fields (aligned with BackupService.Validate range 0–3650)
+        if (request.OrphanMinAgeDays < 0 || request.OrphanMinAgeDays > 3650)
         {
-            return BadRequest(new { message = "OrphanMinAgeDays must be >= 0." });
+            return BadRequest(new { message = "OrphanMinAgeDays must be 0–3650." });
         }
 
-        if (request.TrashRetentionDays < 0)
+        if (request.TrashRetentionDays < 0 || request.TrashRetentionDays > 3650)
         {
-            return BadRequest(new { message = "TrashRetentionDays must be >= 0." });
+            return BadRequest(new { message = "TrashRetentionDays must be 0–3650." });
         }
 
         // Validate Arr instances (max 3 per type, URL format, non-empty API key)
