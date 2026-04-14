@@ -143,14 +143,14 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SonarrApiKey { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets the list of Radarr instances (max 3).
+    /// Gets or sets the list of Radarr instances (max 3).
     /// </summary>
-    public Collection<ArrInstanceConfig> RadarrInstances { get; } = new();
+    public Collection<ArrInstanceConfig> RadarrInstances { get; set; } = new();
 
     /// <summary>
-    /// Gets the list of Sonarr instances (max 3).
+    /// Gets or sets the list of Sonarr instances (max 3).
     /// </summary>
-    public Collection<ArrInstanceConfig> SonarrInstances { get; } = new();
+    public Collection<ArrInstanceConfig> SonarrInstances { get; set; } = new();
 
     /// <summary>
     /// Gets or sets the UI language code. Default is "en".

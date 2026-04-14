@@ -102,6 +102,9 @@
         <Rule Id="CA1848" Action="None" />
         <!-- disable warning CA2101: Specify marshaling for P/Invoke string arguments -->
         <Rule Id="CA2101" Action="None" />
+        <!-- disable warning CA2227: Collection properties should be read only
+             Jellyfin plugin configuration uses XmlSerializer which requires setters on collection properties -->
+        <Rule Id="CA2227" Action="None" />
         <!-- disable warning CA2234: Pass System.Uri objects instead of strings -->
         <Rule Id="CA2234" Action="None" />
     </Rules>

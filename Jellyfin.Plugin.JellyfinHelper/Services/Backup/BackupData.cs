@@ -114,7 +114,6 @@ public class BackupData
     /// Gets or sets the Radarr instances.
     /// </summary>
     [JsonPropertyName("radarrInstances")]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2227:Collection properties should be read only", Justification = "Required for JSON deserialization")]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1002:Do not expose generic lists", Justification = "Required for JSON deserialization")]
     public List<BackupArrInstance> RadarrInstances { get; set; } = new();
 
@@ -122,7 +121,6 @@ public class BackupData
     /// Gets or sets the Sonarr instances.
     /// </summary>
     [JsonPropertyName("sonarrInstances")]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2227:Collection properties should be read only", Justification = "Required for JSON deserialization")]
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1002:Do not expose generic lists", Justification = "Required for JSON deserialization")]
     public List<BackupArrInstance> SonarrInstances { get; set; } = new();
 
