@@ -110,24 +110,39 @@ public class BackupController : ControllerBase
             string json;
             try
             {
-                using var reader = new StreamReader(
-                    Request.Body,
-                    Encoding.UTF8,
-                    detectEncodingFromByteOrderMarks: true,
-                    leaveOpen: false);
-                json = await reader.ReadToEndAsync().ConfigureAwait(false);
+                // Stream with inline size enforcement to prevent memory exhaustion from chunked uploads
+                var buffer = new MemoryStream();
+                try
+                {
+                    var chunk = new byte[16 * 1024];
+                    long totalBytes = 0;
+                    int read;
+
+                    while ((read = await Request.Body.ReadAsync(chunk, HttpContext.RequestAborted).ConfigureAwait(false)) > 0)
+                    {
+                        totalBytes += read;
+                        if (totalBytes > BackupService.MaxBackupSizeBytes)
+                        {
+                            PluginLogService.LogWarning(
+                                "API",
+                                $"Backup import rejected: actual body too large (>{FormatBackupSize(totalBytes)}, max {FormatBackupSize(BackupService.MaxBackupSizeBytes)}).",
+                                logger: _logger);
+                            return BadRequest(new { message = $"Backup too large. Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB." });
+                        }
+
+                        await buffer.WriteAsync(chunk.AsMemory(0, read), HttpContext.RequestAborted).ConfigureAwait(false);
+                    }
+
+                    buffer.Position = 0;
+                    using var reader = new StreamReader(buffer, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: false);
+                    json = await reader.ReadToEndAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+                }
+                finally
+                {
+                    await buffer.DisposeAsync().ConfigureAwait(false);
+                }
             }
-            catch (IOException ex)
-            {
-                PluginLogService.LogError("API", "Failed to read backup request body", ex, _logger);
-                return BadRequest(new { message = "Failed to read the request body." });
-            }
-            catch (ObjectDisposedException ex)
-            {
-                PluginLogService.LogError("API", "Failed to read backup request body", ex, _logger);
-                return BadRequest(new { message = "Failed to read the request body." });
-            }
-            catch (DecoderFallbackException ex)
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or DecoderFallbackException)
             {
                 PluginLogService.LogError("API", "Failed to read backup request body", ex, _logger);
                 return BadRequest(new { message = "Failed to read the request body." });
@@ -140,13 +155,6 @@ public class BackupController : ControllerBase
             }
 
             var jsonLength = Encoding.UTF8.GetByteCount(json);
-
-            // Enforce size limit on actual body (Content-Length may be absent for chunked transfers)
-            if (jsonLength > BackupService.MaxBackupSizeBytes)
-            {
-                PluginLogService.LogWarning("API", $"Backup import rejected: actual body too large ({FormatBackupSize(jsonLength)}, max {FormatBackupSize(BackupService.MaxBackupSizeBytes)}).", logger: _logger);
-                return BadRequest(new { message = $"Backup too large ({FormatBackupSize(jsonLength)}). Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB." });
-            }
 
             PluginLogService.LogInfo("API", $"Backup import started: size={jsonLength} bytes", _logger);
 

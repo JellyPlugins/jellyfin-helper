@@ -31,12 +31,16 @@
     function interpolateDataPoints(dataPoints, granularity) {
         if (dataPoints.length < 2) return dataPoints;
 
-        var maxInterpolatedPoints = 10000;
+        var maxPoints = 10000;
         var result = [];
+        var truncated = false;
         for (var i = 0; i < dataPoints.length; i++) {
             result.push(dataPoints[i]);
 
-            if (result.length >= maxInterpolatedPoints) break;
+            if (result.length >= maxPoints) {
+                truncated = true;
+                break;
+            }
 
             if (i < dataPoints.length - 1) {
                 var currentDate = new Date(dataPoints[i].date);
@@ -44,7 +48,7 @@
 
                 // Advance one bucket at a time and fill gaps
                 var fillDate = advanceBucketDate(currentDate, granularity);
-                while (fillDate < nextDate && result.length < maxInterpolatedPoints) {
+                while (fillDate < nextDate && result.length < maxPoints - 1) {
                     result.push({
                         date: fillDate.toISOString(),
                         cumulativeSize: dataPoints[i].cumulativeSize,
@@ -52,7 +56,18 @@
                     });
                     fillDate = advanceBucketDate(fillDate, granularity);
                 }
+
+                if (fillDate < nextDate) {
+                    truncated = true;
+                    break;
+                }
             }
+        }
+
+        // Ensure the last real data point is always included so the chart doesn't end early
+        if (truncated) {
+            result[result.length - 1] = dataPoints[dataPoints.length - 1];
+            console.warn('[JellyfinHelper] Trend timeline truncated to ' + maxPoints + ' points.');
         }
         return result;
     }

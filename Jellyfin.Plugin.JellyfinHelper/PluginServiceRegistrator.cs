@@ -16,6 +16,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     /// <inheritdoc />
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
+        _ = applicationHost; // Required by interface but unused
         serviceCollection.AddSingleton<MediaStatisticsService>();
         serviceCollection.AddSingleton<StatisticsCacheService>();
         serviceCollection.AddSingleton<GrowthTimelineService>();

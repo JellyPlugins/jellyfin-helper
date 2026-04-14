@@ -83,18 +83,18 @@ public class ConfigurationController : ControllerBase
         // Validate Arr instances (max 3 per type, URL format, non-empty API key)
         const int maxArrInstances = 3;
 
-        if (request.RadarrInstances.Count > maxArrInstances)
+        if (request.RadarrInstances is { Count: > maxArrInstances })
         {
             return BadRequest(new { message = $"Maximum {maxArrInstances} Radarr instances allowed." });
         }
 
-        if (request.SonarrInstances.Count > maxArrInstances)
+        if (request.SonarrInstances is { Count: > maxArrInstances })
         {
             return BadRequest(new { message = $"Maximum {maxArrInstances} Sonarr instances allowed." });
         }
 
-        var arrValidationError = ValidateArrInstances(request.RadarrInstances, "Radarr")
-                                 ?? ValidateArrInstances(request.SonarrInstances, "Sonarr");
+        var arrValidationError = (request.RadarrInstances is not null ? ValidateArrInstances(request.RadarrInstances, "Radarr") : null)
+                                 ?? (request.SonarrInstances is not null ? ValidateArrInstances(request.SonarrInstances, "Sonarr") : null);
         if (arrValidationError != null)
         {
             return BadRequest(new { message = arrValidationError });
@@ -102,9 +102,14 @@ public class ConfigurationController : ControllerBase
 
         // Apply request values to the existing config (preserves accumulated statistics and internal state)
         var config = plugin.Configuration;
+        if (config == null)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Plugin configuration not initialized." });
+        }
 
-        config.IncludedLibraries = request.IncludedLibraries;
-        config.ExcludedLibraries = request.ExcludedLibraries;
+        // Normalize nullable strings to prevent downstream NREs from explicit JSON null values
+        config.IncludedLibraries = request.IncludedLibraries ?? string.Empty;
+        config.ExcludedLibraries = request.ExcludedLibraries ?? string.Empty;
         config.OrphanMinAgeDays = request.OrphanMinAgeDays;
 
         config.TrickplayTaskMode = request.TrickplayTaskMode;
@@ -113,28 +118,34 @@ public class ConfigurationController : ControllerBase
         config.StrmRepairTaskMode = request.StrmRepairTaskMode;
 
         config.UseTrash = request.UseTrash;
-        config.TrashFolderPath = request.TrashFolderPath;
+        config.TrashFolderPath = string.IsNullOrWhiteSpace(request.TrashFolderPath) ? ".jellyfin-trash" : request.TrashFolderPath;
         config.TrashRetentionDays = request.TrashRetentionDays;
 
-        config.RadarrUrl = request.RadarrUrl;
-        config.RadarrApiKey = request.RadarrApiKey;
-        config.SonarrUrl = request.SonarrUrl;
-        config.SonarrApiKey = request.SonarrApiKey;
+        config.RadarrUrl = request.RadarrUrl ?? string.Empty;
+        config.RadarrApiKey = request.RadarrApiKey ?? string.Empty;
+        config.SonarrUrl = request.SonarrUrl ?? string.Empty;
+        config.SonarrApiKey = request.SonarrApiKey ?? string.Empty;
 
-        config.Language = request.Language;
+        config.Language = string.IsNullOrWhiteSpace(request.Language) ? "en" : request.Language;
 
         // Update Radarr instances (clear + re-add from request)
         config.RadarrInstances.Clear();
-        foreach (var instance in request.RadarrInstances)
+        if (request.RadarrInstances is not null)
         {
-            config.RadarrInstances.Add(instance);
+            foreach (var instance in request.RadarrInstances)
+            {
+                config.RadarrInstances.Add(instance);
+            }
         }
 
         // Update Sonarr instances (clear + re-add from request)
         config.SonarrInstances.Clear();
-        foreach (var instance in request.SonarrInstances)
+        if (request.SonarrInstances is not null)
         {
-            config.SonarrInstances.Add(instance);
+            foreach (var instance in request.SonarrInstances)
+            {
+                config.SonarrInstances.Add(instance);
+            }
         }
 
         plugin.SaveConfiguration();
@@ -159,7 +170,7 @@ public class ConfigurationController : ControllerBase
         var warnings = new List<string>();
 
         // Test Radarr instances
-        for (int i = 0; i < request.RadarrInstances.Count; i++)
+        for (int i = 0; request.RadarrInstances is not null && i < request.RadarrInstances.Count; i++)
         {
             var instance = request.RadarrInstances[i];
             if (string.IsNullOrWhiteSpace(instance.Url) || string.IsNullOrWhiteSpace(instance.ApiKey))
@@ -196,7 +207,7 @@ public class ConfigurationController : ControllerBase
         }
 
         // Test Sonarr instances
-        for (int i = 0; i < request.SonarrInstances.Count; i++)
+        for (int i = 0; request.SonarrInstances is not null && i < request.SonarrInstances.Count; i++)
         {
             var instance = request.SonarrInstances[i];
             if (string.IsNullOrWhiteSpace(instance.Url) || string.IsNullOrWhiteSpace(instance.ApiKey))

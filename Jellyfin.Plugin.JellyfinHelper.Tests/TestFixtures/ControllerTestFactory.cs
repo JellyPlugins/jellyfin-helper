@@ -115,8 +115,9 @@ public static class ControllerTestFactory
         // BasePlugin<T> holds configuration in a protected field or similar. 
         // We can set the Configuration property directly if it has a setter 
         // or use reflection to set the backing field.
-        var configProperty = typeof(MediaBrowser.Common.Plugins.BasePlugin<PluginConfiguration>).GetProperty("Configuration");
-        configProperty?.SetValue(plugin, new PluginConfiguration());
+        var configProperty = typeof(MediaBrowser.Common.Plugins.BasePlugin<PluginConfiguration>).GetProperty("Configuration")
+            ?? throw new InvalidOperationException("Failed to find Configuration property via reflection on BasePlugin<PluginConfiguration>.");
+        configProperty.SetValue(plugin, new PluginConfiguration());
     }
 
     /// <summary>
