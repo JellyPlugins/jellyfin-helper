@@ -1,6 +1,5 @@
 using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
-using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Xunit;
@@ -451,42 +450,6 @@ public class BackupServiceTests
         Assert.Contains(result.Errors, e => e.Contains("1000 characters"));
     }
 
-    // ===== Statistics History Validation =====
-
-    [Fact]
-    public void Validate_HistoryWithScriptInLibraryName_ReturnsError()
-    {
-        var backup = CreateValidBackup();
-        var snapshot = new StatisticsSnapshot
-        {
-            Timestamp = DateTime.UtcNow,
-            TotalSize = 1000,
-        };
-        snapshot.LibrarySizes["<script>alert(1)</script>"] = 1000;
-        backup.StatisticsHistory.Add(snapshot);
-
-        var result = BackupService.Validate(backup);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, e => e.Contains("script injection"));
-    }
-
-    [Fact]
-    public void Validate_HistoryWithNegativeValues_ReturnsWarning()
-    {
-        var backup = CreateValidBackup();
-        backup.StatisticsHistory.Add(new StatisticsSnapshot
-        {
-            Timestamp = DateTime.UtcNow,
-            TotalSize = -100,
-        });
-
-        var result = BackupService.Validate(backup);
-
-        Assert.True(result.IsValid);
-        Assert.Contains(result.Warnings, w => w.Contains("negative"));
-    }
-
     // ===== Sanitize =====
 
     [Fact]
@@ -551,24 +514,6 @@ public class BackupServiceTests
     }
 
     [Fact]
-    public void Sanitize_TooManyHistorySnapshots_AreTrimmed()
-    {
-        var backup = CreateValidBackup();
-        for (int i = 0; i < BackupService.MaxHistorySnapshots + 50; i++)
-        {
-            backup.StatisticsHistory.Add(new StatisticsSnapshot
-            {
-                Timestamp = DateTime.UtcNow.AddDays(-i),
-                TotalSize = i * 1000,
-            });
-        }
-
-        BackupService.Sanitize(backup);
-
-        Assert.Equal(BackupService.MaxHistorySnapshots, backup.StatisticsHistory.Count);
-    }
-
-    [Fact]
     public void Sanitize_InvalidLogLevel_DefaultsToInfo()
     {
         var backup = CreateValidBackup();
@@ -600,12 +545,6 @@ public class BackupServiceTests
             CreatedUtc = new DateTime(2024, 4, 1, 0, 0, 0, DateTimeKind.Utc),
             Size = 55555,
         };
-        backup.StatisticsHistory.Add(new StatisticsSnapshot
-        {
-            Timestamp = new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc),
-            TotalSize = 999999,
-            TotalVideoFileCount = 100,
-        });
 
         var json = BackupService.SerializeBackup(backup);
         var restored = BackupService.DeserializeBackup(json);
@@ -626,8 +565,6 @@ public class BackupServiceTests
         Assert.Equal(backup.GrowthBaseline.FirstScanTimestamp, restored.GrowthBaseline!.FirstScanTimestamp);
         Assert.Single(restored.GrowthBaseline.Directories);
         Assert.Equal(55555, restored.GrowthBaseline.Directories[@"C:\Media\Movie 1"].Size);
-        Assert.Single(restored.StatisticsHistory);
-        Assert.Equal(999999, restored.StatisticsHistory[0].TotalSize);
     }
 
     [Fact]
@@ -776,18 +713,8 @@ public class BackupServiceTests
                 Size = 2000,
             };
 
-            var history = new List<StatisticsSnapshot>
-            {
-                new()
-                {
-                    Timestamp = new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc),
-                    TotalSize = 500,
-                },
-            };
-
             File.WriteAllText(Path.Combine(tempDir, "jellyfin-helper-growth-timeline.json"), JsonSerializer.Serialize(timeline));
             File.WriteAllText(Path.Combine(tempDir, "jellyfin-helper-growth-baseline.json"), JsonSerializer.Serialize(baseline));
-            File.WriteAllText(Path.Combine(tempDir, "jellyfin-helper-statistics-history.json"), JsonSerializer.Serialize(history));
 
             var logger = TestMockFactory.CreateLogger();
             var service = new BackupService(tempDir, logger.Object);
@@ -801,8 +728,6 @@ public class BackupServiceTests
             Assert.Equal(baseline.FirstScanTimestamp, backup.GrowthBaseline!.FirstScanTimestamp);
             Assert.Single(backup.GrowthBaseline.Directories);
             Assert.Equal(2000, backup.GrowthBaseline.Directories[@"C:\Media\Movie 1"].Size);
-            Assert.Single(backup.StatisticsHistory);
-            Assert.Equal(500, backup.StatisticsHistory[0].TotalSize);
         }
         finally
         {
@@ -831,19 +756,15 @@ public class BackupServiceTests
             {
                 FirstScanTimestamp = DateTime.UtcNow,
             };
-            backup.StatisticsHistory.Add(new StatisticsSnapshot { Timestamp = DateTime.UtcNow, TotalSize = 500 });
-
             // RestoreBackup won't restore config (no Plugin.Instance), but should write files
             var summary = service.RestoreBackup(backup);
 
             Assert.True(summary.TimelineRestored);
             Assert.True(summary.BaselineRestored);
-            Assert.Equal(1, summary.HistorySnapshotsRestored);
 
             // Verify files were written
             Assert.True(File.Exists(Path.Combine(tempDir, "jellyfin-helper-growth-timeline.json")));
             Assert.True(File.Exists(Path.Combine(tempDir, "jellyfin-helper-growth-baseline.json")));
-            Assert.True(File.Exists(Path.Combine(tempDir, "jellyfin-helper-statistics-history.json")));
         }
         finally
         {
@@ -864,13 +785,10 @@ public class BackupServiceTests
             var backup = CreateValidBackup();
             backup.GrowthTimeline = null;
             backup.GrowthBaseline = null;
-            // StatisticsHistory is already empty by default (Collection), no need to assign
-
             var summary = service.RestoreBackup(backup);
 
             Assert.False(summary.TimelineRestored);
             Assert.False(summary.BaselineRestored);
-            Assert.Equal(0, summary.HistorySnapshotsRestored);
 
             Assert.False(File.Exists(Path.Combine(tempDir, "jellyfin-helper-growth-timeline.json")));
         }

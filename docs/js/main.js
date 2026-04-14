@@ -30,30 +30,6 @@
         }
     }
 
-    function triggerExport(format) {
-        var apiClient = ApiClient;
-        var url = apiClient.getUrl('JellyfinHelper/Statistics/Export/' + format);
-        var mimeType = format === 'Json' ? 'application/json' : 'text/csv';
-        var ext = format === 'Json' ? 'json' : 'csv';
-        var timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        var filename = 'jellyfin-statistics-' + timestamp + '.' + ext;
-
-        apiClient.ajax({ type: 'GET', url: url, dataType: 'text' }).then(function (data) {
-            var content = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-            var blob = new Blob([content], { type: mimeType });
-            var blobUrl = URL.createObjectURL(blob);
-            var link = document.createElement('a');
-            link.href = blobUrl;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 5000);
-        }, function () {
-            alert(T('exportError', 'Export failed. Please try again.'));
-        });
-    }
-
     // Format a UTC timestamp as "X ago" relative text
     function formatTimeAgo(utcTimestamp) {
         if (!utcTimestamp) return '';
@@ -196,8 +172,8 @@
             fillScanData(data);
             updateLastScanBadge(data.ScanTimestamp);
 
-            // Load/refresh trend data
-            loadTrendData();
+            // Load/refresh trend data (force recompute after a fresh scan)
+            loadTrendData(true);
         }, function (err) {
             loading.style.display = 'none';
             var overviewContainer = document.getElementById('overviewContent');

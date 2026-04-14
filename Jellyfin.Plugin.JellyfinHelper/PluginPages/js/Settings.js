@@ -419,9 +419,9 @@
     function triggerBackupImport(file) {
         var msg = document.getElementById('backupMsg');
 
-        // Client-side size check (50 MB)
-        if (file.size > 50 * 1024 * 1024) {
-            msg.innerHTML = '<div class="error-msg">❌ ' + T('backupFileTooLarge', 'File too large. Maximum size is 50 MB.') + '</div>';
+        // Client-side size check (10 MB)
+        if (file.size > 10 * 1024 * 1024) {
+            msg.innerHTML = '<div class="error-msg">❌ ' + T('backupFileTooLarge', 'File too large. Maximum size is 10 MB.') + '</div>';
             return;
         }
 
@@ -510,7 +510,6 @@
                 if (summary.configurationRestored) parts.push(T('backupConfigRestored', 'Settings'));
                 if (summary.timelineRestored) parts.push(T('backupTimelineRestored', 'Growth Timeline'));
                 if (summary.baselineRestored) parts.push(T('backupBaselineRestored', 'Baseline'));
-                if (summary.historySnapshotsRestored > 0) parts.push(summary.historySnapshotsRestored + ' ' + T('backupHistoryRestored', 'History Snapshots'));
 
                 var successMsg = '✅ ' + T('backupImportSuccess', 'Backup imported successfully.');
                 if (parts.length > 0) {

@@ -98,8 +98,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── MediaStatisticsService.cs
 │   │   ├── MediaStatisticsResult.cs
 │   │   ├── LibraryStatistics.cs
-│   │   ├── StatisticsHistoryService.cs
-│   │   └── StatisticsSnapshot.cs
+│   │   └── StatisticsCacheService.cs
 │   ├── Strm/                         # STRM file repair
 │   │   ├── StrmRepairService.cs
 │   │   ├── StrmRepairResult.cs
@@ -133,7 +132,7 @@ Jellyfin.Plugin.JellyfinHelper/
 - **5-minute cache** — `IMemoryCache` prevents redundant scans; `?forceRefresh=true` bypasses it
 - **Rate limiting** — 30-second minimum between scans (HTTP 429 on violation)
 - **Dry Run by default** — All cleanup tasks start in DryRun mode for safety
-- **Backup & Restore** — Full plugin state (config + history) exportable/importable as JSON
+- **Backup & Restore** — Full plugin state (config + growth timeline + Arr instances) exportable/importable as JSON
 
 ---
 
@@ -187,9 +186,6 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 |----------|--------|-------------|
 | `/JellyfinHelper/Statistics` | GET | Full library scan (cached 5 min; `?forceRefresh=true` bypasses) |
 | `/JellyfinHelper/Statistics/Latest` | GET | Latest persisted scan result (no new scan) |
-| `/JellyfinHelper/Statistics/Export/Json` | GET | Download statistics as JSON |
-| `/JellyfinHelper/Statistics/Export/Csv` | GET | Download per-library breakdown as CSV |
-| `/JellyfinHelper/Statistics/History` | GET | Historical snapshots for trend graph |
 | `/JellyfinHelper/Statistics/GrowthTimeline` | GET | Cumulative growth timeline with bucketing (`?granularity=daily\|weekly\|monthly\|quarterly\|yearly`) |
 
 ### Configuration
@@ -313,9 +309,9 @@ Sub-tasks executed in order (each respecting its configured task mode):
 
 ### Backup & Restore
 
-- Export complete plugin state (configuration + statistics history + Arr instances) as JSON
+- Export complete plugin state (configuration + growth timeline + baseline + Arr instances) as JSON
 - Import with validation — detects format errors and version mismatches
-- Restore summary shows what was imported (config fields, history entries, Arr instances)
+- Restore summary shows what was imported (config, timeline, baseline)
 
 ### Security
 
@@ -344,7 +340,7 @@ Sub-tasks executed in order (each respecting its configured task mode):
 
 ## 🧪 Testing
 
-The project includes **971 automated tests** covering:
+The project includes **957 automated tests** covering:
 
 - All services (cleanup, statistics, path validation, Arr integration, backup/restore, growth timeline)
 - API endpoints (controller tests with mocked dependencies)
@@ -410,7 +406,6 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   └── CleanupTaskTestBase.cs      # Base class for cleanup task tests (config lifecycle)
 ├── Api/                    # Controller endpoint tests (use ControllerTestFactory)
 │   ├── MediaStatisticsControllerBackupTests.cs
-│   ├── MediaStatisticsControllerExportTests.cs
 │   └── MediaStatisticsControllerTrashTests.cs
 ├── Configuration/          # Config migration tests
 │   └── TaskModeTests.cs

@@ -21,13 +21,84 @@
         }
     }
 
+    /**
+     * Interpolates missing intermediate buckets between sparse data points.
+     * When the backend deduplicates consecutive identical points, gaps appear
+     * in the timeline. This function fills those gaps by carrying forward
+     * the previous point's values so the chart has a continuous line.
+     * A safety guard prevents runaway iteration.
+     */
+    function interpolateDataPoints(dataPoints, granularity) {
+        if (dataPoints.length < 2) return dataPoints;
+
+        var maxInterpolatedPoints = 10000;
+        var result = [];
+        for (var i = 0; i < dataPoints.length; i++) {
+            result.push(dataPoints[i]);
+
+            if (result.length >= maxInterpolatedPoints) break;
+
+            if (i < dataPoints.length - 1) {
+                var currentDate = new Date(dataPoints[i].date);
+                var nextDate = new Date(dataPoints[i + 1].date);
+
+                // Advance one bucket at a time and fill gaps
+                var fillDate = advanceBucketDate(currentDate, granularity);
+                while (fillDate < nextDate && result.length < maxInterpolatedPoints) {
+                    result.push({
+                        date: fillDate.toISOString(),
+                        cumulativeSize: dataPoints[i].cumulativeSize,
+                        cumulativeFileCount: dataPoints[i].cumulativeFileCount
+                    });
+                    fillDate = advanceBucketDate(fillDate, granularity);
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Advances a date by one bucket interval based on the granularity.
+     */
+    function advanceBucketDate(date, granularity) {
+        var d = new Date(date.getTime());
+        switch (granularity) {
+            case 'daily':
+                d.setUTCDate(d.getUTCDate() + 1);
+                break;
+            case 'weekly':
+                d.setUTCDate(d.getUTCDate() + 7);
+                break;
+            case 'monthly':
+                d.setUTCMonth(d.getUTCMonth() + 1);
+                break;
+            case 'quarterly':
+                d.setUTCMonth(d.getUTCMonth() + 3);
+                break;
+            case 'yearly':
+                d.setUTCFullYear(d.getUTCFullYear() + 1);
+                break;
+            default:
+                d.setUTCMonth(d.getUTCMonth() + 1);
+        }
+        return d;
+    }
+
     function renderTrendChart(timeline) {
         if (!timeline || !timeline.dataPoints || timeline.dataPoints.length < 2) {
             return '<div class="trend-empty">' + T('trendEmpty', 'Not enough data yet. Growth timeline is computed during each scheduled scan.') + '</div>';
         }
 
-        var dataPoints = timeline.dataPoints;
+        // The backend already groups data into the correct granularity and deduplicates
+        // consecutive identical points for compact storage. We only need to interpolate
+        // the gaps back for a continuous chart line.
+        var validGranularities = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly'];
         var granularity = timeline.granularity || 'monthly';
+        if (validGranularities.indexOf(granularity) === -1) {
+            console.warn('[JellyfinHelper] Unknown granularity "' + granularity + '", falling back to "monthly".');
+            granularity = 'monthly';
+        }
+        var dataPoints = interpolateDataPoints(timeline.dataPoints, granularity);
 
         // Find max cumulative size for threshold calculation
         var peakSize = 0;

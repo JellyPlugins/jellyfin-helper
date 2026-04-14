@@ -60,7 +60,7 @@ public class BackupControllerTests
 
             var badRequest = Assert.IsType<BadRequestObjectResult>(result);
             var payloadJson = JsonSerializer.Serialize(badRequest.Value);
-            Assert.Contains("Maximum size is 50 MB", payloadJson, StringComparison.Ordinal);
+            Assert.Contains("Maximum size is 10 MB", payloadJson, StringComparison.Ordinal);
 
             var logs = PluginLogService.GetEntries(source: "API", limit: 20);
             Assert.Contains(logs,
@@ -88,7 +88,7 @@ public class BackupControllerTests
 
             var badRequest = Assert.IsType<BadRequestObjectResult>(result);
             var payloadJson = JsonSerializer.Serialize(badRequest.Value);
-            Assert.Contains("Maximum size is 50 MB", payloadJson, StringComparison.Ordinal);
+            Assert.Contains("Maximum size is 10 MB", payloadJson, StringComparison.Ordinal);
         }
         finally
         {
@@ -161,11 +161,6 @@ public class BackupControllerTests
             await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "jellyfin-helper-growth-baseline.json"),
                 "{\"firstScanTimestamp\":\"2024-04-01T00:00:00Z\",\"directories\":{\"/media/movie-1\":{\"createdUtc\":\"2024-04-01T00:00:00Z\",\"size\":2000}}}",
-                Encoding.UTF8);
-
-            await File.WriteAllTextAsync(
-                Path.Combine(tempDir, "jellyfin-helper-statistics-history.json"),
-                "[{\"timestamp\":\"2024-05-01T00:00:00Z\",\"totalSize\":500}]",
                 Encoding.UTF8);
 
             var exportController = CreateController(tempDir);

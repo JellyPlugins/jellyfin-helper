@@ -42,11 +42,6 @@
         var btnRefresh = document.getElementById('btnRefresh');
         if (btnRefresh) btnRefresh.innerHTML = '&#x21bb; ' + T('scanLibraries', 'Scan Libraries');
 
-        var btnExportJson = document.getElementById('btnExportJson');
-        if (btnExportJson) btnExportJson.textContent = '\ud83d\udce5 ' + T('exportJson', 'JSON');
-        var btnExportCsv = document.getElementById('btnExportCsv');
-        if (btnExportCsv) btnExportCsv.textContent = '\ud83d\udce5 ' + T('exportCsv', 'CSV');
-
         var loadingText = document.querySelector('#loadingIndicator p');
         if (loadingText) loadingText.textContent = T('scanDescription', 'Scanning libraries\u2026 This may take a while for large collections.');
         var placeholder = document.querySelector('#statsPlaceholder p');

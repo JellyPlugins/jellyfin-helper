@@ -92,29 +92,40 @@ public class I18nServiceTests : IDisposable
         var expectedKeys = new[]
         {
             "title", "scanLibraries", "scanning", "scanDescription", "scanPlaceholder", "error",
-            "tabOverview", "tabCodecs", "tabHealth", "tabTrends", "tabSettings", "tabArr",
-            "movieVideoData", "tvVideoData", "musicAudio", "trickplayData", "subtitles", "totalFiles",
-            "storageDistribution", "perLibrary",
+            "tabOverview", "tabCodecs", "tabHealth", "tabTrends", "tabSettings", "tabArr", "tabLogs",
+            "movieVideoData", "tvVideoData", "musicAudioData", "trickplayData", "subtitleData", "subtitles", "totalFiles",
+            "storageDistribution", "perLibraryBreakdown",
             "cleanupStatistics", "totalBytesFreed", "totalItemsDeleted", "lastCleanup", "never",
             "videoCodecs", "videoAudioCodecs", "musicAudioCodecs", "containerFormats", "resolutions", "noData",
             "healthChecks", "noSubtitles", "noImages", "noNfo", "orphanedDirs",
-            "growthTrend", "trendEmpty", "trendLoading", "trendError",
+            "trendTitle", "trendEmpty", "loadingTrends", "trendError", "trendGranularity", "trendFiles", "trendEarliest",
             "settingsGeneralTitle", "settingsTaskTitle", "settingsTrashTitle", "settingsArrTitle",
-            "includedLibraries", "excludedLibraries",
-            "orphanMinAge", "dryRunDefault", "enableSubtitleCleaner",
+            "includedLibraries", "includedLibrariesHelp", "excludedLibraries",
+            "orphanMinAgeDays", "orphanMinAgeDaysHelp",
             "useTrash", "trashFolder", "trashRetention", "language",
-            "radarrUrl", "radarrApiKey", "sonarrUrl", "sonarrApiKey",
-            "saveSettings", "settingsSaved", "settingsError",
-            "arrTitle", "compareRadarr", "compareSonarr",
+            "taskModeTitle", "taskModeHelp", "activate", "dryRun", "deactivate",
+            "trickplayFolderCleaner", "emptyMediaFolderCleaner", "orphanedSubtitleCleaner", "strmFileRepair",
+            "saveSettings", "savingSettings", "settingsSaved", "settingsError", "settingsLoadError",
+            "arrTitle", "compareWith",
             "inBoth", "inArrOnly", "inArrOnlyMissing", "inJellyfinOnly",
-            "arrNotConfigured", "comparing",
-            "exportJson", "exportCsv",
+            "arrNotConfigured", "arrCompareError", "comparing",
+            "addInstance", "remove", "instanceName", "radarrInstances", "sonarrInstances",
+            "testConnection", "testConnectionFailed", "testing", "testMissingFields",
+            "url", "apiKey", "andMore", "more",
             // Trash disable dialog keys
             "trashDisablePrompt", "trashDisableQuestion", "trashDisableTitle",
             "trashKeep", "trashDelete",
             "trashDeleteConfirmTitle", "trashDeleteConfirmMsg", "trashDeleteConfirmWarn", "trashDeleteConfirmOk",
             "trashDeleting", "trashDeletedCount", "trashFailedCount", "trashDeleteError",
             "folders", "cancel",
+            // Backup keys
+            "settingsBackupTitle", "settingsBackupHelp",
+            "backupExport", "backupImport",
+            "backupExportSuccess", "backupExportError",
+            "backupImporting", "backupImportSuccess", "backupImportError",
+            "backupFileTooLarge", "backupInvalidJson",
+            "backupImportConfirmTitle", "backupImportConfirmMsg", "backupImportConfirmFile", "backupImportConfirmWarn", "backupImportConfirmOk",
+            "backupConfigRestored", "backupTimelineRestored", "backupBaselineRestored", "backupWarnings",
         };
 
         foreach (var key in expectedKeys)
@@ -329,8 +340,6 @@ public class I18nServiceTests : IDisposable
         var translations = I18nService.GetTranslations(lang);
 
         // These are technical terms that should not be translated
-        Assert.Equal("JSON", translations["exportJson"]);
-        Assert.Equal("CSV", translations["exportCsv"]);
         Assert.Equal("URL", translations["url"]);
     }
 

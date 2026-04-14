@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
-using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
@@ -140,12 +139,4 @@ public class BackupData
     /// </summary>
     [JsonPropertyName("growthBaseline")]
     public GrowthTimelineBaseline? GrowthBaseline { get; set; }
-
-    /// <summary>
-    /// Gets or sets the statistics history snapshots (trend data).
-    /// </summary>
-    [JsonPropertyName("statisticsHistory")]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2227:Collection properties should be read only", Justification = "Required for JSON deserialization")]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1002:Do not expose generic lists", Justification = "Required for JSON deserialization")]
-    public List<StatisticsSnapshot> StatisticsHistory { get; set; } = new();
 }

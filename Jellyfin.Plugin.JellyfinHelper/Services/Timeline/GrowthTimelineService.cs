@@ -60,10 +60,13 @@ public class GrowthTimelineService
 
     /// <summary>
     /// Computes the growth timeline by scanning top-level media directories.
-    /// On the first scan, creates a baseline snapshot. On subsequent scans,
-    /// uses diff-based tracking: new directories (created after the first scan)
-    /// contribute their full size at their creation date, while existing directories
-    /// that changed size contribute only the diff at the current scan date.
+    /// On the first scan, creates a baseline snapshot and builds a historical timeline
+    /// from directory creation dates. On subsequent scans, uses an append-only snapshot
+    /// approach: all previously persisted data points are treated as immutable history,
+    /// and only the current time-bucket is updated with the actual total size/count.
+    /// This ensures that deleting files whose creation dates lie in the past does NOT
+    /// retroactively alter historical data points — the deletion shows up as a drop
+    /// at the current point in time.
     /// </summary>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>The growth timeline result.</returns>
@@ -86,15 +89,30 @@ public class GrowthTimelineService
             };
         }
 
+        PluginLogService.LogInfo("GrowthTimeline", $"Collected {currentDirs.Count} media directories.", _logger);
+
         cancellationToken.ThrowIfCancellationRequested();
 
         var baseline = await LoadBaselineAsync(cancellationToken).ConfigureAwait(false);
-        List<FileEntry> timelineEntries;
+
+        // Discard legacy baselines that used grouped keys (contain '|' separator).
+        // These are incompatible with the per-directory format and would produce incorrect diffs.
+        if (baseline != null && baseline.Directories.Count > 0)
+        {
+            var firstKey = baseline.Directories.Keys.First();
+            if (firstKey.Contains('|', StringComparison.Ordinal))
+            {
+                PluginLogService.LogInfo("GrowthTimeline", $"Discarding legacy grouped baseline ({baseline.Directories.Count} entries). A new per-directory baseline will be created.", _logger);
+                baseline = null;
+            }
+        }
+
+        List<GrowthTimelinePoint> dataPoints;
 
         if (baseline == null)
         {
             // === FIRST SCAN: Create baseline and build historical timeline ===
-            PluginLogService.LogInfo("GrowthTimeline", $"First scan: creating baseline with {currentDirs.Count} directories.", _logger);
+            PluginLogService.LogInfo("GrowthTimeline", $"First scan: creating baseline with {currentDirs.Count} directory entries.", _logger);
 
             baseline = new GrowthTimelineBaseline { FirstScanTimestamp = now };
             foreach (var dir in currentDirs)
@@ -103,27 +121,72 @@ public class GrowthTimelineService
                 {
                     CreatedUtc = dir.CreatedUtc,
                     Size = dir.Size,
+                    Count = dir.Count,
                 };
             }
 
             await SaveBaselineAsync(baseline, cancellationToken).ConfigureAwait(false);
 
             // For the first scan, use creation dates with current sizes (historical reconstruction)
-            timelineEntries = currentDirs.Select(d => new FileEntry
+            var timelineEntries = currentDirs.Select(d => new FileEntry
             {
                 CreatedUtc = d.CreatedUtc,
                 Size = d.Size,
-                CountDelta = 1,
+                CountDelta = d.Count,
             }).ToList();
+
+            timelineEntries.Sort((a, b) => a.CreatedUtc.CompareTo(b.CreatedUtc));
+
+            var earliest = timelineEntries.Count > 0 ? timelineEntries[0].CreatedUtc : now;
+            var granularity = DetermineGranularity(earliest, now);
+
+            PluginLogService.LogInfo("GrowthTimeline", $"Building initial timeline: {timelineEntries.Count} entries, earliest: {earliest:yyyy-MM-dd}, granularity: {granularity}", _logger);
+
+            dataPoints = BuildCumulativeTimeline(timelineEntries, earliest, now, granularity);
         }
         else
         {
-            // === SUBSEQUENT SCAN: Diff-based tracking ===
-            PluginLogService.LogInfo("GrowthTimeline", $"Incremental scan: baseline from {baseline.FirstScanTimestamp:yyyy-MM-dd}, {currentDirs.Count} current dirs, {baseline.Directories.Count} baseline dirs.", _logger);
-
+            // === SUBSEQUENT SCAN: Append-only snapshot ===
+            // Historical data points are immutable. We only update the current bucket
+            // with the actual current total size/count. This prevents deletions of old
+            // files from retroactively altering past data points.
             cancellationToken.ThrowIfCancellationRequested();
 
-            timelineEntries = BuildIncrementalEntries(currentDirs, baseline, now);
+            var existingTimeline = await LoadTimelineAsync(cancellationToken).ConfigureAwait(false);
+
+            // Calculate current absolute totals
+            var currentTotalSize = currentDirs.Sum(d => d.Size);
+            var currentTotalCount = currentDirs.Sum(d => d.Count);
+
+            if (existingTimeline != null && existingTimeline.DataPoints.Count > 0)
+            {
+                // Append-only: preserve historical points, update current bucket
+                PluginLogService.LogInfo("GrowthTimeline", $"Append-only scan: {existingTimeline.DataPoints.Count} existing points, current total: {currentTotalSize} bytes, {currentTotalCount} items.", _logger);
+
+                var earliestExisting = existingTimeline.DataPoints[0].Date;
+                var granularity = DetermineGranularity(earliestExisting, now);
+
+                dataPoints = MergeSnapshotIntoTimeline(
+                    existingTimeline.DataPoints.ToList(),
+                    now,
+                    currentTotalSize,
+                    currentTotalCount,
+                    granularity);
+            }
+            else
+            {
+                // No existing timeline (e.g. first incremental scan after migration or data loss).
+                // Fall back to historical reconstruction using baseline + current state.
+                PluginLogService.LogInfo("GrowthTimeline", $"No existing timeline found. Performing historical reconstruction from baseline.", _logger);
+
+                var timelineEntries = BuildIncrementalEntries(currentDirs, baseline, now);
+                timelineEntries.Sort((a, b) => a.CreatedUtc.CompareTo(b.CreatedUtc));
+
+                var earliest = timelineEntries.Count > 0 ? timelineEntries[0].CreatedUtc : now;
+                var granularity = DetermineGranularity(earliest, now);
+
+                dataPoints = BuildCumulativeTimeline(timelineEntries, earliest, now, granularity);
+            }
 
             // Update baseline with current state for next scan
             UpdateBaseline(baseline, currentDirs);
@@ -132,9 +195,27 @@ public class GrowthTimelineService
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (timelineEntries.Count == 0)
+        // Trim leading zero-value data points but keep one zero just before the first non-zero
+        // as a visual baseline start. This avoids long flat 0-lines for historical buckets
+        // before any media existed, while still showing a library rebuild (drop to 0 then rise).
+        dataPoints = TrimLeadingZeros(dataPoints);
+
+        // Consolidate data points into the current granularity.
+        // When the time span grows (e.g. from <90 days to >90 days), the granularity
+        // upgrades (daily→weekly). Previously stored finer-grained points are merged
+        // into the coarser buckets so the persisted file stays compact.
+        var finalGranularity = dataPoints.Count > 0
+            ? DetermineGranularity(dataPoints[0].Date, now)
+            : "monthly";
+        dataPoints = ConsolidateToGranularity(dataPoints, finalGranularity);
+
+        // Remove consecutive data points with identical values to reduce storage size.
+        // The UI will interpolate missing buckets back when rendering the chart.
+        dataPoints = DeduplicateConsecutivePoints(dataPoints);
+
+        if (dataPoints.Count == 0)
         {
-            PluginLogService.LogInfo("GrowthTimeline", "No timeline entries after processing.", _logger);
+            PluginLogService.LogInfo("GrowthTimeline", "No timeline data points after processing.", _logger);
             return new GrowthTimelineResult
             {
                 ComputedAt = now,
@@ -143,24 +224,10 @@ public class GrowthTimelineService
             };
         }
 
-        timelineEntries.Sort((a, b) => a.CreatedUtc.CompareTo(b.CreatedUtc));
-
-        var earliest = timelineEntries[0].CreatedUtc;
-        var granularity = DetermineGranularity(earliest, now);
-
-        PluginLogService.LogInfo("GrowthTimeline", $"Building timeline: {timelineEntries.Count} entries, earliest: {earliest:yyyy-MM-dd}, granularity: {granularity}", _logger);
-
-        var dataPoints = BuildCumulativeTimeline(timelineEntries, earliest, now, granularity);
-
-        // Trim leading zero-value data points but keep one zero just before the first non-zero
-        // as a visual baseline start. This avoids long flat 0-lines for historical buckets
-        // before any media existed, while still showing a library rebuild (drop to 0 then rise).
-        dataPoints = TrimLeadingZeros(dataPoints);
-
         var result = new GrowthTimelineResult
         {
-            Granularity = granularity,
-            EarliestFileDate = earliest,
+            Granularity = finalGranularity,
+            EarliestFileDate = dataPoints[0].Date,
             ComputedAt = now,
             TotalFilesScanned = currentDirs.Count,
             FirstScanTimestamp = baseline.FirstScanTimestamp,
@@ -175,7 +242,7 @@ public class GrowthTimelineService
         cancellationToken.ThrowIfCancellationRequested();
         await SaveTimelineAsync(result, cancellationToken).ConfigureAwait(false);
 
-        PluginLogService.LogInfo("GrowthTimeline", $"Growth timeline computed: {dataPoints.Count} data points ({granularity})", _logger);
+        PluginLogService.LogInfo("GrowthTimeline", $"Growth timeline computed: {dataPoints.Count} data points ({finalGranularity})", _logger);
         return result;
     }
 
@@ -283,11 +350,13 @@ public class GrowthTimelineService
         // 1. Add all baseline entries at their original creation date with their original size
         foreach (var kvp in baseline.Directories)
         {
+            // Use Count from the baseline entry; treat 0 as 1 for backwards compatibility
+            var count = kvp.Value.Count > 0 ? kvp.Value.Count : 1;
             entries.Add(new FileEntry
             {
                 CreatedUtc = kvp.Value.CreatedUtc,
                 Size = kvp.Value.Size,
-                CountDelta = 1,
+                CountDelta = count,
             });
         }
 
@@ -325,7 +394,8 @@ public class GrowthTimelineService
             }
             else
             {
-                // New directory (not in baseline)
+                // New group (not in baseline)
+                var count = dir.Count > 0 ? dir.Count : 1;
                 if (dir.CreatedUtc > baseline.FirstScanTimestamp)
                 {
                     // Created after baseline: add full size at creation date
@@ -333,7 +403,7 @@ public class GrowthTimelineService
                     {
                         CreatedUtc = dir.CreatedUtc,
                         Size = dir.Size,
-                        CountDelta = 1,
+                        CountDelta = count,
                     });
                 }
                 else
@@ -344,7 +414,7 @@ public class GrowthTimelineService
                     {
                         CreatedUtc = dir.CreatedUtc,
                         Size = dir.Size,
-                        CountDelta = 1,
+                        CountDelta = count,
                     });
                 }
             }
@@ -356,12 +426,13 @@ public class GrowthTimelineService
         {
             if (!currentPaths.Contains(kvp.Key))
             {
-                // Directory was removed: add a negative entry at scan time to reflect the deletion
+                // Group was removed: add a negative entry at scan time to reflect the deletion
+                var removedCount = kvp.Value.Count > 0 ? kvp.Value.Count : 1;
                 entries.Add(new FileEntry
                 {
                     CreatedUtc = now,
                     Size = -kvp.Value.Size,
-                    CountDelta = -1,
+                    CountDelta = -removedCount,
                 });
             }
         }
@@ -387,16 +458,18 @@ public class GrowthTimelineService
 
             if (baseline.Directories.TryGetValue(dir.Path, out var existing))
             {
-                // Update size to current value (creation date stays the same)
+                // Update size and count to current values (creation date stays the same)
                 existing.Size = dir.Size;
+                existing.Count = dir.Count;
             }
             else
             {
-                // New directory: add to baseline
+                // New group: add to baseline
                 baseline.Directories[dir.Path] = new BaselineDirectoryEntry
                 {
                     CreatedUtc = dir.CreatedUtc,
                     Size = dir.Size,
+                    Count = dir.Count,
                 };
             }
         }
@@ -465,6 +538,7 @@ public class GrowthTimelineService
                             Path = subDir.FullName,
                             CreatedUtc = createdUtc,
                             Size = totalSize,
+                            Count = 1,
                         });
                     }
                 }
@@ -497,6 +571,7 @@ public class GrowthTimelineService
                         Path = file.FullName,
                         CreatedUtc = createdUtc,
                         Size = file.Length,
+                        Count = 1,
                     });
                 }
             }
@@ -603,9 +678,56 @@ public class GrowthTimelineService
     }
 
     /// <summary>
+    /// Merges a current snapshot into an existing timeline using append-only semantics.
+    /// All existing data points whose bucket date is strictly before the current bucket
+    /// are preserved as immutable history. The current bucket is replaced (or added)
+    /// with the actual current total size and count. This ensures that deletions of
+    /// files with past creation dates do not retroactively alter historical data points;
+    /// instead, the deletion manifests as a size drop at the current point in time.
+    /// </summary>
+    /// <param name="existingPoints">The previously persisted data points (chronologically sorted).</param>
+    /// <param name="now">The current scan timestamp.</param>
+    /// <param name="currentTotalSize">The absolute total size of all current media directories.</param>
+    /// <param name="currentTotalCount">The absolute total count of all current media items.</param>
+    /// <param name="granularity">The granularity for bucket calculation.</param>
+    /// <returns>A merged list of data points with the current snapshot appended/updated.</returns>
+    internal static List<GrowthTimelinePoint> MergeSnapshotIntoTimeline(
+        List<GrowthTimelinePoint> existingPoints,
+        DateTime now,
+        long currentTotalSize,
+        int currentTotalCount,
+        string granularity)
+    {
+        var currentBucketStart = GetBucketStart(now, granularity);
+
+        // Keep all points strictly before the current bucket (immutable history)
+        var result = new List<GrowthTimelinePoint>();
+        foreach (var point in existingPoints)
+        {
+            if (point.Date < currentBucketStart)
+            {
+                result.Add(point);
+            }
+        }
+
+        // Add the current snapshot as the latest data point
+        result.Add(new GrowthTimelinePoint
+        {
+            Date = currentBucketStart,
+            CumulativeSize = currentTotalSize,
+            CumulativeFileCount = currentTotalCount,
+        });
+
+        return result;
+    }
+
+    /// <summary>
     /// Gets the start of the bucket containing the given date.
     /// </summary>
-    private static DateTime GetBucketStart(DateTime date, string granularity)
+    /// <param name="date">The date to find the bucket start for.</param>
+    /// <param name="granularity">The granularity (daily, weekly, monthly, quarterly, yearly).</param>
+    /// <returns>The start date of the bucket containing the given date.</returns>
+    internal static DateTime GetBucketStart(DateTime date, string granularity)
     {
         return granularity switch
         {
@@ -771,6 +893,81 @@ public class GrowthTimelineService
     }
 
     /// <summary>
+    /// Consolidates data points from a finer granularity into a coarser one.
+    /// When the time span grows and the granularity upgrades (e.g. daily→weekly),
+    /// multiple finer-grained points that fall into the same coarser bucket are merged
+    /// by keeping the last (most recent) point per bucket. This keeps the persisted
+    /// timeline compact and ensures backup/restore works with consolidated data.
+    /// </summary>
+    /// <param name="points">The data points (sorted chronologically).</param>
+    /// <param name="targetGranularity">The target granularity to consolidate into.</param>
+    /// <returns>A consolidated list with at most one point per target bucket.</returns>
+    internal static List<GrowthTimelinePoint> ConsolidateToGranularity(
+        List<GrowthTimelinePoint> points,
+        string targetGranularity)
+    {
+        if (points.Count <= 1)
+        {
+            return points;
+        }
+
+        // Group points by their target bucket start date.
+        // For each bucket, keep the last point (highest cumulative values).
+        var buckets = new Dictionary<DateTime, GrowthTimelinePoint>();
+
+        foreach (var point in points)
+        {
+            var bucketStart = GetBucketStart(point.Date, targetGranularity);
+            // Overwrite: the last point per bucket wins (points are sorted chronologically)
+            buckets[bucketStart] = new GrowthTimelinePoint
+            {
+                Date = bucketStart,
+                CumulativeSize = point.CumulativeSize,
+                CumulativeFileCount = point.CumulativeFileCount,
+            };
+        }
+
+        var result = buckets.Values.OrderBy(p => p.Date).ToList();
+        return result;
+    }
+
+    /// <summary>
+    /// Removes consecutive data points that have identical CumulativeSize and CumulativeFileCount.
+    /// Only the first point of each "plateau" is kept, plus the last point is always preserved
+    /// so the timeline's time span remains correct. The UI is responsible for interpolating
+    /// the missing intermediate buckets when rendering the chart.
+    /// </summary>
+    /// <param name="points">The data points (already sorted chronologically).</param>
+    /// <returns>A deduplicated list with redundant consecutive points removed.</returns>
+    internal static List<GrowthTimelinePoint> DeduplicateConsecutivePoints(List<GrowthTimelinePoint> points)
+    {
+        if (points.Count <= 2)
+        {
+            return points;
+        }
+
+        var result = new List<GrowthTimelinePoint> { points[0] };
+
+        for (int i = 1; i < points.Count - 1; i++)
+        {
+            var prev = points[i - 1];
+            var curr = points[i];
+
+            // Keep the point if it differs from its predecessor
+            if (curr.CumulativeSize != prev.CumulativeSize ||
+                curr.CumulativeFileCount != prev.CumulativeFileCount)
+            {
+                result.Add(curr);
+            }
+        }
+
+        // Always keep the last point to preserve the timeline's end date
+        result.Add(points[points.Count - 1]);
+
+        return result;
+    }
+
+    /// <summary>
     /// Internal struct for timeline construction — a size contribution at a point in time.
     /// </summary>
     internal struct FileEntry
@@ -789,5 +986,6 @@ public class GrowthTimelineService
         public string Path;
         public DateTime CreatedUtc;
         public long Size;
+        public int Count;
     }
 }

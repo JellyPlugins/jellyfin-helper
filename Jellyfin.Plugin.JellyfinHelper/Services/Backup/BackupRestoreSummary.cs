@@ -19,9 +19,4 @@ public class BackupRestoreSummary
     /// Gets or sets a value indicating whether the growth baseline was restored.
     /// </summary>
     public bool BaselineRestored { get; set; }
-
-    /// <summary>
-    /// Gets or sets the number of statistics history snapshots restored.
-    /// </summary>
-    public int HistorySnapshotsRestored { get; set; }
 }

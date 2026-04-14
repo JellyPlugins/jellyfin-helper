@@ -20,4 +20,13 @@ public class BaselineDirectoryEntry
     /// </summary>
     [JsonPropertyName("size")]
     public long Size { get; set; }
+
+    /// <summary>
+    /// Gets or sets the number of directories/files in this group.
+    /// Used for grouped baselines where multiple items are aggregated
+    /// by library and first letter. A value of 0 is treated as 1
+    /// for backwards compatibility with legacy per-directory baselines.
+    /// </summary>
+    [JsonPropertyName("count")]
+    public int Count { get; set; }
 }

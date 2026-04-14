@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.9] — 2026-04-14
+
+### Removed
+- **Statistics History** — Removed legacy scan-based snapshot system (`StatisticsHistoryService`, `StatisticsSnapshot`), replaced entirely by the growth timeline. The `/Statistics/History` API endpoint has been removed.
+- **Export Endpoints** — Removed `/Statistics/Export/Json` and `/Statistics/Export/Csv` API endpoints (data export is handled via Backup/Restore).
+- **History in Backup** — Removed `StatisticsHistory` from backup data and `HistorySnapshotsRestored` from restore summary.
+
+### Added
+- **`StatisticsCacheService`** — New focused service replacing `StatisticsHistoryService`, responsible solely for caching the latest scan result to disk.
+- **Legacy History File Cleanup** — `HelperCleanupTask` now automatically deletes the legacy `jellyfin-helper-statistics-history.json` file from previous versions.
+- **Growth Timeline Interpolation** — Frontend now interpolates missing intermediate buckets between sparse data points for a continuous chart line with granularity-aware bucket advancement.
+- **Growth Timeline Deduplication** — Backend deduplicates consecutive identical timeline data points for compact storage.
+- **Backup & Restore in Demo** — Live demo (docs/) now includes the full Backup & Restore UI in the Settings tab.
+
+### Changed
+- **Backup Size Limit** — Client-side backup import size check reduced from 50 MB to 10 MB.
+- **Growth Timeline Service** — Significantly expanded with deduplication logic, improved bucketing, and granularity validation.
+- **i18n** — Updated all 7 language files with new/revised translation keys.
+- **Test Count** — Updated to **957 tests** (removed export/history tests, added growth timeline deduplication and interpolation tests).
+
+---
+
 ## [1.0.8] — 2026-07-12
 
 ### Added

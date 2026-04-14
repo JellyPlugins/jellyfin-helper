@@ -208,8 +208,8 @@ public class SettingsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_BackupImportClientLimit_IsTenMegabytes()
     {
-        Assert.Contains("50 * 1024 * 1024", HtmlContent);
-        Assert.Contains("Maximum size is 50 MB", HtmlContent);
+        Assert.Contains("10 * 1024 * 1024", HtmlContent);
+        Assert.Contains("Maximum size is 10 MB", HtmlContent);
     }
 
     [Fact]

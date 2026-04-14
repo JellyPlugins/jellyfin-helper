@@ -31,7 +31,7 @@ public class MediaStatisticsController : ControllerBase
     private static DateTime _lastScanTime = DateTime.MinValue;
 
     private readonly MediaStatisticsService _statisticsService;
-    private readonly StatisticsHistoryService _historyService;
+    private readonly StatisticsCacheService _cacheService;
     private readonly IMemoryCache _cache;
     private readonly ILogger<MediaStatisticsController> _logger;
 
@@ -45,11 +45,11 @@ public class MediaStatisticsController : ControllerBase
     public MediaStatisticsController(
         IMemoryCache cache,
         MediaStatisticsService statisticsService,
-        StatisticsHistoryService statisticsHistoryService,
+        StatisticsCacheService cacheService,
         ILogger<MediaStatisticsController> logger)
     {
         _statisticsService = statisticsService;
-        _historyService = statisticsHistoryService;
+        _cacheService = cacheService;
         _cache = cache;
         _logger = logger;
     }
@@ -78,8 +78,7 @@ public class MediaStatisticsController : ControllerBase
         var result = _statisticsService.CalculateStatistics();
 
         _cache.Set(StatsCacheKey, result, CacheDuration);
-        _historyService.SaveSnapshot(result);
-        _historyService.SaveLatestResult(result);
+        _cacheService.SaveLatestResult(result);
 
         return Ok(result);
     }
@@ -100,7 +99,7 @@ public class MediaStatisticsController : ControllerBase
             return Ok(cached);
         }
 
-        var persisted = _historyService.LoadLatestResult();
+        var persisted = _cacheService.LoadLatestResult();
         if (persisted == null)
         {
             return NoContent();

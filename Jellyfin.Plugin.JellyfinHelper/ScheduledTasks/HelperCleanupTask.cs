@@ -177,16 +177,18 @@ public class HelperCleanupTask : IScheduledTask
             }
         }
 
+        // TODO: Remove legacy history file cleanup in v1.1.0 — the file was replaced by the growth timeline in v1.0.x
+        CleanupLegacyHistoryFile();
+
         // Run a statistics scan at the end to refresh persisted data
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
             PluginLogService.LogInfo("HelperCleanup", "Running post-cleanup statistics scan...", _logger);
             var statsService = new MediaStatisticsService(_libraryManager, _fileSystem, _loggerFactory.CreateLogger<MediaStatisticsService>());
-            var historyService = new StatisticsHistoryService(_applicationPaths, _loggerFactory.CreateLogger<StatisticsHistoryService>());
+            var cacheService = new StatisticsCacheService(_applicationPaths, _loggerFactory.CreateLogger<StatisticsCacheService>());
             var result = statsService.CalculateStatistics();
-            historyService.SaveSnapshot(result);
-            historyService.SaveLatestResult(result);
+            cacheService.SaveLatestResult(result);
             PluginLogService.LogInfo("HelperCleanup", "Post-cleanup statistics scan completed and persisted.", _logger);
 
             // Recompute growth timeline
@@ -252,6 +254,29 @@ public class HelperCleanupTask : IScheduledTask
             _fileSystem,
             _loggerFactory.CreateLogger<CleanOrphanedSubtitlesTask>());
         return task.ExecuteAsync(progress, cancellationToken);
+    }
+
+    /// <summary>
+    /// Deletes the legacy statistics history file that was replaced by the growth timeline.
+    /// TODO: Remove this method in v1.1.0 once all users have upgraded past v1.0.x.
+    /// </summary>
+    private void CleanupLegacyHistoryFile()
+    {
+        const string legacyFileName = "jellyfin-helper-statistics-history.json";
+        var legacyFilePath = Path.Combine(_applicationPaths.DataPath, legacyFileName);
+
+        try
+        {
+            if (File.Exists(legacyFilePath))
+            {
+                File.Delete(legacyFilePath);
+                PluginLogService.LogInfo("HelperCleanup", $"Deleted legacy statistics history file: {legacyFilePath}", _logger);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PluginLogService.LogWarning("HelperCleanup", $"Could not delete legacy statistics history file: {legacyFilePath}", ex, _logger);
+        }
     }
 
     private Task RunStrmRepair(IProgress<double> progress, CancellationToken cancellationToken)

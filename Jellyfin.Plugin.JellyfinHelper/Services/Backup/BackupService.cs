@@ -6,7 +6,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
-using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
@@ -26,19 +25,15 @@ public class BackupService
     internal const int MaxBackupVersion = 1;
 
     /// <summary>
-    /// Maximum allowed size of a backup JSON payload in bytes (50 MB).
+    /// Maximum allowed size of a backup JSON payload in bytes (10 MB).
+    /// Per-directory baselines can be larger for media servers with many items.
     /// </summary>
-    internal const long MaxBackupSizeBytes = 50 * 1024 * 1024;
+    internal const long MaxBackupSizeBytes = 10 * 1024 * 1024;
 
     /// <summary>
     /// Threshold at which backup payload size should be logged as unusually large.
     /// </summary>
-    internal const long LargeBackupWarningThresholdBytes = 8 * 1024 * 1024;
-
-    /// <summary>
-    /// Maximum number of statistics history snapshots allowed in a backup.
-    /// </summary>
-    internal const int MaxHistorySnapshots = 400;
+    internal const long LargeBackupWarningThresholdBytes = 1 * 1024 * 1024;
 
     /// <summary>
     /// Maximum number of growth timeline data points allowed in a backup.
@@ -46,9 +41,11 @@ public class BackupService
     internal const int MaxTimelineDataPoints = 5000;
 
     /// <summary>
-    /// Maximum number of baseline directories allowed in a backup.
+    /// Maximum number of baseline directory entries allowed in a backup.
+    /// Each top-level media directory (movie folder, TV show folder, etc.) is one entry.
+    /// 50,000 supports very large media servers.
     /// </summary>
-    internal const int MaxBaselineDirectories = 100_000;
+    internal const int MaxBaselineDirectories = 50_000;
 
     /// <summary>
     /// Maximum number of Arr instances per type (Radarr/Sonarr).
@@ -208,18 +205,7 @@ public class BackupService
         backup.GrowthBaseline = LoadJsonFile<GrowthTimelineBaseline>(
             Path.Combine(_dataPath, "jellyfin-helper-growth-baseline.json"));
 
-        // Statistics history
-        var history = LoadJsonFile<List<StatisticsSnapshot>>(
-            Path.Combine(_dataPath, "jellyfin-helper-statistics-history.json"));
-        if (history != null)
-        {
-            foreach (var snap in history)
-            {
-                backup.StatisticsHistory.Add(snap);
-            }
-        }
-
-        PluginLogService.LogInfo("Backup", $"Backup created: {backup.StatisticsHistory.Count} history snapshots, timeline={backup.GrowthTimeline != null}, baseline={backup.GrowthBaseline != null}", _logger);
+        PluginLogService.LogInfo("Backup", $"Backup created: timeline={backup.GrowthTimeline != null}, baseline={backup.GrowthBaseline != null}", _logger);
         return backup;
     }
 
@@ -342,7 +328,6 @@ public class BackupService
         // Historical data validation
         ValidateGrowthTimeline(result, backup.GrowthTimeline);
         ValidateGrowthBaseline(result, backup.GrowthBaseline);
-        ValidateStatisticsHistory(result, backup.StatisticsHistory);
 
         return result;
     }
@@ -384,17 +369,7 @@ public class BackupService
             PluginLogService.LogInfo("Backup", $"Restored growth baseline ({backup.GrowthBaseline.Directories.Count} directories)", _logger);
         }
 
-        // Restore statistics history
-        if (backup.StatisticsHistory.Count > 0 &&
-            SaveJsonFile(
-                Path.Combine(_dataPath, "jellyfin-helper-statistics-history.json"),
-                backup.StatisticsHistory))
-        {
-            summary.HistorySnapshotsRestored = backup.StatisticsHistory.Count;
-            PluginLogService.LogInfo("Backup", $"Restored {backup.StatisticsHistory.Count} statistics history snapshots", _logger);
-        }
-
-        PluginLogService.LogInfo("Backup", $"Backup restore complete. Config={summary.ConfigurationRestored}, Timeline={summary.TimelineRestored}, Baseline={summary.BaselineRestored}, History={summary.HistorySnapshotsRestored}", _logger);
+        PluginLogService.LogInfo("Backup", $"Backup restore complete. Config={summary.ConfigurationRestored}, Timeline={summary.TimelineRestored}, Baseline={summary.BaselineRestored}", _logger);
         return summary;
     }
 
@@ -412,7 +387,6 @@ public class BackupService
         // even though the model has default initializers, e.g. "radarrInstances": null)
         backup.RadarrInstances ??= new List<BackupArrInstance>();
         backup.SonarrInstances ??= new List<BackupArrInstance>();
-        backup.StatisticsHistory ??= new List<Statistics.StatisticsSnapshot>();
 
         // Language
         if (string.IsNullOrEmpty(backup.Language) || !ValidLanguages.Contains(backup.Language))
@@ -455,19 +429,6 @@ public class BackupService
             foreach (var point in trimmed)
             {
                 backup.GrowthTimeline.DataPoints.Add(point);
-            }
-        }
-
-        // History snapshots limit
-        if (backup.StatisticsHistory.Count > MaxHistorySnapshots)
-        {
-            var trimmed = backup.StatisticsHistory
-                .Skip(backup.StatisticsHistory.Count - MaxHistorySnapshots)
-                .ToList();
-            backup.StatisticsHistory.Clear();
-            foreach (var snap in trimmed)
-            {
-                backup.StatisticsHistory.Add(snap);
             }
         }
 
@@ -637,45 +598,6 @@ public class BackupService
             {
                 result.Errors.Add("Baseline directory path contains potential script injection content.");
                 break;
-            }
-        }
-    }
-
-    internal static void ValidateStatisticsHistory(BackupValidationResult result, List<StatisticsSnapshot>? history)
-    {
-        if (history == null)
-        {
-            return;
-        }
-
-        if (history.Count > MaxHistorySnapshots)
-        {
-            result.Warnings.Add($"StatisticsHistory has {history.Count} snapshots (max {MaxHistorySnapshots}). Will be trimmed.");
-        }
-
-        foreach (var snapshot in history)
-        {
-            // Check for negative values
-            if (snapshot.TotalSize < 0 || snapshot.TotalVideoFileCount < 0 || snapshot.TotalAudioFileCount < 0)
-            {
-                result.Warnings.Add($"Statistics snapshot at {snapshot.Timestamp:O} has negative values.");
-                break; // Only warn once
-            }
-
-            // Check library sizes keys for injection
-            foreach (var key in snapshot.LibrarySizes.Keys)
-            {
-                if (key.Length > MaxStringLength)
-                {
-                    result.Errors.Add("Statistics history contains library name exceeding max length.");
-                    return;
-                }
-
-                if (ContainsScriptInjection(key))
-                {
-                    result.Errors.Add("Statistics history contains library name with potential script injection.");
-                    return;
-                }
             }
         }
     }

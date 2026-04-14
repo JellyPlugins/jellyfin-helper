@@ -1400,63 +1400,6 @@ public class MediaStatisticsServiceTests
         Assert.Equal(22, result.TotalAudioFileCount);
     }
 
-    // ===== StatisticsSnapshot Tests =====
-
-    [Fact]
-    public void StatisticsSnapshot_FromResult_CapturesCorrectValues()
-    {
-        var result = new MediaStatisticsResult();
-        result.ScanTimestamp = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
-
-        var lib1 = new LibraryStatistics
-        {
-            LibraryName = "Movies",
-            CollectionType = "movies",
-            VideoSize = 5000,
-            VideoFileCount = 10,
-            SubtitleSize = 100,
-            ImageSize = 200,
-            NfoSize = 50,
-            TrickplaySize = 300,
-        };
-
-        var lib2 = new LibraryStatistics
-        {
-            LibraryName = "Music",
-            CollectionType = "music",
-            AudioSize = 1000,
-            AudioFileCount = 50,
-        };
-
-        result.Libraries.Add(lib1);
-        result.Libraries.Add(lib2);
-        result.Movies.Add(lib1);
-        result.Music.Add(lib2);
-
-        var snapshot = StatisticsSnapshot.FromResult(result);
-
-        Assert.Equal(result.ScanTimestamp, snapshot.Timestamp);
-        Assert.Equal(10, snapshot.TotalVideoFileCount);
-        Assert.Equal(50, snapshot.TotalAudioFileCount);
-        Assert.Equal(5000, snapshot.TotalMovieVideoSize);
-        Assert.Equal(0, snapshot.TotalTvShowVideoSize);
-        Assert.Equal(1000, snapshot.TotalMusicAudioSize);
-        Assert.Equal(300, snapshot.TotalTrickplaySize);
-        Assert.Equal(100, snapshot.TotalSubtitleSize);
-        Assert.Equal(200, snapshot.TotalImageSize);
-        Assert.Equal(50, snapshot.TotalNfoSize);
-        Assert.Equal(5650 + 1000, snapshot.TotalSize);
-        Assert.Equal(2, snapshot.LibrarySizes.Count);
-        Assert.Equal(5650, snapshot.LibrarySizes["Movies"]);
-        Assert.Equal(1000, snapshot.LibrarySizes["Music"]);
-    }
-
-    [Fact]
-    public void StatisticsSnapshot_FromResult_NullThrows()
-    {
-        Assert.Throws<ArgumentNullException>(() => StatisticsSnapshot.FromResult(null!));
-    }
-
     // ===== PathValidator Tests =====
 
     [Theory]

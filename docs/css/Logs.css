@@ -44,28 +44,6 @@
         background: rgba(0,0,0,0.05);
         border-color: rgba(0,0,0,0.15);
     }
-    .logs-btn {
-        background: rgba(0,0,0,0.04);
-        border-color: rgba(0,0,0,0.15);
-        color: #111111;
-    }
-    .logs-btn:hover {
-        background: rgba(0,0,0,0.08);
-        border-color: rgba(0,0,0,0.22);
-    }
-    .logs-table-wrapper {
-        background: rgba(0,0,0,0.03);
-        border-color: rgba(0,0,0,0.08);
-    }
-    .logs-table th {
-        background: rgba(255,255,255,0.98);
-        color: #111111;
-        border-bottom-color: rgba(0,0,0,0.12);
-    }
-    .log-exception {
-        background: rgba(231,76,60,0.08);
-        color: #111111;
-    }
     .logs-toolbar select option {
         background: #ffffff;
         color: #111111;

@@ -5,7 +5,7 @@
 A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks, media library statistics, health checks, and Arr stack integration — all from a single, multi-tab dashboard.
 
 [![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square)](https://github.com/JellyPlugins/jellyfin-helper/releases)
-[![Tests](https://img.shields.io/badge/tests-950%20passing-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
+[![Tests](https://img.shields.io/badge/tests-957%20passing-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
 [![License](https://img.shields.io/github/license/JellyPlugins/jellyfin-helper?style=flat-square)](LICENSE)
 
 ## 🎮 Live Demo
