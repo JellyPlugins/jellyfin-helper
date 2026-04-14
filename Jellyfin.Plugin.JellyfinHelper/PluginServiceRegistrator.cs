@@ -1,4 +1,5 @@
-﻿using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
+﻿using System;
+using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
@@ -17,6 +18,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         _ = applicationHost; // Required by interface but unused
+        serviceCollection.AddHttpClient("ArrIntegration", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
         serviceCollection.AddSingleton<MediaStatisticsService>();
         serviceCollection.AddSingleton<StatisticsCacheService>();
         serviceCollection.AddSingleton<GrowthTimelineService>();

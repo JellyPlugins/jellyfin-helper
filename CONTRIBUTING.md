@@ -63,9 +63,20 @@ Then restart Jellyfin to load the plugin.
 ```text
 Jellyfin.Plugin.JellyfinHelper/
 ├── Plugin.cs                    # Plugin entry point, GUID, configuration
+├── PluginServiceRegistrator.cs  # Dependency injection registration
 ├── MediaExtensions.cs           # Centralized file extension lists
 ├── Api/
-│   └── MediaStatisticsController.cs  # All REST API endpoints
+│   ├── ArrIntegrationController.cs   # Arr comparison & connection test endpoints
+│   ├── ArrTestConnectionRequest.cs   # Request DTO for Arr connection tests
+│   ├── BackupController.cs           # Backup export/import endpoints
+│   ├── CleanupStatisticsController.cs # Cleanup statistics endpoint
+│   ├── ConfigurationController.cs    # Configuration GET/POST endpoints
+│   ├── ConfigurationUpdateRequest.cs # Request DTO for config updates
+│   ├── GrowthTimelineController.cs   # Growth timeline endpoint
+│   ├── LogsController.cs             # Log viewer endpoints
+│   ├── MediaStatisticsController.cs  # Statistics & library scan endpoints
+│   ├── TranslationsController.cs     # UI translation endpoint (anonymous)
+│   └── TrashController.cs            # Trash management endpoints
 ├── Configuration/
 │   ├── PluginConfiguration.cs   # Settings model with migration logic
 │   ├── ArrInstanceConfig.cs     # Radarr/Sonarr instance model
@@ -125,7 +136,7 @@ Jellyfin.Plugin.JellyfinHelper/
 
 ### Key Design Decisions
 
-- **Single controller** — All endpoints live in `MediaStatisticsController.cs` for simplicity
+- **Domain-organized Controllers** — Each API domain has its own controller (Configuration, Statistics, Arr, Logs, Backup, Trash, Cleanup, Timeline, Translations)
 - **Domain-organized Services** — Services grouped by domain (Arr, Backup, Cleanup, PluginLog, Statistics, Strm, Timeline)
 - **Build-time UI composition** — CSS and JS modules are concatenated into `configPage.html` at build time (no runtime bundler needed)
 - **Persisted scan results** — Latest statistics are saved to disk and survive server restarts
@@ -340,7 +351,7 @@ Sub-tasks executed in order (each respecting its configured task mode):
 
 ## 🧪 Testing
 
-The project includes **957 automated tests** covering:
+The project includes **987 automated tests** covering:
 
 - All services (cleanup, statistics, path validation, Arr integration, backup/restore, growth timeline)
 - API endpoints (controller tests with mocked dependencies)
@@ -363,7 +374,7 @@ Tests follow a **fixture-based architecture** to eliminate boilerplate and ensur
 |---------|------|---------|
 | `TestMockFactory` | Static factory | Central factory for commonly needed mocks (`ILibraryManager`, `IFileSystem`, `IApplicationPaths`, `ILogger<T>`, `HttpMessageHandler`, `IMemoryCache`). All tests reference this instead of creating mocks ad-hoc. |
 | `TestDataGenerator` | Static factory | Generates test entities: `VirtualFolderInfo`, `FileSystemMetadata`, `LibraryStatistics`, `MediaStatisticsResult`, temp directories. Provides OS-safe `TestPath()` helper. |
-| `ControllerTestFactory` | Static factory | Builds fully-wired `MediaStatisticsController` instances with all constructor dependencies mocked. Variants for JSON body injection and `ILibraryManager` access. |
+| `ControllerTestFactory` | Static factory | Initializes `Plugin.Instance` and builds controller instances with all constructor dependencies mocked. Provides helpers for `ConfigOverride` lifecycle and common mock setups. |
 | `CleanupTaskTestBase` | Abstract base class | Inherited by all cleanup/scheduled-task tests. Manages `CleanupConfigHelper.ConfigOverride` lifecycle, provides `PluginConfiguration`, log-verification helpers (`VerifyLogContains`, `VerifyLogNeverContains`), `SynchronousProgress<T>`, and `TestPath()`. Uses `[Collection("ConfigOverride")]` for test isolation. |
 | `ConfigPageTestBase` | Abstract base class | Inherited by all `PluginPages/*HtmlTests.cs`. Loads the composed `configPage.html` embedded resource once (static), making `HtmlContent` available to all subclasses. Also provides `ReadmeContent` for cross-referencing. |
 
@@ -405,9 +416,16 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── ControllerTestFactory.cs    # Controller instantiation with mocked dependencies
 │   └── CleanupTaskTestBase.cs      # Base class for cleanup task tests (config lifecycle)
 ├── Api/                    # Controller endpoint tests (use ControllerTestFactory)
-│   ├── MediaStatisticsControllerBackupTests.cs
-│   └── MediaStatisticsControllerTrashTests.cs
-├── Configuration/          # Config migration tests
+│   ├── ArrIntegrationControllerTests.cs
+│   ├── BackupControllerTests.cs
+│   ├── CleanupStatisticsControllerTests.cs
+│   ├── ConfigurationControllerTests.cs
+│   ├── GrowthTimelineControllerTests.cs
+│   ├── LogsControllerTests.cs
+│   ├── TranslationsControllerTests.cs
+│   └── TrashControllerTests.cs
+├── Configuration/          # Config migration & serialization tests
+│   ├── PluginConfigurationSerializationTests.cs
 │   └── TaskModeTests.cs
 ├── PluginPages/            # HTML structure tests (inherit ConfigPageTestBase)
 │   ├── ConfigPageTestBase.cs       # Base class — loads embedded HTML resource

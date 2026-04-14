@@ -71,11 +71,15 @@ public class MediaStatisticsController : ControllerBase
                 PluginLogService.LogWarning("API", "Rate limit exceeded for statistics scan", logger: _logger);
                 return StatusCode(StatusCodes.Status429TooManyRequests, new { message = "Please wait before requesting another scan." });
             }
-
-            _lastScanTime = now;
         }
 
         var result = _statisticsService.CalculateStatistics();
+
+        // Set rate-limit timestamp AFTER the scan so a failed scan does not block retries for 30s
+        lock (RateLimitLock)
+        {
+            _lastScanTime = DateTime.UtcNow;
+        }
 
         _cache.Set(StatsCacheKey, result, CacheDuration);
         _cacheService.SaveLatestResult(result);

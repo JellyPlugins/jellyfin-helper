@@ -93,4 +93,9 @@ public class ConfigurationUpdateRequest
     /// Gets or sets the UI language code.
     /// </summary>
     public string Language { get; set; } = "en";
+
+    /// <summary>
+    /// Gets or sets the plugin log level (e.g. DEBUG, INFO, WARN, ERROR).
+    /// </summary>
+    public string PluginLogLevel { get; set; } = "INFO";
 }

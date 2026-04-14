@@ -127,4 +127,37 @@ public class ArrIntegrationControllerTests : IDisposable
 
         Assert.IsType<BadRequestObjectResult>(result.Result);
     }
+
+    [Fact]
+    public async Task CompareSonarrAsync_ValidComparison_ReturnsResult()
+    {
+        var libPath = Path.Combine(_tempPath, "TVShows");
+        Directory.CreateDirectory(libPath);
+        var showDir = Path.Combine(libPath, "Show1");
+        Directory.CreateDirectory(showDir);
+
+        var config = new PluginConfiguration();
+        config.SonarrInstances.Add(new ArrInstanceConfig { Url = "http://localhost:8989", ApiKey = "key", Name = "Sonarr" });
+        CleanupConfigHelper.ConfigOverride = config;
+
+        var folders = new List<VirtualFolderInfo>
+        {
+            new() { Name = "TVShows", Locations = [libPath], CollectionType = CollectionTypeOptions.tvshows }
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns(folders);
+
+        var dirMock = new FileSystemMetadata { Name = "Show1", IsDirectory = true };
+        _fileSystemMock.Setup(f => f.GetDirectories(It.IsAny<string>(), It.IsAny<bool>())).Returns([dirMock]);
+
+        var handlerMock = TestMockFactory.CreateHttpMessageHandler(HttpStatusCode.OK, "[{\"title\": \"Show1\", \"path\": \"/tv/Show1\", \"statistics\": {\"episodeFileCount\": 5, \"totalEpisodeCount\": 10}}]");
+        using var httpClient = new HttpClient(handlerMock.Object);
+        _httpClientFactoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+
+        var result = await _controller.CompareSonarrAsync(null, CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var data = Assert.IsType<ArrComparisonResult>(okResult.Value);
+        Assert.Single(data.InBoth);
+        Assert.Equal("Show1", data.InBoth[0]);
+    }
 }

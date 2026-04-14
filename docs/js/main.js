@@ -61,7 +61,7 @@
     // Load the latest persisted statistics (no new scan) and populate tabs if available
     function loadLatestStatistics() {
         var apiClient = ApiClient;
-        var url = apiClient.getUrl('JellyfinHelper/Statistics/Latest');
+        var url = apiClient.getUrl('JellyfinHelper/MediaStatistics/Latest');
 
         apiClient.ajax({
             type: 'GET',
@@ -157,7 +157,7 @@
         if (placeholder) placeholder.style.display = 'none';
 
         var apiClient = ApiClient;
-        var url = apiClient.getUrl('JellyfinHelper/Statistics') + '?forceRefresh=true';
+        var url = apiClient.getUrl('JellyfinHelper/MediaStatistics/ScanLibraries');
 
         apiClient.ajax({
             type: 'GET',

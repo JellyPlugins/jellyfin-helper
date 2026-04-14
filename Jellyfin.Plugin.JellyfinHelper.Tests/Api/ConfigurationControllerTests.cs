@@ -73,6 +73,34 @@ public class ConfigurationControllerTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateConfiguration_PluginLogLevel_IsPersisted()
+    {
+        var request = new ConfigurationUpdateRequest
+        {
+            PluginLogLevel = "DEBUG"
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("DEBUG", Plugin.Instance!.Configuration.PluginLogLevel);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_EmptyPluginLogLevel_DefaultsToInfo()
+    {
+        var request = new ConfigurationUpdateRequest
+        {
+            PluginLogLevel = ""
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("INFO", Plugin.Instance!.Configuration.PluginLogLevel);
+    }
+
+    [Fact]
     public async Task UpdateConfiguration_InvalidOrphanAge_ReturnsBadRequest()
     {
         var request = new ConfigurationUpdateRequest { OrphanMinAgeDays = -1 };

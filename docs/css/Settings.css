@@ -19,4 +19,6 @@
 /* noinspection CssUnusedSymbol */
 .settings-form .checkbox-row label { margin: 0; font-weight: 400; }
 /* noinspection CssUnusedSymbol */
+.settings-form label.refresh-btn { display: inline-flex; margin-top: 0; font-size: 0.95em; font-weight: normal; }
+/* noinspection CssUnusedSymbol */
 .settings-form .section-divider { border-top: 1px solid rgba(255,255,255,0.1); margin-top: 1.5em; padding-top: 0.5em; }

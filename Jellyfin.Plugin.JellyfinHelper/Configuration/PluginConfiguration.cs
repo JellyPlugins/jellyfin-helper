@@ -11,6 +11,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
+    private List<ArrInstanceConfig> _radarrInstances = [];
+    private List<ArrInstanceConfig> _sonarrInstances = [];
+
     /// <summary>
     /// Gets or sets the library names to include (whitelist). Empty means all libraries are included.
     /// Comma-separated list of library names.
@@ -147,18 +150,30 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Using <see cref="List{T}"/> instead of <c>Collection&lt;T&gt;</c> because
     /// <c>System.Text.Json</c> cannot reliably round-trip <c>Collection&lt;T&gt;</c>
     /// (items are lost on deserialization when the property has a default initializer).
+    /// The setter coalesces null to an empty list to prevent NullReferenceException
+    /// when JSON deserialization provides an explicit null value.
     /// </summary>
     [SuppressMessage("Usage", "CA1002:DoNotExposeGenericLists", Justification = "Collection<T> breaks System.Text.Json round-trip deserialization")]
-    public List<ArrInstanceConfig> RadarrInstances { get; set; } = [];
+    public List<ArrInstanceConfig> RadarrInstances
+    {
+        get => _radarrInstances;
+        set => _radarrInstances = value ?? [];
+    }
 
     /// <summary>
     /// Gets or sets the list of Sonarr instances (max 3).
     /// Using <see cref="List{T}"/> instead of <c>Collection&lt;T&gt;</c> because
     /// <c>System.Text.Json</c> cannot reliably round-trip <c>Collection&lt;T&gt;</c>
     /// (items are lost on deserialization when the property has a default initializer).
+    /// The setter coalesces null to an empty list to prevent NullReferenceException
+    /// when JSON deserialization provides an explicit null value.
     /// </summary>
     [SuppressMessage("Usage", "CA1002:DoNotExposeGenericLists", Justification = "Collection<T> breaks System.Text.Json round-trip deserialization")]
-    public List<ArrInstanceConfig> SonarrInstances { get; set; } = [];
+    public List<ArrInstanceConfig> SonarrInstances
+    {
+        get => _sonarrInstances;
+        set => _sonarrInstances = value ?? [];
+    }
 
     /// <summary>
     /// Gets or sets the UI language code. Default is "en".

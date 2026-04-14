@@ -120,7 +120,11 @@ public class ArrIntegrationService
                 Path = m.Path ?? string.Empty,
             }).ToList();
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw; // Propagate user-initiated cancellation
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
         {
             PluginLogService.LogError("ArrIntegration", $"Failed to fetch movies from Radarr at {baseUrl}", ex, _logger);
             return new List<ArrMovie>();
@@ -165,7 +169,11 @@ public class ArrIntegrationService
                 TotalEpisodeCount = s.Statistics?.TotalEpisodeCount ?? 0,
             }).ToList();
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw; // Propagate user-initiated cancellation
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
         {
             PluginLogService.LogError("ArrIntegration", $"Failed to fetch series from Sonarr at {baseUrl}", ex, _logger);
             return new List<ArrSeries>();

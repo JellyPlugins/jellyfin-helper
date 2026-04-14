@@ -102,6 +102,7 @@ public class ArrIntegrationController : ControllerBase
         var movieFolders = GetJellyfinFolderNames("movies");
 
         var allMovies = new List<ArrMovie>();
+        var validInstanceCount = 0;
         foreach (var instance in instances)
         {
             if (string.IsNullOrWhiteSpace(instance.Url) || string.IsNullOrWhiteSpace(instance.ApiKey))
@@ -109,8 +110,14 @@ public class ArrIntegrationController : ControllerBase
                 continue;
             }
 
+            validInstanceCount++;
             var movies = await _arrService.GetRadarrMoviesAsync(instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
             allMovies.AddRange(movies);
+        }
+
+        if (validInstanceCount == 0)
+        {
+            return BadRequest(new { message = "No Radarr instance has both a URL and API key configured." });
         }
 
         var result = ArrIntegrationService.CompareRadarrWithJellyfin(allMovies, movieFolders);
@@ -150,6 +157,7 @@ public class ArrIntegrationController : ControllerBase
         var tvFolders = GetJellyfinFolderNames("tvshows");
 
         var allSeries = new List<ArrSeries>();
+        var validInstanceCount = 0;
         foreach (var instance in instances)
         {
             if (string.IsNullOrWhiteSpace(instance.Url) || string.IsNullOrWhiteSpace(instance.ApiKey))
@@ -157,8 +165,14 @@ public class ArrIntegrationController : ControllerBase
                 continue;
             }
 
+            validInstanceCount++;
             var series = await _arrService.GetSonarrSeriesAsync(instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
             allSeries.AddRange(series);
+        }
+
+        if (validInstanceCount == 0)
+        {
+            return BadRequest(new { message = "No Sonarr instance has both a URL and API key configured." });
         }
 
         var result = ArrIntegrationService.CompareSonarrWithJellyfin(allSeries, tvFolders);

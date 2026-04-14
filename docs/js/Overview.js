@@ -60,7 +60,7 @@
 
     function loadCleanupStats() {
         var apiClient = ApiClient;
-        apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Cleanup/Statistics'), dataType: 'json' }).then(function (stats) {
+        apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/CleanupStatistics'), dataType: 'json' }).then(function (stats) {
             var cleanupContainer = document.getElementById('cleanup-stats-container');
             if (!cleanupContainer) return;
             var h = '<div class="section-title">🧹 ' + T('cleanupStatistics', 'Cleanup Statistics') + '</div>';

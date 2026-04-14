@@ -147,7 +147,7 @@
         var apiClient = ApiClient;
         apiClient.ajax({
             type: 'POST',
-            url: apiClient.getUrl('JellyfinHelper/Arr/TestConnection'),
+            url: apiClient.getUrl('JellyfinHelper/ArrIntegration/TestConnection'),
             data: JSON.stringify({ Url: url, ApiKey: apiKey }),
             contentType: 'application/json',
             dataType: 'json'
@@ -270,7 +270,7 @@
         if (!resultDiv) return;
         resultDiv.innerHTML = '<div class="loading-overlay" style="padding:1em;"><div class="spinner"></div><p>' + T('comparing', 'Comparing') + ' ' + escHtml(label || type) + '…</p></div>';
         var apiClient = ApiClient;
-        var url = apiClient.getUrl('JellyfinHelper/Arr/' + type + '/Compare') + '?index=' + index;
+        var url = apiClient.getUrl('JellyfinHelper/ArrIntegration/Compare/' + type) + '?index=' + index;
         apiClient.ajax({ type: 'GET', url: url, dataType: 'json' }).then(function (data) {
             var instanceLabel = label ? label.replace(T('compareWith', 'Compare with') + ' ', '') : type;
             var h = '<h3 style="margin-bottom:0.8em;">' + escHtml(instanceLabel) + '</h3>';

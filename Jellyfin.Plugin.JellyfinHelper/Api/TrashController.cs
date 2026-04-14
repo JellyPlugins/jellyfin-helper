@@ -51,8 +51,15 @@ public class TrashController : ControllerBase
         long totalSize = 0;
         var totalItems = 0;
 
+        // Deduplicate trash paths so absolute paths are not counted once per library
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var trashPath in libraryFolders.Select(CleanupConfigHelper.GetTrashPath))
         {
+            if (!seenPaths.Add(trashPath))
+            {
+                continue;
+            }
+
             var (size, count) = TrashService.GetTrashSummary(trashPath);
             totalSize += size;
             totalItems += count;

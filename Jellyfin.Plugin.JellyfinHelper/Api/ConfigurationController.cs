@@ -127,6 +127,7 @@ public class ConfigurationController : ControllerBase
         config.SonarrApiKey = request.SonarrApiKey ?? string.Empty;
 
         config.Language = string.IsNullOrWhiteSpace(request.Language) ? "en" : request.Language;
+        config.PluginLogLevel = string.IsNullOrWhiteSpace(request.PluginLogLevel) ? "INFO" : request.PluginLogLevel;
 
         // Update Radarr instances (clear + re-add from request)
         config.RadarrInstances.Clear();
@@ -196,8 +197,11 @@ public class ConfigurationController : ControllerBase
                     PluginLogService.LogWarning("API", warning, logger: _logger);
                 }
             }
-            catch (Exception ex) when (ex is HttpRequestException or TimeoutException
-                or (TaskCanceledException and not OperationCanceledException))
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return warnings; // User cancelled — stop testing remaining instances
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
             {
                 var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"Radarr #{i + 1}";
                 var warning = $"Radarr instance '{label}' ({instance.Url}) connection test failed: {ex.Message}";
@@ -233,8 +237,11 @@ public class ConfigurationController : ControllerBase
                     PluginLogService.LogWarning("API", warning, logger: _logger);
                 }
             }
-            catch (Exception ex) when (ex is HttpRequestException or TimeoutException
-                or (TaskCanceledException and not OperationCanceledException))
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return warnings; // User cancelled — stop testing remaining instances
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
             {
                 var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"Sonarr #{i + 1}";
                 var warning = $"Sonarr instance '{label}' ({instance.Url}) connection test failed: {ex.Message}";

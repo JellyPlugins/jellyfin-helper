@@ -83,6 +83,32 @@ public class GrowthTimelineService : IDisposable
         if (currentDirs.Count == 0)
         {
             PluginLogService.LogInfo("GrowthTimeline", "No media directories found for growth timeline.", _logger);
+
+            // Persist a 0-snapshot so that the timeline reflects the empty state
+            // instead of showing stale data from a previous scan.
+            var existingTimeline = await LoadTimelineAsync(cancellationToken).ConfigureAwait(false);
+            if (existingTimeline != null && existingTimeline.DataPoints.Count > 0)
+            {
+                var earliestExisting = existingTimeline.DataPoints[0].Date;
+                var granularity = DetermineGranularity(earliestExisting, now);
+                var zeroPoints = MergeSnapshotIntoTimeline(
+                    existingTimeline.DataPoints.ToList(), now, 0, 0, granularity);
+                var zeroResult = new GrowthTimelineResult
+                {
+                    ComputedAt = now,
+                    Granularity = granularity,
+                    EarliestFileDate = earliestExisting,
+                    FirstScanTimestamp = existingTimeline.FirstScanTimestamp,
+                };
+                foreach (var p in zeroPoints)
+                {
+                    zeroResult.DataPoints.Add(p);
+                }
+
+                await SaveTimelineAsync(zeroResult, cancellationToken).ConfigureAwait(false);
+                return zeroResult;
+            }
+
             return new GrowthTimelineResult
             {
                 ComputedAt = now,
@@ -254,6 +280,7 @@ public class GrowthTimelineService : IDisposable
     /// <returns>The cached timeline or null.</returns>
     public virtual async Task<GrowthTimelineResult?> LoadTimelineAsync(CancellationToken cancellationToken)
     {
+        await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (!File.Exists(_timelineFilePath))
@@ -272,6 +299,10 @@ public class GrowthTimelineService : IDisposable
         {
             PluginLogService.LogWarning("GrowthTimeline", $"Could not load cached timeline from {_timelineFilePath}", ex, _logger);
             return null;
+        }
+        finally
+        {
+            _fileLock.Release();
         }
     }
 
@@ -768,6 +799,7 @@ public class GrowthTimelineService : IDisposable
     /// <returns>The baseline or null if not found.</returns>
     internal async Task<GrowthTimelineBaseline?> LoadBaselineAsync(CancellationToken cancellationToken)
     {
+        await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (!File.Exists(_baselineFilePath))
@@ -786,6 +818,10 @@ public class GrowthTimelineService : IDisposable
         {
             PluginLogService.LogWarning("GrowthTimeline", $"Could not load baseline from {_baselineFilePath}", ex, _logger);
             return null;
+        }
+        finally
+        {
+            _fileLock.Release();
         }
     }
 
@@ -874,7 +910,7 @@ public class GrowthTimelineService : IDisposable
         int firstNonZero = -1;
         for (int i = 0; i < points.Count; i++)
         {
-            if (points[i].CumulativeSize > 0)
+            if (points[i].CumulativeSize > 0 || points[i].CumulativeFileCount > 0)
             {
                 firstNonZero = i;
                 break;
