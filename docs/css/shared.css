@@ -41,9 +41,6 @@
     font-size: 0.95em;
     font-family: inherit;
     transition: background 0.2s;
-}
-
-.refresh-btn {
     background: #00a4dc;
 }
 

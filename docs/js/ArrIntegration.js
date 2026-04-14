@@ -265,6 +265,23 @@
         }
     }
 
+    // Render a single Arr comparison section (list with max 50 items and "and X more" hint)
+    function renderArrSection(icon, titleKey, titleFallback, items) {
+        var h = '<div class="arr-section"><h4>' + icon + ' ' + T(titleKey, titleFallback) + ' — <span class="arr-count">' + items.length + '</span></h4>';
+        if (items.length > 0) {
+            h += '<div class="arr-list"><ul>';
+            for (var i = 0; i < Math.min(items.length, 50); i++) {
+                h += '<li>' + escHtml(items[i]) + '</li>';
+            }
+            if (items.length > 50) {
+                h += '<li>… ' + T('andMore', 'and') + ' ' + (items.length - 50) + ' ' + T('more', 'more') + '</li>';
+            }
+            h += '</ul></div>';
+        }
+        h += '</div>';
+        return h;
+    }
+
     function compareArr(type, index, label) {
         var resultDiv = document.getElementById('arrResult');
         if (!resultDiv) return;
@@ -274,18 +291,10 @@
         apiClient.ajax({ type: 'GET', url: url, dataType: 'json' }).then(function (data) {
             var instanceLabel = label ? label.replace(T('compareWith', 'Compare with') + ' ', '') : type;
             var h = '<h3 style="margin-bottom:0.8em;">' + escHtml(instanceLabel) + '</h3>';
-            h += '<div class="arr-section"><h4>✅ ' + T('inBoth', 'In Both') + ' — <span class="arr-count">' + data.InBoth.length + '</span></h4>';
-            if (data.InBoth.length > 0) { h += '<div class="arr-list"><ul>'; for (var a = 0; a < Math.min(data.InBoth.length, 50); a++) h += '<li>' + escHtml(data.InBoth[a]) + '</li>'; if (data.InBoth.length > 50) h += '<li>… ' + T('andMore', 'and') + ' ' + (data.InBoth.length - 50) + ' ' + T('more', 'more') + '</li>'; h += '</ul></div>'; }
-            h += '</div>';
-            h += '<div class="arr-section"><h4>📦 ' + T('inArrOnly', 'In Arr Only (with file)') + ' — <span class="arr-count">' + data.InArrOnly.length + '</span></h4>';
-            if (data.InArrOnly.length > 0) { h += '<div class="arr-list"><ul>'; for (var b = 0; b < Math.min(data.InArrOnly.length, 50); b++) h += '<li>' + escHtml(data.InArrOnly[b]) + '</li>'; if (data.InArrOnly.length > 50) h += '<li>… ' + T('andMore', 'and') + ' ' + (data.InArrOnly.length - 50) + ' ' + T('more', 'more') + '</li>'; h += '</ul></div>'; }
-            h += '</div>';
-            h += '<div class="arr-section"><h4>⚠️ ' + T('inArrOnlyMissing', 'In Arr Only (no file)') + ' — <span class="arr-count">' + data.InArrOnlyMissing.length + '</span></h4>';
-            if (data.InArrOnlyMissing.length > 0) { h += '<div class="arr-list"><ul>'; for (var c = 0; c < Math.min(data.InArrOnlyMissing.length, 50); c++) h += '<li>' + escHtml(data.InArrOnlyMissing[c]) + '</li>'; if (data.InArrOnlyMissing.length > 50) h += '<li>… ' + T('andMore', 'and') + ' ' + (data.InArrOnlyMissing.length - 50) + ' ' + T('more', 'more') + '</li>'; h += '</ul></div>'; }
-            h += '</div>';
-            h += '<div class="arr-section"><h4>🔍 ' + T('inJellyfinOnly', 'In Jellyfin Only') + ' — <span class="arr-count">' + data.InJellyfinOnly.length + '</span></h4>';
-            if (data.InJellyfinOnly.length > 0) { h += '<div class="arr-list"><ul>'; for (var d = 0; d < Math.min(data.InJellyfinOnly.length, 50); d++) h += '<li>' + escHtml(data.InJellyfinOnly[d]) + '</li>'; if (data.InJellyfinOnly.length > 50) h += '<li>… ' + T('andMore', 'and') + ' ' + (data.InJellyfinOnly.length - 50) + ' ' + T('more', 'more') + '</li>'; h += '</ul></div>'; }
-            h += '</div>';
+            h += renderArrSection('✅', 'inBoth', 'In Both', data.InBoth);
+            h += renderArrSection('📦', 'inArrOnly', 'In Arr Only (with file)', data.InArrOnly);
+            h += renderArrSection('⚠️', 'inArrOnlyMissing', 'In Arr Only (no file)', data.InArrOnlyMissing);
+            h += renderArrSection('🔍', 'inJellyfinOnly', 'In Jellyfin Only', data.InJellyfinOnly);
             resultDiv.innerHTML = h;
         }, function () {
             resultDiv.innerHTML = '<div class="error-msg">❌ ' + T('arrCompareError', 'Failed to compare. Check settings.') + '</div>';

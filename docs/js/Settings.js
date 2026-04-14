@@ -6,6 +6,9 @@
     // Track whether trash was enabled when settings were loaded (for deactivation dialog)
     var _wasTrashEnabled = false;
 
+    // Preserve PluginLogLevel across Settings saves (managed in Logs tab)
+    var _currentLogLevel = 'INFO';
+
     // Rebuild the entire UI after a language change
     function rebuildUI() {
         applyStaticTranslations();
@@ -35,6 +38,8 @@
         apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuration'), dataType: 'json' }).then(function (cfg) {
             // Remember the current language for change detection
             _currentLang = cfg.Language || 'en';
+            // Remember log level so Settings save doesn't reset it
+            _currentLogLevel = cfg.PluginLogLevel || 'INFO';
             // Remember trash state for deactivation dialog
             _wasTrashEnabled = !!cfg.UseTrash;
             var h = '';
@@ -143,6 +148,7 @@
             TrashFolderPath: document.getElementById('cfgTrashPath').value,
             TrashRetentionDays: (function () { var v = parseInt(document.getElementById('cfgTrashDays').value, 10); return isNaN(v) || v < 0 ? 30 : v; })(),
             Language: document.getElementById('cfgLang').value,
+            PluginLogLevel: _currentLogLevel,
             RadarrUrl: radarrInstances.length > 0 ? radarrInstances[0].Url : '',
             RadarrApiKey: radarrInstances.length > 0 ? radarrInstances[0].ApiKey : '',
             SonarrUrl: sonarrInstances.length > 0 ? sonarrInstances[0].Url : '',
@@ -199,132 +205,119 @@
         });
     }
 
-    function showTrashDisableDialog(payload) {
-        var btn = document.getElementById('btnSaveSettings');
-        var apiClient = ApiClient;
-
-        apiClient.ajax({
-            type: 'GET', url: apiClient.getUrl('JellyfinHelper/Trash/Folders'), dataType: 'json'
-        }).then(function (data) {
-            var paths = data.Paths || [];
-            if (paths.length === 0) {
-                doSaveSettings(payload);
-                return;
-            }
-
-            var pathList = '';
-            for (var i = 0; i < paths.length; i++) {
-                pathList += '\n  • ' + paths[i];
-            }
-
-            var firstMsg = T('trashDisablePrompt', 'Trash is being disabled. The following trash folder(s) exist on disk:')
-                + pathList
-                + '\n\n' + T('trashDisableQuestion', 'What should happen with these folders?');
-
-            removeTrashDialog();
-
-            var overlay = document.createElement('div');
-            overlay.id = 'trashDialogOverlay';
-            overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;';
-
-            var dialog = document.createElement('div');
-            dialog.style.cssText = 'background:#1c1c1e;border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:1.5em 2em;max-width:550px;width:90%;color:#fff;font-size:0.95em;';
-
-            var title = document.createElement('h3');
-            title.style.cssText = 'margin:0 0 0.8em 0;color:#e74c3c;';
-            title.textContent = '🗑️ ' + T('trashDisableTitle', 'Trash Folders Detected');
-            dialog.appendChild(title);
-
-            var body = document.createElement('div');
-            body.style.cssText = 'white-space:pre-wrap;margin-bottom:1.2em;line-height:1.5;opacity:0.9;';
-            body.textContent = firstMsg;
-            dialog.appendChild(body);
-
-            var btnRow = document.createElement('div');
-            btnRow.style.cssText = 'display:flex;gap:0.8em;justify-content:flex-end;flex-wrap:wrap;';
-
-            var btnKeep = document.createElement('button');
-            btnKeep.textContent = '📁 ' + T('trashKeep', 'Keep Folders');
-            btnKeep.style.cssText = 'padding:0.5em 1.2em;border:none;border-radius:4px;background:#2ecc71;color:#fff;cursor:pointer;font-size:0.9em;';
-            btnKeep.onclick = function () {
-                removeTrashDialog();
-                doSaveSettings(payload);
-            };
-
-            var btnDelete = document.createElement('button');
-            btnDelete.textContent = '🗑️ ' + T('trashDelete', 'Delete Folders');
-            btnDelete.style.cssText = 'padding:0.5em 1.2em;border:none;border-radius:4px;background:#e74c3c;color:#fff;cursor:pointer;font-size:0.9em;';
-            btnDelete.onclick = function () {
-                removeTrashDialog();
-                showTrashDeleteConfirmation(payload, paths);
-            };
-
-            var btnCancel = document.createElement('button');
-            btnCancel.textContent = T('cancel', 'Cancel');
-            btnCancel.style.cssText = 'padding:0.5em 1.2em;border:1px solid rgba(255,255,255,0.2);border-radius:4px;background:transparent;color:#fff;cursor:pointer;font-size:0.9em;';
-            btnCancel.onclick = function () {
-                removeTrashDialog();
-                var chk = document.getElementById('cfgTrash');
-                if (chk) chk.checked = true;
-                btn.disabled = false;
-            };
-
-            btnRow.appendChild(btnCancel);
-            btnRow.appendChild(btnKeep);
-            btnRow.appendChild(btnDelete);
-            dialog.appendChild(btnRow);
-            overlay.appendChild(dialog);
-            document.body.appendChild(overlay);
-        }, function () {
-            doSaveSettings(payload);
-        });
-    }
-
-    function showTrashDeleteConfirmation(payload, paths) {
-        var btn = document.getElementById('btnSaveSettings');
-        var msg = document.getElementById('settingsMsg');
-
-        var pathList = '';
-        for (var i = 0; i < paths.length; i++) {
-            pathList += '\n  • ' + paths[i];
-        }
-
+    // --- Dialog Helpers ---
+    // Creates a modal dialog overlay with title, body, and button row.
+    // Returns { overlay, dialog, btnRow } so callers can add buttons.
+    function createDialogOverlay(overlayId, titleText, titleColor, bodyContent, bodyUseHtml) {
         var overlay = document.createElement('div');
-        overlay.id = 'trashDialogOverlay';
+        overlay.id = overlayId;
         overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;';
 
         var dialog = document.createElement('div');
         dialog.style.cssText = 'background:#1c1c1e;border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:1.5em 2em;max-width:550px;width:90%;color:#fff;font-size:0.95em;';
 
         var title = document.createElement('h3');
-        title.style.cssText = 'margin:0 0 0.8em 0;color:#e74c3c;';
-        title.textContent = '⚠️ ' + T('trashDeleteConfirmTitle', 'Are you sure?');
+        title.style.cssText = 'margin:0 0 0.8em 0;color:' + titleColor + ';';
+        title.textContent = titleText;
         dialog.appendChild(title);
 
         var body = document.createElement('div');
         body.style.cssText = 'white-space:pre-wrap;margin-bottom:1.2em;line-height:1.5;opacity:0.9;';
-        body.textContent = T('trashDeleteConfirmMsg', 'This will permanently delete the following folder(s) and all their contents:')
-            + pathList
-            + '\n\n' + T('trashDeleteConfirmWarn', 'This action cannot be undone!');
+        if (bodyUseHtml) {
+            body.innerHTML = bodyContent;
+        } else {
+            body.textContent = bodyContent;
+        }
         dialog.appendChild(body);
 
         var btnRow = document.createElement('div');
         btnRow.style.cssText = 'display:flex;gap:0.8em;justify-content:flex-end;flex-wrap:wrap;';
+        dialog.appendChild(btnRow);
+        overlay.appendChild(dialog);
 
-        var btnCancel = document.createElement('button');
-        btnCancel.textContent = T('cancel', 'Cancel');
-        btnCancel.style.cssText = 'padding:0.5em 1.2em;border:1px solid rgba(255,255,255,0.2);border-radius:4px;background:transparent;color:#fff;cursor:pointer;font-size:0.9em;';
-        btnCancel.onclick = function () {
+        return { overlay: overlay, dialog: dialog, btnRow: btnRow };
+    }
+
+    // Creates a styled dialog button.
+    // style: 'cancel' (transparent), 'danger' (#e74c3c), 'success' (#2ecc71), 'warning' (#e67e22)
+    function createDialogBtn(text, style, onclick) {
+        var btn = document.createElement('button');
+        btn.textContent = text;
+        var bg = style === 'cancel' ? 'transparent' : style === 'danger' ? '#e74c3c' : style === 'success' ? '#2ecc71' : '#e67e22';
+        var border = style === 'cancel' ? '1px solid rgba(255,255,255,0.2)' : 'none';
+        btn.style.cssText = 'padding:0.5em 1.2em;border:' + border + ';border-radius:4px;background:' + bg + ';color:#fff;cursor:pointer;font-size:0.9em;';
+        btn.onclick = onclick;
+        return btn;
+    }
+
+    function removeDialogById(id) {
+        var existing = document.getElementById(id);
+        if (existing) existing.remove();
+    }
+
+    function removeTrashDialog() { removeDialogById('trashDialogOverlay'); }
+
+    function formatPathList(paths) {
+        var s = '';
+        for (var i = 0; i < paths.length; i++) { s += '\n  • ' + paths[i]; }
+        return s;
+    }
+
+    function showTrashDisableDialog(payload) {
+        var saveBtn = document.getElementById('btnSaveSettings');
+        var apiClient = ApiClient;
+
+        apiClient.ajax({
+            type: 'GET', url: apiClient.getUrl('JellyfinHelper/Trash/Folders'), dataType: 'json'
+        }).then(function (data) {
+            var paths = data.Paths || [];
+            if (paths.length === 0) { doSaveSettings(payload); return; }
+
+            var bodyText = T('trashDisablePrompt', 'Trash is being disabled. The following trash folder(s) exist on disk:')
+                + formatPathList(paths)
+                + '\n\n' + T('trashDisableQuestion', 'What should happen with these folders?');
+
+            removeTrashDialog();
+            var d = createDialogOverlay('trashDialogOverlay', '🗑️ ' + T('trashDisableTitle', 'Trash Folders Detected'), '#e74c3c', bodyText, false);
+
+            d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
+                removeTrashDialog();
+                var chk = document.getElementById('cfgTrash');
+                if (chk) chk.checked = true;
+                saveBtn.disabled = false;
+            }));
+            d.btnRow.appendChild(createDialogBtn('📁 ' + T('trashKeep', 'Keep Folders'), 'success', function () {
+                removeTrashDialog();
+                doSaveSettings(payload);
+            }));
+            d.btnRow.appendChild(createDialogBtn('🗑️ ' + T('trashDelete', 'Delete Folders'), 'danger', function () {
+                removeTrashDialog();
+                showTrashDeleteConfirmation(payload, paths);
+            }));
+
+            document.body.appendChild(d.overlay);
+        }, function () {
+            doSaveSettings(payload);
+        });
+    }
+
+    function showTrashDeleteConfirmation(payload, paths) {
+        var saveBtn = document.getElementById('btnSaveSettings');
+        var msg = document.getElementById('settingsMsg');
+
+        var bodyText = T('trashDeleteConfirmMsg', 'This will permanently delete the following folder(s) and all their contents:')
+            + formatPathList(paths)
+            + '\n\n' + T('trashDeleteConfirmWarn', 'This action cannot be undone!');
+
+        var d = createDialogOverlay('trashDialogOverlay', '⚠️ ' + T('trashDeleteConfirmTitle', 'Are you sure?'), '#e74c3c', bodyText, false);
+
+        d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
             removeTrashDialog();
             var chk = document.getElementById('cfgTrash');
             if (chk) chk.checked = true;
-            btn.disabled = false;
-        };
-
-        var btnOk = document.createElement('button');
-        btnOk.textContent = '🗑️ ' + T('trashDeleteConfirmOk', 'Yes, Delete All');
-        btnOk.style.cssText = 'padding:0.5em 1.2em;border:none;border-radius:4px;background:#e74c3c;color:#fff;cursor:pointer;font-size:0.9em;';
-        btnOk.onclick = function () {
+            saveBtn.disabled = false;
+        }));
+        d.btnRow.appendChild(createDialogBtn('🗑️ ' + T('trashDeleteConfirmOk', 'Yes, Delete All'), 'danger', function () {
             removeTrashDialog();
             msg.innerHTML = '<div style="opacity:0.6;">🗑️ ' + T('trashDeleting', 'Deleting trash folders…') + '</div>';
 
@@ -345,20 +338,11 @@
                 doSaveSettings(payload);
             }, function () {
                 msg.innerHTML = '<div class="error-msg">❌ ' + T('trashDeleteError', 'Failed to delete trash folders.') + '</div>';
-                btn.disabled = false;
+                saveBtn.disabled = false;
             });
-        };
+        }));
 
-        btnRow.appendChild(btnCancel);
-        btnRow.appendChild(btnOk);
-        dialog.appendChild(btnRow);
-        overlay.appendChild(dialog);
-        document.body.appendChild(overlay);
-    }
-
-    function removeTrashDialog() {
-        var existing = document.getElementById('trashDialogOverlay');
-        if (existing) existing.remove();
+        document.body.appendChild(d.overlay);
     }
 
     function attachBackupHandlers() {
@@ -432,52 +416,22 @@
     function showBackupImportConfirmation(file) {
         removeBackupDialog();
 
-        var overlay = document.createElement('div');
-        overlay.id = 'backupDialogOverlay';
-        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;';
-
-        var dialog = document.createElement('div');
-        dialog.style.cssText = 'background:#1c1c1e;border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:1.5em 2em;max-width:550px;width:90%;color:#fff;font-size:0.95em;';
-
-        var title = document.createElement('h3');
-        title.style.cssText = 'margin:0 0 0.8em 0;color:#e67e22;';
-        title.textContent = '📤 ' + T('backupImportConfirmTitle', 'Import Backup');
-        dialog.appendChild(title);
-
-        var body = document.createElement('div');
-        body.style.cssText = 'margin-bottom:1.2em;line-height:1.5;opacity:0.9;';
-        body.innerHTML = '<p>' + T('backupImportConfirmMsg', 'This will overwrite your current settings, Arr integrations, and trend data with the backup data.') + '</p>'
+        var bodyHtml = '<p>' + T('backupImportConfirmMsg', 'This will overwrite your current settings, Arr integrations, and trend data with the backup data.') + '</p>'
             + '<p><strong>' + T('backupImportConfirmFile', 'File') + ':</strong> ' + escHtml(file.name) + ' (' + formatBytes(file.size) + ')</p>'
             + '<p style="color:#e74c3c;">' + T('backupImportConfirmWarn', 'This action cannot be undone!') + '</p>';
-        dialog.appendChild(body);
 
-        var btnRow = document.createElement('div');
-        btnRow.style.cssText = 'display:flex;gap:0.8em;justify-content:flex-end;flex-wrap:wrap;';
+        var d = createDialogOverlay('backupDialogOverlay', '📤 ' + T('backupImportConfirmTitle', 'Import Backup'), '#e67e22', bodyHtml, true);
 
-        var btnCancel = document.createElement('button');
-        btnCancel.textContent = T('cancel', 'Cancel');
-        btnCancel.style.cssText = 'padding:0.5em 1.2em;border:1px solid rgba(255,255,255,0.2);border-radius:4px;background:transparent;color:#fff;cursor:pointer;font-size:0.9em;';
-        btnCancel.onclick = function () { removeBackupDialog(); };
-
-        var btnOk = document.createElement('button');
-        btnOk.textContent = '📤 ' + T('backupImportConfirmOk', 'Yes, Import');
-        btnOk.style.cssText = 'padding:0.5em 1.2em;border:none;border-radius:4px;background:#e67e22;color:#fff;cursor:pointer;font-size:0.9em;';
-        btnOk.onclick = function () {
+        d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () { removeBackupDialog(); }));
+        d.btnRow.appendChild(createDialogBtn('📤 ' + T('backupImportConfirmOk', 'Yes, Import'), 'warning', function () {
             removeBackupDialog();
             doBackupImport(file);
-        };
+        }));
 
-        btnRow.appendChild(btnCancel);
-        btnRow.appendChild(btnOk);
-        dialog.appendChild(btnRow);
-        overlay.appendChild(dialog);
-        document.body.appendChild(overlay);
+        document.body.appendChild(d.overlay);
     }
 
-    function removeBackupDialog() {
-        var existing = document.getElementById('backupDialogOverlay');
-        if (existing) existing.remove();
-    }
+    function removeBackupDialog() { removeDialogById('backupDialogOverlay'); }
 
     function doBackupImport(file) {
         var msg = document.getElementById('backupMsg');
@@ -505,11 +459,11 @@
                 contentType: 'application/json'
             }).then(function (result) {
                 var data = typeof result === 'string' ? JSON.parse(result) : result;
-                var summary = data.summary || {};
+                var summary = data.Summary || data.summary || {};
                 var parts = [];
-                if (summary.configurationRestored) parts.push(T('backupConfigRestored', 'Settings'));
-                if (summary.timelineRestored) parts.push(T('backupTimelineRestored', 'Growth Timeline'));
-                if (summary.baselineRestored) parts.push(T('backupBaselineRestored', 'Baseline'));
+                if (summary.ConfigurationRestored || summary.configurationRestored) parts.push(T('backupConfigRestored', 'Settings'));
+                if (summary.TimelineRestored || summary.timelineRestored) parts.push(T('backupTimelineRestored', 'Growth Timeline'));
+                if (summary.BaselineRestored || summary.baselineRestored) parts.push(T('backupBaselineRestored', 'Baseline'));
 
                 var successMsg = '✅ ' + T('backupImportSuccess', 'Backup imported successfully.');
                 if (parts.length > 0) {
@@ -517,7 +471,7 @@
                 }
 
                 // Show warnings if any
-                var warnings = data.warnings || [];
+                var warnings = data.Warnings || data.warnings || [];
                 if (warnings.length > 0) {
                     successMsg += '<br><span style="color:#e67e22;">⚠️ ' + warnings.length + ' ' + T('backupWarnings', 'warning(s)') + ':</span>';
                     for (var i = 0; i < Math.min(warnings.length, 5); i++) {

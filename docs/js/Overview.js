@@ -22,36 +22,29 @@
         if (total === 0) return '';
 
         var videoTotal = data.TotalMovieVideoSize + data.TotalTvShowVideoSize;
-        var segments = [
-            { cls: 'bar-video', pct: (videoTotal / total * 100), label: T('video', 'Video') },
-            { cls: 'bar-audio', pct: (data.TotalMusicAudioSize / total * 100), label: T('audio', 'Audio') },
-            { cls: 'bar-subtitle', pct: (data.TotalSubtitleSize / total * 100), label: T('subtitles', 'Subtitles') },
-            { cls: 'bar-image', pct: (data.TotalImageSize / total * 100), label: T('images', 'Images') },
-            { cls: 'bar-trickplay', pct: (data.TotalTrickplaySize / total * 100), label: T('trickplay', 'Trickplay') },
-            { cls: 'bar-nfo', pct: (data.TotalNfoSize / total * 100), label: T('metadata', 'Metadata') },
-            { cls: 'bar-other', pct: (otherSize / total * 100), label: T('other', 'Other') }
+        var categories = [
+            { cls: 'bar-video', bytes: videoTotal, labelKey: 'video', labelFallback: 'Video' },
+            { cls: 'bar-audio', bytes: data.TotalMusicAudioSize, labelKey: 'audio', labelFallback: 'Audio' },
+            { cls: 'bar-subtitle', bytes: data.TotalSubtitleSize, labelKey: 'subtitles', labelFallback: 'Subtitles' },
+            { cls: 'bar-image', bytes: data.TotalImageSize, labelKey: 'images', labelFallback: 'Images' },
+            { cls: 'bar-trickplay', bytes: data.TotalTrickplaySize, labelKey: 'trickplay', labelFallback: 'Trickplay' },
+            { cls: 'bar-nfo', bytes: data.TotalNfoSize, labelKey: 'metadata', labelFallback: 'Metadata' },
+            { cls: 'bar-other', bytes: otherSize, labelKey: 'other', labelFallback: 'Other' }
         ];
 
         var barHtml = '<div class="total-bar">';
-        for (var s = 0; s < segments.length; s++) {
-            if (segments[s].pct > 0) {
-                barHtml += '<div class="bar-segment ' + segments[s].cls + '" style="width:' + segments[s].pct.toFixed(2) + '%" title="' + escAttr(segments[s].label) + '"></div>';
+        for (var s = 0; s < categories.length; s++) {
+            var pct = categories[s].bytes / total * 100;
+            if (pct > 0) {
+                barHtml += '<div class="bar-segment ' + categories[s].cls + '" style="width:' + pct.toFixed(2) + '%" title="' + escAttr(T(categories[s].labelKey, categories[s].labelFallback)) + '"></div>';
             }
         }
         barHtml += '</div>';
 
         barHtml += '<div class="legend">';
-        var legendItems = [
-            { cls: 'bar-video', label: T('video', 'Video') + ' (' + formatBytes(videoTotal) + ')' },
-            { cls: 'bar-audio', label: T('audio', 'Audio') + ' (' + formatBytes(data.TotalMusicAudioSize) + ')' },
-            { cls: 'bar-subtitle', label: T('subtitles', 'Subtitles') + ' (' + formatBytes(data.TotalSubtitleSize) + ')' },
-            { cls: 'bar-image', label: T('images', 'Images') + ' (' + formatBytes(data.TotalImageSize) + ')' },
-            { cls: 'bar-trickplay', label: T('trickplay', 'Trickplay') + ' (' + formatBytes(data.TotalTrickplaySize) + ')' },
-            { cls: 'bar-nfo', label: T('metadata', 'Metadata') + ' (' + formatBytes(data.TotalNfoSize) + ')' },
-            { cls: 'bar-other', label: T('other', 'Other') + ' (' + formatBytes(otherSize) + ')' }
-        ];
-        for (var l = 0; l < legendItems.length; l++) {
-            barHtml += '<div class="legend-item"><div class="legend-dot ' + legendItems[l].cls + '"></div>' + legendItems[l].label + '</div>';
+        for (var l = 0; l < categories.length; l++) {
+            var label = T(categories[l].labelKey, categories[l].labelFallback) + ' (' + formatBytes(categories[l].bytes) + ')';
+            barHtml += '<div class="legend-item"><div class="legend-dot ' + categories[l].cls + '"></div>' + label + '</div>';
         }
         barHtml += '</div>';
 

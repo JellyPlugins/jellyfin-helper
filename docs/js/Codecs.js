@@ -91,75 +91,34 @@
         return svgHtml + breakdownHtml;
     }
 
+    // Collect paths for a specific codec value from libraries by dict property
+    function collectCodecPathsFromLibraries(libraries, pathsProp, codecName) {
+        var paths = [];
+        if (libraries) {
+            for (var i = 0; i < libraries.length; i++) {
+                var dict = libraries[i][pathsProp];
+                if (dict && dict[codecName]) {
+                    for (var j = 0; j < dict[codecName].length; j++) {
+                        paths.push(dict[codecName][j]);
+                    }
+                }
+            }
+        }
+        return paths;
+    }
+
     // Collect paths for a specific codec from libraries, filtered by categories
     function collectCodecPaths(data, pathsProp, codecName, categories) {
-        var moviePaths = [];
-        var tvPaths = [];
-        var musicPaths = [];
-        var otherPaths = [];
-
         var includeMovies = !categories || categories.movies;
         var includeTvShows = !categories || categories.tvShows;
         var includeMusic = !categories || categories.music;
         var includeOther = !categories || categories.other;
 
-        // Movies
-        if (includeMovies && data.Movies) {
-            for (var m = 0; m < data.Movies.length; m++) {
-                var lib = data.Movies[m];
-                var dict = lib[pathsProp];
-                if (dict && dict[codecName]) {
-                    for (var i = 0; i < dict[codecName].length; i++) {
-                        moviePaths.push(dict[codecName][i]);
-                    }
-                }
-            }
-        }
-
-        // TV Shows
-        if (includeTvShows && data.TvShows) {
-            for (var t = 0; t < data.TvShows.length; t++) {
-                var tvLib = data.TvShows[t];
-                var tvDict = tvLib[pathsProp];
-                if (tvDict && tvDict[codecName]) {
-                    for (var j = 0; j < tvDict[codecName].length; j++) {
-                        tvPaths.push(tvDict[codecName][j]);
-                    }
-                }
-            }
-        }
-
-        // Music
-        if (includeMusic && data.Music) {
-            for (var mu = 0; mu < data.Music.length; mu++) {
-                var muLib = data.Music[mu];
-                var muDict = muLib[pathsProp];
-                if (muDict && muDict[codecName]) {
-                    for (var k = 0; k < muDict[codecName].length; k++) {
-                        musicPaths.push(muDict[codecName][k]);
-                    }
-                }
-            }
-        }
-
-        // Other Libraries
-        if (includeOther && data.Other) {
-            for (var o = 0; o < data.Other.length; o++) {
-                var oLib = data.Other[o];
-                var oDict = oLib[pathsProp];
-                if (oDict && oDict[codecName]) {
-                    for (var l = 0; l < oDict[codecName].length; l++) {
-                        otherPaths.push(oDict[codecName][l]);
-                    }
-                }
-            }
-        }
-
         return {
-            movies: moviePaths,
-            tvShows: tvPaths,
-            music: musicPaths,
-            other: otherPaths,
+            movies: includeMovies ? collectCodecPathsFromLibraries(data.Movies, pathsProp, codecName) : [],
+            tvShows: includeTvShows ? collectCodecPathsFromLibraries(data.TvShows, pathsProp, codecName) : [],
+            music: includeMusic ? collectCodecPathsFromLibraries(data.Music, pathsProp, codecName) : [],
+            other: includeOther ? collectCodecPathsFromLibraries(data.Other, pathsProp, codecName) : [],
             rootPaths: {
                 movies: data.MovieRootPaths || [],
                 tvShows: data.TvShowRootPaths || [],

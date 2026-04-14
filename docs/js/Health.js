@@ -5,48 +5,27 @@
 
     // Collect health paths split by media type (movies vs tvShows)
     // Health checks only apply to video libraries, so music is always empty.
-    function collectHealthPaths(data, prop) {
-        var moviePaths = [];
-        var tvPaths = [];
-        var otherPaths = [];
-
-        if (data.Movies) {
-            for (var m = 0; m < data.Movies.length; m++) {
-                var libPaths = data.Movies[m][prop];
+    // Collect all paths from a list of libraries for a given property
+    function collectPathsFromLibraries(libraries, prop) {
+        var paths = [];
+        if (libraries) {
+            for (var i = 0; i < libraries.length; i++) {
+                var libPaths = libraries[i][prop];
                 if (libPaths) {
-                    for (var i = 0; i < libPaths.length; i++) {
-                        moviePaths.push(libPaths[i]);
+                    for (var j = 0; j < libPaths.length; j++) {
+                        paths.push(libPaths[j]);
                     }
                 }
             }
         }
+        return paths;
+    }
 
-        if (data.TvShows) {
-            for (var t = 0; t < data.TvShows.length; t++) {
-                var tvLibPaths = data.TvShows[t][prop];
-                if (tvLibPaths) {
-                    for (var j = 0; j < tvLibPaths.length; j++) {
-                        tvPaths.push(tvLibPaths[j]);
-                    }
-                }
-            }
-        }
-
-        if (data.Other) {
-            for (var o = 0; o < data.Other.length; o++) {
-                var otherLibPaths = data.Other[o][prop];
-                if (otherLibPaths) {
-                    for (var k = 0; k < otherLibPaths.length; k++) {
-                        otherPaths.push(otherLibPaths[k]);
-                    }
-                }
-            }
-        }
-
+    function collectHealthPaths(data, prop) {
         return {
-            movies: moviePaths,
-            tvShows: tvPaths,
-            other: otherPaths,
+            movies: collectPathsFromLibraries(data.Movies, prop),
+            tvShows: collectPathsFromLibraries(data.TvShows, prop),
+            other: collectPathsFromLibraries(data.Other, prop),
             music: [],
             rootPaths: {
                 movies: data.MovieRootPaths || [],

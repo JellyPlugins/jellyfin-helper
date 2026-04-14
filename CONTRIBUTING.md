@@ -73,8 +73,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── ArrTestConnectionRequest.cs   # Request DTO for Arr connection tests
 │   ├── BackupController.cs           # Backup export/import with payload validation
 │   ├── CleanupStatisticsController.cs # Cleanup statistics endpoint
-│   ├── ConfigurationController.cs    # Configuration GET/POST endpoints
+│   ├── ConfigurationController.cs    # Configuration GET/POST/PUT endpoints
 │   ├── ConfigurationUpdateRequest.cs # Request DTO for config updates
+│   ├── LogLevelUpdateRequest.cs      # Request DTO for log level updates
 │   ├── GrowthTimelineController.cs   # Growth timeline endpoint
 │   ├── LogsController.cs             # Log viewer endpoints
 │   ├── MediaStatisticsController.cs  # Statistics & library scan endpoints (with caching)
@@ -87,6 +88,7 @@ Jellyfin.Plugin.JellyfinHelper/
 ├── Services/
 │   ├── FileSystemHelper.cs           # File system utility methods
 │   ├── I18nService.cs                # Internationalization (embedded JSON resources)
+│   ├── JsonDefaults.cs               # Centralized JSON serializer options (camelCase, enums)
 │   ├── LibraryPathResolver.cs        # Jellyfin library path resolution
 │   ├── PathValidator.cs              # Path traversal & safety checks
 │   ├── Arr/                          # Radarr/Sonarr integration
@@ -112,7 +114,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   └── TrashItemInfo.cs
 │   ├── PluginLog/                    # Plugin-specific logging
 │   │   ├── IPluginLogService.cs
-│   │   ├── PluginLogService.cs       # In-memory ring buffer (1000 entries)
+│   │   ├── PluginLogService.cs       # In-memory ring buffer (2000 entries)
 │   │   └── PluginLogEntry.cs
 │   ├── Statistics/                   # Library scanning & statistics
 │   │   ├── IMediaStatisticsService.cs
@@ -180,7 +182,8 @@ A named `HttpClient` (`"ArrIntegration"`) is configured with a 15-second timeout
 | **Build-time Composition** | UI pipeline | CSS/JS modules concatenated into a single `configPage.html` at build time (MSBuild target). |
 | **Append-only Snapshots** | `GrowthTimelineService` | Historical timeline data points are immutable; only the current time-bucket is updated. Deletions show as drops at the current point. |
 | **Validation + Sanitization** | `BackupService` | Backup imports go through 3 stages: `Validate()` → `Sanitize()` → `RestoreBackup()`. Includes XSS/injection detection, size limits, path traversal checks. |
-| **Ring Buffer** | `PluginLogService` | Fixed-capacity in-memory log (1000 entries) with auto-eviction of oldest entries. |
+| **Ring Buffer** | `PluginLogService` | Fixed-capacity in-memory log (2000 entries) with auto-eviction of oldest entries. |
+| **Centralized Serialization** | `JsonDefaults` | Shared `JsonSerializerOptions` (camelCase, enum-as-string) used across all API controllers and backup service for consistent JSON handling. |
 
 ### Key Design Decisions
 
@@ -254,6 +257,7 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 |----------|--------|-------------|
 | `/JellyfinHelper/Configuration` | GET | Current plugin configuration |
 | `/JellyfinHelper/Configuration` | POST | Update plugin configuration |
+| `/JellyfinHelper/Configuration/LogLevel` | PUT | Update only the plugin log level (avoids race conditions with Settings tab) |
 | `/JellyfinHelper/Libraries` | GET | Available library names |
 | `/JellyfinHelper/Translations` | GET | UI translations for specified language (anonymous) |
 
