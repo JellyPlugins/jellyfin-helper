@@ -111,8 +111,8 @@
             h += '<div class="section-title">💾 ' + T('settingsBackupTitle', 'Backup & Restore') + '</div>';
             h += '<div class="help-text">' + T('settingsBackupHelp', 'Export your settings, Arr integrations, and trend data for backup. Import to restore on a fresh installation.') + '</div>';
             h += '<div style="display:flex;gap:0.8em;flex-wrap:wrap;margin:1em 0;">';
-            h += '<button class="refresh-btn" id="btnBackupExport" style="min-width:auto;padding:0.5em 1.2em;">📥 ' + T('backupExport', 'Export Backup') + '</button>';
-            h += '<label class="refresh-btn" id="btnBackupImportLabel" style="min-width:auto;padding:0.5em 1.2em;cursor:pointer;margin:0;">📤 ' + T('backupImport', 'Import Backup') + '<input type="file" id="btnBackupImportFile" accept=".json,application/json" style="display:none;"></label>';
+            h += '<button class="refresh-btn" id="btnBackupExport" style="flex:1;min-width:0;padding:0.5em 1.2em;text-align:center;justify-content:center;">📥 ' + T('backupExport', 'Export Backup') + '</button>';
+            h += '<label class="refresh-btn" id="btnBackupImportLabel" style="flex:1;min-width:0;padding:0.5em 1.2em;cursor:pointer;margin:0;text-align:center;justify-content:center;">📤 ' + T('backupImport', 'Import Backup') + '<input type="file" id="btnBackupImportFile" accept=".json,application/json" style="display:none;"></label>';
             h += '</div>';
             h += '<div id="backupMsg" style="margin-top:0.5em;"></div>';
             form.innerHTML = h;
