@@ -8,7 +8,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 [Collection("ConfigOverride")]
-public class LogsControllerTests
+public class LogsControllerTests : IDisposable
 {
     private readonly LogsController _controller;
 
@@ -16,6 +16,13 @@ public class LogsControllerTests
     {
         var loggerMock = new Mock<ILogger<LogsController>>();
         _controller = new LogsController(loggerMock.Object);
+        PluginLogService.TestMinLevelOverride = "INFO";
+        PluginLogService.Clear();
+    }
+
+    public void Dispose()
+    {
+        PluginLogService.TestMinLevelOverride = null;
         PluginLogService.Clear();
     }
 
