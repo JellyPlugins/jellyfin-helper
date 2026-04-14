@@ -676,9 +676,9 @@ public class GrowthTimelineServiceTests
         GrowthTimelineService.UpdateBaseline(baseline, currentDirs);
 
         Assert.Equal(2, baseline.Directories.Count);
-        Assert.True(baseline.Directories.ContainsKey("/movies/Batman"));
-        Assert.Equal(5_000_000_000L, baseline.Directories["/movies/Batman"].Size);
-        Assert.Equal(1, baseline.Directories["/movies/Batman"].Count);
+        Assert.True(baseline.Directories.TryGetValue("/movies/Batman", out var batmanEntry));
+        Assert.Equal(5_000_000_000L, batmanEntry.Size);
+        Assert.Equal(1, batmanEntry.Count);
     }
 
     [Fact]

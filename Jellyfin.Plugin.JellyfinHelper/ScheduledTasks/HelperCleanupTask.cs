@@ -263,7 +263,7 @@ public class HelperCleanupTask : IScheduledTask
     private void CleanupLegacyHistoryFile()
     {
         const string legacyFileName = "jellyfin-helper-statistics-history.json";
-        var legacyFilePath = Path.Combine(_applicationPaths.DataPath, legacyFileName);
+        var legacyFilePath = Path.Join(_applicationPaths.DataPath, legacyFileName);
 
         try
         {

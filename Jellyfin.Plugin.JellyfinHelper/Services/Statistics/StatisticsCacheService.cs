@@ -33,7 +33,7 @@ public class StatisticsCacheService
     public StatisticsCacheService(IApplicationPaths applicationPaths, ILogger<StatisticsCacheService> logger)
     {
         _logger = logger;
-        _latestResultFilePath = Path.Combine(applicationPaths.DataPath, LatestResultFileName);
+        _latestResultFilePath = Path.Join(applicationPaths.DataPath, LatestResultFileName);
     }
 
     /// <summary>

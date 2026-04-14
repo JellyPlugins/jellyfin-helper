@@ -701,14 +701,9 @@ public class GrowthTimelineService
         var currentBucketStart = GetBucketStart(now, granularity);
 
         // Keep all points strictly before the current bucket (immutable history)
-        var result = new List<GrowthTimelinePoint>();
-        foreach (var point in existingPoints)
-        {
-            if (point.Date < currentBucketStart)
-            {
-                result.Add(point);
-            }
-        }
+        var result = existingPoints
+            .Where(point => point.Date < currentBucketStart)
+            .ToList();
 
         // Add the current snapshot as the latest data point
         result.Add(new GrowthTimelinePoint
