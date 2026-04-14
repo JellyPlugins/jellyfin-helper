@@ -1,0 +1,44 @@
+/* Trend graph */
+.trend-container {
+    margin: 1em 0 2em 0;
+}
+
+.trend-chart {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    overflow-x: auto;      /* horizontal scroll on very small screens */
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+}
+
+.trend-chart svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    min-height: 160px;     /* prevent collapsing too small on tiny screens */
+    min-width: 480px;      /* ensure readability; wider than viewport triggers scroll */
+}
+
+.trend-empty {
+    text-align: center;
+    padding: 2em;
+    opacity: 0.5;
+    font-size: 0.9em;
+}
+
+/* Touch / small-screen optimisations */
+@media (max-width: 600px) {
+    .trend-container {
+        margin: 0.5em 0 1.5em 0;
+    }
+
+    .trend-chart {
+        border-radius: 4px;
+    }
+
+    .trend-chart svg {
+        min-width: 600px;  /* readable chart, scrolls horizontally */
+    }
+}
