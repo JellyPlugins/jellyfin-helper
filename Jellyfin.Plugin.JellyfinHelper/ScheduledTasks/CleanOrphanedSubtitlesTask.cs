@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
@@ -31,16 +30,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// are NOT touched because they typically don't follow the video-name pattern and serve the entire folder.
 /// </para>
 /// </remarks>
-public class CleanOrphanedSubtitlesTask
+public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 {
-    private readonly ILibraryManager _libraryManager;
-    private readonly IFileSystem _fileSystem;
-    private readonly IPluginLogService _pluginLog;
-    private readonly ILogger<CleanOrphanedSubtitlesTask> _logger;
-    private readonly ICleanupConfigHelper _configHelper;
-    private readonly ICleanupTrackingService _trackingService;
-    private readonly ITrashService _trashService;
-
     /// <summary>
     /// Initializes a new instance of the <see cref="CleanOrphanedSubtitlesTask"/> class.
     /// </summary>
@@ -51,93 +42,47 @@ public class CleanOrphanedSubtitlesTask
     /// <param name="configHelper">The cleanup configuration helper.</param>
     /// <param name="trackingService">The cleanup tracking service.</param>
     /// <param name="trashService">The trash service.</param>
-    public CleanOrphanedSubtitlesTask(ILibraryManager libraryManager, IFileSystem fileSystem, IPluginLogService pluginLog, ILogger<CleanOrphanedSubtitlesTask> logger, ICleanupConfigHelper configHelper, ICleanupTrackingService trackingService, ITrashService trashService)
+    public CleanOrphanedSubtitlesTask(
+        ILibraryManager libraryManager,
+        IFileSystem fileSystem,
+        IPluginLogService pluginLog,
+        ILogger<CleanOrphanedSubtitlesTask> logger,
+        ICleanupConfigHelper configHelper,
+        ICleanupTrackingService trackingService,
+        ITrashService trashService)
+        : base(libraryManager, fileSystem, pluginLog, logger, configHelper, trackingService, trashService)
     {
-        _libraryManager = libraryManager;
-        _fileSystem = fileSystem;
-        _pluginLog = pluginLog;
-        _logger = logger;
-        _configHelper = configHelper;
-        _trackingService = trackingService;
-        _trashService = trashService;
     }
 
-    /// <summary>
-    /// Executes the orphaned subtitle cleanup.
-    /// </summary>
-    /// <param name="progress">Progress reporter.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A completed task.</returns>
-    public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
-    {
-        var effectiveDryRun = _configHelper.IsDryRunOrphanedSubtitles();
-        var config = _configHelper.GetConfig();
+    /// <inheritdoc />
+    protected override string TaskName => "SubtitleCleaner";
 
-        if (effectiveDryRun)
-        {
-            _pluginLog.LogInfo("SubtitleCleaner", "Task started (Dry Run). No files will be deleted.", _logger);
-        }
-        else
-        {
-            _pluginLog.LogInfo("SubtitleCleaner", "Task started.", _logger);
-        }
+    /// <inheritdoc />
+    protected override string ItemLabel => "files";
 
-        var libraryFolders = _configHelper.GetFilteredLibraryLocations(_libraryManager);
+    /// <inheritdoc />
+    protected override bool IsDryRun() => ConfigHelper.IsDryRunOrphanedSubtitles();
 
-        int totalDeleted = 0;
-        long totalBytesFreed = 0;
-
-        for (int i = 0; i < libraryFolders.Count; i++)
-        {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-
-            var folder = libraryFolders[i];
-            _pluginLog.LogDebug("SubtitleCleaner", $"Scanning library folder: {folder}", _logger);
-            var (deleted, bytesFreed) = CleanDirectory(folder, effectiveDryRun, cancellationToken);
-            totalDeleted += deleted;
-            totalBytesFreed += bytesFreed;
-            progress.Report((double)(i + 1) / libraryFolders.Count * 100);
-        }
-
-        if (effectiveDryRun)
-        {
-            _pluginLog.LogInfo("SubtitleCleaner", $"Task finished (Dry Run). Would have deleted {totalDeleted} files.", _logger);
-        }
-        else
-        {
-            _pluginLog.LogInfo("SubtitleCleaner", $"Task finished. Deleted {totalDeleted} files, freed {totalBytesFreed} bytes.", _logger);
-        }
-
-        if (!effectiveDryRun && totalDeleted > 0)
-        {
-            _trackingService.RecordCleanup(totalBytesFreed, totalDeleted, _logger);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    private (int Deleted, long BytesFreed) CleanDirectory(string rootPath, bool dryRun, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    protected override (int Deleted, long BytesFreed) ProcessLocation(string libraryPath, bool dryRun, CancellationToken cancellationToken)
     {
         int deletedCount = 0;
         long bytesFreed = 0;
-        var config = _configHelper.GetConfig();
+        var config = ConfigHelper.GetConfig();
 
         try
         {
             // Process directories: for each directory, check all subtitle files
-            var allDirs = new List<string> { rootPath };
+            var allDirs = new List<string> { libraryPath };
             try
             {
                 allDirs.AddRange(
-                    _fileSystem.GetDirectories(rootPath, true)
+                    FileSystem.GetDirectories(libraryPath, true)
                         .Select(d => d.FullName));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                _pluginLog.LogWarning("SubtitleCleaner", $"Could not enumerate subdirectories of: {rootPath}", ex, _logger);
+                PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {libraryPath}", ex, Logger);
             }
 
             // Cache files per directory
@@ -157,7 +102,7 @@ public class CleanOrphanedSubtitlesTask
                 }
 
                 // Skip trash directories
-                var trashFolderName = Path.GetFileName(_configHelper.GetTrashPath(rootPath));
+                var trashFolderName = Path.GetFileName(ConfigHelper.GetTrashPath(libraryPath));
                 if (Path.GetFileName(dirPath).Equals(trashFolderName, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -167,12 +112,12 @@ public class CleanOrphanedSubtitlesTask
                 {
                     try
                     {
-                        files = _fileSystem.GetFiles(dirPath, false).ToArray();
+                        files = FileSystem.GetFiles(dirPath, false).ToArray();
                         fileCache[dirPath] = files;
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        _pluginLog.LogWarning("SubtitleCleaner", $"Could not list files in: {dirPath}", ex, _logger);
+                        PluginLog.LogWarning(TaskName, $"Could not list files in: {dirPath}", ex, Logger);
                         continue;
                     }
                 }
@@ -218,21 +163,21 @@ public class CleanOrphanedSubtitlesTask
                     }
 
                     // Check orphan age
-                    if (!_configHelper.IsFileOldEnoughForDeletion(file.FullName))
+                    if (!ConfigHelper.IsFileOldEnoughForDeletion(file.FullName))
                     {
-                        _pluginLog.LogDebug("SubtitleCleaner", $"Skipping too-new orphaned subtitle (min age {config.OrphanMinAgeDays}d): {file.FullName}", _logger);
+                        PluginLog.LogDebug(TaskName, $"Skipping too-new orphaned subtitle (min age {config.OrphanMinAgeDays}d): {file.FullName}", Logger);
                         continue;
                     }
 
                     if (dryRun)
                     {
-                        _pluginLog.LogInfo("SubtitleCleaner", $"[Dry Run] Would delete orphaned subtitle: {file.FullName}", _logger);
+                        PluginLog.LogInfo(TaskName, $"[Dry Run] Would delete orphaned subtitle: {file.FullName}", Logger);
                         deletedCount++;
                     }
                     else if (config.UseTrash)
                     {
-                        var trashPath = _configHelper.GetTrashPath(rootPath);
-                        long size = _trashService.MoveFileToTrash(file.FullName, trashPath, _logger);
+                        var trashPath = ConfigHelper.GetTrashPath(libraryPath);
+                        long size = TrashService.MoveFileToTrash(file.FullName, trashPath, Logger);
                         if (size > 0)
                         {
                             bytesFreed += size;
@@ -241,7 +186,7 @@ public class CleanOrphanedSubtitlesTask
                     }
                     else
                     {
-                        _pluginLog.LogInfo("SubtitleCleaner", $"Deleting orphaned subtitle: {file.FullName}", _logger);
+                        PluginLog.LogInfo(TaskName, $"Deleting orphaned subtitle: {file.FullName}", Logger);
                         try
                         {
                             long size = file.Length;
@@ -251,7 +196,7 @@ public class CleanOrphanedSubtitlesTask
                         }
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                         {
-                            _pluginLog.LogError("SubtitleCleaner", $"Failed to delete: {file.FullName}", ex, _logger);
+                            PluginLog.LogError(TaskName, $"Failed to delete: {file.FullName}", ex, Logger);
                         }
                     }
                 }
@@ -259,7 +204,7 @@ public class CleanOrphanedSubtitlesTask
         }
         catch (Exception ex)
         {
-            _pluginLog.LogError("SubtitleCleaner", $"Error scanning directory: {rootPath}", ex, _logger);
+            PluginLog.LogError(TaskName, $"Error scanning directory: {libraryPath}", ex, Logger);
         }
 
         return (deletedCount, bytesFreed);

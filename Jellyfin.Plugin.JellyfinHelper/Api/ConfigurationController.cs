@@ -119,6 +119,101 @@ public class ConfigurationController : ControllerBase
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Plugin configuration not initialized." });
         }
 
+        ApplyRequestToConfig(request, config);
+        plugin.SaveConfiguration();
+
+        _pluginLog.LogInfo("API", "Plugin configuration updated.", _logger);
+
+        // After saving, test all configured Arr instance connections and log warnings
+        var warnings = await TestArrConnectionsAsync(request, cancellationToken).ConfigureAwait(false);
+
+        return Ok(new { message = "Configuration saved.", warnings });
+    }
+
+    /// <summary>
+    /// Tests all configured Arr instance connections and returns warnings for unreachable ones.
+    /// Results are also logged to the PluginLogs so they appear in the log viewer.
+    /// </summary>
+    /// <param name="request">The configuration request containing instances to test.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of warning messages for failed connections (empty if all succeeded).</returns>
+    private async Task<List<string>> TestArrConnectionsAsync(ConfigurationUpdateRequest request, CancellationToken cancellationToken)
+    {
+        var warnings = new List<string>();
+
+        await TestArrInstanceGroupAsync(request.RadarrInstances, "Radarr", warnings, cancellationToken).ConfigureAwait(false);
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return warnings;
+        }
+
+        await TestArrInstanceGroupAsync(request.SonarrInstances, "Sonarr", warnings, cancellationToken).ConfigureAwait(false);
+
+        return warnings;
+    }
+
+    /// <summary>
+    /// Tests a group of Arr instances (Radarr or Sonarr) and appends warnings for unreachable ones.
+    /// </summary>
+    /// <param name="instances">The instances to test (may be null).</param>
+    /// <param name="typeName">The type label (e.g. "Radarr" or "Sonarr").</param>
+    /// <param name="warnings">The warnings list to append to.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private async Task TestArrInstanceGroupAsync(IReadOnlyList<ArrInstanceConfig>? instances, string typeName, List<string> warnings, CancellationToken cancellationToken)
+    {
+        if (instances is null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < instances.Count; i++)
+        {
+            var instance = instances[i];
+            if (string.IsNullOrWhiteSpace(instance.Url) || string.IsNullOrWhiteSpace(instance.ApiKey))
+            {
+                continue;
+            }
+
+            try
+            {
+                var (success, message) = await _arrService.TestConnectionAsync(
+                    instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
+
+                var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"{typeName} #{i + 1}";
+
+                if (success)
+                {
+                    _pluginLog.LogInfo("API", $"Connection test OK for {label}: {message}", _logger);
+                }
+                else
+                {
+                    var warning = $"{typeName} instance '{label}' ({instance.Url}) is not reachable: {message}";
+                    warnings.Add(warning);
+                    _pluginLog.LogWarning("API", warning, logger: _logger);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return; // User cancelled — stop testing remaining instances
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
+            {
+                var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"{typeName} #{i + 1}";
+                var warning = $"{typeName} instance '{label}' ({instance.Url}) connection test failed: {ex.Message}";
+                warnings.Add(warning);
+                _pluginLog.LogWarning("API", warning, ex, _logger);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Maps all user-editable fields from the update request onto the existing plugin configuration.
+    /// Preserves accumulated statistics and internal state that are not part of the request.
+    /// </summary>
+    /// <param name="request">The incoming configuration update request.</param>
+    /// <param name="config">The existing plugin configuration to update.</param>
+    private static void ApplyRequestToConfig(ConfigurationUpdateRequest request, PluginConfiguration config)
+    {
         // Normalize nullable strings to prevent downstream NREs from explicit JSON null values
         config.IncludedLibraries = request.IncludedLibraries ?? string.Empty;
         config.ExcludedLibraries = request.ExcludedLibraries ?? string.Empty;
@@ -160,109 +255,6 @@ public class ConfigurationController : ControllerBase
                 config.SonarrInstances.Add(instance);
             }
         }
-
-        plugin.SaveConfiguration();
-
-        _pluginLog.LogInfo("API", "Plugin configuration updated.", _logger);
-
-        // After saving, test all configured Arr instance connections and log warnings
-        var warnings = await TestArrConnectionsAsync(request, cancellationToken).ConfigureAwait(false);
-
-        return Ok(new { message = "Configuration saved.", warnings });
-    }
-
-    /// <summary>
-    /// Tests all configured Arr instance connections and returns warnings for unreachable ones.
-    /// Results are also logged to the PluginLogs so they appear in the log viewer.
-    /// </summary>
-    /// <param name="request">The configuration request containing instances to test.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A list of warning messages for failed connections (empty if all succeeded).</returns>
-    private async Task<List<string>> TestArrConnectionsAsync(ConfigurationUpdateRequest request, CancellationToken cancellationToken)
-    {
-        var warnings = new List<string>();
-
-        // Test Radarr instances
-        for (int i = 0; request.RadarrInstances is not null && i < request.RadarrInstances.Count; i++)
-        {
-            var instance = request.RadarrInstances[i];
-            if (string.IsNullOrWhiteSpace(instance.Url) || string.IsNullOrWhiteSpace(instance.ApiKey))
-            {
-                continue;
-            }
-
-            try
-            {
-                var (success, message) = await _arrService.TestConnectionAsync(
-                    instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
-
-                var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"Radarr #{i + 1}";
-
-                if (success)
-                {
-                    _pluginLog.LogInfo("API", $"Connection test OK for {label}: {message}", _logger);
-                }
-                else
-                {
-                    var warning = $"Radarr instance '{label}' ({instance.Url}) is not reachable: {message}";
-                    warnings.Add(warning);
-                    _pluginLog.LogWarning("API", warning, logger: _logger);
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return warnings; // User cancelled — stop testing remaining instances
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
-            {
-                var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"Radarr #{i + 1}";
-                var warning = $"Radarr instance '{label}' ({instance.Url}) connection test failed: {ex.Message}";
-                warnings.Add(warning);
-                _pluginLog.LogWarning("API", warning, ex, _logger);
-            }
-        }
-
-        // Test Sonarr instances
-        for (int i = 0; request.SonarrInstances is not null && i < request.SonarrInstances.Count; i++)
-        {
-            var instance = request.SonarrInstances[i];
-            if (string.IsNullOrWhiteSpace(instance.Url) || string.IsNullOrWhiteSpace(instance.ApiKey))
-            {
-                continue;
-            }
-
-            try
-            {
-                var (success, message) = await _arrService.TestConnectionAsync(
-                    instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
-
-                var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"Sonarr #{i + 1}";
-
-                if (success)
-                {
-                    _pluginLog.LogInfo("API", $"Connection test OK for {label}: {message}", _logger);
-                }
-                else
-                {
-                    var warning = $"Sonarr instance '{label}' ({instance.Url}) is not reachable: {message}";
-                    warnings.Add(warning);
-                    _pluginLog.LogWarning("API", warning, logger: _logger);
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return warnings; // User cancelled — stop testing remaining instances
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
-            {
-                var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"Sonarr #{i + 1}";
-                var warning = $"Sonarr instance '{label}' ({instance.Url}) connection test failed: {ex.Message}";
-                warnings.Add(warning);
-                _pluginLog.LogWarning("API", warning, ex, _logger);
-            }
-        }
-
-        return warnings;
     }
 
     /// <summary>

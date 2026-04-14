@@ -1,9 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -30,7 +28,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// considered orphaned and eligible for deletion when it contains <strong>non-metadata files</strong>
 /// (e.g. subtitles, text files) but absolutely NO video file anywhere in the tree.
 /// If at least one video file exists anywhere (even in a deeply nested subdirectory), the entire
-/// folder is left untouched � including subfolders that may not contain videos themselves
+/// folder is left untouched — including subfolders that may not contain videos themselves
 /// (e.g. empty Season folders created by Sonarr as "wanted" placeholders).
 /// </para>
 /// <para>
@@ -43,16 +41,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// created by Sonarr/Radarr for wanted media that hasn't been downloaded yet.
 /// </para>
 /// </remarks>
-public class CleanEmptyMediaFoldersTask
+public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
 {
-    private readonly ILibraryManager _libraryManager;
-    private readonly IFileSystem _fileSystem;
-    private readonly IPluginLogService _pluginLog;
-    private readonly ILogger<CleanEmptyMediaFoldersTask> _logger;
-    private readonly ICleanupConfigHelper _configHelper;
-    private readonly ICleanupTrackingService _trackingService;
-    private readonly ITrashService _trashService;
-
     /// <summary>
     /// Initializes a new instance of the <see cref="CleanEmptyMediaFoldersTask"/> class.
     /// </summary>
@@ -63,118 +53,56 @@ public class CleanEmptyMediaFoldersTask
     /// <param name="configHelper">The cleanup configuration helper.</param>
     /// <param name="trackingService">The cleanup tracking service.</param>
     /// <param name="trashService">The trash service.</param>
-    public CleanEmptyMediaFoldersTask(ILibraryManager libraryManager, IFileSystem fileSystem, IPluginLogService pluginLog, ILogger<CleanEmptyMediaFoldersTask> logger, ICleanupConfigHelper configHelper, ICleanupTrackingService trackingService, ITrashService trashService)
+    public CleanEmptyMediaFoldersTask(
+        ILibraryManager libraryManager,
+        IFileSystem fileSystem,
+        IPluginLogService pluginLog,
+        ILogger<CleanEmptyMediaFoldersTask> logger,
+        ICleanupConfigHelper configHelper,
+        ICleanupTrackingService trackingService,
+        ITrashService trashService)
+        : base(libraryManager, fileSystem, pluginLog, logger, configHelper, trackingService, trashService)
     {
-        _libraryManager = libraryManager;
-        _fileSystem = fileSystem;
-        _pluginLog = pluginLog;
-        _logger = logger;
-        _configHelper = configHelper;
-        _trackingService = trackingService;
-        _trashService = trashService;
     }
 
-    /// <summary>
-    /// Executes the empty media folder cleanup.
-    /// </summary>
-    /// <param name="progress">Progress reporter.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A completed task.</returns>
-    public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
-    {
-        var effectiveDryRun = _configHelper.IsDryRunEmptyMediaFolders();
-        var config = _configHelper.GetConfig();
+    /// <inheritdoc />
+    protected override string TaskName => "EmptyFolderCleaner";
 
-        if (effectiveDryRun)
-        {
-            _pluginLog.LogInfo("EmptyFolderCleaner", "Task started (Dry Run). No folders will be deleted.", _logger);
-        }
-        else
-        {
-            _pluginLog.LogInfo("EmptyFolderCleaner", "Task started.", _logger);
-        }
+    /// <inheritdoc />
+    protected override string ItemLabel => "folders";
 
-        if (config.OrphanMinAgeDays > 0)
-        {
-            _pluginLog.LogInfo("EmptyFolderCleaner", $"Orphan minimum age: {config.OrphanMinAgeDays} days", _logger);
-        }
+    /// <inheritdoc />
+    protected override bool IsDryRun() => ConfigHelper.IsDryRunEmptyMediaFolders();
 
-        if (config.UseTrash && !effectiveDryRun)
-        {
-            _pluginLog.LogInfo("EmptyFolderCleaner", "Trash mode enabled. Items will be moved to trash instead of permanent deletion.", _logger);
-        }
-
-        var libraryFolders = _configHelper.GetFilteredLibraryLocations(_libraryManager);
-
-        int totalDeleted = 0;
-        long totalBytesFreed = 0;
-
-        for (int i = 0; i < libraryFolders.Count; i++)
-        {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-
-            var folder = libraryFolders[i];
-            _pluginLog.LogDebug("EmptyFolderCleaner", $"Scanning library folder: {folder}", _logger);
-            var (deleted, bytesFreed) = CleanLibraryRoot(folder, effectiveDryRun, cancellationToken);
-            totalDeleted += deleted;
-            totalBytesFreed += bytesFreed;
-            progress.Report((double)(i + 1) / libraryFolders.Count * 100);
-        }
-
-        if (effectiveDryRun)
-        {
-            _pluginLog.LogInfo("EmptyFolderCleaner", $"Task finished (Dry Run). Would have deleted {totalDeleted} folders.", _logger);
-        }
-        else
-        {
-            _pluginLog.LogInfo("EmptyFolderCleaner", $"Task finished. Deleted {totalDeleted} folders, freed {totalBytesFreed} bytes.", _logger);
-        }
-
-        if (!effectiveDryRun && totalDeleted > 0)
-        {
-            _trackingService.RecordCleanup(totalBytesFreed, totalDeleted, _logger);
-        }
-
-        // Purge expired trash items if trash is enabled
-        if (config.UseTrash && !effectiveDryRun)
-        {
-            PurgeExpiredTrashForAllLibraries(libraryFolders, config.TrashRetentionDays);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    private (int Deleted, long BytesFreed) CleanLibraryRoot(string libraryRootPath, bool dryRun, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    protected override (int Deleted, long BytesFreed) ProcessLocation(string libraryPath, bool dryRun, CancellationToken cancellationToken)
     {
         int deletedCount = 0;
         long bytesFreed = 0;
-        var config = _configHelper.GetConfig();
+        var config = ConfigHelper.GetConfig();
 
         try
         {
             // Get only the direct child directories of the library root (top-level media folders).
             // Each top-level folder represents a single movie, show, etc.
-            var topLevelDirs = _fileSystem.GetDirectories(libraryRootPath, false).ToList();
+            var topLevelDirs = FileSystem.GetDirectories(libraryPath, false).ToList();
 
             foreach (var topDir in topLevelDirs.TakeWhile(_ => !cancellationToken.IsCancellationRequested))
             {
-                // Skip .trickplay folders � they are handled by CleanTrickplayTask
+                // Skip .trickplay folders — they are handled by CleanTrickplayTask
                 if (topDir.Name.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
                 // Skip trash folder
-                var trashFolderName = Path.GetFileName(_configHelper.GetTrashPath(libraryRootPath));
+                var trashFolderName = Path.GetFileName(ConfigHelper.GetTrashPath(libraryPath));
                 if (topDir.Name.Equals(trashFolderName, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                // Skip boxset/collection folders � these are Jellyfin-internal and must never be deleted.
+                // Skip boxset/collection folders — these are Jellyfin-internal and must never be deleted.
                 // They typically have "[boxset]" in the folder name or reside under a collections' path.
                 if (topDir.Name.Contains("[boxset]", StringComparison.OrdinalIgnoreCase)
                     || topDir.Name.Contains("[collection]", StringComparison.OrdinalIgnoreCase))
@@ -194,13 +122,13 @@ public class CleanEmptyMediaFoldersTask
                     continue;
                 }
 
-                // If the folder contains video files anywhere in the tree ? active media folder ? skip.
+                // If the folder contains video files anywhere in the tree → active media folder → skip.
                 if (hasVideoFiles)
                 {
                     continue;
                 }
 
-                // If the folder contains audio files, it belongs to a music library ? skip it.
+                // If the folder contains audio files, it belongs to a music library → skip it.
                 // Music folders only have audio files (no video), so they must not be treated as orphaned.
                 if (hasAudioFiles)
                 {
@@ -209,32 +137,32 @@ public class CleanEmptyMediaFoldersTask
 
                 // If the folder contains ONLY metadata/artwork files (images + NFO) but no video,
                 // audio, or other files, it's likely a placeholder created by Sonarr/Radarr
-                // for upcoming media ? skip it.
+                // for upcoming media → skip it.
                 if (!hasNonMetadataFiles)
                 {
-                    _pluginLog.LogDebug("EmptyFolderCleaner", $"Skipping metadata-only folder (likely a wanted-list placeholder): {topDir.FullName}", _logger);
+                    PluginLog.LogDebug(TaskName, $"Skipping metadata-only folder (likely a wanted-list placeholder): {topDir.FullName}", Logger);
                     continue;
                 }
 
                 // The folder has non-metadata files (e.g. subtitles, text files) but no video files
-                // anywhere in the tree ? it's an orphaned media folder whose video was deleted.
+                // anywhere in the tree → it's an orphaned media folder whose video was deleted.
 
                 // Check orphan age
-                if (!_configHelper.IsOldEnoughForDeletion(topDir.FullName))
+                if (!ConfigHelper.IsOldEnoughForDeletion(topDir.FullName))
                 {
-                    _pluginLog.LogDebug("EmptyFolderCleaner", $"Skipping too-new orphan (min age {config.OrphanMinAgeDays}d): {topDir.FullName}", _logger);
+                    PluginLog.LogDebug(TaskName, $"Skipping too-new orphan (min age {config.OrphanMinAgeDays}d): {topDir.FullName}", Logger);
                     continue;
                 }
 
                 if (dryRun)
                 {
-                    _pluginLog.LogInfo("EmptyFolderCleaner", $"[Dry Run] Would delete orphaned media folder: {topDir.FullName}", _logger);
+                    PluginLog.LogInfo(TaskName, $"[Dry Run] Would delete orphaned media folder: {topDir.FullName}", Logger);
                     deletedCount++;
                 }
                 else if (config.UseTrash)
                 {
-                    var trashPath = _configHelper.GetTrashPath(libraryRootPath);
-                    long size = _trashService.MoveToTrash(topDir.FullName, trashPath, _logger);
+                    var trashPath = ConfigHelper.GetTrashPath(libraryPath);
+                    long size = TrashService.MoveToTrash(topDir.FullName, trashPath, Logger);
                     if (size > 0)
                     {
                         bytesFreed += size;
@@ -243,24 +171,24 @@ public class CleanEmptyMediaFoldersTask
                 }
                 else
                 {
-                    _pluginLog.LogInfo("EmptyFolderCleaner", $"Deleting orphaned media folder: {topDir.FullName}", _logger);
+                    PluginLog.LogInfo(TaskName, $"Deleting orphaned media folder: {topDir.FullName}", Logger);
                     try
                     {
-                        long size = FileSystemHelper.CalculateDirectorySize(_fileSystem, topDir.FullName, _logger);
+                        long size = FileSystemHelper.CalculateDirectorySize(FileSystem, topDir.FullName, Logger);
                         Directory.Delete(topDir.FullName, true);
                         bytesFreed += size;
                         deletedCount++;
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        _pluginLog.LogError("EmptyFolderCleaner", $"Failed to delete directory: {topDir.FullName}", ex, _logger);
+                        PluginLog.LogError(TaskName, $"Failed to delete directory: {topDir.FullName}", ex, Logger);
                     }
                 }
             }
         }
         catch (Exception ex)
         {
-            _pluginLog.LogError("EmptyFolderCleaner", $"Error scanning directory: {libraryRootPath}", ex, _logger);
+            PluginLog.LogError(TaskName, $"Error scanning directory: {libraryPath}", ex, Logger);
         }
 
         return (deletedCount, bytesFreed);
@@ -281,14 +209,14 @@ public class CleanEmptyMediaFoldersTask
         bool hasNonMetadataFiles = false;
 
         // Check files in the directory itself
-        var files = _fileSystem.GetFiles(directoryPath, false);
+        var files = FileSystem.GetFiles(directoryPath, false);
         foreach (var file in files)
         {
             hasAnyFiles = true;
             var ext = Path.GetExtension(file.FullName);
             if (MediaExtensions.VideoExtensions.Contains(ext))
             {
-                // Video found � no need to scan further (video takes priority)
+                // Video found — no need to scan further (video takes priority)
                 return (true, true, hasAudioFiles, true);
             }
 
@@ -300,14 +228,14 @@ public class CleanEmptyMediaFoldersTask
             else if (!MediaExtensions.ImageExtensions.Contains(ext)
                      && !MediaExtensions.NfoExtensions.Contains(ext))
             {
-                // File is not a video, audio, image, or NFO ? it's a "non-metadata" file
+                // File is not a video, audio, image, or NFO → it's a "non-metadata" file
                 // (e.g. subtitles, text files, or other residual files from a deleted video)
                 hasNonMetadataFiles = true;
             }
         }
 
         // Check subdirectories recursively
-        var subDirs = _fileSystem.GetDirectories(directoryPath, false);
+        var subDirs = FileSystem.GetDirectories(directoryPath, false);
         foreach (var subDir in subDirs)
         {
             var (subHasAnyFiles, subHasVideoFiles, subHasAudioFiles, subHasNonMetadataFiles) = AnalyzeDirectoryRecursive(subDir.FullName);
@@ -316,27 +244,11 @@ public class CleanEmptyMediaFoldersTask
             hasNonMetadataFiles |= subHasNonMetadataFiles;
             if (subHasVideoFiles)
             {
-                // Video found deeper in the tree � no need to scan further
+                // Video found deeper in the tree — no need to scan further
                 return (true, true, hasAudioFiles, true);
             }
         }
 
         return (hasAnyFiles, false, hasAudioFiles, hasNonMetadataFiles);
-    }
-
-    private void PurgeExpiredTrashForAllLibraries(IReadOnlyList<string> libraryFolders, int retentionDays)
-    {
-        foreach (var folder in libraryFolders)
-        {
-            var trashPath = _configHelper.GetTrashPath(folder);
-            if (Directory.Exists(trashPath))
-            {
-                var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, retentionDays, _logger);
-                if (itemsPurged > 0)
-                {
-                    _pluginLog.LogInfo("EmptyFolderCleaner", $"Purged {itemsPurged} expired items from trash ({bytesFreed} bytes): {trashPath}", _logger);
-                }
-            }
-        }
     }
 }
