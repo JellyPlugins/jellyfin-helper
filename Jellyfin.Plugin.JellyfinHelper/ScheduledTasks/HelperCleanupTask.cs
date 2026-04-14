@@ -29,6 +29,7 @@ public class HelperCleanupTask : IScheduledTask
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;
     private readonly IApplicationPaths _applicationPaths;
+    private readonly IPluginLogService _pluginLog;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<HelperCleanupTask> _logger;
     private readonly MediaStatisticsService _statisticsService;
@@ -41,6 +42,7 @@ public class HelperCleanupTask : IScheduledTask
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="fileSystem">The file system.</param>
     /// <param name="applicationPaths">The application paths.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="loggerFactory">The logger factory.</param>
     /// <param name="statisticsService">The media statistics service.</param>
     /// <param name="cacheService">The statistics cache service.</param>
@@ -49,6 +51,7 @@ public class HelperCleanupTask : IScheduledTask
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
         IApplicationPaths applicationPaths,
+        IPluginLogService pluginLog,
         ILoggerFactory loggerFactory,
         MediaStatisticsService statisticsService,
         StatisticsCacheService cacheService,
@@ -57,6 +60,7 @@ public class HelperCleanupTask : IScheduledTask
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
         _applicationPaths = applicationPaths;
+        _pluginLog = pluginLog;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<HelperCleanupTask>();
         _statisticsService = statisticsService;
@@ -100,13 +104,13 @@ public class HelperCleanupTask : IScheduledTask
 
             if (mode == TaskMode.Deactivate)
             {
-                PluginLogService.LogInfo("HelperCleanup", $"Skipping {name} (deactivated in settings).", _logger);
+                _pluginLog.LogInfo("HelperCleanup", $"Skipping {name} (deactivated in settings).", _logger);
                 progress.Report((double)(i + 1) / totalTasks * 100);
                 continue;
             }
 
             var modeLabel = mode == TaskMode.DryRun ? "Dry Run" : "Active";
-            PluginLogService.LogInfo("HelperCleanup", $"Starting {name} ({modeLabel})...", _logger);
+            _pluginLog.LogInfo("HelperCleanup", $"Starting {name} ({modeLabel})...", _logger);
 
             try
             {
@@ -116,15 +120,15 @@ public class HelperCleanupTask : IScheduledTask
             }
             catch (OperationCanceledException)
             {
-                PluginLogService.LogWarning("HelperCleanup", $"Helper Cleanup was cancelled during {name}.", logger: _logger);
+                _pluginLog.LogWarning("HelperCleanup", $"Helper Cleanup was cancelled during {name}.", logger: _logger);
                 throw;
             }
             catch (Exception ex)
             {
-                PluginLogService.LogError("HelperCleanup", $"Error executing {name}. Continuing with next task.", ex, _logger);
+                _pluginLog.LogError("HelperCleanup", $"Error executing {name}. Continuing with next task.", ex, _logger);
             }
 
-            PluginLogService.LogInfo("HelperCleanup", $"Finished {name}.", _logger);
+            _pluginLog.LogInfo("HelperCleanup", $"Finished {name}.", _logger);
             progress.Report((double)(i + 1) / totalTasks * 100);
         }
 
@@ -134,7 +138,7 @@ public class HelperCleanupTask : IScheduledTask
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                PluginLogService.LogInfo("HelperCleanup", $"Running trash purge (retention: {config.TrashRetentionDays} days)...", _logger);
+                _pluginLog.LogInfo("HelperCleanup", $"Running trash purge (retention: {config.TrashRetentionDays} days)...", _logger);
 
                 var libraryLocations = LibraryPathResolver.GetDistinctLibraryLocations(_libraryManager);
                 long totalBytesFreed = 0;
@@ -144,7 +148,7 @@ public class HelperCleanupTask : IScheduledTask
                 {
                     if (string.IsNullOrWhiteSpace(config.TrashFolderPath))
                     {
-                        PluginLogService.LogWarning("HelperCleanup", $"Trash purge skipped for {location}: trash folder path is empty.", logger: _logger);
+                        _pluginLog.LogWarning("HelperCleanup", $"Trash purge skipped for {location}: trash folder path is empty.", logger: _logger);
                         continue;
                     }
 
@@ -160,32 +164,32 @@ public class HelperCleanupTask : IScheduledTask
                         trashPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, pathComparison);
                     if (!isUnderLibrary)
                     {
-                        PluginLogService.LogWarning("HelperCleanup", $"Trash purge skipped for {location}: resolved trash path {trashPath} is outside library root.", logger: _logger);
+                        _pluginLog.LogWarning("HelperCleanup", $"Trash purge skipped for {location}: resolved trash path {trashPath} is outside library root.", logger: _logger);
                         continue;
                     }
 
-                    var (bytesFreed, itemsPurged) = TrashService.PurgeExpiredTrash(trashPath, config.TrashRetentionDays, _logger);
+                    var (bytesFreed, itemsPurged) = TrashService.PurgeExpiredTrash(trashPath, config.TrashRetentionDays, _logger, _pluginLog);
                     totalBytesFreed += bytesFreed;
                     totalItemsPurged += itemsPurged;
                 }
 
                 if (totalItemsPurged > 0)
                 {
-                    PluginLogService.LogInfo("HelperCleanup", $"Trash purge completed: {totalItemsPurged} items removed, {totalBytesFreed} bytes freed.", _logger);
+                    _pluginLog.LogInfo("HelperCleanup", $"Trash purge completed: {totalItemsPurged} items removed, {totalBytesFreed} bytes freed.", _logger);
                 }
                 else
                 {
-                    PluginLogService.LogInfo("HelperCleanup", "Trash purge completed: no expired items found.", _logger);
+                    _pluginLog.LogInfo("HelperCleanup", "Trash purge completed: no expired items found.", _logger);
                 }
             }
             catch (OperationCanceledException)
             {
-                PluginLogService.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during trash purge.", logger: _logger);
+                _pluginLog.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during trash purge.", logger: _logger);
                 throw;
             }
             catch (Exception ex)
             {
-                PluginLogService.LogError("HelperCleanup", "Error during trash purge. Continuing.", ex, _logger);
+                _pluginLog.LogError("HelperCleanup", "Error during trash purge. Continuing.", ex, _logger);
             }
         }
 
@@ -196,28 +200,28 @@ public class HelperCleanupTask : IScheduledTask
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            PluginLogService.LogInfo("HelperCleanup", "Running post-cleanup statistics scan...", _logger);
+            _pluginLog.LogInfo("HelperCleanup", "Running post-cleanup statistics scan...", _logger);
             var result = _statisticsService.CalculateStatistics();
             _cacheService.SaveLatestResult(result);
-            PluginLogService.LogInfo("HelperCleanup", "Post-cleanup statistics scan completed and persisted.", _logger);
+            _pluginLog.LogInfo("HelperCleanup", "Post-cleanup statistics scan completed and persisted.", _logger);
 
             // Recompute growth timeline
             cancellationToken.ThrowIfCancellationRequested();
-            PluginLogService.LogInfo("HelperCleanup", "Recomputing growth timeline...", _logger);
+            _pluginLog.LogInfo("HelperCleanup", "Recomputing growth timeline...", _logger);
             await _growthService.ComputeTimelineAsync(cancellationToken).ConfigureAwait(false);
-            PluginLogService.LogInfo("HelperCleanup", "Growth timeline recomputed and persisted.", _logger);
+            _pluginLog.LogInfo("HelperCleanup", "Growth timeline recomputed and persisted.", _logger);
         }
         catch (OperationCanceledException)
         {
-            PluginLogService.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during post-cleanup statistics scan.", logger: _logger);
+            _pluginLog.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during post-cleanup statistics scan.", logger: _logger);
             throw;
         }
         catch (Exception ex)
         {
-            PluginLogService.LogWarning("HelperCleanup", "Failed to run post-cleanup statistics scan.", ex, _logger);
+            _pluginLog.LogWarning("HelperCleanup", "Failed to run post-cleanup statistics scan.", ex, _logger);
         }
 
-        PluginLogService.LogInfo("HelperCleanup", "Helper Cleanup finished.", _logger);
+        _pluginLog.LogInfo("HelperCleanup", "Helper Cleanup finished.", _logger);
     }
 
     /// <inheritdoc />
@@ -239,6 +243,7 @@ public class HelperCleanupTask : IScheduledTask
         var task = new CleanTrickplayTask(
             _libraryManager,
             _fileSystem,
+            _pluginLog,
             _loggerFactory.CreateLogger<CleanTrickplayTask>());
         return task.ExecuteAsync(progress, cancellationToken);
     }
@@ -248,6 +253,7 @@ public class HelperCleanupTask : IScheduledTask
         var task = new CleanEmptyMediaFoldersTask(
             _libraryManager,
             _fileSystem,
+            _pluginLog,
             _loggerFactory.CreateLogger<CleanEmptyMediaFoldersTask>());
         return task.ExecuteAsync(progress, cancellationToken);
     }
@@ -257,6 +263,7 @@ public class HelperCleanupTask : IScheduledTask
         var task = new CleanOrphanedSubtitlesTask(
             _libraryManager,
             _fileSystem,
+            _pluginLog,
             _loggerFactory.CreateLogger<CleanOrphanedSubtitlesTask>());
         return task.ExecuteAsync(progress, cancellationToken);
     }
@@ -275,12 +282,12 @@ public class HelperCleanupTask : IScheduledTask
             if (File.Exists(legacyFilePath))
             {
                 File.Delete(legacyFilePath);
-                PluginLogService.LogInfo("HelperCleanup", $"Deleted legacy statistics history file: {legacyFilePath}", _logger);
+                _pluginLog.LogInfo("HelperCleanup", $"Deleted legacy statistics history file: {legacyFilePath}", _logger);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            PluginLogService.LogWarning("HelperCleanup", $"Could not delete legacy statistics history file: {legacyFilePath}", ex, _logger);
+            _pluginLog.LogWarning("HelperCleanup", $"Could not delete legacy statistics history file: {legacyFilePath}", ex, _logger);
         }
     }
 
@@ -289,6 +296,7 @@ public class HelperCleanupTask : IScheduledTask
         var task = new RepairStrmFilesTask(
             _loggerFactory.CreateLogger<RepairStrmFilesTask>(),
             _libraryManager,
+            _pluginLog,
             new FileSystem(),
             _loggerFactory.CreateLogger<StrmRepairService>());
         return task.ExecuteAsync(progress, cancellationToken);

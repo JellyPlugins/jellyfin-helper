@@ -25,16 +25,19 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 public class ConfigurationController : ControllerBase
 {
     private readonly ArrIntegrationService _arrService;
+    private readonly IPluginLogService _pluginLog;
     private readonly ILogger<ConfigurationController> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ConfigurationController"/> class.
     /// </summary>
     /// <param name="arrService">The Arr integration service for connection testing.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The controller logger.</param>
-    public ConfigurationController(ArrIntegrationService arrService, ILogger<ConfigurationController> logger)
+    public ConfigurationController(ArrIntegrationService arrService, IPluginLogService pluginLog, ILogger<ConfigurationController> logger)
     {
         _arrService = arrService;
+        _pluginLog = pluginLog;
         _logger = logger;
     }
 
@@ -151,7 +154,7 @@ public class ConfigurationController : ControllerBase
 
         plugin.SaveConfiguration();
 
-        PluginLogService.LogInfo("API", "Plugin configuration updated.", _logger);
+        _pluginLog.LogInfo("API", "Plugin configuration updated.", _logger);
 
         // After saving, test all configured Arr instance connections and log warnings
         var warnings = await TestArrConnectionsAsync(request, cancellationToken).ConfigureAwait(false);
@@ -188,13 +191,13 @@ public class ConfigurationController : ControllerBase
 
                 if (success)
                 {
-                    PluginLogService.LogInfo("API", $"Connection test OK for {label}: {message}", _logger);
+                    _pluginLog.LogInfo("API", $"Connection test OK for {label}: {message}", _logger);
                 }
                 else
                 {
                     var warning = $"Radarr instance '{label}' ({instance.Url}) is not reachable: {message}";
                     warnings.Add(warning);
-                    PluginLogService.LogWarning("API", warning, logger: _logger);
+                    _pluginLog.LogWarning("API", warning, logger: _logger);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -206,7 +209,7 @@ public class ConfigurationController : ControllerBase
                 var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"Radarr #{i + 1}";
                 var warning = $"Radarr instance '{label}' ({instance.Url}) connection test failed: {ex.Message}";
                 warnings.Add(warning);
-                PluginLogService.LogWarning("API", warning, ex, _logger);
+                _pluginLog.LogWarning("API", warning, ex, _logger);
             }
         }
 
@@ -228,13 +231,13 @@ public class ConfigurationController : ControllerBase
 
                 if (success)
                 {
-                    PluginLogService.LogInfo("API", $"Connection test OK for {label}: {message}", _logger);
+                    _pluginLog.LogInfo("API", $"Connection test OK for {label}: {message}", _logger);
                 }
                 else
                 {
                     var warning = $"Sonarr instance '{label}' ({instance.Url}) is not reachable: {message}";
                     warnings.Add(warning);
-                    PluginLogService.LogWarning("API", warning, logger: _logger);
+                    _pluginLog.LogWarning("API", warning, logger: _logger);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -246,7 +249,7 @@ public class ConfigurationController : ControllerBase
                 var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"Sonarr #{i + 1}";
                 var warning = $"Sonarr instance '{label}' ({instance.Url}) connection test failed: {ex.Message}";
                 warnings.Add(warning);
-                PluginLogService.LogWarning("API", warning, ex, _logger);
+                _pluginLog.LogWarning("API", warning, ex, _logger);
             }
         }
 

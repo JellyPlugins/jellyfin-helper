@@ -30,6 +30,7 @@ public class ArrIntegrationController : ControllerBase
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;
     private readonly ArrIntegrationService _arrService;
+    private readonly IPluginLogService _pluginLog;
     private readonly ILogger<ArrIntegrationController> _logger;
 
     /// <summary>
@@ -38,16 +39,19 @@ public class ArrIntegrationController : ControllerBase
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="fileSystem">The file system.</param>
     /// <param name="arrService">The Arr integration service.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The controller logger.</param>
     public ArrIntegrationController(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
         ArrIntegrationService arrService,
+        IPluginLogService pluginLog,
         ILogger<ArrIntegrationController> logger)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
         _arrService = arrService;
+        _pluginLog = pluginLog;
         _logger = logger;
     }
 
@@ -214,7 +218,7 @@ public class ArrIntegrationController : ControllerBase
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    PluginLogService.LogWarning("API", $"Could not list directories in {location}", ex, _logger);
+                    _pluginLog.LogWarning("API", $"Could not list directories in {location}", ex, _logger);
                 }
             }
         }

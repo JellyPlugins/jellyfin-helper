@@ -23,7 +23,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         _libraryManagerMock = TestMockFactory.CreateLibraryManager();
         _fileSystemMock = TestMockFactory.CreateFileSystem();
         _loggerMock = TestMockFactory.CreateLogger<CleanEmptyMediaFoldersTask>();
-        _task = new CleanEmptyMediaFoldersTask(_libraryManagerMock.Object, _fileSystemMock.Object, _loggerMock.Object);
+        _task = new CleanEmptyMediaFoldersTask(_libraryManagerMock.Object, _fileSystemMock.Object, new Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.PluginLogService(), _loggerMock.Object);
 
         // Default: DryRun ON — most tests check dry-run log messages
         // (Config from base class already has DryRun defaults)

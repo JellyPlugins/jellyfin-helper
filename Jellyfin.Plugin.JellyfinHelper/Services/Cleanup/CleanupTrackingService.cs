@@ -20,15 +20,16 @@ public static class CleanupTrackingService
     /// <param name="bytesFreed">The number of bytes freed.</param>
     /// <param name="itemsDeleted">The number of items deleted.</param>
     /// <param name="logger">The logger.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="pluginInstance">Optional plugin instance to use; if null, uses the static <see cref="Plugin.Instance"/>.</param>
-    public static void RecordCleanup(long bytesFreed, int itemsDeleted, ILogger logger, Plugin? pluginInstance = null)
+    public static void RecordCleanup(long bytesFreed, int itemsDeleted, ILogger logger, IPluginLogService? pluginLog = null, Plugin? pluginInstance = null)
     {
         var plugin = pluginInstance ?? Plugin.Instance;
 
         // In test context, ConfigOverride might be used even if Plugin.Instance is null.
         if (plugin == null && CleanupConfigHelper.ConfigOverride == null)
         {
-            PluginLogService.LogWarning("CleanupTracking", "Plugin instance is null, cannot record cleanup statistics.", logger: logger);
+            pluginLog?.LogWarning("CleanupTracking", "Plugin instance is null, cannot record cleanup statistics.", logger: logger);
             return;
         }
 
@@ -41,7 +42,7 @@ public static class CleanupTrackingService
 
             plugin?.SaveConfiguration();
 
-            PluginLogService.LogInfo("CleanupTracking", $"Cleanup recorded: {bytesFreed} bytes freed, {itemsDeleted} items deleted. Lifetime total: {config.TotalBytesFreed} bytes, {config.TotalItemsDeleted} items.", logger);
+            pluginLog?.LogInfo("CleanupTracking", $"Cleanup recorded: {bytesFreed} bytes freed, {itemsDeleted} items deleted. Lifetime total: {config.TotalBytesFreed} bytes, {config.TotalItemsDeleted} items.", logger);
         }
     }
 

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Xunit;
@@ -733,7 +734,7 @@ public class BackupServiceTests
             File.WriteAllText(Path.Combine(tempDir, "jellyfin-helper-growth-baseline.json"), JsonSerializer.Serialize(baseline));
 
             var logger = TestMockFactory.CreateLogger();
-            var service = new BackupService(tempDir, logger.Object);
+            var service = new BackupService(tempDir, new PluginLogService(), logger.Object);
 
             var backup = service.CreateBackup();
 
@@ -759,7 +760,7 @@ public class BackupServiceTests
         try
         {
             var logger = TestMockFactory.CreateLogger();
-            var service = new BackupService(tempDir, logger.Object);
+            var service = new BackupService(tempDir, new PluginLogService(), logger.Object);
 
             var backup = CreateValidBackup();
             backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
@@ -796,7 +797,7 @@ public class BackupServiceTests
         try
         {
             var logger = TestMockFactory.CreateLogger();
-            var service = new BackupService(tempDir, logger.Object);
+            var service = new BackupService(tempDir, new PluginLogService(), logger.Object);
 
             var backup = CreateValidBackup();
             backup.GrowthTimeline = null;

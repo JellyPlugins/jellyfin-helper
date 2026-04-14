@@ -13,7 +13,7 @@ public class StrmRepairServiceTests
     public StrmRepairServiceTests()
     {
         _fileSystem = new MockFileSystem();
-        _service = new StrmRepairService(_fileSystem, TestMockFactory.CreateLogger<StrmRepairService>().Object);
+        _service = new StrmRepairService(_fileSystem, new Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.PluginLogService(), TestMockFactory.CreateLogger<StrmRepairService>().Object);
     }
 
     [Fact]

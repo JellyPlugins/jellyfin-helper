@@ -1,4 +1,5 @@
 using System.Net;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Common.Configuration;
@@ -85,6 +86,7 @@ public static class TestMockFactory
         var mock = new Mock<MediaStatisticsService>(
             CreateLibraryManager().Object,
             CreateFileSystem().Object,
+            new PluginLogService(),
             new Mock<ILogger<MediaStatisticsService>>().Object);
         return mock;
     }
@@ -94,6 +96,7 @@ public static class TestMockFactory
     {
         var mock = new Mock<StatisticsCacheService>(
             appPaths,
+            new PluginLogService(),
             new Mock<ILogger<StatisticsCacheService>>().Object);
         return mock;
     }
@@ -104,6 +107,7 @@ public static class TestMockFactory
         var mock = new Mock<GrowthTimelineService>(
             CreateLibraryManager().Object,
             CreateFileSystem().Object,
+            new PluginLogService(),
             appPaths,
             new Mock<ILogger<GrowthTimelineService>>().Object);
         return mock;

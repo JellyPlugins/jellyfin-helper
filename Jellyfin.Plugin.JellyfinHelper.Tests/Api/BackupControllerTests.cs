@@ -13,10 +13,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 [Collection("ConfigOverride")]
 public class BackupControllerTests
 {
+    private readonly PluginLogService _log = new();
+
     [Fact]
     public void ExportBackup_WhenPayloadIsLargeButWithinLimit_ReturnsFileAndLogsWarning()
     {
-        PluginLogService.Clear();
+        _log.Clear();
         var tempDir = CreateTempDir();
         try
         {
@@ -31,14 +33,14 @@ public class BackupControllerTests
             var fileResult = Assert.IsType<FileContentResult>(result);
             Assert.Equal("application/json", fileResult.ContentType);
 
-            var logs = PluginLogService.GetEntries(source: "API", limit: 20);
+            var logs = _log.GetEntries(source: "API", limit: 20);
             Assert.Contains(logs,
                 entry => entry.Level == "WARN" &&
                          entry.Message.Contains("Large backup export created", StringComparison.Ordinal));
         }
         finally
         {
-            PluginLogService.Clear();
+            _log.Clear();
             Directory.Delete(tempDir, true);
         }
     }
@@ -46,7 +48,7 @@ public class BackupControllerTests
     [Fact]
     public void ExportBackup_WhenPayloadExceedsLimit_ReturnsBadRequestAndLogsWarning()
     {
-        PluginLogService.Clear();
+        _log.Clear();
         var tempDir = CreateTempDir();
         try
         {
@@ -62,14 +64,14 @@ public class BackupControllerTests
             var payloadJson = JsonSerializer.Serialize(badRequest.Value);
             Assert.Contains("Maximum size is 10 MB", payloadJson, StringComparison.Ordinal);
 
-            var logs = PluginLogService.GetEntries(source: "API", limit: 20);
+            var logs = _log.GetEntries(source: "API", limit: 20);
             Assert.Contains(logs,
                 entry => entry.Level == "WARN" &&
                          entry.Message.Contains("Backup export rejected", StringComparison.Ordinal));
         }
         finally
         {
-            PluginLogService.Clear();
+            _log.Clear();
             Directory.Delete(tempDir, true);
         }
     }
@@ -77,7 +79,7 @@ public class BackupControllerTests
     [Fact]
     public async Task ImportBackup_WhenContentLengthExceedsLimit_ReturnsBadRequest()
     {
-        PluginLogService.Clear();
+        _log.Clear();
         var tempDir = CreateTempDir();
         try
         {
@@ -92,7 +94,7 @@ public class BackupControllerTests
         }
         finally
         {
-            PluginLogService.Clear();
+            _log.Clear();
             Directory.Delete(tempDir, true);
         }
     }
@@ -100,7 +102,7 @@ public class BackupControllerTests
     [Fact]
     public async Task ImportBackup_WhenContentLengthIsLargeButWithinLimit_LogsWarning()
     {
-        PluginLogService.Clear();
+        _log.Clear();
         var tempDir = CreateTempDir();
         try
         {
@@ -112,14 +114,14 @@ public class BackupControllerTests
 
             // The body is only "{}" so deserialization will produce a default BackupData
             // which passes validation — we just want to verify the warning was logged
-            var logs = PluginLogService.GetEntries(source: "API", limit: 20);
+            var logs = _log.GetEntries(source: "API", limit: 20);
             Assert.Contains(logs,
                 entry => entry.Level == "WARN" &&
                          entry.Message.Contains("Large backup import detected", StringComparison.Ordinal));
         }
         finally
         {
-            PluginLogService.Clear();
+            _log.Clear();
             Directory.Delete(tempDir, true);
         }
     }
@@ -127,7 +129,7 @@ public class BackupControllerTests
     [Fact]
     public async Task ImportBackup_WhenBodyIsEmpty_ReturnsBadRequest()
     {
-        PluginLogService.Clear();
+        _log.Clear();
         var tempDir = CreateTempDir();
         try
         {
@@ -141,7 +143,7 @@ public class BackupControllerTests
         }
         finally
         {
-            PluginLogService.Clear();
+            _log.Clear();
             Directory.Delete(tempDir, true);
         }
     }
@@ -149,7 +151,7 @@ public class BackupControllerTests
     [Fact]
     public async Task ExportBackup_ThenImportBackup_RoundTripsSuccessfully()
     {
-        PluginLogService.Clear();
+        _log.Clear();
         var tempDir = CreateTempDir();
         try
         {
@@ -180,15 +182,15 @@ public class BackupControllerTests
         }
         finally
         {
-            PluginLogService.Clear();
+            _log.Clear();
             Directory.Delete(tempDir, true);
         }
     }
 
-    private static BackupController CreateController(string dataPath)
-        => ControllerTestFactory.CreateBackupController(dataPath: dataPath);
+    private BackupController CreateController(string dataPath)
+        => ControllerTestFactory.CreateBackupController(dataPath: dataPath, pluginLog: _log);
 
-    private static BackupController CreateControllerWithJsonBody(string dataPath, string jsonBody,
+    private BackupController CreateControllerWithJsonBody(string dataPath, string jsonBody,
         long? contentLength = null)
         => (BackupController)ControllerTestFactory.AddJsonBodyToController(CreateController(dataPath), jsonBody,
             contentLength);

@@ -15,10 +15,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 /// in-memory buffer AND Jellyfin's standard logging pipeline.
 /// Respects the configured minimum log level from <see cref="Configuration.PluginConfiguration"/>.
 /// </summary>
-public static class PluginLogService
+public class PluginLogService : IPluginLogService
 {
-    private static readonly object Lock = new();
-    private static readonly LinkedList<PluginLogEntry> Buffer = new();
+    private readonly object _lock = new();
+    private readonly LinkedList<PluginLogEntry> _buffer = new();
 
     /// <summary>
     /// Maximum number of entries stored in the ring buffer.
@@ -34,7 +34,7 @@ public static class PluginLogService
     /// Gets or sets an optional override for the minimum log level. Used by unit tests.
     /// When set to a non-null value, this overrides the plugin configuration.
     /// </summary>
-    internal static string? TestMinLevelOverride { get; set; }
+    internal string? TestMinLevelOverride { get; set; }
 
     /// <summary>
     /// Logs a debug-level message to the plugin buffer and optionally to Jellyfin's logger.
@@ -42,7 +42,7 @@ public static class PluginLogService
     /// <param name="source">The source component.</param>
     /// <param name="message">The log message.</param>
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
-    public static void LogDebug(string source, string message, ILogger? logger = null)
+    public void LogDebug(string source, string message, ILogger? logger = null)
     {
         logger?.LogDebug("[{Source}] {Message}", source, message);
         AddEntry("DEBUG", source, message, null);
@@ -54,7 +54,7 @@ public static class PluginLogService
     /// <param name="source">The source component.</param>
     /// <param name="message">The log message.</param>
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
-    public static void LogInfo(string source, string message, ILogger? logger = null)
+    public void LogInfo(string source, string message, ILogger? logger = null)
     {
         logger?.LogInformation("[{Source}] {Message}", source, message);
         AddEntry("INFO", source, message, null);
@@ -67,7 +67,7 @@ public static class PluginLogService
     /// <param name="message">The log message.</param>
     /// <param name="exception">Optional exception.</param>
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
-    public static void LogWarning(string source, string message, Exception? exception = null, ILogger? logger = null)
+    public void LogWarning(string source, string message, Exception? exception = null, ILogger? logger = null)
     {
         if (exception != null)
         {
@@ -88,7 +88,7 @@ public static class PluginLogService
     /// <param name="message">The log message.</param>
     /// <param name="exception">Optional exception.</param>
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
-    public static void LogError(string source, string message, Exception? exception = null, ILogger? logger = null)
+    public void LogError(string source, string message, Exception? exception = null, ILogger? logger = null)
     {
         if (exception != null)
         {
@@ -110,11 +110,11 @@ public static class PluginLogService
     /// <param name="source">Optional source filter (partial match).</param>
     /// <param name="limit">Maximum number of entries to return (default 500).</param>
     /// <returns>A read-only collection of matching log entries, newest first.</returns>
-    public static ReadOnlyCollection<PluginLogEntry> GetEntries(string? minLevel = null, string? source = null, int limit = 500)
+    public ReadOnlyCollection<PluginLogEntry> GetEntries(string? minLevel = null, string? source = null, int limit = 500)
     {
-        lock (Lock)
+        lock (_lock)
         {
-            IEnumerable<PluginLogEntry> query = Buffer;
+            IEnumerable<PluginLogEntry> query = _buffer;
 
             if (!string.IsNullOrEmpty(minLevel))
             {
@@ -135,22 +135,22 @@ public static class PluginLogService
     /// Gets the total number of entries currently stored.
     /// </summary>
     /// <returns>The entry count.</returns>
-    public static int GetCount()
+    public int GetCount()
     {
-        lock (Lock)
+        lock (_lock)
         {
-            return Buffer.Count;
+            return _buffer.Count;
         }
     }
 
     /// <summary>
     /// Clears all log entries.
     /// </summary>
-    public static void Clear()
+    public void Clear()
     {
-        lock (Lock)
+        lock (_lock)
         {
-            Buffer.Clear();
+            _buffer.Clear();
         }
     }
 
@@ -160,7 +160,7 @@ public static class PluginLogService
     /// <param name="minLevel">Optional minimum level filter.</param>
     /// <param name="source">Optional source filter (partial match).</param>
     /// <returns>A formatted log string.</returns>
-    public static string ExportAsText(string? minLevel = null, string? source = null)
+    public string ExportAsText(string? minLevel = null, string? source = null)
     {
         var entries = new List<PluginLogEntry>(GetEntries(minLevel, source, MaxEntries));
         var sb = new StringBuilder();
@@ -195,7 +195,7 @@ public static class PluginLogService
     /// Returns "INFO" if no configuration is available.
     /// </summary>
     /// <returns>The minimum log level string.</returns>
-    internal static string GetConfiguredMinLevel()
+    internal string GetConfiguredMinLevel()
     {
         if (TestMinLevelOverride != null)
         {
@@ -236,7 +236,7 @@ public static class PluginLogService
         return 1; // Default to INFO
     }
 
-    private static void AddEntry(string level, string source, string message, Exception? exception)
+    private void AddEntry(string level, string source, string message, Exception? exception)
     {
         // Check against configured minimum level
         string minLevel = GetConfiguredMinLevel();
@@ -254,13 +254,13 @@ public static class PluginLogService
             Exception = exception?.ToString(),
         };
 
-        lock (Lock)
+        lock (_lock)
         {
-            Buffer.AddFirst(entry); // Newest first
+            _buffer.AddFirst(entry); // Newest first
 
-            while (Buffer.Count > MaxEntries)
+            while (_buffer.Count > MaxEntries)
             {
-                Buffer.RemoveLast();
+                _buffer.RemoveLast();
             }
         }
     }

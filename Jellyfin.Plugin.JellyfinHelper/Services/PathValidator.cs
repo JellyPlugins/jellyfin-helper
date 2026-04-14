@@ -15,12 +15,13 @@ internal static class PathValidator
     /// </summary>
     /// <param name="path">The path to validate.</param>
     /// <param name="allowedBaseDirectory">The allowed base directory.</param>
+    /// <param name="pluginLog">Optional plugin log service for diagnostics.</param>
     /// <returns><c>true</c> if the path is safe; <c>false</c> otherwise.</returns>
-    internal static bool IsSafePath(string? path, string allowedBaseDirectory)
+    internal static bool IsSafePath(string? path, string allowedBaseDirectory, IPluginLogService? pluginLog = null)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
-            PluginLogService.LogDebug("PathValidator", "Rejected empty or whitespace path.");
+            pluginLog?.LogDebug("PathValidator", "Path validation failed: path is empty or null.");
             return false;
         }
 
@@ -28,7 +29,7 @@ internal static class PathValidator
         if (path.Contains("..", StringComparison.Ordinal) ||
             path.Contains('\0', StringComparison.Ordinal))
         {
-            PluginLogService.LogWarning("PathValidator", $"Rejected path with traversal pattern: {path}");
+            pluginLog?.LogWarning("PathValidator", $"Path validation failed: traversal pattern detected in '{path}'.");
             return false;
         }
 
@@ -47,7 +48,6 @@ internal static class PathValidator
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            PluginLogService.LogWarning("PathValidator", $"Path validation failed for '{path}': {ex.Message}");
             return false;
         }
     }

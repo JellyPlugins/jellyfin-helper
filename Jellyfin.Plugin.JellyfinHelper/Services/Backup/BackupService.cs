@@ -118,16 +118,19 @@ public class BackupService
         TimeSpan.FromSeconds(1));
 
     private readonly string _dataPath;
+    private readonly IPluginLogService _pluginLog;
     private readonly ILogger _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BackupService"/> class.
     /// </summary>
     /// <param name="applicationPaths">The application paths.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
-    public BackupService(IApplicationPaths applicationPaths, ILogger logger)
+    public BackupService(IApplicationPaths applicationPaths, IPluginLogService pluginLog, ILogger logger)
     {
         _dataPath = applicationPaths.DataPath;
+        _pluginLog = pluginLog;
         _logger = logger;
     }
 
@@ -135,10 +138,12 @@ public class BackupService
     /// Initializes a new instance of the <see cref="BackupService"/> class for testing.
     /// </summary>
     /// <param name="dataPath">The data path.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
-    internal BackupService(string dataPath, ILogger logger)
+    internal BackupService(string dataPath, IPluginLogService pluginLog, ILogger logger)
     {
         _dataPath = dataPath;
+        _pluginLog = pluginLog;
         _logger = logger;
     }
 
@@ -148,7 +153,7 @@ public class BackupService
     /// <returns>The backup data object ready for serialization.</returns>
     public BackupData CreateBackup()
     {
-        PluginLogService.LogInfo("Backup", "Creating plugin backup...", _logger);
+        _pluginLog.LogInfo("Backup", "Creating plugin backup...", _logger);
 
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var backup = new BackupData
@@ -205,7 +210,7 @@ public class BackupService
         backup.GrowthBaseline = LoadJsonFile<GrowthTimelineBaseline>(
             Path.Combine(_dataPath, "jellyfin-helper-growth-baseline.json"));
 
-        PluginLogService.LogInfo("Backup", $"Backup created: timeline={backup.GrowthTimeline != null}, baseline={backup.GrowthBaseline != null}", _logger);
+        _pluginLog.LogInfo("Backup", $"Backup created: timeline={backup.GrowthTimeline != null}, baseline={backup.GrowthBaseline != null}", _logger);
         return backup;
     }
 
@@ -344,7 +349,7 @@ public class BackupService
 
         var summary = new BackupRestoreSummary();
 
-        PluginLogService.LogInfo("Backup", "Starting backup restore...", _logger);
+        _pluginLog.LogInfo("Backup", "Starting backup restore...", _logger);
 
         // Restore configuration
         RestoreConfiguration(backup, summary);
@@ -356,7 +361,7 @@ public class BackupService
                 backup.GrowthTimeline))
         {
             summary.TimelineRestored = true;
-            PluginLogService.LogInfo("Backup", $"Restored growth timeline ({backup.GrowthTimeline.DataPoints.Count} data points)", _logger);
+            _pluginLog.LogInfo("Backup", $"Restored growth timeline ({backup.GrowthTimeline.DataPoints.Count} data points)", _logger);
         }
 
         // Restore growth baseline
@@ -366,10 +371,10 @@ public class BackupService
                 backup.GrowthBaseline))
         {
             summary.BaselineRestored = true;
-            PluginLogService.LogInfo("Backup", $"Restored growth baseline ({backup.GrowthBaseline.Directories.Count} directories)", _logger);
+            _pluginLog.LogInfo("Backup", $"Restored growth baseline ({backup.GrowthBaseline.Directories.Count} directories)", _logger);
         }
 
-        PluginLogService.LogInfo("Backup", $"Backup restore complete. Config={summary.ConfigurationRestored}, Timeline={summary.TimelineRestored}, Baseline={summary.BaselineRestored}", _logger);
+        _pluginLog.LogInfo("Backup", $"Backup restore complete. Config={summary.ConfigurationRestored}, Timeline={summary.TimelineRestored}, Baseline={summary.BaselineRestored}", _logger);
         return summary;
     }
 
@@ -634,7 +639,7 @@ public class BackupService
         var plugin = Plugin.Instance;
         if (plugin == null)
         {
-            PluginLogService.LogWarning("Backup", "Plugin instance not available, skipping configuration restore.", logger: _logger);
+            _pluginLog.LogWarning("Backup", "Plugin instance not available, skipping configuration restore.", logger: _logger);
             return;
         }
 
@@ -706,7 +711,7 @@ public class BackupService
 
         plugin.SaveConfiguration();
         summary.ConfigurationRestored = true;
-        PluginLogService.LogInfo("Backup", "Configuration restored from backup.", _logger);
+        _pluginLog.LogInfo("Backup", "Configuration restored from backup.", _logger);
     }
 
     private static TaskMode ParseTaskMode(string? value)
@@ -798,7 +803,7 @@ public class BackupService
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
-            PluginLogService.LogWarning("Backup", $"Could not load {filePath} for backup", ex, _logger);
+            _pluginLog.LogWarning("Backup", $"Could not load {filePath} for backup", ex, _logger);
             return null;
         }
     }
@@ -819,7 +824,7 @@ public class BackupService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            PluginLogService.LogError("Backup", $"Could not save {filePath} during restore", ex, _logger);
+            _pluginLog.LogError("Backup", $"Could not save {filePath} during restore", ex, _logger);
             return false;
         }
     }

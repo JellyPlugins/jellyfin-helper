@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
 
@@ -41,7 +40,6 @@ public static class FileSystemHelper
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            PluginLogService.LogWarning("FileSystem", $"Could not access directory: {directoryPath}", ex, logger);
         }
 
         return totalSize;

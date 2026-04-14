@@ -23,7 +23,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         _libraryManagerMock = TestMockFactory.CreateLibraryManager();
         _fileSystemMock = TestMockFactory.CreateFileSystem();
         _loggerMock = TestMockFactory.CreateLogger<CleanTrickplayTask>();
-        _task = new CleanTrickplayTask(_libraryManagerMock.Object, _fileSystemMock.Object, _loggerMock.Object);
+        _task = new CleanTrickplayTask(_libraryManagerMock.Object, _fileSystemMock.Object, new Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.PluginLogService(), _loggerMock.Object);
 
         // Default: DryRun OFF for most existing tests (non-dry-run behavior)
         Config.TrickplayTaskMode = TaskMode.Activate;

@@ -24,18 +24,22 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 public class TrashController : ControllerBase
 {
     private readonly ILibraryManager _libraryManager;
+    private readonly IPluginLogService _pluginLog;
     private readonly ILogger<TrashController> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TrashController"/> class.
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The controller logger.</param>
     public TrashController(
         ILibraryManager libraryManager,
+        IPluginLogService pluginLog,
         ILogger<TrashController> logger)
     {
         _libraryManager = libraryManager;
+        _pluginLog = pluginLog;
         _logger = logger;
     }
 
@@ -128,7 +132,7 @@ public class TrashController : ControllerBase
             var fullPath = Path.GetFullPath(config.TrashFolderPath);
             if (!IsPathSafeForDeletion(fullPath, libraryFolders))
             {
-                PluginLogService.LogWarning("API", $"Refusing to delete unsafe trash path: {fullPath}", logger: _logger);
+                _pluginLog.LogWarning("API", $"Refusing to delete unsafe trash path: {fullPath}", logger: _logger);
                 return BadRequest(new { Error = "Configured trash path is unsafe for deletion (filesystem root or library root)." });
             }
 
@@ -145,7 +149,7 @@ public class TrashController : ControllerBase
                 var libraryRoot = Path.GetFullPath(folder);
                 if (!trashPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 {
-                    PluginLogService.LogWarning("API", $"Refusing to delete trash path {trashPath}: it escapes library root {libraryRoot}.", logger: _logger);
+                    _pluginLog.LogWarning("API", $"Refusing to delete trash path {trashPath}: it escapes library root {libraryRoot}.", logger: _logger);
                     continue;
                 }
 
@@ -162,12 +166,12 @@ public class TrashController : ControllerBase
             {
                 Directory.Delete(path, true);
                 deleted.Add(path);
-                PluginLogService.LogInfo("API", $"Deleted trash folder: {path}", _logger);
+                _pluginLog.LogInfo("API", $"Deleted trash folder: {path}", _logger);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 failed.Add(path);
-                PluginLogService.LogError("API", $"Failed to delete trash folder: {path}", ex, _logger);
+                _pluginLog.LogError("API", $"Failed to delete trash folder: {path}", ex, _logger);
             }
         }
 

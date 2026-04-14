@@ -19,7 +19,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Statistics
             _libraryManagerMock = TestMockFactory.CreateLibraryManager();
             _fileSystemMock = TestMockFactory.CreateFileSystem();
             var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
-            _service = new MediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object, loggerMock.Object);
+            _service = new MediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object, new Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.PluginLogService(), loggerMock.Object);
         }
 
         private string TestPath(params string[] segments) => string.Join(Path.DirectorySeparatorChar.ToString(), segments);

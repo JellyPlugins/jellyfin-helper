@@ -9,16 +9,17 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 [Collection("ConfigOverride")]
 public class I18NServiceTests : IDisposable
 {
+    private readonly PluginLogService _log = new();
     public I18NServiceTests()
     {
-        PluginLogService.TestMinLevelOverride = "DEBUG";
-        PluginLogService.Clear();
+        _log.TestMinLevelOverride = "DEBUG";
+        _log.Clear();
     }
 
     public void Dispose()
     {
-        PluginLogService.Clear();
-        PluginLogService.TestMinLevelOverride = null;
+        _log.Clear();
+        _log.TestMinLevelOverride = null;
     }
 
     // ===== SupportedLanguages Tests =====
@@ -387,21 +388,21 @@ public class I18NServiceTests : IDisposable
     [Fact]
     public void GetTranslations_UnknownLanguage_LogsDebugFallback()
     {
-        PluginLogService.Clear();
-        I18nService.GetTranslations("xx");
+        _log.Clear();
+        I18nService.GetTranslations("xx", _log);
 
-        var entries = PluginLogService.GetEntries(minLevel: "DEBUG", source: "I18n");
+        var entries = _log.GetEntries(minLevel: "DEBUG", source: "I18n");
         Assert.Contains(entries, e => e.Message.Contains("falling back", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
     public void GetTranslations_ValidLanguage_LogsLoadedKeys()
     {
-        PluginLogService.Clear();
+        _log.Clear();
         // Force a fresh load by using a language that is supported
-        I18nService.GetTranslations("en");
+        I18nService.GetTranslations("en", _log);
 
-        var entries = PluginLogService.GetEntries(minLevel: "DEBUG", source: "I18n");
+        var entries = _log.GetEntries(minLevel: "DEBUG", source: "I18n");
         // The "Loaded X translation keys" log may or may not appear (cached), but it should not error
         Assert.DoesNotContain(entries, e => e.Level == "ERROR");
     }

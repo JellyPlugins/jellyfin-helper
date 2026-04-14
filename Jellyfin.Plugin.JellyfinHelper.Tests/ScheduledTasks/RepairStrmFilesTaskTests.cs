@@ -16,10 +16,12 @@ public class RepairStrmFilesTaskTests
     private static RepairStrmFilesTask CreateTask()
     {
         var fileSystem = new MockFileSystem();
-        var service = new StrmRepairService(fileSystem, TestMockFactory.CreateLogger<StrmRepairService>().Object);
+        var pluginLog = new Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.PluginLogService();
+        var service = new StrmRepairService(fileSystem, pluginLog, TestMockFactory.CreateLogger<StrmRepairService>().Object);
         return new RepairStrmFilesTask(
             TestMockFactory.CreateLogger<RepairStrmFilesTask>().Object,
             new Mock<ILibraryManager>().Object,
+            pluginLog,
             service);
     }
 }

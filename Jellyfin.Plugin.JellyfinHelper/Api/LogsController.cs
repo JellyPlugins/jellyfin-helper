@@ -20,13 +20,16 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 public class LogsController : ControllerBase
 {
     private readonly ILogger<LogsController> _logger;
+    private readonly IPluginLogService _pluginLog;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LogsController"/> class.
     /// </summary>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The controller logger.</param>
-    public LogsController(ILogger<LogsController> logger)
+    public LogsController(IPluginLogService pluginLog, ILogger<LogsController> logger)
     {
+        _pluginLog = pluginLog;
         _logger = logger;
     }
 
@@ -51,10 +54,10 @@ public class LogsController : ControllerBase
             limit = PluginLogService.MaxEntries;
         }
 
-        var entries = PluginLogService.GetEntries(minLevel, source, limit);
+        var entries = _pluginLog.GetEntries(minLevel, source, limit);
         return Ok(new
         {
-            TotalBuffered = PluginLogService.GetCount(),
+            TotalBuffered = _pluginLog.GetCount(),
             Returned = entries.Count,
             Entries = entries,
         });
@@ -71,7 +74,7 @@ public class LogsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult DownloadLogs([FromQuery] string? minLevel = null, [FromQuery] string? source = null)
     {
-        var text = PluginLogService.ExportAsText(minLevel, source);
+        var text = _pluginLog.ExportAsText(minLevel, source);
         var bytes = Encoding.UTF8.GetBytes(text);
         var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         return File(bytes, "text/plain", $"jellyfin-helper-logs-{timestamp}.txt");
@@ -85,8 +88,8 @@ public class LogsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult ClearLogs()
     {
-        PluginLogService.Clear();
-        PluginLogService.LogDebug("API", "Plugin log buffer cleared by admin", _logger);
+        _pluginLog.Clear();
+        _pluginLog.LogDebug("API", "Plugin log buffer cleared by admin", _logger);
         return Ok(new { message = "Logs cleared." });
     }
 }

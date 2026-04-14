@@ -3,6 +3,7 @@ using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Serialization;
@@ -39,6 +40,7 @@ public static class ControllerTestFactory
             memoryCache,
             statisticsServiceMock.Object,
             statisticsCacheServiceMock.Object,
+            new PluginLogService(),
             new Mock<ILogger<MediaStatisticsController>>().Object);
         return (controller, memoryCache);
     }
@@ -48,13 +50,14 @@ public static class ControllerTestFactory
     /// </summary>
     /// <param name="dataPath">The data path returned by IApplicationPaths.DataPath.</param>
     /// <returns>The controller.</returns>
-    public static BackupController CreateBackupController(string? dataPath = null)
+    public static BackupController CreateBackupController(string? dataPath = null, IPluginLogService? pluginLog = null)
     {
         var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: dataPath ?? Path.GetTempPath());
-        var backupService = new BackupService(appPathsMock.Object, new Mock<ILogger<BackupService>>().Object);
+        var backupService = new BackupService(appPathsMock.Object, pluginLog ?? new PluginLogService(), new Mock<ILogger<BackupService>>().Object);
 
         var controller = new BackupController(
             backupService,
+            pluginLog ?? new PluginLogService(),
             new Mock<ILogger<BackupController>>().Object);
         return controller;
     }
@@ -69,6 +72,7 @@ public static class ControllerTestFactory
         
         var controller = new TrashController(
             libraryManagerMock.Object,
+            new PluginLogService(),
             new Mock<ILogger<TrashController>>().Object);
         return (controller, libraryManagerMock);
     }
@@ -82,12 +86,14 @@ public static class ControllerTestFactory
         var libraryManagerMock = TestMockFactory.CreateLibraryManager();
         var fileSystemMock = TestMockFactory.CreateFileSystem();
         var httpClientFactoryMock = TestMockFactory.CreateHttpClientFactory();
-        var arrService = new ArrIntegrationService(httpClientFactoryMock.Object, new Mock<ILogger<ArrIntegrationService>>().Object);
+        var pluginLog = new PluginLogService();
+        var arrService = new ArrIntegrationService(httpClientFactoryMock.Object, pluginLog, new Mock<ILogger<ArrIntegrationService>>().Object);
 
         var controller = new ArrIntegrationController(
             libraryManagerMock.Object,
             fileSystemMock.Object,
             arrService,
+            pluginLog,
             new Mock<ILogger<ArrIntegrationController>>().Object);
 
         return (controller, libraryManagerMock, fileSystemMock, httpClientFactoryMock);

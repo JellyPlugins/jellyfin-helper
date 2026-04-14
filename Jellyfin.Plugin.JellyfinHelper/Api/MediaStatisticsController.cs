@@ -34,6 +34,7 @@ public class MediaStatisticsController : ControllerBase
 
     private readonly MediaStatisticsService _statisticsService;
     private readonly StatisticsCacheService _cacheService;
+    private readonly IPluginLogService _pluginLog;
     private readonly IMemoryCache _cache;
     private readonly ILogger<MediaStatisticsController> _logger;
 
@@ -43,15 +44,18 @@ public class MediaStatisticsController : ControllerBase
     /// <param name="cache">The memory cache.</param>
     /// <param name="statisticsService">The media statistics service.</param>
     /// <param name="statisticsCacheService">The statistics cache service.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The controller logger.</param>
     public MediaStatisticsController(
         IMemoryCache cache,
         MediaStatisticsService statisticsService,
         StatisticsCacheService statisticsCacheService,
+        IPluginLogService pluginLog,
         ILogger<MediaStatisticsController> logger)
     {
         _statisticsService = statisticsService;
         _cacheService = statisticsCacheService;
+        _pluginLog = pluginLog;
         _cache = cache;
         _logger = logger;
     }
@@ -70,7 +74,7 @@ public class MediaStatisticsController : ControllerBase
             var now = DateTime.UtcNow;
             if (now - _lastScanTime < MinScanInterval)
             {
-                PluginLogService.LogWarning("API", "Rate limit exceeded for statistics scan", logger: _logger);
+                _pluginLog.LogWarning("API", "Rate limit exceeded for statistics scan", logger: _logger);
                 return StatusCode(StatusCodes.Status429TooManyRequests, new { message = "Please wait before requesting another scan." });
             }
         }
@@ -101,7 +105,7 @@ public class MediaStatisticsController : ControllerBase
     {
         if (_cache.TryGetValue(StatsCacheKey, out MediaStatisticsResult? cached) && cached != null)
         {
-            PluginLogService.LogDebug("API", "Returning cached statistics for /Latest", _logger);
+            _pluginLog.LogDebug("API", "Returning cached statistics for /Latest", _logger);
             return Ok(cached);
         }
 
@@ -112,7 +116,7 @@ public class MediaStatisticsController : ControllerBase
         }
 
         _cache.Set(StatsCacheKey, persisted, CacheDuration);
-        PluginLogService.LogDebug("API", "Loaded persisted statistics from disk for /Latest", _logger);
+        _pluginLog.LogDebug("API", "Loaded persisted statistics from disk for /Latest", _logger);
         return Ok(persisted);
     }
 

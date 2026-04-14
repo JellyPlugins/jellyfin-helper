@@ -1,6 +1,7 @@
 ﻿using System;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Controller;
@@ -22,6 +23,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         {
             client.Timeout = TimeSpan.FromSeconds(15);
         });
+        serviceCollection.AddSingleton<IPluginLogService, PluginLogService>();
         serviceCollection.AddSingleton<MediaStatisticsService>();
         serviceCollection.AddSingleton<StatisticsCacheService>();
         serviceCollection.AddSingleton<GrowthTimelineService>();

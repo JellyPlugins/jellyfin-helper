@@ -47,6 +47,7 @@ public class CleanEmptyMediaFoldersTask
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;
+    private readonly IPluginLogService _pluginLog;
     private readonly ILogger<CleanEmptyMediaFoldersTask> _logger;
 
     /// <summary>
@@ -54,11 +55,13 @@ public class CleanEmptyMediaFoldersTask
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="fileSystem">The file system.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
-    public CleanEmptyMediaFoldersTask(ILibraryManager libraryManager, IFileSystem fileSystem, ILogger<CleanEmptyMediaFoldersTask> logger)
+    public CleanEmptyMediaFoldersTask(ILibraryManager libraryManager, IFileSystem fileSystem, IPluginLogService pluginLog, ILogger<CleanEmptyMediaFoldersTask> logger)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
+        _pluginLog = pluginLog;
         _logger = logger;
     }
 
@@ -75,21 +78,21 @@ public class CleanEmptyMediaFoldersTask
 
         if (effectiveDryRun)
         {
-            PluginLogService.LogInfo("EmptyFolderCleaner", "Task started (Dry Run). No folders will be deleted.", _logger);
+            _pluginLog.LogInfo("EmptyFolderCleaner", "Task started (Dry Run). No folders will be deleted.", _logger);
         }
         else
         {
-            PluginLogService.LogInfo("EmptyFolderCleaner", "Task started.", _logger);
+            _pluginLog.LogInfo("EmptyFolderCleaner", "Task started.", _logger);
         }
 
         if (config.OrphanMinAgeDays > 0)
         {
-            PluginLogService.LogInfo("EmptyFolderCleaner", $"Orphan minimum age: {config.OrphanMinAgeDays} days", _logger);
+            _pluginLog.LogInfo("EmptyFolderCleaner", $"Orphan minimum age: {config.OrphanMinAgeDays} days", _logger);
         }
 
         if (config.UseTrash && !effectiveDryRun)
         {
-            PluginLogService.LogInfo("EmptyFolderCleaner", "Trash mode enabled. Items will be moved to trash instead of permanent deletion.", _logger);
+            _pluginLog.LogInfo("EmptyFolderCleaner", "Trash mode enabled. Items will be moved to trash instead of permanent deletion.", _logger);
         }
 
         var libraryFolders = CleanupConfigHelper.GetFilteredLibraryLocations(_libraryManager);
@@ -105,7 +108,7 @@ public class CleanEmptyMediaFoldersTask
             }
 
             var folder = libraryFolders[i];
-            PluginLogService.LogDebug("EmptyFolderCleaner", $"Scanning library folder: {folder}", _logger);
+            _pluginLog.LogDebug("EmptyFolderCleaner", $"Scanning library folder: {folder}", _logger);
             var (deleted, bytesFreed) = CleanLibraryRoot(folder, effectiveDryRun, cancellationToken);
             totalDeleted += deleted;
             totalBytesFreed += bytesFreed;
@@ -114,16 +117,16 @@ public class CleanEmptyMediaFoldersTask
 
         if (effectiveDryRun)
         {
-            PluginLogService.LogInfo("EmptyFolderCleaner", $"Task finished (Dry Run). Would have deleted {totalDeleted} folders.", _logger);
+            _pluginLog.LogInfo("EmptyFolderCleaner", $"Task finished (Dry Run). Would have deleted {totalDeleted} folders.", _logger);
         }
         else
         {
-            PluginLogService.LogInfo("EmptyFolderCleaner", $"Task finished. Deleted {totalDeleted} folders, freed {totalBytesFreed} bytes.", _logger);
+            _pluginLog.LogInfo("EmptyFolderCleaner", $"Task finished. Deleted {totalDeleted} folders, freed {totalBytesFreed} bytes.", _logger);
         }
 
         if (!effectiveDryRun && totalDeleted > 0)
         {
-            CleanupTrackingService.RecordCleanup(totalBytesFreed, totalDeleted, _logger);
+            CleanupTrackingService.RecordCleanup(totalBytesFreed, totalDeleted, _logger, _pluginLog);
         }
 
         // Purge expired trash items if trash is enabled
@@ -200,7 +203,7 @@ public class CleanEmptyMediaFoldersTask
                 // for upcoming media ? skip it.
                 if (!hasNonMetadataFiles)
                 {
-                    PluginLogService.LogDebug("EmptyFolderCleaner", $"Skipping metadata-only folder (likely a wanted-list placeholder): {topDir.FullName}", _logger);
+                    _pluginLog.LogDebug("EmptyFolderCleaner", $"Skipping metadata-only folder (likely a wanted-list placeholder): {topDir.FullName}", _logger);
                     continue;
                 }
 
@@ -210,19 +213,19 @@ public class CleanEmptyMediaFoldersTask
                 // Check orphan age
                 if (!CleanupConfigHelper.IsOldEnoughForDeletion(topDir.FullName))
                 {
-                    PluginLogService.LogDebug("EmptyFolderCleaner", $"Skipping too-new orphan (min age {config.OrphanMinAgeDays}d): {topDir.FullName}", _logger);
+                    _pluginLog.LogDebug("EmptyFolderCleaner", $"Skipping too-new orphan (min age {config.OrphanMinAgeDays}d): {topDir.FullName}", _logger);
                     continue;
                 }
 
                 if (dryRun)
                 {
-                    PluginLogService.LogInfo("EmptyFolderCleaner", $"[Dry Run] Would delete orphaned media folder: {topDir.FullName}", _logger);
+                    _pluginLog.LogInfo("EmptyFolderCleaner", $"[Dry Run] Would delete orphaned media folder: {topDir.FullName}", _logger);
                     deletedCount++;
                 }
                 else if (config.UseTrash)
                 {
                     var trashPath = CleanupConfigHelper.GetTrashPath(libraryRootPath);
-                    long size = TrashService.MoveToTrash(topDir.FullName, trashPath, _logger);
+                    long size = TrashService.MoveToTrash(topDir.FullName, trashPath, _logger, _pluginLog);
                     if (size > 0)
                     {
                         bytesFreed += size;
@@ -231,7 +234,7 @@ public class CleanEmptyMediaFoldersTask
                 }
                 else
                 {
-                    PluginLogService.LogInfo("EmptyFolderCleaner", $"Deleting orphaned media folder: {topDir.FullName}", _logger);
+                    _pluginLog.LogInfo("EmptyFolderCleaner", $"Deleting orphaned media folder: {topDir.FullName}", _logger);
                     try
                     {
                         long size = FileSystemHelper.CalculateDirectorySize(_fileSystem, topDir.FullName, _logger);
@@ -241,14 +244,14 @@ public class CleanEmptyMediaFoldersTask
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        PluginLogService.LogError("EmptyFolderCleaner", $"Failed to delete directory: {topDir.FullName}", ex, _logger);
+                        _pluginLog.LogError("EmptyFolderCleaner", $"Failed to delete directory: {topDir.FullName}", ex, _logger);
                     }
                 }
             }
         }
         catch (Exception ex)
         {
-            PluginLogService.LogError("EmptyFolderCleaner", $"Error scanning directory: {libraryRootPath}", ex, _logger);
+            _pluginLog.LogError("EmptyFolderCleaner", $"Error scanning directory: {libraryRootPath}", ex, _logger);
         }
 
         return (deletedCount, bytesFreed);
@@ -319,10 +322,10 @@ public class CleanEmptyMediaFoldersTask
             var trashPath = CleanupConfigHelper.GetTrashPath(folder);
             if (Directory.Exists(trashPath))
             {
-                var (bytesFreed, itemsPurged) = TrashService.PurgeExpiredTrash(trashPath, retentionDays, _logger);
+                var (bytesFreed, itemsPurged) = TrashService.PurgeExpiredTrash(trashPath, retentionDays, _logger, _pluginLog);
                 if (itemsPurged > 0)
                 {
-                    PluginLogService.LogInfo("EmptyFolderCleaner", $"Purged {itemsPurged} expired items from trash ({bytesFreed} bytes): {trashPath}", _logger);
+                    _pluginLog.LogInfo("EmptyFolderCleaner", $"Purged {itemsPurged} expired items from trash ({bytesFreed} bytes): {trashPath}", _logger);
                 }
             }
         }

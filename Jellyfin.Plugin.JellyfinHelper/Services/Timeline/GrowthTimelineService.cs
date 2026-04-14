@@ -34,6 +34,7 @@ public class GrowthTimelineService : IDisposable
 
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;
+    private readonly IPluginLogService _pluginLog;
     private readonly string _timelineFilePath;
     private readonly string _baselineFilePath;
     private readonly ILogger<GrowthTimelineService> _logger;
@@ -44,16 +45,19 @@ public class GrowthTimelineService : IDisposable
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="fileSystem">The file system.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="applicationPaths">The application paths.</param>
     /// <param name="logger">The logger.</param>
     public GrowthTimelineService(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
+        IPluginLogService pluginLog,
         IApplicationPaths applicationPaths,
         ILogger<GrowthTimelineService> logger)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
+        _pluginLog = pluginLog;
         _logger = logger;
         _timelineFilePath = Path.Combine(applicationPaths.DataPath, TimelineFileName);
         _baselineFilePath = Path.Combine(applicationPaths.DataPath, BaselineFileName);
@@ -73,7 +77,7 @@ public class GrowthTimelineService : IDisposable
     /// <returns>The growth timeline result.</returns>
     public virtual async Task<GrowthTimelineResult> ComputeTimelineAsync(CancellationToken cancellationToken)
     {
-        PluginLogService.LogInfo("GrowthTimeline", "Starting growth timeline computation...", _logger);
+        _pluginLog.LogInfo("GrowthTimeline", "Starting growth timeline computation...", _logger);
 
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -82,7 +86,7 @@ public class GrowthTimelineService : IDisposable
 
         if (currentDirs.Count == 0)
         {
-            PluginLogService.LogInfo("GrowthTimeline", "No media directories found for growth timeline.", _logger);
+            _pluginLog.LogInfo("GrowthTimeline", "No media directories found for growth timeline.", _logger);
 
             // Persist a 0-snapshot so that the timeline reflects the empty state
             // instead of showing stale data from a previous scan.
@@ -122,7 +126,7 @@ public class GrowthTimelineService : IDisposable
             };
         }
 
-        PluginLogService.LogInfo("GrowthTimeline", $"Collected {currentDirs.Count} media directories.", _logger);
+        _pluginLog.LogInfo("GrowthTimeline", $"Collected {currentDirs.Count} media directories.", _logger);
 
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -135,7 +139,7 @@ public class GrowthTimelineService : IDisposable
             var firstKey = baseline.Directories.Keys.First();
             if (firstKey.Contains('|', StringComparison.Ordinal))
             {
-                PluginLogService.LogInfo("GrowthTimeline", $"Discarding legacy grouped baseline ({baseline.Directories.Count} entries). A new per-directory baseline will be created.", _logger);
+                _pluginLog.LogInfo("GrowthTimeline", $"Discarding legacy grouped baseline ({baseline.Directories.Count} entries). A new per-directory baseline will be created.", _logger);
                 baseline = null;
             }
         }
@@ -145,7 +149,7 @@ public class GrowthTimelineService : IDisposable
         if (baseline == null)
         {
             // === FIRST SCAN: Create baseline and build historical timeline ===
-            PluginLogService.LogInfo("GrowthTimeline", $"First scan: creating baseline with {currentDirs.Count} directory entries.", _logger);
+            _pluginLog.LogInfo("GrowthTimeline", $"First scan: creating baseline with {currentDirs.Count} directory entries.", _logger);
 
             baseline = new GrowthTimelineBaseline { FirstScanTimestamp = now };
             foreach (var dir in currentDirs)
@@ -173,7 +177,7 @@ public class GrowthTimelineService : IDisposable
             var earliest = timelineEntries.Count > 0 ? timelineEntries[0].CreatedUtc : now;
             var granularity = DetermineGranularity(earliest, now);
 
-            PluginLogService.LogInfo("GrowthTimeline", $"Building initial timeline: {timelineEntries.Count} entries, earliest: {earliest:yyyy-MM-dd}, granularity: {granularity}", _logger);
+            _pluginLog.LogInfo("GrowthTimeline", $"Building initial timeline: {timelineEntries.Count} entries, earliest: {earliest:yyyy-MM-dd}, granularity: {granularity}", _logger);
 
             dataPoints = BuildCumulativeTimeline(timelineEntries, earliest, now, granularity);
         }
@@ -194,7 +198,7 @@ public class GrowthTimelineService : IDisposable
             if (existingTimeline != null && existingTimeline.DataPoints.Count > 0)
             {
                 // Append-only: preserve historical points, update current bucket
-                PluginLogService.LogInfo("GrowthTimeline", $"Append-only scan: {existingTimeline.DataPoints.Count} existing points, current total: {currentTotalSize} bytes, {currentTotalCount} items.", _logger);
+                _pluginLog.LogInfo("GrowthTimeline", $"Append-only scan: {existingTimeline.DataPoints.Count} existing points, current total: {currentTotalSize} bytes, {currentTotalCount} items.", _logger);
 
                 var earliestExisting = existingTimeline.DataPoints[0].Date;
                 var granularity = DetermineGranularity(earliestExisting, now);
@@ -210,7 +214,7 @@ public class GrowthTimelineService : IDisposable
             {
                 // No existing timeline (e.g. first incremental scan after migration or data loss).
                 // Fall back to historical reconstruction using baseline + current state.
-                PluginLogService.LogInfo("GrowthTimeline", $"No existing timeline found. Performing historical reconstruction from baseline.", _logger);
+                _pluginLog.LogInfo("GrowthTimeline", $"No existing timeline found. Performing historical reconstruction from baseline.", _logger);
 
                 var timelineEntries = BuildIncrementalEntries(currentDirs, baseline, now);
                 timelineEntries.Sort((a, b) => a.CreatedUtc.CompareTo(b.CreatedUtc));
@@ -248,7 +252,7 @@ public class GrowthTimelineService : IDisposable
 
         if (dataPoints.Count == 0)
         {
-            PluginLogService.LogInfo("GrowthTimeline", "No timeline data points after processing.", _logger);
+            _pluginLog.LogInfo("GrowthTimeline", "No timeline data points after processing.", _logger);
             return new GrowthTimelineResult
             {
                 ComputedAt = now,
@@ -275,7 +279,7 @@ public class GrowthTimelineService : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         await SaveTimelineAsync(result, cancellationToken).ConfigureAwait(false);
 
-        PluginLogService.LogInfo("GrowthTimeline", $"Growth timeline computed: {dataPoints.Count} data points ({finalGranularity})", _logger);
+        _pluginLog.LogInfo("GrowthTimeline", $"Growth timeline computed: {dataPoints.Count} data points ({finalGranularity})", _logger);
         return result;
     }
 
@@ -303,7 +307,7 @@ public class GrowthTimelineService : IDisposable
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
-            PluginLogService.LogWarning("GrowthTimeline", $"Could not load cached timeline from {_timelineFilePath}", ex, _logger);
+            _pluginLog.LogWarning("GrowthTimeline", $"Could not load cached timeline from {_timelineFilePath}", ex, _logger);
             return null;
         }
         finally
@@ -615,7 +619,7 @@ public class GrowthTimelineService : IDisposable
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                PluginLogService.LogWarning("GrowthTimeline", $"Could not scan {location}", ex, _logger);
+                _pluginLog.LogWarning("GrowthTimeline", $"Could not scan {location}", ex, _logger);
             }
         }
 
@@ -658,7 +662,7 @@ public class GrowthTimelineService : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            PluginLogService.LogDebug("GrowthTimeline", $"Skipping inaccessible directory: {directoryPath}: {ex.Message}", _logger);
+            _pluginLog.LogDebug("GrowthTimeline", $"Skipping inaccessible directory: {directoryPath}: {ex.Message}", _logger);
         }
 
         return total;
@@ -822,7 +826,7 @@ public class GrowthTimelineService : IDisposable
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
-            PluginLogService.LogWarning("GrowthTimeline", $"Could not load baseline from {_baselineFilePath}", ex, _logger);
+            _pluginLog.LogWarning("GrowthTimeline", $"Could not load baseline from {_baselineFilePath}", ex, _logger);
             return null;
         }
         finally
@@ -856,7 +860,7 @@ public class GrowthTimelineService : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            PluginLogService.LogWarning("GrowthTimeline", $"Could not save baseline to {_baselineFilePath}", ex, _logger);
+            _pluginLog.LogWarning("GrowthTimeline", $"Could not save baseline to {_baselineFilePath}", ex, _logger);
         }
         finally
         {
@@ -889,7 +893,7 @@ public class GrowthTimelineService : IDisposable
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            PluginLogService.LogWarning("GrowthTimeline", $"Could not save timeline to {_timelineFilePath}", ex, _logger);
+            _pluginLog.LogWarning("GrowthTimeline", $"Could not save timeline to {_timelineFilePath}", ex, _logger);
         }
         finally
         {

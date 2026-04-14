@@ -21,7 +21,7 @@ public class MediaStatisticsServiceTests
         _libraryManagerMock = TestMockFactory.CreateLibraryManager();
         _fileSystemMock = TestMockFactory.CreateFileSystem();
         var loggerMock = TestMockFactory.CreateLogger<MediaStatisticsService>();
-        _service = new MediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object, loggerMock.Object);
+        _service = new MediaStatisticsService(_libraryManagerMock.Object, _fileSystemMock.Object, new Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.PluginLogService(), loggerMock.Object);
     }
 
     private static string TestPath(params string[] segments)
@@ -1907,7 +1907,7 @@ public class EmbeddedSubtitleDetectionTests
         _fileSystemMock = new Mock<IFileSystem>();
         var loggerMock = new Mock<ILogger<MediaStatisticsService>>();
         _service = new TestableMediaStatisticsService(
-            _libraryManagerMock.Object, _fileSystemMock.Object, loggerMock.Object);
+            _libraryManagerMock.Object, _fileSystemMock.Object, new Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.PluginLogService(), loggerMock.Object);
     }
 
     private static string TestPath(params string[] segments)
@@ -2200,8 +2200,9 @@ public class EmbeddedSubtitleDetectionTests
     private sealed class TestableMediaStatisticsService(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
+        Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService pluginLog,
         ILogger<MediaStatisticsService> logger)
-        : MediaStatisticsService(libraryManager, fileSystem, logger)
+        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger)
     {
         private readonly Dictionary<string, bool> _embeddedSubtitles = new(StringComparer.OrdinalIgnoreCase);
 

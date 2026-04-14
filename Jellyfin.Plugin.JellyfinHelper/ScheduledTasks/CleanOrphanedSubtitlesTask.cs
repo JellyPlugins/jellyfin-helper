@@ -35,6 +35,7 @@ public class CleanOrphanedSubtitlesTask
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;
+    private readonly IPluginLogService _pluginLog;
     private readonly ILogger<CleanOrphanedSubtitlesTask> _logger;
 
     /// <summary>
@@ -42,11 +43,13 @@ public class CleanOrphanedSubtitlesTask
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="fileSystem">The file system.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
-    public CleanOrphanedSubtitlesTask(ILibraryManager libraryManager, IFileSystem fileSystem, ILogger<CleanOrphanedSubtitlesTask> logger)
+    public CleanOrphanedSubtitlesTask(ILibraryManager libraryManager, IFileSystem fileSystem, IPluginLogService pluginLog, ILogger<CleanOrphanedSubtitlesTask> logger)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
+        _pluginLog = pluginLog;
         _logger = logger;
     }
 
@@ -63,11 +66,11 @@ public class CleanOrphanedSubtitlesTask
 
         if (effectiveDryRun)
         {
-            PluginLogService.LogInfo("SubtitleCleaner", "Task started (Dry Run). No files will be deleted.", _logger);
+            _pluginLog.LogInfo("SubtitleCleaner", "Task started (Dry Run). No files will be deleted.", _logger);
         }
         else
         {
-            PluginLogService.LogInfo("SubtitleCleaner", "Task started.", _logger);
+            _pluginLog.LogInfo("SubtitleCleaner", "Task started.", _logger);
         }
 
         var libraryFolders = CleanupConfigHelper.GetFilteredLibraryLocations(_libraryManager);
@@ -83,7 +86,7 @@ public class CleanOrphanedSubtitlesTask
             }
 
             var folder = libraryFolders[i];
-            PluginLogService.LogDebug("SubtitleCleaner", $"Scanning library folder: {folder}", _logger);
+            _pluginLog.LogDebug("SubtitleCleaner", $"Scanning library folder: {folder}", _logger);
             var (deleted, bytesFreed) = CleanDirectory(folder, effectiveDryRun, cancellationToken);
             totalDeleted += deleted;
             totalBytesFreed += bytesFreed;
@@ -92,16 +95,16 @@ public class CleanOrphanedSubtitlesTask
 
         if (effectiveDryRun)
         {
-            PluginLogService.LogInfo("SubtitleCleaner", $"Task finished (Dry Run). Would have deleted {totalDeleted} files.", _logger);
+            _pluginLog.LogInfo("SubtitleCleaner", $"Task finished (Dry Run). Would have deleted {totalDeleted} files.", _logger);
         }
         else
         {
-            PluginLogService.LogInfo("SubtitleCleaner", $"Task finished. Deleted {totalDeleted} files, freed {totalBytesFreed} bytes.", _logger);
+            _pluginLog.LogInfo("SubtitleCleaner", $"Task finished. Deleted {totalDeleted} files, freed {totalBytesFreed} bytes.", _logger);
         }
 
         if (!effectiveDryRun && totalDeleted > 0)
         {
-            CleanupTrackingService.RecordCleanup(totalBytesFreed, totalDeleted, _logger);
+            CleanupTrackingService.RecordCleanup(totalBytesFreed, totalDeleted, _logger, _pluginLog);
         }
 
         return Task.CompletedTask;
@@ -125,7 +128,7 @@ public class CleanOrphanedSubtitlesTask
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                PluginLogService.LogWarning("SubtitleCleaner", $"Could not enumerate subdirectories of: {rootPath}", ex, _logger);
+                _pluginLog.LogWarning("SubtitleCleaner", $"Could not enumerate subdirectories of: {rootPath}", ex, _logger);
             }
 
             // Cache files per directory
@@ -160,7 +163,7 @@ public class CleanOrphanedSubtitlesTask
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        PluginLogService.LogWarning("SubtitleCleaner", $"Could not list files in: {dirPath}", ex, _logger);
+                        _pluginLog.LogWarning("SubtitleCleaner", $"Could not list files in: {dirPath}", ex, _logger);
                         continue;
                     }
                 }
@@ -208,19 +211,19 @@ public class CleanOrphanedSubtitlesTask
                     // Check orphan age
                     if (!CleanupConfigHelper.IsFileOldEnoughForDeletion(file.FullName))
                     {
-                        PluginLogService.LogDebug("SubtitleCleaner", $"Skipping too-new orphaned subtitle (min age {config.OrphanMinAgeDays}d): {file.FullName}", _logger);
+                        _pluginLog.LogDebug("SubtitleCleaner", $"Skipping too-new orphaned subtitle (min age {config.OrphanMinAgeDays}d): {file.FullName}", _logger);
                         continue;
                     }
 
                     if (dryRun)
                     {
-                        PluginLogService.LogInfo("SubtitleCleaner", $"[Dry Run] Would delete orphaned subtitle: {file.FullName}", _logger);
+                        _pluginLog.LogInfo("SubtitleCleaner", $"[Dry Run] Would delete orphaned subtitle: {file.FullName}", _logger);
                         deletedCount++;
                     }
                     else if (config.UseTrash)
                     {
                         var trashPath = CleanupConfigHelper.GetTrashPath(rootPath);
-                        long size = TrashService.MoveFileToTrash(file.FullName, trashPath, _logger);
+                        long size = TrashService.MoveFileToTrash(file.FullName, trashPath, _logger, _pluginLog);
                         if (size > 0)
                         {
                             bytesFreed += size;
@@ -229,7 +232,7 @@ public class CleanOrphanedSubtitlesTask
                     }
                     else
                     {
-                        PluginLogService.LogInfo("SubtitleCleaner", $"Deleting orphaned subtitle: {file.FullName}", _logger);
+                        _pluginLog.LogInfo("SubtitleCleaner", $"Deleting orphaned subtitle: {file.FullName}", _logger);
                         try
                         {
                             long size = file.Length;
@@ -239,7 +242,7 @@ public class CleanOrphanedSubtitlesTask
                         }
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                         {
-                            PluginLogService.LogError("SubtitleCleaner", $"Failed to delete: {file.FullName}", ex, _logger);
+                            _pluginLog.LogError("SubtitleCleaner", $"Failed to delete: {file.FullName}", ex, _logger);
                         }
                     }
                 }
@@ -247,7 +250,7 @@ public class CleanOrphanedSubtitlesTask
         }
         catch (Exception ex)
         {
-            PluginLogService.LogError("SubtitleCleaner", $"Error scanning directory: {rootPath}", ex, _logger);
+            _pluginLog.LogError("SubtitleCleaner", $"Error scanning directory: {rootPath}", ex, _logger);
         }
 
         return (deletedCount, bytesFreed);

@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -63,6 +64,7 @@ public class HelperCleanupTaskTests : IDisposable
             _libraryManagerMock.Object,
             _fileSystemMock.Object,
             _applicationPathsMock.Object,
+            new Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.PluginLogService(),
             _loggerFactoryMock.Object,
             statisticsServiceMock.Object,
             cacheServiceMock.Object,
@@ -76,6 +78,7 @@ public class HelperCleanupTaskTests : IDisposable
             OrphanedSubtitleTaskMode = TaskMode.Activate,
             StrmRepairTaskMode = TaskMode.Activate
         };
+
     }
 
     public void Dispose()

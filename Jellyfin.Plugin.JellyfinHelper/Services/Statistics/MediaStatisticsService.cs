@@ -19,6 +19,7 @@ public partial class MediaStatisticsService
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IFileSystem _fileSystem;
+    private readonly IPluginLogService _pluginLog;
     private readonly ILogger<MediaStatisticsService> _logger;
 
     /// <summary>
@@ -26,11 +27,13 @@ public partial class MediaStatisticsService
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="fileSystem">The file system.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
-    public MediaStatisticsService(ILibraryManager libraryManager, IFileSystem fileSystem, ILogger<MediaStatisticsService> logger)
+    public MediaStatisticsService(ILibraryManager libraryManager, IFileSystem fileSystem, IPluginLogService pluginLog, ILogger<MediaStatisticsService> logger)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
+        _pluginLog = pluginLog;
         _logger = logger;
     }
 
@@ -43,7 +46,7 @@ public partial class MediaStatisticsService
         var result = new MediaStatisticsResult();
 
         var virtualFolders = _libraryManager.GetVirtualFolders();
-        PluginLogService.LogInfo("MediaStatistics", $"Starting media statistics scan for {virtualFolders.Count} libraries", _logger);
+        _pluginLog.LogInfo("MediaStatistics", $"Starting media statistics scan for {virtualFolders.Count} libraries", _logger);
 
         foreach (var vf in virtualFolders)
         {
@@ -69,11 +72,11 @@ public partial class MediaStatisticsService
             foreach (var location in vf.Locations)
             {
                 libraryStats.RootPaths.Add(location);
-                PluginLogService.LogDebug("MediaStatistics", $"Scanning library location: {location} (type: {collectionType})", _logger);
+                _pluginLog.LogDebug("MediaStatistics", $"Scanning library location: {location} (type: {collectionType})", _logger);
                 AnalyzeDirectoryRecursive(location, libraryStats, location, skipHealthChecks: skipHealth);
             }
 
-            PluginLogService.LogDebug(
+            _pluginLog.LogDebug(
                 "MediaStatistics",
                 $"Library '{libraryStats.LibraryName}': {libraryStats.VideoFileCount} videos, {libraryStats.AudioFileCount} audio, " +
                 $"{libraryStats.SubtitleFileCount} subs, {libraryStats.TrickplayFolderCount} trickplay folders",
@@ -101,7 +104,7 @@ public partial class MediaStatisticsService
         // Log summary
         var totalFiles = result.Libraries.Sum(l => l.VideoFileCount + l.AudioFileCount + l.SubtitleFileCount + l.ImageFileCount + l.NfoFileCount + l.OtherFileCount);
         var totalSize = result.Libraries.Sum(l => l.TotalSize);
-        PluginLogService.LogInfo(
+        _pluginLog.LogInfo(
             "MediaStatistics",
             $"Scan complete: {result.Libraries.Count} libraries, {totalFiles} files, {totalSize / (1024 * 1024)} MB total, " +
             $"{result.Libraries.Sum(l => l.VideosWithoutSubtitles)} videos without subs, " +
@@ -311,7 +314,7 @@ public partial class MediaStatisticsService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            PluginLogService.LogWarning("MediaStatistics", $"Could not access directory: {directoryPath}", ex, _logger);
+            _pluginLog.LogWarning("MediaStatistics", $"Could not access directory: {directoryPath}", ex, _logger);
         }
 
         return containsVideo;
@@ -481,7 +484,7 @@ public partial class MediaStatisticsService
         }
         catch (Exception ex)
         {
-            PluginLogService.LogDebug("MediaStatistics", $"Could not check embedded subtitles for: {filePath}. {ex.GetType().Name}: {ex.Message}", _logger);
+            _pluginLog.LogDebug("MediaStatistics", $"Could not check embedded subtitles for: {filePath}. {ex.GetType().Name}: {ex.Message}", _logger);
             return false;
         }
     }

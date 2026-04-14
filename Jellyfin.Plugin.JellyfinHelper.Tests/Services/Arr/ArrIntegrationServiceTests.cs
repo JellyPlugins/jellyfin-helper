@@ -15,7 +15,7 @@ public class ArrIntegrationServiceTests
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         var logger = TestMockFactory.CreateLogger<ArrIntegrationService>();
-        return new ArrIntegrationService(factoryMock.Object, logger.Object);
+        return new ArrIntegrationService(factoryMock.Object, new Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.PluginLogService(), logger.Object);
     }
 
     private static Mock<HttpMessageHandler> CreateMockHandler(HttpStatusCode statusCode, string content)

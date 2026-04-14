@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
@@ -25,7 +24,6 @@ public static class LibraryPathResolver
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        PluginLogService.LogDebug("LibraryPath", $"Resolved {locations.Count} distinct library locations.");
         return locations;
     }
 }

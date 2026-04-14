@@ -22,16 +22,19 @@ public class ArrIntegrationService
     };
 
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IPluginLogService _pluginLog;
     private readonly ILogger<ArrIntegrationService> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ArrIntegrationService"/> class.
     /// </summary>
     /// <param name="httpClientFactory">The HTTP client factory for creating named HTTP clients.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
-    public ArrIntegrationService(IHttpClientFactory httpClientFactory, ILogger<ArrIntegrationService> logger)
+    public ArrIntegrationService(IHttpClientFactory httpClientFactory, IPluginLogService pluginLog, ILogger<ArrIntegrationService> logger)
     {
         _httpClientFactory = httpClientFactory;
+        _pluginLog = pluginLog;
         _logger = logger;
     }
 
@@ -78,17 +81,17 @@ public class ArrIntegrationService
         catch (OperationCanceledException ex)
         {
             // HttpClient.Timeout elapsed — not a user cancellation
-            PluginLogService.LogWarning("ArrIntegration", $"Arr connection test timed out for {baseUrl}", ex, _logger);
+            _pluginLog.LogWarning("ArrIntegration", $"Arr connection test timed out for {baseUrl}", ex, _logger);
             return (false, "Connection timed out.");
         }
         catch (HttpRequestException ex)
         {
-            PluginLogService.LogWarning("ArrIntegration", $"Arr connection test failed for {baseUrl}: {ex.Message}", ex, _logger);
+            _pluginLog.LogWarning("ArrIntegration", $"Arr connection test failed for {baseUrl}: {ex.Message}", ex, _logger);
             return (false, $"Connection failed: {ex.Message}");
         }
         catch (Exception ex) when (ex is JsonException or UriFormatException)
         {
-            PluginLogService.LogWarning("ArrIntegration", $"Arr connection test failed for {baseUrl}: {ex.Message}", ex, _logger);
+            _pluginLog.LogWarning("ArrIntegration", $"Arr connection test failed for {baseUrl}: {ex.Message}", ex, _logger);
             return (false, $"Error: {ex.Message}");
         }
     }
@@ -136,7 +139,7 @@ public class ArrIntegrationService
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
         {
-            PluginLogService.LogError("ArrIntegration", $"Failed to fetch movies from Radarr at {baseUrl}", ex, _logger);
+            _pluginLog.LogError("ArrIntegration", $"Failed to fetch movies from Radarr at {baseUrl}", ex, _logger);
             return new List<ArrMovie>();
         }
     }
@@ -185,7 +188,7 @@ public class ArrIntegrationService
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
         {
-            PluginLogService.LogError("ArrIntegration", $"Failed to fetch series from Sonarr at {baseUrl}", ex, _logger);
+            _pluginLog.LogError("ArrIntegration", $"Failed to fetch series from Sonarr at {baseUrl}", ex, _logger);
             return new List<ArrSeries>();
         }
     }

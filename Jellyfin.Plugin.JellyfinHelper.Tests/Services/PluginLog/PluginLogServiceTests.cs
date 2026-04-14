@@ -13,14 +13,16 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.PluginLog;
 [Collection("ConfigOverride")]
 public class PluginLogServiceTests : IDisposable
 {
+    private readonly PluginLogService _sut = new();
+
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginLogServiceTests"/> class.
     /// Sets minimum level to DEBUG before each test.
     /// </summary>
     public PluginLogServiceTests()
     {
-        PluginLogService.TestMinLevelOverride = "DEBUG";
-        PluginLogService.Clear();
+        _sut.TestMinLevelOverride = "DEBUG";
+        _sut.Clear();
     }
 
     /// <summary>
@@ -28,8 +30,8 @@ public class PluginLogServiceTests : IDisposable
     /// </summary>
     public void Dispose()
     {
-        PluginLogService.Clear();
-        PluginLogService.TestMinLevelOverride = null;
+        _sut.Clear();
+        _sut.TestMinLevelOverride = null;
     }
 
     // ===== LogDebug =====
@@ -41,9 +43,9 @@ public class PluginLogServiceTests : IDisposable
     public void LogDebug_AddsDebugEntry_WithCorrectFields()
     {
         const string src = "__PLT_DebugFields__";
-        PluginLogService.LogDebug(src, "Debug message");
+        _sut.LogDebug(src, "Debug message");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.Equal("DEBUG", entries[0].Level);
         Assert.Equal(src, entries[0].Source);
@@ -59,11 +61,11 @@ public class PluginLogServiceTests : IDisposable
     public void LogDebug_NotStored_WhenMinLevelIsInfo()
     {
         const string src = "__PLT_DebugNotInfo__";
-        PluginLogService.TestMinLevelOverride = "INFO";
+        _sut.TestMinLevelOverride = "INFO";
 
-        PluginLogService.LogDebug(src, "Should not be stored");
+        _sut.LogDebug(src, "Should not be stored");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Empty(entries);
     }
 
@@ -74,11 +76,11 @@ public class PluginLogServiceTests : IDisposable
     public void LogDebug_NotStored_WhenMinLevelIsWarn()
     {
         const string src = "__PLT_DebugNotWarn__";
-        PluginLogService.TestMinLevelOverride = "WARN";
+        _sut.TestMinLevelOverride = "WARN";
 
-        PluginLogService.LogDebug(src, "Should not be stored");
+        _sut.LogDebug(src, "Should not be stored");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Empty(entries);
     }
 
@@ -89,11 +91,11 @@ public class PluginLogServiceTests : IDisposable
     public void LogDebug_NotStored_WhenMinLevelIsError()
     {
         const string src = "__PLT_DebugNotErr__";
-        PluginLogService.TestMinLevelOverride = "ERROR";
+        _sut.TestMinLevelOverride = "ERROR";
 
-        PluginLogService.LogDebug(src, "Should not be stored");
+        _sut.LogDebug(src, "Should not be stored");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Empty(entries);
     }
 
@@ -104,11 +106,11 @@ public class PluginLogServiceTests : IDisposable
     public void LogDebug_Stored_WhenMinLevelIsDebug()
     {
         const string src = "__PLT_DebugStored__";
-        PluginLogService.TestMinLevelOverride = "DEBUG";
+        _sut.TestMinLevelOverride = "DEBUG";
 
-        PluginLogService.LogDebug(src, "Should be stored");
+        _sut.LogDebug(src, "Should be stored");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.Equal("DEBUG", entries[0].Level);
     }
@@ -121,7 +123,7 @@ public class PluginLogServiceTests : IDisposable
     {
         var mockLogger = new Mock<ILogger>();
 
-        PluginLogService.LogDebug("__PLT_Fwd__", "Msg", mockLogger.Object);
+        _sut.LogDebug("__PLT_Fwd__", "Msg", mockLogger.Object);
 
         mockLogger.Verify(
             l => l.Log(
@@ -139,7 +141,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogDebug_NullLogger_DoesNotThrow()
     {
-        var ex = Record.Exception(() => PluginLogService.LogDebug("__PLT__", "No crash", null));
+        var ex = Record.Exception(() => _sut.LogDebug("__PLT__", "No crash", null));
         Assert.Null(ex);
     }
 
@@ -152,9 +154,9 @@ public class PluginLogServiceTests : IDisposable
     public void LogInfo_AddsInfoEntry_WithCorrectFields()
     {
         const string src = "__PLT_InfoFields__";
-        PluginLogService.LogInfo(src, "Info message");
+        _sut.LogInfo(src, "Info message");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.Equal("INFO", entries[0].Level);
         Assert.Equal(src, entries[0].Source);
@@ -169,11 +171,11 @@ public class PluginLogServiceTests : IDisposable
     public void LogInfo_NotStored_WhenMinLevelIsWarn()
     {
         const string src = "__PLT_InfoNotWarn__";
-        PluginLogService.TestMinLevelOverride = "WARN";
+        _sut.TestMinLevelOverride = "WARN";
 
-        PluginLogService.LogInfo(src, "Should not be stored");
+        _sut.LogInfo(src, "Should not be stored");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Empty(entries);
     }
 
@@ -184,11 +186,11 @@ public class PluginLogServiceTests : IDisposable
     public void LogInfo_NotStored_WhenMinLevelIsError()
     {
         const string src = "__PLT_InfoNotErr__";
-        PluginLogService.TestMinLevelOverride = "ERROR";
+        _sut.TestMinLevelOverride = "ERROR";
 
-        PluginLogService.LogInfo(src, "Should not be stored");
+        _sut.LogInfo(src, "Should not be stored");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Empty(entries);
     }
 
@@ -199,11 +201,11 @@ public class PluginLogServiceTests : IDisposable
     public void LogInfo_Stored_WhenMinLevelIsInfo()
     {
         const string src = "__PLT_InfoStoredINFO__";
-        PluginLogService.TestMinLevelOverride = "INFO";
+        _sut.TestMinLevelOverride = "INFO";
 
-        PluginLogService.LogInfo(src, "Should be stored");
+        _sut.LogInfo(src, "Should be stored");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.Equal("INFO", entries[0].Level);
     }
@@ -215,11 +217,11 @@ public class PluginLogServiceTests : IDisposable
     public void LogInfo_Stored_WhenMinLevelIsDebug()
     {
         const string src = "__PLT_InfoStoredDBG__";
-        PluginLogService.TestMinLevelOverride = "DEBUG";
+        _sut.TestMinLevelOverride = "DEBUG";
 
-        PluginLogService.LogInfo(src, "Should be stored");
+        _sut.LogInfo(src, "Should be stored");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.Equal("INFO", entries[0].Level);
     }
@@ -232,7 +234,7 @@ public class PluginLogServiceTests : IDisposable
     {
         var mockLogger = new Mock<ILogger>();
 
-        PluginLogService.LogInfo("__PLT_Fwd__", "InfoMsg", mockLogger.Object);
+        _sut.LogInfo("__PLT_Fwd__", "InfoMsg", mockLogger.Object);
 
         mockLogger.Verify(
             l => l.Log(
@@ -250,7 +252,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogInfo_NullLogger_DoesNotThrow()
     {
-        var ex = Record.Exception(() => PluginLogService.LogInfo("__PLT__", "No crash", null));
+        var ex = Record.Exception(() => _sut.LogInfo("__PLT__", "No crash", null));
         Assert.Null(ex);
     }
 
@@ -263,9 +265,9 @@ public class PluginLogServiceTests : IDisposable
     public void LogWarning_AddsWarnEntry()
     {
         const string src = "__PLT_WarnFields__";
-        PluginLogService.LogWarning(src, "Warning message");
+        _sut.LogWarning(src, "Warning message");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.Equal("WARN", entries[0].Level);
         Assert.Equal(src, entries[0].Source);
@@ -281,9 +283,9 @@ public class PluginLogServiceTests : IDisposable
     {
         const string src = "__PLT_WarnEx__";
         var ex = new InvalidOperationException("Access denied");
-        PluginLogService.LogWarning(src, "Warning occurred", ex);
+        _sut.LogWarning(src, "Warning occurred", ex);
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.Equal("WARN", entries[0].Level);
         Assert.NotNull(entries[0].Exception);
@@ -297,11 +299,11 @@ public class PluginLogServiceTests : IDisposable
     public void LogWarning_NotStored_WhenMinLevelIsError()
     {
         const string src = "__PLT_WarnNotErr__";
-        PluginLogService.TestMinLevelOverride = "ERROR";
+        _sut.TestMinLevelOverride = "ERROR";
 
-        PluginLogService.LogWarning(src, "Should not be stored");
+        _sut.LogWarning(src, "Should not be stored");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Empty(entries);
     }
 
@@ -312,11 +314,11 @@ public class PluginLogServiceTests : IDisposable
     public void LogWarning_Stored_WhenMinLevelIsWarn()
     {
         const string src = "__PLT_WarnStoredW__";
-        PluginLogService.TestMinLevelOverride = "WARN";
+        _sut.TestMinLevelOverride = "WARN";
 
-        PluginLogService.LogWarning(src, "Should be stored");
+        _sut.LogWarning(src, "Should be stored");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.Equal("WARN", entries[0].Level);
     }
@@ -329,7 +331,7 @@ public class PluginLogServiceTests : IDisposable
     {
         var mockLogger = new Mock<ILogger>();
 
-        PluginLogService.LogWarning("__PLT__", "WarnMsg", logger: mockLogger.Object);
+        _sut.LogWarning("__PLT__", "WarnMsg", logger: mockLogger.Object);
 
         mockLogger.Verify(
             l => l.Log(
@@ -350,7 +352,7 @@ public class PluginLogServiceTests : IDisposable
         var mockLogger = new Mock<ILogger>();
         var exception = new InvalidOperationException("test");
 
-        PluginLogService.LogWarning("__PLT__", "WarnMsg", exception, mockLogger.Object);
+        _sut.LogWarning("__PLT__", "WarnMsg", exception, mockLogger.Object);
 
         mockLogger.Verify(
             l => l.Log(
@@ -371,9 +373,9 @@ public class PluginLogServiceTests : IDisposable
     public void LogError_AddsEntry()
     {
         const string src = "__PLT_ErrFields__";
-        PluginLogService.LogError(src, "Test error message");
+        _sut.LogError(src, "Test error message");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.Equal("ERROR", entries[0].Level);
         Assert.Equal(src, entries[0].Source);
@@ -389,9 +391,9 @@ public class PluginLogServiceTests : IDisposable
     {
         const string src = "__PLT_ErrEx__";
         var ex = new InvalidOperationException("Something failed");
-        PluginLogService.LogError(src, "Error occurred", ex);
+        _sut.LogError(src, "Error occurred", ex);
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.NotNull(entries[0].Exception);
         Assert.Contains("Something failed", entries[0].Exception, StringComparison.Ordinal);
@@ -404,11 +406,11 @@ public class PluginLogServiceTests : IDisposable
     public void LogError_Stored_WhenMinLevelIsError()
     {
         const string src = "__PLT_ErrStoredE__";
-        PluginLogService.TestMinLevelOverride = "ERROR";
+        _sut.TestMinLevelOverride = "ERROR";
 
-        PluginLogService.LogError(src, "Should be stored");
+        _sut.LogError(src, "Should be stored");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.Equal("ERROR", entries[0].Level);
     }
@@ -421,7 +423,7 @@ public class PluginLogServiceTests : IDisposable
     {
         var mockLogger = new Mock<ILogger>();
 
-        PluginLogService.LogError("__PLT__", "ErrMsg", logger: mockLogger.Object);
+        _sut.LogError("__PLT__", "ErrMsg", logger: mockLogger.Object);
 
         mockLogger.Verify(
             l => l.Log(
@@ -442,7 +444,7 @@ public class PluginLogServiceTests : IDisposable
         var mockLogger = new Mock<ILogger>();
         var exception = new InvalidOperationException("fatal");
 
-        PluginLogService.LogError("__PLT__", "ErrMsg", exception, mockLogger.Object);
+        _sut.LogError("__PLT__", "ErrMsg", exception, mockLogger.Object);
 
         mockLogger.Verify(
             l => l.Log(
@@ -460,7 +462,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogError_NullLogger_DoesNotThrow()
     {
-        var ex = Record.Exception(() => PluginLogService.LogError("__PLT__", "No crash", null, null));
+        var ex = Record.Exception(() => _sut.LogError("__PLT__", "No crash", null, null));
         Assert.Null(ex);
     }
 
@@ -473,14 +475,14 @@ public class PluginLogServiceTests : IDisposable
     public void AddEntry_MinLevelError_OnlyStoresErrors()
     {
         const string src = "__PLT_MatrixE__";
-        PluginLogService.TestMinLevelOverride = "ERROR";
+        _sut.TestMinLevelOverride = "ERROR";
 
-        PluginLogService.LogDebug(src, "d");
-        PluginLogService.LogInfo(src, "i");
-        PluginLogService.LogWarning(src, "w");
-        PluginLogService.LogError(src, "e");
+        _sut.LogDebug(src, "d");
+        _sut.LogInfo(src, "i");
+        _sut.LogWarning(src, "w");
+        _sut.LogError(src, "e");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.All(entries, e => Assert.Equal("ERROR", e.Level));
     }
@@ -492,14 +494,14 @@ public class PluginLogServiceTests : IDisposable
     public void AddEntry_MinLevelWarn_StoresWarnAndError()
     {
         const string src = "__PLT_MatrixW__";
-        PluginLogService.TestMinLevelOverride = "WARN";
+        _sut.TestMinLevelOverride = "WARN";
 
-        PluginLogService.LogDebug(src, "d");
-        PluginLogService.LogInfo(src, "i");
-        PluginLogService.LogWarning(src, "w");
-        PluginLogService.LogError(src, "e");
+        _sut.LogDebug(src, "d");
+        _sut.LogInfo(src, "i");
+        _sut.LogWarning(src, "w");
+        _sut.LogError(src, "e");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Equal(2, entries.Count);
         Assert.Contains(entries, e => e.Level == "WARN");
         Assert.Contains(entries, e => e.Level == "ERROR");
@@ -514,14 +516,14 @@ public class PluginLogServiceTests : IDisposable
     public void AddEntry_MinLevelInfo_StoresInfoWarnError()
     {
         const string src = "__PLT_MatrixI__";
-        PluginLogService.TestMinLevelOverride = "INFO";
+        _sut.TestMinLevelOverride = "INFO";
 
-        PluginLogService.LogDebug(src, "d");
-        PluginLogService.LogInfo(src, "i");
-        PluginLogService.LogWarning(src, "w");
-        PluginLogService.LogError(src, "e");
+        _sut.LogDebug(src, "d");
+        _sut.LogInfo(src, "i");
+        _sut.LogWarning(src, "w");
+        _sut.LogError(src, "e");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Equal(3, entries.Count);
         Assert.DoesNotContain(entries, e => e.Level == "DEBUG");
         Assert.Contains(entries, e => e.Level == "INFO");
@@ -536,14 +538,14 @@ public class PluginLogServiceTests : IDisposable
     public void AddEntry_MinLevelDebug_StoresAllLevels()
     {
         const string src = "__PLT_MatrixD__";
-        PluginLogService.TestMinLevelOverride = "DEBUG";
+        _sut.TestMinLevelOverride = "DEBUG";
 
-        PluginLogService.LogDebug(src, "d");
-        PluginLogService.LogInfo(src, "i");
-        PluginLogService.LogWarning(src, "w");
-        PluginLogService.LogError(src, "e");
+        _sut.LogDebug(src, "d");
+        _sut.LogInfo(src, "i");
+        _sut.LogWarning(src, "w");
+        _sut.LogError(src, "e");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Equal(4, entries.Count);
     }
 
@@ -555,13 +557,13 @@ public class PluginLogServiceTests : IDisposable
     public void LogDebug_StillForwardsToILogger_EvenWhenFilteredFromBuffer()
     {
         const string src = "__PLT_FwdFiltered__";
-        PluginLogService.TestMinLevelOverride = "ERROR"; // DEBUG won't be stored in buffer
+        _sut.TestMinLevelOverride = "ERROR"; // DEBUG won't be stored in buffer
         var mockLogger = new Mock<ILogger>();
 
-        PluginLogService.LogDebug(src, "Filtered debug msg", mockLogger.Object);
+        _sut.LogDebug(src, "Filtered debug msg", mockLogger.Object);
 
         // Not stored in buffer
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Empty(entries);
 
         // But still forwarded to ILogger
@@ -582,12 +584,12 @@ public class PluginLogServiceTests : IDisposable
     public void LogInfo_StillForwardsToILogger_EvenWhenFilteredFromBuffer()
     {
         const string src = "__PLT_FwdInfoFilt__";
-        PluginLogService.TestMinLevelOverride = "ERROR";
+        _sut.TestMinLevelOverride = "ERROR";
         var mockLogger = new Mock<ILogger>();
 
-        PluginLogService.LogInfo(src, "Filtered info", mockLogger.Object);
+        _sut.LogInfo(src, "Filtered info", mockLogger.Object);
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Empty(entries);
 
         mockLogger.Verify(
@@ -608,8 +610,8 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void GetConfiguredMinLevel_ReturnsOverride_WhenSet()
     {
-        PluginLogService.TestMinLevelOverride = "WARN";
-        Assert.Equal("WARN", PluginLogService.GetConfiguredMinLevel());
+        _sut.TestMinLevelOverride = "WARN";
+        Assert.Equal("WARN", _sut.GetConfiguredMinLevel());
     }
 
     /// <summary>
@@ -618,10 +620,10 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void GetConfiguredMinLevel_ReturnsInfo_WhenNoOverrideAndNoPlugin()
     {
-        PluginLogService.TestMinLevelOverride = null;
+        _sut.TestMinLevelOverride = null;
 
         // Without plugin instance, should fall back to INFO
-        var level = PluginLogService.GetConfiguredMinLevel();
+        var level = _sut.GetConfiguredMinLevel();
         Assert.Equal("INFO", level);
     }
 
@@ -634,11 +636,11 @@ public class PluginLogServiceTests : IDisposable
     public void GetEntries_ReturnsNewestFirst()
     {
         const string src = "__PLT_Order__";
-        PluginLogService.LogError(src, "First");
-        PluginLogService.LogError(src, "Second");
-        PluginLogService.LogError(src, "Third");
+        _sut.LogError(src, "First");
+        _sut.LogError(src, "Second");
+        _sut.LogError(src, "Third");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Equal(3, entries.Count);
         Assert.Equal("Third", entries[0].Message);
         Assert.Equal("Second", entries[1].Message);
@@ -654,10 +656,10 @@ public class PluginLogServiceTests : IDisposable
         const string src = "__PLT_Limit__";
         for (int i = 0; i < 10; i++)
         {
-            PluginLogService.LogError(src, $"Message {i}");
+            _sut.LogError(src, $"Message {i}");
         }
 
-        var entries = PluginLogService.GetEntries(source: src, limit: 3);
+        var entries = _sut.GetEntries(source: src, limit: 3);
         Assert.Equal(3, entries.Count);
     }
 
@@ -670,10 +672,10 @@ public class PluginLogServiceTests : IDisposable
         const string src = "__PLT_LimitNew__";
         for (int i = 0; i < 5; i++)
         {
-            PluginLogService.LogError(src, $"Message {i}");
+            _sut.LogError(src, $"Message {i}");
         }
 
-        var entries = PluginLogService.GetEntries(source: src, limit: 2);
+        var entries = _sut.GetEntries(source: src, limit: 2);
         Assert.Equal(2, entries.Count);
         Assert.Equal("Message 4", entries[0].Message); // newest
         Assert.Equal("Message 3", entries[1].Message);
@@ -685,11 +687,11 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void GetEntries_FiltersBySource()
     {
-        PluginLogService.LogError("__PLT_Trickplay__", "Trickplay message");
-        PluginLogService.LogError("__PLT_Subtitle__", "Subtitle message");
-        PluginLogService.LogError("__PLT_Trickplay__", "Another trickplay");
+        _sut.LogError("__PLT_Trickplay__", "Trickplay message");
+        _sut.LogError("__PLT_Subtitle__", "Subtitle message");
+        _sut.LogError("__PLT_Trickplay__", "Another trickplay");
 
-        var entries = PluginLogService.GetEntries(source: "plt_trickplay");
+        var entries = _sut.GetEntries(source: "plt_trickplay");
         Assert.Equal(2, entries.Count);
         Assert.All(entries, e => Assert.Contains("Trickplay", e.Source, StringComparison.OrdinalIgnoreCase));
     }
@@ -700,9 +702,9 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void GetEntries_SourceFilterNoMatch_ReturnsEmpty()
     {
-        PluginLogService.LogError("__PLT_API__", "Some error");
+        _sut.LogError("__PLT_API__", "Some error");
 
-        var entries = PluginLogService.GetEntries(source: "NonExistentXYZ987");
+        var entries = _sut.GetEntries(source: "NonExistentXYZ987");
         Assert.Empty(entries);
     }
 
@@ -713,13 +715,13 @@ public class PluginLogServiceTests : IDisposable
     public void GetEntries_FiltersByMinLevel()
     {
         const string src = "__PLT_MinLvlQ__";
-        PluginLogService.LogError(src, "Error");
-        PluginLogService.LogWarning(src, "Warning");
+        _sut.LogError(src, "Error");
+        _sut.LogWarning(src, "Warning");
 
-        var warnAndAbove = PluginLogService.GetEntries(minLevel: "WARN", source: src);
+        var warnAndAbove = _sut.GetEntries(minLevel: "WARN", source: src);
         Assert.Equal(2, warnAndAbove.Count);
 
-        var errorOnly = PluginLogService.GetEntries(minLevel: "ERROR", source: src);
+        var errorOnly = _sut.GetEntries(minLevel: "ERROR", source: src);
         Assert.Single(errorOnly);
         Assert.Equal("ERROR", errorOnly[0].Level);
     }
@@ -731,12 +733,12 @@ public class PluginLogServiceTests : IDisposable
     public void GetEntries_MinLevelInfo_ExcludesDebug()
     {
         const string src = "__PLT_ExclDbg__";
-        PluginLogService.LogDebug(src, "Debug msg");
-        PluginLogService.LogInfo(src, "Info msg");
-        PluginLogService.LogWarning(src, "Warn msg");
-        PluginLogService.LogError(src, "Error msg");
+        _sut.LogDebug(src, "Debug msg");
+        _sut.LogInfo(src, "Info msg");
+        _sut.LogWarning(src, "Warn msg");
+        _sut.LogError(src, "Error msg");
 
-        var entries = PluginLogService.GetEntries(minLevel: "INFO", source: src);
+        var entries = _sut.GetEntries(minLevel: "INFO", source: src);
         Assert.Equal(3, entries.Count);
         Assert.DoesNotContain(entries, e => e.Level == "DEBUG");
     }
@@ -747,11 +749,11 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void GetEntries_CombinedFilter_SourceAndLevel()
     {
-        PluginLogService.LogDebug("__PLT_Cfg__", "Config debug");
-        PluginLogService.LogWarning("__PLT_Cfg__", "Config warning");
-        PluginLogService.LogError("__PLT_Trsh__", "Trash error");
+        _sut.LogDebug("__PLT_Cfg__", "Config debug");
+        _sut.LogWarning("__PLT_Cfg__", "Config warning");
+        _sut.LogError("__PLT_Trsh__", "Trash error");
 
-        var entries = PluginLogService.GetEntries(minLevel: "WARN", source: "__PLT_Cfg__");
+        var entries = _sut.GetEntries(minLevel: "WARN", source: "__PLT_Cfg__");
         Assert.Single(entries);
         Assert.Equal("Config warning", entries[0].Message);
     }
@@ -763,10 +765,10 @@ public class PluginLogServiceTests : IDisposable
     public void GetEntries_NullSource_DoesNotFilterBySource()
     {
         const string src = "__PLT_NullSrc__";
-        PluginLogService.LogError(src, "api error");
+        _sut.LogError(src, "api error");
 
         // Null source should not filter - our entry should be present among results
-        var entries = PluginLogService.GetEntries(source: null);
+        var entries = _sut.GetEntries(source: null);
         Assert.Contains(entries, e => e.Source == src);
     }
 
@@ -777,9 +779,9 @@ public class PluginLogServiceTests : IDisposable
     public void GetEntries_EmptySource_DoesNotFilterBySource()
     {
         const string src = "__PLT_EmptySrc__";
-        PluginLogService.LogError(src, "api error");
+        _sut.LogError(src, "api error");
 
-        var entries = PluginLogService.GetEntries(source: string.Empty);
+        var entries = _sut.GetEntries(source: string.Empty);
         Assert.Contains(entries, e => e.Source == src);
     }
 
@@ -792,15 +794,15 @@ public class PluginLogServiceTests : IDisposable
     public void Clear_RemovesAllEntries()
     {
         const string src = "__PLT_Clear__";
-        PluginLogService.LogError(src, "Message 1");
-        PluginLogService.LogError(src, "Message 2");
+        _sut.LogError(src, "Message 1");
+        _sut.LogError(src, "Message 2");
 
-        var before = PluginLogService.GetEntries(source: src);
+        var before = _sut.GetEntries(source: src);
         Assert.Equal(2, before.Count);
 
-        PluginLogService.Clear();
-        Assert.Equal(0, PluginLogService.GetCount());
-        Assert.Empty(PluginLogService.GetEntries());
+        _sut.Clear();
+        Assert.Equal(0, _sut.GetCount());
+        Assert.Empty(_sut.GetEntries());
     }
 
     /// <summary>
@@ -809,7 +811,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void Clear_EmptyBuffer_DoesNotThrow()
     {
-        var ex = Record.Exception(() => PluginLogService.Clear());
+        var ex = Record.Exception(() => _sut.Clear());
         Assert.Null(ex);
     }
 
@@ -823,10 +825,10 @@ public class PluginLogServiceTests : IDisposable
     {
         for (int i = 0; i < PluginLogService.MaxEntries + 100; i++)
         {
-            PluginLogService.LogError("__PLT_Ring__", $"Message {i}");
+            _sut.LogError("__PLT_Ring__", $"Message {i}");
         }
 
-        Assert.True(PluginLogService.GetCount() <= PluginLogService.MaxEntries);
+        Assert.True(_sut.GetCount() <= PluginLogService.MaxEntries);
     }
 
     /// <summary>
@@ -838,10 +840,10 @@ public class PluginLogServiceTests : IDisposable
         const string src = "__PLT_RingNew__";
         for (int i = 0; i < PluginLogService.MaxEntries + 50; i++)
         {
-            PluginLogService.LogError(src, $"Message {i}");
+            _sut.LogError(src, $"Message {i}");
         }
 
-        var entries = PluginLogService.GetEntries(source: src, limit: 1);
+        var entries = _sut.GetEntries(source: src, limit: 1);
         Assert.Single(entries);
 
         // The newest entry should be the last one logged
@@ -857,10 +859,10 @@ public class PluginLogServiceTests : IDisposable
         const string src = "__PLT_RingOld__";
         for (int i = 0; i < PluginLogService.MaxEntries + 50; i++)
         {
-            PluginLogService.LogError(src, $"Message {i}");
+            _sut.LogError(src, $"Message {i}");
         }
 
-        var allEntries = PluginLogService.GetEntries(source: src, limit: PluginLogService.MaxEntries);
+        var allEntries = _sut.GetEntries(source: src, limit: PluginLogService.MaxEntries);
         Assert.DoesNotContain(allEntries, e => e.Message == "Message 0");
         Assert.DoesNotContain(allEntries, e => e.Message == "Message 49");
     }
@@ -875,10 +877,10 @@ public class PluginLogServiceTests : IDisposable
     {
         const string src = "__PLT_Ts__";
         var before = DateTime.UtcNow;
-        PluginLogService.LogError(src, "Timestamp test");
+        _sut.LogError(src, "Timestamp test");
         var after = DateTime.UtcNow;
 
-        var entry = PluginLogService.GetEntries(source: src).First();
+        var entry = _sut.GetEntries(source: src).First();
         Assert.InRange(entry.Timestamp, before, after);
     }
 
@@ -892,10 +894,10 @@ public class PluginLogServiceTests : IDisposable
     {
         const string src1 = "__PLT_Export1__";
         const string src2 = "__PLT_Export2__";
-        PluginLogService.LogError(src1, "Test error");
-        PluginLogService.LogWarning(src2, "Test warning");
+        _sut.LogError(src1, "Test error");
+        _sut.LogWarning(src2, "Test warning");
 
-        var text = PluginLogService.ExportAsText();
+        var text = _sut.ExportAsText();
         Assert.Contains("Jellyfin Helper Plugin Logs", text, StringComparison.Ordinal);
         Assert.Contains("[ERROR]", text, StringComparison.Ordinal);
         Assert.Contains("[WARN ]", text, StringComparison.Ordinal);
@@ -911,10 +913,10 @@ public class PluginLogServiceTests : IDisposable
     public void ExportAsText_WithMinLevel_FiltersEntries()
     {
         const string src = "__PLT_ExFilt__";
-        PluginLogService.LogError(src, "Error");
-        PluginLogService.LogWarning(src, "Warning");
+        _sut.LogError(src, "Error");
+        _sut.LogWarning(src, "Warning");
 
-        var text = PluginLogService.ExportAsText("ERROR");
+        var text = _sut.ExportAsText("ERROR");
         Assert.Contains("[ERROR]", text, StringComparison.Ordinal);
         Assert.DoesNotContain("[WARN ]", text, StringComparison.Ordinal);
     }
@@ -925,8 +927,8 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void ExportAsText_EmptyBuffer_ProducesHeaderOnly()
     {
-        PluginLogService.Clear();
-        var text = PluginLogService.ExportAsText();
+        _sut.Clear();
+        var text = _sut.ExportAsText();
         Assert.Contains("Jellyfin Helper Plugin Logs", text, StringComparison.Ordinal);
         Assert.Contains("Entries: 0", text, StringComparison.Ordinal);
     }
@@ -939,9 +941,9 @@ public class PluginLogServiceTests : IDisposable
     {
         const string src = "__PLT_ExExc__";
         var ex = new InvalidOperationException("Export test exception");
-        PluginLogService.LogError(src, "Error with exception", ex);
+        _sut.LogError(src, "Error with exception", ex);
 
-        var text = PluginLogService.ExportAsText();
+        var text = _sut.ExportAsText();
         Assert.Contains("Exception:", text, StringComparison.Ordinal);
         Assert.Contains("Export test exception", text, StringComparison.Ordinal);
     }
@@ -953,10 +955,10 @@ public class PluginLogServiceTests : IDisposable
     public void ExportAsText_ExportsOldestFirst()
     {
         const string src = "__PLT_ExOrd__";
-        PluginLogService.LogError(src, "FirstMsg");
-        PluginLogService.LogError(src, "SecondMsg");
+        _sut.LogError(src, "FirstMsg");
+        _sut.LogError(src, "SecondMsg");
 
-        var text = PluginLogService.ExportAsText();
+        var text = _sut.ExportAsText();
         int firstPos = text.IndexOf("FirstMsg", StringComparison.Ordinal);
         int secondPos = text.IndexOf("SecondMsg", StringComparison.Ordinal);
 
@@ -969,7 +971,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void ExportAsText_ContainsExportedTimestamp()
     {
-        var text = PluginLogService.ExportAsText();
+        var text = _sut.ExportAsText();
         Assert.Contains("Exported:", text, StringComparison.Ordinal);
         Assert.Contains("UTC", text, StringComparison.Ordinal);
     }
@@ -1008,7 +1010,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogError_EmptySource_DoesNotThrow()
     {
-        var ex = Record.Exception(() => PluginLogService.LogError(string.Empty, "msg"));
+        var ex = Record.Exception(() => _sut.LogError(string.Empty, "msg"));
         Assert.Null(ex);
     }
 
@@ -1018,7 +1020,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogError_EmptyMessage_DoesNotThrow()
     {
-        var ex = Record.Exception(() => PluginLogService.LogError("__PLT__", string.Empty));
+        var ex = Record.Exception(() => _sut.LogError("__PLT__", string.Empty));
         Assert.Null(ex);
     }
 
@@ -1031,10 +1033,10 @@ public class PluginLogServiceTests : IDisposable
         const string src = "__PLT_Rapid__";
         for (int i = 0; i < 100; i++)
         {
-            PluginLogService.LogError(src, $"Msg {i}");
+            _sut.LogError(src, $"Msg {i}");
         }
 
-        var entries = PluginLogService.GetEntries(source: src, limit: 500);
+        var entries = _sut.GetEntries(source: src, limit: 500);
         Assert.Equal(100, entries.Count);
     }
 
@@ -1045,18 +1047,18 @@ public class PluginLogServiceTests : IDisposable
     public void GetEntries_ReturnsReadOnlySnapshot()
     {
         const string src = "__PLT_Snap__";
-        PluginLogService.LogError(src, "Before");
-        var snapshot = PluginLogService.GetEntries(source: src);
+        _sut.LogError(src, "Before");
+        var snapshot = _sut.GetEntries(source: src);
 
         // Add more after taking snapshot
-        PluginLogService.LogError(src, "After");
+        _sut.LogError(src, "After");
 
         // Original snapshot should still have only 1 entry
         Assert.Single(snapshot);
         Assert.Equal("Before", snapshot[0].Message);
 
         // New query should have 2
-        Assert.Equal(2, PluginLogService.GetEntries(source: src).Count);
+        Assert.Equal(2, _sut.GetEntries(source: src).Count);
     }
 
     // ===== Dynamic Log Level Change (mid-flight) =====
@@ -1074,33 +1076,33 @@ public class PluginLogServiceTests : IDisposable
         const string src = "__PLT_MidFlight__";
 
         // Phase 1: Start with ERROR level — only errors stored
-        PluginLogService.TestMinLevelOverride = "ERROR";
-        PluginLogService.LogDebug(src, "debug-phase1");
-        PluginLogService.LogInfo(src, "info-phase1");
-        PluginLogService.LogWarning(src, "warn-phase1");
-        PluginLogService.LogError(src, "error-phase1");
+        _sut.TestMinLevelOverride = "ERROR";
+        _sut.LogDebug(src, "debug-phase1");
+        _sut.LogInfo(src, "info-phase1");
+        _sut.LogWarning(src, "warn-phase1");
+        _sut.LogError(src, "error-phase1");
 
-        var phase1 = PluginLogService.GetEntries(source: src);
+        var phase1 = _sut.GetEntries(source: src);
         Assert.Single(phase1);
         Assert.Equal("error-phase1", phase1[0].Message);
 
         // Phase 2: User changes level to DEBUG — all levels now stored
-        PluginLogService.TestMinLevelOverride = "DEBUG";
-        PluginLogService.LogDebug(src, "debug-phase2");
-        PluginLogService.LogInfo(src, "info-phase2");
+        _sut.TestMinLevelOverride = "DEBUG";
+        _sut.LogDebug(src, "debug-phase2");
+        _sut.LogInfo(src, "info-phase2");
 
-        var phase2 = PluginLogService.GetEntries(source: src);
+        var phase2 = _sut.GetEntries(source: src);
         Assert.Equal(3, phase2.Count); // error-phase1 + debug-phase2 + info-phase2
         Assert.Contains(phase2, e => e.Message == "debug-phase2");
         Assert.Contains(phase2, e => e.Message == "info-phase2");
 
         // Phase 3: User changes level to WARN — debug/info no longer stored
-        PluginLogService.TestMinLevelOverride = "WARN";
-        PluginLogService.LogDebug(src, "debug-phase3");
-        PluginLogService.LogInfo(src, "info-phase3");
-        PluginLogService.LogWarning(src, "warn-phase3");
+        _sut.TestMinLevelOverride = "WARN";
+        _sut.LogDebug(src, "debug-phase3");
+        _sut.LogInfo(src, "info-phase3");
+        _sut.LogWarning(src, "warn-phase3");
 
-        var phase3 = PluginLogService.GetEntries(source: src);
+        var phase3 = _sut.GetEntries(source: src);
         Assert.Equal(4, phase3.Count); // 3 from before + warn-phase3
         Assert.DoesNotContain(phase3, e => e.Message == "debug-phase3");
         Assert.DoesNotContain(phase3, e => e.Message == "info-phase3");
@@ -1117,14 +1119,14 @@ public class PluginLogServiceTests : IDisposable
         const string src = "__PLT_Lower__";
 
         // Start restrictive
-        PluginLogService.TestMinLevelOverride = "ERROR";
-        PluginLogService.LogDebug(src, "invisible");
-        Assert.Empty(PluginLogService.GetEntries(source: src));
+        _sut.TestMinLevelOverride = "ERROR";
+        _sut.LogDebug(src, "invisible");
+        Assert.Empty(_sut.GetEntries(source: src));
 
         // Lower level — same call now succeeds
-        PluginLogService.TestMinLevelOverride = "DEBUG";
-        PluginLogService.LogDebug(src, "visible");
-        var entries = PluginLogService.GetEntries(source: src);
+        _sut.TestMinLevelOverride = "DEBUG";
+        _sut.LogDebug(src, "visible");
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries);
         Assert.Equal("visible", entries[0].Message);
     }
@@ -1139,17 +1141,17 @@ public class PluginLogServiceTests : IDisposable
         const string src = "__PLT_Raise__";
 
         // Start permissive
-        PluginLogService.TestMinLevelOverride = "DEBUG";
-        PluginLogService.LogDebug(src, "stored");
-        Assert.Single(PluginLogService.GetEntries(source: src));
+        _sut.TestMinLevelOverride = "DEBUG";
+        _sut.LogDebug(src, "stored");
+        Assert.Single(_sut.GetEntries(source: src));
 
         // Raise level — lower levels now blocked
-        PluginLogService.TestMinLevelOverride = "ERROR";
-        PluginLogService.LogDebug(src, "blocked-debug");
-        PluginLogService.LogInfo(src, "blocked-info");
-        PluginLogService.LogWarning(src, "blocked-warn");
+        _sut.TestMinLevelOverride = "ERROR";
+        _sut.LogDebug(src, "blocked-debug");
+        _sut.LogInfo(src, "blocked-info");
+        _sut.LogWarning(src, "blocked-warn");
 
-        var entries = PluginLogService.GetEntries(source: src);
+        var entries = _sut.GetEntries(source: src);
         Assert.Single(entries); // only the original "stored"
         Assert.Equal("stored", entries[0].Message);
     }

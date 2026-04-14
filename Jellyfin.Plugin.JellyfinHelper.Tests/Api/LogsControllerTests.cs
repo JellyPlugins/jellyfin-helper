@@ -1,4 +1,4 @@
-﻿using Jellyfin.Plugin.JellyfinHelper.Api;
+using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -10,26 +10,27 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 [Collection("ConfigOverride")]
 public class LogsControllerTests : IDisposable
 {
+    private readonly PluginLogService _log = new();
     private readonly LogsController _controller;
 
     public LogsControllerTests()
     {
         var loggerMock = new Mock<ILogger<LogsController>>();
-        _controller = new LogsController(loggerMock.Object);
-        PluginLogService.TestMinLevelOverride = "INFO";
-        PluginLogService.Clear();
+        _controller = new LogsController(_log, loggerMock.Object);
+        _log.TestMinLevelOverride = "INFO";
+        _log.Clear();
     }
 
     public void Dispose()
     {
-        PluginLogService.TestMinLevelOverride = null;
-        PluginLogService.Clear();
+        _log.TestMinLevelOverride = null;
+        _log.Clear();
     }
 
     [Fact]
     public void GetLogs_ReturnsLogs()
     {
-        PluginLogService.LogInfo("Test", "Message");
+        _log.LogInfo("Test", "Message");
 
         var result = _controller.GetLogs();
 
@@ -41,7 +42,7 @@ public class LogsControllerTests : IDisposable
     [Fact]
     public void DownloadLogs_ReturnsFile()
     {
-        PluginLogService.LogInfo("Test", "Download Message");
+        _log.LogInfo("Test", "Download Message");
 
         var result = _controller.DownloadLogs();
 
@@ -52,11 +53,11 @@ public class LogsControllerTests : IDisposable
     [Fact]
     public void ClearLogs_ClearsLogs()
     {
-        PluginLogService.LogInfo("Test", "To be cleared");
+        _log.LogInfo("Test", "To be cleared");
 
         var result = _controller.ClearLogs();
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.Equal(0, PluginLogService.GetCount());
+        Assert.Equal(0, _log.GetCount());
     }
 }

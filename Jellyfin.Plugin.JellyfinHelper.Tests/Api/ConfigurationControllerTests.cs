@@ -1,10 +1,11 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -24,17 +25,17 @@ public class ConfigurationControllerTests : IDisposable
         ControllerTestFactory.InitializePluginInstance();
         var loggerMock = new Mock<ILogger<ConfigurationController>>();
 
-        // Mock ArrIntegrationService (TestConnectionAsync is virtual → mockable)
+        // Mock ArrIntegrationService (TestConnectionAsync is virtual ? mockable)
         var httpClientFactoryMock = new Mock<IHttpClientFactory>();
         var arrLoggerMock = new Mock<ILogger<ArrIntegrationService>>();
-        _arrServiceMock = new Mock<ArrIntegrationService>(httpClientFactoryMock.Object, arrLoggerMock.Object) { CallBase = false };
+        _arrServiceMock = new Mock<ArrIntegrationService>(httpClientFactoryMock.Object, new PluginLogService(), arrLoggerMock.Object) { CallBase = false };
 
         // Default: connection tests succeed
         _arrServiceMock
             .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "OK"));
 
-        _controller = new ConfigurationController(_arrServiceMock.Object, loggerMock.Object);
+        _controller = new ConfigurationController(_arrServiceMock.Object, new PluginLogService(), loggerMock.Object);
 
         // Use the same config instance that Plugin.Instance.Configuration returns.
         // This ensures UpdateConfigurationAsync (writes to Plugin.Instance.Configuration)
@@ -190,7 +191,7 @@ public class ConfigurationControllerTests : IDisposable
         Assert.Equal(2, sonarrArr.GetArrayLength());
         Assert.Equal("S1", sonarrArr[0].GetProperty("Name").GetString());
 
-        // Also verify it deserializes back correctly (simulating JS → server round-trip)
+        // Also verify it deserializes back correctly (simulating JS ? server round-trip)
         var restored = JsonSerializer.Deserialize<PluginConfiguration>(json, jsonOptions);
         Assert.NotNull(restored);
         Assert.Equal(3, restored!.RadarrInstances.Count);

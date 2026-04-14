@@ -22,6 +22,7 @@ public class StatisticsCacheService
     };
 
     private readonly string _latestResultFilePath;
+    private readonly IPluginLogService _pluginLog;
     private readonly ILogger<StatisticsCacheService> _logger;
     private readonly Lock _fileLock = new();
 
@@ -29,9 +30,11 @@ public class StatisticsCacheService
     /// Initializes a new instance of the <see cref="StatisticsCacheService"/> class.
     /// </summary>
     /// <param name="applicationPaths">The application paths.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
-    public StatisticsCacheService(IApplicationPaths applicationPaths, ILogger<StatisticsCacheService> logger)
+    public StatisticsCacheService(IApplicationPaths applicationPaths, IPluginLogService pluginLog, ILogger<StatisticsCacheService> logger)
     {
+        _pluginLog = pluginLog;
         _logger = logger;
         _latestResultFilePath = Path.Join(applicationPaths.DataPath, LatestResultFileName);
     }
@@ -55,11 +58,11 @@ public class StatisticsCacheService
                 var json = JsonSerializer.Serialize(result, JsonOptions);
                 File.WriteAllText(_latestResultFilePath, json);
 
-                PluginLogService.LogDebug("StatisticsCache", $"Saved latest statistics result to {_latestResultFilePath}", _logger);
+                _pluginLog.LogDebug("StatisticsCache", $"Saved latest statistics result to {_latestResultFilePath}", _logger);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                PluginLogService.LogWarning("StatisticsCache", $"Could not save latest statistics result to {_latestResultFilePath}", ex, _logger);
+                _pluginLog.LogWarning("StatisticsCache", $"Could not save latest statistics result to {_latestResultFilePath}", ex, _logger);
             }
         }
     }
@@ -84,7 +87,7 @@ public class StatisticsCacheService
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
-                PluginLogService.LogWarning("StatisticsCache", $"Could not load latest statistics result from {_latestResultFilePath}", ex, _logger);
+                _pluginLog.LogWarning("StatisticsCache", $"Could not load latest statistics result from {_latestResultFilePath}", ex, _logger);
                 return null;
             }
         }

@@ -34,8 +34,9 @@ public static class I18nService
     /// Returns a new dictionary instance on every call.
     /// </summary>
     /// <param name="languageCode">The ISO 639-1 language code.</param>
+    /// <param name="pluginLog">Optional plugin log service for diagnostics.</param>
     /// <returns>A dictionary of translation keys to translated strings.</returns>
-    public static Dictionary<string, string> GetTranslations(string? languageCode)
+    public static Dictionary<string, string> GetTranslations(string? languageCode, IPluginLogService? pluginLog = null)
     {
         var lang = string.IsNullOrWhiteSpace(languageCode)
             ? "en"
@@ -45,12 +46,14 @@ public static class I18nService
 
         if (!SupportedLanguages.Contains(lang))
         {
-            PluginLogService.LogDebug("I18n", $"Unsupported language '{languageCode}', falling back to 'en'.");
+            pluginLog?.LogDebug("I18n", $"Unknown language '{languageCode}', falling back to 'en'.");
             lang = "en";
         }
 
         // Load from cache or parse the embedded JSON resource.
         var cached = Cache.GetOrAdd(lang, static key => LoadFromResource(key));
+
+        pluginLog?.LogDebug("I18n", $"Loaded {cached.Count} translation keys for '{lang}'.");
 
         // Return a defensive copy so callers cannot mutate the cache.
         return new Dictionary<string, string>(cached, StringComparer.Ordinal);
@@ -67,7 +70,6 @@ public static class I18nService
         using var stream = ThisAssembly.GetManifestResourceStream(resourceName);
         if (stream is null)
         {
-            PluginLogService.LogError("I18n", $"Embedded i18n resource '{resourceName}' not found. Available: {string.Join(", ", ThisAssembly.GetManifestResourceNames())}");
             throw new InvalidOperationException(
                 $"Embedded i18n resource '{resourceName}' not found. Available: {string.Join(", ", ThisAssembly.GetManifestResourceNames())}");
         }
@@ -78,11 +80,8 @@ public static class I18nService
         var dict = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
         if (dict is null)
         {
-            PluginLogService.LogError("I18n", $"Failed to deserialize i18n resource '{resourceName}'.");
             throw new InvalidOperationException($"Failed to deserialize i18n resource '{resourceName}'.");
         }
-
-        PluginLogService.LogDebug("I18n", $"Loaded {dict.Count} translation keys for language '{lang}'.");
 
         // Re-create with ordinal comparer for consistent key lookups.
         return new Dictionary<string, string>(dict, StringComparer.Ordinal);

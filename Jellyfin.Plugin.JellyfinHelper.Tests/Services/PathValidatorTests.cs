@@ -10,14 +10,15 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 [Collection("ConfigOverride")]
 public class PathValidatorTests : IDisposable
 {
+    private readonly PluginLogService _log = new();
     /// <summary>
     /// Initializes a new instance of the <see cref="PathValidatorTests"/> class.
     /// Clears the plugin log buffer before each test.
     /// </summary>
     public PathValidatorTests()
     {
-        PluginLogService.TestMinLevelOverride = "DEBUG";
-        PluginLogService.Clear();
+        _log.TestMinLevelOverride = "DEBUG";
+        _log.Clear();
     }
 
     /// <summary>
@@ -25,8 +26,8 @@ public class PathValidatorTests : IDisposable
     /// </summary>
     public void Dispose()
     {
-        PluginLogService.Clear();
-        PluginLogService.TestMinLevelOverride = null;
+        _log.Clear();
+        _log.TestMinLevelOverride = null;
     }
 
     // === IsSafePath ===
@@ -133,27 +134,27 @@ public class PathValidatorTests : IDisposable
     [Fact]
     public void IsSafePath_EmptyPath_LogsDebugEntry()
     {
-        PathValidator.IsSafePath(string.Empty, "/base");
+        PathValidator.IsSafePath(string.Empty, "/base", _log);
 
-        var entries = PluginLogService.GetEntries(minLevel: "DEBUG", source: "PathValidator");
+        var entries = _log.GetEntries(minLevel: "DEBUG", source: "PathValidator");
         Assert.Contains(entries, e => e.Message.Contains("empty", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
     public void IsSafePath_TraversalPath_LogsWarningEntry()
     {
-        PathValidator.IsSafePath("/base/../etc/passwd", "/base");
+        PathValidator.IsSafePath("/base/../etc/passwd", "/base", _log);
 
-        var entries = PluginLogService.GetEntries(minLevel: "WARN", source: "PathValidator");
+        var entries = _log.GetEntries(minLevel: "WARN", source: "PathValidator");
         Assert.Contains(entries, e => e.Message.Contains("traversal", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
     public void IsSafePath_NullCharPath_LogsWarningEntry()
     {
-        PathValidator.IsSafePath("/base/file\0.txt", "/base");
+        PathValidator.IsSafePath("/base/file\0.txt", "/base", _log);
 
-        var entries = PluginLogService.GetEntries(minLevel: "WARN", source: "PathValidator");
+        var entries = _log.GetEntries(minLevel: "WARN", source: "PathValidator");
         Assert.Contains(entries, e => e.Message.Contains("traversal", StringComparison.OrdinalIgnoreCase));
     }
 }
