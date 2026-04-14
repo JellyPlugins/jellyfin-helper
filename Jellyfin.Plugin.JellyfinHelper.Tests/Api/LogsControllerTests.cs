@@ -7,6 +7,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
+[Collection("ConfigOverride")]
 public class LogsControllerTests
 {
     private readonly LogsController _controller;
