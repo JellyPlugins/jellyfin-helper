@@ -1,4 +1,6 @@
 using System.Net;
+using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
+using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
@@ -34,6 +36,9 @@ public static class TestMockFactory
         var mock = new Mock<IApplicationPaths>();
         mock.Setup(ap => ap.DataPath).Returns(dataPath ?? "/data");
         mock.Setup(ap => ap.PluginConfigurationsPath).Returns(configPath ?? "/data/config");
+        mock.Setup(ap => ap.PluginsPath).Returns("/data/plugins");
+        mock.Setup(ap => ap.LogDirectoryPath).Returns("/data/logs");
+        mock.Setup(ap => ap.ConfigurationDirectoryPath).Returns("/data/config");
         return mock;
     }
 
@@ -44,15 +49,6 @@ public static class TestMockFactory
 
     /// <summary>Creates a new <see cref="Mock{T}"/> for a typed logger.</summary>
     public static Mock<ILogger<T>> CreateLogger<T>() => new();
-
-    /// <summary>Creates a new <see cref="Mock{ILoggerFactory}"/> that returns a mock logger.</summary>
-    public static Mock<ILoggerFactory> CreateLoggerFactory()
-    {
-        var mock = new Mock<ILoggerFactory>();
-        mock.Setup(lf => lf.CreateLogger(It.IsAny<string>()))
-            .Returns(new Mock<ILogger>().Object);
-        return mock;
-    }
 
     // ===== Other Mocks =====
 
@@ -79,6 +75,36 @@ public static class TestMockFactory
                 Content = new StringContent(content),
             })
             .Verifiable();
+        return mock;
+    }
+
+    /// <summary>Creates a new <see cref="Mock{MediaStatisticsService}"/>.</summary>
+    public static Mock<MediaStatisticsService> CreateMediaStatisticsService()
+    {
+        var mock = new Mock<MediaStatisticsService>(
+            CreateLibraryManager().Object,
+            CreateFileSystem().Object,
+            new Mock<ILogger<MediaStatisticsService>>().Object);
+        return mock;
+    }
+
+    /// <summary>Creates a new <see cref="Mock{StatisticsHistoryService}"/>.</summary>
+    public static Mock<StatisticsHistoryService> CreateStatisticsHistoryService(IApplicationPaths appPaths)
+    {
+        var mock = new Mock<StatisticsHistoryService>(
+            appPaths,
+            new Mock<ILogger<StatisticsHistoryService>>().Object);
+        return mock;
+    }
+    
+    /// <summary>Creates a new <see cref="Mock{GrowthTimelineService}"/>.</summary>
+    public static Mock<GrowthTimelineService> CreateGrowthTimelineService(IApplicationPaths appPaths)
+    {
+        var mock = new Mock<GrowthTimelineService>(
+            CreateLibraryManager().Object,
+            CreateFileSystem().Object,
+            appPaths,
+            new Mock<ILogger<GrowthTimelineService>>().Object);
         return mock;
     }
 }

@@ -11,18 +11,18 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 [Collection("ConfigOverride")]
-public class MediaStatisticsControllerTrashTests : IDisposable
+public class TrashControllerTests : IDisposable
 {
-    private readonly MediaStatisticsController _controller;
+    private readonly TrashController _controller;
     private readonly Mock<ILibraryManager> _libraryManagerMock;
     private readonly string _tempPath;
 
-    public MediaStatisticsControllerTrashTests()
+    public TrashControllerTests()
     {
         _tempPath = Path.Combine(Path.GetTempPath(), "JellyfinHelperTests_" + Guid.NewGuid());
         Directory.CreateDirectory(_tempPath);
 
-        (_controller, _libraryManagerMock) = ControllerTestFactory.CreateControllerWithLibraryManager(dataPath: _tempPath);
+        (_controller, _libraryManagerMock) = ControllerTestFactory.CreateTrashController();
 
         CleanupConfigHelper.ConfigOverride = new PluginConfiguration();
     }
@@ -38,17 +38,7 @@ public class MediaStatisticsControllerTrashTests : IDisposable
 
     private void SetupLibraries(params string[] paths)
     {
-        var folders = new List<VirtualFolderInfo>();
-        foreach (var path in paths)
-        {
-            var folder = new VirtualFolderInfo
-            {
-                Name = Path.GetFileName(path),
-                Locations = [path],
-                CollectionType = CollectionTypeOptions.movies
-            };
-            folders.Add(folder);
-        }
+        var folders = paths.Select(path => new VirtualFolderInfo { Name = Path.GetFileName(path), Locations = [path], CollectionType = CollectionTypeOptions.movies }).ToList();
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns(folders);
     }
 

@@ -40,7 +40,7 @@ public class TrendsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_LoadTrendData_ReferencesCorrectApiEndpoint()
     {
-        Assert.Contains("Statistics/GrowthTimeline", HtmlContent);
+        Assert.Contains("GrowthTimeline", HtmlContent);
     }
 
     [Fact]

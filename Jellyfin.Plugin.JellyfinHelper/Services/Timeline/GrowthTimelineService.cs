@@ -67,7 +67,7 @@ public class GrowthTimelineService
     /// </summary>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>The growth timeline result.</returns>
-    public async Task<GrowthTimelineResult> ComputeTimelineAsync(CancellationToken cancellationToken)
+    public virtual async Task<GrowthTimelineResult> ComputeTimelineAsync(CancellationToken cancellationToken)
     {
         PluginLogService.LogInfo("GrowthTimeline", "Starting growth timeline computation...", _logger);
 
@@ -184,7 +184,7 @@ public class GrowthTimelineService
     /// </summary>
     /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
     /// <returns>The cached timeline or null.</returns>
-    public async Task<GrowthTimelineResult?> LoadTimelineAsync(CancellationToken cancellationToken)
+    public virtual async Task<GrowthTimelineResult?> LoadTimelineAsync(CancellationToken cancellationToken)
     {
         try
         {

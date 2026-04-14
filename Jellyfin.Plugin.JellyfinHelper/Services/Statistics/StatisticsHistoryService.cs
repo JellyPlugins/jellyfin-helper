@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
@@ -27,7 +28,7 @@ public class StatisticsHistoryService
     private readonly string _historyFilePath;
     private readonly string _latestResultFilePath;
     private readonly ILogger<StatisticsHistoryService> _logger;
-    private readonly object _fileLock = new();
+    private readonly Lock _fileLock = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StatisticsHistoryService"/> class.
@@ -75,8 +76,6 @@ public class StatisticsHistoryService
     /// <param name="result">The statistics result to snapshot.</param>
     public void SaveSnapshot(MediaStatisticsResult result)
     {
-        ArgumentNullException.ThrowIfNull(result);
-
         var snapshot = StatisticsSnapshot.FromResult(result);
 
         lock (_fileLock)
@@ -116,8 +115,6 @@ public class StatisticsHistoryService
     /// <param name="result">The statistics result to persist.</param>
     public void SaveLatestResult(MediaStatisticsResult result)
     {
-        ArgumentNullException.ThrowIfNull(result);
-
         lock (_fileLock)
         {
             try

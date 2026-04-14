@@ -78,9 +78,9 @@ public class HelperCleanupTask : IScheduledTask
             ("STRM File Repair", config.StrmRepairTaskMode, RunStrmRepair),
         };
 
-        int totalTasks = subTasks.Length;
+        var totalTasks = subTasks.Length;
 
-        for (int i = 0; i < totalTasks; i++)
+        for (var i = 0; i < totalTasks; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -93,7 +93,7 @@ public class HelperCleanupTask : IScheduledTask
                 continue;
             }
 
-            string modeLabel = mode == TaskMode.DryRun ? "Dry Run" : "Active";
+            var modeLabel = mode == TaskMode.DryRun ? "Dry Run" : "Active";
             PluginLogService.LogInfo("HelperCleanup", $"Starting {name} ({modeLabel})...", _logger);
 
             try
@@ -117,7 +117,7 @@ public class HelperCleanupTask : IScheduledTask
         }
 
         // Purge expired trash items if trash is enabled
-        if (config.UseTrash && config.TrashRetentionDays >= 0)
+        if (config is { UseTrash: true, TrashRetentionDays: >= 0 })
         {
             try
             {
@@ -126,7 +126,7 @@ public class HelperCleanupTask : IScheduledTask
 
                 var libraryLocations = LibraryPathResolver.GetDistinctLibraryLocations(_libraryManager);
                 long totalBytesFreed = 0;
-                int totalItemsPurged = 0;
+                var totalItemsPurged = 0;
 
                 foreach (var location in libraryLocations)
                 {
@@ -267,24 +267,13 @@ public class HelperCleanupTask : IScheduledTask
     /// <summary>
     /// Helper class that maps sub-task progress (0-100) to a segment of the overall progress.
     /// </summary>
-    private sealed class SubProgress : IProgress<double>
+    private sealed class SubProgress(IProgress<double> parent, double start, double end) : IProgress<double>
     {
-        private readonly IProgress<double> _parent;
-        private readonly double _start;
-        private readonly double _end;
-
-        public SubProgress(IProgress<double> parent, double start, double end)
-        {
-            _parent = parent;
-            _start = start;
-            _end = end;
-        }
-
         public void Report(double value)
         {
             // Map 0-100 sub-progress to our segment
-            double mapped = _start + (value / 100.0 * (_end - _start));
-            _parent.Report(mapped);
+            var mapped = start + (value / 100.0 * (end - start));
+            parent.Report(mapped);
         }
     }
 }

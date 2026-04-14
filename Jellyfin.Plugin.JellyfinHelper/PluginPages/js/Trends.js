@@ -181,7 +181,7 @@
 
     function loadTrendData(forceRefresh) {
         var apiClient = ApiClient;
-        var url = apiClient.getUrl('JellyfinHelper/Statistics/GrowthTimeline');
+        var url = apiClient.getUrl('JellyfinHelper/GrowthTimeline');
         if (forceRefresh) {
             url += (url.indexOf('?') === -1 ? '?' : '&') + 'forceRefresh=true';
         }

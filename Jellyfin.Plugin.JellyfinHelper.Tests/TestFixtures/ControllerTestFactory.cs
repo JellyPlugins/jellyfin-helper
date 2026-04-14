@@ -1,8 +1,9 @@
 using System.Text;
 using Jellyfin.Plugin.JellyfinHelper.Api;
-using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
-using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Serialization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Memory;
@@ -18,75 +19,117 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 public static class ControllerTestFactory
 {
     /// <summary>
-    /// Core factory that creates a <see cref="MediaStatisticsController"/> with all dependencies mocked,
-    /// returning the controller, the library manager mock, and the memory cache.
-    /// </summary>
-    private static (MediaStatisticsController Controller, Mock<ILibraryManager> LibraryManagerMock, IMemoryCache Cache) CreateControllerCore(
-        string? dataPath = null,
-        IMemoryCache? cache = null)
-    {
-        var libraryManagerMock = TestMockFactory.CreateLibraryManager();
-        var fileSystemMock = TestMockFactory.CreateFileSystem();
-        var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: dataPath ?? Path.GetTempPath());
-        var httpClientFactoryMock = TestMockFactory.CreateHttpClientFactory();
-        var memoryCache = cache ?? TestMockFactory.CreateMemoryCache();
-
-        var controller = new MediaStatisticsController(
-            libraryManagerMock.Object,
-            fileSystemMock.Object,
-            appPathsMock.Object,
-            httpClientFactoryMock.Object,
-            memoryCache,
-            new Mock<ILogger<MediaStatisticsController>>().Object,
-            new Mock<ILogger<MediaStatisticsService>>().Object,
-            new Mock<ILogger<StatisticsHistoryService>>().Object,
-            new Mock<ILogger<GrowthTimelineService>>().Object);
-
-        return (controller, libraryManagerMock, memoryCache);
-    }
-
-    /// <summary>
     /// Creates a <see cref="MediaStatisticsController"/> with all dependencies mocked.
     /// </summary>
     /// <param name="dataPath">The data path returned by IApplicationPaths.DataPath.</param>
     /// <param name="cache">Optional memory cache; a new one is created if null.</param>
     /// <returns>A tuple of the controller and its memory cache (for pre-populating stats).</returns>
-    public static (MediaStatisticsController Controller, IMemoryCache Cache) CreateController(
+    public static (MediaStatisticsController Controller, IMemoryCache Cache) CreateMediaStatisticsController(
         string? dataPath = null,
         IMemoryCache? cache = null)
     {
-        var (controller, _, memoryCache) = CreateControllerCore(dataPath, cache);
+        var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: dataPath ?? Path.GetTempPath());
+        var memoryCache = cache ?? TestMockFactory.CreateMemoryCache();
+        var statisticsServiceMock = TestMockFactory.CreateMediaStatisticsService();
+        var historyServiceMock = TestMockFactory.CreateStatisticsHistoryService(appPathsMock.Object);
+
+        var controller = new MediaStatisticsController(
+            memoryCache,
+            statisticsServiceMock.Object,
+            historyServiceMock.Object,
+            new Mock<ILogger<MediaStatisticsController>>().Object);
         return (controller, memoryCache);
     }
-
+    
     /// <summary>
-    /// Creates a <see cref="MediaStatisticsController"/> with all dependencies mocked,
-    /// also returning the <see cref="ILibraryManager"/> mock for further configuration.
+    /// Creates a <see cref="BackupController"/> with all dependencies mocked.
     /// </summary>
-    public static (MediaStatisticsController Controller, Mock<ILibraryManager> LibraryManagerMock) CreateControllerWithLibraryManager(
-        string? dataPath = null,
-        IMemoryCache? cache = null)
+    /// <param name="dataPath">The data path returned by IApplicationPaths.DataPath.</param>
+    /// <returns>The controller.</returns>
+    public static BackupController CreateBackupController(string? dataPath = null)
     {
-        var (controller, libraryManagerMock, _) = CreateControllerCore(dataPath, cache);
+        var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: dataPath ?? Path.GetTempPath());
+
+        var controller = new BackupController(
+            appPathsMock.Object,
+            new Mock<ILogger<BackupController>>().Object);
+        return controller;
+    }
+    
+    /// <summary>
+    /// Creates a <see cref="TrashController"/> with all dependencies mocked.
+    /// </summary>
+    /// <returns>A tuple of the controller and its library manager.</returns>
+    public static (TrashController controller, Mock<ILibraryManager> libraryManagerMock) CreateTrashController()
+    {
+        var libraryManagerMock = TestMockFactory.CreateLibraryManager();
+        
+        var controller = new TrashController(
+            libraryManagerMock.Object,
+            new Mock<ILogger<TrashController>>().Object);
         return (controller, libraryManagerMock);
     }
 
     /// <summary>
-    /// Creates a <see cref="MediaStatisticsController"/> with a JSON request body configured.
-    /// Useful for testing import endpoints.
+    /// Creates a <see cref="ArrIntegrationController"/> with all dependencies mocked.
     /// </summary>
-    public static MediaStatisticsController CreateControllerWithJsonBody(
-        string dataPath,
+    /// <returns>A tuple of the controller and its mocks.</returns>
+    public static (ArrIntegrationController Controller, Mock<ILibraryManager> LibraryManagerMock, Mock<IFileSystem> FileSystemMock, Mock<IHttpClientFactory> HttpClientFactoryMock) CreateArrIntegrationController()
+    {
+        var libraryManagerMock = TestMockFactory.CreateLibraryManager();
+        var fileSystemMock = TestMockFactory.CreateFileSystem();
+        var httpClientFactoryMock = TestMockFactory.CreateHttpClientFactory();
+
+        var controller = new ArrIntegrationController(
+            libraryManagerMock.Object,
+            fileSystemMock.Object,
+            httpClientFactoryMock.Object,
+            new Mock<ILogger<ArrIntegrationController>>().Object);
+
+        return (controller, libraryManagerMock, fileSystemMock, httpClientFactoryMock);
+    }
+
+    /// <summary>
+    /// Initializes the <see cref="Plugin.Instance"/> with mocked dependencies for testing.
+    /// This is necessary because many controllers and services rely on the static instance.
+    /// </summary>
+    public static void InitializePluginInstance()
+    {
+        if (Plugin.Instance != null)
+        {
+            return;
+        }
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "JellyfinHelperPlugin_" + Guid.NewGuid());
+        Directory.CreateDirectory(tempDir);
+        var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: tempDir, configPath: tempDir);
+        var xmlSerializerMock = new Mock<IXmlSerializer>();
+        
+        // Constructor of Plugin sets Plugin.Instance
+        var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object);
+        
+        // BasePlugin<T> holds configuration in a protected field or similar. 
+        // We can set the Configuration property directly if it has a setter 
+        // or use reflection to set the backing field.
+        var configProperty = typeof(MediaBrowser.Common.Plugins.BasePlugin<PluginConfiguration>).GetProperty("Configuration");
+        configProperty?.SetValue(plugin, new PluginConfiguration());
+    }
+
+    /// <summary>
+    /// Adds a JSON body to a controller's request.'
+    /// </summary>
+    /// <param name="controller">The controller to which the JSON body will be added.</param>
+    /// <param name="jsonBody">The JSON body content to be added.</param>
+    /// <param name="contentLength">The content length of the JSON body. If null, it will be calculated based on the JSON body content.</param>
+    /// <returns>The controller with the JSON body added to its request.</returns>
+    public static ControllerBase AddJsonBodyToController(
+        ControllerBase controller,
         string jsonBody,
         long? contentLength = null)
     {
-        var (controller, _) = CreateController(dataPath);
-
         var httpContext = new DefaultHttpContext();
         var bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
-#pragma warning disable CA2000 // Stream is registered for disposal via HttpContext
         var requestBodyStream = new MemoryStream(bodyBytes);
-#pragma warning restore CA2000
         httpContext.Request.Body = requestBodyStream;
         httpContext.Response.RegisterForDispose(requestBodyStream);
         httpContext.Request.ContentType = "application/json";
@@ -96,7 +139,7 @@ public static class ControllerTestFactory
         {
             HttpContext = httpContext,
         };
-
+        
         return controller;
     }
 }

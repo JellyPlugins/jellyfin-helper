@@ -60,7 +60,7 @@
 
     function loadCleanupStats() {
         var apiClient = ApiClient;
-        apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Cleanup/Statistics'), dataType: 'json' }).then(function (stats) {
+        apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/CleanupStatistics'), dataType: 'json' }).then(function (stats) {
             var cleanupContainer = document.getElementById('cleanup-stats-container');
             if (!cleanupContainer) return;
             var h = '<div class="section-title">🧹 ' + T('cleanupStatistics', 'Cleanup Statistics') + '</div>';
@@ -152,22 +152,10 @@
 
         overviewHtml += '</tbody></table></div>';
 
-        // Export buttons between library breakdown and cleanup stats
-        overviewHtml += '<div class="export-section">';
-        overviewHtml += '<button id="btnExportJson" class="export-btn">&#x1f4e5; ' + T('exportJson', 'JSON') + '</button> ';
-        overviewHtml += '<button id="btnExportCsv" class="export-btn">&#x1f4e5; ' + T('exportCsv', 'CSV') + '</button>';
-        overviewHtml += '</div>';
-
         overviewHtml += '<div id="cleanup-stats-container"></div>';
 
         var overviewContainer = document.getElementById('overviewContent');
         if (overviewContainer) {
             overviewContainer.innerHTML = overviewHtml;
-
-            // Bind export button handlers
-            var btnJson = document.getElementById('btnExportJson');
-            var btnCsv = document.getElementById('btnExportCsv');
-            if (btnJson) btnJson.addEventListener('click', function () { triggerExport('Json'); });
-            if (btnCsv) btnCsv.addEventListener('click', function () { triggerExport('Csv'); });
         }
     }

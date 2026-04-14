@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
@@ -10,7 +11,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 /// </summary>
 public static class CleanupTrackingService
 {
-    private static readonly object SyncLock = new();
+    private static readonly Lock SyncLock = new();
 
     /// <summary>
     /// Records bytes freed and items deleted from a cleanup run into the plugin configuration.
@@ -44,7 +45,7 @@ public static class CleanupTrackingService
     /// <summary>
     /// Gets the current cleanup statistics from the plugin configuration.
     /// </summary>
-    /// <returns>The cleanup statistics, or default values if the plugin is not available.</returns>
+    /// <returns>The cleanup statistics or default values if the plugin is not available.</returns>
     public static (long TotalBytesFreed, int TotalItemsDeleted, DateTime LastCleanupTimestamp) GetStatistics()
     {
         var plugin = Plugin.Instance;

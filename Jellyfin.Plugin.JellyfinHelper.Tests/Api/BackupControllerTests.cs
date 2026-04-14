@@ -10,7 +10,8 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
-public class MediaStatisticsControllerBackupTests
+[Collection("ConfigOverride")]
+public class BackupControllerTests
 {
     [Fact]
     public void ExportBackup_WhenPayloadIsLargeButWithinLimit_ReturnsFileAndLogsWarning()
@@ -31,7 +32,9 @@ public class MediaStatisticsControllerBackupTests
             Assert.Equal("application/json", fileResult.ContentType);
 
             var logs = PluginLogService.GetEntries(source: "API", limit: 20);
-            Assert.Contains(logs, entry => entry.Level == "WARN" && entry.Message.Contains("Large backup export created", StringComparison.Ordinal));
+            Assert.Contains(logs,
+                entry => entry.Level == "WARN" &&
+                         entry.Message.Contains("Large backup export created", StringComparison.Ordinal));
         }
         finally
         {
@@ -60,7 +63,9 @@ public class MediaStatisticsControllerBackupTests
             Assert.Contains("Maximum size is 50 MB", payloadJson, StringComparison.Ordinal);
 
             var logs = PluginLogService.GetEntries(source: "API", limit: 20);
-            Assert.Contains(logs, entry => entry.Level == "WARN" && entry.Message.Contains("Backup export rejected", StringComparison.Ordinal));
+            Assert.Contains(logs,
+                entry => entry.Level == "WARN" &&
+                         entry.Message.Contains("Backup export rejected", StringComparison.Ordinal));
         }
         finally
         {
@@ -76,7 +81,8 @@ public class MediaStatisticsControllerBackupTests
         var tempDir = CreateTempDir();
         try
         {
-            var controller = CreateControllerWithJsonBody(tempDir, "{}", contentLength: BackupService.MaxBackupSizeBytes + 1);
+            var controller =
+                CreateControllerWithJsonBody(tempDir, "{}", contentLength: BackupService.MaxBackupSizeBytes + 1);
 
             var result = await controller.ImportBackupAsync();
 
@@ -99,14 +105,17 @@ public class MediaStatisticsControllerBackupTests
         try
         {
             // Use a minimal valid backup JSON but declare a large Content-Length
-            var controller = CreateControllerWithJsonBody(tempDir, "{}", contentLength: BackupService.LargeBackupWarningThresholdBytes);
+            var controller = CreateControllerWithJsonBody(tempDir, "{}",
+                contentLength: BackupService.LargeBackupWarningThresholdBytes);
 
-            var result = await controller.ImportBackupAsync();
+            await controller.ImportBackupAsync();
 
             // The body is only "{}" so deserialization will produce a default BackupData
             // which passes validation — we just want to verify the warning was logged
             var logs = PluginLogService.GetEntries(source: "API", limit: 20);
-            Assert.Contains(logs, entry => entry.Level == "WARN" && entry.Message.Contains("Large backup import detected", StringComparison.Ordinal));
+            Assert.Contains(logs,
+                entry => entry.Level == "WARN" &&
+                         entry.Message.Contains("Large backup import detected", StringComparison.Ordinal));
         }
         finally
         {
@@ -144,17 +153,17 @@ public class MediaStatisticsControllerBackupTests
         var tempDir = CreateTempDir();
         try
         {
-            File.WriteAllText(
+            await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "jellyfin-helper-growth-timeline.json"),
                 "{\"granularity\":\"monthly\",\"dataPoints\":[{\"date\":\"2024-06-01T00:00:00Z\",\"cumulativeSize\":1000,\"cumulativeFileCount\":1}]}",
                 Encoding.UTF8);
 
-            File.WriteAllText(
+            await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "jellyfin-helper-growth-baseline.json"),
                 "{\"firstScanTimestamp\":\"2024-04-01T00:00:00Z\",\"directories\":{\"/media/movie-1\":{\"createdUtc\":\"2024-04-01T00:00:00Z\",\"size\":2000}}}",
                 Encoding.UTF8);
 
-            File.WriteAllText(
+            await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "jellyfin-helper-statistics-history.json"),
                 "[{\"timestamp\":\"2024-05-01T00:00:00Z\",\"totalSize\":500}]",
                 Encoding.UTF8);
@@ -181,11 +190,13 @@ public class MediaStatisticsControllerBackupTests
         }
     }
 
-    private static MediaStatisticsController CreateController(string dataPath)
-        => ControllerTestFactory.CreateController(dataPath: dataPath).Controller;
+    private static BackupController CreateController(string dataPath)
+        => ControllerTestFactory.CreateBackupController(dataPath: dataPath);
 
-    private static MediaStatisticsController CreateControllerWithJsonBody(string dataPath, string jsonBody, long? contentLength = null)
-        => ControllerTestFactory.CreateControllerWithJsonBody(dataPath, jsonBody, contentLength);
+    private static BackupController CreateControllerWithJsonBody(string dataPath, string jsonBody,
+        long? contentLength = null)
+        => (BackupController)ControllerTestFactory.AddJsonBodyToController(CreateController(dataPath), jsonBody,
+            contentLength);
 
     private static string CreateTempDir()
     {
