@@ -80,7 +80,7 @@ public class MediaStatisticsController : ControllerBase
         // Set rate-limit timestamp AFTER the scan so a failed scan does not block retries for 30s
         lock (RateLimitLock)
         {
-            _lastScanTime = DateTime.UtcNow;
+            SetLastScanTime(DateTime.UtcNow);
         }
 
         _cache.Set(StatsCacheKey, result, CacheDuration);
@@ -114,5 +114,10 @@ public class MediaStatisticsController : ControllerBase
         _cache.Set(StatsCacheKey, persisted, CacheDuration);
         PluginLogService.LogDebug("API", "Loaded persisted statistics from disk for /Latest", _logger);
         return Ok(persisted);
+    }
+
+    private static void SetLastScanTime(DateTime value)
+    {
+        _lastScanTime = value;
     }
 }
