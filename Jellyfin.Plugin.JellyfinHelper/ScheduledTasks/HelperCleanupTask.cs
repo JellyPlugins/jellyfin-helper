@@ -225,7 +225,7 @@ public class HelperCleanupTask : IScheduledTask
         try
         {
             _pluginLog.LogInfo("HelperCleanup", "Running post-cleanup statistics scan...", _logger);
-            var result = _statisticsService.CalculateStatistics();
+            var result = await Task.Run(() => _statisticsService.CalculateStatistics(), cancellationToken).ConfigureAwait(false);
             _cacheService.SaveLatestResult(result);
             _pluginLog.LogInfo("HelperCleanup", "Post-cleanup statistics scan completed and persisted.", _logger);
         }
