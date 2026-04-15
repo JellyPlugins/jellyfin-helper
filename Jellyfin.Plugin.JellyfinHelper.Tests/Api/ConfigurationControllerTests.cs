@@ -5,8 +5,8 @@ using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
-using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -14,26 +14,46 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
-[Collection("ConfigOverride")]
+/// <summary>
+/// Tests for <see cref="ConfigurationController"/>.
+/// All tests use mocked <see cref="IPluginConfigurationService"/> — no
+/// <c>Plugin.Instance</c> singleton is required, which eliminates flaky
+/// behaviour caused by shared static state during parallel test execution.
+/// </summary>
 public class ConfigurationControllerTests
 {
-    private readonly ConfigurationController _controller;
+    private readonly PluginConfiguration _config;
+    private readonly Mock<IPluginConfigurationService> _configServiceMock;
+    private readonly Mock<IPluginLogService> _pluginLogMock;
     private readonly Mock<IArrIntegrationService> _arrServiceMock;
+    private readonly ConfigurationController _controller;
 
     public ConfigurationControllerTests()
     {
-        ControllerTestFactory.InitializePluginInstance();
-        ControllerTestFactory.ResetPluginConfiguration();
-        var loggerMock = new Mock<ILogger<ConfigurationController>>();
+        _config = new PluginConfiguration();
+
+        _configServiceMock = new Mock<IPluginConfigurationService>();
+        _configServiceMock.Setup(s => s.IsInitialized).Returns(true);
+        _configServiceMock.Setup(s => s.GetConfiguration()).Returns(_config);
+
+        _pluginLogMock = new Mock<IPluginLogService>();
 
         _arrServiceMock = new Mock<IArrIntegrationService>();
-
-        // Default: connection tests succeed
         _arrServiceMock
             .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "OK"));
 
-        _controller = new ConfigurationController(_arrServiceMock.Object, new PluginLogService(), loggerMock.Object, new CleanupConfigHelper());
+        var configHelperMock = new Mock<ICleanupConfigHelper>();
+        configHelperMock.Setup(h => h.GetConfig()).Returns(_config);
+
+        var loggerMock = new Mock<ILogger<ConfigurationController>>();
+
+        _controller = new ConfigurationController(
+            _arrServiceMock.Object,
+            _pluginLogMock.Object,
+            loggerMock.Object,
+            configHelperMock.Object,
+            _configServiceMock.Object);
     }
 
     [Fact]
@@ -57,8 +77,9 @@ public class ConfigurationControllerTests
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.Equal(5, Plugin.Instance!.Configuration.OrphanMinAgeDays);
-        Assert.Equal(10, Plugin.Instance.Configuration.TrashRetentionDays);
+        Assert.Equal(5, _config.OrphanMinAgeDays);
+        Assert.Equal(10, _config.TrashRetentionDays);
+        _configServiceMock.Verify(s => s.SaveConfiguration(), Times.AtLeastOnce);
     }
 
     [Fact]
@@ -72,7 +93,7 @@ public class ConfigurationControllerTests
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.Equal("DEBUG", Plugin.Instance!.Configuration.PluginLogLevel);
+        Assert.Equal("DEBUG", _config.PluginLogLevel);
     }
 
     [Fact]
@@ -86,7 +107,7 @@ public class ConfigurationControllerTests
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.Equal("INFO", Plugin.Instance!.Configuration.PluginLogLevel);
+        Assert.Equal("INFO", _config.PluginLogLevel);
     }
 
     [Fact]
@@ -125,10 +146,9 @@ public class ConfigurationControllerTests
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
-        var config = Plugin.Instance!.Configuration;
-        Assert.Equal(3, config.RadarrInstances.Count);
-        Assert.Equal("Radarr-2", config.RadarrInstances[1].Name);
-        Assert.Equal("http://r3:7878", config.RadarrInstances[2].Url);
+        Assert.Equal(3, _config.RadarrInstances.Count);
+        Assert.Equal("Radarr-2", _config.RadarrInstances[1].Name);
+        Assert.Equal("http://r3:7878", _config.RadarrInstances[2].Url);
     }
 
     [Fact]
@@ -179,7 +199,7 @@ public class ConfigurationControllerTests
         Assert.Equal(2, sonarrArr.GetArrayLength());
         Assert.Equal("S1", sonarrArr[0].GetProperty("Name").GetString());
 
-        // Also verify it deserializes back correctly (simulating JS ? server round-trip)
+        // Also verify it deserializes back correctly (simulating JS → server round-trip)
         var restored = JsonSerializer.Deserialize<PluginConfiguration>(json, jsonOptions);
         Assert.NotNull(restored);
         Assert.Equal(3, restored!.RadarrInstances.Count);
@@ -210,7 +230,7 @@ public class ConfigurationControllerTests
 
         // Config should still be saved
         var okResult = Assert.IsType<OkObjectResult>(result);
-        Assert.Equal(2, Plugin.Instance!.Configuration.RadarrInstances.Count);
+        Assert.Equal(2, _config.RadarrInstances.Count);
 
         // Response should contain warnings
         var json = JsonSerializer.Serialize(okResult.Value);
@@ -228,7 +248,8 @@ public class ConfigurationControllerTests
         var result = _controller.UpdateLogLevel(request);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.Equal("DEBUG", Plugin.Instance!.Configuration.PluginLogLevel);
+        Assert.Equal("DEBUG", _config.PluginLogLevel);
+        _configServiceMock.Verify(s => s.SaveConfiguration(), Times.Once);
     }
 
     [Fact]
@@ -239,7 +260,7 @@ public class ConfigurationControllerTests
         var result = _controller.UpdateLogLevel(request);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.Equal("INFO", Plugin.Instance!.Configuration.PluginLogLevel);
+        Assert.Equal("INFO", _config.PluginLogLevel);
     }
 
     [Fact]
@@ -260,7 +281,7 @@ public class ConfigurationControllerTests
         var result = _controller.UpdateLogLevel(request);
 
         Assert.IsType<OkObjectResult>(result);
-        Assert.Equal("WARN", Plugin.Instance!.Configuration.PluginLogLevel);
+        Assert.Equal("WARN", _config.PluginLogLevel);
     }
 
     [Fact]
@@ -280,10 +301,9 @@ public class ConfigurationControllerTests
         _controller.UpdateLogLevel(logRequest);
 
         // Verify log level changed but other settings untouched
-        var config = Plugin.Instance!.Configuration;
-        Assert.Equal("ERROR", config.PluginLogLevel);
-        Assert.Equal(42, config.OrphanMinAgeDays);
-        Assert.Equal(15, config.TrashRetentionDays);
+        Assert.Equal("ERROR", _config.PluginLogLevel);
+        Assert.Equal(42, _config.OrphanMinAgeDays);
+        Assert.Equal(15, _config.TrashRetentionDays);
     }
 
     [Fact]
@@ -331,5 +351,27 @@ public class ConfigurationControllerTests
         Assert.Equal("Radarr-3", request.RadarrInstances[2].Name);
         Assert.Equal("http://r2:7878", request.RadarrInstances[1].Url);
         Assert.Equal("key3", request.RadarrInstances[2].ApiKey);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_PluginNotInitialized_ReturnsBadRequest()
+    {
+        _configServiceMock.Setup(s => s.IsInitialized).Returns(false);
+
+        var request = new ConfigurationUpdateRequest();
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void UpdateLogLevel_PluginNotInitialized_ReturnsBadRequest()
+    {
+        _configServiceMock.Setup(s => s.IsInitialized).Returns(false);
+
+        var request = new LogLevelUpdateRequest { PluginLogLevel = "DEBUG" };
+        var result = _controller.UpdateLogLevel(request);
+
+        Assert.IsType<BadRequestObjectResult>(result);
     }
 }

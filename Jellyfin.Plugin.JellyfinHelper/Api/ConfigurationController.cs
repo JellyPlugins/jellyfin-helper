@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -28,6 +29,7 @@ public class ConfigurationController : ControllerBase
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<ConfigurationController> _logger;
     private readonly ICleanupConfigHelper _configHelper;
+    private readonly IPluginConfigurationService _configService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ConfigurationController"/> class.
@@ -36,12 +38,19 @@ public class ConfigurationController : ControllerBase
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The controller logger.</param>
     /// <param name="configHelper">The cleanup configuration helper.</param>
-    public ConfigurationController(IArrIntegrationService arrService, IPluginLogService pluginLog, ILogger<ConfigurationController> logger, ICleanupConfigHelper configHelper)
+    /// <param name="configService">The plugin configuration service for read/write access.</param>
+    public ConfigurationController(
+        IArrIntegrationService arrService,
+        IPluginLogService pluginLog,
+        ILogger<ConfigurationController> logger,
+        ICleanupConfigHelper configHelper,
+        IPluginConfigurationService configService)
     {
         _arrService = arrService;
         _pluginLog = pluginLog;
         _logger = logger;
         _configHelper = configHelper;
+        _configService = configService;
     }
 
     /// <summary>
@@ -67,17 +76,12 @@ public class ConfigurationController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult UpdateLogLevel([FromBody] LogLevelUpdateRequest request)
     {
-        var plugin = Plugin.Instance;
-        if (plugin == null)
+        if (!_configService.IsInitialized)
         {
             return BadRequest(new { message = "Plugin not initialized." });
         }
 
-        var config = plugin.Configuration;
-        if (config == null)
-        {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Plugin configuration not initialized." });
-        }
+        var config = _configService.GetConfiguration();
 
         var validLevels = new[] { "DEBUG", "INFO", "WARN", "ERROR" };
         var level = string.IsNullOrWhiteSpace(request.PluginLogLevel) ? "INFO" : request.PluginLogLevel.Trim().ToUpperInvariant();
@@ -88,7 +92,7 @@ public class ConfigurationController : ControllerBase
         }
 
         config.PluginLogLevel = level;
-        plugin.SaveConfiguration();
+        _configService.SaveConfiguration();
 
         _pluginLog.LogInfo("API", $"Plugin log level updated to {level}.", _logger);
 
@@ -100,12 +104,6 @@ public class ConfigurationController : ControllerBase
     /// against all configured Arr instances and logs warnings for unreachable ones.
     /// The configuration is always saved regardless of connection test results.
     /// </summary>
-    /// <remarks>
-    /// This method accesses <see cref="Plugin.Instance"/> directly because
-    /// <c>BasePlugin&lt;T&gt;.SaveConfiguration()</c> is an instance method on the
-    /// plugin singleton and cannot be abstracted behind <see cref="ICleanupConfigHelper"/>.
-    /// Read-only access uses <c>_configHelper</c> (see <see cref="GetConfiguration"/>).
-    /// </remarks>
     /// <param name="request">The configuration update request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A status result with optional connection warnings.</returns>
@@ -114,52 +112,22 @@ public class ConfigurationController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> UpdateConfigurationAsync([FromBody] ConfigurationUpdateRequest request, CancellationToken cancellationToken)
     {
-        var plugin = Plugin.Instance;
-        if (plugin == null)
+        if (!_configService.IsInitialized)
         {
             return BadRequest(new { message = "Plugin not initialized." });
         }
 
-        // Validate numeric fields (aligned with BackupService.Validate range 0–3650)
-        if (request.OrphanMinAgeDays < 0 || request.OrphanMinAgeDays > 3650)
+        var validationError = ConfigurationRequestValidator.Validate(request);
+        if (validationError != null)
         {
-            return BadRequest(new { message = "OrphanMinAgeDays must be 0–3650." });
-        }
-
-        if (request.TrashRetentionDays < 0 || request.TrashRetentionDays > 3650)
-        {
-            return BadRequest(new { message = "TrashRetentionDays must be 0–3650." });
-        }
-
-        // Validate Arr instances (max 3 per type, URL format, non-empty API key)
-        const int maxArrInstances = 3;
-
-        if (request.RadarrInstances is { Count: > maxArrInstances })
-        {
-            return BadRequest(new { message = $"Maximum {maxArrInstances} Radarr instances allowed." });
-        }
-
-        if (request.SonarrInstances is { Count: > maxArrInstances })
-        {
-            return BadRequest(new { message = $"Maximum {maxArrInstances} Sonarr instances allowed." });
-        }
-
-        var arrValidationError = (request.RadarrInstances is not null ? ValidateArrInstances(request.RadarrInstances, "Radarr") : null)
-                                 ?? (request.SonarrInstances is not null ? ValidateArrInstances(request.SonarrInstances, "Sonarr") : null);
-        if (arrValidationError != null)
-        {
-            return BadRequest(new { message = arrValidationError });
+            return BadRequest(new { message = validationError });
         }
 
         // Apply request values to the existing config (preserves accumulated statistics and internal state)
-        var config = plugin.Configuration;
-        if (config == null)
-        {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Plugin configuration not initialized." });
-        }
+        var config = _configService.GetConfiguration();
 
         ApplyRequestToConfig(request, config);
-        plugin.SaveConfiguration();
+        _configService.SaveConfiguration();
 
         _pluginLog.LogInfo("API", "Plugin configuration updated.", _logger);
 
@@ -180,13 +148,22 @@ public class ConfigurationController : ControllerBase
     {
         var warnings = new List<string>();
 
-        await TestArrInstanceGroupAsync(request.RadarrInstances, "Radarr", warnings, cancellationToken).ConfigureAwait(false);
+        // Use explicit instance lists if provided, otherwise promote legacy single-instance fields
+        var radarrInstances = request.RadarrInstances
+            ?? (string.IsNullOrWhiteSpace(request.RadarrUrl) ? null
+                : new List<ArrInstanceConfig> { new() { Name = "Radarr", Url = request.RadarrUrl, ApiKey = request.RadarrApiKey ?? string.Empty } });
+
+        await TestArrInstanceGroupAsync(radarrInstances, "Radarr", warnings, cancellationToken).ConfigureAwait(false);
         if (cancellationToken.IsCancellationRequested)
         {
             return warnings;
         }
 
-        await TestArrInstanceGroupAsync(request.SonarrInstances, "Sonarr", warnings, cancellationToken).ConfigureAwait(false);
+        var sonarrInstances = request.SonarrInstances
+            ?? (string.IsNullOrWhiteSpace(request.SonarrUrl) ? null
+                : new List<ArrInstanceConfig> { new() { Name = "Sonarr", Url = request.SonarrUrl, ApiKey = request.SonarrApiKey ?? string.Empty } });
+
+        await TestArrInstanceGroupAsync(sonarrInstances, "Sonarr", warnings, cancellationToken).ConfigureAwait(false);
 
         return warnings;
     }
@@ -302,43 +279,5 @@ public class ConfigurationController : ControllerBase
                 config.SonarrInstances.Add(instance);
             }
         }
-    }
-
-    /// <summary>
-    /// Validates a list of Arr instances for URL format and non-empty API keys.
-    /// </summary>
-    /// <param name="instances">The instances to validate.</param>
-    /// <param name="typeName">The type name (Radarr/Sonarr) for error messages.</param>
-    /// <returns>An error message string, or null if all instances are valid.</returns>
-    private static string? ValidateArrInstances(IReadOnlyList<ArrInstanceConfig> instances, string typeName)
-    {
-        for (int i = 0; i < instances.Count; i++)
-        {
-            var instance = instances[i];
-
-            // Skip completely empty instances (user may have added a blank row)
-            if (string.IsNullOrWhiteSpace(instance.Url) && string.IsNullOrWhiteSpace(instance.ApiKey))
-            {
-                continue;
-            }
-
-            // If URL is provided, validate format
-            if (!string.IsNullOrWhiteSpace(instance.Url) &&
-                (!Uri.TryCreate(instance.Url, UriKind.Absolute, out var uri) ||
-                 (uri.Scheme != "http" && uri.Scheme != "https")))
-            {
-                var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{i + 1}";
-                return $"{typeName} instance '{label}' has an invalid URL. Only http:// and https:// URLs are allowed.";
-            }
-
-            // If URL is set, API key must also be set
-            if (!string.IsNullOrWhiteSpace(instance.Url) && string.IsNullOrWhiteSpace(instance.ApiKey))
-            {
-                var label = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{i + 1}";
-                return $"{typeName} instance '{label}' has a URL but no API key.";
-            }
-        }
-
-        return null;
     }
 }

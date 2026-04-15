@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
@@ -9,7 +10,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 [Collection("ConfigOverride")]
 public class I18NServiceTests : IDisposable
 {
-    private readonly PluginLogService _log = new();
+    private readonly PluginLogService _log = TestMockFactory.CreatePluginLogService();
     public I18NServiceTests()
     {
         _log.TestMinLevelOverride = "DEBUG";

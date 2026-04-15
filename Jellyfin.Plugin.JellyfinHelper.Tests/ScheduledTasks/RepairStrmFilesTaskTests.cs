@@ -17,7 +17,7 @@ public class RepairStrmFilesTaskTests
     private static RepairStrmFilesTask CreateTask()
     {
         var fileSystem = new MockFileSystem();
-        var pluginLog = new Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.PluginLogService();
+        var pluginLog = TestMockFactory.CreatePluginLogService();
         var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
         var strmRepairService = new StrmRepairService(
             fileSystem,

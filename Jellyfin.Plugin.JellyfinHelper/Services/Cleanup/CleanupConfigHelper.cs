@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 
@@ -11,10 +12,21 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 /// <summary>
 /// Helper that applies plugin configuration rules to cleanup operations.
 /// Provides library filtering, orphan age checking, trash/delete resolution, and task mode queries.
-/// Registered as a singleton via DI; reads configuration from <see cref="Plugin.Instance"/>.
+/// Registered as a singleton via DI; reads configuration from <see cref="IPluginConfigurationService"/>.
 /// </summary>
 public class CleanupConfigHelper : ICleanupConfigHelper
 {
+    private readonly IPluginConfigurationService _configService;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CleanupConfigHelper"/> class.
+    /// </summary>
+    /// <param name="configService">The plugin configuration service.</param>
+    public CleanupConfigHelper(IPluginConfigurationService configService)
+    {
+        _configService = configService;
+    }
+
     // ===== Pure static helpers (no state, no config access) =====
 
     /// <summary>
@@ -44,18 +56,18 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
-    // ===== Instance members (config access via Plugin.Instance) =====
+    // ===== Instance members (config access via IPluginConfigurationService) =====
 
     /// <inheritdoc />
     public PluginConfiguration GetConfig()
     {
-        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var config = _configService.GetConfiguration();
 
         // One-time migration from legacy booleans to TaskMode
         if (config.ConfigVersion < 1)
         {
             config.MigrateFromLegacyBooleans();
-            Plugin.Instance?.SaveConfiguration();
+            _configService.SaveConfiguration();
         }
 
         return config;

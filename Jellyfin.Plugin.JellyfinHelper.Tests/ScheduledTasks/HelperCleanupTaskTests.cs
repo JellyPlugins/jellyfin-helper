@@ -97,7 +97,7 @@ public class HelperCleanupTaskTests : IDisposable
             _libraryManagerMock.Object,
             _fileSystemMock.Object,
             _applicationPathsMock.Object,
-            new PluginLogService(),
+            TestMockFactory.CreatePluginLogService(),
             _loggerFactoryMock.Object,
             statisticsServiceMock.Object,
             cacheServiceMock.Object,

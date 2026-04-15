@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Common.Configuration;
@@ -113,6 +114,7 @@ public class BackupService : IBackupService
         TimeSpan.FromSeconds(1));
 
     private readonly string _dataPath;
+    private readonly IPluginConfigurationService _configService;
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<BackupService> _logger;
 
@@ -120,11 +122,13 @@ public class BackupService : IBackupService
     /// Initializes a new instance of the <see cref="BackupService"/> class.
     /// </summary>
     /// <param name="applicationPaths">The application paths.</param>
+    /// <param name="configService">The plugin configuration service.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
-    public BackupService(IApplicationPaths applicationPaths, IPluginLogService pluginLog, ILogger<BackupService> logger)
+    public BackupService(IApplicationPaths applicationPaths, IPluginConfigurationService configService, IPluginLogService pluginLog, ILogger<BackupService> logger)
     {
         _dataPath = applicationPaths.DataPath;
+        _configService = configService;
         _pluginLog = pluginLog;
         _logger = logger;
     }
@@ -133,11 +137,13 @@ public class BackupService : IBackupService
     /// Initializes a new instance of the <see cref="BackupService"/> class for testing.
     /// </summary>
     /// <param name="dataPath">The data path.</param>
+    /// <param name="configService">The plugin configuration service.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
-    internal BackupService(string dataPath, IPluginLogService pluginLog, ILogger<BackupService> logger)
+    internal BackupService(string dataPath, IPluginConfigurationService configService, IPluginLogService pluginLog, ILogger<BackupService> logger)
     {
         _dataPath = dataPath;
+        _configService = configService;
         _pluginLog = pluginLog;
         _logger = logger;
     }
@@ -150,12 +156,12 @@ public class BackupService : IBackupService
     {
         _pluginLog.LogInfo("Backup", "Creating plugin backup...", _logger);
 
-        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var config = _configService.GetConfiguration();
         var backup = new BackupData
         {
             BackupVersion = 1,
             CreatedAt = DateTime.UtcNow,
-            PluginVersion = Plugin.Instance?.Version?.ToString() ?? "unknown",
+            PluginVersion = _configService.PluginVersion,
 
             // Configuration preferences
             Language = config.Language,
@@ -638,14 +644,13 @@ public class BackupService : IBackupService
 
     private void RestoreConfiguration(BackupData backup, BackupRestoreSummary summary)
     {
-        var plugin = Plugin.Instance;
-        if (plugin == null)
+        if (!_configService.IsInitialized)
         {
             _pluginLog.LogWarning("Backup", "Plugin instance not available, skipping configuration restore.", logger: _logger);
             return;
         }
 
-        var config = plugin.Configuration;
+        var config = _configService.GetConfiguration();
 
         // Restore preferences
         config.Language = ValidLanguages.Contains(backup.Language) ? backup.Language : "en";
@@ -713,7 +718,7 @@ public class BackupService : IBackupService
             config.SonarrApiKey = string.Empty;
         }
 
-        plugin.SaveConfiguration();
+        _configService.SaveConfiguration();
         summary.ConfigurationRestored = true;
         _pluginLog.LogInfo("Backup", "Configuration restored from backup.", _logger);
     }

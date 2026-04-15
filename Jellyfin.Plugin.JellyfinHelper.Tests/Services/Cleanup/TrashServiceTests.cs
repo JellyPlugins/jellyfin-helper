@@ -11,7 +11,7 @@ public class TrashServiceTests : IDisposable
 {
     private readonly string _testRoot = TestDataGenerator.CreateTempDirectory("Trash");
     private readonly ILogger _loggerMock = TestMockFactory.CreateLogger().Object;
-    private readonly TrashService _trashService = new(new PluginLogService());
+    private readonly TrashService _trashService = new(TestMockFactory.CreatePluginLogService());
 
     /// <summary>
     /// Fixed reference time used across all tests for deterministic behavior.

@@ -1,8 +1,11 @@
 using System.Text.Json;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
@@ -734,7 +737,10 @@ public class BackupServiceTests
             File.WriteAllText(Path.Combine(tempDir, "jellyfin-helper-growth-baseline.json"), JsonSerializer.Serialize(baseline));
 
             var logger = TestMockFactory.CreateLogger<BackupService>();
-            var service = new BackupService(tempDir, new PluginLogService(), logger.Object);
+            var configService = new Mock<IPluginConfigurationService>();
+            configService.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration());
+            configService.Setup(c => c.PluginVersion).Returns("1.0.0-test");
+            var service = new BackupService(tempDir, configService.Object, TestMockFactory.CreatePluginLogService(), logger.Object);
 
             var backup = service.CreateBackup();
 
@@ -760,7 +766,8 @@ public class BackupServiceTests
         try
         {
             var logger = TestMockFactory.CreateLogger<BackupService>();
-            var service = new BackupService(tempDir, new PluginLogService(), logger.Object);
+            var configService = new Mock<IPluginConfigurationService>();
+            var service = new BackupService(tempDir, configService.Object, TestMockFactory.CreatePluginLogService(), logger.Object);
 
             var backup = CreateValidBackup();
             backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
@@ -797,7 +804,8 @@ public class BackupServiceTests
         try
         {
             var logger = TestMockFactory.CreateLogger<BackupService>();
-            var service = new BackupService(tempDir, new PluginLogService(), logger.Object);
+            var configService = new Mock<IPluginConfigurationService>();
+            var service = new BackupService(tempDir, configService.Object, TestMockFactory.CreatePluginLogService(), logger.Object);
 
             var backup = CreateValidBackup();
             backup.GrowthTimeline = null;

@@ -1,7 +1,9 @@
 ﻿using System;
+using System.IO.Abstractions;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Strm;
@@ -28,11 +30,13 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
         serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();
         serviceCollection.AddSingleton<ITrashService, TrashService>();
+        serviceCollection.AddSingleton<IPluginConfigurationService, PluginConfigurationService>();
         serviceCollection.AddSingleton<IPluginLogService, PluginLogService>();
         serviceCollection.AddSingleton<IMediaStatisticsService, MediaStatisticsService>();
         serviceCollection.AddSingleton<IStatisticsCacheService, StatisticsCacheService>();
         serviceCollection.AddSingleton<IGrowthTimelineService, GrowthTimelineService>();
         serviceCollection.AddSingleton<IBackupService, BackupService>();
+        serviceCollection.AddSingleton<IFileSystem, FileSystem>();
         serviceCollection.AddSingleton<IStrmRepairService, StrmRepairService>();
         serviceCollection.AddSingleton<IArrIntegrationService, ArrIntegrationService>();
     }

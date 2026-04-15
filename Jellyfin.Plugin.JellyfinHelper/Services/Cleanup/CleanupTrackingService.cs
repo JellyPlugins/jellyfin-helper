@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
@@ -14,16 +15,19 @@ public class CleanupTrackingService : ICleanupTrackingService
 {
     private readonly Lock _syncLock = new();
     private readonly ICleanupConfigHelper _configHelper;
+    private readonly IPluginConfigurationService _configService;
     private readonly IPluginLogService _pluginLog;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CleanupTrackingService"/> class.
     /// </summary>
     /// <param name="configHelper">The cleanup configuration helper.</param>
+    /// <param name="configService">The plugin configuration service.</param>
     /// <param name="pluginLog">The plugin log service.</param>
-    public CleanupTrackingService(ICleanupConfigHelper configHelper, IPluginLogService pluginLog)
+    public CleanupTrackingService(ICleanupConfigHelper configHelper, IPluginConfigurationService configService, IPluginLogService pluginLog)
     {
         _configHelper = configHelper;
+        _configService = configService;
         _pluginLog = pluginLog;
     }
 
@@ -37,7 +41,7 @@ public class CleanupTrackingService : ICleanupTrackingService
             config.TotalItemsDeleted += itemsDeleted;
             config.LastCleanupTimestamp = DateTime.UtcNow;
 
-            Plugin.Instance?.SaveConfiguration();
+            _configService.SaveConfiguration();
 
             _pluginLog.LogInfo("CleanupTracking", $"Cleanup recorded: {bytesFreed} bytes freed, {itemsDeleted} items deleted. Lifetime total: {config.TotalBytesFreed} bytes, {config.TotalItemsDeleted} items.", logger);
         }

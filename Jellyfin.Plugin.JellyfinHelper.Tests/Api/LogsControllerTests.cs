@@ -1,5 +1,6 @@
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -10,7 +11,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 [Collection("ConfigOverride")]
 public class LogsControllerTests : IDisposable
 {
-    private readonly PluginLogService _log = new();
+    private readonly PluginLogService _log = TestMockFactory.CreatePluginLogService();
     private readonly LogsController _controller;
 
     public LogsControllerTests()

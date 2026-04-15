@@ -88,7 +88,7 @@ public class LogsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult ClearLogs()
     {
-        _pluginLog.LogDebug("API", "Plugin log buffer cleared by admin", _logger);
+        _logger.LogDebug("Plugin log buffer cleared by admin");
         _pluginLog.Clear();
         return Ok(new { message = "Logs cleared." });
     }

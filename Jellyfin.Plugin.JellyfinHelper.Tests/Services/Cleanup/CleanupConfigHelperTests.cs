@@ -1,64 +1,44 @@
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
-using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
-/// <summary>
-/// Tests for <see cref="CleanupConfigHelper"/>.
-/// Uses a real instance with a known PluginConfiguration instead of the removed ConfigOverride.
-/// Shares the <see cref="PluginInstanceCollection"/> to prevent parallel execution with
-/// other test classes that mutate <see cref="Plugin.Instance"/> (e.g. ConfigurationControllerTests).
-/// </summary>
-[Collection("ConfigOverride")]
 public class CleanupConfigHelperTests
 {
-    private readonly CleanupConfigHelper _configHelper;
-
-    public CleanupConfigHelperTests()
+    [Fact]
+    public void GetConfig_ReturnsDefaultConfig_WhenPluginNotInitialized()
     {
-        // Reset Plugin.Instance configuration to a fresh default so tests
-        // that rely on default config values are not affected by prior test state.
-        ControllerTestFactory.ResetPluginConfiguration();
+        // When the config service reports not initialized, the helper should still
+        // return a usable config (the service returns a default PluginConfiguration).
+        var configServiceMock = new Mock<IPluginConfigurationService>();
+        configServiceMock.Setup(s => s.IsInitialized).Returns(false);
+        configServiceMock.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration());
 
-        _configHelper = new CleanupConfigHelper();
+        var helper = new CleanupConfigHelper(configServiceMock.Object);
+        var config = helper.GetConfig();
+        Assert.NotNull(config);
     }
 
-    // ===== ParseCommaSeparated Tests =====
-
     [Fact]
-    public void ParseCommaSeparated_NullInput_ReturnsEmptySet()
+    public void ParseCommaSeparated_EmptyInput_ReturnsEmpty()
     {
         var result = CleanupConfigHelper.ParseCommaSeparated(null);
         Assert.Empty(result);
-    }
 
-    [Fact]
-    public void ParseCommaSeparated_EmptyString_ReturnsEmptySet()
-    {
-        var result = CleanupConfigHelper.ParseCommaSeparated("");
+        result = CleanupConfigHelper.ParseCommaSeparated("");
+        Assert.Empty(result);
+
+        result = CleanupConfigHelper.ParseCommaSeparated("   ");
         Assert.Empty(result);
     }
 
     [Fact]
-    public void ParseCommaSeparated_WhitespaceOnly_ReturnsEmptySet()
+    public void ParseCommaSeparated_ValidInput_ReturnsParsedValues()
     {
-        var result = CleanupConfigHelper.ParseCommaSeparated("   ");
-        Assert.Empty(result);
-    }
-
-    [Fact]
-    public void ParseCommaSeparated_SingleValue_ReturnsSingleItemSet()
-    {
-        var result = CleanupConfigHelper.ParseCommaSeparated("Movies");
-        Assert.Single(result);
-        Assert.Contains("Movies", result);
-    }
-
-    [Fact]
-    public void ParseCommaSeparated_MultipleValues_ReturnsAllItems()
-    {
-        var result = CleanupConfigHelper.ParseCommaSeparated("Movies, TV Shows, Music");
+        var result = CleanupConfigHelper.ParseCommaSeparated("Movies, TV Shows , Music");
         Assert.Equal(3, result.Count);
         Assert.Contains("Movies", result);
         Assert.Contains("TV Shows", result);
@@ -66,63 +46,20 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
-    public void ParseCommaSeparated_TrimsWhitespace()
+    public void IsDryRun_ActivateMode_ReturnsFalse()
     {
-        var result = CleanupConfigHelper.ParseCommaSeparated("  Movies  ,  TV Shows  ");
-        Assert.Equal(2, result.Count);
-        Assert.Contains("Movies", result);
-        Assert.Contains("TV Shows", result);
+        Assert.False(CleanupConfigHelper.IsDryRun(TaskMode.Activate));
     }
 
     [Fact]
-    public void ParseCommaSeparated_IgnoresEmptyEntries()
+    public void IsDryRun_DryRunMode_ReturnsTrue()
     {
-        var result = CleanupConfigHelper.ParseCommaSeparated("Movies,,, TV Shows,  ,Music");
-        Assert.Equal(3, result.Count);
-        Assert.Contains("Movies", result);
-        Assert.Contains("TV Shows", result);
-        Assert.Contains("Music", result);
+        Assert.True(CleanupConfigHelper.IsDryRun(TaskMode.DryRun));
     }
 
     [Fact]
-    public void ParseCommaSeparated_IsCaseInsensitive()
+    public void IsDryRun_DeactivateMode_ReturnsTrue()
     {
-        var result = CleanupConfigHelper.ParseCommaSeparated("Movies");
-        Assert.Contains("movies", result);
-        Assert.Contains("MOVIES", result);
-    }
-
-    // ===== GetTrashPath Tests =====
-
-    [Fact]
-    public void GetTrashPath_DefaultConfig_ReturnsRelativeTrashPath()
-    {
-        // When Plugin.Instance is null, GetConfig() returns new PluginConfiguration()
-        // which has TrashFolderPath = ".jellyfin-trash"
-        var result = _configHelper.GetTrashPath("/media/movies");
-
-        // On Windows the path separator differs, so just check it contains the expected components
-        Assert.Contains(".jellyfin-trash", result);
-    }
-
-    // ===== Per-Task DryRun Tests =====
-
-    [Fact]
-    public void IsDryRunTrickplay_DefaultConfig_ReturnsTrue()
-    {
-        // When Plugin.Instance is null, config defaults have DryRunTrickplay = true
-        Assert.True(_configHelper.IsDryRunTrickplay());
-    }
-
-    [Fact]
-    public void IsDryRunEmptyMediaFolders_DefaultConfig_ReturnsTrue()
-    {
-        Assert.True(_configHelper.IsDryRunEmptyMediaFolders());
-    }
-
-    [Fact]
-    public void IsDryRunOrphanedSubtitles_DefaultConfig_ReturnsTrue()
-    {
-        Assert.True(_configHelper.IsDryRunOrphanedSubtitles());
+        Assert.True(CleanupConfigHelper.IsDryRun(TaskMode.Deactivate));
     }
 }

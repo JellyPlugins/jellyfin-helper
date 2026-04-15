@@ -1,5 +1,6 @@
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
@@ -10,7 +11,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 [Collection("ConfigOverride")]
 public class PathValidatorTests : IDisposable
 {
-    private readonly PluginLogService _log = new();
+    private readonly PluginLogService _log = TestMockFactory.CreatePluginLogService();
     /// <summary>
     /// Initializes a new instance of the <see cref="PathValidatorTests"/> class.
     /// Clears the plugin log buffer before each test.

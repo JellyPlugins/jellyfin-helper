@@ -306,7 +306,7 @@ public class HelperCleanupTask : IScheduledTask
 
     /// <summary>
     /// Deletes the legacy statistics history file that was replaced by the growth timeline.
-    /// TODO: Remove this method in v1.1.0 once all users have upgraded past v1.0.x.
+    /// TODO: Remove this method in v1.1.0 once all users have upgraded past v1.0.9.
     /// </summary>
     private void CleanupLegacyHistoryFile()
     {

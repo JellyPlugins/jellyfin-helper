@@ -26,7 +26,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         _task = new CleanTrickplayTask(
             _libraryManagerMock.Object,
             _fileSystemMock.Object,
-            new Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.PluginLogService(),
+            TestMockFactory.CreatePluginLogService(),
             _loggerMock.Object,
             MockConfigHelper.Object,
             MockTrackingService.Object,

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -19,6 +20,7 @@ public class PluginLogService : IPluginLogService
 {
     private readonly object _lock = new();
     private readonly LinkedList<PluginLogEntry> _buffer = new();
+    private readonly IPluginConfigurationService _configService;
 
     /// <summary>
     /// Maximum number of entries stored in the ring buffer.
@@ -29,6 +31,15 @@ public class PluginLogService : IPluginLogService
     /// Ordered log levels for comparison.
     /// </summary>
     private static readonly string[] LevelOrder = { "DEBUG", "INFO", "WARN", "ERROR" };
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PluginLogService"/> class.
+    /// </summary>
+    /// <param name="configService">The plugin configuration service.</param>
+    public PluginLogService(IPluginConfigurationService configService)
+    {
+        _configService = configService ?? throw new ArgumentNullException(nameof(configService));
+    }
 
     /// <summary>
     /// Gets or sets an optional override for the minimum log level. Used by unit tests.
@@ -204,11 +215,7 @@ public class PluginLogService : IPluginLogService
 
         try
         {
-            var plugin = Plugin.Instance;
-            if (plugin != null)
-            {
-                return plugin.Configuration.PluginLogLevel;
-            }
+            return _configService.GetConfiguration().PluginLogLevel;
         }
         catch
         {

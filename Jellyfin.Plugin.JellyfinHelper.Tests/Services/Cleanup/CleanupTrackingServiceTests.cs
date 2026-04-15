@@ -1,6 +1,8 @@
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -24,8 +26,9 @@ public class CleanupTrackingServiceTests
         var configHelperMock = new Mock<ICleanupConfigHelper>();
         configHelperMock.Setup(c => c.GetConfig()).Returns(_config);
 
-        var pluginLog = new PluginLogService();
-        _trackingService = new CleanupTrackingService(configHelperMock.Object, pluginLog);
+        var configServiceMock = TestMockFactory.CreateConfigurationService();
+        var pluginLog = new PluginLogService(configServiceMock.Object);
+        _trackingService = new CleanupTrackingService(configHelperMock.Object, configServiceMock.Object, pluginLog);
     }
 
     [Fact]

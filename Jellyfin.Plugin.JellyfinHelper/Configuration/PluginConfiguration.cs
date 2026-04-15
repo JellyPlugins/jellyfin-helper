@@ -284,7 +284,7 @@ public class PluginConfiguration : BasePluginConfiguration
         }
 
         var effective = RadarrInstances
-            .Where(i => !string.IsNullOrWhiteSpace(i.Url) || !string.IsNullOrWhiteSpace(i.ApiKey))
+            .Where(i => !string.IsNullOrWhiteSpace(i.Url) && !string.IsNullOrWhiteSpace(i.ApiKey))
             .Take(3)
             .ToList();
         return effective.AsReadOnly();
@@ -311,7 +311,7 @@ public class PluginConfiguration : BasePluginConfiguration
         }
 
         var effective = SonarrInstances
-            .Where(i => !string.IsNullOrWhiteSpace(i.Url) || !string.IsNullOrWhiteSpace(i.ApiKey))
+            .Where(i => !string.IsNullOrWhiteSpace(i.Url) && !string.IsNullOrWhiteSpace(i.ApiKey))
             .Take(3)
             .ToList();
         return effective.AsReadOnly();

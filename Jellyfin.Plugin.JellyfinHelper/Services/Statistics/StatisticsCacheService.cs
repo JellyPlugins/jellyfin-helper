@@ -52,7 +52,9 @@ public class StatisticsCacheService : IStatisticsCacheService
                 }
 
                 var json = JsonSerializer.Serialize(result, JsonOptions);
-                File.WriteAllText(_latestResultFilePath, json);
+                var tempFilePath = _latestResultFilePath + ".tmp";
+                File.WriteAllText(tempFilePath, json);
+                File.Move(tempFilePath, _latestResultFilePath, true);
 
                 _pluginLog.LogDebug("StatisticsCache", $"Saved latest statistics result to {_latestResultFilePath}", _logger);
             }

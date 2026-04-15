@@ -4,6 +4,7 @@ using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
@@ -41,7 +42,7 @@ public static class ControllerTestFactory
             memoryCache,
             statisticsServiceMock.Object,
             statisticsCacheServiceMock.Object,
-            new PluginLogService(),
+            TestMockFactory.CreatePluginLogService(),
             new Mock<ILogger<MediaStatisticsController>>().Object);
         return (controller, memoryCache);
     }
@@ -54,8 +55,11 @@ public static class ControllerTestFactory
     public static BackupController CreateBackupController(string? dataPath = null, IPluginLogService? pluginLog = null)
     {
         var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: dataPath ?? Path.GetTempPath());
-        var log = pluginLog ?? new PluginLogService();
-        var backupService = new BackupService(appPathsMock.Object, log, new Mock<ILogger<BackupService>>().Object);
+        var log = pluginLog ?? TestMockFactory.CreatePluginLogService();
+        var configServiceMock = new Mock<IPluginConfigurationService>();
+        configServiceMock.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration());
+        configServiceMock.Setup(c => c.PluginVersion).Returns("1.0.0-test");
+        var backupService = new BackupService(appPathsMock.Object, configServiceMock.Object, log, new Mock<ILogger<BackupService>>().Object);
 
         var controller = new BackupController(
             backupService,
@@ -77,7 +81,7 @@ public static class ControllerTestFactory
         
         var controller = new TrashController(
             libraryManagerMock.Object,
-            new PluginLogService(),
+            TestMockFactory.CreatePluginLogService(),
             new Mock<ILogger<TrashController>>().Object,
             configHelperMock.Object,
             trashServiceMock.Object);
@@ -93,7 +97,7 @@ public static class ControllerTestFactory
         var libraryManagerMock = TestMockFactory.CreateLibraryManager();
         var fileSystemMock = TestMockFactory.CreateFileSystem();
         var httpClientFactoryMock = TestMockFactory.CreateHttpClientFactory();
-        var pluginLog = new PluginLogService();
+        var pluginLog = TestMockFactory.CreatePluginLogService();
         var arrService = new ArrIntegrationService(httpClientFactoryMock.Object, pluginLog, new Mock<ILogger<ArrIntegrationService>>().Object);
 
         var configHelperMock = new Mock<ICleanupConfigHelper>();

@@ -10,10 +10,9 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
-[Collection("ConfigOverride")]
 public class BackupControllerTests
 {
-    private readonly PluginLogService _log = new();
+    private readonly PluginLogService _log = TestMockFactory.CreatePluginLogService();
 
     [Fact]
     public void ExportBackup_WhenPayloadIsLargeButWithinLimit_ReturnsFileAndLogsWarning()

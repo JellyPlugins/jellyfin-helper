@@ -104,6 +104,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── BackupArrInstance.cs
 │   │   ├── BackupRestoreSummary.cs
 │   │   └── BackupValidationResult.cs
+│   ├── ConfigAccess/                  # Plugin configuration abstraction (DI)
+│   │   ├── IPluginConfigurationService.cs  # Interface for config read/write
+│   │   └── PluginConfigurationService.cs   # Bridges Plugin.Instance to DI consumers
 │   ├── Cleanup/                      # Cleanup config & trash logic
 │   │   ├── ICleanupConfigHelper.cs
 │   │   ├── CleanupConfigHelper.cs    # Library filtering, orphan age, task mode queries
@@ -155,6 +158,7 @@ Jellyfin.Plugin.JellyfinHelper/
 All services are registered as **singletons** in `PluginServiceRegistrator.cs`:
 
 ```csharp
+serviceCollection.AddSingleton<IPluginConfigurationService, PluginConfigurationService>();
 serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
 serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();
 serviceCollection.AddSingleton<ITrashService, TrashService>();
@@ -178,7 +182,8 @@ A named `HttpClient` (`"ArrIntegration"`) is configured with a 15-second timeout
 | **Template Method** | `BaseLibraryCleanupTask` | Abstract base class orchestrates the cleanup lifecycle (config → log → iterate → process → summary → record). Concrete subclasses only implement `ProcessLocation()`. |
 | **Interface Segregation** | All services | Every service has a dedicated `I*Service` interface enabling mock-based testing and loose coupling. |
 | **Strategy** | `TaskMode` enum | Each cleanup task can be independently set to `Activate`, `DryRun`, or `Deactivate`. |
-| **Singleton Lifetime** | DI registration | All plugin services are registered with singleton lifetime — shared state (caches, tracking, ring buffer) is thread-safe. |
+| **Singleton Lifetime** | DI registration | All plugin services are registered with singleton lifetime; services with shared mutable state (caches, tracking, ring buffer) still need explicit thread-safety. |
+| **Configuration Abstraction** | `IPluginConfigurationService` | Decouples all services from the static `Plugin.Instance` singleton. Services receive configuration via DI, enabling isolated unit tests without shared mutable state. |
 | **Build-time Composition** | UI pipeline | CSS/JS modules concatenated into a single `configPage.html` at build time (MSBuild target). |
 | **Append-only Snapshots** | `GrowthTimelineService` | Historical timeline data points are immutable; only the current time-bucket is updated. Deletions show as drops at the current point. |
 | **Validation + Sanitization** | `BackupService` | Backup imports go through 3 stages: `Validate()` → `Sanitize()` → `RestoreBackup()`. Includes XSS/injection detection, size limits, path traversal checks. |
@@ -196,6 +201,7 @@ A named `HttpClient` (`"ArrIntegration"`) is configured with a 15-second timeout
 - **Dry Run by default** — All cleanup tasks start in DryRun mode for safety
 - **Backup & Restore** — Full plugin state (config + growth timeline + baseline + Arr instances) exportable/importable as JSON with comprehensive validation
 - **Legacy Migration** — `PluginConfiguration.ConfigVersion` enables forward-compatible config upgrades via `MigrateFromLegacyBooleans()`
+- **Configuration via DI** — All services access plugin configuration through `IPluginConfigurationService` (not `Plugin.Instance`), eliminating static coupling and enabling parallel test execution without flaky shared state
 
 ---
 
@@ -435,10 +441,10 @@ Tests follow a **fixture-based architecture** to eliminate boilerplate and ensur
 
 | Fixture | Type | Purpose |
 |---------|------|---------|
-| `TestMockFactory` | Static factory | Central factory for commonly needed mocks (`ILibraryManager`, `IFileSystem`, `IApplicationPaths`, `ILogger<T>`, `HttpMessageHandler`, `IMemoryCache`). All tests reference this instead of creating mocks ad-hoc. |
+| `TestMockFactory` | Static factory | Central factory for commonly needed mocks (`ILibraryManager`, `IFileSystem`, `IApplicationPaths`, `ILogger<T>`, `HttpMessageHandler`, `IMemoryCache`, `IPluginConfigurationService`) and service instances (`PluginLogService`). All tests reference this instead of creating mocks ad-hoc. |
 | `TestDataGenerator` | Static factory | Generates test entities: `VirtualFolderInfo`, `FileSystemMetadata`, `LibraryStatistics`, `MediaStatisticsResult`, temp directories. Provides OS-safe `TestPath()` helper. |
-| `ControllerTestFactory` | Static factory | Initializes `Plugin.Instance` and builds controller instances with all constructor dependencies mocked. Provides helpers for `ConfigOverride` lifecycle and common mock setups. |
-| `CleanupTaskTestBase` | Abstract base class | Inherited by all cleanup/scheduled-task tests. Manages `CleanupConfigHelper.ConfigOverride` lifecycle, provides `PluginConfiguration`, log-verification helpers (`VerifyLogContains`, `VerifyLogNeverContains`), `SynchronousProgress<T>`, and `TestPath()`. Uses `[Collection("ConfigOverride")]` for test isolation. |
+| `ControllerTestFactory` | Static factory | Builds controller instances with all constructor dependencies mocked (uses `IPluginConfigurationService` mock instead of `Plugin.Instance`). |
+| `CleanupTaskTestBase` | Abstract base class | Inherited by all cleanup/scheduled-task tests. Provides `PluginConfiguration`, log-verification helpers (`VerifyLogContains`, `VerifyLogNeverContains`), `SynchronousProgress<T>`, and `TestPath()`. Uses mocked `IPluginConfigurationService` for test isolation. |
 | `ConfigPageTestBase` | Abstract base class | Inherited by all `PluginPages/*HtmlTests.cs`. Loads the composed `configPage.html` embedded resource once (static), making `HtmlContent` available to all subclasses. Also provides `ReadmeContent` for cross-referencing. |
 
 **How tests inherit from fixtures:**
@@ -474,7 +480,7 @@ ConfigPageTestBase (abstract)
 ```text
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── TestFixtures/           # Shared base classes & factories
-│   ├── TestMockFactory.cs          # Central mock factory (ILibraryManager, IFileSystem, etc.)
+│   ├── TestMockFactory.cs          # Central mock factory (ILibraryManager, IFileSystem, IPluginConfigurationService, PluginLogService, etc.)
 │   ├── TestDataGenerator.cs        # Sample data factory (libraries, files, statistics)
 │   ├── ControllerTestFactory.cs    # Controller instantiation with mocked dependencies
 │   ├── CleanupTaskTestBase.cs      # Base class for cleanup task tests (config lifecycle)

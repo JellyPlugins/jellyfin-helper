@@ -1,4 +1,6 @@
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -13,7 +15,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.PluginLog;
 [Collection("ConfigOverride")]
 public class PluginLogServiceTests : IDisposable
 {
-    private readonly PluginLogService _sut = new();
+    private readonly PluginLogService _sut = TestMockFactory.CreatePluginLogService();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginLogServiceTests"/> class.
@@ -1154,5 +1156,75 @@ public class PluginLogServiceTests : IDisposable
         var entries = _sut.GetEntries(source: src);
         Assert.Single(entries); // only the original "stored"
         Assert.Equal("stored", entries[0].Message);
+    }
+
+    // ===== Constructor Guard & DI Integration =====
+
+    /// <summary>
+    /// Verifies that the constructor throws <see cref="ArgumentNullException"/>
+    /// when <c>null</c> is passed for <see cref="IPluginConfigurationService"/>.
+    /// This guards against misconfigured DI containers.
+    /// </summary>
+    [Fact]
+    public void Constructor_NullConfigService_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() => new PluginLogService(null!));
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="PluginLogService"/> reads the configured log level
+    /// from <see cref="IPluginConfigurationService"/> when no test override is set.
+    /// This ensures the DI wiring is actually used at runtime.
+    /// </summary>
+    [Fact]
+    public void GetConfiguredMinLevel_ReadsFromConfigService_WhenNoOverride()
+    {
+        var config = new PluginConfiguration { PluginLogLevel = "WARN" };
+        var sut = TestMockFactory.CreatePluginLogService(config);
+        sut.TestMinLevelOverride = null; // no override — use config service
+
+        Assert.Equal("WARN", sut.GetConfiguredMinLevel());
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="TestMockFactory.CreatePluginLogService"/> with a custom
+    /// configuration correctly wires the log level through <see cref="IPluginConfigurationService"/>.
+    /// DEBUG entries should be filtered when config says ERROR.
+    /// </summary>
+    [Fact]
+    public void CreatePluginLogService_WithCustomConfig_RespectsLogLevel()
+    {
+        const string src = "__PLT_CustomCfg__";
+        var config = new PluginConfiguration { PluginLogLevel = "ERROR" };
+        var sut = TestMockFactory.CreatePluginLogService(config);
+        sut.TestMinLevelOverride = null; // rely on config service
+
+        sut.LogDebug(src, "should-be-filtered");
+        sut.LogInfo(src, "should-be-filtered");
+        sut.LogWarning(src, "should-be-filtered");
+        sut.LogError(src, "should-be-stored");
+
+        var entries = sut.GetEntries(source: src);
+        Assert.Single(entries);
+        Assert.Equal("ERROR", entries[0].Level);
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="TestMockFactory.CreatePluginLogService"/> with default config
+    /// uses "INFO" as the default log level (matching <see cref="Configuration.PluginConfiguration"/> default).
+    /// </summary>
+    [Fact]
+    public void CreatePluginLogService_DefaultConfig_UsesInfoLevel()
+    {
+        const string src = "__PLT_DefCfg__";
+        var sut = TestMockFactory.CreatePluginLogService();
+        sut.TestMinLevelOverride = null; // rely on config service
+
+        sut.LogDebug(src, "should-be-filtered");
+        sut.LogInfo(src, "should-be-stored");
+
+        var entries = sut.GetEntries(source: src);
+        Assert.Single(entries);
+        Assert.Equal("INFO", entries[0].Level);
     }
 }
