@@ -13,8 +13,8 @@
         "changelog": "v1.0.9: Removed legacy statistics history (replaced by growth timeline), removed Export/CSV endpoints, new StatisticsCacheService, legacy history file cleanup, growth timeline interpolation & deduplication, reduced backup size limit, 957 tests.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.0.9/JellyfinHelper_1.0.9.zip",
-        "checksum": "",
-        "timestamp": "2026-04-14T12:00:00Z"
+        "checksum": "df0410a3b9c8fde90dbd4932dff0802f",
+        "timestamp": "2026-04-15T20:37:15Z"
       },
       {
         "version": "1.0.8",
