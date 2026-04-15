@@ -21,13 +21,100 @@
         }
     }
 
+    /**
+     * Interpolates missing intermediate buckets between sparse data points.
+     * When the backend deduplicates consecutive identical points, gaps appear
+     * in the timeline. This function fills those gaps by carrying forward
+     * the previous point's values so the chart has a continuous line.
+     * A safety guard prevents runaway iteration.
+     */
+    function interpolateDataPoints(dataPoints, granularity) {
+        if (dataPoints.length < 2) return dataPoints;
+
+        var maxPoints = 10000;
+        var result = [];
+        var truncated = false;
+        for (var i = 0; i < dataPoints.length; i++) {
+            result.push(dataPoints[i]);
+
+            if (result.length >= maxPoints) {
+                truncated = true;
+                break;
+            }
+
+            if (i < dataPoints.length - 1) {
+                var currentDate = new Date(dataPoints[i].date);
+                var nextDate = new Date(dataPoints[i + 1].date);
+
+                // Advance one bucket at a time and fill gaps
+                var fillDate = advanceBucketDate(currentDate, granularity);
+                while (fillDate < nextDate && result.length < maxPoints - 1) {
+                    result.push({
+                        date: fillDate.toISOString(),
+                        cumulativeSize: dataPoints[i].cumulativeSize,
+                        cumulativeFileCount: dataPoints[i].cumulativeFileCount
+                    });
+                    fillDate = advanceBucketDate(fillDate, granularity);
+                }
+
+                if (fillDate < nextDate) {
+                    truncated = true;
+                    break;
+                }
+            }
+        }
+
+        // Ensure the last real data point is always included so the chart doesn't end early
+        if (truncated) {
+            result[result.length - 1] = dataPoints[dataPoints.length - 1];
+            console.warn('[JellyfinHelper] Trend timeline truncated to ' + maxPoints + ' points.');
+        }
+        return result;
+    }
+
+    /**
+     * Advances a date by one bucket interval based on the granularity.
+     */
+    function advanceBucketDate(date, granularity) {
+        var d = new Date(date.getTime());
+        switch (granularity) {
+            case 'daily':
+                d.setUTCDate(d.getUTCDate() + 1);
+                break;
+            case 'weekly':
+                d.setUTCDate(d.getUTCDate() + 7);
+                break;
+            case 'monthly':
+                d.setUTCMonth(d.getUTCMonth() + 1);
+                break;
+            case 'quarterly':
+                d.setUTCMonth(d.getUTCMonth() + 3);
+                break;
+            case 'yearly':
+                d.setUTCFullYear(d.getUTCFullYear() + 1);
+                break;
+            default:
+                d.setUTCMonth(d.getUTCMonth() + 1);
+        }
+        return d;
+    }
+
     function renderTrendChart(timeline) {
         if (!timeline || !timeline.dataPoints || timeline.dataPoints.length < 2) {
             return '<div class="trend-empty">' + T('trendEmpty', 'Not enough data yet. Growth timeline is computed during each scheduled scan.') + '</div>';
         }
 
-        var dataPoints = timeline.dataPoints;
-        var granularity = timeline.granularity || 'monthly';
+        // The backend already groups data into the correct granularity and deduplicates
+        // consecutive identical points for compact storage. We only need to interpolate
+        // the gaps back for a continuous chart line.
+        var validGranularities = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly'];
+        var rawGranularity = timeline.granularity || 'monthly';
+        var granularity = String(rawGranularity).toLowerCase();
+        if (validGranularities.indexOf(granularity) === -1) {
+            console.warn('[JellyfinHelper] Unknown granularity "' + rawGranularity + '", falling back to "monthly".');
+            granularity = 'monthly';
+        }
+        var dataPoints = interpolateDataPoints(timeline.dataPoints, granularity);
 
         // Find max cumulative size for threshold calculation
         var peakSize = 0;
@@ -181,7 +268,7 @@
 
     function loadTrendData(forceRefresh) {
         var apiClient = ApiClient;
-        var url = apiClient.getUrl('JellyfinHelper/Statistics/GrowthTimeline');
+        var url = apiClient.getUrl('JellyfinHelper/GrowthTimeline');
         if (forceRefresh) {
             url += (url.indexOf('?') === -1 ? '?' : '&') + 'forceRefresh=true';
         }

@@ -32,17 +32,15 @@
     white-space: nowrap;
 }
 
-.refresh-btn, .export-btn {
+.refresh-btn {
     padding: 0.5em 1.2em;
     border: none;
     border-radius: 4px;
     color: #fff;
     cursor: pointer;
     font-size: 0.95em;
+    font-family: inherit;
     transition: background 0.2s;
-}
-
-.refresh-btn {
     background: #00a4dc;
 }
 
@@ -63,19 +61,6 @@
 .refresh-btn.error,
 .refresh-btn.error:hover {
     background: #e74c3c;
-}
-
-.export-btn {
-    background: #2ecc71;
-}
-
-.export-btn:hover {
-    background: #27ae60;
-}
-
-.export-btn:disabled {
-    background: #555;
-    cursor: not-allowed;
 }
 
 .section-title {
@@ -450,15 +435,6 @@
 .tree-action-btn:hover {
     opacity: 1;
     background: rgba(255, 255, 255, 0.2);
-}
-
-.export-section {
-    display: flex;
-    gap: 0.5em;
-    justify-content: center;
-    margin: 1.5em 0;
-    padding: 1em 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 @media (prefers-reduced-motion: reduce) {

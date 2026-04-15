@@ -94,16 +94,45 @@
     function saveLogLevelToConfig(newLevel) {
         try {
             var apiClient = ApiClient;
-            apiClient.ajax({ type: 'GET', url: apiClient.getUrl('JellyfinHelper/Configuration'), dataType: 'json' }).then(function(cfg) {
-                cfg.PluginLogLevel = newLevel;
-                return apiClient.ajax({
-                    type: 'POST',
-                    url: apiClient.getUrl('JellyfinHelper/Configuration'),
-                    data: JSON.stringify(cfg),
-                    contentType: 'application/json'
-                });
+            var levelFilter = document.getElementById('logsLevelFilter');
+            apiClient.ajax({
+                type: 'PUT',
+                url: apiClient.getUrl('JellyfinHelper/Configuration/LogLevel'),
+                data: JSON.stringify({ PluginLogLevel: newLevel }),
+                contentType: 'application/json'
+            }).then(function() {
+                // Update Settings tab safety-net variable if available
+                if (typeof _currentLogLevel !== 'undefined') {
+                    _currentLogLevel = newLevel;
+                }
+                // Show brief ✔ feedback next to dropdown
+                if (levelFilter) {
+                    var indicator = levelFilter.parentNode.querySelector('.log-level-saved');
+                    if (!indicator) {
+                        indicator = document.createElement('span');
+                        indicator.className = 'log-level-saved';
+                        indicator.style.cssText = 'color:#2ecc71;margin-left:0.4em;font-size:0.95em;transition:opacity 0.3s;';
+                        levelFilter.parentNode.insertBefore(indicator, levelFilter.nextSibling);
+                    }
+                    indicator.textContent = '✔';
+                    indicator.style.opacity = '1';
+                    setTimeout(function() { indicator.style.opacity = '0'; }, 2000);
+                }
             }, function() {
-                console.warn('Failed to load configuration for log level update');
+                console.warn('Failed to save log level');
+                // Show brief ✘ feedback
+                if (levelFilter) {
+                    var indicator = levelFilter.parentNode.querySelector('.log-level-saved');
+                    if (!indicator) {
+                        indicator = document.createElement('span');
+                        indicator.className = 'log-level-saved';
+                        indicator.style.cssText = 'color:#e74c3c;margin-left:0.4em;font-size:0.95em;transition:opacity 0.3s;';
+                        levelFilter.parentNode.insertBefore(indicator, levelFilter.nextSibling);
+                    }
+                    indicator.textContent = '✘';
+                    indicator.style.opacity = '1';
+                    setTimeout(function() { indicator.style.opacity = '0'; }, 3000);
+                }
             });
         } catch (e) {
             console.warn('Failed to save log level', e);

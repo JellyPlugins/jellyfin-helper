@@ -177,13 +177,13 @@
         ExcludedLibraries: "",
         OrphanMinAgeDays: 0,
         TrickplayTaskMode: "DryRun",
-        EmptyFolderTaskMode: "Activate",
-        SubtitleTaskMode: "DryRun",
+        EmptyMediaFolderTaskMode: "Activate",
+        OrphanedSubtitleTaskMode: "DryRun",
         StrmRepairTaskMode: "Deactivate",
         UseTrash: true,
         TrashFolderPath: ".jellyfin-trash",
         TrashRetentionDays: 30,
-        DashboardLanguage: "en",
+        Language: "en",
         PluginLogLevel: "INFO",
         RadarrInstances: [
             { Name: "Radarr Main", Url: "http://192.168.1.100:7878", ApiKey: "demo-key-1234" },
@@ -345,18 +345,21 @@
                         resolve(MOCK_TRANSLATIONS || {});
                     } else if (url.indexOf('Statistics/Latest') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
-                    } else if (url.indexOf('Statistics/Export/Json') !== -1) {
-                        resolve(JSON.stringify(MOCK_STATISTICS, null, 2));
-                    } else if (url.indexOf('Statistics/Export/Csv') !== -1) {
-                        resolve('Library,VideoSize,AudioSize,VideoFiles\nMovies,3298534883328,0,1800\nTV Shows,2199023255552,0,2042\nMusic,0,214748364800,0');
-                    } else if (url.indexOf('Statistics/GrowthTimeline') !== -1) {
+                    } else if (url.indexOf('GrowthTimeline') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_GROWTH_TIMELINE)));
                     } else if (url.indexOf('Statistics/History') !== -1) {
                         resolve(MOCK_HISTORY);
                     } else if (url.indexOf('Statistics') !== -1 && url.indexOf('forceRefresh') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
-                    } else if (url.indexOf('Cleanup/Statistics') !== -1) {
+                    } else if (url.indexOf('CleanupStatistics') !== -1) {
                         resolve(MOCK_CLEANUP_STATS);
+                    } else if (url.indexOf('Configuration/LogLevel') !== -1 && method === 'PUT') {
+                        // Update log level only
+                        try {
+                            var body = JSON.parse(opts.data);
+                            if (body.PluginLogLevel) MOCK_CONFIG.PluginLogLevel = body.PluginLogLevel;
+                        } catch(e) { console.warn('Mock ApiClient: failed to parse log level data', e); }
+                        resolve({ message: "Log level updated.", pluginLogLevel: MOCK_CONFIG.PluginLogLevel });
                     } else if (url.indexOf('Configuration') !== -1 && method === 'POST') {
                         // Save config — just succeed
                         try {
@@ -374,9 +377,9 @@
                         resolve(MOCK_TRASH_FOLDERS);
                     } else if (url.indexOf('Trash/Summary') !== -1) {
                         resolve({ TotalSize: 17179869184, TotalItems: 3 });
-                    } else if (url.indexOf('Arr/TestConnection') !== -1) {
+                    } else if (url.indexOf('ArrIntegration/TestConnection') !== -1) {
                         resolve({ Success: true, Message: "Connection successful (demo)" });
-                    } else if (url.indexOf('Arr/Radarr/Compare') !== -1 || url.indexOf('Arr/Sonarr/Compare') !== -1) {
+                    } else if (url.indexOf('ArrIntegration/Compare/') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_ARR_COMPARE)));
                     } else if (url.indexOf('Logs/Download') !== -1) {
                         var logText = MOCK_LOGS.Entries.map(function(e) {
