@@ -59,8 +59,8 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         _pluginLog = pluginLog;
         _configHelper = configHelper;
         _logger = logger;
-        _timelineFilePath = Path.Combine(applicationPaths.DataPath, TimelineFileName);
-        _baselineFilePath = Path.Combine(applicationPaths.DataPath, BaselineFileName);
+        _timelineFilePath = Path.Join(applicationPaths.DataPath, TimelineFileName);
+        _baselineFilePath = Path.Join(applicationPaths.DataPath, BaselineFileName);
     }
 
     /// <inheritdoc />

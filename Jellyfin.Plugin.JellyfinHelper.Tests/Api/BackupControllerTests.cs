@@ -22,7 +22,7 @@ public class BackupControllerTests
         try
         {
             WriteBaselineJsonAtLeast(
-                Path.Combine(tempDir, "jellyfin-helper-growth-baseline.json"),
+                Path.Join(tempDir, "jellyfin-helper-growth-baseline.json"),
                 (int)BackupService.LargeBackupWarningThresholdBytes + (256 * 1024));
 
             var controller = CreateController(tempDir);
@@ -52,7 +52,7 @@ public class BackupControllerTests
         try
         {
             WriteBaselineJsonAtLeast(
-                Path.Combine(tempDir, "jellyfin-helper-growth-baseline.json"),
+                Path.Join(tempDir, "jellyfin-helper-growth-baseline.json"),
                 (int)BackupService.MaxBackupSizeBytes + (256 * 1024));
 
             var controller = CreateController(tempDir);
@@ -155,12 +155,12 @@ public class BackupControllerTests
         try
         {
             await File.WriteAllTextAsync(
-                Path.Combine(tempDir, "jellyfin-helper-growth-timeline.json"),
+                Path.Join(tempDir, "jellyfin-helper-growth-timeline.json"),
                 "{\"granularity\":\"monthly\",\"dataPoints\":[{\"date\":\"2024-06-01T00:00:00Z\",\"cumulativeSize\":1000,\"cumulativeFileCount\":1}]}",
                 Encoding.UTF8);
 
             await File.WriteAllTextAsync(
-                Path.Combine(tempDir, "jellyfin-helper-growth-baseline.json"),
+                Path.Join(tempDir, "jellyfin-helper-growth-baseline.json"),
                 "{\"firstScanTimestamp\":\"2024-04-01T00:00:00Z\",\"directories\":{\"/media/movie-1\":{\"createdUtc\":\"2024-04-01T00:00:00Z\",\"size\":2000}}}",
                 Encoding.UTF8);
 
@@ -196,7 +196,7 @@ public class BackupControllerTests
 
     private static string CreateTempDir()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "jh-backup-api-test-" + Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Join(Path.GetTempPath(), "jh-backup-api-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         return tempDir;
     }

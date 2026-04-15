@@ -68,7 +68,7 @@ public class PathValidatorTests : IDisposable
     {
         // Use a temp directory to ensure the path resolves correctly on this OS
         var baseDir = Path.GetTempPath();
-        var childPath = Path.Combine(baseDir, "subdir", "file.txt");
+        var childPath = Path.Join(baseDir, "subdir", "file.txt");
 
         Assert.True(PathValidator.IsSafePath(childPath, baseDir));
     }
@@ -76,8 +76,8 @@ public class PathValidatorTests : IDisposable
     [Fact]
     public void IsSafePath_PathOutsideBase_ReturnsFalse()
     {
-        var baseDir = Path.Combine(Path.GetTempPath(), "specific-base");
-        var outsidePath = Path.Combine(Path.GetTempPath(), "other-dir", "file.txt");
+        var baseDir = Path.Join(Path.GetTempPath(), "specific-base");
+        var outsidePath = Path.Join(Path.GetTempPath(), "other-dir", "file.txt");
 
         Assert.False(PathValidator.IsSafePath(outsidePath, baseDir));
     }

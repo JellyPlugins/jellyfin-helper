@@ -26,7 +26,7 @@ public class HelperCleanupTaskTests : IDisposable
         var libraryManagerMock = TestMockFactory.CreateLibraryManager();
         var fileSystemMock = TestMockFactory.CreateFileSystem();
         var applicationPathsMock = TestMockFactory.CreateAppPaths();
-        _testDataPath = Path.Combine(Path.GetTempPath(), "JellyfinHelperTests_Data_" + Guid.NewGuid().ToString("N"));
+        _testDataPath = Path.Join(Path.GetTempPath(), "JellyfinHelperTests_Data_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_testDataPath);
         applicationPathsMock.Setup(p => p.DataPath).Returns(_testDataPath);
         var loggerFactoryMock = new Mock<ILoggerFactory>();
@@ -74,7 +74,7 @@ public class HelperCleanupTaskTests : IDisposable
         configHelperMock.Setup(c => c.IsOldEnoughForDeletion(It.IsAny<string>())).Returns(true);
         configHelperMock.Setup(c => c.IsFileOldEnoughForDeletion(It.IsAny<string>())).Returns(true);
         configHelperMock.Setup(c => c.GetTrashPath(It.IsAny<string>()))
-            .Returns<string>(lib => Path.Combine(lib, ".trash"));
+            .Returns<string>(lib => Path.Join(lib, ".trash"));
         configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
             .Returns<ILibraryManager>(_ => new List<string>());
 
@@ -104,7 +104,11 @@ public class HelperCleanupTaskTests : IDisposable
             {
                 Directory.Delete(_testDataPath, true);
             }
-            catch
+            catch (IOException)
+            {
+                /* best effort cleanup */
+            }
+            catch (UnauthorizedAccessException)
             {
                 /* best effort cleanup */
             }
@@ -225,7 +229,7 @@ public class HelperCleanupTaskTests : IDisposable
     public async Task ExecuteAsync_CancellationRequested_StopsProcessing()
     {
         var cts = new CancellationTokenSource();
-        cts.Cancel();
+        await cts.CancelAsync();
 
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
             _task.ExecuteAsync(new Progress<double>(), cts.Token));
@@ -243,7 +247,7 @@ public class HelperCleanupTaskTests : IDisposable
         };
 
         var reportedValues = new List<double>();
-        var progress = new SynchronousProgress<double>(v => reportedValues.Add(v));
+        var progress = new SynchronousProgress<double>(reportedValues.Add);
 
         await _task.ExecuteAsync(progress, CancellationToken.None);
 
@@ -262,7 +266,7 @@ public class HelperCleanupTaskTests : IDisposable
         };
 
         var reportedValues = new List<double>();
-        var progress = new SynchronousProgress<double>(v => reportedValues.Add(v));
+        var progress = new SynchronousProgress<double>(reportedValues.Add);
 
         await _task.ExecuteAsync(progress, CancellationToken.None);
 
@@ -369,18 +373,11 @@ public class HelperCleanupTaskTests : IDisposable
     /// <summary>
     ///     A synchronous implementation of IProgress that invokes the callback immediately.
     /// </summary>
-    private sealed class SynchronousProgress<T> : IProgress<T>
+    private sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
     {
-        private readonly Action<T> _handler;
-
-        public SynchronousProgress(Action<T> handler)
-        {
-            _handler = handler;
-        }
-
         public void Report(T value)
         {
-            _handler(value);
+            handler(value);
         }
     }
 }

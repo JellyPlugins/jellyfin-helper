@@ -210,7 +210,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             return trashPath;
         }
 
-        return Path.Combine(libraryRootPath, trashPath);
+        return Path.Join(libraryRootPath, trashPath);
     }
 
     // ===== Pure static helpers (no state, no config access) =====

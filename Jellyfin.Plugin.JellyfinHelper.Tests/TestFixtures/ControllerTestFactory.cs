@@ -100,7 +100,7 @@ public static class ControllerTestFactory
             return;
         }
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "JellyfinHelperPlugin_" + Guid.NewGuid());
+        var tempDir = Path.Join(Path.GetTempPath(), "JellyfinHelperPlugin_" + Guid.NewGuid());
         Directory.CreateDirectory(tempDir);
         var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: tempDir, configPath: tempDir);
         var xmlSerializerMock = new Mock<IXmlSerializer>();

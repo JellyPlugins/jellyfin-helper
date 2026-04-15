@@ -54,7 +54,7 @@ public abstract class CleanupTaskTestBase : IDisposable
         MockConfigHelper.Setup(x => x.IsDryRunOrphanedSubtitles()).Returns(() => Config.OrphanedSubtitleTaskMode == TaskMode.DryRun);
         MockConfigHelper.Setup(x => x.IsDryRunStrmRepair()).Returns(() => Config.StrmRepairTaskMode == TaskMode.DryRun);
         MockConfigHelper.Setup(x => x.IsOldEnoughForDeletion(It.IsAny<string>())).Returns(true);
-        MockConfigHelper.Setup(x => x.GetTrashPath(It.IsAny<string>())).Returns<string>(lib => Path.Combine(lib, ".trash"));
+        MockConfigHelper.Setup(x => x.GetTrashPath(It.IsAny<string>())).Returns<string>(lib => Path.Join(lib, ".trash"));
         MockConfigHelper.Setup(x => x.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))
             .Returns<ILibraryManager>(lm =>
             {
@@ -124,15 +124,8 @@ public abstract class CleanupTaskTestBase : IDisposable
     /// A synchronous implementation of <see cref="IProgress{T}"/> that invokes the callback immediately.
     /// Unlike <see cref="Progress{T}"/>, this does not post to a SynchronizationContext.
     /// </summary>
-    protected sealed class SynchronousProgress<T> : IProgress<T>
+    protected sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
     {
-        private readonly Action<T> _handler;
-
-        public SynchronousProgress(Action<T> handler)
-        {
-            _handler = handler;
-        }
-
-        public void Report(T value) => _handler(value);
+        public void Report(T value) => handler(value);
     }
 }

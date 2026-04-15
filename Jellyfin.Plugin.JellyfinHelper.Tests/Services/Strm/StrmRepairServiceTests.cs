@@ -98,8 +98,8 @@ public class StrmRepairServiceTests
     {
         // Arrange - the .strm points to old-name.mkv but file was renamed to new-name.mkv
         var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie1");
-        var newFile = _fileSystem.Path.Combine(movieDir, "new-name.mkv");
-        var brokenTarget = _fileSystem.Path.Combine(movieDir, "old-name.mkv");
+        var newFile = _fileSystem.Path.Join(movieDir, "new-name.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old-name.mkv");
 
         _fileSystem.AddDirectory(movieDir);
         _fileSystem.AddFile(newFile, new MockFileData("video"));
@@ -121,8 +121,8 @@ public class StrmRepairServiceTests
     public void ProcessStrmFile_BrokenTarget_ParentDirExists_SingleMediaFile_RepairsActual()
     {
         var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie1");
-        var newFile = _fileSystem.Path.Combine(movieDir, "new-name.mkv");
-        var brokenTarget = _fileSystem.Path.Combine(movieDir, "old-name.mkv");
+        var newFile = _fileSystem.Path.Join(movieDir, "new-name.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old-name.mkv");
 
         _fileSystem.AddDirectory(movieDir);
         _fileSystem.AddFile(newFile, new MockFileData("video"));
@@ -144,10 +144,10 @@ public class StrmRepairServiceTests
     {
         // Arrange - parent directory exists but has no media files
         var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie1");
-        var brokenTarget = _fileSystem.Path.Combine(movieDir, "old-name.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old-name.mkv");
 
         _fileSystem.AddDirectory(movieDir);
-        _fileSystem.AddFile(_fileSystem.Path.Combine(movieDir, "readme.txt"), new MockFileData("info"));
+        _fileSystem.AddFile(_fileSystem.Path.Join(movieDir, "readme.txt"), new MockFileData("info"));
 
         var strmFile = _fileSystem.Path.GetFullPath("/series/Show1/Specials/movie.strm");
         _fileSystem.AddFile(strmFile, new MockFileData(brokenTarget));
@@ -162,11 +162,11 @@ public class StrmRepairServiceTests
     {
         // Arrange - parent directory has multiple media files
         var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie1");
-        var brokenTarget = _fileSystem.Path.Combine(movieDir, "old-name.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old-name.mkv");
 
         _fileSystem.AddDirectory(movieDir);
-        _fileSystem.AddFile(_fileSystem.Path.Combine(movieDir, "movie-part1.mkv"), new MockFileData("video"));
-        _fileSystem.AddFile(_fileSystem.Path.Combine(movieDir, "movie-part2.mkv"), new MockFileData("video"));
+        _fileSystem.AddFile(_fileSystem.Path.Join(movieDir, "movie-part1.mkv"), new MockFileData("video"));
+        _fileSystem.AddFile(_fileSystem.Path.Join(movieDir, "movie-part2.mkv"), new MockFileData("video"));
 
         var strmFile = _fileSystem.Path.GetFullPath("/series/Show1/Specials/movie.strm");
         _fileSystem.AddFile(strmFile, new MockFileData(brokenTarget));
@@ -209,10 +209,10 @@ public class StrmRepairServiceTests
     {
         var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie1");
         _fileSystem.AddDirectory(movieDir);
-        _fileSystem.AddFile(_fileSystem.Path.Combine(movieDir, "movie.mkv"), new MockFileData("video"));
-        _fileSystem.AddFile(_fileSystem.Path.Combine(movieDir, "subtitle.srt"), new MockFileData("subtitle"));
-        _fileSystem.AddFile(_fileSystem.Path.Combine(movieDir, "poster.jpg"), new MockFileData("image"));
-        _fileSystem.AddFile(_fileSystem.Path.Combine(movieDir, "info.nfo"), new MockFileData("info"));
+        _fileSystem.AddFile(_fileSystem.Path.Join(movieDir, "movie.mkv"), new MockFileData("video"));
+        _fileSystem.AddFile(_fileSystem.Path.Join(movieDir, "subtitle.srt"), new MockFileData("subtitle"));
+        _fileSystem.AddFile(_fileSystem.Path.Join(movieDir, "poster.jpg"), new MockFileData("image"));
+        _fileSystem.AddFile(_fileSystem.Path.Join(movieDir, "info.nfo"), new MockFileData("info"));
 
         var result = _service.FindMediaFilesInDirectory(movieDir);
 
@@ -225,9 +225,9 @@ public class StrmRepairServiceTests
     {
         var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie1");
         _fileSystem.AddDirectory(movieDir);
-        _fileSystem.AddFile(_fileSystem.Path.Combine(movieDir, "movie.mkv"), new MockFileData("video"));
-        _fileSystem.AddFile(_fileSystem.Path.Combine(movieDir, "movie.mp4"), new MockFileData("video"));
-        _fileSystem.AddFile(_fileSystem.Path.Combine(movieDir, "movie.avi"), new MockFileData("video"));
+        _fileSystem.AddFile(_fileSystem.Path.Join(movieDir, "movie.mkv"), new MockFileData("video"));
+        _fileSystem.AddFile(_fileSystem.Path.Join(movieDir, "movie.mp4"), new MockFileData("video"));
+        _fileSystem.AddFile(_fileSystem.Path.Join(movieDir, "movie.avi"), new MockFileData("video"));
 
         var result = _service.FindMediaFilesInDirectory(movieDir);
 
@@ -238,8 +238,8 @@ public class StrmRepairServiceTests
     public void RepairStrmFiles_FullWorkflow_DryRun()
     {
         var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie1");
-        var movieFile = _fileSystem.Path.Combine(movieDir, "new-name.mkv");
-        var brokenTarget = _fileSystem.Path.Combine(movieDir, "old-name.mkv");
+        var movieFile = _fileSystem.Path.Join(movieDir, "new-name.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old-name.mkv");
         var seriesDir = _fileSystem.Path.GetFullPath("/series");
 
         _fileSystem.AddDirectory(movieDir);
@@ -269,8 +269,8 @@ public class StrmRepairServiceTests
     public void RepairStrmFiles_FullWorkflow_ActualRepair()
     {
         var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie1");
-        var movieFile = _fileSystem.Path.Combine(movieDir, "new-name.mkv");
-        var brokenTarget = _fileSystem.Path.Combine(movieDir, "old-name.mkv");
+        var movieFile = _fileSystem.Path.Join(movieDir, "new-name.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old-name.mkv");
         var seriesDir = _fileSystem.Path.GetFullPath("/series");
 
         _fileSystem.AddDirectory(movieDir);

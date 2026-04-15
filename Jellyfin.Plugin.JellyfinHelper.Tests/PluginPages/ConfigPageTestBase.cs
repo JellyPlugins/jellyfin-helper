@@ -39,7 +39,7 @@ public abstract class ConfigPageTestBase
         var dir = AppContext.BaseDirectory;
         while (dir != null)
         {
-            var candidate = Path.Combine(dir, "README.md");
+            var candidate = Path.Join(dir, "README.md");
             if (File.Exists(candidate))
             {
                 return File.ReadAllText(candidate);

@@ -344,7 +344,7 @@ public class ConfigurationControllerTests
         var request = JsonSerializer.Deserialize<ConfigurationUpdateRequest>(frontendJson, jsonOptions);
 
         Assert.NotNull(request);
-        Assert.Equal(3, request!.RadarrInstances.Count);
+        Assert.Equal(3, request.RadarrInstances.Count);
         Assert.Equal("Radarr-1", request.RadarrInstances[0].Name);
         Assert.Equal("Radarr-2", request.RadarrInstances[1].Name);
         Assert.Equal("Radarr-3", request.RadarrInstances[2].Name);

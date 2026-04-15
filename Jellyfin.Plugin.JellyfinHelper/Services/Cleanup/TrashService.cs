@@ -41,7 +41,7 @@ public class TrashService : ITrashService
             var dirName = Path.GetFileName(sourcePath);
             var timestamp = (utcNow ?? DateTime.UtcNow).ToString(TimestampFormat, CultureInfo.InvariantCulture);
             var trashItemName = $"{timestamp}_{dirName}";
-            var trashItemPath = Path.Combine(trashBasePath, trashItemName);
+            var trashItemPath = Path.Join(trashBasePath, trashItemName);
 
             // Ensure trash folder exists
             Directory.CreateDirectory(trashBasePath);
@@ -82,7 +82,7 @@ public class TrashService : ITrashService
             var fileName = Path.GetFileName(sourceFilePath);
             var timestamp = (utcNow ?? DateTime.UtcNow).ToString(TimestampFormat, CultureInfo.InvariantCulture);
             var trashItemName = $"{timestamp}_{fileName}";
-            var trashItemPath = Path.Combine(trashBasePath, trashItemName);
+            var trashItemPath = Path.Join(trashBasePath, trashItemName);
 
             // Avoid collision if an item with the same name was already trashed in the same second
             trashItemPath = ResolveCollision(trashItemPath);
@@ -363,7 +363,7 @@ public class TrashService : ITrashService
 
         for (var i = 2; i < 1000; i++)
         {
-            var candidate = Path.Combine(directory, $"{name}_{i}");
+            var candidate = Path.Join(directory, $"{name}_{i}");
             if (!File.Exists(candidate) && !Directory.Exists(candidate))
             {
                 return candidate;
@@ -371,7 +371,7 @@ public class TrashService : ITrashService
         }
 
         // Extremely unlikely fallback: append a GUID
-        return Path.Combine(directory, $"{name}_{Guid.NewGuid():N}");
+        return Path.Join(directory, $"{name}_{Guid.NewGuid():N}");
     }
 
     /// <summary>

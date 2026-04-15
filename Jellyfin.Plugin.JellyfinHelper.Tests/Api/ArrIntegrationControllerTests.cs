@@ -26,7 +26,7 @@ public class ArrIntegrationControllerTests : IDisposable
     public ArrIntegrationControllerTests()
     {
         var tempDirectoryName = "JellyfinHelperArrTests_" + Guid.NewGuid();
-        _tempPath = Path.Combine(Path.GetTempPath(), tempDirectoryName);
+        _tempPath = Path.Join(Path.GetTempPath(), tempDirectoryName);
         Directory.CreateDirectory(_tempPath);
 
         (_controller, _libraryManagerMock, _fileSystemMock, _httpClientFactoryMock, _configHelperMock) = ControllerTestFactory.CreateArrIntegrationController();
@@ -87,15 +87,15 @@ public class ArrIntegrationControllerTests : IDisposable
     [Fact]
     public async Task CompareRadarrAsync_ValidComparison_ReturnsResult()
     {
-        var libPath = Path.Combine(_tempPath, "Movies");
+        var libPath = Path.Join(_tempPath, "Movies");
         Directory.CreateDirectory(libPath);
-        var movieDir = Path.Combine(libPath, "Movie1");
+        var movieDir = Path.Join(libPath, "Movie1");
         Directory.CreateDirectory(movieDir);
 
         var config = new PluginConfiguration();
         config.RadarrInstances.Add(new ArrInstanceConfig { Url = "http://localhost:7878", ApiKey = "key", Name = "Radarr" });
         _configHelperMock.Setup(c => c.GetConfig()).Returns(config);
-        _configHelperMock.Setup(c => c.GetTrashPath(It.IsAny<string>())).Returns(Path.Combine(libPath, ".jellyfin-trash"));
+        _configHelperMock.Setup(c => c.GetTrashPath(It.IsAny<string>())).Returns(Path.Join(libPath, ".jellyfin-trash"));
 
         var folders = new List<VirtualFolderInfo>
         {
@@ -131,15 +131,15 @@ public class ArrIntegrationControllerTests : IDisposable
     [Fact]
     public async Task CompareSonarrAsync_ValidComparison_ReturnsResult()
     {
-        var libPath = Path.Combine(_tempPath, "TVShows");
+        var libPath = Path.Join(_tempPath, "TVShows");
         Directory.CreateDirectory(libPath);
-        var showDir = Path.Combine(libPath, "Show1");
+        var showDir = Path.Join(libPath, "Show1");
         Directory.CreateDirectory(showDir);
 
         var config = new PluginConfiguration();
         config.SonarrInstances.Add(new ArrInstanceConfig { Url = "http://localhost:8989", ApiKey = "key", Name = "Sonarr" });
         _configHelperMock.Setup(c => c.GetConfig()).Returns(config);
-        _configHelperMock.Setup(c => c.GetTrashPath(It.IsAny<string>())).Returns(Path.Combine(libPath, ".jellyfin-trash"));
+        _configHelperMock.Setup(c => c.GetTrashPath(It.IsAny<string>())).Returns(Path.Join(libPath, ".jellyfin-trash"));
 
         var folders = new List<VirtualFolderInfo>
         {

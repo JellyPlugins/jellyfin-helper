@@ -715,7 +715,7 @@ public class BackupServiceTests
     [Fact]
     public void CreateBackup_ReadsHistoricalDataFiles()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "jh-backup-test-" + Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Join(Path.GetTempPath(), "jh-backup-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         try
         {
@@ -740,9 +740,9 @@ public class BackupServiceTests
                 }
             };
 
-            File.WriteAllText(Path.Combine(tempDir, "jellyfin-helper-growth-timeline.json"),
+            File.WriteAllText(Path.Join(tempDir, "jellyfin-helper-growth-timeline.json"),
                 JsonSerializer.Serialize(timeline));
-            File.WriteAllText(Path.Combine(tempDir, "jellyfin-helper-growth-baseline.json"),
+            File.WriteAllText(Path.Join(tempDir, "jellyfin-helper-growth-baseline.json"),
                 JsonSerializer.Serialize(baseline));
 
             var logger = TestMockFactory.CreateLogger<BackupService>();
@@ -771,7 +771,7 @@ public class BackupServiceTests
     [Fact]
     public void RestoreBackup_WritesTimelineFile()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "jh-backup-test-" + Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Join(Path.GetTempPath(), "jh-backup-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         try
         {
@@ -798,8 +798,8 @@ public class BackupServiceTests
             Assert.True(summary.BaselineRestored);
 
             // Verify files were written
-            Assert.True(File.Exists(Path.Combine(tempDir, "jellyfin-helper-growth-timeline.json")));
-            Assert.True(File.Exists(Path.Combine(tempDir, "jellyfin-helper-growth-baseline.json")));
+            Assert.True(File.Exists(Path.Join(tempDir, "jellyfin-helper-growth-timeline.json")));
+            Assert.True(File.Exists(Path.Join(tempDir, "jellyfin-helper-growth-baseline.json")));
         }
         finally
         {
@@ -810,7 +810,7 @@ public class BackupServiceTests
     [Fact]
     public void RestoreBackup_NoHistoricalData_SkipsFiles()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), "jh-backup-test-" + Guid.NewGuid().ToString("N"));
+        var tempDir = Path.Join(Path.GetTempPath(), "jh-backup-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDir);
         try
         {
@@ -827,7 +827,7 @@ public class BackupServiceTests
             Assert.False(summary.TimelineRestored);
             Assert.False(summary.BaselineRestored);
 
-            Assert.False(File.Exists(Path.Combine(tempDir, "jellyfin-helper-growth-timeline.json")));
+            Assert.False(File.Exists(Path.Join(tempDir, "jellyfin-helper-growth-timeline.json")));
         }
         finally
         {

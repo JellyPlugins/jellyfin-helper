@@ -56,9 +56,9 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void MoveToTrash_NonExistentSource_ReturnsZero()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
         var result = _trashService.MoveToTrash(
-            Path.Combine(_testRoot, "nonexistent"),
+            Path.Join(_testRoot, "nonexistent"),
             trashPath,
             _loggerMock);
 
@@ -68,11 +68,11 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void MoveToTrash_ValidDirectory_MovesAndReturnsSize()
     {
-        var sourceDir = Path.Combine(_testRoot, "source_movie");
+        var sourceDir = Path.Join(_testRoot, "source_movie");
         Directory.CreateDirectory(sourceDir);
-        File.WriteAllBytes(Path.Combine(sourceDir, "movie.mkv"), new byte[1024]);
+        File.WriteAllBytes(Path.Join(sourceDir, "movie.mkv"), new byte[1024]);
 
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         var result = _trashService.MoveToTrash(sourceDir, trashPath, _loggerMock, Now);
 
@@ -91,9 +91,9 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void MoveFileToTrash_NonExistentFile_ReturnsZero()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
         var result = _trashService.MoveFileToTrash(
-            Path.Combine(_testRoot, "nonexistent.srt"),
+            Path.Join(_testRoot, "nonexistent.srt"),
             trashPath,
             _loggerMock);
 
@@ -103,10 +103,10 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void MoveFileToTrash_ValidFile_MovesAndReturnsSize()
     {
-        var sourceFile = Path.Combine(_testRoot, "subtitle.srt");
+        var sourceFile = Path.Join(_testRoot, "subtitle.srt");
         File.WriteAllBytes(sourceFile, new byte[512]);
 
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         var result = _trashService.MoveFileToTrash(sourceFile, trashPath, _loggerMock, Now);
 
@@ -125,7 +125,7 @@ public class TrashServiceTests : IDisposable
     public void PurgeExpiredTrash_NonExistentTrashFolder_ReturnsZero()
     {
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(
-            Path.Combine(_testRoot, "nonexistent_trash"),
+            Path.Join(_testRoot, "nonexistent_trash"),
             7,
             _loggerMock,
             Now);
@@ -137,13 +137,13 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_NoExpiredItems_ReturnsZero()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         // Create a "fresh" trash item with current timestamp
         var timestamp = Now.ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var freshDir = Path.Combine(trashPath, $"{timestamp}_RecentMovie");
+        var freshDir = Path.Join(trashPath, $"{timestamp}_RecentMovie");
         Directory.CreateDirectory(freshDir);
-        File.WriteAllBytes(Path.Combine(freshDir, "movie.mkv"), new byte[100]);
+        File.WriteAllBytes(Path.Join(freshDir, "movie.mkv"), new byte[100]);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 7, _loggerMock, Now);
 
@@ -154,13 +154,13 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_ExpiredDirectory_PurgesIt()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         // Create an "expired" trash item with old timestamp (10 days before Now)
         var oldTimestamp = Now.AddDays(-10).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var oldDir = Path.Combine(trashPath, $"{oldTimestamp}_OldMovie");
+        var oldDir = Path.Join(trashPath, $"{oldTimestamp}_OldMovie");
         Directory.CreateDirectory(oldDir);
-        File.WriteAllBytes(Path.Combine(oldDir, "movie.mkv"), new byte[256]);
+        File.WriteAllBytes(Path.Join(oldDir, "movie.mkv"), new byte[256]);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 7, _loggerMock, Now);
 
@@ -172,11 +172,11 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_ExpiredFile_PurgesIt()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
         Directory.CreateDirectory(trashPath);
 
         var oldTimestamp = Now.AddDays(-15).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var oldFile = Path.Combine(trashPath, $"{oldTimestamp}_old.srt");
+        var oldFile = Path.Join(trashPath, $"{oldTimestamp}_old.srt");
         File.WriteAllBytes(oldFile, new byte[128]);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 7, _loggerMock, Now);
@@ -191,14 +191,14 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_RetentionDaysZero_PurgesEverything()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         // RetentionDays = 0 means cutoff = Now, so everything with timestamp < Now is purged.
         // Item 1 second before Now → gets purged.
         var oldTimestamp = Now.AddSeconds(-1).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var oldDir = Path.Combine(trashPath, $"{oldTimestamp}_OldMovie");
+        var oldDir = Path.Join(trashPath, $"{oldTimestamp}_OldMovie");
         Directory.CreateDirectory(oldDir);
-        File.WriteAllBytes(Path.Combine(oldDir, "movie.mkv"), new byte[300]);
+        File.WriteAllBytes(Path.Join(oldDir, "movie.mkv"), new byte[300]);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 0, _loggerMock, Now);
 
@@ -210,13 +210,13 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_RetentionDaysZero_ItemAtExactCutoff_NotPurged()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         // Item with timestamp exactly at Now → timestamp is NOT < cutoff (Now) → NOT purged.
         var exactTimestamp = Now.ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var exactDir = Path.Combine(trashPath, $"{exactTimestamp}_ExactMovie");
+        var exactDir = Path.Join(trashPath, $"{exactTimestamp}_ExactMovie");
         Directory.CreateDirectory(exactDir);
-        File.WriteAllBytes(Path.Combine(exactDir, "movie.mkv"), new byte[200]);
+        File.WriteAllBytes(Path.Join(exactDir, "movie.mkv"), new byte[200]);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 0, _loggerMock, Now);
 
@@ -228,19 +228,19 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_MixedExpiredAndFresh_OnlyPurgesExpired()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         // Create an expired item (15 days before Now)
         var expiredTimestamp = Now.AddDays(-15).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var expiredDir = Path.Combine(trashPath, $"{expiredTimestamp}_ExpiredMovie");
+        var expiredDir = Path.Join(trashPath, $"{expiredTimestamp}_ExpiredMovie");
         Directory.CreateDirectory(expiredDir);
-        File.WriteAllBytes(Path.Combine(expiredDir, "movie.mkv"), new byte[500]);
+        File.WriteAllBytes(Path.Join(expiredDir, "movie.mkv"), new byte[500]);
 
         // Create a fresh item (1 day before Now)
         var freshTimestamp = Now.AddDays(-1).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var freshDir = Path.Combine(trashPath, $"{freshTimestamp}_FreshMovie");
+        var freshDir = Path.Join(trashPath, $"{freshTimestamp}_FreshMovie");
         Directory.CreateDirectory(freshDir);
-        File.WriteAllBytes(Path.Combine(freshDir, "movie.mkv"), new byte[400]);
+        File.WriteAllBytes(Path.Join(freshDir, "movie.mkv"), new byte[400]);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 7, _loggerMock, Now);
 
@@ -253,18 +253,18 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_ItemWithoutValidTimestamp_SkipsIt()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         // Create an item without a valid timestamp prefix
-        var invalidDir = Path.Combine(trashPath, "no-timestamp_SomeMovie");
+        var invalidDir = Path.Join(trashPath, "no-timestamp_SomeMovie");
         Directory.CreateDirectory(invalidDir);
-        File.WriteAllBytes(Path.Combine(invalidDir, "movie.mkv"), new byte[100]);
+        File.WriteAllBytes(Path.Join(invalidDir, "movie.mkv"), new byte[100]);
 
         // Create a valid expired item (10 days before Now)
         var expiredTimestamp = Now.AddDays(-10).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var expiredDir = Path.Combine(trashPath, $"{expiredTimestamp}_OldMovie");
+        var expiredDir = Path.Join(trashPath, $"{expiredTimestamp}_OldMovie");
         Directory.CreateDirectory(expiredDir);
-        File.WriteAllBytes(Path.Combine(expiredDir, "movie.mkv"), new byte[200]);
+        File.WriteAllBytes(Path.Join(expiredDir, "movie.mkv"), new byte[200]);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 7, _loggerMock, Now);
 
@@ -277,7 +277,7 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_EmptyTrashFolder_ReturnsZero()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
         Directory.CreateDirectory(trashPath);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 7, _loggerMock, Now);
@@ -289,29 +289,29 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_MixedDirectoriesAndFiles_PurgesBothExpired()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         // Expired directory (20 days before Now)
         var expDirTimestamp = Now.AddDays(-20).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var expiredDir = Path.Combine(trashPath, $"{expDirTimestamp}_ExpiredMovie");
+        var expiredDir = Path.Join(trashPath, $"{expDirTimestamp}_ExpiredMovie");
         Directory.CreateDirectory(expiredDir);
-        File.WriteAllBytes(Path.Combine(expiredDir, "movie.mkv"), new byte[1000]);
+        File.WriteAllBytes(Path.Join(expiredDir, "movie.mkv"), new byte[1000]);
 
         // Expired file (20 days before Now)
         var expFileTimestamp = Now.AddDays(-20).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var expiredFile = Path.Combine(trashPath, $"{expFileTimestamp}_old.srt");
+        var expiredFile = Path.Join(trashPath, $"{expFileTimestamp}_old.srt");
         Directory.CreateDirectory(trashPath);
         File.WriteAllBytes(expiredFile, new byte[500]);
 
         // Fresh directory (2 days before Now)
         var freshTimestamp = Now.AddDays(-2).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var freshDir = Path.Combine(trashPath, $"{freshTimestamp}_FreshMovie");
+        var freshDir = Path.Join(trashPath, $"{freshTimestamp}_FreshMovie");
         Directory.CreateDirectory(freshDir);
-        File.WriteAllBytes(Path.Combine(freshDir, "movie.mkv"), new byte[300]);
+        File.WriteAllBytes(Path.Join(freshDir, "movie.mkv"), new byte[300]);
 
         // Fresh file (2 days before Now)
         var freshFileTimestamp = Now.AddDays(-2).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var freshFile = Path.Combine(trashPath, $"{freshFileTimestamp}_new.srt");
+        var freshFile = Path.Join(trashPath, $"{freshFileTimestamp}_new.srt");
         File.WriteAllBytes(freshFile, new byte[200]);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 7, _loggerMock, Now);
@@ -327,13 +327,13 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_ItemExactlyAtBoundary_IsNotPurged()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         // Create an item exactly 7 days minus 1 minute old (should NOT be purged with retentionDays=7)
         var borderTimestamp = Now.AddDays(-7).AddMinutes(1).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var borderDir = Path.Combine(trashPath, $"{borderTimestamp}_BorderMovie");
+        var borderDir = Path.Join(trashPath, $"{borderTimestamp}_BorderMovie");
         Directory.CreateDirectory(borderDir);
-        File.WriteAllBytes(Path.Combine(borderDir, "movie.mkv"), new byte[100]);
+        File.WriteAllBytes(Path.Join(borderDir, "movie.mkv"), new byte[100]);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 7, _loggerMock, Now);
 
@@ -345,13 +345,13 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_ItemJustPastBoundary_IsPurged()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         // Create an item 7 days + 1 minute old (should be purged with retentionDays=7)
         var pastTimestamp = Now.AddDays(-7).AddMinutes(-1).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var pastDir = Path.Combine(trashPath, $"{pastTimestamp}_PastMovie");
+        var pastDir = Path.Join(trashPath, $"{pastTimestamp}_PastMovie");
         Directory.CreateDirectory(pastDir);
-        File.WriteAllBytes(Path.Combine(pastDir, "movie.mkv"), new byte[150]);
+        File.WriteAllBytes(Path.Join(pastDir, "movie.mkv"), new byte[150]);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 7, _loggerMock, Now);
 
@@ -368,21 +368,21 @@ public class TrashServiceTests : IDisposable
     [InlineData(365)]
     public void PurgeExpiredTrash_VariousRetentionDays_RespectsConfiguration(int retentionDays)
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         // Create an item that is definitely expired (retentionDays + 1 day before Now)
         var expiredTimestamp =
             Now.AddDays(-(retentionDays + 1)).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var expiredDir = Path.Combine(trashPath, $"{expiredTimestamp}_ExpiredItem");
+        var expiredDir = Path.Join(trashPath, $"{expiredTimestamp}_ExpiredItem");
         Directory.CreateDirectory(expiredDir);
-        File.WriteAllBytes(Path.Combine(expiredDir, "data.bin"), new byte[100]);
+        File.WriteAllBytes(Path.Join(expiredDir, "data.bin"), new byte[100]);
 
         // Create an item that is definitely fresh (retentionDays - 1 day before Now, min 0)
         var freshAge = Math.Max(retentionDays - 1, 0);
         var freshTimestamp = Now.AddDays(-freshAge).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-        var freshDir = Path.Combine(trashPath, $"{freshTimestamp}_FreshItem");
+        var freshDir = Path.Join(trashPath, $"{freshTimestamp}_FreshItem");
         Directory.CreateDirectory(freshDir);
-        File.WriteAllBytes(Path.Combine(freshDir, "data.bin"), new byte[100]);
+        File.WriteAllBytes(Path.Join(freshDir, "data.bin"), new byte[100]);
 
         var (bytesFreed, itemsPurged) =
             _trashService.PurgeExpiredTrash(trashPath, retentionDays, _loggerMock, Now);
@@ -396,11 +396,11 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_FileWithoutTimestamp_SkipsIt()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
         Directory.CreateDirectory(trashPath);
 
         // Create a file without a valid timestamp prefix
-        var invalidFile = Path.Combine(trashPath, "random-file.txt");
+        var invalidFile = Path.Join(trashPath, "random-file.txt");
         File.WriteAllBytes(invalidFile, new byte[50]);
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 0, _loggerMock, Now);
@@ -413,14 +413,14 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_MultipleExpiredItems_PurgesAll()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         for (var i = 0; i < 5; i++)
         {
             var ts = Now.AddDays(-30 - i).ToString(TimestampFormat, CultureInfo.InvariantCulture);
-            var dir = Path.Combine(trashPath, $"{ts}_Movie{i}");
+            var dir = Path.Join(trashPath, $"{ts}_Movie{i}");
             Directory.CreateDirectory(dir);
-            File.WriteAllBytes(Path.Combine(dir, "video.mkv"), new byte[100]);
+            File.WriteAllBytes(Path.Join(dir, "video.mkv"), new byte[100]);
         }
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 7, _loggerMock, Now);
@@ -434,7 +434,7 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void GetTrashSummary_NonExistentFolder_ReturnsZero()
     {
-        var (totalSize, itemCount) = _trashService.GetTrashSummary(Path.Combine(_testRoot, "nonexistent"));
+        var (totalSize, itemCount) = _trashService.GetTrashSummary(Path.Join(_testRoot, "nonexistent"));
         Assert.Equal(0, totalSize);
         Assert.Equal(0, itemCount);
     }
@@ -444,14 +444,14 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void GetTrashContents_NonExistentFolder_ReturnsEmptyList()
     {
-        var result = _trashService.GetTrashContents(Path.Combine(_testRoot, "nonexistent"), 30);
+        var result = _trashService.GetTrashContents(Path.Join(_testRoot, "nonexistent"), 30);
         Assert.Empty(result);
     }
 
     [Fact]
     public void GetTrashContents_EmptyFolder_ReturnsEmptyList()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
         Directory.CreateDirectory(trashPath);
 
         var result = _trashService.GetTrashContents(trashPath, 30);
@@ -461,12 +461,12 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void GetTrashContents_WithDirectoryItems_ReturnsCorrectInfo()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
         var timestamp = "20260315-140000";
         var dirName = $"{timestamp}_MyMovie";
-        var dir = Path.Combine(trashPath, dirName);
+        var dir = Path.Join(trashPath, dirName);
         Directory.CreateDirectory(dir);
-        File.WriteAllBytes(Path.Combine(dir, "movie.mkv"), new byte[2048]);
+        File.WriteAllBytes(Path.Join(dir, "movie.mkv"), new byte[2048]);
 
         var result = _trashService.GetTrashContents(trashPath, 30);
 
@@ -485,11 +485,11 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void GetTrashContents_WithFileItems_ReturnsCorrectInfo()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
         Directory.CreateDirectory(trashPath);
         var timestamp = "20260601-100000";
         var fileName = $"{timestamp}_subtitle.srt";
-        File.WriteAllBytes(Path.Combine(trashPath, fileName), new byte[512]);
+        File.WriteAllBytes(Path.Join(trashPath, fileName), new byte[512]);
 
         var result = _trashService.GetTrashContents(trashPath, 7);
 
@@ -508,21 +508,21 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void GetTrashContents_MixedItems_SortedByDateDescending()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         // Older item
-        var olderDir = Path.Combine(trashPath, "20260101-100000_OldMovie");
+        var olderDir = Path.Join(trashPath, "20260101-100000_OldMovie");
         Directory.CreateDirectory(olderDir);
-        File.WriteAllBytes(Path.Combine(olderDir, "m.mkv"), new byte[100]);
+        File.WriteAllBytes(Path.Join(olderDir, "m.mkv"), new byte[100]);
 
         // Newer item
-        var newerDir = Path.Combine(trashPath, "20260601-100000_NewMovie");
+        var newerDir = Path.Join(trashPath, "20260601-100000_NewMovie");
         Directory.CreateDirectory(newerDir);
-        File.WriteAllBytes(Path.Combine(newerDir, "m.mkv"), new byte[200]);
+        File.WriteAllBytes(Path.Join(newerDir, "m.mkv"), new byte[200]);
 
         // File item in between
         Directory.CreateDirectory(trashPath); // ensure exists
-        File.WriteAllBytes(Path.Combine(trashPath, "20260301-100000_mid.srt"), new byte[50]);
+        File.WriteAllBytes(Path.Join(trashPath, "20260301-100000_mid.srt"), new byte[50]);
 
         var result = _trashService.GetTrashContents(trashPath, 30);
 
@@ -535,10 +535,10 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void GetTrashContents_ItemWithoutTimestamp_HasNullDates()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
-        var invalidDir = Path.Combine(trashPath, "no-timestamp-folder");
+        var trashPath = Path.Join(_testRoot, "trash");
+        var invalidDir = Path.Join(trashPath, "no-timestamp-folder");
         Directory.CreateDirectory(invalidDir);
-        File.WriteAllBytes(Path.Combine(invalidDir, "data.bin"), new byte[100]);
+        File.WriteAllBytes(Path.Join(invalidDir, "data.bin"), new byte[100]);
 
         var result = _trashService.GetTrashContents(trashPath, 30);
 
@@ -553,9 +553,9 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void GetTrashContents_RetentionDaysZero_PurgeDateEqualsTrashDate()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
         Directory.CreateDirectory(trashPath);
-        File.WriteAllBytes(Path.Combine(trashPath, "20260101-120000_test.txt"), new byte[10]);
+        File.WriteAllBytes(Path.Join(trashPath, "20260101-120000_test.txt"), new byte[10]);
 
         var result = _trashService.GetTrashContents(trashPath, 0);
 
@@ -595,15 +595,15 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void GetTrashSummary_WithItems_ReturnsSizeAndCount()
     {
-        var trashPath = Path.Combine(_testRoot, "trash");
+        var trashPath = Path.Join(_testRoot, "trash");
 
         // Directory item
-        var dir1 = Path.Combine(trashPath, "20260101-120000_Movie1");
+        var dir1 = Path.Join(trashPath, "20260101-120000_Movie1");
         Directory.CreateDirectory(dir1);
-        File.WriteAllBytes(Path.Combine(dir1, "movie.mkv"), new byte[1000]);
+        File.WriteAllBytes(Path.Join(dir1, "movie.mkv"), new byte[1000]);
 
         // File item
-        var file1 = Path.Combine(trashPath, "20260101-130000_sub.srt");
+        var file1 = Path.Join(trashPath, "20260101-130000_sub.srt");
         File.WriteAllBytes(file1, new byte[500]);
 
         var (totalSize, itemCount) = _trashService.GetTrashSummary(trashPath);

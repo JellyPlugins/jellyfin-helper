@@ -1,4 +1,3 @@
-using System.IO;
 using System.Net;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
@@ -39,12 +38,12 @@ public static class TestMockFactory
     public static Mock<IApplicationPaths> CreateAppPaths(string? dataPath = null, string? configPath = null)
     {
         var effectiveDataPath = dataPath ?? "/data";
-        var effectiveConfigPath = configPath ?? Path.Combine(effectiveDataPath, "config");
+        var effectiveConfigPath = configPath ?? Path.Join(effectiveDataPath, "config");
         var mock = new Mock<IApplicationPaths>();
         mock.Setup(ap => ap.DataPath).Returns(effectiveDataPath);
         mock.Setup(ap => ap.PluginConfigurationsPath).Returns(effectiveConfigPath);
-        mock.Setup(ap => ap.PluginsPath).Returns(Path.Combine(effectiveDataPath, "plugins"));
-        mock.Setup(ap => ap.LogDirectoryPath).Returns(Path.Combine(effectiveDataPath, "logs"));
+        mock.Setup(ap => ap.PluginsPath).Returns(Path.Join(effectiveDataPath, "plugins"));
+        mock.Setup(ap => ap.LogDirectoryPath).Returns(Path.Join(effectiveDataPath, "logs"));
         mock.Setup(ap => ap.ConfigurationDirectoryPath).Returns(effectiveConfigPath);
         return mock;
     }
@@ -107,7 +106,7 @@ public static class TestMockFactory
                     trashPath = ".jellyfin-helper-trash";
                 }
 
-                return Path.IsPathRooted(trashPath) ? trashPath : Path.Combine(path, trashPath);
+                return Path.IsPathRooted(trashPath) ? trashPath : Path.Join(path, trashPath);
             });
         mock.Setup(c => c.GetTrickplayTaskMode()).Returns(cfg.TrickplayTaskMode);
         mock.Setup(c => c.GetEmptyMediaFolderTaskMode()).Returns(cfg.EmptyMediaFolderTaskMode);

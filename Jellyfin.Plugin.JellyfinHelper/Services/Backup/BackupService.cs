@@ -216,11 +216,11 @@ public class BackupService : IBackupService
 
         // Growth timeline
         backup.GrowthTimeline = LoadJsonFile<GrowthTimelineResult>(
-            Path.Combine(_dataPath, "jellyfin-helper-growth-timeline.json"));
+            Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json"));
 
         // Growth baseline (required to preserve diff-based trend history after restore)
         backup.GrowthBaseline = LoadJsonFile<GrowthTimelineBaseline>(
-            Path.Combine(_dataPath, "jellyfin-helper-growth-baseline.json"));
+            Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"));
 
         _pluginLog.LogInfo(
             "Backup",
@@ -249,7 +249,7 @@ public class BackupService : IBackupService
         // Restore growth timeline
         if (backup.GrowthTimeline != null &&
             SaveJsonFile(
-                Path.Combine(_dataPath, "jellyfin-helper-growth-timeline.json"),
+                Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json"),
                 backup.GrowthTimeline))
         {
             summary.TimelineRestored = true;
@@ -262,7 +262,7 @@ public class BackupService : IBackupService
         // Restore growth baseline
         if (backup.GrowthBaseline != null &&
             SaveJsonFile(
-                Path.Combine(_dataPath, "jellyfin-helper-growth-baseline.json"),
+                Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"),
                 backup.GrowthBaseline))
         {
             summary.BaselineRestored = true;

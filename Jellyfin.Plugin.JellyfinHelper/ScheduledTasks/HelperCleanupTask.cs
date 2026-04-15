@@ -172,16 +172,7 @@ public class HelperCleanupTask : IScheduledTask
 
                 foreach (var location in libraryLocations)
                 {
-                    if (string.IsNullOrWhiteSpace(config.TrashFolderPath))
-                    {
-                        _pluginLog.LogWarning(
-                            "HelperCleanup",
-                            $"Trash purge skipped for {location}: trash folder path is empty.",
-                            logger: _logger);
-                        continue;
-                    }
-
-                    var candidatePath = Path.Combine(location, config.TrashFolderPath);
+                    var candidatePath = _configHelper.GetTrashPath(location);
                     var libraryRoot = Path.GetFullPath(location)
                         .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                     var trashPath = Path.GetFullPath(candidatePath);
@@ -249,7 +240,7 @@ public class HelperCleanupTask : IScheduledTask
                 logger: _logger);
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
         {
             _pluginLog.LogWarning("HelperCleanup", "Failed to run post-cleanup statistics scan.", ex, _logger);
         }
@@ -270,7 +261,7 @@ public class HelperCleanupTask : IScheduledTask
                 logger: _logger);
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
         {
             _pluginLog.LogWarning("HelperCleanup", "Failed to recompute growth timeline.", ex, _logger);
         }
