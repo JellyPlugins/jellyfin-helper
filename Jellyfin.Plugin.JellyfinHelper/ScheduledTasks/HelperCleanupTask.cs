@@ -220,9 +220,6 @@ public class HelperCleanupTask : IScheduledTask
             }
         }
 
-        // TODO: Remove legacy history file cleanup in v1.1.0 — the file was replaced by the growth timeline in v1.0.x
-        CleanupLegacyHistoryFile();
-
         // Run a statistics scan at the end to refresh persisted data
         cancellationToken.ThrowIfCancellationRequested();
         try
@@ -320,35 +317,6 @@ public class HelperCleanupTask : IScheduledTask
             _trackingService,
             _trashService);
         return task.ExecuteAsync(progress, cancellationToken);
-    }
-
-    /// <summary>
-    ///     Deletes the legacy statistics history file that was replaced by the growth timeline.
-    ///     TODO: Remove this method in v1.1.0 once all users have upgraded past v1.0.9.
-    /// </summary>
-    private void CleanupLegacyHistoryFile()
-    {
-        const string legacyFileName = "jellyfin-helper-statistics-history.json";
-        var legacyFilePath = Path.Join(_applicationPaths.DataPath, legacyFileName);
-
-        try
-        {
-            if (!File.Exists(legacyFilePath))
-            {
-                return;
-            }
-
-            File.Delete(legacyFilePath);
-            _pluginLog.LogInfo("HelperCleanup", $"Deleted legacy statistics history file: {legacyFilePath}", _logger);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _pluginLog.LogWarning(
-                "HelperCleanup",
-                $"Could not delete legacy statistics history file: {legacyFilePath}",
-                ex,
-                _logger);
-        }
     }
 
     private Task RunStrmRepair(IProgress<double> progress, CancellationToken cancellationToken)
