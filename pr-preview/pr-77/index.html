@@ -345,13 +345,13 @@
                         resolve(MOCK_TRANSLATIONS || {});
                     } else if (url.indexOf('Statistics/Latest') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
-                    } else if (url.indexOf('Statistics/GrowthTimeline') !== -1) {
+                    } else if (url.indexOf('GrowthTimeline') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_GROWTH_TIMELINE)));
                     } else if (url.indexOf('Statistics/History') !== -1) {
                         resolve(MOCK_HISTORY);
                     } else if (url.indexOf('Statistics') !== -1 && url.indexOf('forceRefresh') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
-                    } else if (url.indexOf('Cleanup/Statistics') !== -1) {
+                    } else if (url.indexOf('CleanupStatistics') !== -1) {
                         resolve(MOCK_CLEANUP_STATS);
                     } else if (url.indexOf('Configuration/LogLevel') !== -1 && method === 'PUT') {
                         // Update log level only
@@ -377,9 +377,9 @@
                         resolve(MOCK_TRASH_FOLDERS);
                     } else if (url.indexOf('Trash/Summary') !== -1) {
                         resolve({ TotalSize: 17179869184, TotalItems: 3 });
-                    } else if (url.indexOf('Arr/TestConnection') !== -1) {
+                    } else if (url.indexOf('ArrIntegration/TestConnection') !== -1) {
                         resolve({ Success: true, Message: "Connection successful (demo)" });
-                    } else if (url.indexOf('Arr/Radarr/Compare') !== -1 || url.indexOf('Arr/Sonarr/Compare') !== -1) {
+                    } else if (url.indexOf('ArrIntegration/Compare/') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_ARR_COMPARE)));
                     } else if (url.indexOf('Logs/Download') !== -1) {
                         var logText = MOCK_LOGS.Entries.map(function(e) {

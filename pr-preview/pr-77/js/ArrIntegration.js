@@ -267,6 +267,7 @@
 
     // Render a single Arr comparison section (list with max 50 items and "and X more" hint)
     function renderArrSection(icon, titleKey, titleFallback, items) {
+        items = Array.isArray(items) ? items : [];
         var h = '<div class="arr-section"><h4>' + icon + ' ' + T(titleKey, titleFallback) + ' — <span class="arr-count">' + items.length + '</span></h4>';
         if (items.length > 0) {
             h += '<div class="arr-list"><ul>';
