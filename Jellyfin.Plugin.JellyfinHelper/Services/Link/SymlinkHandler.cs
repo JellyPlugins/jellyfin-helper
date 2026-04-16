@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 
 /// <summary>
@@ -50,7 +53,19 @@ public class SymlinkHandler : ILinkHandler
             {
                 _symlinkHelper.CreateSymlink(filePath, previousTarget);
             }
-            catch
+            catch (IOException)
+            {
+                // best-effort rollback
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // best-effort rollback
+            }
+            catch (NotSupportedException)
+            {
+                // best-effort rollback
+            }
+            catch (ArgumentException)
             {
                 // best-effort rollback
             }

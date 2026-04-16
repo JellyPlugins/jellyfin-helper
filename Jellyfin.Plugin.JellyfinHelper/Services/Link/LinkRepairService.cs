@@ -55,7 +55,7 @@ public class LinkRepairService : ILinkRepairService
         CancellationToken cancellationToken = default)
     {
         var result = new LinkRepairResult();
-        var linkFiles = FindLinkFiles(libraryPaths);
+        var linkFiles = FindLinkFiles(libraryPaths, cancellationToken);
 
         _pluginLog.LogInfo("LinkRepair", $"Found {linkFiles.Count} link files to check", _logger);
 
@@ -79,20 +79,25 @@ public class LinkRepairService : ILinkRepairService
     ///     Each file is paired with the handler that recognized it.
     /// </summary>
     /// <param name="libraryPaths">The library paths to search.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>A list of (filePath, handler) tuples.</returns>
-    internal List<(string FilePath, ILinkHandler Handler)> FindLinkFiles(IEnumerable<string> libraryPaths)
+    internal List<(string FilePath, ILinkHandler Handler)> FindLinkFiles(
+        IEnumerable<string> libraryPaths,
+        CancellationToken cancellationToken = default)
     {
         var linkFiles = new List<(string FilePath, ILinkHandler Handler)>();
 
         foreach (var libraryPath in libraryPaths)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!_fileSystem.Directory.Exists(libraryPath))
             {
                 _pluginLog.LogWarning("LinkRepair", $"Library path does not exist: {libraryPath}", logger: _logger);
                 continue;
             }
 
-            FindLinkFilesRecursive(libraryPath, linkFiles);
+            FindLinkFilesRecursive(libraryPath, linkFiles, cancellationToken);
         }
 
         return linkFiles;
@@ -101,21 +106,41 @@ public class LinkRepairService : ILinkRepairService
     /// <summary>
     ///     Recursively scans a directory for files that any registered handler recognizes.
     /// </summary>
-    private void FindLinkFilesRecursive(string directory, List<(string FilePath, ILinkHandler Handler)> result)
+    private void FindLinkFilesRecursive(
+        string directory,
+        List<(string FilePath, ILinkHandler Handler)> result,
+        CancellationToken cancellationToken,
+        HashSet<string>? visited = null)
     {
+        visited ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var normalized = _fileSystem.Path.GetFullPath(directory);
+        if (!visited.Add(normalized))
+        {
+            return;
+        }
+
         try
         {
-            result.AddRange(
-                _fileSystem.Directory.EnumerateFiles(directory)
-                    .SelectMany(file => _handlers
-                        .Where(h => h.CanHandle(file))
-                        .Take(1)
-                        .Select(handler => (file, handler))));
+            foreach (var file in _fileSystem.Directory.EnumerateFiles(directory))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var matchingHandler = _handlers.FirstOrDefault(h => h.CanHandle(file));
+                if (matchingHandler != null)
+                {
+                    result.Add((file, matchingHandler));
+                }
+            }
 
             foreach (var subDir in _fileSystem.Directory.EnumerateDirectories(directory))
             {
-                FindLinkFilesRecursive(subDir, result);
+                cancellationToken.ThrowIfCancellationRequested();
+                FindLinkFilesRecursive(subDir, result, cancellationToken, visited);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
         {
@@ -137,7 +162,7 @@ public class LinkRepairService : ILinkRepairService
 
         var targetPath = handler.ReadTarget(linkFilePath);
 
-        if (targetPath == null)
+        if (string.IsNullOrWhiteSpace(targetPath))
         {
             _pluginLog.LogWarning("LinkRepair", $"Failed to read link file {linkFilePath}", logger: _logger);
             fileResult.Status = LinkFileStatus.InvalidContent;

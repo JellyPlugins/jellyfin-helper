@@ -444,4 +444,19 @@ public class LinkRepairServiceTests
         Assert.Equal(2, result.ValidCount);
         Assert.Equal(2, result.FileResults.Count);
     }
+
+    [Fact]
+    public void RepairLinks_FindLinkFiles_HonorsCancellation()
+    {
+        var seriesDir = _fileSystem.Path.GetFullPath("/series");
+        for (var i = 0; i < 100; i++)
+        {
+            _fileSystem.AddFile(_fileSystem.Path.Combine(seriesDir, $"file_{i}.strm"), new MockFileData("target"));
+        }
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() => _service.RepairLinks([seriesDir], true, cts.Token));
+    }
 }
