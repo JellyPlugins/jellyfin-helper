@@ -84,6 +84,8 @@
   "settingsTrashTitle": "回收站设置",
   "settingsArrTitle": "Arr 栈设置",
   "clickToExpand": "点击展开",
+  "instanceCountSingular": "1 个实例",
+  "instanceCountPlural": "{0} 个实例",
   "includedLibraries": "包含的媒体库（白名单，逗号分隔）",
   "includedLibrariesHelp": "留空以包含所有媒体库。",
   "excludedLibraries": "排除的媒体库（黑名单，逗号分隔）",

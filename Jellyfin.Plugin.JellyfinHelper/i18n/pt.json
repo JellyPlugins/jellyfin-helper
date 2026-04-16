@@ -84,6 +84,8 @@
   "settingsTrashTitle": "Configurações da lixeira",
   "settingsArrTitle": "Configurações do Arr Stack",
   "clickToExpand": "clique para expandir",
+  "instanceCountSingular": "1 instância",
+  "instanceCountPlural": "{0} instâncias",
   "includedLibraries": "Bibliotecas incluídas (lista branca, separadas por vírgula)",
   "includedLibrariesHelp": "Deixe vazio para incluir todas as bibliotecas.",
   "excludedLibraries": "Bibliotecas excluídas (lista negra, separadas por vírgula)",

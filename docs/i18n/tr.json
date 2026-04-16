@@ -84,6 +84,8 @@
   "settingsTrashTitle": "Çöp kutusu ayarları",
   "settingsArrTitle": "Arr Stack ayarları",
   "clickToExpand": "genişletmek için tıklayın",
+  "instanceCountSingular": "1 örnek",
+  "instanceCountPlural": "{0} örnek",
   "includedLibraries": "Dahil edilen kütüphaneler (beyaz liste, virgülle ayrılmış)",
   "includedLibrariesHelp": "Tüm kütüphaneleri dahil etmek için boş bırakın.",
   "excludedLibraries": "Hariç tutulan kütüphaneler (kara liste, virgülle ayrılmış)",

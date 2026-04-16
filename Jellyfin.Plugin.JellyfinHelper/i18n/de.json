@@ -84,6 +84,8 @@
   "settingsTrashTitle": "Papierkorb-Einstellungen",
   "settingsArrTitle": "Arr-Stack-Einstellungen",
   "clickToExpand": "Klicken zum Aufklappen",
+  "instanceCountSingular": "1 Instanz",
+  "instanceCountPlural": "{0} Instanzen",
   "includedLibraries": "Eingeschlossene Bibliotheken (Whitelist, kommagetrennt)",
   "includedLibrariesHelp": "Leer lassen, um alle Bibliotheken einzuschließen.",
   "excludedLibraries": "Ausgeschlossene Bibliotheken (Blacklist, kommagetrennt)",
