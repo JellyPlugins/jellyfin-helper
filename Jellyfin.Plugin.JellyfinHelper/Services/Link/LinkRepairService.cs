@@ -86,6 +86,7 @@ public class LinkRepairService : ILinkRepairService
         CancellationToken cancellationToken = default)
     {
         var linkFiles = new List<(string FilePath, ILinkHandler Handler)>();
+        var visitedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var libraryPath in libraryPaths)
         {
@@ -97,7 +98,7 @@ public class LinkRepairService : ILinkRepairService
                 continue;
             }
 
-            FindLinkFilesRecursive(libraryPath, linkFiles, cancellationToken);
+            FindLinkFilesRecursive(libraryPath, linkFiles, cancellationToken, visitedDirectories);
         }
 
         return linkFiles;
@@ -160,7 +161,21 @@ public class LinkRepairService : ILinkRepairService
     {
         var fileResult = new LinkFileResult { LinkFilePath = linkFilePath };
 
-        var targetPath = handler.ReadTarget(linkFilePath);
+        string? targetPath;
+        try
+        {
+            targetPath = handler.ReadTarget(linkFilePath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _pluginLog.LogWarning(
+                "LinkRepair",
+                $"Failed to read link file {linkFilePath}: {ex.Message}",
+                ex,
+                _logger);
+            fileResult.Status = LinkFileStatus.InvalidContent;
+            return fileResult;
+        }
 
         if (string.IsNullOrWhiteSpace(targetPath))
         {
@@ -180,12 +195,26 @@ public class LinkRepairService : ILinkRepairService
         }
 
         fileResult.OriginalTargetPath = targetPath;
-        var normalizedTargetPath = _fileSystem.Path.IsPathRooted(targetPath)
-            ? _fileSystem.Path.GetFullPath(targetPath)
-            : _fileSystem.Path.GetFullPath(
-                _fileSystem.Path.Combine(
-                    _fileSystem.Path.GetDirectoryName(linkFilePath) ?? string.Empty,
-                    targetPath));
+        string normalizedTargetPath;
+        try
+        {
+            normalizedTargetPath = _fileSystem.Path.IsPathRooted(targetPath)
+                ? _fileSystem.Path.GetFullPath(targetPath)
+                : _fileSystem.Path.GetFullPath(
+                    _fileSystem.Path.Combine(
+                        _fileSystem.Path.GetDirectoryName(linkFilePath) ?? string.Empty,
+                        targetPath));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            _pluginLog.LogWarning(
+                "LinkRepair",
+                $"Invalid target path in link file {linkFilePath}: {targetPath}",
+                ex,
+                _logger);
+            fileResult.Status = LinkFileStatus.InvalidContent;
+            return fileResult;
+        }
 
         fileResult.OriginalTargetPath = normalizedTargetPath;
 
