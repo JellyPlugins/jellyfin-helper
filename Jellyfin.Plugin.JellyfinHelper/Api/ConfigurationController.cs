@@ -314,8 +314,8 @@ public class ConfigurationController : ControllerBase
         config.Language = string.IsNullOrWhiteSpace(request.Language) ? "en" : request.Language;
 
         // Seerr settings
-        config.SeerrUrl = request.SeerrUrl ?? string.Empty;
-        config.SeerrApiKey = request.SeerrApiKey ?? string.Empty;
+        config.SeerrUrl = request.SeerrUrl?.Trim() ?? string.Empty;
+        config.SeerrApiKey = request.SeerrApiKey?.Trim() ?? string.Empty;
         config.SeerrCleanupAgeDays = Math.Clamp(request.SeerrCleanupAgeDays, 1, 3650);
 
         // Validate and normalize log level (same rules as UpdateLogLevel endpoint)

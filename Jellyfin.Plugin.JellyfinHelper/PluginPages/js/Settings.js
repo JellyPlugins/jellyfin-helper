@@ -159,7 +159,7 @@
             // --- Seerr Instance ---
             h += '<div class="section-title">' + T('settingsSeerrTitle', 'Seerr settings') + '</div>';
             h += '<div class="help-text">' + T('settingsSeerrHelp', 'Connect to Jellyseerr, Overseerr, or Seerr to automatically clean up old media requests.') + '</div>';
-            var seerrHasCfg = !!(cfg.SeerrUrl);
+            var seerrHasCfg = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
             h += '<div class="arr-collapsible' + (!seerrHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleSeerr">';
             h += '<button type="button" class="arr-collapsible-header" aria-expanded="' + (!seerrHasCfg ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');this.setAttribute(\'aria-expanded\',p.classList.contains(\'arr-expanded\'))">';
             h += '<span><span class="arr-chevron">▶</span><span class="arr-section-label">🔄 ' + T('seerrInstance', 'Seerr Instance') + '</span><span class="arr-instance-count" id="arrCountSeerr">' + (seerrHasCfg ? '✔' : '') + '</span></span>';

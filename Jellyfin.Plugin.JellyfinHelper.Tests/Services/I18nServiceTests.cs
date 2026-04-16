@@ -107,6 +107,7 @@ public class I18NServiceTests : IDisposable
             "healthChecks", "noSubtitles", "noImages", "noNfo", "orphanedDirs",
             "trendTitle", "trendEmpty", "loadingTrends", "trendError", "trendGranularity", "trendFiles",
             "trendEarliest",
+            "clickToExpand", "instanceCountSingular", "instanceCountPlural",
             "settingsGeneralTitle", "settingsTaskTitle", "settingsTrashTitle", "settingsArrTitle",
             "includedLibraries", "includedLibrariesHelp", "excludedLibraries",
             "orphanMinAgeDays", "orphanMinAgeDaysHelp",

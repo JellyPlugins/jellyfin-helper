@@ -22,7 +22,7 @@ public class SeerrIntegrationServiceTests
         out Mock<ILogger<SeerrIntegrationService>> loggerMock)
     {
         loggerMock = new Mock<ILogger<SeerrIntegrationService>>();
-        var httpClient = new HttpClient(handler);
+        var httpClient = new HttpClient(handler, disposeHandler: false);
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("SeerrIntegration")).Returns(httpClient);
         return new SeerrIntegrationService(factoryMock.Object, loggerMock.Object);
@@ -343,7 +343,7 @@ public class SeerrIntegrationServiceTests
         var page = MakeRequestPage(requests, 1);
         var handler = CreateMockHandler(HttpStatusCode.OK, page);
 
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
         var service = CreateService(handler.Object, out _);

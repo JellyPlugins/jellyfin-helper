@@ -51,7 +51,12 @@ public class SeerrController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> TestConnection([FromBody] SeerrTestRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request?.Url) || string.IsNullOrWhiteSpace(request?.ApiKey))
+        if (request is null)
+        {
+            return BadRequest(new { success = false, message = "URL and API Key are required." });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Url) || string.IsNullOrWhiteSpace(request.ApiKey))
         {
             return BadRequest(new { success = false, message = "URL and API Key are required." });
         }
