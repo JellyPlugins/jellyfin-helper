@@ -8,17 +8,16 @@
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
-    overflow-x: auto;      /* horizontal scroll on very small screens */
-    overflow-y: visible;
-    -webkit-overflow-scrolling: touch;
+    overflow: visible;
+    position: relative;
+    touch-action: manipulation;  /* allow pinch-zoom on chart area */
 }
 
 .trend-chart svg {
     display: block;
     width: 100%;
     height: auto;
-    min-height: 160px;     /* prevent collapsing too small on tiny screens */
-    min-width: 480px;      /* ensure readability; wider than viewport triggers scroll */
+    min-height: 160px;
 }
 
 .trend-empty {
@@ -26,6 +25,178 @@
     padding: 2em;
     opacity: 0.5;
     font-size: 0.9em;
+}
+
+/* Custom tooltip overlay */
+.trend-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid rgba(0, 164, 220, 0.5);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: #e0e0e0;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: nowrap;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.trend-tooltip.visible {
+    opacity: 1;
+}
+
+.trend-tooltip .tt-date {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 10px;
+}
+
+.trend-tooltip .tt-size {
+    color: #00a4dc;
+    font-weight: 600;
+}
+
+.trend-tooltip .tt-files {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 10px;
+}
+
+/* Crosshair line shown on hover/touch */
+.trend-crosshair {
+    position: absolute;
+    top: 0;
+    width: 1px;
+    height: 100%;
+    background: rgba(0, 164, 220, 0.35);
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+
+.trend-crosshair.visible {
+    opacity: 1;
+}
+
+/* Active dot highlight */
+.trend-active-dot {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #00a4dc;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 6;
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+
+.trend-active-dot.visible {
+    opacity: 1;
+}
+
+/* Diff panel below trend chart */
+.trend-diff-panel {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    margin-top: 8px;
+    padding: 0 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    text-align: center;
+    transition: max-height 0.3s ease, opacity 0.25s ease, padding 0.3s ease;
+}
+
+.trend-diff-panel.visible {
+    max-height: 140px;
+    opacity: 1;
+    padding: 12px 16px;
+}
+
+.trend-diff-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Two-column comparison row: "then" → "now" */
+.trend-diff-compare {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    justify-content: center;
+}
+
+.trend-diff-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    min-width: 100px;
+}
+
+.trend-diff-dates,
+.trend-diff-now-date {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.trend-diff-val {
+    color: #00a4dc;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.trend-diff-cnt {
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 10px;
+}
+
+.trend-diff-arrow {
+    color: rgba(255, 255, 255, 0.25);
+    font-size: 18px;
+    line-height: 1;
+    padding: 0 4px;
+}
+
+/* Delta row */
+.trend-diff-delta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.trend-diff-stat {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 4px;
+}
+
+.trend-diff-stat.diff-up {
+    color: #2ecc71;
+    background: rgba(46, 204, 113, 0.1);
+}
+
+.trend-diff-stat.diff-down {
+    color: #e74c3c;
+    background: rgba(231, 76, 60, 0.1);
+}
+
+.trend-diff-stat.diff-neutral {
+    color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.05);
 }
 
 /* Touch / small-screen optimisations */
@@ -38,7 +209,29 @@
         border-radius: 4px;
     }
 
-    .trend-chart svg {
-        min-width: 600px;  /* readable chart, scrolls horizontally */
+    .trend-tooltip {
+        font-size: 10px;
+        padding: 4px 8px;
+    }
+
+    .trend-diff-panel {
+        padding: 0 10px;
+    }
+
+    .trend-diff-panel.visible {
+        padding: 8px 10px;
+    }
+
+    .trend-diff-content {
+        gap: 6px;
+    }
+
+    .trend-diff-stat {
+        font-size: 12px;
+        padding: 2px 6px;
+    }
+
+    .trend-diff-dates {
+        font-size: 10px;
     }
 }

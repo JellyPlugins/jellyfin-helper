@@ -1,5 +1,8 @@
 // --- Trends Tab (Growth Timeline) ---
 
+    // In-memory cache for trend point data to avoid expensive DOM round-trips
+    var _lastTrendPointData = null;
+
     function formatGranularityLabel(dateStr, granularity) {
         var d = new Date(dateStr);
         if (isNaN(d.getTime())) return dateStr;
@@ -217,25 +220,22 @@
         // Line
         svg += '<polyline points="' + points.join(' ') + '" fill="none" stroke="#00a4dc" stroke-width="2" />';
 
-        // Data points with tooltips — adapt circle size to density
-        // At many data points the circles overlap, so shrink or hide them
-        var dotRadius = dataPoints.length <= 60 ? 3 : (dataPoints.length <= 120 ? 1.5 : 0);
-        for (var k = 0; k < points.length; k++) {
-            var coords = points[k].split(',');
-            var label = formatGranularityLabel(dataPoints[k].date, granularity);
-            var sizeLabel = formatBytes(dataPoints[k].cumulativeSize);
-            var filesLabel = dataPoints[k].cumulativeFileCount + ' files';
-            var tooltip = '<title>' + label + ': ' + sizeLabel + ' (' + filesLabel + ')</title>';
-            if (dotRadius > 0) {
-                svg += '<circle cx="' + coords[0] + '" cy="' + coords[1] + '" r="' + dotRadius + '" fill="#00a4dc">' + tooltip + '</circle>';
-            } else {
-                // Invisible hover zone for tooltips when dots are hidden
-                svg += '<rect x="' + (parseFloat(coords[0]) - step / 2).toFixed(1) + '" y="' + padT + '" width="' + Math.max(step, 2).toFixed(1) + '" height="' + chartH + '" fill="transparent">' + tooltip + '</rect>';
+        // Invisible interaction overlay — full chart area rect for mouse/touch tracking
+        svg += '<rect class="trend-hit-area" x="' + padL + '" y="' + padT + '" width="' + chartW + '" height="' + chartH + '" fill="transparent" />';
+
+        // Small visible dots at each data point (always shown, small)
+        var dotRadius = dataPoints.length <= 60 ? 2.5 : (dataPoints.length <= 200 ? 1.5 : 0);
+        if (dotRadius > 0) {
+            for (var k = 0; k < points.length; k++) {
+                var coords = points[k].split(',');
+                svg += '<circle cx="' + coords[0] + '" cy="' + coords[1] + '" r="' + dotRadius + '" fill="#00a4dc" opacity="0.6" />';
             }
         }
 
-        // X-axis labels — show evenly spaced labels
+        // X-axis labels — dynamically adapt label count to prevent overlap
         var labelCount = Math.min(dataPoints.length, 10);
+        // On narrow charts, reduce label count further
+        if (dataPoints.length > 20) labelCount = Math.min(labelCount, 7);
         var labelStep = Math.max(1, Math.floor((dataPoints.length - 1) / (labelCount - 1)));
         for (var m = 0; m < dataPoints.length; m += labelStep) {
             var lx = padL + m * step;
@@ -254,16 +254,277 @@
 
         svg += '</svg>';
 
+        // Crosshair line, active dot, and tooltip (HTML overlays for interactivity)
+        var overlays = '<div class="trend-crosshair"></div>';
+        overlays += '<div class="trend-active-dot"></div>';
+        overlays += '<div class="trend-tooltip"><div class="tt-date"></div><div class="tt-size"></div><div class="tt-files"></div></div>';
+
         // Metadata line below chart
         var meta = '<div class="trend-meta" style="text-align:center;color:rgba(255,255,255,0.35);font-size:11px;margin-top:4px;">';
         meta += T('trendGranularity', 'Granularity') + ': ' + granularity;
-        meta += ' · ' + (timeline.totalFilesScanned || 0) + ' ' + T('trendFiles', 'media files');
+        meta += ' &middot; ' + (timeline.totalFilesScanned || 0) + ' ' + T('trendFiles', 'media files');
         if (timeline.earliestFileDate) {
-            meta += ' · ' + T('trendEarliest', 'Earliest') + ': ' + new Date(timeline.earliestFileDate).toLocaleDateString();
+            meta += ' &middot; ' + T('trendEarliest', 'Earliest') + ': ' + new Date(timeline.earliestFileDate).toLocaleDateString();
         }
         meta += '</div>';
 
-        return '<div class="trend-chart">' + svg + '</div>' + meta;
+        // Store chart metadata as data attributes for the interaction handler
+        var chartDataAttr = ' data-trend-padl="' + padL + '"'
+            + ' data-trend-padt="' + padT + '"'
+            + ' data-trend-chartw="' + chartW + '"'
+            + ' data-trend-charth="' + chartH + '"'
+            + ' data-trend-width="' + width + '"'
+            + ' data-trend-height="' + height + '"'
+            + ' data-trend-count="' + dataPoints.length + '"'
+            + ' data-trend-ymax="' + yMax + '"'
+            + ' data-trend-granularity="' + granularity + '"';
+
+        // Encode point data as HTML-safe data attribute for interaction lookup
+        var pointData = [];
+        for (var pd = 0; pd < dataPoints.length; pd++) {
+            pointData.push({
+                d: dataPoints[pd].date,
+                s: dataPoints[pd].cumulativeSize,
+                c: dataPoints[pd].cumulativeFileCount
+            });
+        }
+        // Store as data attribute (HTML-encode quotes so it survives the single-file build)
+        // Store point data in memory instead of serializing into the DOM
+        _lastTrendPointData = pointData;
+
+        // Diff panel — appears below chart on hover, shows delta vs current (last) data point
+        var diffPanel = '<div class="trend-diff-panel">'
+            + '<div class="trend-diff-content">'
+            + '<div class="trend-diff-compare">'
+            + '<div class="trend-diff-col">'
+            + '<span class="trend-diff-dates"></span>'
+            + '<span class="trend-diff-val trend-diff-then-size"></span>'
+            + '<span class="trend-diff-cnt trend-diff-then-count"></span>'
+            + '</div>'
+            + '<span class="trend-diff-arrow">\u2192</span>'
+            + '<div class="trend-diff-col">'
+            + '<span class="trend-diff-now-date"></span>'
+            + '<span class="trend-diff-val trend-diff-now-size"></span>'
+            + '<span class="trend-diff-cnt trend-diff-now-count"></span>'
+            + '</div>'
+            + '</div>'
+            + '<div class="trend-diff-delta">'
+            + '<span class="trend-diff-stat trend-diff-size"></span>'
+            + '<span class="trend-diff-stat trend-diff-files"></span>'
+            + '</div>'
+            + '</div></div>';
+
+        return '<div class="trend-chart"' + chartDataAttr + '>'
+            + svg + overlays
+            + '</div>' + diffPanel + meta;
+    }
+
+    /**
+     * Attaches interactive tooltip/crosshair behavior to the trend chart.
+     * Called after renderTrendChart HTML is inserted into the DOM.
+     */
+    function attachTrendInteraction(container) {
+        var chart = container.querySelector('.trend-chart');
+        if (!chart) return;
+
+        var svgEl = chart.querySelector('svg');
+        var tooltip = chart.querySelector('.trend-tooltip');
+        var crosshair = chart.querySelector('.trend-crosshair');
+        var activeDot = chart.querySelector('.trend-active-dot');
+        if (!svgEl || !tooltip || !crosshair || !activeDot) return;
+
+        var pointData = _lastTrendPointData;
+        if (!pointData || pointData.length === 0) return;
+
+        var padL = parseFloat(chart.getAttribute('data-trend-padl'));
+        var padT = parseFloat(chart.getAttribute('data-trend-padt'));
+        var chartW = parseFloat(chart.getAttribute('data-trend-chartw'));
+        var chartH = parseFloat(chart.getAttribute('data-trend-charth'));
+        var vbWidth = parseFloat(chart.getAttribute('data-trend-width'));
+        var vbHeight = parseFloat(chart.getAttribute('data-trend-height'));
+        var yMax = parseFloat(chart.getAttribute('data-trend-ymax'));
+        var granularity = chart.getAttribute('data-trend-granularity');
+        var count = pointData.length;
+        var step = count > 1 ? chartW / (count - 1) : 0;
+
+        function getPointIndex(clientX) {
+            var rect = svgEl.getBoundingClientRect();
+            // Account for preserveAspectRatio="xMidYMid meet" letterboxing
+            var scale = Math.min(rect.width / vbWidth, rect.height / vbHeight);
+            var offsetX = (rect.width - vbWidth * scale) / 2;
+            // Convert client coordinate to SVG viewBox coordinate
+            var svgX = (clientX - rect.left - offsetX) / scale;
+            // Clamp to chart area
+            var chartX = svgX - padL;
+            if (chartX < 0) chartX = 0;
+            if (chartX > chartW) chartX = chartW;
+            // Find nearest data point index
+            var idx = step > 0 ? Math.round(chartX / step) : 0;
+            if (idx < 0) idx = 0;
+            if (idx >= count) idx = count - 1;
+            return idx;
+        }
+
+        function showTooltip(idx) {
+            if (idx < 0 || idx >= count) return;
+
+            var pt = pointData[idx];
+            var svgRect = svgEl.getBoundingClientRect();
+            var chartRect = chart.getBoundingClientRect();
+
+            // Calculate position in SVG viewBox coordinates
+            var ptX = padL + idx * step;
+            var ptY = padT + chartH - (pt.s / yMax * chartH);
+
+            // Convert viewBox coords to pixel coords relative to chart container.
+            // The SVG uses preserveAspectRatio="xMidYMid meet", so on narrow/tall
+            // containers the rendered content is centered with letterboxing.
+            // We must account for the actual scale and offset.
+            var scale = Math.min(svgRect.width / vbWidth, svgRect.height / vbHeight);
+            var renderedW = vbWidth * scale;
+            var renderedH = vbHeight * scale;
+            var offsetX = (svgRect.width - renderedW) / 2;
+            var offsetY = (svgRect.height - renderedH) / 2;
+            var pixelX = ptX * scale + offsetX + (svgRect.left - chartRect.left);
+            var pixelY = ptY * scale + offsetY + (svgRect.top - chartRect.top);
+
+            // Update crosshair
+            crosshair.style.left = pixelX + 'px';
+            crosshair.classList.add('visible');
+
+            // Update active dot
+            activeDot.style.left = pixelX + 'px';
+            activeDot.style.top = pixelY + 'px';
+            activeDot.classList.add('visible');
+
+            // Update tooltip content
+            var dateLabel = formatGranularityLabel(pt.d, granularity);
+            var sizeLabel = formatBytes(pt.s);
+            tooltip.querySelector('.tt-date').textContent = dateLabel;
+            tooltip.querySelector('.tt-size').textContent = sizeLabel;
+            tooltip.querySelector('.tt-files').textContent = pt.c + ' ' + T('trendFiles', 'media files');
+
+            // Position tooltip — prefer right side, flip to left if near edge
+            var ttWidth = tooltip.offsetWidth || 120;
+            var ttHeight = tooltip.offsetHeight || 50;
+            var ttLeft = pixelX + 12;
+            if (ttLeft + ttWidth > chartRect.width) {
+                ttLeft = pixelX - ttWidth - 12;
+            }
+            var ttTop = pixelY - ttHeight / 2;
+            if (ttTop < 0) ttTop = 4;
+            if (ttTop + ttHeight > chartRect.height) ttTop = chartRect.height - ttHeight - 4;
+
+            tooltip.style.left = ttLeft + 'px';
+            tooltip.style.top = ttTop + 'px';
+            tooltip.classList.add('visible');
+        }
+
+        // Diff panel elements (lives outside .trend-chart, inside container)
+        var diffPanel = container.querySelector('.trend-diff-panel');
+        var diffDates = diffPanel ? diffPanel.querySelector('.trend-diff-dates') : null;
+        var diffThenSize = diffPanel ? diffPanel.querySelector('.trend-diff-then-size') : null;
+        var diffThenCount = diffPanel ? diffPanel.querySelector('.trend-diff-then-count') : null;
+        var diffNowDate = diffPanel ? diffPanel.querySelector('.trend-diff-now-date') : null;
+        var diffNowSize = diffPanel ? diffPanel.querySelector('.trend-diff-now-size') : null;
+        var diffNowCount = diffPanel ? diffPanel.querySelector('.trend-diff-now-count') : null;
+        var diffSize = diffPanel ? diffPanel.querySelector('.trend-diff-size') : null;
+        var diffFiles = diffPanel ? diffPanel.querySelector('.trend-diff-files') : null;
+        var currentPt = pointData[count - 1];
+
+        function updateDiffPanel(idx) {
+            if (!diffPanel || !diffDates || !diffSize || !diffFiles) return;
+
+            var pt = pointData[idx];
+            var hoveredLabel = formatGranularityLabel(pt.d, granularity);
+            var currentLabel = formatGranularityLabel(currentPt.d, granularity);
+
+            // "Then" column (hovered point)
+            diffDates.textContent = hoveredLabel;
+            if (diffThenSize) diffThenSize.textContent = formatBytes(pt.s);
+            if (diffThenCount) diffThenCount.textContent = pt.c + ' ' + T('trendFiles', 'media files');
+
+            // "Now" column (latest point)
+            if (diffNowDate) diffNowDate.textContent = currentLabel + ' (' + T('trendNow', 'now') + ')';
+            if (diffNowSize) diffNowSize.textContent = formatBytes(currentPt.s);
+            if (diffNowCount) diffNowCount.textContent = currentPt.c + ' ' + T('trendFiles', 'media files');
+
+            // Delta row with percentage
+            var deltaSize = currentPt.s - pt.s;
+            var deltaFiles = currentPt.c - pt.c;
+            // Only compute percentage when old value is meaningful (>= 1 MB).
+            // Below that threshold the old value is essentially zero and the
+            // percentage becomes astronomically large / meaningless.
+            var MIN_SIZE_FOR_PCT = 1048576; // 1 MB
+            var pctSize = pt.s >= MIN_SIZE_FOR_PCT ? Math.round((deltaSize / pt.s) * 100) : 0;
+
+            var sSign = deltaSize > 0 ? '+' : (deltaSize < 0 ? '' : '\u00B1');
+            var pctLabel = pctSize !== 0 ? ' (' + (pctSize > 0 ? '+' : '') + pctSize + '%)' : '';
+            diffSize.textContent = sSign + formatBytes(deltaSize) + pctLabel;
+            diffSize.className = 'trend-diff-stat trend-diff-size '
+                + (deltaSize > 0 ? 'diff-up' : (deltaSize < 0 ? 'diff-down' : 'diff-neutral'));
+
+            var fSign = deltaFiles > 0 ? '+' : (deltaFiles < 0 ? '' : '\u00B1');
+            diffFiles.textContent = fSign + deltaFiles + ' ' + T('trendFiles', 'media files');
+            diffFiles.className = 'trend-diff-stat trend-diff-files '
+                + (deltaFiles > 0 ? 'diff-up' : (deltaFiles < 0 ? 'diff-down' : 'diff-neutral'));
+
+            diffPanel.classList.add('visible');
+        }
+
+        function hideDiffPanel() {
+            if (diffPanel) diffPanel.classList.remove('visible');
+        }
+
+        function hideTooltip() {
+            tooltip.classList.remove('visible');
+            crosshair.classList.remove('visible');
+            activeDot.classList.remove('visible');
+            hideDiffPanel();
+        }
+
+        // Mouse events
+        svgEl.addEventListener('mousemove', function (e) {
+            var idx = getPointIndex(e.clientX);
+            showTooltip(idx);
+            updateDiffPanel(idx);
+        });
+
+        svgEl.addEventListener('mouseleave', function () {
+            hideTooltip();
+        });
+
+        // Touch events — show tooltip on tap/drag, hide on release
+        var hideTimeoutId = null;
+
+        svgEl.addEventListener('touchstart', function (e) {
+            if (hideTimeoutId) { clearTimeout(hideTimeoutId); hideTimeoutId = null; }
+            if (e.touches.length === 1) {
+                var idx = getPointIndex(e.touches[0].clientX);
+                showTooltip(idx);
+                updateDiffPanel(idx);
+            }
+        }, { passive: true });
+
+        svgEl.addEventListener('touchmove', function (e) {
+            if (e.touches.length === 1) {
+                var idx = getPointIndex(e.touches[0].clientX);
+                showTooltip(idx);
+                updateDiffPanel(idx);
+            }
+        }, { passive: true });
+
+        svgEl.addEventListener('touchend', function () {
+            // Keep tooltip visible briefly after touch ends, then hide
+            if (hideTimeoutId) { clearTimeout(hideTimeoutId); }
+            hideTimeoutId = setTimeout(function () { hideTooltip(); hideTimeoutId = null; }, 1500);
+        }, { passive: true });
+
+        svgEl.addEventListener('touchcancel', function () {
+            if (hideTimeoutId) { clearTimeout(hideTimeoutId); }
+            hideTooltip();
+            hideTimeoutId = null;
+        }, { passive: true });
     }
 
     function loadTrendData(forceRefresh) {
@@ -281,6 +542,7 @@
             var container = document.getElementById('trendChartContainer');
             if (container) {
                 container.innerHTML = renderTrendChart(timeline);
+                attachTrendInteraction(container);
             }
         }, function () {
             var container = document.getElementById('trendChartContainer');
