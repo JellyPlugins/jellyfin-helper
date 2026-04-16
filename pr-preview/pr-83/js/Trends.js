@@ -291,9 +291,23 @@
         // Diff panel — appears below chart on hover, shows delta vs current (last) data point
         var diffPanel = '<div class="trend-diff-panel">'
             + '<div class="trend-diff-content">'
+            + '<div class="trend-diff-compare">'
+            + '<div class="trend-diff-col">'
             + '<span class="trend-diff-dates"></span>'
+            + '<span class="trend-diff-val trend-diff-then-size"></span>'
+            + '<span class="trend-diff-cnt trend-diff-then-count"></span>'
+            + '</div>'
+            + '<span class="trend-diff-arrow">\u2192</span>'
+            + '<div class="trend-diff-col">'
+            + '<span class="trend-diff-now-date"></span>'
+            + '<span class="trend-diff-val trend-diff-now-size"></span>'
+            + '<span class="trend-diff-cnt trend-diff-now-count"></span>'
+            + '</div>'
+            + '</div>'
+            + '<div class="trend-diff-delta">'
             + '<span class="trend-diff-stat trend-diff-size"></span>'
             + '<span class="trend-diff-stat trend-diff-files"></span>'
+            + '</div>'
             + '</div></div>';
 
         return '<div class="trend-chart"' + chartDataAttr + '>'
@@ -410,6 +424,11 @@
         // Diff panel elements (lives outside .trend-chart, inside container)
         var diffPanel = container.querySelector('.trend-diff-panel');
         var diffDates = diffPanel ? diffPanel.querySelector('.trend-diff-dates') : null;
+        var diffThenSize = diffPanel ? diffPanel.querySelector('.trend-diff-then-size') : null;
+        var diffThenCount = diffPanel ? diffPanel.querySelector('.trend-diff-then-count') : null;
+        var diffNowDate = diffPanel ? diffPanel.querySelector('.trend-diff-now-date') : null;
+        var diffNowSize = diffPanel ? diffPanel.querySelector('.trend-diff-now-size') : null;
+        var diffNowCount = diffPanel ? diffPanel.querySelector('.trend-diff-now-count') : null;
         var diffSize = diffPanel ? diffPanel.querySelector('.trend-diff-size') : null;
         var diffFiles = diffPanel ? diffPanel.querySelector('.trend-diff-files') : null;
         var currentPt = pointData[count - 1];
@@ -420,13 +439,29 @@
             var pt = pointData[idx];
             var hoveredLabel = formatGranularityLabel(pt.d, granularity);
             var currentLabel = formatGranularityLabel(currentPt.d, granularity);
-            diffDates.textContent = hoveredLabel + ' \u2192 ' + currentLabel + ' (' + T('trendNow', 'now') + ')';
 
+            // "Then" column (hovered point)
+            diffDates.textContent = hoveredLabel;
+            if (diffThenSize) diffThenSize.textContent = formatBytes(pt.s);
+            if (diffThenCount) diffThenCount.textContent = pt.c + ' ' + T('trendFiles', 'media files');
+
+            // "Now" column (latest point)
+            if (diffNowDate) diffNowDate.textContent = currentLabel + ' (' + T('trendNow', 'now') + ')';
+            if (diffNowSize) diffNowSize.textContent = formatBytes(currentPt.s);
+            if (diffNowCount) diffNowCount.textContent = currentPt.c + ' ' + T('trendFiles', 'media files');
+
+            // Delta row with percentage
             var deltaSize = currentPt.s - pt.s;
             var deltaFiles = currentPt.c - pt.c;
+            // Only compute percentage when old value is meaningful (>= 1 MB).
+            // Below that threshold the old value is essentially zero and the
+            // percentage becomes astronomically large / meaningless.
+            var MIN_SIZE_FOR_PCT = 1048576; // 1 MB
+            var pctSize = pt.s >= MIN_SIZE_FOR_PCT ? Math.round((deltaSize / pt.s) * 100) : 0;
 
             var sSign = deltaSize > 0 ? '+' : (deltaSize < 0 ? '' : '\u00B1');
-            diffSize.textContent = sSign + formatBytes(deltaSize);
+            var pctLabel = pctSize !== 0 ? ' (' + (pctSize > 0 ? '+' : '') + pctSize + '%)' : '';
+            diffSize.textContent = sSign + formatBytes(deltaSize) + pctLabel;
             diffSize.className = 'trend-diff-stat trend-diff-size '
                 + (deltaSize > 0 ? 'diff-up' : (deltaSize < 0 ? 'diff-down' : 'diff-neutral'));
 
