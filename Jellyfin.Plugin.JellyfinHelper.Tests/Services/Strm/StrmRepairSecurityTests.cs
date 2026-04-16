@@ -140,7 +140,8 @@ public class StrmRepairSecurityTests
         _fileSystem.AddFile(strmFile, new MockFileData("/movies/Movie1/movie\0.mkv"));
 
         // Should not crash regardless of how null bytes are handled
-        var exception = Record.Exception(() => _service.ProcessStrmFile(strmFile, true));
+        StrmFileResult? result = null;
+        var exception = Record.Exception(() => result = _service.ProcessStrmFile(strmFile, true));
 
         // Either it completes without exception or throws a controlled exception
         // The important thing is no uncontrolled crash
@@ -149,6 +150,13 @@ public class StrmRepairSecurityTests
             Assert.True(
                 exception is ArgumentException or IOException or NotSupportedException,
                 $"Unexpected exception type: {exception.GetType().Name}");
+        }
+        else
+        {
+            // If no exception was thrown, the file must NOT be reported as Valid —
+            // null bytes in a path are never legitimate media targets.
+            Assert.NotNull(result);
+            Assert.NotEqual(StrmFileStatus.Valid, result.Status);
         }
     }
 

@@ -61,6 +61,8 @@ Then restart Jellyfin to load the plugin.
 
 ## 🏗️ Architecture Overview
 
+> 📐 **For detailed architecture diagrams** (layer overview, class diagrams, inheritance hierarchies, dependency graphs, sequence diagrams), see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+
 ### Project Structure
 
 ```text

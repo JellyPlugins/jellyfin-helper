@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-04-16
+
+### Added
+- **ARCHITECTURE.md** — New comprehensive architecture documentation covering project structure, service layers, and design patterns.
+- **Trends UI Enhancements** — Improved CSS and JS for the Trends tab with better chart rendering and responsiveness.
+
+### Changed
+- **GrowthTimelineService Performance** — Optimized performance of timeline aggregation and bucketing logic.
+- **BackupService Performance** — Optimized backup service methods for better efficiency.
+- **Service Refactoring** — Refactored monolith `BackupService.cs` and `GrowthTimelineService.cs` into smaller, focused components (`TimelineAggregator`, `BackupSanitizer`).
+- **Cross-Platform Compatibility** — Improved case handling in tests for cross-platform compatibility.
+- **CI/CD** — Updated PR workflow, bumped `softprops/action-gh-release` from v2 to v3.
+- **CONTRIBUTING.md** — Updated with new test count and fixture architecture details.
+
+### Removed
+- **Legacy History Cleanup** — Removed legacy history file cleanup method (preparation for this version).
+
+---
+
 ## [1.0.9] — 2026-04-14
 
 ### Removed

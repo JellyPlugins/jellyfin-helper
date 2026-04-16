@@ -81,27 +81,25 @@ public static class TimelineAggregator
         {
             if (baseline.Directories.TryGetValue(dir.Path, out var baselineEntry))
             {
-                // Existing directory: check for size change
+                // Existing directory: check for size or count change
                 var sizeDiff = dir.Size - baselineEntry.Size;
-                switch (sizeDiff)
+                var baselineCount = baselineEntry.Count > 0 ? baselineEntry.Count : 1;
+                var currentCount = dir.Count > 0 ? dir.Count : 1;
+                var countDiff = currentCount - baselineCount;
+
+                if (sizeDiff != 0 || countDiff != 0)
                 {
-                    case > 0:
-                    // Directory shrank: add a negative entry at the current scan time
-                    // CountDelta = 0 because this is a size adjustment, not a removal
-                    case < 0:
-                        // Directory grew: add the positive diff at the current scan time
-                        // CountDelta = 0 because this is a size adjustment, not a new directory
-                        entries.Add(
-                            new GrowthTimelineService.FileEntry
-                            {
-                                CreatedUtc = now,
-                                Size = sizeDiff,
-                                CountDelta = 0
-                            });
-                        break;
+                    // Directory changed: emit a delta entry at the current scan time
+                    entries.Add(
+                        new GrowthTimelineService.FileEntry
+                        {
+                            CreatedUtc = now,
+                            Size = sizeDiff,
+                            CountDelta = countDiff
+                        });
                 }
 
-                // No change: no entry needed (baseline already covers it)
+                // No change in size or count: no entry needed (baseline already covers it)
             }
             else
             {

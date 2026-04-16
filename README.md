@@ -75,6 +75,7 @@ All cleanup tasks default to **Dry Run** mode — nothing is deleted until you e
 
 | Resource | Description |
 |----------|-------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | High-level architecture overview with diagrams (Mermaid) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Architecture, design patterns, build system, API reference, configuration, testing |
 | [CHANGELOG.md](CHANGELOG.md) | Detailed version history |
 | [Live Demo](https://jellyplugins.github.io/jellyfin-helper/) | Interactive dashboard demo |

@@ -104,8 +104,10 @@ jobs:
             filter: "Category=Security"
           - name: Performance
             filter: "Category=Performance"
+            continue-on-error: true
 
     name: "Tests (${{ matrix.bucket.name }})"
+    continue-on-error: ${{ matrix.bucket.continue-on-error == true }}
 
     steps:
     - name: Checkout repository

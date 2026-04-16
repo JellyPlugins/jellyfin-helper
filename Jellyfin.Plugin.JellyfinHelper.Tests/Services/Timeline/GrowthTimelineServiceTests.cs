@@ -1,11 +1,11 @@
-﻿using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
+using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Timeline;
 
 public class GrowthTimelineServiceTests
 {
-    // â”€â”€ DetermineGranularity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- DetermineGranularity -----------------------------------
 
     [Fact]
     public void DetermineGranularity_LessThan90Days_ReturnsDaily()
@@ -119,7 +119,7 @@ public class GrowthTimelineServiceTests
         Assert.Equal("daily", TimelineAggregator.DetermineGranularity(earliest, now));
     }
 
-    // â”€â”€ GenerateBucketStarts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── GenerateBucketStarts ──────────────────────────────────────────────
 
     [Fact]
     public void GenerateBucketStarts_Daily_GeneratesCorrectBuckets()
@@ -252,7 +252,7 @@ public class GrowthTimelineServiceTests
         }
     }
 
-    // â”€â”€ DetermineGranularity boundary consistency â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── DetermineGranularity boundary consistency ─────────────────────────
 
     [Theory]
     [InlineData(1, "daily")]
@@ -270,7 +270,7 @@ public class GrowthTimelineServiceTests
         Assert.Equal(expected, TimelineAggregator.DetermineGranularity(earliest, now));
     }
 
-    // â”€â”€ BuildCumulativeTimeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── BuildCumulativeTimeline ────────────────────────────────────────────
 
     [Fact]
     public void BuildCumulativeTimeline_EmptyEntries_ReturnsEmptyPoints()
@@ -347,7 +347,7 @@ public class GrowthTimelineServiceTests
         Assert.Equal(700L, points[2].CumulativeSize); // Mar (1000 - 300)
     }
 
-    // â”€â”€ BuildIncrementalEntries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── BuildIncrementalEntries ────────────────────────────────────────────
 
     [Fact]
     public void BuildIncrementalEntries_NoChanges_ReturnsBaselineEntriesOnly()
@@ -599,8 +599,8 @@ public class GrowthTimelineServiceTests
     {
         // On Windows the baseline dictionary uses OrdinalIgnoreCase, so paths
         // with different casing should match. On Linux they won't match and
-        // the entry will be treated as new. This test verifies the platform-
-        // specific behaviour is consistent.
+        // the entry will be treated as new. This test verifies the platform -
+        // specific behavior is consistent.
         var baseline = new GrowthTimelineBaseline
         {
             FirstScanTimestamp = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
@@ -630,13 +630,13 @@ public class GrowthTimelineServiceTests
 
         if (OperatingSystem.IsWindows())
         {
-            // Case-insensitive match: baseline entry matches, no diff â†’ 1 entry
+            // Case-insensitive match: baseline entry matches, no diff → 1 entry
             Assert.Single(entries);
             Assert.Equal(8_000_000_000L, entries[0].Size);
         }
         else
         {
-            // Case-sensitive: treated as different paths â†’ baseline entry + new entry + deletion of old
+            // Case-sensitive: treated as different paths → baseline entry + new entry + deletion of old
             Assert.True(entries.Count > 1, "On Linux, case-different paths should be treated as distinct.");
         }
     }
@@ -720,12 +720,16 @@ public class GrowthTimelineServiceTests
         var now = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc);
         var entries = TimelineAggregator.BuildIncrementalEntries(currentDirs, baseline, now);
 
-        // Baseline entry should have CountDelta = 1 (not 0)
-        Assert.Single(entries);
+        // Entry 0: Baseline entry with CountDelta = 1 (legacy Count=0 treated as 1)
+        Assert.Equal(2, entries.Count);
         Assert.Equal(1, entries[0].CountDelta);
+
+        // Entry 1: Delta entry for count change (current Count=2 minus baseline treated-as-1 = +1)
+        Assert.Equal(1, entries[1].CountDelta);
+        Assert.Equal(0, entries[1].Size); // Size unchanged, only count grew
     }
 
-    // â”€â”€ UpdateBaseline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── UpdateBaseline ────────────────────────────────────────────────────
 
     [Fact]
     public void UpdateBaseline_NewDirectory_AddedToBaseline()
@@ -863,13 +867,13 @@ public class GrowthTimelineServiceTests
         Assert.Equal(originalTimestamp, baseline.FirstScanTimestamp);
     }
 
-    // â”€â”€ End-to-end: BuildIncrementalEntries â†’ BuildCumulativeTimeline â”€â”€â”€â”€
+    // ── End-to-end: BuildIncrementalEntries → BuildCumulativeTimeline ────
 
     [Fact]
     public void EndToEnd_DirectoryScenario_TimelineShowsCorrectGrowth()
     {
         // Scenario: Directory created 2024-03 (8GB at baseline)
-        // By 2025-06 it grew to 10GB â†’ graph should show 8GB from 2024 and +2GB in 2025
+        // By 2025-06 it grew to 10GB → graph should show 8GB from 2024 and +2GB in 2025
         var baseline = new GrowthTimelineBaseline
         {
             FirstScanTimestamp = new DateTime(2024, 12, 1, 0, 0, 0, DateTimeKind.Utc),
@@ -981,7 +985,7 @@ public class GrowthTimelineServiceTests
         Assert.Equal(16_000_000_000L, feb2025.CumulativeSize);
     }
 
-    // â”€â”€ MergeSnapshotIntoTimeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── MergeSnapshotIntoTimeline ─────────────────────────────────────────
 
     [Fact]
     public void MergeSnapshotIntoTimeline_PreservesHistoricalPoints()
@@ -1037,7 +1041,7 @@ public class GrowthTimelineServiceTests
             }
         };
 
-        // "now" is still in February â†’ should replace the Feb point
+        // "now" is still in February → should replace the Feb point
         var now = new DateTime(2024, 2, 20, 0, 0, 0, DateTimeKind.Utc);
         var result = TimelineAggregator.MergeSnapshotIntoTimeline(
             existingPoints, now, 9_000_000_000, 18, "monthly");
@@ -1066,7 +1070,7 @@ public class GrowthTimelineServiceTests
             }
         };
 
-        // Files with old creation dates were deleted â†’ current total is smaller
+        // Files with old creation dates were deleted → current total is smaller
         var now = new DateTime(2024, 6, 15, 0, 0, 0, DateTimeKind.Utc);
         var result = TimelineAggregator.MergeSnapshotIntoTimeline(
             existingPoints, now, 80_000_000_000, 160, "monthly");
@@ -1126,7 +1130,7 @@ public class GrowthTimelineServiceTests
         var result = TimelineAggregator.MergeSnapshotIntoTimeline(
             existingPoints, now, 10_000_000_000, 20, "quarterly");
 
-        // Q3 2024 bucket starts at Jul 1 â†’ all existing monthly points are before that
+        // Q3 2024 bucket starts at Jul 1 → all existing monthly points are before that
         Assert.Equal(5, result.Count);
         Assert.Equal(10_000_000_000L, result[4].CumulativeSize);
         Assert.Equal(new DateTime(2024, 7, 1, 0, 0, 0, DateTimeKind.Utc), result[4].Date);
@@ -1150,7 +1154,7 @@ public class GrowthTimelineServiceTests
             }
         };
 
-        // Second scan still in March â†’ should replace March value
+        // Second scan still in March → should replace March value
         var now = new DateTime(2024, 3, 25, 0, 0, 0, DateTimeKind.Utc);
         var result = TimelineAggregator.MergeSnapshotIntoTimeline(
             existingPoints, now, 9_000_000_000, 17, "monthly");
@@ -1161,7 +1165,7 @@ public class GrowthTimelineServiceTests
         Assert.Equal(17, result[1].CumulativeFileCount);
     }
 
-    // â”€â”€ GetBucketStart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── GetBucketStart ────────────────────────────────────────────────────
 
     [Fact]
     public void GetBucketStart_Monthly_ReturnsFirstOfMonth()
@@ -1195,7 +1199,7 @@ public class GrowthTimelineServiceTests
         Assert.Equal(new DateTime(2024, 3, 15, 0, 0, 0, DateTimeKind.Utc), result);
     }
 
-    // â”€â”€ TrimLeadingZeros â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── TrimLeadingZeros ──────────────────────────────────────────────────
 
     [Fact]
     public void TrimLeadingZeros_EmptyList_ReturnsEmpty()
@@ -1305,7 +1309,7 @@ public class GrowthTimelineServiceTests
         Assert.Equal(5000L, result[0].CumulativeSize);
     }
 
-    // â”€â”€ DeduplicateConsecutivePoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── DeduplicateConsecutivePoints ───────────────────────────────────────
 
     [Fact]
     public void DeduplicateConsecutivePoints_EmptyList_ReturnsEmpty()
@@ -1720,7 +1724,7 @@ public class GrowthTimelineServiceTests
     public void ConsolidateToGranularity_InvalidGranularity_FallsBackToMonthly()
     {
         // Unknown granularity strings should fall back to the default (monthly) bucket logic,
-        // the same way GetBucketStart and AdvanceBucket handle unrecognised values.
+        // the same way GetBucketStart and AdvanceBucket handle unrecognized values.
         var points = new List<GrowthTimelinePoint>
         {
             new()
@@ -1742,7 +1746,7 @@ public class GrowthTimelineServiceTests
 
         var result = TimelineAggregator.ConsolidateToGranularity(points, "biweekly");
 
-        // "biweekly" is unknown â†’ GetBucketStart falls back to monthly
+        // "biweekly" is unknown → GetBucketStart falls back to monthly
         // Jan 15 and Jan 28 both map to Jan 1 bucket, Feb 10 maps to Feb 1 bucket
         Assert.Equal(2, result.Count);
         Assert.Equal(new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), result[0].Date);
@@ -1770,7 +1774,7 @@ public class GrowthTimelineServiceTests
 
         var result = TimelineAggregator.ConsolidateToGranularity(points, "");
 
-        // Empty string â†’ default branch â†’ monthly bucket
+        // Empty string → default branch → monthly bucket
         Assert.Single(result);
         Assert.Equal(new DateTime(2024, 3, 1, 0, 0, 0, DateTimeKind.Utc), result[0].Date);
         Assert.Equal(700L, result[0].CumulativeSize);

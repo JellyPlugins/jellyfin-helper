@@ -8,17 +8,16 @@
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
-    overflow-x: auto;      /* horizontal scroll on very small screens */
-    overflow-y: visible;
-    -webkit-overflow-scrolling: touch;
+    overflow: visible;
+    position: relative;
+    touch-action: manipulation;  /* allow pinch-zoom on chart area */
 }
 
 .trend-chart svg {
     display: block;
     width: 100%;
     height: auto;
-    min-height: 160px;     /* prevent collapsing too small on tiny screens */
-    min-width: 480px;      /* ensure readability; wider than viewport triggers scroll */
+    min-height: 160px;
 }
 
 .trend-empty {
@@ -26,6 +25,79 @@
     padding: 2em;
     opacity: 0.5;
     font-size: 0.9em;
+}
+
+/* Custom tooltip overlay */
+.trend-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid rgba(0, 164, 220, 0.5);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: #e0e0e0;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: nowrap;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.trend-tooltip.visible {
+    opacity: 1;
+}
+
+.trend-tooltip .tt-date {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 10px;
+}
+
+.trend-tooltip .tt-size {
+    color: #00a4dc;
+    font-weight: 600;
+}
+
+.trend-tooltip .tt-files {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 10px;
+}
+
+/* Crosshair line shown on hover/touch */
+.trend-crosshair {
+    position: absolute;
+    top: 0;
+    width: 1px;
+    height: 100%;
+    background: rgba(0, 164, 220, 0.35);
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+
+.trend-crosshair.visible {
+    opacity: 1;
+}
+
+/* Active dot highlight */
+.trend-active-dot {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #00a4dc;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 6;
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+
+.trend-active-dot.visible {
+    opacity: 1;
 }
 
 /* Touch / small-screen optimisations */
@@ -38,7 +110,8 @@
         border-radius: 4px;
     }
 
-    .trend-chart svg {
-        min-width: 600px;  /* readable chart, scrolls horizontally */
+    .trend-tooltip {
+        font-size: 10px;
+        padding: 4px 8px;
     }
 }

@@ -35,21 +35,28 @@ public class TrashServiceSecurityTests : IDisposable
         Directory.CreateDirectory(sensitiveDir);
         File.WriteAllBytes(Path.Join(sensitiveDir, "secret.txt"), new byte[100]);
 
-        // Attempt path traversal in source path - this path doesn't exist as a directory
+        // Attempt path traversal in source path — resolves to _testRoot/sensitive
         var traversalSource = Path.Join(_testRoot, "trash", "..", "sensitive");
         var trashPath = Path.Join(_testRoot, "trash_output");
 
         // MoveToTrash should either move the resolved path or return 0 if it doesn't exist
         var result = _trashService.MoveToTrash(traversalSource, trashPath, _loggerMock);
 
-        // The sensitive directory should still exist at its original location
-        // (MoveToTrash resolves the path and moves it, but the trash output is safe)
         if (result > 0)
         {
             // If it did move, verify it went INTO the trash, not somewhere else
             Assert.True(Directory.Exists(trashPath), "Trash output directory should exist");
             var trashContents = Directory.GetDirectories(trashPath);
             Assert.Single(trashContents);
+
+            // Verify the moved content is inside the trash directory (not outside)
+            Assert.True(trashContents[0].StartsWith(Path.GetFullPath(trashPath), StringComparison.Ordinal),
+                "Moved directory must reside inside the trash folder");
+        }
+        else
+        {
+            // If nothing was moved, the sensitive directory must still be intact
+            Assert.True(Directory.Exists(sensitiveDir), "Sensitive directory should still exist when nothing was moved");
         }
     }
 
@@ -90,9 +97,16 @@ public class TrashServiceSecurityTests : IDisposable
         // the behavior depends on OS path resolution
         var result = _trashService.MoveFileToTrash(traversalPath, trashPath, _loggerMock);
 
-        // Either the file was moved to trash (path resolved) or returns 0 (file not found)
-        // In both cases, no crash and no data corruption
-        Assert.True(result >= 0, "Result should be non-negative");
+        if (result > 0)
+        {
+            // File was moved — verify it landed inside the trash folder
+            Assert.True(Directory.Exists(trashPath), "Trash output directory should exist");
+        }
+        else
+        {
+            // File was not moved (path not found) — original must still exist
+            Assert.True(File.Exists(sensitiveFile), "Original file should still exist when nothing was moved");
+        }
     }
 
     [Fact]
@@ -123,10 +137,10 @@ public class TrashServiceSecurityTests : IDisposable
         // Create a legitimate-looking but maliciously named directory in trash
         // The PurgeExpiredTrash method parses timestamps from directory names,
         // so a name without a valid timestamp will be skipped
-        var maliciousDir = Path.Join(trashPath, "..\\..\\etc");
+        // Use platform-agnostic separators so this actually tests path traversal on Linux too
+        var maliciousDir = Path.Join(trashPath, "..", "..", "etc");
 
         // This should NOT be created outside trash due to OS path resolution
-        // On Windows, Path.Join handles this safely
         try
         {
             Directory.CreateDirectory(maliciousDir);

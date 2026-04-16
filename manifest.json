@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/JellyPlugins/jellyfin-helper/main/media/logo.png",
     "versions": [
       {
+        "version": "1.1.0",
+        "changelog": "v1.1.0: Performance optimizations for GrowthTimelineService and BackupService, refactored monolith services, improved cross-platform compatibility, new ARCHITECTURE.md, Trends UI enhancements.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.1.0/JellyfinHelper_1.1.0.zip",
+        "checksum": "",
+        "timestamp": "2026-04-16T02:35:00Z"
+      },
+      {
         "version": "1.0.9",
         "changelog": "v1.0.9: Removed legacy statistics history (replaced by growth timeline), removed Export/CSV endpoints, new StatisticsCacheService, legacy history file cleanup, growth timeline interpolation & deduplication, reduced backup size limit, 957 tests.",
         "targetAbi": "10.11.0.0",

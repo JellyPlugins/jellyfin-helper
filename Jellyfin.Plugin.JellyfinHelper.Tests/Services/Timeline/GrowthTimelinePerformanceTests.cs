@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using Xunit;
 using Xunit.Abstractions;
@@ -41,7 +41,7 @@ public class GrowthTimelinePerformanceTests(ITestOutputHelper output)
         sw.Stop();
 
         // Assert
-        output.WriteLine($"BuildCumulativeTimeline: {entries.Count} entries â†’ {result.Count} points in {sw.ElapsedMilliseconds}ms (granularity: {granularity})");
+        output.WriteLine($"BuildCumulativeTimeline: {entries.Count} entries → {result.Count} points in {sw.ElapsedMilliseconds}ms (granularity: {granularity})");
         Assert.True(sw.ElapsedMilliseconds < 2000, $"Took {sw.ElapsedMilliseconds}ms, expected < 2000ms");
         Assert.NotEmpty(result);
     }
@@ -74,7 +74,7 @@ public class GrowthTimelinePerformanceTests(ITestOutputHelper output)
         sw.Stop();
 
         // Assert
-        output.WriteLine($"BuildCumulativeTimeline (daily): {entries.Count} entries â†’ {result.Count} points in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine($"BuildCumulativeTimeline (daily): {entries.Count} entries → {result.Count} points in {sw.ElapsedMilliseconds}ms");
         Assert.True(sw.ElapsedMilliseconds < 3000, $"Took {sw.ElapsedMilliseconds}ms, expected < 3000ms");
         Assert.NotEmpty(result);
     }
@@ -108,7 +108,7 @@ public class GrowthTimelinePerformanceTests(ITestOutputHelper output)
         sw.Stop();
 
         // Assert
-        output.WriteLine($"MergeSnapshotIntoTimeline: {existingPoints.Count} existing â†’ {result.Count} points in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine($"MergeSnapshotIntoTimeline: {existingPoints.Count} existing → {result.Count} points in {sw.ElapsedMilliseconds}ms");
         Assert.True(sw.ElapsedMilliseconds < 500, $"Took {sw.ElapsedMilliseconds}ms, expected < 500ms");
         Assert.NotEmpty(result);
     }
@@ -155,7 +155,7 @@ public class GrowthTimelinePerformanceTests(ITestOutputHelper output)
         sw.Stop();
 
         // Assert
-        output.WriteLine($"BuildIncrementalEntries: {currentDirs.Count} dirs, {baseline.Directories.Count} baseline â†’ {result.Count} entries in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine($"BuildIncrementalEntries: {currentDirs.Count} dirs, {baseline.Directories.Count} baseline → {result.Count} entries in {sw.ElapsedMilliseconds}ms");
         Assert.True(sw.ElapsedMilliseconds < 1000, $"Took {sw.ElapsedMilliseconds}ms, expected < 1000ms");
         Assert.NotEmpty(result);
     }
@@ -184,7 +184,7 @@ public class GrowthTimelinePerformanceTests(ITestOutputHelper output)
         sw.Stop();
 
         // Assert
-        output.WriteLine($"ConsolidateToGranularity: {points.Count} daily â†’ {result.Count} monthly in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine($"ConsolidateToGranularity: {points.Count} daily → {result.Count} monthly in {sw.ElapsedMilliseconds}ms");
         Assert.True(sw.ElapsedMilliseconds < 500, $"Took {sw.ElapsedMilliseconds}ms, expected < 500ms");
         Assert.True(result.Count < points.Count, "Consolidation should reduce point count");
     }
@@ -215,7 +215,7 @@ public class GrowthTimelinePerformanceTests(ITestOutputHelper output)
         sw.Stop();
 
         // Assert
-        output.WriteLine($"DeduplicateConsecutivePoints: {points.Count} â†’ {result.Count} points in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine($"DeduplicateConsecutivePoints: {points.Count} → {result.Count} points in {sw.ElapsedMilliseconds}ms");
         Assert.True(sw.ElapsedMilliseconds < 200, $"Took {sw.ElapsedMilliseconds}ms, expected < 200ms");
         Assert.True(result.Count < points.Count, "Deduplication should reduce point count");
     }
@@ -244,7 +244,7 @@ public class GrowthTimelinePerformanceTests(ITestOutputHelper output)
         sw.Stop();
 
         // Assert
-        output.WriteLine($"TrimLeadingZeros: {points.Count} â†’ {result.Count} points in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine($"TrimLeadingZeros: {points.Count} → {result.Count} points in {sw.ElapsedMilliseconds}ms");
         Assert.True(sw.ElapsedMilliseconds < 100, $"Took {sw.ElapsedMilliseconds}ms, expected < 100ms");
         Assert.True(result.Count < points.Count, "Trimming should reduce point count");
     }
@@ -288,7 +288,7 @@ public class GrowthTimelinePerformanceTests(ITestOutputHelper output)
         sw.Stop();
 
         // Assert
-        output.WriteLine($"UpdateBaseline: 8,000 baseline + 10,000 current (6,000 overlap, 4,000 new, 2,000 removed) â†’ {baseline.Directories.Count} dirs in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine($"UpdateBaseline: 8,000 baseline + 10,000 current (6,000 overlap, 4,000 new, 2,000 removed) → {baseline.Directories.Count} dirs in {sw.ElapsedMilliseconds}ms");
         Assert.True(sw.ElapsedMilliseconds < 1000, $"Took {sw.ElapsedMilliseconds}ms, expected < 1000ms");
         Assert.Equal(10_000, baseline.Directories.Count);
 
