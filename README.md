@@ -35,7 +35,7 @@ Explore the full 7-tab dashboard with realistic sample data — no Jellyfin serv
 | **🗑️ Trash / Recycle Bin** | Cleanup tasks move files to a timestamped trash folder instead of permanently deleting them. Configurable retention period auto-purges expired items                                        |
 | **🌐 7 Languages** | Full UI translations: English, German, French, Spanish, Portuguese, Chinese, Turkish                                                                                                        |
 | **🔐 Security** | 5-min statistics cache, 30s rate limiting, path traversal protection, XSS escaping, backup payload validation with size limits and injection detection                                      |
-| **🛡️ Unsaved Settings Alert** | Warns before navigating away when the settings form has unsaved changes, preventing accidental configuration loss                                                                           |
+| **🛡️ Unsaved Settings Alert** | Warns before navigating away when the settings form has unsaved changes (dirty-tracking via snapshot comparison), with Discard / Save & Continue / Cancel options                           |
 
 All cleanup tasks default to **Dry Run** mode — nothing is deleted until you explicitly activate them.
 

@@ -265,7 +265,7 @@ public class BackupService : IBackupService
         config.EmptyMediaFolderTaskMode = ParseTaskMode(backup.EmptyMediaFolderTaskMode);
         config.OrphanedSubtitleTaskMode = ParseTaskMode(backup.OrphanedSubtitleTaskMode);
         config.LinkRepairTaskMode = ParseTaskMode(backup.LinkRepairTaskMode);
-        config.SeerrCleanupTaskMode = ParseTaskMode(backup.SeerrCleanupTaskMode);
+        config.SeerrCleanupTaskMode = ParseTaskMode(backup.SeerrCleanupTaskMode, TaskMode.Deactivate);
 
         // Seerr settings
         config.SeerrUrl = BackupSanitizer.TruncateString(backup.SeerrUrl ?? string.Empty, BackupValidator.MaxUrlLength);
@@ -309,11 +309,11 @@ public class BackupService : IBackupService
         _pluginLog.LogInfo("Backup", "Configuration restored from backup.", _logger);
     }
 
-    private static TaskMode ParseTaskMode(string? value)
+    private static TaskMode ParseTaskMode(string? value, TaskMode fallback = TaskMode.DryRun)
     {
         if (string.IsNullOrEmpty(value))
         {
-            return TaskMode.DryRun;
+            return fallback;
         }
 
         if (Enum.TryParse<TaskMode>(value, true, out var mode))
@@ -321,7 +321,7 @@ public class BackupService : IBackupService
             return mode;
         }
 
-        return TaskMode.DryRun;
+        return fallback;
     }
 
     private T? LoadJsonFile<T>(string filePath)

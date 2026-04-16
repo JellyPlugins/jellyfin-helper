@@ -40,7 +40,7 @@
         if (title) title.textContent = T('title', 'Jellyfin Helper \u2014 Media Statistics');
 
         var btnRefresh = document.getElementById('btnRefresh');
-        if (btnRefresh) btnRefresh.innerHTML = '&#x21bb; ' + T('scanLibraries', 'Scan Libraries');
+        if (btnRefresh) btnRefresh.title = T('scanLibraries', 'Scan Libraries');
 
         var loadingText = document.querySelector('#loadingIndicator p');
         if (loadingText) loadingText.textContent = T('scanDescription', 'Scanning libraries\u2026 This may take a while for large collections.');
@@ -241,4 +241,33 @@
         }
         return result;
     }
+    /**
+     * Reusable auto-save feedback indicator.
+     * Shows a brief ✔ or ✘ next to the given element, then fades out.
+     * @param {HTMLElement} element - The form element (select, input, etc.) to attach the indicator to.
+     * @param {boolean} [success=true] - true = green ✔, false = red ✘
+     */
+    function showAutoSaveIndicator(element, success) {
+        if (!element || !element.parentNode) return;
+        var cls = 'auto-save-check';
+        var existing = element.parentNode.querySelector('.' + cls);
+        if (existing) {
+            clearTimeout(existing._fadeTimer);
+            clearTimeout(existing._removeTimer);
+            existing.remove();
+        }
+        var span = document.createElement('span');
+        span.className = cls;
+        span.style.cssText = 'margin-left:0.4em;font-size:0.95em;transition:opacity 0.4s;opacity:0;';
+        span.style.color = success !== false ? '#2ecc71' : '#e74c3c';
+        span.textContent = success !== false ? '✔' : '✘';
+        element.parentNode.insertBefore(span, element.nextSibling);
+        // Force reflow then fade in
+        void span.offsetWidth;
+        span.style.opacity = '1';
+        var fadeDelay = success !== false ? 2000 : 3000;
+        span._fadeTimer = setTimeout(function () { span.style.opacity = '0'; }, fadeDelay);
+        span._removeTimer = setTimeout(function () { if (span.parentNode) span.remove(); }, fadeDelay + 500);
+    }
+
     // NOTE: Do NOT close the IIFE here — it is closed in main.js (the last concatenated module).

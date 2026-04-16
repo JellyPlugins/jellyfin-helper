@@ -242,8 +242,7 @@ public class LinkRepairService : ILinkRepairService
             return fileResult;
         }
 
-        fileResult.OriginalTargetPath = normalizedTargetPath;
-
+        // Keep OriginalTargetPath as-is (set above); use normalizedTargetPath for validation
         // Check if the target path is still valid
         if (_fileSystem.File.Exists(normalizedTargetPath))
         {
@@ -255,7 +254,7 @@ public class LinkRepairService : ILinkRepairService
         // Target path is broken - try to repair
         _pluginLog.LogInfo("LinkRepair", $"Broken link file: {linkFilePath} -> {targetPath}", _logger);
 
-        return TryRepairLinkFile(fileResult, handler, dryRun);
+        return TryRepairLinkFile(fileResult, handler, dryRun, normalizedTargetPath);
     }
 
     /// <summary>
@@ -265,10 +264,11 @@ public class LinkRepairService : ILinkRepairService
     /// <param name="fileResult">The file result with the broken path info.</param>
     /// <param name="handler">The handler to use for writing the repaired target.</param>
     /// <param name="dryRun">If true, no files will be modified.</param>
+    /// <param name="normalizedTargetPath">The normalized (absolute) target path for filesystem operations.</param>
     /// <returns>The updated file result.</returns>
-    private LinkFileResult TryRepairLinkFile(LinkFileResult fileResult, ILinkHandler handler, bool dryRun)
+    private LinkFileResult TryRepairLinkFile(LinkFileResult fileResult, ILinkHandler handler, bool dryRun, string normalizedTargetPath)
     {
-        var parentDir = _fileSystem.Path.GetDirectoryName(fileResult.OriginalTargetPath);
+        var parentDir = _fileSystem.Path.GetDirectoryName(normalizedTargetPath);
 
         if (string.IsNullOrEmpty(parentDir) || !_fileSystem.Directory.Exists(parentDir))
         {

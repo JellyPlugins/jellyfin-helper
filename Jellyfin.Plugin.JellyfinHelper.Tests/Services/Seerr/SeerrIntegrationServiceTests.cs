@@ -12,23 +12,38 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr;
 /// <summary>
 ///     Comprehensive tests for <see cref="SeerrIntegrationService" />.
 /// </summary>
-public class SeerrIntegrationServiceTests
+public class SeerrIntegrationServiceTests : IDisposable
 {
     private const string BaseUrl = "http://localhost:5055";
     private const string ApiKey = "test-api-key-123";
 
-    private static SeerrIntegrationService CreateService(
+    private readonly List<HttpResponseMessage> _trackedResponses = [];
+    private readonly List<HttpClient> _trackedClients = [];
+
+    private SeerrIntegrationService CreateService(
         HttpMessageHandler handler,
         out Mock<ILogger<SeerrIntegrationService>> loggerMock)
     {
         loggerMock = new Mock<ILogger<SeerrIntegrationService>>();
         var httpClient = new HttpClient(handler, disposeHandler: false);
+        _trackedClients.Add(httpClient);
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("SeerrIntegration")).Returns(httpClient);
         return new SeerrIntegrationService(factoryMock.Object, loggerMock.Object);
     }
 
-    private static Mock<HttpMessageHandler> CreateMockHandler(
+    private HttpResponseMessage CreateResponse(HttpStatusCode statusCode, string content)
+    {
+        var response = new HttpResponseMessage
+        {
+            StatusCode = statusCode,
+            Content = new StringContent(content, Encoding.UTF8, "application/json")
+        };
+        _trackedResponses.Add(response);
+        return response;
+    }
+
+    private Mock<HttpMessageHandler> CreateMockHandler(
         HttpStatusCode statusCode,
         string content)
     {
@@ -38,15 +53,11 @@ public class SeerrIntegrationServiceTests
                 "SendAsync",
                 ItExpr.IsAny<HttpRequestMessage>(),
                 ItExpr.IsAny<CancellationToken>())
-            .ReturnsAsync(new HttpResponseMessage
-            {
-                StatusCode = statusCode,
-                Content = new StringContent(content, Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync(CreateResponse(statusCode, content));
         return mock;
     }
 
-    private static Mock<HttpMessageHandler> CreateSequenceHandler(
+    private Mock<HttpMessageHandler> CreateSequenceHandler(
         params (HttpStatusCode Code, string Content)[] responses)
     {
         var mock = new Mock<HttpMessageHandler>();
@@ -58,11 +69,7 @@ public class SeerrIntegrationServiceTests
 
         foreach (var (code, content) in responses)
         {
-            seq.ReturnsAsync(new HttpResponseMessage
-            {
-                StatusCode = code,
-                Content = new StringContent(content, Encoding.UTF8, "application/json")
-            });
+            seq.ReturnsAsync(CreateResponse(code, content));
         }
 
         return mock;
@@ -87,6 +94,20 @@ public class SeerrIntegrationServiceTests
             pageInfo = new { page, pages, results = totalResults, pageSize = 50 },
             results
         });
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        foreach (var response in _trackedResponses)
+        {
+            response.Dispose();
+        }
+
+        foreach (var client in _trackedClients)
+        {
+            client.Dispose();
+        }
     }
 
     // ===== TestConnectionAsync =====
@@ -167,6 +188,9 @@ public class SeerrIntegrationServiceTests
     public async Task TestConnection_SetsApiKeyHeader()
     {
         HttpRequestMessage? capturedRequest = null;
+        var response = CreateResponse(
+            HttpStatusCode.OK,
+            "{\"applicationTitle\":\"Test\"}");
         var mock = new Mock<HttpMessageHandler>();
         mock.Protected()
             .Setup<Task<HttpResponseMessage>>(
@@ -174,11 +198,7 @@ public class SeerrIntegrationServiceTests
                 ItExpr.IsAny<HttpRequestMessage>(),
                 ItExpr.IsAny<CancellationToken>())
             .Callback<HttpRequestMessage, CancellationToken>((req, _) => capturedRequest = req)
-            .ReturnsAsync(new HttpResponseMessage
-            {
-                StatusCode = HttpStatusCode.OK,
-                Content = new StringContent("{\"applicationTitle\":\"Test\"}", Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync(response);
 
         var service = CreateService(mock.Object, out _);
         await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
@@ -192,6 +212,9 @@ public class SeerrIntegrationServiceTests
     public async Task TestConnection_CallsCorrectEndpoint()
     {
         HttpRequestMessage? capturedRequest = null;
+        var response = CreateResponse(
+            HttpStatusCode.OK,
+            "{}");
         var mock = new Mock<HttpMessageHandler>();
         mock.Protected()
             .Setup<Task<HttpResponseMessage>>(
@@ -199,11 +222,7 @@ public class SeerrIntegrationServiceTests
                 ItExpr.IsAny<HttpRequestMessage>(),
                 ItExpr.IsAny<CancellationToken>())
             .Callback<HttpRequestMessage, CancellationToken>((req, _) => capturedRequest = req)
-            .ReturnsAsync(new HttpResponseMessage
-            {
-                StatusCode = HttpStatusCode.OK,
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            });
+            .ReturnsAsync(response);
 
         var service = CreateService(mock.Object, out _);
         await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);

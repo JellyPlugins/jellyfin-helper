@@ -217,7 +217,7 @@ public class HelperCleanupTaskTests : IDisposable
         VerifyLogContains("Starting Empty Media Folder Cleanup (Dry Run)", LogLevel.Information);
         VerifyLogContains("Starting Orphaned Subtitle Cleanup (Dry Run)", LogLevel.Information);
         VerifyLogContains("Starting Link Repair (Dry Run)", LogLevel.Information);
-        VerifyLogContains("Starting Seerr cleanup (Dry Run)", LogLevel.Information);
+        VerifyLogContains("Starting Seerr Cleanup (Dry Run)", LogLevel.Information);
     }
 
     [Fact]
@@ -399,7 +399,7 @@ public class HelperCleanupTaskTests : IDisposable
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        VerifyLogContains("Starting Seerr cleanup (Dry Run)", LogLevel.Information);
+        VerifyLogContains("Starting Seerr Cleanup (Dry Run)", LogLevel.Information);
         VerifyLogContains("Max age: 180 days", LogLevel.Information);
     }
 
@@ -420,7 +420,7 @@ public class HelperCleanupTaskTests : IDisposable
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("Skipping Seerr Cleanup (deactivated in settings)", LogLevel.Information);
-        VerifyLogNeverContains("Starting Seerr cleanup", LogLevel.Information);
+        VerifyLogNeverContains("Starting Seerr Cleanup", LogLevel.Information);
     }
 
     [Fact]
@@ -440,8 +440,8 @@ public class HelperCleanupTaskTests : IDisposable
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        VerifyLogContains("Starting Seerr cleanup (Active)", LogLevel.Information);
-        VerifyLogContains("Finished", LogLevel.Information);
+        VerifyLogContains("Starting Seerr Cleanup (Active)", LogLevel.Information);
+        VerifyLogContains("Finished Seerr Cleanup", LogLevel.Information);
     }
 
     [Fact]

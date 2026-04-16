@@ -250,12 +250,12 @@ PluginPages/
 │   ├── ArrIntegration.css    # Arr comparison tables
 │   └── Logs.css              # Log viewer (table, toolbar, level colors)
 └── js/
-    ├── shared.js             # IIFE open, utilities (formatBytes, escHtml, T())
+    ├── shared.js             # IIFE open, utilities (formatBytes, escHtml, T(), showAutoSaveIndicator())
     ├── Overview.js           # Overview tab rendering
     ├── Codecs.js             # Codec tab (donut charts, file drill-down)
     ├── Health.js             # Health tab (tiles, clickable details, trash)
     ├── Trends.js             # Trends tab (history graph, growth timeline)
-    ├── Settings.js           # Settings tab (task modes, trash, language, Arr, backup/restore)
+    ├── Settings.js           # Settings tab (task modes, trash, language, Arr, Seerr, backup/restore, auto-save, collapsible sections)
     ├── ArrIntegration.js     # Arr tab (instance comparison, connection test)
     ├── Logs.js               # Logs tab (filtering, download, auto-refresh)
     └── main.js               # Tab routing, scan trigger, IIFE close
@@ -413,9 +413,21 @@ Sub-tasks executed in order (each respecting its configured task mode):
 - Connection test endpoint to validate settings before running
 
 **Unsaved Settings Alert:**
-- Tracks form changes on the settings page via JavaScript
-- Displays a warning dialog when the user navigates away with unsaved changes
+- Tracks form changes via JSON snapshot comparison (`takeSettingsSnapshot()` / `hasUnsavedSettings()`)
+- Displays a modal dialog with "Discard Changes", "Save & Continue", or "Cancel" options
+- Registers `beforeunload` browser guard for page navigation / reload
 - Prevents accidental loss of configuration changes
+
+**Auto-Save Dropdowns:**
+- Task mode selects (Trickplay, Empty Folders, Subtitles, Link Repair, Seerr) auto-save instantly on change
+- Language dropdown auto-saves and triggers UI rebuild with scroll position restore
+- Uses `doSaveSettings()` with `{ quiet: true, element: el }` for inline ✔/✘ indicator via `showAutoSaveIndicator()`
+- Log level dropdown in Logs tab uses the same shared indicator function
+
+**Collapsible Arr/Seerr Sections:**
+- Radarr, Sonarr, and Seerr configuration sections are collapsible with CSS chevron animation
+- Dynamic instance count badges: `(n)` for Arr instances, `✔` for configured Seerr
+- Sections auto-expand when empty (no configured instances), auto-collapse when populated
 
 ### Statistics & Analysis
 

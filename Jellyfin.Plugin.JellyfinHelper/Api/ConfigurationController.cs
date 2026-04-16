@@ -205,7 +205,7 @@ public class ConfigurationController : ControllerBase
 
             if (success)
             {
-                _pluginLog.LogInfo("API", $"Seerr connection test OK: {message}", _logger);
+                _pluginLog.LogInfo("API", $"Connection test OK for Seerr: {message}", _logger);
             }
             else
             {
@@ -220,7 +220,7 @@ public class ConfigurationController : ControllerBase
         }
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
         {
-            var warning = $"Seerr instance ({request.SeerrUrl}) connection test failed: {ex.Message}";
+            var warning = $"Connection test failed for Seerr ({request.SeerrUrl}): {ex.Message}";
             warnings.Add(warning);
             _pluginLog.LogWarning("API", warning, ex, _logger);
         }

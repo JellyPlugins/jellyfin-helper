@@ -61,6 +61,12 @@ public class SeerrController : ControllerBase
             return BadRequest(new { success = false, message = "URL and API Key are required." });
         }
 
+        if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var parsedUrl) ||
+            (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
+        {
+            return BadRequest(new { success = false, message = "A valid HTTP(S) URL is required." });
+        }
+
         try
         {
             var timeout = TimeSpan.FromSeconds(10);
@@ -71,23 +77,23 @@ public class SeerrController : ControllerBase
 
             if (success)
             {
-                _pluginLog.LogInfo("API", $"Seerr connection test OK: {message}", _logger);
+                _pluginLog.LogInfo("API", $"Connection test OK for Seerr: {message}", _logger);
             }
             else
             {
-                _pluginLog.LogWarning("API", $"Seerr connection test failed: {message}", logger: _logger);
+                _pluginLog.LogWarning("API", $"Connection test failed for Seerr: {message}", logger: _logger);
             }
 
             return Ok(new { success, message });
         }
         catch (HttpRequestException ex)
         {
-            _pluginLog.LogWarning("API", $"Seerr connection test failed: {ex.Message}", ex, _logger);
+            _pluginLog.LogWarning("API", $"Connection test failed for Seerr: {ex.Message}", ex, _logger);
             return Ok(new { success = false, message = "Connection failed. Please verify URL and API Key and try again." });
         }
         catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
         {
-            _pluginLog.LogWarning("API", "Seerr connection test timed out after 10 seconds.", logger: _logger);
+            _pluginLog.LogWarning("API", "Connection test timed out for Seerr after 10 seconds.", logger: _logger);
             return Ok(new { success = false, message = "Connection timed out after 10 seconds." });
         }
     }

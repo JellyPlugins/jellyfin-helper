@@ -105,34 +105,10 @@
                 if (typeof _currentLogLevel !== 'undefined') {
                     _currentLogLevel = newLevel;
                 }
-                // Show brief ✔ feedback next to dropdown
-                if (levelFilter) {
-                    var indicator = levelFilter.parentNode.querySelector('.log-level-saved');
-                    if (!indicator) {
-                        indicator = document.createElement('span');
-                        indicator.className = 'log-level-saved';
-                        indicator.style.cssText = 'color:#2ecc71;margin-left:0.4em;font-size:0.95em;transition:opacity 0.3s;';
-                        levelFilter.parentNode.insertBefore(indicator, levelFilter.nextSibling);
-                    }
-                    indicator.textContent = '✔';
-                    indicator.style.opacity = '1';
-                    setTimeout(function() { indicator.style.opacity = '0'; }, 2000);
-                }
+                showAutoSaveIndicator(levelFilter, true);
             }, function() {
                 console.warn('Failed to save log level');
-                // Show brief ✘ feedback
-                if (levelFilter) {
-                    var indicator = levelFilter.parentNode.querySelector('.log-level-saved');
-                    if (!indicator) {
-                        indicator = document.createElement('span');
-                        indicator.className = 'log-level-saved';
-                        indicator.style.cssText = 'color:#e74c3c;margin-left:0.4em;font-size:0.95em;transition:opacity 0.3s;';
-                        levelFilter.parentNode.insertBefore(indicator, levelFilter.nextSibling);
-                    }
-                    indicator.textContent = '✘';
-                    indicator.style.opacity = '1';
-                    setTimeout(function() { indicator.style.opacity = '0'; }, 3000);
-                }
+                showAutoSaveIndicator(levelFilter, false);
             });
         } catch (e) {
             console.warn('Failed to save log level', e);

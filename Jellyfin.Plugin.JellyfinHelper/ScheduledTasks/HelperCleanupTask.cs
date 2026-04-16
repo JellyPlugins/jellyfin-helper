@@ -337,7 +337,7 @@ public class HelperCleanupTask : IScheduledTask
 
         _pluginLog.LogInfo(
             "SeerrCleanup",
-            $"Starting Seerr cleanup ({modeLabel}). Max age: {config.SeerrCleanupAgeDays} days.",
+            $"Max age: {config.SeerrCleanupAgeDays} days.",
             _logger);
 
         var result = await _seerrService.CleanupExpiredRequestsAsync(
@@ -347,10 +347,9 @@ public class HelperCleanupTask : IScheduledTask
             dryRun,
             cancellationToken).ConfigureAwait(false);
 
-        // Log summary with Mode/Hits/Founds/Actions pattern
         _pluginLog.LogInfo(
             "SeerrCleanup",
-            $"Finished. Mode: {modeLabel} | Checked: {result.TotalChecked} | Expired: {result.ExpiredFound} | Deleted: {result.Deleted} | Failed: {result.Failed}",
+            $"Finished Seerr Cleanup. Mode: {modeLabel}, Checked: {result.TotalChecked}, Expired: {result.ExpiredFound}, Deleted: {result.Deleted}, Failed: {result.Failed}",
             _logger);
 
         progress.Report(100);

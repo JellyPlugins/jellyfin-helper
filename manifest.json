@@ -10,7 +10,7 @@
     "versions": [
       {
         "version": "1.2.0.0",
-        "changelog": "v1.2.0.0: Seerr Cleanup Task (scheduled cleanup of unavailable Overseerr/Jellyseerr media requests), Unsaved Settings Alert (warns before navigating away with unsaved changes), Collapsible Arr sections with dynamic instance count, Link Repair enhanced with symlink support, 4-part versioning, meta.json fixes.",
+        "changelog": "v1.2.0.0: Seerr Cleanup Task (scheduled cleanup of unavailable Overseerr/Jellyseerr media requests), Unsaved Settings Alert (dirty-tracking with discard/save/cancel dialog), Collapsible Arr/Seerr sections with dynamic instance count, Auto-Save Dropdowns (task modes + language save instantly with ✔/✘ indicator), Link Repair enhanced with symlink support, Auto-Init Scan on first visit, Scroll Position Restore after language change and backup import, 4-part versioning, meta.json fixes.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.2.0.0/JellyfinHelper_1.2.0.0.zip",
         "checksum": "",

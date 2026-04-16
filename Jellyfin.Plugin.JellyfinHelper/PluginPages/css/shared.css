@@ -33,34 +33,55 @@
 }
 
 .refresh-btn {
-    padding: 0.5em 1.2em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
     border: none;
-    border-radius: 4px;
-    color: #fff;
+    border-radius: 50%;
+    color: #00a4dc;
     cursor: pointer;
-    font-size: 0.95em;
-    font-family: inherit;
-    transition: background 0.2s;
-    background: #00a4dc;
+    background: transparent;
+    transition: background 0.2s, color 0.2s;
+}
+
+.refresh-btn svg {
+    display: block;
+    transition: transform 0.3s ease;
 }
 
 .refresh-btn:hover {
-    background: #0088b8;
+    background: rgba(0,164,220,0.15);
+    color: #0088b8;
+}
+
+.refresh-btn:hover svg {
+    transform: rotate(45deg);
 }
 
 .refresh-btn:disabled {
-    background: #555;
+    color: #555;
     cursor: not-allowed;
+    background: transparent;
 }
 
-.refresh-btn.success,
-.refresh-btn.success:hover {
-    background: #2ecc71;
+.refresh-btn.spinning svg {
+    animation: refresh-spin 0.8s linear infinite;
 }
 
-.refresh-btn.error,
-.refresh-btn.error:hover {
-    background: #e74c3c;
+@keyframes refresh-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.refresh-btn.success {
+    color: #2ecc71;
+}
+
+.refresh-btn.error {
+    color: #e74c3c;
 }
 
 .section-title {
@@ -181,8 +202,8 @@
 }
 
 .success-msg { color: #2ecc71; padding: 0.5em; text-align: center; font-weight: 600; }
-.action-btn { display: inline-flex; align-items: center; padding: 0.5em 1.2em; border: none; border-radius: 4px; color: #fff; cursor: pointer; font-size: 0.95em; transition: background 0.2s; background: #e67e22; }
-.action-btn:hover { background: #d35400; }
+.action-btn { display: inline-flex; align-items: center; padding: 0.5em 1.2em; border: none; border-radius: 4px; color: #fff; cursor: pointer; font-size: 0.95em; transition: background 0.2s; background: #00a4dc; }
+.action-btn:hover { background: #0088b8; }
 .action-btn:disabled { background: #555; cursor: not-allowed; }
 .action-btn.success,
 .action-btn.success:hover { background: #2ecc71; }
@@ -192,8 +213,8 @@
 
 
 /* Arr button variants */
-.btn-arr-test { background: #3498db; }
-.btn-arr-test:hover { background: #2980b9; }
+.btn-arr-test { background: rgba(255,255,255,0.15); }
+.btn-arr-test:hover { background: rgba(255,255,255,0.25); }
 .btn-arr-remove { background: #e74c3c; }
 .btn-arr-remove:hover { background: #c0392b; }
 

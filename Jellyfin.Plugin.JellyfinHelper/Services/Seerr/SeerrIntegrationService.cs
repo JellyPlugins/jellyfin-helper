@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -46,7 +47,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         try
         {
             using var client = CreateClient(baseUrl, apiKey);
-            var response = await client.GetAsync(
+            using var response = await client.GetAsync(
                 new Uri("api/v1/settings/main", UriKind.Relative),
                 cancellationToken).ConfigureAwait(false);
 
@@ -64,6 +65,10 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
             return (true, $"Connected to {title}");
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException)
         {
             return (false, $"Connection failed: {ex.Message}");
@@ -78,12 +83,18 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         bool dryRun,
         CancellationToken cancellationToken)
     {
+        if (maxAgeDays < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxAgeDays), "maxAgeDays must be greater than or equal to 0.");
+        }
+
         var result = new SeerrCleanupResult { DryRun = dryRun };
         var cutoffDate = DateTimeOffset.UtcNow.AddDays(-maxAgeDays);
 
         using var client = CreateClient(baseUrl, apiKey);
 
-        // Paginate through all requests
+        // Phase 1: Paginate through all requests and collect expired ones
+        var expiredRequests = new List<SeerrRequest>();
         var skip = 0;
         bool hasMore;
 
@@ -92,7 +103,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             cancellationToken.ThrowIfCancellationRequested();
 
             var requestUrl = $"api/v1/request?take={PageSize}&skip={skip}&sort=added&filter=all";
-            var response = await client.GetAsync(
+            using var response = await client.GetAsync(
                 new Uri(requestUrl, UriKind.Relative),
                 cancellationToken).ConfigureAwait(false);
 
@@ -108,7 +119,6 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
             foreach (var request in page.Results)
             {
-                cancellationToken.ThrowIfCancellationRequested();
                 result.TotalChecked++;
 
                 // Compare dates in UTC to avoid timezone issues
@@ -117,65 +127,76 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                     continue;
                 }
 
-                // This request is expired
                 result.ExpiredFound++;
-
-                var mediaInfo = request.Media != null
-                    ? $"{request.Media.MediaType} (TMDB: {request.Media.TmdbId})"
-                    : $"request #{request.Id}";
-
-                if (dryRun)
-                {
-                    _logger.LogInformation(
-                        "[Dry Run] Would delete expired Seerr request #{Id} ({Media}), created {CreatedAt:O}, age {Age} days",
-                        request.Id,
-                        mediaInfo,
-                        request.CreatedAt,
-                        (DateTimeOffset.UtcNow - request.CreatedAt).Days);
-                }
-                else
-                {
-                    try
-                    {
-                        var deleteResponse = await client.DeleteAsync(
-                            new Uri($"api/v1/request/{request.Id}", UriKind.Relative),
-                            cancellationToken).ConfigureAwait(false);
-
-                        if (deleteResponse.IsSuccessStatusCode)
-                        {
-                            result.Deleted++;
-                            _logger.LogInformation(
-                                "Deleted expired Seerr request #{Id} ({Media}), created {CreatedAt:O}, age {Age} days",
-                                request.Id,
-                                mediaInfo,
-                                request.CreatedAt,
-                                (DateTimeOffset.UtcNow - request.CreatedAt).Days);
-                        }
-                        else
-                        {
-                            result.Failed++;
-                            _logger.LogWarning(
-                                "Failed to delete Seerr request #{Id}: HTTP {StatusCode}",
-                                request.Id,
-                                (int)deleteResponse.StatusCode);
-                        }
-                    }
-                    catch (Exception ex) when (ex is HttpRequestException or TimeoutException)
-                    {
-                        result.Failed++;
-                        _logger.LogWarning(
-                            ex,
-                            "Failed to delete Seerr request #{Id}: {Error}",
-                            request.Id,
-                            ex.Message);
-                    }
-                }
+                expiredRequests.Add(request);
             }
 
             skip += page.Results.Count;
             hasMore = skip < page.PageInfo.Results;
         }
         while (hasMore);
+
+        // Phase 2: Process expired requests (log in dry-run, delete otherwise)
+        foreach (var request in expiredRequests)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var mediaInfo = request.Media != null
+                ? $"{request.Media.MediaType} (TMDB: {request.Media.TmdbId})"
+                : $"request #{request.Id}";
+
+            if (dryRun)
+            {
+                _logger.LogInformation(
+                    "[Dry Run] Would delete expired Seerr request #{Id} ({Media}), created {CreatedAt:O}, age {Age} days",
+                    request.Id,
+                    mediaInfo,
+                    request.CreatedAt,
+                    (DateTimeOffset.UtcNow - request.CreatedAt).Days);
+            }
+            else
+            {
+                try
+                {
+                    using var deleteResponse = await client.DeleteAsync(
+                        new Uri($"api/v1/request/{request.Id}", UriKind.Relative),
+                        cancellationToken).ConfigureAwait(false);
+
+                    if (deleteResponse.IsSuccessStatusCode)
+                    {
+                        result.Deleted++;
+                        _logger.LogInformation(
+                            "Deleted expired Seerr request #{Id} ({Media}), created {CreatedAt:O}, age {Age} days",
+                            request.Id,
+                            mediaInfo,
+                            request.CreatedAt,
+                            (DateTimeOffset.UtcNow - request.CreatedAt).Days);
+                    }
+                    else
+                    {
+                        result.Failed++;
+                        _logger.LogWarning(
+                            "Failed to delete Seerr request #{Id}: HTTP {StatusCode}",
+                            request.Id,
+                            (int)deleteResponse.StatusCode);
+                    }
+                }
+                catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+                {
+                    result.Failed++;
+                    _logger.LogWarning(ex, "Failed to delete Seerr request #{Id}: timeout", request.Id);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TimeoutException)
+                {
+                    result.Failed++;
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to delete Seerr request #{Id}: {Error}",
+                        request.Id,
+                        ex.Message);
+                }
+            }
+        }
 
         return result;
     }

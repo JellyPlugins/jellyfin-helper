@@ -86,8 +86,9 @@
                 updateLastScanBadge(data.ScanTimestamp);
             }
         }, function () {
-            // 204 or error — no persisted data, that's fine
-            console.log('Jellyfin Helper: No persisted statistics available');
+            // 204 or error — no persisted data, auto-trigger initial scan
+            console.log('Jellyfin Helper: No persisted statistics available, triggering initial scan...');
+            loadStatistics();
         });
     }
 
@@ -108,17 +109,17 @@
 
         // === OVERVIEW TAB (placeholder until scan) ===
         html += '<div class="tab-content active" id="tab-overview">';
-        html += '<div id="overviewContent"><p style="text-align:center;padding:2em;opacity:0.5;">' + T('scanPlaceholder', 'Click <strong>Scan Libraries</strong> to analyze your media folders.') + '</p></div>';
+        html += '<div id="overviewContent"><p style="text-align:center;padding:2em;opacity:0.5;">' + T('scanPlaceholder', 'Initializing media scan\u2026') + '</p></div>';
         html += '</div>';
 
         // === CODECS TAB (placeholder until scan) ===
         html += '<div class="tab-content" id="tab-codecs">';
-        html += '<div id="codecsContent"><p style="text-align:center;padding:2em;opacity:0.5;">' + T('scanPlaceholder', 'Click <strong>Scan Libraries</strong> to analyze your media folders.') + '</p></div>';
+        html += '<div id="codecsContent"><p style="text-align:center;padding:2em;opacity:0.5;">' + T('scanPlaceholder', 'Initializing media scan\u2026') + '</p></div>';
         html += '</div>';
 
         // === HEALTH TAB (placeholder until scan) ===
         html += '<div class="tab-content" id="tab-health">';
-        html += '<div id="healthContent"><p style="text-align:center;padding:2em;opacity:0.5;">' + T('scanPlaceholder', 'Click <strong>Scan Libraries</strong> to analyze your media folders.') + '</p></div>';
+        html += '<div id="healthContent"><p style="text-align:center;padding:2em;opacity:0.5;">' + T('scanPlaceholder', 'Initializing media scan\u2026') + '</p></div>';
         html += '</div>';
 
         // === TRENDS TAB ===
@@ -165,7 +166,7 @@
         var placeholder = document.getElementById('statsPlaceholder');
 
         btn.disabled = true;
-        btn.textContent = '⏳ ' + T('scanning', 'Scanning…');
+        btn.classList.add('spinning');
         loading.style.display = 'block';
         if (placeholder) placeholder.style.display = 'none';
 
@@ -179,7 +180,7 @@
         }).then(function (data) {
             loading.style.display = 'none';
             btn.disabled = false;
-            btn.innerHTML = '&#x21bb; ' + T('scanLibraries', 'Scan Libraries');
+            btn.classList.remove('spinning');
 
             // Fill scan-dependent tab contents
             fillScanData(data);
@@ -194,7 +195,7 @@
                 overviewContainer.innerHTML = '<div class="error-msg">❌ ' + T('error', 'Failed to load statistics. Make sure you are an administrator.') + '</div>';
             }
             btn.disabled = false;
-            btn.innerHTML = '&#x21bb; ' + T('scanLibraries', 'Scan Libraries');
+            btn.classList.remove('spinning');
             console.error('Jellyfin Helper: Error loading statistics', err);
         });
     }

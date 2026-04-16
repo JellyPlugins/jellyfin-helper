@@ -10,8 +10,11 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Added
 - **Seerr Cleanup Task** — New scheduled task (`SeerrCleanupTask`) to automatically clean up unavailable media requests from Overseerr/Jellyseerr. New `Services/Seerr/` domain with `ISeerrService`, `SeerrService`, `ISeerrCleanupService`, `SeerrCleanupService`, and DTOs (`SeerrMedia`, `SeerrMediaResponse`). New `Api/SeerrCleanupController.cs` for API endpoints.
-- **Unsaved Settings Alert** — The settings page now warns users before navigating away with unsaved changes, preventing accidental loss of configuration.
-- **Collapsible Arr Sections** — Arr instance configuration sections (Radarr/Sonarr) are now collapsible with dynamic instance count display and localization support.
+- **Unsaved Settings Alert** — The settings page now warns users before navigating away with unsaved changes (dirty-tracking via JSON snapshot comparison). Offers "Discard", "Save & Continue", or "Cancel" options.
+- **Collapsible Arr Sections** — Radarr, Sonarr, and Seerr configuration sections are now collapsible with chevron animation, dynamic instance count display (`✔` / `(n)`), and full localization support.
+- **Auto-Save Dropdowns** — Task mode selects (Trickplay, Empty Folders, Subtitles, Link Repair, Seerr) and the Language dropdown now auto-save on change with inline `✔`/`✘` indicator, eliminating the need to click "Save Settings" for quick changes.
+- **Auto-Init Scan** — The Overview page now automatically triggers an initial media scan when no cached statistics are available, eliminating the need to manually click "Scan Libraries" on first visit. The scan button has been redesigned as a compact icon button with a spinning animation during scans.
+- **Scroll Position Restore** — Language change and backup import now preserve the scroll position after UI rebuild, preventing the page from jumping to the top.
 
 ### Fixed
 - **Plugin Logo** — Fixed `imagePath` in `meta.json` to use absolute `/config/plugins/` path matching Jellyfin's expected format.
@@ -23,6 +26,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Link Repair** — Renamed "STRM Repair" task to "Link Repair". The task now scans for both broken `.strm` files and broken symlinks, repairing them by locating renamed/moved target files. Refactored `Services/Strm/` to `Services/Link/` with Strategy pattern (`ILinkHandler` → `StrmLinkHandler`, `SymlinkHandler`).
 - **Configuration** — `StrmRepairTaskMode` renamed to `LinkRepairTaskMode`.
 - **Scheduled Task** — `RepairStrmFilesTask` renamed to `RepairLinksTask`.
+- **Save Workflow** — `doSaveSettings()` now supports a `quiet` mode with `{ quiet: true, element: el }` options for auto-save (no button animation, inline indicator instead). Language change no longer triggers full page reload.
+- **Log Level Auto-Save** — Log level dropdown in the Logs tab now uses the shared `showAutoSaveIndicator()` function from `shared.js` for consistent UX across all auto-save controls.
 - **Documentation** — Updated CONTRIBUTING.md, README.md, manifest.json, and build.yaml to reflect Link Repair naming, symlink support, Seerr integration, and UI improvements.
 
 ---

@@ -45,7 +45,7 @@ public class SymlinkHandler : ILinkHandler
         {
             _symlinkHelper.CreateSymlink(filePath, targetPath);
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
             if (string.IsNullOrWhiteSpace(previousTarget))
             {
@@ -56,7 +56,7 @@ public class SymlinkHandler : ILinkHandler
             {
                 _symlinkHelper.CreateSymlink(filePath, previousTarget);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+            catch (Exception rollbackEx) when (rollbackEx is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
             {
                 // best-effort rollback — ignore errors restoring the original symlink
             }
