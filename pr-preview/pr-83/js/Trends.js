@@ -217,25 +217,22 @@
         // Line
         svg += '<polyline points="' + points.join(' ') + '" fill="none" stroke="#00a4dc" stroke-width="2" />';
 
-        // Data points with tooltips — adapt circle size to density
-        // At many data points the circles overlap, so shrink or hide them
-        var dotRadius = dataPoints.length <= 60 ? 3 : (dataPoints.length <= 120 ? 1.5 : 0);
-        for (var k = 0; k < points.length; k++) {
-            var coords = points[k].split(',');
-            var label = formatGranularityLabel(dataPoints[k].date, granularity);
-            var sizeLabel = formatBytes(dataPoints[k].cumulativeSize);
-            var filesLabel = dataPoints[k].cumulativeFileCount + ' files';
-            var tooltip = '<title>' + label + ': ' + sizeLabel + ' (' + filesLabel + ')</title>';
-            if (dotRadius > 0) {
-                svg += '<circle cx="' + coords[0] + '" cy="' + coords[1] + '" r="' + dotRadius + '" fill="#00a4dc">' + tooltip + '</circle>';
-            } else {
-                // Invisible hover zone for tooltips when dots are hidden
-                svg += '<rect x="' + (parseFloat(coords[0]) - step / 2).toFixed(1) + '" y="' + padT + '" width="' + Math.max(step, 2).toFixed(1) + '" height="' + chartH + '" fill="transparent">' + tooltip + '</rect>';
+        // Invisible interaction overlay — full chart area rect for mouse/touch tracking
+        svg += '<rect class="trend-hit-area" x="' + padL + '" y="' + padT + '" width="' + chartW + '" height="' + chartH + '" fill="transparent" />';
+
+        // Small visible dots at each data point (always shown, small)
+        var dotRadius = dataPoints.length <= 60 ? 2.5 : (dataPoints.length <= 200 ? 1.5 : 0);
+        if (dotRadius > 0) {
+            for (var k = 0; k < points.length; k++) {
+                var coords = points[k].split(',');
+                svg += '<circle cx="' + coords[0] + '" cy="' + coords[1] + '" r="' + dotRadius + '" fill="#00a4dc" opacity="0.6" />';
             }
         }
 
-        // X-axis labels — show evenly spaced labels
+        // X-axis labels — dynamically adapt label count to prevent overlap
         var labelCount = Math.min(dataPoints.length, 10);
+        // On narrow charts, reduce label count further
+        if (dataPoints.length > 20) labelCount = Math.min(labelCount, 7);
         var labelStep = Math.max(1, Math.floor((dataPoints.length - 1) / (labelCount - 1)));
         for (var m = 0; m < dataPoints.length; m += labelStep) {
             var lx = padL + m * step;
@@ -254,16 +251,189 @@
 
         svg += '</svg>';
 
+        // Crosshair line, active dot, and tooltip (HTML overlays for interactivity)
+        var overlays = '<div class="trend-crosshair"></div>';
+        overlays += '<div class="trend-active-dot"></div>';
+        overlays += '<div class="trend-tooltip"><div class="tt-date"></div><div class="tt-size"></div><div class="tt-files"></div></div>';
+
         // Metadata line below chart
         var meta = '<div class="trend-meta" style="text-align:center;color:rgba(255,255,255,0.35);font-size:11px;margin-top:4px;">';
         meta += T('trendGranularity', 'Granularity') + ': ' + granularity;
-        meta += ' · ' + (timeline.totalFilesScanned || 0) + ' ' + T('trendFiles', 'media files');
+        meta += ' &middot; ' + (timeline.totalFilesScanned || 0) + ' ' + T('trendFiles', 'media files');
         if (timeline.earliestFileDate) {
-            meta += ' · ' + T('trendEarliest', 'Earliest') + ': ' + new Date(timeline.earliestFileDate).toLocaleDateString();
+            meta += ' &middot; ' + T('trendEarliest', 'Earliest') + ': ' + new Date(timeline.earliestFileDate).toLocaleDateString();
         }
         meta += '</div>';
 
-        return '<div class="trend-chart">' + svg + '</div>' + meta;
+        // Store chart metadata as data attributes for the interaction handler
+        var chartDataAttr = ' data-trend-padl="' + padL + '"'
+            + ' data-trend-padt="' + padT + '"'
+            + ' data-trend-chartw="' + chartW + '"'
+            + ' data-trend-charth="' + chartH + '"'
+            + ' data-trend-width="' + width + '"'
+            + ' data-trend-height="' + height + '"'
+            + ' data-trend-count="' + dataPoints.length + '"'
+            + ' data-trend-ymax="' + yMax + '"'
+            + ' data-trend-granularity="' + granularity + '"';
+
+        // Encode point data as HTML-safe data attribute for interaction lookup
+        var pointData = [];
+        for (var pd = 0; pd < dataPoints.length; pd++) {
+            pointData.push({
+                d: dataPoints[pd].date,
+                s: dataPoints[pd].cumulativeSize,
+                c: dataPoints[pd].cumulativeFileCount
+            });
+        }
+        // Store as data attribute (HTML-encode quotes so it survives the single-file build)
+        chartDataAttr += ' data-trend-points="' + JSON.stringify(pointData).replace(/"/g, '&quot;') + '"';
+
+        return '<div class="trend-chart"' + chartDataAttr + '>'
+            + svg + overlays
+            + '</div>' + meta;
+    }
+
+    /**
+     * Attaches interactive tooltip/crosshair behavior to the trend chart.
+     * Called after renderTrendChart HTML is inserted into the DOM.
+     */
+    function attachTrendInteraction(container) {
+        var chart = container.querySelector('.trend-chart');
+        if (!chart) return;
+
+        var svgEl = chart.querySelector('svg');
+        var tooltip = chart.querySelector('.trend-tooltip');
+        var crosshair = chart.querySelector('.trend-crosshair');
+        var activeDot = chart.querySelector('.trend-active-dot');
+        if (!svgEl || !tooltip || !crosshair || !activeDot) return;
+
+        var pointData;
+        try {
+            pointData = JSON.parse(chart.getAttribute('data-trend-points'));
+        } catch (e) {
+            return;
+        }
+        if (!pointData || pointData.length === 0) return;
+
+        var padL = parseFloat(chart.getAttribute('data-trend-padl'));
+        var padT = parseFloat(chart.getAttribute('data-trend-padt'));
+        var chartW = parseFloat(chart.getAttribute('data-trend-chartw'));
+        var chartH = parseFloat(chart.getAttribute('data-trend-charth'));
+        var vbWidth = parseFloat(chart.getAttribute('data-trend-width'));
+        var vbHeight = parseFloat(chart.getAttribute('data-trend-height'));
+        var yMax = parseFloat(chart.getAttribute('data-trend-ymax'));
+        var granularity = chart.getAttribute('data-trend-granularity');
+        var count = pointData.length;
+        var step = count > 1 ? chartW / (count - 1) : 0;
+
+        function getPointIndex(clientX) {
+            var rect = svgEl.getBoundingClientRect();
+            // Account for preserveAspectRatio="xMidYMid meet" letterboxing
+            var scale = Math.min(rect.width / vbWidth, rect.height / vbHeight);
+            var offsetX = (rect.width - vbWidth * scale) / 2;
+            // Convert client coordinate to SVG viewBox coordinate
+            var svgX = (clientX - rect.left - offsetX) / scale;
+            // Clamp to chart area
+            var chartX = svgX - padL;
+            if (chartX < 0) chartX = 0;
+            if (chartX > chartW) chartX = chartW;
+            // Find nearest data point index
+            var idx = step > 0 ? Math.round(chartX / step) : 0;
+            if (idx < 0) idx = 0;
+            if (idx >= count) idx = count - 1;
+            return idx;
+        }
+
+        function showTooltip(idx) {
+            if (idx < 0 || idx >= count) return;
+
+            var pt = pointData[idx];
+            var svgRect = svgEl.getBoundingClientRect();
+            var chartRect = chart.getBoundingClientRect();
+
+            // Calculate position in SVG viewBox coordinates
+            var ptX = padL + idx * step;
+            var ptY = padT + chartH - (pt.s / yMax * chartH);
+
+            // Convert viewBox coords to pixel coords relative to chart container.
+            // The SVG uses preserveAspectRatio="xMidYMid meet", so on narrow/tall
+            // containers the rendered content is centered with letterboxing.
+            // We must account for the actual scale and offset.
+            var scale = Math.min(svgRect.width / vbWidth, svgRect.height / vbHeight);
+            var renderedW = vbWidth * scale;
+            var renderedH = vbHeight * scale;
+            var offsetX = (svgRect.width - renderedW) / 2;
+            var offsetY = (svgRect.height - renderedH) / 2;
+            var pixelX = ptX * scale + offsetX + (svgRect.left - chartRect.left);
+            var pixelY = ptY * scale + offsetY + (svgRect.top - chartRect.top);
+
+            // Update crosshair
+            crosshair.style.left = pixelX + 'px';
+            crosshair.classList.add('visible');
+
+            // Update active dot
+            activeDot.style.left = pixelX + 'px';
+            activeDot.style.top = pixelY + 'px';
+            activeDot.classList.add('visible');
+
+            // Update tooltip content
+            var dateLabel = formatGranularityLabel(pt.d, granularity);
+            var sizeLabel = formatBytes(pt.s);
+            tooltip.querySelector('.tt-date').textContent = dateLabel;
+            tooltip.querySelector('.tt-size').textContent = sizeLabel;
+            tooltip.querySelector('.tt-files').textContent = pt.c + ' files';
+
+            // Position tooltip — prefer right side, flip to left if near edge
+            var ttWidth = tooltip.offsetWidth || 120;
+            var ttHeight = tooltip.offsetHeight || 50;
+            var ttLeft = pixelX + 12;
+            if (ttLeft + ttWidth > chartRect.width) {
+                ttLeft = pixelX - ttWidth - 12;
+            }
+            var ttTop = pixelY - ttHeight / 2;
+            if (ttTop < 0) ttTop = 4;
+            if (ttTop + ttHeight > chartRect.height) ttTop = chartRect.height - ttHeight - 4;
+
+            tooltip.style.left = ttLeft + 'px';
+            tooltip.style.top = ttTop + 'px';
+            tooltip.classList.add('visible');
+        }
+
+        function hideTooltip() {
+            tooltip.classList.remove('visible');
+            crosshair.classList.remove('visible');
+            activeDot.classList.remove('visible');
+        }
+
+        // Mouse events
+        svgEl.addEventListener('mousemove', function (e) {
+            var idx = getPointIndex(e.clientX);
+            showTooltip(idx);
+        });
+
+        svgEl.addEventListener('mouseleave', function () {
+            hideTooltip();
+        });
+
+        // Touch events — show tooltip on tap/drag, hide on release
+        svgEl.addEventListener('touchstart', function (e) {
+            if (e.touches.length === 1) {
+                var idx = getPointIndex(e.touches[0].clientX);
+                showTooltip(idx);
+            }
+        }, { passive: true });
+
+        svgEl.addEventListener('touchmove', function (e) {
+            if (e.touches.length === 1) {
+                var idx = getPointIndex(e.touches[0].clientX);
+                showTooltip(idx);
+            }
+        }, { passive: true });
+
+        svgEl.addEventListener('touchend', function () {
+            // Keep tooltip visible briefly after touch ends, then hide
+            setTimeout(hideTooltip, 1500);
+        }, { passive: true });
     }
 
     function loadTrendData(forceRefresh) {
@@ -281,6 +451,7 @@
             var container = document.getElementById('trendChartContainer');
             if (container) {
                 container.innerHTML = renderTrendChart(timeline);
+                attachTrendInteraction(container);
             }
         }, function () {
             var container = document.getElementById('trendChartContainer');
