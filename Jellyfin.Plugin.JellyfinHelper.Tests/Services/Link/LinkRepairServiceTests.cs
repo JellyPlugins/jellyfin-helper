@@ -14,10 +14,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Link;
 public class LinkRepairServiceTests
 {
     private readonly MockFileSystem _fileSystem;
-    private readonly StrmLinkHandler _strmHandler;
-    private readonly Mock<ISymlinkHelper> _symlinkHelper;
-    private readonly SymlinkHandler _symlinkHandler;
     private readonly LinkRepairService _service;
+    private readonly StrmLinkHandler _strmHandler;
+    private readonly SymlinkHandler _symlinkHandler;
+    private readonly Mock<ISymlinkHelper> _symlinkHelper;
 
     public LinkRepairServiceTests()
     {
@@ -27,7 +27,7 @@ public class LinkRepairServiceTests
         _symlinkHandler = new SymlinkHandler(_symlinkHelper.Object);
         _service = new LinkRepairService(
             _fileSystem,
-            new ILinkHandler[] { _strmHandler, _symlinkHandler },
+            [_strmHandler, _symlinkHandler],
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<LinkRepairService>().Object);
     }

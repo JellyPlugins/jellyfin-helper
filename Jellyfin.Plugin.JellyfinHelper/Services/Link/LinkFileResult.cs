@@ -6,9 +6,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 public class LinkFileResult
 {
     /// <summary>
-    /// Gets or sets the path to the link file (.strm or symlink).
+    /// Gets the path to the link file (.strm or symlink).
     /// </summary>
-    public string LinkFilePath { get; set; } = string.Empty;
+    public string LinkFilePath { get; init; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the original target path read from the link file.

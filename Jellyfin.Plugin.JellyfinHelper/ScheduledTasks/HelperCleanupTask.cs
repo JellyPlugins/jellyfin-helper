@@ -10,7 +10,6 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
@@ -25,7 +24,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// </summary>
 public class HelperCleanupTask : IScheduledTask
 {
-    private readonly IApplicationPaths _applicationPaths;
     private readonly IStatisticsCacheService _cacheService;
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IFileSystem _fileSystem;
@@ -44,7 +42,6 @@ public class HelperCleanupTask : IScheduledTask
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
     /// <param name="fileSystem">The file system.</param>
-    /// <param name="applicationPaths">The application paths.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="loggerFactory">The logger factory.</param>
     /// <param name="statisticsService">The media statistics service.</param>
@@ -57,7 +54,6 @@ public class HelperCleanupTask : IScheduledTask
     public HelperCleanupTask(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
-        IApplicationPaths applicationPaths,
         IPluginLogService pluginLog,
         ILoggerFactory loggerFactory,
         IMediaStatisticsService statisticsService,
@@ -70,7 +66,6 @@ public class HelperCleanupTask : IScheduledTask
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
-        _applicationPaths = applicationPaths;
         _pluginLog = pluginLog;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<HelperCleanupTask>();

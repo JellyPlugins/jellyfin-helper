@@ -11,7 +11,7 @@ public class LinkRepairResult
     /// <summary>
     /// Gets the list of individual file results.
     /// </summary>
-    public Collection<LinkFileResult> FileResults { get; } = new();
+    public Collection<LinkFileResult> FileResults { get; } = [];
 
     /// <summary>
     /// Gets the number of valid link files.

@@ -10,8 +10,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Link;
 /// </summary>
 public class SymlinkHandlerTests
 {
-    private readonly Mock<ISymlinkHelper> _symlinkHelper;
+    private static readonly string[] Expected = ["delete", "create"];
     private readonly SymlinkHandler _handler;
+    private readonly Mock<ISymlinkHelper> _symlinkHelper;
 
     public SymlinkHandlerTests()
     {
@@ -88,7 +89,7 @@ public class SymlinkHandlerTests
 
         _handler.WriteTarget("/series/episode.mkv", "/movies/new-movie.mkv");
 
-        Assert.Equal(new[] { "delete", "create" }, callOrder);
+        Assert.Equal(Expected, callOrder);
     }
 
     [Fact]

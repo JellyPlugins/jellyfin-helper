@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **4-Part Versioning** — All versions now use 4-part format (`x.x.x.x`) consistent with other Jellyfin plugins (e.g. Jellyfin Enhanced, Intro Skipper).
-- - **Link Repair** — Renamed "STRM Repair" task to "Link Repair". The task now scans for both broken `.strm` files and broken symlinks, repairing them by locating renamed/moved target files. Refactored `Services/Strm/` to `Services/Link/` with Strategy pattern (`ILinkHandler` → `StrmLinkHandler`, `SymlinkHandler`).
+- **Link Repair** — Renamed "STRM Repair" task to "Link Repair". The task now scans for both broken `.strm` files and broken symlinks, repairing them by locating renamed/moved target files. Refactored `Services/Strm/` to `Services/Link/` with Strategy pattern (`ILinkHandler` → `StrmLinkHandler`, `SymlinkHandler`).
 - **Configuration** — `StrmRepairTaskMode` renamed to `LinkRepairTaskMode`.
 - **Scheduled Task** — `RepairStrmFilesTask` renamed to `RepairLinksTask`.
 - **Documentation** — Updated CONTRIBUTING.md, README.md, manifest.json, and build.yaml to reflect Link Repair naming and symlink support.

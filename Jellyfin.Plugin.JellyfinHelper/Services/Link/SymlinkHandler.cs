@@ -33,7 +33,29 @@ public class SymlinkHandler : ILinkHandler
     /// <inheritdoc />
     public void WriteTarget(string filePath, string targetPath)
     {
+        var previousTarget = _symlinkHelper.GetSymlinkTarget(filePath);
         _symlinkHelper.DeleteSymlink(filePath);
-        _symlinkHelper.CreateSymlink(filePath, targetPath);
+        try
+        {
+            _symlinkHelper.CreateSymlink(filePath, targetPath);
+        }
+        catch
+        {
+            if (string.IsNullOrWhiteSpace(previousTarget))
+            {
+                throw;
+            }
+
+            try
+            {
+                _symlinkHelper.CreateSymlink(filePath, previousTarget);
+            }
+            catch
+            {
+                // best-effort rollback
+            }
+
+            throw;
+        }
     }
 }

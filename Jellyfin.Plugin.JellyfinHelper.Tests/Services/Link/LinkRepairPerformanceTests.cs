@@ -23,7 +23,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
     public void FindLinkFiles_Strm_5000Files_CompletesWithin5Seconds()
     {
         var fs = new MockFileSystem();
-        var basePath = "/media/movies";
+        const string basePath = "/media/movies";
         fs.Directory.CreateDirectory(basePath);
 
         for (var dir = 0; dir < 500; dir++)
@@ -47,7 +47,8 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         var result = service.FindLinkFiles(new List<string> { basePath });
         sw.Stop();
 
-        output.WriteLine($"FindLinkFiles (strm): 500 dirs × 10 files = {result.Count} found in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine(
+            $"FindLinkFiles (strm): 500 dirs × 10 files = {result.Count} found in {sw.ElapsedMilliseconds}ms");
         Assert.Equal(5_000, result.Count);
         AssertPerfLimit(sw, 8000);
     }
@@ -57,7 +58,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
     public void RepairLinks_Strm_2000ValidFiles_CompletesWithin10Seconds()
     {
         var fs = new MockFileSystem();
-        var basePath = "/media/movies";
+        const string basePath = "/media/movies";
         fs.Directory.CreateDirectory(basePath);
 
         for (var i = 0; i < 2_000; i++)
@@ -75,10 +76,11 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         var service = CreateService(fs, new StrmLinkHandler(fs));
 
         var sw = Stopwatch.StartNew();
-        var result = service.RepairLinks(new List<string> { basePath }, dryRun: true);
+        var result = service.RepairLinks(new List<string> { basePath }, true);
         sw.Stop();
 
-        output.WriteLine($"RepairLinks (strm): {result.FileResults.Count} files in {sw.ElapsedMilliseconds}ms ({result.ValidCount} valid)");
+        output.WriteLine(
+            $"RepairLinks (strm): {result.FileResults.Count} files in {sw.ElapsedMilliseconds}ms ({result.ValidCount} valid)");
         Assert.Equal(2_000, result.ValidCount);
         AssertPerfLimit(sw, 15_000);
     }
@@ -88,7 +90,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
     public void FindLinkFiles_Strm_DeeplyNested_CompletesWithin5Seconds()
     {
         var fs = new MockFileSystem();
-        var basePath = "/media/shows";
+        const string basePath = "/media/shows";
         fs.Directory.CreateDirectory(basePath);
         var expectedCount = 0;
 
@@ -119,7 +121,8 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         var result = service.FindLinkFiles(new List<string> { basePath });
         sw.Stop();
 
-        output.WriteLine($"FindLinkFiles (strm, deep): {expectedCount} expected → {result.Count} found in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine(
+            $"FindLinkFiles (strm, deep): {expectedCount} expected → {result.Count} found in {sw.ElapsedMilliseconds}ms");
         Assert.Equal(expectedCount, result.Count);
         AssertPerfLimit(sw, 8000);
     }
@@ -152,7 +155,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         }
 
         symlinkHelper.Setup(h => h.IsSymlink(It.IsAny<string>()))
-            .Returns<string>(path => symlinkPaths.Contains(path));
+            .Returns<string>(symlinkPaths.Contains);
 
         var service = CreateService(fs, new SymlinkHandler(symlinkHelper.Object));
 
@@ -160,7 +163,8 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         var result = service.FindLinkFiles(new List<string> { basePath });
         sw.Stop();
 
-        output.WriteLine($"FindLinkFiles (symlink): 500 dirs × 10 files = {result.Count} found in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine(
+            $"FindLinkFiles (symlink): 500 dirs × 10 files = {result.Count} found in {sw.ElapsedMilliseconds}ms");
         Assert.Equal(5_000, result.Count);
         AssertPerfLimit(sw, 8000);
     }
@@ -171,7 +175,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
     {
         var fs = new MockFileSystem();
         var symlinkHelper = new Mock<ISymlinkHelper>();
-        var basePath = "/media/movies";
+        const string basePath = "/media/movies";
         fs.Directory.CreateDirectory(basePath);
 
         var symlinkTargets = new Dictionary<string, string>();
@@ -189,17 +193,18 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         }
 
         symlinkHelper.Setup(h => h.IsSymlink(It.IsAny<string>()))
-            .Returns<string>(path => symlinkTargets.ContainsKey(path));
+            .Returns<string>(symlinkTargets.ContainsKey);
         symlinkHelper.Setup(h => h.GetSymlinkTarget(It.IsAny<string>()))
-            .Returns<string>(path => symlinkTargets.GetValueOrDefault(path));
+            .Returns<string>(symlinkTargets.GetValueOrDefault);
 
         var service = CreateService(fs, new SymlinkHandler(symlinkHelper.Object));
 
         var sw = Stopwatch.StartNew();
-        var result = service.RepairLinks(new List<string> { basePath }, dryRun: true);
+        var result = service.RepairLinks(new List<string> { basePath }, true);
         sw.Stop();
 
-        output.WriteLine($"RepairLinks (symlink): {result.FileResults.Count} files in {sw.ElapsedMilliseconds}ms ({result.ValidCount} valid)");
+        output.WriteLine(
+            $"RepairLinks (symlink): {result.FileResults.Count} files in {sw.ElapsedMilliseconds}ms ({result.ValidCount} valid)");
         Assert.Equal(2_000, result.ValidCount);
         AssertPerfLimit(sw, 15_000);
     }
@@ -212,7 +217,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
     {
         var fs = new MockFileSystem();
         var symlinkHelper = new Mock<ISymlinkHelper>();
-        var basePath = "/media/movies";
+        const string basePath = "/media/movies";
         fs.Directory.CreateDirectory(basePath);
 
         var symlinkPaths = new HashSet<string>();
@@ -245,7 +250,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         }
 
         symlinkHelper.Setup(h => h.IsSymlink(It.IsAny<string>()))
-            .Returns<string>(path => symlinkPaths.Contains(path));
+            .Returns<string>(symlinkPaths.Contains);
 
         var handlers = new ILinkHandler[] { new StrmLinkHandler(fs), new SymlinkHandler(symlinkHelper.Object) };
         var service = CreateServiceMultiHandler(fs, handlers);
@@ -257,7 +262,8 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         var strmResults = result.Count(r => r.Handler is StrmLinkHandler);
         var symlinkResults = result.Count(r => r.Handler is SymlinkHandler);
 
-        output.WriteLine($"FindLinkFiles (mixed): {strmResults} strm + {symlinkResults} symlinks = {result.Count} total in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine(
+            $"FindLinkFiles (mixed): {strmResults} strm + {symlinkResults} symlinks = {result.Count} total in {sw.ElapsedMilliseconds}ms");
         Assert.Equal(expectedStrmCount, strmResults);
         Assert.Equal(expectedSymlinkCount, symlinkResults);
         Assert.Equal(expectedStrmCount + expectedSymlinkCount, result.Count);
@@ -271,24 +277,24 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
     public void FindMediaFilesInDirectory_LargeDirectory_1000Files_CompletesWithin3Seconds()
     {
         var fs = new MockFileSystem();
-        var basePath = "/media/movies/large_collection";
+        const string basePath = "/media/movies/large_collection";
         fs.Directory.CreateDirectory(basePath);
         var expectedMediaCount = 0;
 
         for (var i = 0; i < 1_000; i++)
         {
-            if (i % 3 == 0)
+            switch (i % 3)
             {
-                fs.File.WriteAllText($"{basePath}/video_{i:D4}.mkv", "video");
-                expectedMediaCount++;
-            }
-            else if (i % 3 == 1)
-            {
-                fs.File.WriteAllText($"{basePath}/subtitle_{i:D4}.srt", "subtitle");
-            }
-            else
-            {
-                fs.File.WriteAllText($"{basePath}/image_{i:D4}.jpg", "image");
+                case 0:
+                    fs.File.WriteAllText($"{basePath}/video_{i:D4}.mkv", "video");
+                    expectedMediaCount++;
+                    break;
+                case 1:
+                    fs.File.WriteAllText($"{basePath}/subtitle_{i:D4}.srt", "subtitle");
+                    break;
+                default:
+                    fs.File.WriteAllText($"{basePath}/image_{i:D4}.jpg", "image");
+                    break;
             }
         }
 
@@ -298,7 +304,8 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         var result = service.FindMediaFilesInDirectory(basePath);
         sw.Stop();
 
-        output.WriteLine($"FindMediaFilesInDirectory: 1,000 files → {result.Count} media in {sw.ElapsedMilliseconds}ms");
+        output.WriteLine(
+            $"FindMediaFilesInDirectory: 1,000 files → {result.Count} media in {sw.ElapsedMilliseconds}ms");
         Assert.Equal(expectedMediaCount, result.Count);
         AssertPerfLimit(sw, 5000);
     }
@@ -309,7 +316,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
     {
         return new LinkRepairService(
             fs,
-            new[] { handler },
+            [handler],
             new Mock<IPluginLogService>().Object,
             new Mock<ILogger<LinkRepairService>>().Object);
     }
@@ -323,11 +330,12 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
             new Mock<ILogger<LinkRepairService>>().Object);
     }
 
-    private void AssertPerfLimit(Stopwatch sw, long maxMilliseconds)
+    private static void AssertPerfLimit(Stopwatch sw, long maxMilliseconds)
     {
         if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
         {
-            Assert.True(sw.ElapsedMilliseconds < maxMilliseconds,
+            Assert.True(
+                sw.ElapsedMilliseconds < maxMilliseconds,
                 $"Took {sw.ElapsedMilliseconds}ms, expected < {maxMilliseconds}ms");
         }
     }

@@ -58,11 +58,11 @@ public class PluginConfiguration : BasePluginConfiguration
     // ===== Config version for migration =====
 
     /// <summary>
-    ///     Gets or sets the configuration version. Used to detect and apply one-time migrations
+    ///     Gets the configuration version. Used to detect and apply one-time migrations
     ///     from legacy boolean properties to the new <see cref="TaskMode" /> properties.
     ///     0 = pre-TaskMode (needs migration), 1 = TaskMode migrated.
     /// </summary>
-    public int ConfigVersion { get; set; }
+    public int ConfigVersion { get; init; }
 
     /// <summary>
     ///     Gets or sets a value indicating whether to use a trash folder instead of permanently deleting files.

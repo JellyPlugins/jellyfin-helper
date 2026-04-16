@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 /// <summary>
 ///     Service for finding and repairing broken link file references.
 ///     Delegates link-type-specific logic (reading/writing targets) to
-///     <see cref="ILinkHandler" /> strategies, keeping this service agnostic
+///     <see cref="ILinkHandler" /> strategies, keeping this service-agnostic
 ///     of any particular link format.
 /// </summary>
 public class LinkRepairService : ILinkRepairService
@@ -105,17 +105,12 @@ public class LinkRepairService : ILinkRepairService
     {
         try
         {
-            foreach (var file in _fileSystem.Directory.EnumerateFiles(directory))
-            {
-                foreach (var handler in _handlers)
-                {
-                    if (handler.CanHandle(file))
-                    {
-                        result.Add((file, handler));
-                        break; // first matching handler wins
-                    }
-                }
-            }
+            result.AddRange(
+                _fileSystem.Directory.EnumerateFiles(directory)
+                    .SelectMany(file => _handlers
+                        .Where(h => h.CanHandle(file))
+                        .Take(1)
+                        .Select(handler => (file, handler))));
 
             foreach (var subDir in _fileSystem.Directory.EnumerateDirectories(directory))
             {
@@ -200,55 +195,55 @@ public class LinkRepairService : ILinkRepairService
         // Search the parent directory for media files
         var mediaFiles = FindMediaFilesInDirectory(parentDir);
 
-        if (mediaFiles.Count == 0)
+        switch (mediaFiles.Count)
         {
-            _pluginLog.LogWarning(
-                "LinkRepair",
-                $"No media files found in parent directory {parentDir} for broken link: {fileResult.LinkFilePath}",
-                logger: _logger);
-            fileResult.Status = LinkFileStatus.Broken;
-            return fileResult;
-        }
-
-        if (mediaFiles.Count == 1)
-        {
-            // Exactly one media file found - this is our match
-            var newTargetPath = mediaFiles[0];
-            fileResult.NewTargetPath = newTargetPath;
-            fileResult.Status = LinkFileStatus.Repaired;
-
-            if (dryRun)
-            {
-                _pluginLog.LogInfo(
+            case 0:
+                _pluginLog.LogWarning(
                     "LinkRepair",
-                    $"[DRY RUN] Would repair link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
-                    _logger);
-            }
-            else
+                    $"No media files found in parent directory {parentDir} for broken link: {fileResult.LinkFilePath}",
+                    logger: _logger);
+                fileResult.Status = LinkFileStatus.Broken;
+                return fileResult;
+            case 1:
             {
-                _pluginLog.LogInfo(
-                    "LinkRepair",
-                    $"Repairing link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
-                    _logger);
+                // Exactly one media file found - this is our match
+                var newTargetPath = mediaFiles[0];
+                fileResult.NewTargetPath = newTargetPath;
+                fileResult.Status = LinkFileStatus.Repaired;
 
-                try
+                if (dryRun)
                 {
-                    handler.WriteTarget(fileResult.LinkFilePath, newTargetPath);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    _pluginLog.LogError(
+                    _pluginLog.LogInfo(
                         "LinkRepair",
-                        $"Failed to write repaired link file {fileResult.LinkFilePath}: {ex.Message}",
-                        ex,
+                        $"[DRY RUN] Would repair link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
                         _logger);
-                    fileResult.Status = LinkFileStatus.Broken;
-                    fileResult.NewTargetPath = null;
-                    return fileResult;
                 }
-            }
+                else
+                {
+                    _pluginLog.LogInfo(
+                        "LinkRepair",
+                        $"Repairing link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
+                        _logger);
 
-            return fileResult;
+                    try
+                    {
+                        handler.WriteTarget(fileResult.LinkFilePath, newTargetPath);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _pluginLog.LogError(
+                            "LinkRepair",
+                            $"Failed to write repaired link file {fileResult.LinkFilePath}: {ex.Message}",
+                            ex,
+                            _logger);
+                        fileResult.Status = LinkFileStatus.Broken;
+                        fileResult.NewTargetPath = null;
+                        return fileResult;
+                    }
+                }
+
+                return fileResult;
+            }
         }
 
         // Multiple media files found - ambiguous

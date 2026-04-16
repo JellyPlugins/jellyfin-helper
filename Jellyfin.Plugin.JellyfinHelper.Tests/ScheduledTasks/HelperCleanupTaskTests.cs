@@ -25,10 +25,8 @@ public class HelperCleanupTaskTests : IDisposable
     {
         var libraryManagerMock = TestMockFactory.CreateLibraryManager();
         var fileSystemMock = TestMockFactory.CreateFileSystem();
-        var applicationPathsMock = TestMockFactory.CreateAppPaths();
         _testDataPath = Path.Join(Path.GetTempPath(), "JellyfinHelperTests_Data_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_testDataPath);
-        applicationPathsMock.Setup(p => p.DataPath).Returns(_testDataPath);
         var loggerFactoryMock = new Mock<ILoggerFactory>();
         _loggerMock = new Mock<ILogger<HelperCleanupTask>>();
 
@@ -85,7 +83,6 @@ public class HelperCleanupTaskTests : IDisposable
         _task = new HelperCleanupTask(
             libraryManagerMock.Object,
             fileSystemMock.Object,
-            applicationPathsMock.Object,
             TestMockFactory.CreatePluginLogService(),
             loggerFactoryMock.Object,
             statisticsServiceMock.Object,
@@ -99,19 +96,23 @@ public class HelperCleanupTaskTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_testDataPath))
-            try
-            {
-                Directory.Delete(_testDataPath, true);
-            }
-            catch (IOException)
-            {
-                /* best effort cleanup */
-            }
-            catch (UnauthorizedAccessException)
-            {
-                /* best effort cleanup */
-            }
+        if (!Directory.Exists(_testDataPath))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(_testDataPath, true);
+        }
+        catch (IOException)
+        {
+            /* best effort cleanup */
+        }
+        catch (UnauthorizedAccessException)
+        {
+            /* best effort cleanup */
+        }
     }
 
     [Fact]

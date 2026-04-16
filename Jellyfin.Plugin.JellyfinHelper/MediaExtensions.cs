@@ -113,12 +113,6 @@ public static class MediaExtensions
     };
 
     /// <summary>
-    ///     Gets the combined set of all known media file extensions (video + audio, case-insensitive).
-    ///     Used by the link repair service to identify media files.
-    /// </summary>
-    internal static HashSet<string> AllMediaExtensions { get; } = BuildAllMediaExtensions();
-
-    /// <summary>
     ///     Gets a mapping from audio file extension (with leading dot) to a human-readable codec name.
     ///     Used as a fallback when no codec tag is found in the filename.
     /// </summary>
@@ -194,20 +188,4 @@ public static class MediaExtensions
         // Common regional/extended tags
         "lat", "gsw", "nob", "nno", "yue", "cmn"
     };
-
-    private static HashSet<string> BuildAllMediaExtensions()
-    {
-        var all = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var ext in VideoExtensions)
-        {
-            all.Add(ext);
-        }
-
-        foreach (var ext in AudioExtensions)
-        {
-            all.Add(ext);
-        }
-
-        return all;
-    }
 }

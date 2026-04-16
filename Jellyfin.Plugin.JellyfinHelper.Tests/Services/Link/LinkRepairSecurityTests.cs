@@ -15,10 +15,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Link;
 public class LinkRepairSecurityTests
 {
     private readonly MockFileSystem _fileSystem;
-    private readonly StrmLinkHandler _strmHandler;
-    private readonly Mock<ISymlinkHelper> _symlinkHelper;
-    private readonly SymlinkHandler _symlinkHandler;
     private readonly LinkRepairService _service;
+    private readonly StrmLinkHandler _strmHandler;
+    private readonly SymlinkHandler _symlinkHandler;
+    private readonly Mock<ISymlinkHelper> _symlinkHelper;
 
     public LinkRepairSecurityTests()
     {
@@ -28,7 +28,7 @@ public class LinkRepairSecurityTests
         _symlinkHandler = new SymlinkHandler(_symlinkHelper.Object);
         _service = new LinkRepairService(
             _fileSystem,
-            new ILinkHandler[] { _strmHandler, _symlinkHandler },
+            [_strmHandler, _symlinkHandler],
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<LinkRepairService>().Object);
     }
@@ -330,7 +330,7 @@ public class LinkRepairSecurityTests
     public void ProcessLinkFile_Strm_DryRunMode_DoesNotModifyFiles()
     {
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
-        var originalTarget = "/series/Show1/old_target.mkv";
+        const string originalTarget = "/series/Show1/old_target.mkv";
         var newMediaFile = _fileSystem.Path.GetFullPath("/series/Show1/actual_episode.mkv");
         _fileSystem.AddFile(linkFile, new MockFileData(originalTarget));
         _fileSystem.AddFile(newMediaFile, new MockFileData("video content"));

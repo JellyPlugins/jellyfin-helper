@@ -25,7 +25,8 @@ public class SettingsHtmlTests : ConfigPageTestBase
     [InlineData("cfgLinkMode")]
     public void Html_DefaultsToDryRunWhenConfigPropertyMissing(string elementId)
     {
-        var pattern = new Regex("renderTaskModeSelect\\s*\\(\\s*'" + Regex.Escape(elementId) + "'.*\\|\\|\\s*'DryRun'\\s*\\)");
+        var pattern = new Regex(
+            @"renderTaskModeSelect\s*\(\s*'" + Regex.Escape(elementId) + @"'.*\|\|\s*'DryRun'\s*\)");
         Assert.Matches(pattern, HtmlContent);
     }
 
@@ -193,10 +194,17 @@ public class SettingsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_DoSaveSettings_TrashChangedBeforeUpdate()
     {
-        var trashChangedPos = HtmlContent.IndexOf("var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled", StringComparison.Ordinal);
-        var wasTrashUpdatePos = HtmlContent.IndexOf("_wasTrashEnabled = payload.UseTrash", trashChangedPos + 1, StringComparison.Ordinal);
+        var trashChangedPos = HtmlContent.IndexOf(
+            "var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled",
+            StringComparison.Ordinal);
+        var wasTrashUpdatePos = HtmlContent.IndexOf(
+            "_wasTrashEnabled = payload.UseTrash",
+            trashChangedPos + 1,
+            StringComparison.Ordinal);
         Assert.True(trashChangedPos >= 0, "trashChanged detection not found");
-        Assert.True(wasTrashUpdatePos > trashChangedPos, "_wasTrashEnabled must be updated AFTER trashChanged is computed");
+        Assert.True(
+            wasTrashUpdatePos > trashChangedPos,
+            "_wasTrashEnabled must be updated AFTER trashChanged is computed");
     }
 
     [Fact]

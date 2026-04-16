@@ -12,7 +12,7 @@
         "version": "1.1.1.0",
         "changelog": "v1.1.1.0: .strm repair -> Link repair to repair .strm files AND symlinks, Switched to 4-part versioning (x.x.x.x), fixed meta.json (added missing assemblies, changelog, timestamp, imageUrl fields; replaced invalid assembly field), fixed imagePath to use absolute /config/plugins/ path, meta.json now generated safely via jq.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.1.0.1/JellyfinHelper_1.1.0.1.zip",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.1.1.0/JellyfinHelper_1.1.1.0.zip",
         "checksum": "",
         "timestamp": "2026-04-16T13:30:00Z"
       },
