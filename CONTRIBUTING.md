@@ -430,11 +430,18 @@ The project includes a **comprehensive automated test suite** covering:
 - UI structure (HTML element presence, tab structure)
 - Plugin logging (ring buffer, level filtering)
 - Serialization roundtrips
+- Performance tests — Stopwatch-based timing assertions for critical operations (sanitize, validate, large data sets)
+- Security tests — Path traversal, null-byte injection, XSS payloads, command injection, collision handling
+
+Tests use `[Trait("Category", "...")]` for selective filtering:
 
 ```bash
-dotnet test                           # Run all tests
-dotnet test --filter "FullyQualifiedName~Services"  # Run service tests only
-dotnet test --filter "FullyQualifiedName~Api"       # Run API tests only
+dotnet test                                          # Run all tests
+dotnet test --filter "FullyQualifiedName~Services"   # Run service tests only
+dotnet test --filter "FullyQualifiedName~Api"        # Run API tests only
+dotnet test --filter "Category=Performance"           # Run performance tests only
+dotnet test --filter "Category=Security"              # Run security tests only
+dotnet test --filter "Category!=Performance"          # Exclude performance tests
 ```
 
 ### Test Architecture — Fixtures & Factories
@@ -522,11 +529,14 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
     │   ├── ArrComparisonResultTests.cs
     │   └── ArrIntegrationServiceTests.cs
     ├── Backup/
-    │   └── BackupServiceTests.cs
+    │   ├── BackupServiceTests.cs
+    │   └── BackupServicePerformanceTests.cs    # [Trait("Category", "Performance")]
     ├── Cleanup/
     │   ├── CleanupConfigHelperTests.cs
     │   ├── CleanupTrackingServiceTests.cs
-    │   └── TrashServiceTests.cs
+    │   ├── TrashServiceTests.cs
+    │   ├── TrashServiceSecurityTests.cs        # [Trait("Category", "Security")]
+    │   └── TrashControllerSecurityTests.cs     # [Trait("Category", "Security")]
     ├── ConfigAccess/
     │   └── PluginConfigurationServiceTests.cs
     ├── PluginLog/
@@ -536,10 +546,13 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
     │   ├── MediaStatisticsServiceTests.cs
     │   └── MediaStatisticsServiceTvShowTests.cs
     ├── Strm/
-    │   └── StrmRepairServiceTests.cs
+    │   ├── StrmRepairServiceTests.cs
+    │   ├── StrmRepairPerformanceTests.cs       # [Trait("Category", "Performance")]
+    │   └── StrmRepairSecurityTests.cs          # [Trait("Category", "Security")]
     └── Timeline/
         ├── GrowthTimelineModelTests.cs
-        └── GrowthTimelineServiceTests.cs
+        ├── GrowthTimelineServiceTests.cs
+        └── GrowthTimelinePerformanceTests.cs   # [Trait("Category", "Performance")]
 ```
 
 ---

@@ -211,9 +211,14 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
             var existingTimeline = await LoadTimelineAsync(cancellationToken).ConfigureAwait(false);
 
-            // Calculate current absolute totals
-            var currentTotalSize = currentDirs.Sum(d => d.Size);
-            var currentTotalCount = currentDirs.Sum(d => d.Count);
+            // Calculate current absolute totals in a single pass (avoids two iterations)
+            long currentTotalSize = 0;
+            var currentTotalCount = 0;
+            foreach (var dir in currentDirs)
+            {
+                currentTotalSize += dir.Size;
+                currentTotalCount += dir.Count;
+            }
 
             if (existingTimeline is { DataPoints.Count: > 0 })
             {

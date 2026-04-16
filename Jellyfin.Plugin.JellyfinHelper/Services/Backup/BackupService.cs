@@ -446,14 +446,18 @@ public class BackupService : IBackupService
         SanitizeArrInstances(backup.RadarrInstances);
         SanitizeArrInstances(backup.SonarrInstances);
 
-        // Timeline data points limit
+        // Timeline data points limit — keep only the newest MaxTimelineDataPoints entries (O(n))
         if (backup.GrowthTimeline is { DataPoints.Count: > MaxTimelineDataPoints })
         {
-            var trimmed = backup.GrowthTimeline.DataPoints
-                .Skip(backup.GrowthTimeline.DataPoints.Count - MaxTimelineDataPoints)
-                .ToList();
+            var excess = backup.GrowthTimeline.DataPoints.Count - MaxTimelineDataPoints;
+            var kept = new List<GrowthTimelinePoint>(MaxTimelineDataPoints);
+            for (var i = excess; i < backup.GrowthTimeline.DataPoints.Count; i++)
+            {
+                kept.Add(backup.GrowthTimeline.DataPoints[i]);
+            }
+
             backup.GrowthTimeline.DataPoints.Clear();
-            foreach (var point in trimmed)
+            foreach (var point in kept)
             {
                 backup.GrowthTimeline.DataPoints.Add(point);
             }
