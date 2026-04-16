@@ -54,10 +54,19 @@
         return result;
     }
 
+    function formatInstanceCount(count) {
+        if (count === 0) return '';
+        if (count === 1) return T('instanceCountSingular', '1 instance');
+        return T('instanceCountPlural', '{0} instances').replace('{0}', count);
+    }
+
     function updateArrCollapsibleCount(type) {
         var rows = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
         var countEl = document.getElementById('arrCount' + type);
-        if (countEl) countEl.textContent = '(' + rows.length + '/' + MAX_ARR_INSTANCES + ')';
+        if (countEl) {
+            var text = formatInstanceCount(rows.length);
+            countEl.textContent = text ? '(' + text + ')' : '';
+        }
     }
 
     function addArrInstance(type) {

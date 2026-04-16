@@ -84,6 +84,8 @@
   "settingsTrashTitle": "Paramètres de la corbeille",
   "settingsArrTitle": "Paramètres d'Arr Stack",
   "clickToExpand": "cliquer pour développer",
+  "instanceCountSingular": "1 instance",
+  "instanceCountPlural": "{0} instances",
   "includedLibraries": "Bibliothèques incluses (liste blanche, séparées par virgule)",
   "includedLibrariesHelp": "Laisser vide pour inclure toutes les bibliothèques.",
   "excludedLibraries": "Bibliothèques exclues (liste noire, séparées par virgule)",

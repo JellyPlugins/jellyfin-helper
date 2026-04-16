@@ -27,7 +27,7 @@
 /* noinspection CssUnusedSymbol */
 .arr-collapsible { border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; margin-top: 0.8em; overflow: hidden; }
 /* noinspection CssUnusedSymbol */
-.arr-collapsible-header { display: flex; align-items: center; justify-content: space-between; padding: 0.6em 1em; cursor: pointer; user-select: none; background: rgba(255,255,255,0.03); transition: background 0.2s; }
+.arr-collapsible-header { display: flex; align-items: center; justify-content: space-between; padding: 0.6em 1em; cursor: pointer; user-select: none; background: rgba(255,255,255,0.03); transition: background 0.2s; width: 100%; border: none; color: inherit; font: inherit; text-align: left; border-radius: 0; -webkit-appearance: none; appearance: none; }
 /* noinspection CssUnusedSymbol */
 .arr-collapsible-header:hover { background: rgba(255,255,255,0.06); }
 /* noinspection CssUnusedSymbol */
@@ -41,4 +41,4 @@
 /* noinspection CssUnusedSymbol */
 .arr-collapsible-body { max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.3s ease; padding: 0 1em; }
 /* noinspection CssUnusedSymbol */
-.arr-collapsible.arr-expanded > .arr-collapsible-body { max-height: 2000px; padding: 0.5em 1em 1em; }
+.arr-collapsible.arr-expanded > .arr-collapsible-body { max-height: 80vh; overflow-y: auto; padding: 0.5em 1em 1em; }
