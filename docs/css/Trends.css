@@ -115,12 +115,61 @@
 }
 
 .trend-diff-panel.visible {
-    max-height: 80px;
+    max-height: 140px;
     opacity: 1;
-    padding: 10px 16px;
+    padding: 12px 16px;
 }
 
 .trend-diff-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Two-column comparison row: "then" → "now" */
+.trend-diff-compare {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    justify-content: center;
+}
+
+.trend-diff-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    min-width: 100px;
+}
+
+.trend-diff-dates,
+.trend-diff-now-date {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.trend-diff-val {
+    color: #00a4dc;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.trend-diff-cnt {
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 10px;
+}
+
+.trend-diff-arrow {
+    color: rgba(255, 255, 255, 0.25);
+    font-size: 18px;
+    line-height: 1;
+    padding: 0 4px;
+}
+
+/* Delta row */
+.trend-diff-delta {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -128,13 +177,8 @@
     flex-wrap: wrap;
 }
 
-.trend-diff-dates {
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 11px;
-}
-
 .trend-diff-stat {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     padding: 2px 10px;
     border-radius: 4px;
