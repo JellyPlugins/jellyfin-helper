@@ -13,8 +13,8 @@
         "changelog": "v1.1.0: Performance optimizations for GrowthTimelineService and BackupService, refactored monolith services, improved cross-platform compatibility, new ARCHITECTURE.md, Trends UI enhancements.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.1.0/JellyfinHelper_1.1.0.zip",
-        "checksum": "",
-        "timestamp": "2026-04-16T02:35:00Z"
+        "checksum": "f1c5e06566bc63706e49308682b6b700",
+        "timestamp": "2026-04-16T11:00:11Z"
       },
       {
         "version": "1.0.9",
