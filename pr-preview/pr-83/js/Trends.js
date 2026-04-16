@@ -1,5 +1,8 @@
 // --- Trends Tab (Growth Timeline) ---
 
+    // In-memory cache for trend point data to avoid expensive DOM round-trips
+    var _lastTrendPointData = null;
+
     function formatGranularityLabel(dateStr, granularity) {
         var d = new Date(dateStr);
         if (isNaN(d.getTime())) return dateStr;
@@ -286,7 +289,8 @@
             });
         }
         // Store as data attribute (HTML-encode quotes so it survives the single-file build)
-        chartDataAttr += ' data-trend-points="' + JSON.stringify(pointData).replace(/"/g, '&quot;') + '"';
+        // Store point data in memory instead of serializing into the DOM
+        _lastTrendPointData = pointData;
 
         // Diff panel — appears below chart on hover, shows delta vs current (last) data point
         var diffPanel = '<div class="trend-diff-panel">'
@@ -331,7 +335,7 @@
 
         var pointData;
         try {
-            pointData = JSON.parse(chart.getAttribute('data-trend-points'));
+            pointData = _lastTrendPointData;
         } catch (e) {
             return;
         }
