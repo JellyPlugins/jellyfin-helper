@@ -6,7 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
 
-## [1.1.1.0] — 2026-04-16
+## [1.2.0.0] — 2026-04-16
+
+### Added
+- **Seerr Cleanup Task** — New scheduled task (`SeerrCleanupTask`) to automatically clean up unavailable media requests from Overseerr/Jellyseerr. New `Services/Seerr/` domain with `ISeerrService`, `SeerrService`, `ISeerrCleanupService`, `SeerrCleanupService`, and DTOs (`SeerrMedia`, `SeerrMediaResponse`). New `Api/SeerrCleanupController.cs` for API endpoints.
+- **Unsaved Settings Alert** — The settings page now warns users before navigating away with unsaved changes, preventing accidental loss of configuration.
+- **Collapsible Arr Sections** — Arr instance configuration sections (Radarr/Sonarr) are now collapsible with dynamic instance count display and localization support.
 
 ### Fixed
 - **Plugin Logo** — Fixed `imagePath` in `meta.json` to use absolute `/config/plugins/` path matching Jellyfin's expected format.
@@ -18,7 +23,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Link Repair** — Renamed "STRM Repair" task to "Link Repair". The task now scans for both broken `.strm` files and broken symlinks, repairing them by locating renamed/moved target files. Refactored `Services/Strm/` to `Services/Link/` with Strategy pattern (`ILinkHandler` → `StrmLinkHandler`, `SymlinkHandler`).
 - **Configuration** — `StrmRepairTaskMode` renamed to `LinkRepairTaskMode`.
 - **Scheduled Task** — `RepairStrmFilesTask` renamed to `RepairLinksTask`.
-- **Documentation** — Updated CONTRIBUTING.md, README.md, manifest.json, and build.yaml to reflect Link Repair naming and symlink support.
+- **Documentation** — Updated CONTRIBUTING.md, README.md, manifest.json, and build.yaml to reflect Link Repair naming, symlink support, Seerr integration, and UI improvements.
 
 ---
 
