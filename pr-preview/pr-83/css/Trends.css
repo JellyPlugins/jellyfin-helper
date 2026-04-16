@@ -100,6 +100,61 @@
     opacity: 1;
 }
 
+/* Diff panel below trend chart */
+.trend-diff-panel {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    margin-top: 8px;
+    padding: 0 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    text-align: center;
+    transition: max-height 0.3s ease, opacity 0.25s ease, padding 0.3s ease;
+}
+
+.trend-diff-panel.visible {
+    max-height: 80px;
+    opacity: 1;
+    padding: 10px 16px;
+}
+
+.trend-diff-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.trend-diff-dates {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 11px;
+}
+
+.trend-diff-stat {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 4px;
+}
+
+.trend-diff-stat.diff-up {
+    color: #2ecc71;
+    background: rgba(46, 204, 113, 0.1);
+}
+
+.trend-diff-stat.diff-down {
+    color: #e74c3c;
+    background: rgba(231, 76, 60, 0.1);
+}
+
+.trend-diff-stat.diff-neutral {
+    color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.05);
+}
+
 /* Touch / small-screen optimisations */
 @media (max-width: 600px) {
     .trend-container {
@@ -113,5 +168,26 @@
     .trend-tooltip {
         font-size: 10px;
         padding: 4px 8px;
+    }
+
+    .trend-diff-panel {
+        padding: 0 10px;
+    }
+
+    .trend-diff-panel.visible {
+        padding: 8px 10px;
+    }
+
+    .trend-diff-content {
+        gap: 6px;
+    }
+
+    .trend-diff-stat {
+        font-size: 12px;
+        padding: 2px 6px;
+    }
+
+    .trend-diff-dates {
+        font-size: 10px;
     }
 }

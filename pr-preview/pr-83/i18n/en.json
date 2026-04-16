@@ -78,6 +78,7 @@
   "trendGranularity": "Granularity",
   "trendFiles": "media files",
   "trendEarliest": "Earliest",
+  "trendNow": "now",
   "settingsGeneralTitle": "General settings",
   "settingsTaskTitle": "Task settings",
   "settingsTrashTitle": "Trash settings",

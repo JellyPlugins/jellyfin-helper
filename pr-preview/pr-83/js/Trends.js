@@ -288,9 +288,17 @@
         // Store as data attribute (HTML-encode quotes so it survives the single-file build)
         chartDataAttr += ' data-trend-points="' + JSON.stringify(pointData).replace(/"/g, '&quot;') + '"';
 
+        // Diff panel — appears below chart on hover, shows delta vs current (last) data point
+        var diffPanel = '<div class="trend-diff-panel">'
+            + '<div class="trend-diff-content">'
+            + '<span class="trend-diff-dates"></span>'
+            + '<span class="trend-diff-stat trend-diff-size"></span>'
+            + '<span class="trend-diff-stat trend-diff-files"></span>'
+            + '</div></div>';
+
         return '<div class="trend-chart"' + chartDataAttr + '>'
             + svg + overlays
-            + '</div>' + meta;
+            + '</div>' + diffPanel + meta;
     }
 
     /**
@@ -381,7 +389,7 @@
             var sizeLabel = formatBytes(pt.s);
             tooltip.querySelector('.tt-date').textContent = dateLabel;
             tooltip.querySelector('.tt-size').textContent = sizeLabel;
-            tooltip.querySelector('.tt-files').textContent = pt.c + ' files';
+            tooltip.querySelector('.tt-files').textContent = pt.c + ' ' + T('trendFiles', 'media files');
 
             // Position tooltip — prefer right side, flip to left if near edge
             var ttWidth = tooltip.offsetWidth || 120;
@@ -399,16 +407,53 @@
             tooltip.classList.add('visible');
         }
 
+        // Diff panel elements (lives outside .trend-chart, inside container)
+        var diffPanel = container.querySelector('.trend-diff-panel');
+        var diffDates = diffPanel ? diffPanel.querySelector('.trend-diff-dates') : null;
+        var diffSize = diffPanel ? diffPanel.querySelector('.trend-diff-size') : null;
+        var diffFiles = diffPanel ? diffPanel.querySelector('.trend-diff-files') : null;
+        var currentPt = pointData[count - 1];
+
+        function updateDiffPanel(idx) {
+            if (!diffPanel || !diffDates || !diffSize || !diffFiles) return;
+
+            var pt = pointData[idx];
+            var hoveredLabel = formatGranularityLabel(pt.d, granularity);
+            var currentLabel = formatGranularityLabel(currentPt.d, granularity);
+            diffDates.textContent = hoveredLabel + ' \u2192 ' + currentLabel + ' (' + T('trendNow', 'now') + ')';
+
+            var deltaSize = currentPt.s - pt.s;
+            var deltaFiles = currentPt.c - pt.c;
+
+            var sSign = deltaSize > 0 ? '+' : (deltaSize < 0 ? '' : '\u00B1');
+            diffSize.textContent = sSign + formatBytes(deltaSize);
+            diffSize.className = 'trend-diff-stat trend-diff-size '
+                + (deltaSize > 0 ? 'diff-up' : (deltaSize < 0 ? 'diff-down' : 'diff-neutral'));
+
+            var fSign = deltaFiles > 0 ? '+' : (deltaFiles < 0 ? '' : '\u00B1');
+            diffFiles.textContent = fSign + deltaFiles + ' ' + T('trendFiles', 'media files');
+            diffFiles.className = 'trend-diff-stat trend-diff-files '
+                + (deltaFiles > 0 ? 'diff-up' : (deltaFiles < 0 ? 'diff-down' : 'diff-neutral'));
+
+            diffPanel.classList.add('visible');
+        }
+
+        function hideDiffPanel() {
+            if (diffPanel) diffPanel.classList.remove('visible');
+        }
+
         function hideTooltip() {
             tooltip.classList.remove('visible');
             crosshair.classList.remove('visible');
             activeDot.classList.remove('visible');
+            hideDiffPanel();
         }
 
         // Mouse events
         svgEl.addEventListener('mousemove', function (e) {
             var idx = getPointIndex(e.clientX);
             showTooltip(idx);
+            updateDiffPanel(idx);
         });
 
         svgEl.addEventListener('mouseleave', function () {
@@ -416,10 +461,14 @@
         });
 
         // Touch events — show tooltip on tap/drag, hide on release
+        var hideTimeoutId = null;
+
         svgEl.addEventListener('touchstart', function (e) {
+            if (hideTimeoutId) { clearTimeout(hideTimeoutId); hideTimeoutId = null; }
             if (e.touches.length === 1) {
                 var idx = getPointIndex(e.touches[0].clientX);
                 showTooltip(idx);
+                updateDiffPanel(idx);
             }
         }, { passive: true });
 
@@ -427,12 +476,14 @@
             if (e.touches.length === 1) {
                 var idx = getPointIndex(e.touches[0].clientX);
                 showTooltip(idx);
+                updateDiffPanel(idx);
             }
         }, { passive: true });
 
         svgEl.addEventListener('touchend', function () {
             // Keep tooltip visible briefly after touch ends, then hide
-            setTimeout(hideTooltip, 1500);
+            if (hideTimeoutId) { clearTimeout(hideTimeoutId); }
+            hideTimeoutId = setTimeout(function () { hideTooltip(); hideTimeoutId = null; }, 1500);
         }, { passive: true });
     }
 
