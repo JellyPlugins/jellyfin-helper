@@ -38,7 +38,7 @@
         var d = createDialogOverlay(
             'unsavedDialogOverlay',
             '⚠️ ' + T('unsavedChangesTitle', 'Unsaved Changes'),
-            '#e67e22',
+            '#00a4dc',
             T('unsavedChangesMsg', 'You have unsaved settings changes. What would you like to do?'),
             false
         );
@@ -52,8 +52,7 @@
         d.btnRow.appendChild(createDialogBtn('💾 ' + T('saveAndContinue', 'Save & Continue'), 'success', function () {
             removeDialogById('unsavedDialogOverlay');
             var payload = buildSettingsPayload();
-            doSaveSettings(payload);
-            onProceed();
+            doSaveSettings(payload, { onSuccess: onProceed });
         }));
         document.body.appendChild(d.overlay);
     }
@@ -143,7 +142,7 @@
             // Seerr Cleanup task mode - greyed out if not configured
             var seerrConfigured = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
             h += '<div class="seerr-task-mode-wrapper" style="' + (!seerrConfigured ? 'opacity:0.5;pointer-events:none;' : '') + '">';
-            h += renderTaskModeSelect('cfgSeerrMode', '🔄 ' + T('seerrCleanup', 'Seerr Cleanup'), cfg.SeerrCleanupTaskMode || 'Deactivate');
+            h += renderTaskModeSelect('cfgSeerrMode', '<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle;margin-right:4px;"><ellipse cx="12" cy="12" rx="10" ry="6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg> ' + T('seerrCleanup', 'Seerr Cleanup'), cfg.SeerrCleanupTaskMode || 'Deactivate');
             if (!seerrConfigured) h += '<div class="help-text">⚠️ ' + T('seerrNotConfigured', 'Configure Seerr below to enable this task.') + '</div>';
             h += '</div>';
 
@@ -162,7 +161,7 @@
             var seerrHasCfg = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
             h += '<div class="arr-collapsible' + (!seerrHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleSeerr">';
             h += '<button type="button" class="arr-collapsible-header" aria-expanded="' + (!seerrHasCfg ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');this.setAttribute(\'aria-expanded\',p.classList.contains(\'arr-expanded\'))">';
-            h += '<span><span class="arr-chevron">▶</span><span class="arr-section-label">🔄 ' + T('seerrInstance', 'Seerr Instance') + '</span><span class="arr-instance-count" id="arrCountSeerr">' + (seerrHasCfg ? '✔' : '') + '</span></span>';
+            h += '<span><span class="arr-chevron">▶</span><span class="arr-section-label"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle;margin-right:4px;"><ellipse cx="12" cy="12" rx="10" ry="6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg> ' + T('seerrInstance', 'Seerr Instance') + '</span><span class="arr-instance-count" id="arrCountSeerr">' + (seerrHasCfg ? '✔' : '') + '</span></span>';
             h += '<span class="help-text" style="margin:0;">' + T('clickToExpand', 'click to expand') + '</span>';
             h += '</button>';
             h += '<div class="arr-collapsible-body">';
@@ -176,8 +175,7 @@
             h += '<div class="help-text">' + T('seerrCleanupAgeDaysHelp', 'Requests older than this will be deleted. Default: 365 days.') + '</div>';
             h += '</div>';
             h += '<div style="margin-top:0.5em;">';
-            h += '<button type="button" class="refresh-btn" id="btnTestSeerr" style="padding:0.3em 1em;font-size:0.85em;">🔌 ' + T('testConnection', 'Test Connection') + '</button>';
-            h += '<span id="seerrTestResult" style="margin-left:0.7em;"></span>';
+            h += '<button type="button" class="action-btn btn-arr-test" id="btnTestSeerr" style="padding:0.3em 1em;font-size:0.85em;">🔌 ' + T('testConnection', 'Test Connection') + '</button>';
             h += '</div>';
             h += '</div></div>';
 
@@ -212,15 +210,15 @@
             h += renderArrInstances('Sonarr', sonarrInstances);
             h += '</div></div>';
 
-            h += '<div style="margin-top:2em;"><button class="refresh-btn" id="btnSaveSettings">' + T('saveSettings', 'Save Settings') + '</button></div>';
+            h += '<div style="margin-top:2em;"><button class="action-btn" id="btnSaveSettings">' + T('saveSettings', 'Save Settings') + '</button></div>';
             h += '<div id="settingsMsg" style="margin-top:0.5em;"></div>';
 
             // --- Backup Section ---
             h += '<div class="section-title">💾 ' + T('settingsBackupTitle', 'Backup & Restore') + '</div>';
             h += '<div class="help-text">' + T('settingsBackupHelp', 'Export your settings, Arr integrations, and trend data for backup. Import to restore on a fresh installation.') + '</div>';
             h += '<div style="display:flex;gap:0.8em;flex-wrap:wrap;margin:1em 0;">';
-            h += '<button class="refresh-btn" id="btnBackupExport" style="flex:1;min-width:0;padding:0.5em 1.2em;text-align:center;justify-content:center;">📥 ' + T('backupExport', 'Export Backup') + '</button>';
-            h += '<label class="refresh-btn" id="btnBackupImportLabel" style="flex:1;min-width:0;padding:0.5em 1.2em;cursor:pointer;margin:0;text-align:center;justify-content:center;">📤 ' + T('backupImport', 'Import Backup') + '<input type="file" id="btnBackupImportFile" accept=".json,application/json" style="display:none;"></label>';
+            h += '<button class="action-btn" id="btnBackupExport" style="flex:1;min-width:0;padding:0.5em 1.2em;text-align:center;justify-content:center;">📥 ' + T('backupExport', 'Export Backup') + '</button>';
+            h += '<label class="action-btn" id="btnBackupImportLabel" style="flex:1;min-width:0;padding:0.5em 1.2em;cursor:pointer;margin:0;text-align:center;justify-content:center;">📤 ' + T('backupImport', 'Import Backup') + '<input type="file" id="btnBackupImportFile" accept=".json,application/json" style="display:none;"></label>';
             h += '</div>';
             h += '<div id="backupMsg" style="margin-top:0.5em;"></div>';
             form.innerHTML = h;
@@ -230,6 +228,7 @@
             attachAddHandlers();
             attachBackupHandlers();
             attachSeerrHandlers();
+            attachAutoSaveHandlers();
 
             initArrButtons(cfg);
 
@@ -269,9 +268,19 @@
         };
     }
 
-    function doSaveSettings(payload) {
+    /**
+     * Save settings to the server.
+     * @param {Object} payload - The settings payload from buildSettingsPayload().
+     * @param {Object} [options] - Optional. { quiet: true, element: HTMLElement } for auto-save (no button animation, shows ✔/✘ indicator instead).
+     */
+    function doSaveSettings(payload, options) {
+        var quiet = options && options.quiet;
+        var indicatorEl = options && options.element;
         var btn = document.getElementById('btnSaveSettings');
-        btn.innerHTML = '<span class="btn-spinner"></span>' + T('savingSettings', 'Saving Settings...');
+
+        if (!quiet) {
+            btn.innerHTML = '<span class="btn-spinner"></span>' + T('savingSettings', 'Saving Settings...');
+        }
 
         var apiClient = ApiClient;
         apiClient.ajax({
@@ -280,30 +289,26 @@
         }).then(function () {
             var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled;
             _wasTrashEnabled = payload.UseTrash;
-            var newLang = payload.Language;
-            var langChanged = newLang !== _currentLang;
-            if (langChanged || trashChanged) {
-                _currentLang = newLang;
-                btn.disabled = false;
-                if (langChanged) {
-                    loadTranslations(function () {
-                        rebuildUI();
-                    });
-                } else {
-                    rebuildUI();
-                }
-            }
+            _currentLang = payload.Language;
 
             // Update snapshot after successful save
             takeSettingsSnapshot();
 
-            btn.innerHTML = '<div style="display: flex; align-items: center"><span class="btn-icon">✔</span>' + T('settingsSaved', 'Settings saved!') + '</div>';
-            btn.classList.add('success');
-            btn.disabled = false;
-            setTimeout(function() {
-                btn.innerHTML = T('saveSettings', 'Save Settings');
-                btn.classList.remove('success');
-            }, 3000);
+            if (trashChanged) {
+                rebuildUI();
+            }
+
+            if (quiet) {
+                showAutoSaveIndicator(indicatorEl, true);
+            } else {
+                btn.innerHTML = '<div style="display: flex; align-items: center"><span class="btn-icon">✔</span>' + T('settingsSaved', 'Settings saved!') + '</div>';
+                btn.classList.add('success');
+                btn.disabled = false;
+                setTimeout(function() {
+                    btn.innerHTML = T('saveSettings', 'Save Settings');
+                    btn.classList.remove('success');
+                }, 3000);
+            }
 
             initArrButtons(payload);
             var arrResult = document.getElementById('arrResult');
@@ -311,14 +316,22 @@
 
             // Sync Seerr greyed-out state after save (URL/Key may have been cleared)
             updateSeerrUIState(!!(payload.SeerrUrl && payload.SeerrApiKey));
+
+            if (options && typeof options.onSuccess === 'function') {
+                options.onSuccess();
+            }
         }, function () {
-            btn.disabled = false;
-            btn.innerHTML = '<div style="display: flex; align-items: center"><span class="btn-icon">X</span>' + T('settingsError', 'Failed to save settings.') + '</div>';
-            btn.classList.add('error');
-            setTimeout(function() {
-                btn.innerHTML = T('saveSettings', 'Save Settings');
-                btn.classList.remove('error');
-            }, 5000);
+            if (quiet) {
+                showAutoSaveIndicator(indicatorEl, false);
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = '<div style="display: flex; align-items: center"><span class="btn-icon">X</span>' + T('settingsError', 'Failed to save settings.') + '</div>';
+                btn.classList.add('error');
+                setTimeout(function() {
+                    btn.innerHTML = T('saveSettings', 'Save Settings');
+                    btn.classList.remove('error');
+                }, 5000);
+            }
         });
     }
 
@@ -356,11 +369,11 @@
     }
 
     // Creates a styled dialog button.
-    // style: 'cancel' (transparent), 'danger' (#e74c3c), 'success' (#2ecc71), 'warning' (#e67e22)
+    // style: 'cancel' (transparent), 'danger' (#e74c3c), 'success' (#2ecc71), 'warning' (#00a4dc)
     function createDialogBtn(text, style, onclick) {
         var btn = document.createElement('button');
         btn.textContent = text;
-        var bg = style === 'cancel' ? 'transparent' : style === 'danger' ? '#e74c3c' : style === 'success' ? '#2ecc71' : '#e67e22';
+        var bg = style === 'cancel' ? 'transparent' : style === 'danger' ? '#e74c3c' : style === 'success' ? '#2ecc71' : '#00a4dc';
         var border = style === 'cancel' ? '1px solid rgba(255,255,255,0.2)' : 'none';
         btn.style.cssText = 'padding:0.5em 1.2em;border:' + border + ';border-radius:4px;background:' + bg + ';color:#fff;cursor:pointer;font-size:0.9em;';
         btn.onclick = onclick;
@@ -537,7 +550,7 @@
             + '<p><strong>' + T('backupImportConfirmFile', 'File') + ':</strong> ' + escHtml(file.name) + ' (' + formatBytes(file.size) + ')</p>'
             + '<p style="color:#e74c3c;">' + T('backupImportConfirmWarn', 'This action cannot be undone!') + '</p>';
 
-        var d = createDialogOverlay('backupDialogOverlay', '📤 ' + T('backupImportConfirmTitle', 'Import Backup'), '#e67e22', bodyHtml, true);
+        var d = createDialogOverlay('backupDialogOverlay', '📤 ' + T('backupImportConfirmTitle', 'Import Backup'), '#00a4dc', bodyHtml, true);
 
         d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () { removeBackupDialog(); }));
         d.btnRow.appendChild(createDialogBtn('📤 ' + T('backupImportConfirmOk', 'Yes, Import'), 'warning', function () {
@@ -602,6 +615,9 @@
                 msg.innerHTML = '<div class="success-msg">' + successMsg + '</div>';
 
                 // Reload settings to reflect restored configuration (including possibly changed language)
+                var scrollContainer = document.querySelector('.mainAnimatedPage') || document.documentElement;
+                var savedScroll = scrollContainer.scrollTop;
+
                 setTimeout(function () {
                     ApiClient.ajax({
                         type: 'GET',
@@ -613,6 +629,7 @@
                             rebuildUI();
                             var settingsBtn = document.querySelector('.tab-btn[data-tab="settings"]');
                             if (settingsBtn) settingsBtn.click();
+                            setTimeout(function () { scrollContainer.scrollTop = savedScroll; }, 50);
                         });
                     }, function () {
                         // Config load failed — reload with current language
@@ -620,6 +637,7 @@
                             rebuildUI();
                             var settingsBtn = document.querySelector('.tab-btn[data-tab="settings"]');
                             if (settingsBtn) settingsBtn.click();
+                            setTimeout(function () { scrollContainer.scrollTop = savedScroll; }, 50);
                         });
                     });
                 }, 1500);
@@ -643,16 +661,26 @@
     function attachSeerrHandlers() {
         var btn = document.getElementById('btnTestSeerr');
         if (!btn) return;
+        var _seerrTimer = null;
         btn.addEventListener('click', function () {
             var url = (document.getElementById('cfgSeerrUrl') || {}).value || '';
             var key = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
-            var span = document.getElementById('seerrTestResult');
+            var originalHtml = '🔌 ' + T('testConnection', 'Test Connection');
+
+            if (_seerrTimer) { clearTimeout(_seerrTimer); _seerrTimer = null; }
+
             if (!url || !key) {
-                if (span) span.innerHTML = '<span style="color:#e74c3c;">⚠️ ' + T('seerrFillFields', 'Please fill in URL and API Key first.') + '</span>';
+                btn.innerHTML = '<span class="btn-icon">X</span>' + T('seerrFillFields', 'Please fill in URL and API Key first.');
+                btn.classList.add('error');
+                _seerrTimer = setTimeout(function () {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('error');
+                    _seerrTimer = null;
+                }, 3000);
                 return;
             }
             btn.disabled = true;
-            if (span) span.innerHTML = '<span class="btn-spinner" style="display:inline-block;width:14px;height:14px;"></span>';
+            btn.innerHTML = '<span class="btn-spinner"></span>' + T('testing', 'Testing…');
             var apiClient = ApiClient;
             apiClient.ajax({
                 type: 'POST',
@@ -663,20 +691,84 @@
             }).then(function (res) {
                 btn.disabled = false;
                 if (res && res.success) {
-                    if (span) span.innerHTML = '<span style="color:#2ecc71;">✅ ' + escHtml(res.message || 'OK') + '</span>';
+                    btn.innerHTML = '<span class="btn-icon">✔</span>' + escHtml(res.message || 'OK');
+                    btn.classList.add('success');
                     // Auto-save settings after successful connection test
                     var payload = buildSettingsPayload();
                     doSaveSettings(payload);
                     // Enable previously greyed-out Seerr UI sections
                     updateSeerrUIState(true);
+                    _seerrTimer = setTimeout(function () {
+                        btn.innerHTML = originalHtml;
+                        btn.classList.remove('success');
+                        _seerrTimer = null;
+                    }, 3000);
                 } else {
-                    if (span) span.innerHTML = '<span style="color:#e74c3c;">❌ ' + escHtml(res.message || 'Failed') + '</span>';
+                    btn.innerHTML = '<span class="btn-icon">X</span>' + escHtml(res.message || 'Failed');
+                    btn.classList.add('error');
+                    _seerrTimer = setTimeout(function () {
+                        btn.innerHTML = originalHtml;
+                        btn.classList.remove('error');
+                        _seerrTimer = null;
+                    }, 5000);
                 }
             }, function () {
                 btn.disabled = false;
-                if (span) span.innerHTML = '<span style="color:#e74c3c;">❌ ' + T('connectionFailed', 'Connection failed.') + '</span>';
+                btn.innerHTML = '<span class="btn-icon">X</span>' + T('connectionFailed', 'Connection failed.');
+                btn.classList.add('error');
+                _seerrTimer = setTimeout(function () {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('error');
+                    _seerrTimer = null;
+                }, 5000);
             });
         });
+    }
+
+    /**
+     * Attach auto-save change handlers to task-mode dropdowns and language select.
+     * Called after the settings form is rendered.
+     */
+    function attachAutoSaveHandlers() {
+        // Task mode dropdowns — auto-save on change
+        var taskModeIds = ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgSeerrMode'];
+        for (var i = 0; i < taskModeIds.length; i++) {
+            (function (id) {
+                var el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener('change', function () {
+                    doSaveSettings(buildSettingsPayload(), { quiet: true, element: el });
+                });
+            })(taskModeIds[i]);
+        }
+
+        // Language dropdown — auto-save + UI rebuild with scroll restore
+        var langEl = document.getElementById('cfgLang');
+        if (langEl) {
+            langEl.addEventListener('change', function () {
+                var newLang = langEl.value;
+                var scrollContainer = document.querySelector('.mainAnimatedPage') || document.documentElement;
+                var savedScroll = scrollContainer.scrollTop;
+
+                doSaveSettings(buildSettingsPayload(), {
+                    quiet: true,
+                    element: langEl,
+                    onSuccess: function () {
+                        _currentLang = newLang;
+                        loadTranslations(function () {
+                            rebuildUI();
+                            // Restore scroll position after rebuild settles
+                            setTimeout(function () {
+                                scrollContainer.scrollTop = savedScroll;
+                                // Show indicator on the newly rendered language select
+                                var newLangEl = document.getElementById('cfgLang');
+                                if (newLangEl) showAutoSaveIndicator(newLangEl, true);
+                            }, 50);
+                        });
+                    }
+                });
+            });
+        }
     }
 
     function saveSettings() {
