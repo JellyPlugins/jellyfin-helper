@@ -54,6 +54,21 @@
         return result;
     }
 
+    function formatInstanceCount(count) {
+        if (count === 0) return '';
+        if (count === 1) return T('instanceCountSingular', '1 instance');
+        return T('instanceCountPlural', '{0} instances').replace('{0}', count);
+    }
+
+    function updateArrCollapsibleCount(type) {
+        var rows = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
+        var countEl = document.getElementById('arrCount' + type);
+        if (countEl) {
+            var text = formatInstanceCount(rows.length);
+            countEl.textContent = text ? '(' + text + ')' : '';
+        }
+    }
+
     function addArrInstance(type) {
         var rows = document.querySelectorAll('.arr-instance-row[data-type="' + type + '"]');
         if (rows.length >= MAX_ARR_INSTANCES) return;
@@ -69,6 +84,12 @@
             var btn = document.getElementById('btnAdd' + type);
             if (btn) btn.style.display = 'none';
         }
+        // Expand the collapsible section and update count
+        var collapsible = document.getElementById('arrCollapsible' + type);
+        if (collapsible && !collapsible.classList.contains('arr-expanded')) {
+            collapsible.classList.add('arr-expanded');
+        }
+        updateArrCollapsibleCount(type);
     }
 
     function removeArrInstance(type, index) {
@@ -110,6 +131,7 @@
         }
         var btn = document.getElementById('btnAdd' + type);
         if (btn && remaining.length < MAX_ARR_INSTANCES) btn.style.display = '';
+        updateArrCollapsibleCount(type);
     }
 
     function testArrConnection(type, index) {
