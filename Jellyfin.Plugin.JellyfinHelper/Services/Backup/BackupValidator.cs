@@ -314,17 +314,29 @@ public static class BackupValidator
             result.Warnings.Add($"Unknown timeline granularity '{timeline.Granularity}'. Will be accepted as-is.");
         }
 
-        // Check for negative cumulative sizes (sanity check)
+        // Check for negative cumulative sizes and file counts (sanity check)
+        var warnedNegativeSize = false;
+        var warnedNegativeCount = false;
         foreach (var point in timeline.DataPoints)
         {
-            if (point.CumulativeSize >= 0)
+            if (!warnedNegativeSize && point.CumulativeSize < 0)
             {
-                continue;
+                result.Warnings.Add(
+                    $"Timeline data point at {point.Date:O} has negative cumulative size ({point.CumulativeSize}).");
+                warnedNegativeSize = true;
             }
 
-            result.Warnings.Add(
-                $"Timeline data point at {point.Date:O} has negative cumulative size ({point.CumulativeSize}).");
-            break; // Only warn once
+            if (!warnedNegativeCount && point.CumulativeFileCount < 0)
+            {
+                result.Warnings.Add(
+                    $"Timeline data point at {point.Date:O} has negative cumulative file count ({point.CumulativeFileCount}).");
+                warnedNegativeCount = true;
+            }
+
+            if (warnedNegativeSize && warnedNegativeCount)
+            {
+                break;
+            }
         }
     }
 
@@ -348,6 +360,13 @@ public static class BackupValidator
             {
                 result.Warnings.Add(
                     $"Baseline directory '{TruncateForLog(kvp.Key)}' has negative size ({kvp.Value.Size}).");
+                break; // Only warn once
+            }
+
+            if (kvp.Value.Count < 0)
+            {
+                result.Warnings.Add(
+                    $"Baseline directory '{TruncateForLog(kvp.Key)}' has negative count ({kvp.Value.Count}).");
                 break; // Only warn once
             }
 

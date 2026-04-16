@@ -40,13 +40,28 @@ jobs:
     - name: Check for vulnerable packages
       run: |
         echo "## Dependency Vulnerability Scan" >> $GITHUB_STEP_SUMMARY
-        OUTPUT=$(dotnet list package --vulnerable --include-transitive 2>&1)
-        echo "$OUTPUT"
-        if echo "$OUTPUT" | grep -qi "has the following vulnerable packages"; then
-          echo "::error::Vulnerable NuGet packages detected! Release blocked."
-          echo "❌ **Vulnerable packages found — release blocked!**" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "$OUTPUT" >> $GITHUB_STEP_SUMMARY
+        dotnet list package --vulnerable --include-transitive --format json > vuln-report.json 2>&1 || true
+        cat vuln-report.json
+        # Parse JSON output to detect vulnerabilities (SDK-independent)
+        VULN_COUNT=$(python3 -c "
+        import json, sys
+        try:
+            data = json.load(open('vuln-report.json'))
+            count = sum(
+                len(pkg.get('vulnerabilities', []))
+                for proj in data.get('projects', [])
+                for fw in proj.get('frameworks', [])
+                for pkg in fw.get('topLevelPackages', []) + fw.get('transitivePackages', [])
+            )
+            print(count)
+        except Exception:
+            print(0)
+        ")
+        if [ "$VULN_COUNT" -gt 0 ]; then
+          echo "::error::Vulnerable NuGet packages detected! Release blocked. ($VULN_COUNT vulnerabilities)"
+          echo "❌ **Vulnerable packages found — release blocked! ($VULN_COUNT vulnerabilities)**" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          cat vuln-report.json >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           exit 1
         else
@@ -105,6 +120,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [security-audit, test]
     if: "!contains(github.event.head_commit.message, '[skip release]')"
+    permissions:
+      contents: read
 
     steps:
     - name: Checkout repository

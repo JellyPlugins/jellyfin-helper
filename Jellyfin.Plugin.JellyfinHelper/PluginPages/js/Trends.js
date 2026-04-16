@@ -520,6 +520,12 @@
             if (hideTimeoutId) { clearTimeout(hideTimeoutId); }
             hideTimeoutId = setTimeout(function () { hideTooltip(); hideTimeoutId = null; }, 1500);
         }, { passive: true });
+
+        svgEl.addEventListener('touchcancel', function () {
+            if (hideTimeoutId) { clearTimeout(hideTimeoutId); }
+            hideTooltip();
+            hideTimeoutId = null;
+        }, { passive: true });
     }
 
     function loadTrendData(forceRefresh) {

@@ -74,8 +74,10 @@ public static class BackupSanitizer
             return;
         }
 
-        var keysToRemove = backup.GrowthBaseline.Directories.Keys
+        var keysToRemove = backup.GrowthBaseline.Directories
+            .OrderBy(kvp => kvp.Key, StringComparer.Ordinal)
             .Skip(BackupValidator.MaxBaselineDirectories)
+            .Select(kvp => kvp.Key)
             .ToList();
         foreach (var key in keysToRemove)
         {

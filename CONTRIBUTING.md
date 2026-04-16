@@ -61,7 +61,6 @@ Then restart Jellyfin to load the plugin.
 
 ## 🏗️ Architecture Overview
 
-> 📐 **For detailed architecture diagrams** (layer overview, class diagrams, inheritance hierarchies, dependency graphs, sequence diagrams), see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
 ### Project Structure
 
@@ -261,9 +260,14 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/JellyfinHelper/Statistics` | GET | Full library scan (cached 5 min; `?forceRefresh=true` bypasses) |
-| `/JellyfinHelper/Statistics/Latest` | GET | Latest persisted scan result (no new scan) |
-| `/JellyfinHelper/Statistics/GrowthTimeline` | GET | Cumulative growth timeline with bucketing (`?granularity=daily\|weekly\|monthly\|quarterly\|yearly`) |
+| `/JellyfinHelper/MediaStatistics/ScanLibraries` | GET | Full library scan (cached 5 min; `?forceRefresh=true` bypasses) |
+| `/JellyfinHelper/MediaStatistics/Latest` | GET | Latest persisted scan result (no new scan) |
+
+### Growth Timeline
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/JellyfinHelper/GrowthTimeline` | GET | Cumulative growth timeline with bucketing (`?granularity=daily\|weekly\|monthly\|quarterly\|yearly`) |
 
 ### Configuration
 
@@ -272,14 +276,13 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 | `/JellyfinHelper/Configuration` | GET | Current plugin configuration |
 | `/JellyfinHelper/Configuration` | POST | Update plugin configuration |
 | `/JellyfinHelper/Configuration/LogLevel` | PUT | Update only the plugin log level (avoids race conditions with Settings tab) |
-| `/JellyfinHelper/Libraries` | GET | Available library names |
 | `/JellyfinHelper/Translations` | GET | UI translations for specified language (anonymous) |
 
 ### Cleanup
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/JellyfinHelper/Cleanup/Statistics` | GET | Accumulated cleanup statistics |
+| `/JellyfinHelper/CleanupStatistics` | GET | Accumulated cleanup statistics |
 | `/JellyfinHelper/Trash/Summary` | GET | Trash folder summary across libraries |
 | `/JellyfinHelper/Trash/Contents` | GET | Detailed trash contents (name, size, dates) |
 | `/JellyfinHelper/Trash/Folders` | GET | List existing trash folder paths |
@@ -289,9 +292,9 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/JellyfinHelper/Arr/TestConnection` | POST | Test Radarr/Sonarr connection |
-| `/JellyfinHelper/Arr/Radarr/Compare` | GET | Compare movies (`?index=N` for specific instance) |
-| `/JellyfinHelper/Arr/Sonarr/Compare` | GET | Compare TV shows (`?index=N` for specific instance) |
+| `/JellyfinHelper/ArrIntegration/TestConnection` | POST | Test Radarr/Sonarr connection |
+| `/JellyfinHelper/ArrIntegration/Compare/Radarr` | GET | Compare movies (`?index=N` for specific instance) |
+| `/JellyfinHelper/ArrIntegration/Compare/Sonarr` | GET | Compare TV shows (`?index=N` for specific instance) |
 
 ### Logs
 

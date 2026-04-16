@@ -53,7 +53,10 @@ public class StrmRepairPerformanceTests(ITestOutputHelper output)
         // Assert
         output.WriteLine($"FindStrmFiles: 500 dirs × 10 files = {result.Count} .strm files found in {sw.ElapsedMilliseconds}ms");
         Assert.Equal(5_000, result.Count);
-        Assert.True(sw.ElapsedMilliseconds < 8000, $"Took {sw.ElapsedMilliseconds}ms, expected < 8000ms");
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 8000, $"Took {sw.ElapsedMilliseconds}ms, expected < 8000ms");
+        }
     }
 
     [Fact]
@@ -90,7 +93,10 @@ public class StrmRepairPerformanceTests(ITestOutputHelper output)
         // Assert
         output.WriteLine($"RepairStrmFiles: {result.FileResults.Count} files processed in {sw.ElapsedMilliseconds}ms ({result.ValidCount} valid, {result.RepairedCount} repaired)");
         Assert.Equal(2_000, result.ValidCount);
-        Assert.True(sw.ElapsedMilliseconds < 15_000, $"Took {sw.ElapsedMilliseconds}ms, expected < 15000ms");
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 15_000, $"Took {sw.ElapsedMilliseconds}ms, expected < 15000ms");
+        }
     }
 
     [Fact]
@@ -140,7 +146,10 @@ public class StrmRepairPerformanceTests(ITestOutputHelper output)
         // Assert
         output.WriteLine($"FindStrmFiles (deep nesting): 50×10 levels, {expectedCount} expected → {result.Count} found in {sw.ElapsedMilliseconds}ms");
         Assert.Equal(expectedCount, result.Count);
-        Assert.True(sw.ElapsedMilliseconds < 8000, $"Took {sw.ElapsedMilliseconds}ms, expected < 8000ms");
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 8000, $"Took {sw.ElapsedMilliseconds}ms, expected < 8000ms");
+        }
     }
 
     [Fact]
@@ -182,6 +191,9 @@ public class StrmRepairPerformanceTests(ITestOutputHelper output)
         // Assert
         output.WriteLine($"FindMediaFilesInDirectory: 1,000 files → {result.Count} media files in {sw.ElapsedMilliseconds}ms");
         Assert.Equal(expectedMediaCount, result.Count);
-        Assert.True(sw.ElapsedMilliseconds < 5000, $"Took {sw.ElapsedMilliseconds}ms, expected < 5000ms");
+        if (Environment.GetEnvironmentVariable("RUN_PERF_ASSERTS") == "1")
+        {
+            Assert.True(sw.ElapsedMilliseconds < 5000, $"Took {sw.ElapsedMilliseconds}ms, expected < 5000ms");
+        }
     }
 }

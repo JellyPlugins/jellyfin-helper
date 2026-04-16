@@ -8,7 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.0] — 2026-04-16
 
 ### Added
-- **ARCHITECTURE.md** — New comprehensive architecture documentation covering project structure, service layers, and design patterns.
 - **Trends UI Enhancements** — Improved CSS and JS for the Trends tab with better chart rendering and responsiveness.
 
 ### Changed
