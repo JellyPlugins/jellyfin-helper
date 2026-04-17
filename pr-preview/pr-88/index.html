@@ -192,6 +192,10 @@
         SonarrInstances: [
             { Name: "Sonarr", Url: "http://192.168.1.100:8989", ApiKey: "demo-key-abcd" }
         ],
+        SeerrUrl: "http://192.168.1.100:5055",
+        SeerrApiKey: "demo-seerr-key-xyz",
+        SeerrCleanupTaskMode: "DryRun",
+        SeerrCleanupAgeDays: 365,
         ConfigVersion: 3
     };
 
@@ -377,6 +381,8 @@
                         resolve(MOCK_TRASH_FOLDERS);
                     } else if (url.indexOf('Trash/Summary') !== -1) {
                         resolve({ TotalSize: 17179869184, TotalItems: 3 });
+                    } else if (url.indexOf('Seerr/Test') !== -1) {
+                        resolve({ success: true, message: "Connected to Jellyseerr (demo)" });
                     } else if (url.indexOf('ArrIntegration/TestConnection') !== -1) {
                         resolve({ Success: true, Message: "Connection successful (demo)" });
                     } else if (url.indexOf('ArrIntegration/Compare/') !== -1) {
