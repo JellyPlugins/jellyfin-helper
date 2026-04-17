@@ -176,7 +176,7 @@ function loadSettings() {
         h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
 
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
-            var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');this.setAttribute(\'aria-expanded\',p.classList.contains(\'arr-expanded\'))">';
+            var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');this.setAttribute(\'aria-expanded\',p.classList.contains(\'arr-expanded\')? \'true\':\'false\')">';
             arrCollapseButton += '<span class="arr-chevron">▶</span>' + icon + '<span>' + text + '</span><span class="arr-instance-count" id="arrCount' + type + '">' + countText + '</span>';
             arrCollapseButton += '<span class="help-text">' + T('clickToExpand', 'click to expand') + '</span>';
             arrCollapseButton += '</button>';
