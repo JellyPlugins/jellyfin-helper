@@ -316,7 +316,7 @@ public class BackupService : IBackupService
             return fallback;
         }
 
-        if (Enum.TryParse<TaskMode>(value, true, out var mode))
+        if (Enum.TryParse<TaskMode>(value, true, out var mode) && Enum.IsDefined(mode))
         {
             return mode;
         }

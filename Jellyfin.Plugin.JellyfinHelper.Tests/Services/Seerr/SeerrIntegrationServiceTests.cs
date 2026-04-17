@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -22,14 +23,16 @@ public class SeerrIntegrationServiceTests : IDisposable
 
     private SeerrIntegrationService CreateService(
         HttpMessageHandler handler,
-        out Mock<ILogger<SeerrIntegrationService>> loggerMock)
+        out Mock<ILogger<SeerrIntegrationService>> loggerMock,
+        out Mock<IPluginLogService> pluginLogMock)
     {
         loggerMock = new Mock<ILogger<SeerrIntegrationService>>();
+        pluginLogMock = new Mock<IPluginLogService>();
         var httpClient = new HttpClient(handler, disposeHandler: false);
         _trackedClients.Add(httpClient);
         var factoryMock = new Mock<IHttpClientFactory>();
         factoryMock.Setup(f => f.CreateClient("SeerrIntegration")).Returns(httpClient);
-        return new SeerrIntegrationService(factoryMock.Object, loggerMock.Object);
+        return new SeerrIntegrationService(factoryMock.Object, pluginLogMock.Object, loggerMock.Object);
     }
 
     private HttpResponseMessage CreateResponse(HttpStatusCode statusCode, string content)
@@ -96,6 +99,12 @@ public class SeerrIntegrationServiceTests : IDisposable
         });
     }
 
+    private static string MakeMovieDetails(string title) =>
+        JsonSerializer.Serialize(new { title, name = (string?)null });
+
+    private static string MakeTvDetails(string name) =>
+        JsonSerializer.Serialize(new { title = (string?)null, name });
+
     /// <inheritdoc />
     public void Dispose()
     {
@@ -119,7 +128,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             HttpStatusCode.OK,
             "{\"applicationTitle\":\"My Jellyseerr\"}");
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
         var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
 
         Assert.True(success);
@@ -133,7 +142,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             HttpStatusCode.OK,
             "{\"applicationTitle\":\"\"}");
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
         var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
 
         Assert.True(success);
@@ -147,7 +156,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             HttpStatusCode.OK,
             "{}");
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
         var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
 
         Assert.True(success);
@@ -159,7 +168,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     {
         var handler = CreateMockHandler(HttpStatusCode.Unauthorized, "");
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
         var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
 
         Assert.False(success);
@@ -177,7 +186,7 @@ public class SeerrIntegrationServiceTests : IDisposable
                 ItExpr.IsAny<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Connection refused"));
 
-        var service = CreateService(mock.Object, out _);
+        var service = CreateService(mock.Object, out _, out _);
         var (success, message) = await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
 
         Assert.False(success);
@@ -200,7 +209,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             .Callback<HttpRequestMessage, CancellationToken>((req, _) => capturedRequest = req)
             .ReturnsAsync(response);
 
-        var service = CreateService(mock.Object, out _);
+        var service = CreateService(mock.Object, out _, out _);
         await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
 
         Assert.NotNull(capturedRequest);
@@ -224,7 +233,7 @@ public class SeerrIntegrationServiceTests : IDisposable
             .Callback<HttpRequestMessage, CancellationToken>((req, _) => capturedRequest = req)
             .ReturnsAsync(response);
 
-        var service = CreateService(mock.Object, out _);
+        var service = CreateService(mock.Object, out _, out _);
         await service.TestConnectionAsync(BaseUrl, ApiKey, CancellationToken.None);
 
         Assert.NotNull(capturedRequest);
@@ -239,7 +248,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var emptyPage = MakeRequestPage([], 0);
         var handler = CreateMockHandler(HttpStatusCode.OK, emptyPage);
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
         var result = await service.CleanupExpiredRequestsAsync(
             BaseUrl, ApiKey, 365, false, CancellationToken.None);
 
@@ -262,7 +271,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var page = MakeRequestPage(requests, 3);
         var handler = CreateMockHandler(HttpStatusCode.OK, page);
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
         var result = await service.CleanupExpiredRequestsAsync(
             BaseUrl, ApiKey, 365, false, CancellationToken.None);
 
@@ -281,9 +290,14 @@ public class SeerrIntegrationServiceTests : IDisposable
             (3, DateTimeOffset.UtcNow.AddDays(-500))   // expired
         };
         var page = MakeRequestPage(requests, 3);
-        var handler = CreateMockHandler(HttpStatusCode.OK, page);
 
-        var service = CreateService(handler.Object, out var loggerMock);
+        // GET page → resolve title #1 → resolve title #3 (no deletes in dry run)
+        var handler = CreateSequenceHandler(
+            (HttpStatusCode.OK, page),
+            (HttpStatusCode.OK, MakeMovieDetails("Expired Movie 1")),
+            (HttpStatusCode.OK, MakeMovieDetails("Expired Movie 3")));
+
+        var service = CreateService(handler.Object, out _, out var pluginLogMock);
         var result = await service.CleanupExpiredRequestsAsync(
             BaseUrl, ApiKey, 365, true, CancellationToken.None);
 
@@ -292,14 +306,12 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Equal(0, result.Deleted);
         Assert.True(result.DryRun);
 
-        // Verify dry run logs
-        loggerMock.Verify(
-            x => x.Log(
-                LogLevel.Information,
-                It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("[Dry Run]")),
-                It.IsAny<Exception>(),
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+        // Verify dry run logs go to plugin log
+        pluginLogMock.Verify(
+            x => x.LogInfo(
+                "SeerrCleanup",
+                It.Is<string>(s => s.Contains("[Dry Run]")),
+                It.IsAny<ILogger>()),
             Times.Exactly(2));
     }
 
@@ -313,12 +325,13 @@ public class SeerrIntegrationServiceTests : IDisposable
         };
         var page = MakeRequestPage(requests, 2);
 
-        // First call: GET requests; Second call: DELETE request #1
+        // GET requests → resolve title → DELETE
         var handler = CreateSequenceHandler(
             (HttpStatusCode.OK, page),
+            (HttpStatusCode.OK, MakeMovieDetails("The Matrix")),
             (HttpStatusCode.NoContent, ""));
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
         var result = await service.CleanupExpiredRequestsAsync(
             BaseUrl, ApiKey, 365, false, CancellationToken.None);
 
@@ -340,9 +353,10 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         var handler = CreateSequenceHandler(
             (HttpStatusCode.OK, page),
+            (HttpStatusCode.OK, MakeMovieDetails("Broken Movie")),
             (HttpStatusCode.InternalServerError, ""));
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
         var result = await service.CleanupExpiredRequestsAsync(
             BaseUrl, ApiKey, 365, false, CancellationToken.None);
 
@@ -365,7 +379,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             service.CleanupExpiredRequestsAsync(BaseUrl, ApiKey, 365, false, cts.Token));
@@ -382,7 +396,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var page = MakeRequestPage(requests, 1);
         var handler = CreateMockHandler(HttpStatusCode.OK, page);
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
         var result = await service.CleanupExpiredRequestsAsync(
             BaseUrl, ApiKey, 365, false, CancellationToken.None);
 
@@ -401,9 +415,10 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         var handler = CreateSequenceHandler(
             (HttpStatusCode.OK, page),
+            (HttpStatusCode.OK, MakeMovieDetails("Old Movie")),
             (HttpStatusCode.NoContent, ""));
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
         var result = await service.CleanupExpiredRequestsAsync(
             BaseUrl, ApiKey, 365, false, CancellationToken.None);
 
@@ -424,10 +439,12 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         var handler = CreateSequenceHandler(
             (HttpStatusCode.OK, page),
+            (HttpStatusCode.OK, MakeMovieDetails("Movie 1")),
             (HttpStatusCode.NoContent, ""),
+            (HttpStatusCode.OK, MakeMovieDetails("Movie 2")),
             (HttpStatusCode.NoContent, ""));
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
         var result = await service.CleanupExpiredRequestsAsync(
             BaseUrl, ApiKey, 0, false, CancellationToken.None);
 
@@ -446,7 +463,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         });
         var handler = CreateMockHandler(HttpStatusCode.OK, json);
 
-        var service = CreateService(handler.Object, out _);
+        var service = CreateService(handler.Object, out _, out _);
         var result = await service.CleanupExpiredRequestsAsync(
             BaseUrl, ApiKey, 365, false, CancellationToken.None);
 
@@ -476,21 +493,19 @@ public class SeerrIntegrationServiceTests : IDisposable
             (HttpStatusCode.OK, json),
             (HttpStatusCode.NoContent, ""));
 
-        var service = CreateService(handler.Object, out var loggerMock);
+        var service = CreateService(handler.Object, out _, out var pluginLogMock);
         var result = await service.CleanupExpiredRequestsAsync(
             BaseUrl, ApiKey, 365, true, CancellationToken.None);
 
         Assert.Equal(1, result.TotalChecked);
         Assert.Equal(1, result.ExpiredFound);
 
-        // Verify fallback log message
-        loggerMock.Verify(
-            x => x.Log(
-                LogLevel.Information,
-                It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("request #42")),
-                It.IsAny<Exception>(),
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+        // Verify fallback log message goes to plugin log
+        pluginLogMock.Verify(
+            x => x.LogInfo(
+                "SeerrCleanup",
+                It.Is<string>(s => s.Contains("request #42")),
+                It.IsAny<ILogger>()),
             Times.AtLeastOnce);
     }
 
@@ -587,5 +602,85 @@ public class SeerrIntegrationServiceTests : IDisposable
     public void PageSize_Is50()
     {
         Assert.Equal(50, SeerrIntegrationService.PageSize);
+    }
+
+    // ===== Title Resolution in Cleanup Logs =====
+
+    [Fact]
+    public async Task Cleanup_DryRun_LogsResolvedTitle()
+    {
+        var requests = new List<(int, DateTimeOffset)>
+        {
+            (1, DateTimeOffset.UtcNow.AddDays(-400))
+        };
+        var page = MakeRequestPage(requests, 1);
+
+        // GET requests → resolve title (movie detail)
+        var handler = CreateSequenceHandler(
+            (HttpStatusCode.OK, page),
+            (HttpStatusCode.OK, MakeMovieDetails("Inception")));
+
+        var service = CreateService(handler.Object, out _, out var pluginLogMock);
+        await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 365, true, CancellationToken.None);
+
+        pluginLogMock.Verify(
+            x => x.LogInfo(
+                "SeerrCleanup",
+                It.Is<string>(s => s.Contains("\"Inception\"") && s.Contains("[Dry Run]")),
+                It.IsAny<ILogger>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Cleanup_ActiveMode_LogsResolvedTitle()
+    {
+        var requests = new List<(int, DateTimeOffset)>
+        {
+            (1, DateTimeOffset.UtcNow.AddDays(-400))
+        };
+        var page = MakeRequestPage(requests, 1);
+
+        var handler = CreateSequenceHandler(
+            (HttpStatusCode.OK, page),
+            (HttpStatusCode.OK, MakeMovieDetails("Interstellar")),
+            (HttpStatusCode.NoContent, ""));
+
+        var service = CreateService(handler.Object, out _, out var pluginLogMock);
+        await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+
+        pluginLogMock.Verify(
+            x => x.LogInfo(
+                "SeerrCleanup",
+                It.Is<string>(s => s.Contains("\"Interstellar\"") && s.Contains("Deleted")),
+                It.IsAny<ILogger>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Cleanup_TitleResolutionFails_FallsBackToUnknown()
+    {
+        var requests = new List<(int, DateTimeOffset)>
+        {
+            (1, DateTimeOffset.UtcNow.AddDays(-400))
+        };
+        var page = MakeRequestPage(requests, 1);
+
+        // GET requests → title resolution returns 404
+        var handler = CreateSequenceHandler(
+            (HttpStatusCode.OK, page),
+            (HttpStatusCode.NotFound, ""));
+
+        var service = CreateService(handler.Object, out _, out var pluginLogMock);
+        await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 365, true, CancellationToken.None);
+
+        pluginLogMock.Verify(
+            x => x.LogInfo(
+                "SeerrCleanup",
+                It.Is<string>(s => s.Contains("\"Unknown\"") && s.Contains("[Dry Run]")),
+                It.IsAny<ILogger>()),
+            Times.Once);
     }
 }

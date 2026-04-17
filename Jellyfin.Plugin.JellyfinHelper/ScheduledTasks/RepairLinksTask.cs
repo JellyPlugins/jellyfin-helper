@@ -53,21 +53,24 @@ public class RepairLinksTask
     {
         var dryRun = _configHelper.IsDryRunLinkRepair();
 
-        _pluginLog.LogInfo("LinkRepair", "Task started.", _logger);
+        _pluginLog.LogInfo(
+            "LinkRepair",
+            dryRun ? "Task started (Dry Run). No links will be modified." : "Task started.",
+            _logger);
         progress.Report(0);
 
         var libraryPaths = _configHelper.GetFilteredLibraryLocations(_libraryManager);
 
         if (libraryPaths.Count == 0)
         {
-            _pluginLog.LogWarning("LinkRepair", "No library paths configured for link repair", logger: _logger);
+            _pluginLog.LogWarning("LinkRepair", "No library paths configured for link repair.", logger: _logger);
             progress.Report(100);
             return Task.CompletedTask;
         }
 
         _pluginLog.LogInfo(
             "LinkRepair",
-            $"Running link repair (DryRun: {dryRun}) on {libraryPaths.Count} library paths",
+            $"Scanning {libraryPaths.Count} library paths...",
             _logger);
 
         progress.Report(10);
@@ -80,7 +83,9 @@ public class RepairLinksTask
 
         _pluginLog.LogInfo(
             "LinkRepair",
-            $"Task finished. Valid: {result.ValidCount}, Repaired: {result.RepairedCount}, Broken: {result.BrokenCount}, Ambiguous: {result.AmbiguousCount}, Invalid: {result.InvalidContentCount}",
+            dryRun
+                ? $"Task finished (Dry Run). Valid: {result.ValidCount}, Would repair: {result.RepairedCount}, Broken: {result.BrokenCount}, Ambiguous: {result.AmbiguousCount}, Invalid: {result.InvalidContentCount}"
+                : $"Task finished. Valid: {result.ValidCount}, Repaired: {result.RepairedCount}, Broken: {result.BrokenCount}, Ambiguous: {result.AmbiguousCount}, Invalid: {result.InvalidContentCount}",
             _logger);
 
         progress.Report(100);

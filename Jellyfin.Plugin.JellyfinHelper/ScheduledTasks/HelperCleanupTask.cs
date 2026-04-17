@@ -333,7 +333,11 @@ public class HelperCleanupTask : IScheduledTask
         }
 
         var dryRun = config.SeerrCleanupTaskMode == TaskMode.DryRun;
-        var modeLabel = dryRun ? "Dry Run" : "Active";
+
+        _pluginLog.LogInfo(
+            "SeerrCleanup",
+            dryRun ? "Task started (Dry Run). No requests will be deleted." : "Task started.",
+            _logger);
 
         _pluginLog.LogInfo(
             "SeerrCleanup",
@@ -349,7 +353,9 @@ public class HelperCleanupTask : IScheduledTask
 
         _pluginLog.LogInfo(
             "SeerrCleanup",
-            $"Finished Seerr Cleanup. Mode: {modeLabel}, Checked: {result.TotalChecked}, Expired: {result.ExpiredFound}, Deleted: {result.Deleted}, Failed: {result.Failed}",
+            dryRun
+                ? $"Task finished (Dry Run). Checked: {result.TotalChecked}, Expired: {result.ExpiredFound}, Would delete: {result.ExpiredFound}"
+                : $"Task finished. Checked: {result.TotalChecked}, Expired: {result.ExpiredFound}, Deleted: {result.Deleted}, Failed: {result.Failed}",
             _logger);
 
         progress.Report(100);

@@ -81,7 +81,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── LogLevelUpdateRequest.cs       # Request DTO for log level updates
 │   ├── LogsController.cs             # Log viewer endpoints
 │   ├── MediaStatisticsController.cs   # Statistics & library scan endpoints (with caching)
-│   ├── SeerrCleanupController.cs      # Seerr cleanup API endpoints
+│   ├── SeerrController.cs             # Seerr integration API endpoints (connection test)
+│   ├── SeerrTestRequest.cs            # Request DTO for Seerr connection tests
 │   ├── TranslationsController.cs      # UI translation endpoint (anonymous access)
 │   └── TrashController.cs            # Trash management endpoints
 ├── Configuration/
@@ -132,12 +133,15 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── MediaStatisticsResult.cs
 │   │   └── LibraryStatistics.cs
 │   ├── Seerr/                         # Overseerr/Jellyseerr integration
-│   │   ├── ISeerrService.cs
-│   │   ├── SeerrService.cs           # HTTP client for Seerr API communication
-│   │   ├── ISeerrCleanupService.cs
-│   │   ├── SeerrCleanupService.cs    # Cleanup logic for unavailable media requests
-│   │   ├── SeerrMedia.cs             # Media request DTO
-│   │   └── SeerrMediaResponse.cs     # API response DTO
+│   │   ├── ISeerrIntegrationService.cs
+│   │   ├── SeerrIntegrationService.cs # HTTP client for Seerr API communication & cleanup
+│   │   ├── SeerrCleanupResult.cs      # Cleanup result DTO
+│   │   ├── SeerrMainSettings.cs       # Seerr settings DTO
+│   │   ├── SeerrMedia.cs              # Media request DTO (mediaType, tmdbId, status)
+│   │   ├── SeerrMediaDetails.cs       # Movie/TV detail DTO with title resolution (DisplayTitle)
+│   │   ├── SeerrPageInfo.cs           # Pagination info DTO
+│   │   ├── SeerrRequest.cs            # Media request DTO
+│   │   └── SeerrRequestPage.cs        # Paged request response DTO
 │   ├── Link/                         # Link repair (.strm files & symlinks)
 │   │   ├── ILinkRepairService.cs
 │   │   ├── LinkRepairService.cs      # Orchestrates repair of broken .strm files & symlinks
@@ -163,8 +167,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── CleanTrickplayTask.cs
 │   ├── CleanEmptyMediaFoldersTask.cs
 │   ├── CleanOrphanedSubtitlesTask.cs
-│   ├── RepairLinksTask.cs
-│   └── SeerrCleanupTask.cs           # Scheduled Seerr media request cleanup
+│   └── RepairLinksTask.cs
 └── PluginPages/
     ├── configPage.template.html # HTML shell (build-time composition)
     ├── configPage.html          # Generated output (do not edit)
@@ -192,8 +195,7 @@ serviceCollection.AddSingleton<ILinkHandler, StrmLinkHandler>();
 serviceCollection.AddSingleton<ILinkHandler, SymlinkHandler>();
 serviceCollection.AddSingleton<ILinkRepairService, LinkRepairService>();
 serviceCollection.AddSingleton<IArrIntegrationService, ArrIntegrationService>();
-serviceCollection.AddSingleton<ISeerrService, SeerrService>();
-serviceCollection.AddSingleton<ISeerrCleanupService, SeerrCleanupService>();
+serviceCollection.AddSingleton<ISeerrIntegrationService, SeerrIntegrationService>();
 ```
 
 A named `HttpClient` (`"ArrIntegration"`) is configured with a 15-second timeout for Radarr/Sonarr API calls. A named `HttpClient` (`"SeerrIntegration"`) is configured for Overseerr/Jellyseerr API calls.
@@ -330,12 +332,11 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 | `/JellyfinHelper/Backup/Export` | GET | Export plugin configuration and historical data as JSON |
 | `/JellyfinHelper/Backup/Import` | POST | Import plugin configuration and historical data from JSON (validates → sanitizes → restores) |
 
-### Seerr Cleanup
+### Seerr Integration
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/JellyfinHelper/SeerrCleanup/Run` | POST | Trigger Seerr cleanup of unavailable media requests |
-| `/JellyfinHelper/SeerrCleanup/TestConnection` | POST | Test Overseerr/Jellyseerr connection |
+| `/JellyfinHelper/Seerr/Test` | POST | Test Overseerr/Jellyseerr connection |
 
 ---
 
@@ -409,6 +410,9 @@ Sub-tasks executed in order (each respecting its configured task mode):
 **Seerr Cleanup (Overseerr/Jellyseerr):**
 - Scheduled task that queries the Overseerr/Jellyseerr API for media requests
 - Automatically identifies and removes requests for unavailable media
+- Resolves human-readable media titles via Seerr movie/TV detail endpoints (`/api/v1/movie/{tmdbId}`, `/api/v1/tv/{tmdbId}`)
+- Dry Run logs include resolved titles: `[Dry Run] Would delete expired request #42 ("The Matrix" (movie, TMDB: 12345)), created ..., age 180 days`
+- Graceful fallback to "Unknown" if title resolution fails (HTTP errors, timeouts)
 - Configurable via Seerr URL and API key in the Settings tab
 - Connection test endpoint to validate settings before running
 
@@ -562,7 +566,6 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── ConfigurationRequestValidatorTests.cs
 │   ├── GrowthTimelineControllerTests.cs
 │   ├── LogsControllerTests.cs
-│   ├── SeerrCleanupControllerTests.cs
 │   ├── TranslationsControllerTests.cs
 │   └── TrashControllerTests.cs
 ├── Configuration/          # Config migration & serialization tests
@@ -582,8 +585,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── CleanTrickplayTaskTests.cs
 │   ├── CleanEmptyMediaFoldersTaskTests.cs
 │   ├── CleanOrphanedSubtitlesTaskTests.cs
-│   ├── HelperCleanupTaskTests.cs
-│   └── SeerrCleanupTaskTests.cs
+│   └── HelperCleanupTaskTests.cs
 └── Services/               # Service logic tests (use TestMockFactory & TestDataGenerator)
     ├── FileSystemHelperTests.cs
     ├── I18nServiceTests.cs
@@ -615,8 +617,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
     │   ├── StrmLinkHandlerTests.cs
     │   └── SymlinkHandlerTests.cs
     ├── Seerr/
-    │   ├── SeerrCleanupServiceTests.cs
-    │   └── SeerrServiceTests.cs
+    │   ├── SeerrIntegrationServiceTests.cs
+    │   └── SeerrMediaDetailsTests.cs
     └── Timeline/
         ├── GrowthTimelineModelTests.cs
         ├── GrowthTimelineServiceTests.cs

@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
@@ -24,17 +25,21 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<SeerrIntegrationService> _logger;
+    private readonly IPluginLogService _pluginLog;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="SeerrIntegrationService" /> class.
     /// </summary>
     /// <param name="httpClientFactory">The HTTP client factory for creating named HTTP clients.</param>
+    /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger.</param>
     public SeerrIntegrationService(
         IHttpClientFactory httpClientFactory,
+        IPluginLogService pluginLog,
         ILogger<SeerrIntegrationService> logger)
     {
         _httpClientFactory = httpClientFactory;
+        _pluginLog = pluginLog;
         _logger = logger;
     }
 
@@ -141,18 +146,19 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            var mediaTitle = await ResolveMediaTitleAsync(client, request.Media, cancellationToken).ConfigureAwait(false);
             var mediaInfo = request.Media != null
-                ? $"{request.Media.MediaType} (TMDB: {request.Media.TmdbId})"
+                ? $"\"{mediaTitle}\" ({request.Media.MediaType}, TMDB: {request.Media.TmdbId})"
                 : $"request #{request.Id}";
+
+            var ageDays = (DateTimeOffset.UtcNow - request.CreatedAt).Days;
 
             if (dryRun)
             {
-                _logger.LogInformation(
-                    "[Dry Run] Would delete expired Seerr request #{Id} ({Media}), created {CreatedAt:O}, age {Age} days",
-                    request.Id,
-                    mediaInfo,
-                    request.CreatedAt,
-                    (DateTimeOffset.UtcNow - request.CreatedAt).Days);
+                _pluginLog.LogInfo(
+                    "SeerrCleanup",
+                    $"[Dry Run] Would delete expired request #{request.Id} ({mediaInfo}), created {request.CreatedAt:O}, age {ageDays} days",
+                    _logger);
             }
             else
             {
@@ -165,40 +171,89 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                     if (deleteResponse.IsSuccessStatusCode)
                     {
                         result.Deleted++;
-                        _logger.LogInformation(
-                            "Deleted expired Seerr request #{Id} ({Media}), created {CreatedAt:O}, age {Age} days",
-                            request.Id,
-                            mediaInfo,
-                            request.CreatedAt,
-                            (DateTimeOffset.UtcNow - request.CreatedAt).Days);
+                        _pluginLog.LogInfo(
+                            "SeerrCleanup",
+                            $"Deleted expired request #{request.Id} ({mediaInfo}), created {request.CreatedAt:O}, age {ageDays} days",
+                            _logger);
                     }
                     else
                     {
                         result.Failed++;
-                        _logger.LogWarning(
-                            "Failed to delete Seerr request #{Id}: HTTP {StatusCode}",
-                            request.Id,
-                            (int)deleteResponse.StatusCode);
+                        _pluginLog.LogWarning(
+                            "SeerrCleanup",
+                            $"Failed to delete request #{request.Id}: HTTP {(int)deleteResponse.StatusCode}",
+                            logger: _logger);
                     }
                 }
                 catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
                 {
                     result.Failed++;
-                    _logger.LogWarning(ex, "Failed to delete Seerr request #{Id}: timeout", request.Id);
+                    _pluginLog.LogWarning(
+                        "SeerrCleanup",
+                        $"Failed to delete request #{request.Id}: timeout",
+                        ex,
+                        _logger);
                 }
                 catch (Exception ex) when (ex is HttpRequestException or TimeoutException)
                 {
                     result.Failed++;
-                    _logger.LogWarning(
+                    _pluginLog.LogWarning(
+                        "SeerrCleanup",
+                        $"Failed to delete request #{request.Id}: {ex.Message}",
                         ex,
-                        "Failed to delete Seerr request #{Id}: {Error}",
-                        request.Id,
-                        ex.Message);
+                        _logger);
                 }
             }
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     Resolves the human-readable title for a media item by querying the Seerr movie/TV detail endpoint.
+    /// </summary>
+    /// <param name="client">The configured HTTP client.</param>
+    /// <param name="media">The media info from the request (may be null).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The resolved title, or "Unknown" if resolution fails.</returns>
+    internal async Task<string> ResolveMediaTitleAsync(
+        HttpClient client,
+        SeerrMedia? media,
+        CancellationToken cancellationToken)
+    {
+        if (media == null || media.TmdbId <= 0)
+        {
+            return "Unknown";
+        }
+
+        try
+        {
+            var endpoint = media.MediaType.Equals("tv", StringComparison.OrdinalIgnoreCase)
+                ? $"api/v1/tv/{media.TmdbId}"
+                : $"api/v1/movie/{media.TmdbId}";
+
+            using var response = await client.GetAsync(
+                new Uri(endpoint, UriKind.Relative),
+                cancellationToken).ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return "Unknown";
+            }
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var details = JsonSerializer.Deserialize<SeerrMediaDetails>(json, JsonOptions);
+
+            return details?.DisplayTitle ?? "Unknown";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or JsonException)
+        {
+            _pluginLog.LogDebug(
+                "SeerrCleanup",
+                $"Could not resolve title for TMDB {media.TmdbId}: {ex.Message}",
+                _logger);
+            return "Unknown";
+        }
     }
 
     /// <summary>

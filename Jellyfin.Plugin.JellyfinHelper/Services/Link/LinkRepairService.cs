@@ -303,7 +303,7 @@ public class LinkRepairService : ILinkRepairService
                 {
                     _pluginLog.LogInfo(
                         "LinkRepair",
-                        $"[DRY RUN] Would repair link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
+                        $"[Dry Run] Would repair link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
                         _logger);
                 }
                 else

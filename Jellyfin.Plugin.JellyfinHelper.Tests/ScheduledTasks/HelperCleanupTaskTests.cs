@@ -81,6 +81,14 @@ public class HelperCleanupTaskTests : IDisposable
         var trashServiceMock = new Mock<ITrashService>();
         var linkRepairServiceMock = new Mock<ILinkRepairService>();
         var seerrServiceMock = new Mock<ISeerrIntegrationService>();
+        seerrServiceMock
+            .Setup(s => s.CleanupExpiredRequestsAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<int>(),
+                It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SeerrCleanupResult());
 
         _task = new HelperCleanupTask(
             libraryManagerMock.Object,
@@ -441,7 +449,7 @@ public class HelperCleanupTaskTests : IDisposable
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("Starting Seerr Cleanup (Active)", LogLevel.Information);
-        VerifyLogContains("Finished Seerr Cleanup", LogLevel.Information);
+        VerifyLogContains("Task finished.", LogLevel.Information);
     }
 
     [Fact]
