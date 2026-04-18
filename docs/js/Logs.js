@@ -12,14 +12,14 @@ function renderLogsTab() {
     // Toolbar
     h += '<div class="logs-toolbar">';
     h += '<label for="logsLevelFilter">' + T('logsLevel', 'Level') + ':</label>';
-    h += '<div>'
+    h += '<div>';
     h += '<select id="logsLevelFilter">';
     h += '<option value="DEBUG">DEBUG</option>';
     h += '<option value="INFO">INFO</option>';
     h += '<option value="WARN">WARN</option>';
     h += '<option value="ERROR">ERROR</option>';
     h += '</select>';
-    h += '</div>'
+    h += '</div>';
 
     h += '<label for="logsSourceFilter">' + T('logsSource', 'Source') + ':</label>';
     h += '<input type="text" id="logsSourceFilter" placeholder="' + T(
@@ -148,7 +148,8 @@ function saveLogLevelToConfig(newLevel) {
 }
 
 function destroyLogsTab() {
-    stopLogsAutoRefresh();
+  stopLogsAutoRefresh();
+  _logsTabInitialized = false;
 }
 
 function startLogsAutoRefresh() {

@@ -266,7 +266,7 @@ function renderTrendChart(timeline) {
     meta += T('trendGranularity', 'Granularity') + ': ' + granularity;
     meta += ' &middot; ' + (timeline.totalFilesScanned || 0) + ' ' + T('trendFiles', 'media files');
     if (timeline.earliestFileDate) {
-        meta += ' &middot; ' + T('trendEarliest', 'Earliest') + ': ' + new Date(timeline.earliestFileDate).toLocaleDateString();
+        meta += ' &middot; ' + T('trendEarliest', 'Earliest') + ': ' + new Date(timeline.earliestFileDate).toLocaleDateString(undefined, {timeZone: 'UTC'});
     }
     meta += '</div>';
 

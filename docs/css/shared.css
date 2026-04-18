@@ -171,6 +171,13 @@
     color: var(--color-danger);
 }
 
+.refresh-btn:disabled.success,
+.refresh-btn:disabled.error {
+    color: #555;
+    cursor: not-allowed;
+    background: transparent;
+}
+
 .section-title {
     font-size: var(--font-lg);
     font-weight: 600;
@@ -611,7 +618,12 @@
 
 @media (prefers-reduced-motion: reduce) {
     .btn-spinner,
-    .loading-overlay .spinner {
+    .loading-overlay .spinner,
+    .refresh-btn.spinning svg {
+        animation: none;
+    }
+
+    .refresh-btn:hover svg {
         animation: none;
     }
 }
