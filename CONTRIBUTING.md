@@ -490,7 +490,7 @@ Sub-tasks executed in order (each respecting its configured task mode):
 The project includes a **comprehensive automated test suite** covering:
 
 - All services (cleanup, statistics, path validation, Arr integration, backup/restore, growth timeline, link repair, Seerr integration)
-- API endpoints (controller tests with mocked dependencies)
+- API endpoints (controller tests with mocked dependencies; Seerr and MediaStatistics controllers are not yet covered)
 - Configuration migration (legacy format → current)
 - UI structure (HTML element presence, tab structure)
 - Plugin logging (ring buffer, level filtering)

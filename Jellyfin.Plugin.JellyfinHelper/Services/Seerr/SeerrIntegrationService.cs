@@ -276,9 +276,14 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
     {
         var client = _httpClientFactory.CreateClient("SeerrIntegration");
 
-        // Ensure base URL ends with /
-        var normalizedUrl = baseUrl.TrimEnd('/') + "/";
-        client.BaseAddress = new Uri(normalizedUrl);
+        // Validate and normalize the base URL
+        if (!Uri.TryCreate(baseUrl?.Trim(), UriKind.Absolute, out var parsedBaseUrl) ||
+            (parsedBaseUrl.Scheme != Uri.UriSchemeHttp && parsedBaseUrl.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new UriFormatException("Invalid Seerr base URL.");
+        }
+
+        client.BaseAddress = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
 
         client.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));

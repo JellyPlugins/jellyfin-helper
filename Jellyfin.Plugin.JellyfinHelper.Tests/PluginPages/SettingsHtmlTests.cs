@@ -210,7 +210,7 @@ public class SettingsHtmlTests : ConfigPageTestBase
     {
         // Language is now saved via auto-save dropdown, not in doSaveSettings.
         // Verify auto-save handler updates _currentLang after language change.
-        Assert.Contains("_currentLang", HtmlContent);
+        Assert.Contains("_currentLang =", HtmlContent);
     }
 
     [Fact]

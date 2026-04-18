@@ -87,7 +87,9 @@ public class CodecsHtmlTests : ConfigPageTestBase
         // musicAudioCodecs should only include music (multi-line in source)
         Assert.Contains("'musicAudioCodecs': {", HtmlContent);
         Assert.Contains("movies: false,", HtmlContent);
+        Assert.Contains("tvShows: false,", HtmlContent);
         Assert.Contains("music: true,", HtmlContent);
+        Assert.Contains("other: false", HtmlContent);
     }
 
     [Fact]
