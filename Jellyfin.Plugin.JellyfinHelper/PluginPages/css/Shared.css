@@ -22,6 +22,8 @@
     --color-yellow: #f1c40f;
     --color-teal: #1abc9c;
     --color-blue: #3498db;
+    --color-debug: #7f8c8d;
+    --color-warn: #f39c12;
     --color-grey: #95a5a6;
 
     /* Surface / overlay colors */
@@ -35,6 +37,7 @@
     --color-text-muted: rgba(255, 255, 255, 0.6);
     --color-bg-subtle: rgba(255, 255, 255, 0.08);
     --color-bg-hover: rgba(255, 255, 255, 0.04);
+    --color-surface-sticky: rgba(30, 30, 32, 0.98);
 
     /* Spacing */
     --spacing-xs: 0.3em;

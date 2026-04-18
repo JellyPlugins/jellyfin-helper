@@ -83,7 +83,7 @@
   "settingsTaskTitle": "Paramètres des tâches",
   "settingsTrashTitle": "Paramètres de la corbeille",
   "settingsArrTitle": "Paramètres d'Arr Stack",
-  "clickToExpand": "cliquer pour développer",
+  "clickToExpand": "Cliquez pour développer",
   "includedLibraries": "Bibliothèques incluses (liste blanche, séparées par virgule)",
   "includedLibrariesHelp": "Laisser vide pour inclure toutes les bibliothèques.",
   "excludedLibraries": "Bibliothèques exclues (liste noire, séparées par virgule)",

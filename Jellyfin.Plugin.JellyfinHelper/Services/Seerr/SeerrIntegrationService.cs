@@ -96,7 +96,23 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         var result = new SeerrCleanupResult { DryRun = dryRun };
         var cutoffDate = DateTimeOffset.UtcNow.AddDays(-maxAgeDays);
 
-        using var client = CreateClient(baseUrl, apiKey);
+        HttpClient unsafeClient;
+        try
+        {
+            unsafeClient = CreateClient(baseUrl, apiKey);
+        }
+        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
+        {
+            _pluginLog.LogWarning(
+                "SeerrCleanup",
+                $"Invalid Seerr configuration: {ex.Message}",
+                ex,
+                _logger);
+            result.Failed = 1;
+            return result;
+        }
+
+        using var client = unsafeClient;
 
         // Phase 1: Paginate through all requests and collect expired ones
         var expiredRequests = new List<SeerrRequest>();
