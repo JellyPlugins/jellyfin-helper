@@ -45,6 +45,12 @@ public class SymlinkHelper : ISymlinkHelper
     /// <inheritdoc />
     public void DeleteSymlink(string linkPath)
     {
+        if (!IsSymlink(linkPath))
+        {
+            throw new InvalidOperationException(
+                $"Cannot delete '{linkPath}': not a symbolic link.");
+        }
+
         File.Delete(linkPath);
     }
 }

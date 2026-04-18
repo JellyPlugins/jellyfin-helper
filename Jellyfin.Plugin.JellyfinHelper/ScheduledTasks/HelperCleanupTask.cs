@@ -330,6 +330,16 @@ public class HelperCleanupTask : IScheduledTask
             return;
         }
 
+        if (config.SeerrCleanupAgeDays <= 0)
+        {
+            _pluginLog.LogWarning(
+                "SeerrCleanup",
+                $"Invalid Seerr cleanup age '{config.SeerrCleanupAgeDays}'. Skipping.",
+                logger: _logger);
+            progress.Report(100);
+            return;
+        }
+
         var dryRun = config.SeerrCleanupTaskMode == TaskMode.DryRun;
 
         _pluginLog.LogInfo(

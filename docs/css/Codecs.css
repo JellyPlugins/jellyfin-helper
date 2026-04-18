@@ -19,7 +19,7 @@
     padding: var(--spacing-lg);
     text-align: center;
     min-width: 0;
-    overflow: hidden;
+    overflow: visible;
 }
 
 .chart-box h4 {

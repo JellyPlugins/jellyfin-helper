@@ -8,6 +8,7 @@ var _wasTrashEnabled = false;
 
 // Preserve PluginLogLevel across Settings saves (managed in Logs tab)
 var _currentLogLevel = 'INFO';
+var _logLevelLoaded = false;
 
 // Update Seerr greyed-out UI state based on whether URL+Key are configured
 function updateSeerrUIState(isConfigured) {
@@ -113,6 +114,7 @@ function loadSettings() {
         _currentLang = cfg.Language || 'en';
         // Remember log level so Settings save doesn't reset it
         _currentLogLevel = cfg.PluginLogLevel || 'INFO';
+        _logLevelLoaded = true;
         // Remember trash state for deactivation dialog
         _wasTrashEnabled = !!cfg.UseTrash;
         var h = '';
@@ -197,7 +199,7 @@ function loadSettings() {
         h += '<input type="password" id="cfgSeerrApiKey" value="' + escAttr(cfg.SeerrApiKey || '') + '">';
         h += '<div class="seerr-age-wrapper" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<label for="cfgSeerrAgeDays">' + T('seerrCleanupAgeDays', 'Max Request Age (days)') + '</label>';
-        h += '<input type="number" id="cfgSeerrAgeDays" min="1" value="' + (cfg.SeerrCleanupAgeDays || 365) + '">';
+        h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays || 365) + '">';
         h += '<div class="help-text">' + T('seerrCleanupAgeDaysHelp', 'Requests older than this will be deleted. Default: 365 days.') + '</div>';
         h += '</div>';
         h += '<div style="margin-top:0.5em;">';

@@ -179,7 +179,9 @@ public static class BackupValidator
             result.Errors.Add($"TrashRetentionDays out of range: {backup.TrashRetentionDays}. Must be 0–{MaxRetentionDays}.");
         }
 
-        if (backup.SeerrCleanupAgeDays < 1 || backup.SeerrCleanupAgeDays > MaxRetentionDays)
+        // Older backups do not contain this field and deserialize it as 0 — treat as absent.
+        if (backup.SeerrCleanupAgeDays != 0 &&
+            (backup.SeerrCleanupAgeDays < 1 || backup.SeerrCleanupAgeDays > MaxRetentionDays))
         {
             result.Errors.Add($"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 1–{MaxRetentionDays}.");
         }

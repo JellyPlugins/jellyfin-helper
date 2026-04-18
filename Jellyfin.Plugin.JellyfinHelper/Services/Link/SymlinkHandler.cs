@@ -40,14 +40,16 @@ public class SymlinkHandler : ILinkHandler
     public void WriteTarget(string filePath, string targetPath)
     {
         var previousTarget = _symlinkHelper.GetSymlinkTarget(filePath);
+        var deleted = false;
         try
         {
             _symlinkHelper.DeleteSymlink(filePath);
+            deleted = true;
             _symlinkHelper.CreateSymlink(filePath, targetPath);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or InvalidOperationException)
         {
-            if (string.IsNullOrWhiteSpace(previousTarget))
+            if (!deleted || string.IsNullOrWhiteSpace(previousTarget))
             {
                 throw;
             }

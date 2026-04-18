@@ -121,6 +121,13 @@
 }
 
 /* noinspection CssUnusedSymbol */
+.arr-collapsible-header:focus-visible {
+    outline: 2px solid var(--color-primary, #00a4dc);
+    outline-offset: -2px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* noinspection CssUnusedSymbol */
 .arr-collapsible-header .arr-chevron {
     display: inline-block;
     transition: transform 0.25s ease;

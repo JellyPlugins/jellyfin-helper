@@ -147,7 +147,7 @@ function renderTreeLevel(node, level, icon) {
         var hasContent = Object.keys(childNode.children).length > 0 || childNode.items.length > 0;
 
         html += '<div class="tree-node">';
-        html += '<div class="tree-folder' + (hasContent ? ' tree-toggle' : '') + '" tabindex="0" role="button" aria-expanded="false" onclick="this.parentElement.classList.toggle(\'tree-expanded\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.parentElement.classList.toggle(\'tree-expanded\')}">';
+        html += '<div class="tree-folder' + (hasContent ? ' tree-toggle' : '') + '" tabindex="0" role="button" aria-expanded="false" onclick="this.parentElement.classList.toggle(\'tree-expanded\');this.setAttribute(\'aria-expanded\',this.parentElement.classList.contains(\'tree-expanded\'))" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}">';
         html += '<span class="tree-icon">' + (hasContent ? '📁' : '📂') + '</span>';
         html += '<span class="tree-name">' + escHtml(childName) + '</span> <span class="tree-name-count">(' + countTreeItems(childNode) + ')</span>';
         html += '</div>';
@@ -189,8 +189,8 @@ function renderFileTree(result, title) {
     var html = '<div class="file-tree-header">';
     html += '<span class="file-tree-title">' + escHtml(title) + '</span>';
     html += '<div style="display:flex;gap:0.5em;align-items:center;">';
-    html += '<button class="tree-action-btn" onclick="var nodes=this.closest(\'.file-tree-panel\').querySelectorAll(\'.tree-node\');for(var i=0;i<nodes.length;i++)nodes[i].classList.add(\'tree-expanded\')">' + T('expandAll', 'Expand All') + '</button>';
-    html += '<button class="tree-action-btn" onclick="var nodes=this.closest(\'.file-tree-panel\').querySelectorAll(\'.tree-node\');for(var i=0;i<nodes.length;i++)nodes[i].classList.remove(\'tree-expanded\')">' + T('collapseAll', 'Collapse All') + '</button>';
+    html += '<button class="tree-action-btn" onclick="var nodes=this.closest(\'.file-tree-panel\').querySelectorAll(\'.tree-node\');for(var i=0;i<nodes.length;i++){nodes[i].classList.add(\'tree-expanded\');var t=nodes[i].querySelector(\'.tree-toggle\');if(t)t.setAttribute(\'aria-expanded\',\'true\')}">' + T('expandAll', 'Expand All') + '</button>';
+    html += '<button class="tree-action-btn" onclick="var nodes=this.closest(\'.file-tree-panel\').querySelectorAll(\'.tree-node\');for(var i=0;i<nodes.length;i++){nodes[i].classList.remove(\'tree-expanded\');var t=nodes[i].querySelector(\'.tree-toggle\');if(t)t.setAttribute(\'aria-expanded\',\'false\')}">' + T('collapseAll', 'Collapse All') + '</button>';
     html += '<span class="file-tree-count">' + totalFiles + ' ' + (totalFiles === 1 ? T('file', 'file') : T('files', 'files')) + '</span>';
     html += '</div></div>';
 
@@ -753,6 +753,8 @@ function removeDialogById(id) {
 function attachTogglePanelHandlers(opts) {
     var items = document.querySelectorAll(opts.itemSelector);
     for (var i = 0; i < items.length; i++) {
+        if (items[i].dataset.toggleBound) continue;
+        items[i].dataset.toggleBound = '1';
         items[i].addEventListener('keydown', function (e) {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();

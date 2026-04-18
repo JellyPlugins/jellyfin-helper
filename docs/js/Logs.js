@@ -103,8 +103,8 @@ function initLogsTab() {
 
 function loadLogLevelFromConfig(callback) {
     var logLevelFilter;
-    // Finding 10: Reuse _currentLogLevel from Settings if already loaded, avoiding a duplicate API call
-    if (typeof _currentLogLevel !== 'undefined' && _currentLogLevel) {
+    // Reuse _currentLogLevel from Settings only if it was actually loaded from the server
+    if (typeof _logLevelLoaded !== 'undefined' && _logLevelLoaded && typeof _currentLogLevel !== 'undefined' && _currentLogLevel) {
         logLevelFilter = document.getElementById('logsLevelFilter');
         if (logLevelFilter) {
             logLevelFilter.value = _currentLogLevel;

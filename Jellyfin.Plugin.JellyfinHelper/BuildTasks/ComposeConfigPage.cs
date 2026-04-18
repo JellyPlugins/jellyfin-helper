@@ -9,7 +9,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.BuildTasks;
 
 public class ComposeConfigPage : Task
 {
-    private static readonly char[] Separator = new[] { ';' };
+    private static readonly char[] Separator = [';'];
 
     [Required]
     public string TemplateFile { get; set; } = string.Empty;
