@@ -189,11 +189,11 @@ function removeArrInstance(type, index) {
     updateArrCollapsibleCount(type);
 
     // Auto-save settings after removal and show feedback on collapsible header (Finding 17: removed unnecessary typeof checks)
-    doSaveSettings(buildSettingsPayload());
-    const arrCollapsibleHeader = document.getElementById('arrCollapsibleHeader' + type);
-    if (arrCollapsibleHeader) {
-        addAutoSaveIndicator(arrCollapsibleHeader, true, 4);
-    }
+    var arrCollapsibleHeader = document.getElementById('arrCollapsibleHeader' + type);
+    doSaveSettings(buildSettingsPayload(), {
+        quiet: true,
+        element: arrCollapsibleHeader
+    });
 }
 
 function testArrConnection(type, index) {
@@ -234,7 +234,10 @@ function testArrConnection(type, index) {
                 _testTimers[timerKey] = showButtonFeedback(btn, true,
                     escHtml(data.message), originalHtml);
                 // Auto-save settings after successful connection test (Finding 17: removed unnecessary typeof checks)
-                doSaveSettings(buildSettingsPayload());
+                doSaveSettings(buildSettingsPayload(), {
+                    quiet: true,
+                    element: document.getElementById('arrCollapsibleHeader' + type)
+                });
             } else {
                 _testTimers[timerKey] = showButtonFeedback(btn, false,
                     escHtml(data.message), originalHtml);
