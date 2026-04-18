@@ -3,6 +3,28 @@
 // Store last scan data for codec detail clicks
 var _lastCodecData = null;
 
+// SVG donut tooltip helpers
+function showDonutTooltip(container, evt, segment) {
+    var tooltip = container.querySelector('.donut-tooltip');
+    if (!tooltip) {
+        return;
+    }
+
+    tooltip.textContent = segment.getAttribute('data-title') || '';
+    tooltip.classList.add('visible');
+
+    var containerRect = container.getBoundingClientRect();
+    tooltip.style.left = (evt.clientX - containerRect.left + 12) + 'px';
+    tooltip.style.top = (evt.clientY - containerRect.top + 12) + 'px';
+}
+
+function hideDonutTooltip(container) {
+    var tooltip = container.querySelector('.donut-tooltip');
+    if (tooltip) {
+        tooltip.classList.remove('visible');
+    }
+}
+
 // SVG donut chart generator (returns only the SVG + container, no legend)
 function renderDonutSvg(data, size) {
     size = size || 160;
@@ -15,8 +37,7 @@ function renderDonutSvg(data, size) {
         }
     }
     if (total === 0) {
-        return '<p style="opacity:0.5;">' + T('noData', 'No data')
-            + '</p>';
+        return '<p style="opacity:0.5;">' + T('noData', 'No data') + '</p>';
     }
 
     entries.sort(function (a, b) {
@@ -27,9 +48,11 @@ function renderDonutSvg(data, size) {
     var circumference = 2 * Math.PI * r;
     var offset = 0;
 
-    var svg = '<svg width="' + size + '" height="' + size + '" viewBox="0 0 '
+    var donutContainer = '<div class="donut-container">';
+    donutContainer += '<div class="donut-tooltip" aria-hidden="true"></div>';
+    donutContainer += '<svg class="donut-svg" width="' + size + '" height="' + size + '" viewBox="0 0 '
         + size + ' ' + size + '">';
-    svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r
+    donutContainer += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r
         + '" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="'
         + strokeWidth + '"/>';
 
@@ -38,22 +61,22 @@ function renderDonutSvg(data, size) {
         var dashLen = pct * circumference;
         var dashGap = circumference - dashLen;
         var color = DONUT_COLORS[i % DONUT_COLORS.length];
+        var titleText = entries[i].label + ': ' + (pct * 100).toFixed(1) + '%';
 
-        svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" '
-            +
+        donutContainer += '<g class="donut-segment" data-title="' + escAttr(titleText) + '">';
+        donutContainer += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" ' +
             'stroke="' + color + '" stroke-width="' + strokeWidth + '" ' +
-            'stroke-dasharray="' + dashLen.toFixed(2) + ' ' + dashGap.toFixed(2)
-            + '" ' +
+            'stroke-dasharray="' + dashLen.toFixed(2) + ' ' + dashGap.toFixed(2) + '" ' +
             'stroke-dashoffset="' + (-offset).toFixed(2) + '" ' +
-            'transform="rotate(-90 ' + cx + ' ' + cy + ')">' +
-            '<title>' + escHtml(entries[i].label) + ': ' + (pct * 100).toFixed(1)
-            + '%</title></circle>';
+            'transform="rotate(-90 ' + cx + ' ' + cy + ')"></circle>';
+        donutContainer += '</g>';
 
         offset += dashLen;
     }
 
-    svg += '</svg>';
-    return '<div class="donut-container">' + svg + '</div>';
+    donutContainer += '</svg>';
+    donutContainer += '</div>';
+    return donutContainer;
 }
 
 // Build the clickable codec breakdown table below the donut
@@ -192,6 +215,29 @@ function attachCodecClickHandlers() {
     });
 }
 
+function attachDonutHoverTooltips() {
+    var charts = document.querySelectorAll('.donut-container');
+    for (var c = 0; c < charts.length; c++) {
+        (function (container) {
+            var segments = container.querySelectorAll('.donut-segment');
+
+            for (var i = 0; i < segments.length; i++) {
+                segments[i].addEventListener('mouseenter', function (evt) {
+                    showDonutTooltip(container, evt, this);
+                });
+
+                segments[i].addEventListener('mousemove', function (evt) {
+                    showDonutTooltip(container, evt, this);
+                });
+
+                segments[i].addEventListener('mouseleave', function () {
+                    hideDonutTooltip(container);
+                });
+            }
+        })(charts[c]);
+    }
+}
+
 function fillCodecsData(data) {
     _lastCodecData = data;
 
@@ -216,8 +262,7 @@ function fillCodecsData(data) {
     var resolutionSizes = aggregateDict(videoLibraries, 'ResolutionSizes');
 
     var codecsHtml = '<div class="charts-row">';
-    codecsHtml += '<div class="chart-box"><h4>' + T('videoCodecs',
-        '🎬 Video Codecs') + '</h4>';
+    codecsHtml += '<div class="chart-box"><h4>🎬 ' + T('videoCodecs', 'Video Codecs') + '</h4>';
     codecsHtml += renderDonutChart(videoCodecs, videoCodecSizes, 'videoCodecs');
     codecsHtml += '</div>';
 
@@ -225,25 +270,21 @@ function fillCodecsData(data) {
     var hasMusicAudio = Object.keys(musicAudioCodecs).length > 0;
 
     if (hasVideoAudio) {
-        codecsHtml += '<div class="chart-box"><h4>' + T('videoAudioCodecs',
-            '🔊 Video Audio Codecs') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>🔊 ' + T('videoAudioCodecs', 'Video Audio Codecs') + '</h4>';
         codecsHtml += renderDonutChart(videoAudioCodecs, videoAudioCodecSizes,
             'videoAudioCodecs');
         codecsHtml += '</div>';
     }
     if (hasMusicAudio) {
-        codecsHtml += '<div class="chart-box"><h4>' + T('musicAudioCodecs',
-            '🎵 Music Audio Codecs') + '</h4>';
+        codecsHtml += '<div class="chart-box"><h4>🎵 ' + T('musicAudioCodecs', 'Music Audio Codecs') + '</h4>';
         codecsHtml += renderDonutChart(musicAudioCodecs, musicAudioCodecSizes,
             'musicAudioCodecs');
         codecsHtml += '</div>';
     }
-    codecsHtml += '<div class="chart-box"><h4>' + T('containerFormats',
-        '📦 Container Formats') + '</h4>';
+    codecsHtml += '<div class="chart-box"><h4>📦 ' + T('containerFormats', 'Container Formats') + '</h4>';
     codecsHtml += renderDonutChart(containers, containerSizes, 'containers');
     codecsHtml += '</div>';
-    codecsHtml += '<div class="chart-box"><h4>' + T('resolutions',
-        '📐 Resolutions') + '</h4>';
+    codecsHtml += '<div class="chart-box"><h4>📐 ' + T('resolutions', 'Resolutions') + '</h4>';
     codecsHtml += renderDonutChart(resolutions, resolutionSizes, 'resolutions');
     codecsHtml += '</div>';
     codecsHtml += '</div>';
@@ -252,5 +293,6 @@ function fillCodecsData(data) {
     if (codecsContainer) {
         codecsContainer.innerHTML = codecsHtml;
         attachCodecClickHandlers();
+        attachDonutHoverTooltips();
     }
 }

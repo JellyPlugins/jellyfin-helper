@@ -61,7 +61,7 @@ function renderDonutSvg(data, size) {
         var dashLen = pct * circumference;
         var dashGap = circumference - dashLen;
         var color = DONUT_COLORS[i % DONUT_COLORS.length];
-        var titleText = escHtml(entries[i].label) + ': ' + (pct * 100).toFixed(1) + '%';
+        var titleText = entries[i].label + ': ' + (pct * 100).toFixed(1) + '%';
 
         donutContainer += '<g class="donut-segment" data-title="' + escAttr(titleText) + '">';
         donutContainer += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" ' +
