@@ -358,6 +358,9 @@ public class ConfigurationControllerTests
         Assert.Equal("Radarr-3", request.RadarrInstances[2].Name);
         Assert.Equal("http://r2:7878", request.RadarrInstances[1].Url);
         Assert.Equal("key3", request.RadarrInstances[2].ApiKey);
+
+        // Verify renamed LinkRepairTaskMode deserializes correctly
+        Assert.Equal(TaskMode.DryRun, request.LinkRepairTaskMode);
     }
 
     [Fact]

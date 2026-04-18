@@ -25,6 +25,9 @@
     --color-debug: #7f8c8d;
     --color-warn: #f39c12;
     --color-grey: #95a5a6;
+    --color-disabled: #555;
+    --color-success-soft: rgba(46, 204, 113, 0.1);
+    --color-danger-soft: rgba(231, 76, 60, 0.1);
 
     /* Surface / overlay colors */
     --color-surface-dark: #1a1a2e;
@@ -153,7 +156,7 @@
 }
 
 .scan-libraries-btn:disabled {
-    color: #555;
+    color: var(--color-disabled);
     cursor: not-allowed;
     background: transparent;
 }
@@ -181,7 +184,7 @@
 
 .scan-libraries-btn:disabled.success,
 .scan-libraries-btn:disabled.error {
-    color: #555;
+    color: var(--color-disabled);
     cursor: not-allowed;
     background: transparent;
 }
@@ -345,7 +348,7 @@
 }
 
 .action-btn:disabled {
-    background: #555;
+    background: var(--color-disabled);
     cursor: not-allowed;
 }
 
@@ -368,7 +371,7 @@
 /* Ensure disabled always wins over success/error status variants */
 .action-btn:disabled.success,
 .action-btn:disabled.error {
-    background: #555;
+    background: var(--color-disabled);
     cursor: not-allowed;
 }
 

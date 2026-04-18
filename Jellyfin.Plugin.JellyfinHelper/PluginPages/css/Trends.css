@@ -186,12 +186,12 @@
 
 .trend-diff-stat.diff-up {
     color: var(--color-success);
-    background: rgba(46, 204, 113, 0.1);
+    background: var(--color-success-soft);
 }
 
 .trend-diff-stat.diff-down {
     color: var(--color-danger);
-    background: rgba(231, 76, 60, 0.1);
+    background: var(--color-danger-soft);
 }
 
 .trend-diff-stat.diff-neutral {

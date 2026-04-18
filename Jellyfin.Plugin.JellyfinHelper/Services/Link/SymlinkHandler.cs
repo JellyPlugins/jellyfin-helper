@@ -40,9 +40,9 @@ public class SymlinkHandler : ILinkHandler
     public void WriteTarget(string filePath, string targetPath)
     {
         var previousTarget = _symlinkHelper.GetSymlinkTarget(filePath);
-        _symlinkHelper.DeleteSymlink(filePath);
         try
         {
+            _symlinkHelper.DeleteSymlink(filePath);
             _symlinkHelper.CreateSymlink(filePath, targetPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)

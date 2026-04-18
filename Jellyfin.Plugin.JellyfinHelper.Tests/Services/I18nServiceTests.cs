@@ -135,8 +135,8 @@ public class I18NServiceTests : IDisposable
 
         foreach (var key in expectedKeys)
         {
-            Assert.True(translations.ContainsKey(key), $"English translations missing key: '{key}'");
-            Assert.False(string.IsNullOrWhiteSpace(translations[key]), $"English translation for '{key}' is empty");
+            Assert.True(translations.ContainsKey(key), $"Language '{lang}' translations missing key: '{key}'");
+            Assert.False(string.IsNullOrWhiteSpace(translations[key]), $"Language '{lang}' translation for '{key}' is empty");
         }
     }
 
