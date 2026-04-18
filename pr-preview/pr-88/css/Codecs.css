@@ -15,8 +15,8 @@
 .chart-box {
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    padding: 1.2em;
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
     text-align: center;
     min-width: 0;
     overflow: hidden;
@@ -47,7 +47,7 @@
     align-items: center;
     gap: 0.5em;
     padding: 0.45em 0.6em;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     cursor: pointer;
     transition: background 0.2s, border-color 0.2s, transform 0.1s;
     border: 1px solid transparent;
@@ -67,14 +67,14 @@
 /* noinspection CssUnusedSymbol */
 .codec-row.codec-row-active {
     background: rgba(0, 164, 220, 0.12);
-    border-color: #00a4dc;
-    box-shadow: 0 0 0 2px rgba(0, 164, 220, 0.2);
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px var(--color-primary-border);
 }
 
 .codec-row-color {
     width: 10px;
     height: 10px;
-    border-radius: 50%;
+    border-radius: var(--radius-round);
     flex-shrink: 0;
 }
 
@@ -132,5 +132,5 @@
 .codec-row.codec-row-active .codec-row-arrow {
     opacity: 1;
     transform: rotate(90deg);
-    color: #00a4dc;
+    color: var(--color-primary);
 }

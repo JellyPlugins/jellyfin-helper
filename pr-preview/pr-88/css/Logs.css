@@ -11,9 +11,9 @@
     align-items: center;
     flex-wrap: wrap;
     padding: 0.8em 1em;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
 }
 
 .logs-toolbar label {
@@ -25,9 +25,9 @@
 .logs-toolbar select,
 .logs-toolbar input {
     padding: 0.4em 0.6em;
-    border-radius: 4px;
-    border: 1px solid rgba(255,255,255,0.15);
-    background: rgba(255,255,255,0.05);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border-strong);
+    background: rgba(255, 255, 255, 0.05);
     color: inherit;
     font-size: 0.85em;
     color-scheme: light dark;
@@ -41,9 +41,10 @@
 @media (prefers-color-scheme: light) {
     .logs-toolbar select,
     .logs-toolbar input {
-        background: rgba(0,0,0,0.05);
-        border-color: rgba(0,0,0,0.15);
+        background: rgba(0, 0, 0, 0.05);
+        border-color: rgba(0, 0, 0, 0.15);
     }
+
     .logs-toolbar select option {
         background: #ffffff;
         color: #111111;
@@ -66,9 +67,9 @@
 
 .logs-btn {
     padding: 0.4em 0.9em;
-    border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 4px;
-    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.05);
     color: #fff;
     cursor: pointer;
     font-size: 0.82em;
@@ -79,37 +80,37 @@
 }
 
 .logs-btn:hover {
-    background: rgba(255,255,255,0.1);
-    border-color: rgba(255,255,255,0.25);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.25);
 }
 
 .logs-btn.danger {
-    border-color: rgba(231,76,60,0.3);
-    color: #e74c3c;
+    border-color: rgba(231, 76, 60, 0.3);
+    color: var(--color-danger);
 }
 
 .logs-btn.danger:hover {
-    background: rgba(231,76,60,0.15);
-    border-color: rgba(231,76,60,0.5);
+    background: rgba(231, 76, 60, 0.15);
+    border-color: rgba(231, 76, 60, 0.5);
 }
 
 .logs-btn.primary {
-    border-color: rgba(46,204,113,0.3);
-    color: #2ecc71;
+    border-color: rgba(46, 204, 113, 0.3);
+    color: var(--color-success);
 }
 
 .logs-btn.primary:hover {
-    background: rgba(46,204,113,0.15);
-    border-color: rgba(46,204,113,0.5);
+    background: rgba(46, 204, 113, 0.15);
+    border-color: rgba(46, 204, 113, 0.5);
 }
 
 /* Log entries table */
 .logs-table-wrapper {
     max-height: 520px;
     overflow-y: auto;
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 8px;
-    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
+    background: rgba(0, 0, 0, 0.2);
 }
 
 .logs-table {
@@ -122,24 +123,24 @@
 .logs-table th {
     position: sticky;
     top: 0;
-    background: rgba(30,30,32,0.98);
+    background: rgba(30, 30, 32, 0.98);
     padding: 0.6em 0.8em;
     text-align: left;
     font-weight: 600;
     font-size: 0.9em;
-    border-bottom: 1px solid rgba(255,255,255,0.12);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
     z-index: 1;
 }
 
 .logs-table td {
     padding: 0.45em 0.8em;
-    border-bottom: 1px solid rgba(255,255,255,0.04);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     vertical-align: top;
     line-height: 1.4;
 }
 
 .logs-table tr:hover {
-    background: rgba(255,255,255,0.03);
+    background: rgba(255, 255, 255, 0.03);
 }
 
 .logs-table .col-time {
@@ -165,17 +166,28 @@
 }
 
 /* Level colors */
-.log-level-DEBUG { color: #7f8c8d; }
-.log-level-INFO  { color: #3498db; }
-.log-level-WARN  { color: #f39c12; }
-.log-level-ERROR { color: #e74c3c; }
+.log-level-DEBUG {
+    color: #7f8c8d;
+}
+
+.log-level-INFO {
+    color: var(--color-blue);
+}
+
+.log-level-WARN {
+    color: #f39c12;
+}
+
+.log-level-ERROR {
+    color: var(--color-danger);
+}
 
 /* Exception detail */
 .log-exception {
     margin-top: 0.3em;
     padding: 0.4em 0.6em;
-    background: rgba(231,76,60,0.08);
-    border-left: 3px solid rgba(231,76,60,0.4);
+    background: rgba(231, 76, 60, 0.08);
+    border-left: 3px solid rgba(231, 76, 60, 0.4);
     border-radius: 3px;
     font-size: 0.9em;
     white-space: pre-wrap;
@@ -210,12 +222,16 @@
 .logs-auto-refresh .dot {
     width: 6px;
     height: 6px;
-    border-radius: 50%;
-    background: #2ecc71;
+    border-radius: var(--radius-round);
+    background: var(--color-success);
     animation: pulse-dot 2s ease-in-out infinite;
 }
 
 @keyframes pulse-dot {
-    0%, 100% { opacity: 0.3; }
-    50% { opacity: 1; }
+    0%, 100% {
+        opacity: 0.3;
+    }
+    50% {
+        opacity: 1;
+    }
 }

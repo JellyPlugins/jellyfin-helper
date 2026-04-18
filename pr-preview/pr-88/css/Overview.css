@@ -13,14 +13,14 @@
 
 .stat-card {
     background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    padding: 1.2em 1.5em;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg) var(--spacing-xl);
     transition: border-color 0.2s;
 }
 
 .stat-card:hover {
-    border-color: #00a4dc;
+    border-color: var(--color-primary);
 }
 
 .stat-card h3 {
@@ -35,7 +35,7 @@
 .stat-card .stat-value {
     font-size: 1.8em;
     font-weight: 700;
-    color: #00a4dc;
+    color: var(--color-primary);
     margin: 0;
 }
 
@@ -46,9 +46,14 @@
     margin-top: 0.3em;
 }
 
-.stat-card.highlight { border-color: #2ecc71; }
+.stat-card.highlight {
+    border-color: var(--color-success);
+}
+
 /* noinspection CssUnusedSymbol */
-.stat-card.highlight .stat-value { color: #2ecc71; }
+.stat-card.highlight .stat-value {
+    color: var(--color-success);
+}
 
 .library-table-wrapper {
     overflow-x: auto;
@@ -96,7 +101,7 @@
 .total-bar {
     display: flex;
     height: 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
     margin: 1em 0;
     background: rgba(255, 255, 255, 0.05);
@@ -109,19 +114,39 @@
 }
 
 /* noinspection CssUnusedSymbol */
-.bar-video { background: #00a4dc; }
+.bar-video {
+    background: var(--color-primary);
+}
+
 /* noinspection CssUnusedSymbol */
-.bar-subtitle { background: #e67e22; }
+.bar-subtitle {
+    background: var(--color-warning);
+}
+
 /* noinspection CssUnusedSymbol */
-.bar-image { background: #2ecc71; }
+.bar-image {
+    background: var(--color-success);
+}
+
 /* noinspection CssUnusedSymbol */
-.bar-trickplay { background: #e74c3c; }
+.bar-trickplay {
+    background: var(--color-danger);
+}
+
 /* noinspection CssUnusedSymbol */
-.bar-nfo { background: #9b59b6; }
+.bar-nfo {
+    background: var(--color-purple);
+}
+
 /* noinspection CssUnusedSymbol */
-.bar-audio { background: #f1c40f; }
+.bar-audio {
+    background: var(--color-yellow);
+}
+
 /* noinspection CssUnusedSymbol */
-.bar-other { background: #95a5a6; }
+.bar-other {
+    background: var(--color-grey);
+}
 
 .legend {
     display: flex;
