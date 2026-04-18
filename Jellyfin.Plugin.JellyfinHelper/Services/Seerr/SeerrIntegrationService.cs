@@ -101,23 +101,6 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             unsafeClient = CreateClient(baseUrl, apiKey);
         }
-        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
-        {
-            _pluginLog.LogWarning(
-                "SeerrCleanup",
-                $"Invalid Seerr configuration: {ex.Message}",
-                ex,
-                _logger);
-            result.Failed = 1;
-            return result;
-        }
-
-        using var client = unsafeClient;
-        HttpClient unsafeClient;
-        try
-        {
-            unsafeClient = CreateClient(baseUrl, apiKey);
-        }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException or FormatException)
         {
             _pluginLog.LogWarning(
