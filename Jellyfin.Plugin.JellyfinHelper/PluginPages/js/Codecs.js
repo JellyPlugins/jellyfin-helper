@@ -50,11 +50,10 @@ function renderDonutSvg(data, size) {
 
     var donutContainer = '<div class="donut-container">';
     donutContainer += '<div class="donut-tooltip" aria-hidden="true"></div>';
-    donutContainer += '<svg class="donut-svg" width="' + size + '" height="' + size + '" viewBox="0 0 '
-        + size + ' ' + size + '">';
-    donutContainer += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r
-        + '" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="'
-        + strokeWidth + '"/>';
+    donutContainer += '<svg class="donut-svg" width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' '
+        + size + '">';
+    donutContainer += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="rgba(255,255,255,0.05)"'
+        + ' stroke-width="' + strokeWidth + '"/>';
 
     for (var i = 0; i < entries.length; i++) {
         var pct = entries[i].value / total;
@@ -84,8 +83,7 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
     var entries = [];
     var total = 0;
     for (var key in countDict) {
-        if (Object.prototype.hasOwnProperty.call(countDict, key) && countDict[key]
-            > 0) {
+        if (Object.prototype.hasOwnProperty.call(countDict, key) && countDict[key] > 0) {
             var size = (sizeDict && sizeDict[key]) ? sizeDict[key] : 0;
             entries.push({label: key, count: countDict[key], size: size});
             total += countDict[key];
@@ -105,28 +103,23 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
         var pct = (entries[i].count / total * 100).toFixed(1);
         var isActive = '';
 
-        html += '<div class="codec-row codec-clickable' + isActive
-            + '" data-chart="' + escAttr(chartId) + '" data-codec="' + escAttr(
-                entries[i].label) + '" role="button" tabindex="0">';
-        html += '<div class="codec-row-color" style="background:' + color
-            + '"></div>';
+        html += '<div class="codec-row codec-clickable' + isActive + '" data-chart="' + escAttr(chartId) + '"' +
+            ' data-codec="' + escAttr(entries[i].label) + '" role="button" tabindex="0">';
+        html += '<div class="codec-row-color" style="background:' + color + '"></div>';
         html += '<div class="codec-row-info">';
-        html += '<span class="codec-row-name">' + escHtml(entries[i].label)
-            + '</span>';
-        html += '<span class="codec-row-stats">' + entries[i].count + ' ' + T(
-                'files', 'files') + ' · ' + pct + '% · ' + formatBytes(entries[i].size)
-            + '</span>';
+        html += '<span class="codec-row-name">' + escHtml(entries[i].label) + '</span>';
+        html += '<span class="codec-row-stats">' + entries[i].count + ' ' + T('files', 'files') + ' · '
+            + pct + '% · ' + formatBytes(entries[i].size) + '</span>';
         html += '</div>';
-        html += '<div class="codec-row-bar"><div class="codec-row-bar-fill" style="width:'
-            + pct + '%;background:' + color + '"></div></div>';
+        html += '<div class="codec-row-bar"><div class="codec-row-bar-fill" style="width:' + pct + '%;background:'
+            + color + '"></div></div>';
         html += '<div class="codec-row-arrow">›</div>';
         html += '</div>';
     }
     html += '</div>';
 
     // Detail panel placeholder
-    html += '<div class="file-tree-panel" id="codecDetail_' + chartId
-        + '"></div>';
+    html += '<div class="file-tree-panel" id="codecDetail_' + chartId + '"></div>';
 
     return html;
 }
@@ -147,14 +140,10 @@ function collectCodecPaths(data, pathsProp, codecName, categories) {
     var includeOther = !categories || categories.other;
 
     return {
-        movies: includeMovies ? collectDictPaths(data.Movies || [], pathsProp,
-            codecName) : [],
-        tvShows: includeTvShows ? collectDictPaths(data.TvShows || [], pathsProp,
-            codecName) : [],
-        music: includeMusic ? collectDictPaths(data.Music || [], pathsProp,
-            codecName) : [],
-        other: includeOther ? collectDictPaths(data.Other || [], pathsProp,
-            codecName) : [],
+        movies: includeMovies ? collectDictPaths(data.Movies || [], pathsProp, codecName) : [],
+        tvShows: includeTvShows ? collectDictPaths(data.TvShows || [], pathsProp, codecName) : [],
+        music: includeMusic ? collectDictPaths(data.Music || [], pathsProp, codecName) : [],
+        other: includeOther ? collectDictPaths(data.Other || [], pathsProp, codecName) : [],
         rootPaths: {
             movies: data.MovieRootPaths || [],
             tvShows: data.TvShowRootPaths || [],
@@ -180,12 +169,7 @@ var CODEC_PATH_MAP = {
 var CODEC_CATEGORY_MAP = {
     'videoCodecs': {movies: true, tvShows: true, music: false, other: true},
     'videoAudioCodecs': {movies: true, tvShows: true, music: false, other: true},
-    'musicAudioCodecs': {
-        movies: false,
-        tvShows: false,
-        music: true,
-        other: false
-    },
+    'musicAudioCodecs': {movies: false, tvShows: false, music: true, other: false},
     'containers': {movies: true, tvShows: true, music: true, other: true},
     'resolutions': {movies: true, tvShows: true, music: false, other: true}
 };
@@ -242,8 +226,7 @@ function fillCodecsData(data) {
     _lastCodecData = data;
 
     // Video-only libraries (Movies + TV Shows + Other) — used for video-specific charts
-    var videoLibraries = (data.Movies || []).concat(data.TvShows || []).concat(
-        data.Other || []);
+    var videoLibraries = (data.Movies || []).concat(data.TvShows || []).concat(data.Other || []);
     // Music-only libraries — used for music-specific charts
     var musicLibraries = data.Music || [];
 
@@ -254,10 +237,8 @@ function fillCodecsData(data) {
     var resolutions = aggregateDict(videoLibraries, 'Resolutions');
 
     var videoCodecSizes = aggregateDict(videoLibraries, 'VideoCodecSizes');
-    var videoAudioCodecSizes = aggregateDict(videoLibraries,
-        'VideoAudioCodecSizes');
-    var musicAudioCodecSizes = aggregateDict(musicLibraries,
-        'MusicAudioCodecSizes');
+    var videoAudioCodecSizes = aggregateDict(videoLibraries, 'VideoAudioCodecSizes');
+    var musicAudioCodecSizes = aggregateDict(musicLibraries, 'MusicAudioCodecSizes');
     var containerSizes = aggregateDict(data.Libraries, 'ContainerSizes');
     var resolutionSizes = aggregateDict(videoLibraries, 'ResolutionSizes');
 
@@ -271,14 +252,12 @@ function fillCodecsData(data) {
 
     if (hasVideoAudio) {
         codecsHtml += '<div class="chart-box"><h4>🔊 ' + T('videoAudioCodecs', 'Video Audio Codecs') + '</h4>';
-        codecsHtml += renderDonutChart(videoAudioCodecs, videoAudioCodecSizes,
-            'videoAudioCodecs');
+        codecsHtml += renderDonutChart(videoAudioCodecs, videoAudioCodecSizes, 'videoAudioCodecs');
         codecsHtml += '</div>';
     }
     if (hasMusicAudio) {
         codecsHtml += '<div class="chart-box"><h4>🎵 ' + T('musicAudioCodecs', 'Music Audio Codecs') + '</h4>';
-        codecsHtml += renderDonutChart(musicAudioCodecs, musicAudioCodecSizes,
-            'musicAudioCodecs');
+        codecsHtml += renderDonutChart(musicAudioCodecs, musicAudioCodecSizes, 'musicAudioCodecs');
         codecsHtml += '</div>';
     }
     codecsHtml += '<div class="chart-box"><h4>📦 ' + T('containerFormats', 'Container Formats') + '</h4>';
