@@ -313,6 +313,13 @@ public class SeerrIntegrationServiceTests : IDisposable
                 It.Is<string>(s => s.Contains("[Dry Run]")),
                 It.IsAny<ILogger>()),
             Times.Exactly(2));
+
+        // Verify no DELETE requests were sent during dry run
+        handler.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Delete),
+            ItExpr.IsAny<CancellationToken>());
     }
 
     [Fact]

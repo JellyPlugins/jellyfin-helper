@@ -139,8 +139,7 @@ public class I18NServiceTests : IDisposable
             // Seerr keys
             "seerrCleanup", "seerrNotConfigured", "settingsSeerrTitle", "settingsSeerrHelp",
             "seerrInstance", "seerrUrl", "seerrApiKey",
-            "seerrCleanupAgeDays", "seerrCleanupAgeDaysHelp", "seerrFillFields",
-            "connectionFailed"
+            "seerrCleanupAgeDays", "seerrCleanupAgeDaysHelp", "seerrFillFields"
         };
 
         foreach (var key in expectedKeys)

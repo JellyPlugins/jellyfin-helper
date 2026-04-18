@@ -162,12 +162,20 @@ jobs:
           -p:FileVersion=${VERSION} \
           -p:InformationalVersion=${VERSION}
 
-    - name: Read changelog from build.yaml
+    - name: Read metadata from manifest.json
       if: env.TAG_EXISTS == 'false'
       run: |
         CHANGELOG=$(jq -r '.[0].versions[0].changelog' manifest.json)
+        DESCRIPTION=$(jq -r '.[0].description' manifest.json)
+        OVERVIEW=$(jq -r '.[0].overview' manifest.json)
         echo "BUILD_CHANGELOG<<EOF" >> $GITHUB_ENV
         echo "$CHANGELOG" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+        echo "BUILD_DESCRIPTION<<EOF" >> $GITHUB_ENV
+        echo "$DESCRIPTION" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+        echo "BUILD_OVERVIEW<<EOF" >> $GITHUB_ENV
+        echo "$OVERVIEW" >> $GITHUB_ENV
         echo "EOF" >> $GITHUB_ENV
 
     - name: Create release package
@@ -179,16 +187,18 @@ jobs:
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.0000000Z")
         jq -n \
           --arg changelog "$BUILD_CHANGELOG" \
+          --arg description "$BUILD_DESCRIPTION" \
+          --arg overview "$BUILD_OVERVIEW" \
           --arg targetAbi "$TARGET_ABI" \
           --arg timestamp "$TIMESTAMP" \
           --arg version "$VERSION" \
           '{
             "category": "General",
             "changelog": $changelog,
-            "description": "Automated cleanup (trickplay, empty folders, subtitles), media statistics, trash bin, Arr integration.",
+            "description": $description,
             "guid": "0c737645-5cbb-4bd8-80c7-d377b560aaa4",
             "name": "Jellyfin Helper",
-            "overview": "Automated cleanup, media statistics, trash bin, Arr integration.",
+            "overview": $overview,
             "owner": "JellyPlugins",
             "targetAbi": $targetAbi,
             "timestamp": $timestamp,

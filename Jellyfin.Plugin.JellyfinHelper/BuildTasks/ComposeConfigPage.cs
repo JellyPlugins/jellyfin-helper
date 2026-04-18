@@ -64,14 +64,22 @@ public class ComposeConfigPage : Task
 
         jsBuilder.AppendLine("})();");
 
+        var hasPlaceholderErrors = false;
         if (!template.Contains("/* CSS_CONTENT */"))
         {
-            Log.LogWarning("Template does not contain /* CSS_CONTENT */ placeholder");
+            Log.LogError("Template does not contain /* CSS_CONTENT */ placeholder");
+            hasPlaceholderErrors = true;
         }
 
         if (!template.Contains("/* JS_CONTENT */"))
         {
-            Log.LogWarning("Template does not contain /* JS_CONTENT */ placeholder");
+            Log.LogError("Template does not contain /* JS_CONTENT */ placeholder");
+            hasPlaceholderErrors = true;
+        }
+
+        if (hasPlaceholderErrors)
+        {
+            return false;
         }
 
         var result = template

@@ -4,6 +4,7 @@ var _logsAutoRefreshTimer = null;
 var _logsAutoRefreshEnabled = true;
 var _logsLoadSeq = 0;
 var _logsTabInitialized = false;
+var _logsInitSeq = 0;
 
 function renderLogsTab() {
     var h = '';
@@ -56,6 +57,8 @@ function renderLogsTab() {
 }
 
 function initLogsTab() {
+    var initSeq = ++_logsInitSeq;
+
     if (!_logsTabInitialized) {
         var downloadBtn = document.getElementById('btnLogsDownload');
         var clearBtn = document.getElementById('btnLogsClear');
@@ -86,17 +89,22 @@ function initLogsTab() {
 
     // Load persisted log level from config, then load logs
     loadLogLevelFromConfig(function () {
+        // Guard against stale callbacks after tab was destroyed
+        if (initSeq !== _logsInitSeq) {
+            return;
+        }
         loadLogs();
         startLogsAutoRefresh();
     });
 }
 
 function loadLogLevelFromConfig(callback) {
+    var logLevelFilter;
     // Finding 10: Reuse _currentLogLevel from Settings if already loaded, avoiding a duplicate API call
     if (typeof _currentLogLevel !== 'undefined' && _currentLogLevel) {
-        var levelFilter = document.getElementById('logsLevelFilter');
-        if (levelFilter) {
-            levelFilter.value = _currentLogLevel;
+        logLevelFilter = document.getElementById('logsLevelFilter');
+        if (logLevelFilter) {
+            logLevelFilter.value = _currentLogLevel;
         }
         if (callback) {
             callback();
@@ -117,11 +125,19 @@ function loadLogLevelFromConfig(callback) {
                 callback();
             }
         }, function () {
+            var lf = document.getElementById('logsLevelFilter');
+            if (lf) {
+                lf.value = 'INFO';
+            }
             if (callback) {
                 callback();
             }
         });
     } catch (e) {
+        logLevelFilter = document.getElementById('logsLevelFilter');
+        if (logLevelFilter) {
+            logLevelFilter.value = 'INFO';
+        }
         if (callback) {
             callback();
         }
@@ -148,6 +164,7 @@ function saveLogLevelToConfig(newLevel) {
 }
 
 function destroyLogsTab() {
+    _logsInitSeq++;
     stopLogsAutoRefresh();
     _logsTabInitialized = false;
 }

@@ -287,8 +287,16 @@ function initPage() {
 }
 
 // Use Jellyfin's page lifecycle events
-var pageEl = document.querySelector('#JellyfinHelperConfigPage');
-if (pageEl) {
+var _pageLifecycleBound = false;
+
+function bindPageLifecycle() {
+    if (_pageLifecycleBound) {
+        return;
+    }
+    var pageEl = document.querySelector('#JellyfinHelperConfigPage');
+    if (!pageEl) {
+        return;
+    }
     pageEl.addEventListener('pageshow', function () {
         _pageInitialized = false;
         _initRetries = 0;
@@ -299,14 +307,19 @@ if (pageEl) {
         _initRetries = 0;
         setTimeout(initPage, 0);
     });
+    _pageLifecycleBound = true;
 }
+
+bindPageLifecycle();
 
 // Fallback: try immediately in case events already fired or won't fire
 if (document.readyState === 'complete' || document.readyState
     === 'interactive') {
+    bindPageLifecycle();
     setTimeout(initPage, 150);
 } else {
     document.addEventListener('DOMContentLoaded', function () {
+        bindPageLifecycle();
         setTimeout(initPage, 150);
     });
 }

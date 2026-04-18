@@ -198,7 +198,6 @@
   "seerrCleanupAgeDays": "Max. Anfrage-Alter (Tage)",
   "seerrCleanupAgeDaysHelp": "Anfragen, die älter als dieser Wert sind, werden gelöscht. Standard: 365 Tage.",
   "seerrFillFields": "Bitte zuerst URL und API-Schlüssel ausfüllen.",
-  "connectionFailed": "Verbindung fehlgeschlagen.",
   "unsavedChangesTitle": "Ungespeicherte Änderungen",
   "unsavedChangesMsg": "Du hast ungespeicherte Einstellungen. Was möchtest du tun?",
   "discardChanges": "Änderungen verwerfen",

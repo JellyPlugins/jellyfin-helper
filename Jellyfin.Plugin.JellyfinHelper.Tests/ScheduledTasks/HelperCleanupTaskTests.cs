@@ -18,6 +18,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 public class HelperCleanupTaskTests : IDisposable
 {
     private readonly Mock<ILogger<HelperCleanupTask>> _loggerMock;
+    private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
     private readonly HelperCleanupTask _task;
     private readonly string _testDataPath;
     private PluginConfiguration _config;
@@ -80,8 +81,8 @@ public class HelperCleanupTaskTests : IDisposable
         var trackingServiceMock = new Mock<ICleanupTrackingService>();
         var trashServiceMock = new Mock<ITrashService>();
         var linkRepairServiceMock = new Mock<ILinkRepairService>();
-        var seerrServiceMock = new Mock<ISeerrIntegrationService>();
-        seerrServiceMock
+        _seerrServiceMock = new Mock<ISeerrIntegrationService>();
+        _seerrServiceMock
             .Setup(s => s.CleanupExpiredRequestsAsync(
                 It.IsAny<string>(),
                 It.IsAny<string>(),
@@ -102,7 +103,7 @@ public class HelperCleanupTaskTests : IDisposable
             trackingServiceMock.Object,
             trashServiceMock.Object,
             linkRepairServiceMock.Object,
-            seerrServiceMock.Object);
+            _seerrServiceMock.Object);
     }
 
     public void Dispose()
@@ -371,6 +372,7 @@ public class HelperCleanupTaskTests : IDisposable
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("Seerr not configured", LogLevel.Information);
+        VerifySeerrNeverCalled();
     }
 
     [Fact]
@@ -411,6 +413,7 @@ public class HelperCleanupTaskTests : IDisposable
 
         VerifyLogContains("Starting Seerr Cleanup (Dry Run)", LogLevel.Information);
         VerifyLogContains("Max age: 180 days", LogLevel.Information);
+        VerifySeerrCalledWith("http://localhost:5055", "test-key", 180, true);
     }
 
     [Fact]
@@ -431,6 +434,7 @@ public class HelperCleanupTaskTests : IDisposable
 
         VerifyLogContains("Skipping Seerr Cleanup (deactivated in settings)", LogLevel.Information);
         VerifyLogNeverContains("Starting Seerr Cleanup", LogLevel.Information);
+        VerifySeerrNeverCalled();
     }
 
     [Fact]
@@ -452,6 +456,7 @@ public class HelperCleanupTaskTests : IDisposable
 
         VerifyLogContains("Starting Seerr Cleanup (Active)", LogLevel.Information);
         VerifyLogContains("Task finished.", LogLevel.Information);
+        VerifySeerrCalledWith("http://localhost:5055", "test-key", 365, false);
     }
 
     [Fact]
@@ -471,6 +476,22 @@ public class HelperCleanupTaskTests : IDisposable
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("Running trash purge (retention: 0 days)", LogLevel.Information);
+    }
+
+    private void VerifySeerrCalledWith(string url, string apiKey, int ageDays, bool dryRun)
+    {
+        _seerrServiceMock.Verify(
+            s => s.CleanupExpiredRequestsAsync(url, apiKey, ageDays, dryRun, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    private void VerifySeerrNeverCalled()
+    {
+        _seerrServiceMock.Verify(
+            s => s.CleanupExpiredRequestsAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     private void VerifyLogContains(string messagePart, LogLevel level)

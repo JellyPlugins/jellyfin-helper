@@ -149,10 +149,21 @@ public class LinkRepairService : ILinkRepairService
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var matchingHandler = _handlers.FirstOrDefault(h => h.CanHandle(file));
-                if (matchingHandler != null)
+                try
                 {
-                    result.Add((file, matchingHandler));
+                    var matchingHandler = _handlers.FirstOrDefault(h => h.CanHandle(file));
+                    if (matchingHandler != null)
+                    {
+                        result.Add((file, matchingHandler));
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _pluginLog.LogWarning(
+                        "LinkRepair",
+                        $"Cannot inspect file: {file} - {ex.Message}",
+                        ex,
+                        _logger);
                 }
             }
 

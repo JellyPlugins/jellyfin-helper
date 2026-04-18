@@ -415,11 +415,12 @@ function showButtonFeedback(btn, success, message, originalHtml, timeout) {
     var icon = success ? '✔' : '✘';
     var cls = success ? 'success' : 'error';
     var delay = timeout || (success ? 3000 : 5000);
+    btn.classList.remove('success', 'error');
     btn.innerHTML = '<span class="btn-icon">' + icon + '</span>' + message;
     btn.classList.add(cls);
     return setTimeout(function () {
         btn.innerHTML = originalHtml;
-        btn.classList.remove(cls);
+        btn.classList.remove('success', 'error');
     }, delay);
 }
 

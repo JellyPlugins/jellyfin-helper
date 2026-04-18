@@ -84,12 +84,10 @@ public class CodecsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_CodecCategoryMap_MusicAudioCodecsExcludesVideo()
     {
-        // musicAudioCodecs should only include music (multi-line in source)
-        Assert.Contains("'musicAudioCodecs': {", HtmlContent);
-        Assert.Contains("movies: false,", HtmlContent);
-        Assert.Contains("tvShows: false,", HtmlContent);
-        Assert.Contains("music: true,", HtmlContent);
-        Assert.Contains("other: false", HtmlContent);
+        // musicAudioCodecs should only include music — validate as one contiguous block
+        Assert.Matches(
+            @"'musicAudioCodecs':\s*\{\s*movies:\s*false,\s*tvShows:\s*false,\s*music:\s*true,\s*other:\s*false\s*\}",
+            HtmlContent);
     }
 
     [Fact]
@@ -146,7 +144,9 @@ public class CodecsHtmlTests : ConfigPageTestBase
     {
         // The click handler should pass CODEC_CATEGORY_MAP to collectCodecPaths
         Assert.Contains("var categories = CODEC_CATEGORY_MAP[chartId]", HtmlContent);
-        Assert.Contains("collectCodecPaths(_lastCodecData, pathsProp, codecName,", HtmlContent);
+        Assert.Matches(
+            @"collectCodecPaths\(_lastCodecData,\s*pathsProp,\s*codecName,\s*categories\)",
+            HtmlContent);
     }
 
     [Fact]

@@ -144,6 +144,13 @@ public static class BackupValidator
         ValidateStringField(result, backup.SeerrUrl, "SeerrUrl", MaxUrlLength);
         ValidateStringField(result, backup.SeerrApiKey, "SeerrApiKey", MaxApiKeyLength);
 
+        if (!string.IsNullOrEmpty(backup.SeerrUrl) &&
+            (!Uri.TryCreate(backup.SeerrUrl, UriKind.Absolute, out var seerrUri) ||
+             (seerrUri.Scheme != Uri.UriSchemeHttp && seerrUri.Scheme != Uri.UriSchemeHttps)))
+        {
+            result.Errors.Add($"SeerrUrl is not a valid HTTP/HTTPS URL: '{backup.SeerrUrl}'.");
+        }
+
         // Enum validation
         if (!string.IsNullOrEmpty(backup.Language) && !ValidLanguages.Contains(backup.Language))
         {

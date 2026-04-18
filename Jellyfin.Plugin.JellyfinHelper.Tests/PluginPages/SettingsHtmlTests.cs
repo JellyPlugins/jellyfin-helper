@@ -340,6 +340,9 @@ public class SettingsHtmlTests : ConfigPageTestBase
         Assert.Contains("SeerrCleanupTaskMode:", HtmlContent);
         Assert.Contains("cfgSeerrMode", HtmlContent);
         Assert.Contains("Deactivate", HtmlContent);
+
+        // Verify the actual ternary fallback logic exists (url && key && modeEl) ? value : 'Deactivate'
+        Assert.Contains("? modeEl.value : 'Deactivate'", HtmlContent);
     }
 
     [Fact]
@@ -353,5 +356,9 @@ public class SettingsHtmlTests : ConfigPageTestBase
     {
         Assert.Contains("seerr-task-mode-wrapper", HtmlContent);
         Assert.Contains("seerr-age-wrapper", HtmlContent);
+
+        // Verify disabled-state styling is tied to Seerr config checks
+        Assert.Contains("!seerrConfigured ? 'opacity:0.5;pointer-events:none;' : ''", HtmlContent);
+        Assert.Contains("!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : ''", HtmlContent);
     }
 }

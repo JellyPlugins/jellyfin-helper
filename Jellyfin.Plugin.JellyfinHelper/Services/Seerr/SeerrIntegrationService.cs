@@ -74,7 +74,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             throw;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or UriFormatException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or UriFormatException or JsonException or ArgumentException)
         {
             return (false, $"Connection failed: {ex.Message}");
         }
@@ -108,14 +108,41 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             cancellationToken.ThrowIfCancellationRequested();
 
             var requestUrl = $"api/v1/request?take={PageSize}&skip={skip}&sort=added&filter=all";
-            using var response = await client.GetAsync(
-                new Uri(requestUrl, UriKind.Relative),
-                cancellationToken).ConfigureAwait(false);
 
-            response.EnsureSuccessStatusCode();
+            SeerrRequestPage? page;
+            try
+            {
+                using var response = await client.GetAsync(
+                    new Uri(requestUrl, UriKind.Relative),
+                    cancellationToken).ConfigureAwait(false);
 
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            var page = JsonSerializer.Deserialize<SeerrRequestPage>(json, JsonOptions);
+                response.EnsureSuccessStatusCode();
+
+                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                page = JsonSerializer.Deserialize<SeerrRequestPage>(json, JsonOptions);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                _pluginLog.LogWarning(
+                    "SeerrCleanup",
+                    $"Timed out fetching requests page (skip={skip}): {ex.Message}",
+                    ex,
+                    _logger);
+                break;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or JsonException)
+            {
+                _pluginLog.LogWarning(
+                    "SeerrCleanup",
+                    $"Failed to fetch requests page (skip={skip}): {ex.Message}",
+                    ex,
+                    _logger);
+                break;
+            }
 
             if (page?.Results == null || page.Results.Count == 0)
             {
@@ -281,6 +308,11 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             (parsedBaseUrl.Scheme != Uri.UriSchemeHttp && parsedBaseUrl.Scheme != Uri.UriSchemeHttps))
         {
             throw new UriFormatException("Invalid Seerr base URL.");
+        }
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new ArgumentException("API key is required.", nameof(apiKey));
         }
 
         client.BaseAddress = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");

@@ -198,7 +198,7 @@ serviceCollection.AddSingleton<IArrIntegrationService, ArrIntegrationService>();
 serviceCollection.AddSingleton<ISeerrIntegrationService, SeerrIntegrationService>();
 ```
 
-A named `HttpClient` (`"ArrIntegration"`) is configured with a 15-second timeout for Radarr/Sonarr API calls. A named `HttpClient` (`"SeerrIntegration"`) is configured for Overseerr/Jellyseerr API calls.
+Named `HttpClient` instances are configured for external API communication: `"ArrIntegration"` (Radarr/Sonarr, 15-second timeout) and `"SeerrIntegration"` (Overseerr/Jellyseerr).
 
 ---
 
@@ -220,7 +220,7 @@ A named `HttpClient` (`"ArrIntegration"`) is configured with a 15-second timeout
 
 ### Key Design Decisions
 
-- **Domain-organized Controllers** — Each API domain has its own controller (Configuration, Statistics, Arr, Logs, Backup, Trash, Cleanup, Timeline, Translations)
+- **Domain-organized Controllers** — Each API domain has its own controller (Configuration, Statistics, Arr, Logs, Backup, Trash, Cleanup, Seerr, Timeline, Translations)
 - **Domain-organized Services** — Services grouped by domain (Arr, Backup, Cleanup, Link, PluginLog, Seerr, Statistics, Timeline)
 - **Build-time UI composition** — CSS and JS modules are concatenated into `configPage.html` at build time (no runtime bundler needed)
 - **Persisted scan results** — Latest statistics are saved to disk and survive server restarts

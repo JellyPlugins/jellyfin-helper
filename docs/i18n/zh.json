@@ -199,7 +199,6 @@
   "seerrCleanupAgeDays": "最大请求天数",
   "seerrCleanupAgeDaysHelp": "超过此天数的请求将被删除。默认：365 天。",
   "seerrFillFields": "请先填写 URL 和 API 密钥。",
-  "connectionFailed": "连接失败。",
   "unsavedChangesTitle": "未保存的更改",
   "unsavedChangesMsg": "您有未保存的设置更改。您想怎么做？",
   "discardChanges": "放弃更改",

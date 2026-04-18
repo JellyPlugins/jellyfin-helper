@@ -198,7 +198,6 @@
   "seerrCleanupAgeDays": "Âge max. des demandes (jours)",
   "seerrCleanupAgeDaysHelp": "Les demandes plus anciennes seront supprimées. Par défaut : 365 jours.",
   "seerrFillFields": "Veuillez d'abord remplir l'URL et la clé API.",
-  "connectionFailed": "La connexion a échoué.",
   "unsavedChangesTitle": "Modifications non enregistrées",
   "unsavedChangesMsg": "Vous avez des modifications non enregistrées. Que souhaitez-vous faire ?",
   "discardChanges": "Annuler les modifications",

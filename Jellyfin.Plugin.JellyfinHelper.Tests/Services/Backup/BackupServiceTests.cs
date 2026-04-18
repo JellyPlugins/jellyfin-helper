@@ -169,6 +169,7 @@ public class BackupServiceTests
         backup.EmptyMediaFolderTaskMode = mode;
         backup.OrphanedSubtitleTaskMode = mode;
         backup.LinkRepairTaskMode = mode;
+        backup.SeerrCleanupTaskMode = mode;
         var result = BackupValidator.Validate(backup);
 
         Assert.True(result.IsValid);

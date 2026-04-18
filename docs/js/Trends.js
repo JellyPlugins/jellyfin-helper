@@ -71,7 +71,7 @@ function interpolateDataPoints(dataPoints, granularity) {
     // Ensure the last real data point is always included so the chart doesn't end early
     if (truncated) {
         result[result.length - 1] = dataPoints[dataPoints.length - 1];
-        console.warn('[JellyfinHelper] Trend timeline truncated to ' + maxPoints + ' points.');
+        console.warn('[JellyfinHelper] Trend timeline truncated to ' + maxPoints + ' points (granularity: ' + granularity + ').');
     }
     return result;
 }

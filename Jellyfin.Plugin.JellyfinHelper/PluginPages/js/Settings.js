@@ -651,7 +651,7 @@ function attachSeerrHandlers() {
             }
         }, function () {
             btn.disabled = false;
-            _seerrTimer = showButtonFeedback(btn, false, T('connectionFailed', 'Connection failed.'), originalHtml);
+            _seerrTimer = showButtonFeedback(btn, false, T('testConnectionFailed', 'Connection test failed.'), originalHtml);
         });
     });
 }

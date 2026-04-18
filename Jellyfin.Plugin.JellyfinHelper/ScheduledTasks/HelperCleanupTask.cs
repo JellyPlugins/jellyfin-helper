@@ -108,7 +108,7 @@ public class HelperCleanupTask : IScheduledTask
             ("Empty Media Folder Cleanup", config.EmptyMediaFolderTaskMode, RunEmptyMediaFolderCleanup),
             ("Orphaned Subtitle Cleanup", config.OrphanedSubtitleTaskMode, RunOrphanedSubtitleCleanup),
             ("Link Repair", config.LinkRepairTaskMode, RunLinkRepair),
-            ("Seerr Cleanup", config.SeerrCleanupTaskMode, RunSeerrCleanup)
+            ("Seerr Cleanup", config.SeerrCleanupTaskMode, (p, ct) => RunSeerrCleanup(config, p, ct))
         };
 
         var totalTasks = subTasks.Length;
@@ -320,10 +320,8 @@ public class HelperCleanupTask : IScheduledTask
         return task.ExecuteAsync(progress, cancellationToken);
     }
 
-    private async Task RunSeerrCleanup(IProgress<double> progress, CancellationToken cancellationToken)
+    private async Task RunSeerrCleanup(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var config = _configHelper.GetConfig();
-
         // Check if Seerr is configured
         if (string.IsNullOrWhiteSpace(config.SeerrUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
         {

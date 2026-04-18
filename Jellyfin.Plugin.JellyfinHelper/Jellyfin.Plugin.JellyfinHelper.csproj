@@ -68,7 +68,11 @@
         <JsModule Include="PluginPages\js\main.js"/>
     </ItemGroup>
 
-    <Target Name="ComposeConfigPageHtml" BeforeTargets="BeforeBuild;BeforeRebuild">
+    <Target Name="ComposeConfigPageHtml"
+            BeforeTargets="BeforeBuild;BeforeRebuild"
+            Condition="'$(DesignTimeBuild)' != 'true'"
+            Inputs="$(MSBuildProjectDirectory)\PluginPages\configPage.template.html;@(CssModule->'$(MSBuildProjectDirectory)\%(Identity)');@(JsModule->'$(MSBuildProjectDirectory)\%(Identity)');$(MSBuildProjectDirectory)\BuildTasks\ComposeConfigPage.cs"
+            Outputs="$(MSBuildProjectDirectory)\PluginPages\configPage.html">
         <Jellyfin.Plugin.JellyfinHelper.BuildTasks.ComposeConfigPage
                 TemplateFile="$(MSBuildProjectDirectory)\PluginPages\configPage.template.html"
                 CssFiles="@(CssModule->'$(MSBuildProjectDirectory)\%(Identity)', ';')"
