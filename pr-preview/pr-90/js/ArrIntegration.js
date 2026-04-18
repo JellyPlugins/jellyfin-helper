@@ -337,14 +337,15 @@ function initArrButtons(cfg) {
 
     btnContainer.innerHTML = h;
 
+    // Use onclick assignment (not addEventListener) to prevent handler stacking on re-bind
     var compareBtns = btnContainer.querySelectorAll('.arr-compare-btn');
     for (var i = 0; i < compareBtns.length; i++) {
-        compareBtns[i].addEventListener('click', function () {
+        compareBtns[i].onclick = function () {
             var type = this.getAttribute('data-type');
             var idx = parseInt(this.getAttribute('data-index'), 10);
             var label = this.textContent;
             compareArr(type, idx, label);
-        });
+        };
     }
 }
 
