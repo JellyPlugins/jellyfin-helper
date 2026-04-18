@@ -129,7 +129,7 @@ jobs:
 
     - name: Read version from manifest
       run: |
-        VERSION=$(jq -r '.[0].versions[0].version' manifest.json)
+        VERSION=$(jq -er '.[0].versions[0].version' manifest.json)
         echo "VERSION=$VERSION" >> $GITHUB_ENV
 
     - name: Check if tag already exists (remote)
@@ -165,9 +165,9 @@ jobs:
     - name: Read metadata from manifest.json
       if: env.TAG_EXISTS == 'false'
       run: |
-        CHANGELOG=$(jq -r '.[0].versions[0].changelog' manifest.json)
-        DESCRIPTION=$(jq -r '.[0].description' manifest.json)
-        OVERVIEW=$(jq -r '.[0].overview' manifest.json)
+        CHANGELOG=$(jq -er '.[0].versions[0].changelog' manifest.json)
+        DESCRIPTION=$(jq -er '.[0].description' manifest.json)
+        OVERVIEW=$(jq -er '.[0].overview' manifest.json)
         echo "BUILD_CHANGELOG<<EOF" >> $GITHUB_ENV
         echo "$CHANGELOG" >> $GITHUB_ENV
         echo "EOF" >> $GITHUB_ENV
@@ -233,7 +233,7 @@ jobs:
 
     - name: Read version from manifest
       run: |
-        VERSION=$(jq -r '.[0].versions[0].version' manifest.json)
+        VERSION=$(jq -er '.[0].versions[0].version' manifest.json)
         echo "VERSION=$VERSION" >> $GITHUB_ENV
 
     - name: Check if tag already exists (remote)
@@ -251,13 +251,20 @@ jobs:
         YQ_VERSION: v4.52.5
       run: |
         sudo apt-get update && sudo apt-get install -y jq
-        sudo wget -qO /usr/bin/yq https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64
-        sudo chmod +x /usr/bin/yq
+        TMP_DIR=$(mktemp -d)
+        trap 'rm -rf "$TMP_DIR"' EXIT
+        cd "$TMP_DIR"
+        wget -q https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64
+        wget -q https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/checksums
+        EXPECTED_HASH=$(awk '$2=="yq_linux_amd64"{print $1}' checksums | head -n1)
+        test -n "$EXPECTED_HASH"
+        echo "${EXPECTED_HASH}  yq_linux_amd64" | sha256sum -c -
+        sudo install -m 0755 yq_linux_amd64 /usr/bin/yq
 
     - name: Read changelog from manifest
       if: env.TAG_EXISTS == 'false'
       run: |
-        CHANGELOG=$(jq -r '.[0].versions[0].changelog' manifest.json)
+        CHANGELOG=$(jq -er '.[0].versions[0].changelog' manifest.json)
         echo "CHANGELOG<<EOF" >> $GITHUB_ENV
         echo "$CHANGELOG" >> $GITHUB_ENV
         echo "EOF" >> $GITHUB_ENV

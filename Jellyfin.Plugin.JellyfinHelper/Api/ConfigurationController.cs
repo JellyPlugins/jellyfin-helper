@@ -216,10 +216,11 @@ public class ConfigurationController : ControllerBase
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // User cancelled — stop testing
+            // User cancelled via token — stop testing without logging a warning
         }
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
         {
+            // Handles network errors, timeouts, and non-token OperationCanceledException (e.g., HttpClient timeout)
             var warning = $"Connection test failed for Seerr ({request.SeerrUrl}): {ex.Message}";
             warnings.Add(warning);
             _pluginLog.LogWarning("API", warning, ex, _logger);

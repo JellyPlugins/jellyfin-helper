@@ -75,13 +75,35 @@ public class TrendsHtmlTests : ConfigPageTestBase
             .Select(p => p.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var fnMatch = Regex.Match(
-            HtmlContent,
-            @"function\s+renderTrendChart\s*\([^)]*\)\s*\{(?<body>[\s\S]*?)\n\}",
-            RegexOptions.Multiline);
-        Assert.True(fnMatch.Success, "renderTrendChart function not found.");
+        var start = HtmlContent.IndexOf("function renderTrendChart", StringComparison.Ordinal);
+        Assert.True(start >= 0, "renderTrendChart function not found.");
 
-        var referenced = Regex.Matches(fnMatch.Groups["body"].Value, @"dataPoints\[[^\]]+\]\.(\w+)")
+        var bodyStart = HtmlContent.IndexOf('{', start);
+        Assert.True(bodyStart >= 0, "renderTrendChart opening brace not found.");
+
+        var depth = 0;
+        var bodyEnd = -1;
+        for (var i = bodyStart; i < HtmlContent.Length; i++)
+        {
+            if (HtmlContent[i] == '{')
+            {
+                depth++;
+            }
+            else if (HtmlContent[i] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    bodyEnd = i;
+                    break;
+                }
+            }
+        }
+
+        Assert.True(bodyEnd > bodyStart, "renderTrendChart function body not found.");
+        var functionBody = HtmlContent[(bodyStart + 1)..bodyEnd];
+
+        var referenced = Regex.Matches(functionBody, @"dataPoints\[[^\]]+\]\.(\w+)")
             .Select(m => m.Groups[1].Value)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();

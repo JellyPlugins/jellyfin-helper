@@ -351,6 +351,7 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 | **Empty Folder Task Mode** | Activate / DryRun / Deactivate | DryRun |
 | **Subtitle Task Mode** | Activate / DryRun / Deactivate | DryRun |
 | **Link Repair Task Mode** | Activate / DryRun / Deactivate | DryRun |
+| **Seerr Task Mode** | Activate / DryRun / Deactivate | Deactivate |
 | **Use Trash** | Move to trash instead of permanent delete | Off |
 | **Trash Folder Path** | Relative or absolute path | `.jellyfin-trash` |
 | **Trash Retention** | Days to keep items in trash | 30 |
@@ -358,6 +359,9 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 | **Plugin Log Level** | DEBUG, INFO, WARN, ERROR | INFO |
 | **Radarr Instances** | Up to 3 instances (name, URL, API key) | Empty |
 | **Sonarr Instances** | Up to 3 instances (name, URL, API key) | Empty |
+| **Seerr URL** | Overseerr / Jellyseerr base URL | Empty |
+| **Seerr API Key** | API key for Seerr cleanup / test connection | Empty |
+| **Seerr Cleanup Age (days)** | Max request age before deletion | 365 |
 
 Configuration is automatically migrated from legacy formats via `ConfigVersion`.
 

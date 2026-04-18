@@ -319,7 +319,7 @@ function initArrButtons(cfg) {
         for (var r = 0; r < radarrInstances.length; r++) {
             var rName = radarrInstances[r].Name || ('Radarr #' + (r + 1));
             h += '<button class="action-btn arr-compare-btn" data-type="Radarr" data-index="'
-                + r + '">' + T('compareWith', 'Compare with') + ' ' + escHtml(rName)
+                + r + '" data-label="' + escAttr(rName) + '">' + T('compareWith', 'Compare with') + ' ' + escHtml(rName)
                 + '</button>';
         }
         h += '</div></div>';
@@ -332,7 +332,7 @@ function initArrButtons(cfg) {
         for (var s = 0; s < sonarrInstances.length; s++) {
             var sName = sonarrInstances[s].Name || ('Sonarr #' + (s + 1));
             h += '<button class="action-btn arr-compare-btn" data-type="Sonarr" data-index="'
-                + s + '">' + T('compareWith', 'Compare with') + ' ' + escHtml(sName)
+                + s + '" data-label="' + escAttr(sName) + '">' + T('compareWith', 'Compare with') + ' ' + escHtml(sName)
                 + '</button>';
         }
         h += '</div></div>';
@@ -346,7 +346,7 @@ function initArrButtons(cfg) {
         compareBtns[i].onclick = function () {
             var type = this.getAttribute('data-type');
             var idx = parseInt(this.getAttribute('data-index'), 10);
-            var label = this.textContent;
+            var label = this.getAttribute('data-label') || type;
             compareArr(type, idx, label);
         };
     }
@@ -383,8 +383,7 @@ function compareArr(type, index, label) {
         + '…</p></div>';
     apiGet('JellyfinHelper/ArrIntegration/Compare/' + type + '?index=' + index,
         function (data) {
-            var instanceLabel = label ? label.replace(
-                T('compareWith', 'Compare with') + ' ', '') : type;
+            var instanceLabel = label || type;
             var h = '<h3 style="margin-bottom:0.8em;">' + escHtml(instanceLabel)
                 + '</h3>';
             h += renderArrSection('✅', 'inBoth', 'In Both', data.InBoth);

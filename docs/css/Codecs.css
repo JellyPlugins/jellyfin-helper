@@ -41,7 +41,7 @@
 }
 
 .donut-svg .donut-segment circle {
-    pointer-events: visibleStroke;
+    pointer-events: visiblestroke;
     cursor: pointer;
 }
 

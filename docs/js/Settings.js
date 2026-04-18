@@ -64,6 +64,7 @@ function checkUnsavedAndProceed(onProceed) {
     }));
     d.btnRow.appendChild(createDialogBtn('🚪 ' + T('discardChanges', 'Discard Changes'), 'danger', function () {
         removeDialogById('unsavedDialogOverlay');
+        loadSettings();
         onProceed();
     }));
     d.btnRow.appendChild(createDialogBtn('💾 ' + T('saveAndContinue', 'Save & Continue'), 'success', function () {
