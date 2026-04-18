@@ -114,61 +114,53 @@ function loadLogLevelFromConfig(callback) {
         }
         return;
     }
-    try {
-        apiGet('JellyfinHelper/Configuration', function (cfg) {
-            var level = cfg.PluginLogLevel || 'INFO';
-            if (typeof _currentLogLevel !== 'undefined') {
-                _currentLogLevel = level;
-            }
-            var lf = document.getElementById('logsLevelFilter');
-            if (lf) {
-                lf.value = level;
-            }
-            if (callback) {
-                callback();
-            }
-        }, function () {
-            var lf = document.getElementById('logsLevelFilter');
-            if (lf) {
-                lf.value = 'INFO';
-            }
-            if (callback) {
-                callback();
-            }
-        });
-    } catch (e) {
-        logLevelFilter = document.getElementById('logsLevelFilter');
-        if (logLevelFilter) {
-            logLevelFilter.value = 'INFO';
+    apiGet('JellyfinHelper/Configuration', function (cfg) {
+        var level = cfg.PluginLogLevel || 'INFO';
+        if (typeof _currentLogLevel !== 'undefined') {
+            _currentLogLevel = level;
+        }
+        var lf = document.getElementById('logsLevelFilter');
+        if (lf) {
+            lf.value = level;
         }
         if (callback) {
             callback();
         }
-    }
+    }, function () {
+        var lf = document.getElementById('logsLevelFilter');
+        if (lf) {
+            lf.value = 'INFO';
+        }
+        if (callback) {
+            callback();
+        }
+    });
 }
 
 function saveLogLevelToConfig(newLevel) {
-    try {
-        var levelFilter = document.getElementById('logsLevelFilter');
-        apiPut('JellyfinHelper/Configuration/LogLevel', {PluginLogLevel: newLevel},
-            function () {
-                // Update Settings tab safety-net variable if available
-                if (typeof _currentLogLevel !== 'undefined') {
-                    _currentLogLevel = newLevel;
-                }
-                showAutoSaveIndicatorOverlay(levelFilter, true);
-            }, function () {
-                console.warn('Failed to save log level');
-                showAutoSaveIndicatorOverlay(levelFilter, false);
-            });
-    } catch (e) {
-        console.warn('Failed to save log level', e);
-    }
+    var levelFilter = document.getElementById('logsLevelFilter');
+    apiPut('JellyfinHelper/Configuration/LogLevel', {PluginLogLevel: newLevel},
+        function () {
+            // Update Settings tab safety-net variable if available
+            if (typeof _currentLogLevel !== 'undefined') {
+                _currentLogLevel = newLevel;
+            }
+            showAutoSaveIndicatorOverlay(levelFilter, true);
+        }, function () {
+            console.warn('Failed to save log level');
+            showAutoSaveIndicatorOverlay(levelFilter, false);
+        });
 }
 
 function destroyLogsTab() {
     _logsInitSeq++;
     stopLogsAutoRefresh();
+    // NOTE: Do NOT reset _logsTabInitialized here.
+    // The DOM elements persist across tab switches, so handlers stay valid.
+    // _logsTabInitialized is only reset when the page shell is re-rendered.
+}
+
+function resetLogsTabState() {
     _logsTabInitialized = false;
 }
 

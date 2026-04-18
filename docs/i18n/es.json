@@ -1,5 +1,4 @@
 {
-  "title": "Jellyfin Helper — Estadísticas de medios",
   "scanLibraries": "Escanear bibliotecas",
   "scanning": "Escaneando…",
   "scanDescription": "Escaneando bibliotecas… Esto puede tardar para colecciones grandes.",
@@ -84,7 +83,7 @@
   "settingsTaskTitle": "Configuración de tareas",
   "settingsTrashTitle": "Configuración de papelera",
   "settingsArrTitle": "Configuración de Arr Stack",
-  "clickToExpand": "clic para expandir",
+  "clickToExpand": "Haz clic para expandir",
   "includedLibraries": "Bibliotecas incluidas (lista blanca, separadas por coma)",
   "includedLibrariesHelp": "Dejar vacío para incluir todas las bibliotecas.",
   "excludedLibraries": "Bibliotecas excluidas (lista negra, separadas por coma)",

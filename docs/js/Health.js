@@ -1,5 +1,7 @@
 // --- Health Tab ---
 
+var _lastScanResult = null;
+
 // collectFlatPaths is now in Shared.js
 
 function collectHealthPaths(data, prop) {
@@ -102,7 +104,10 @@ function attachHealthClickHandlers() {
     });
 }
 
+var _trashHealthRequestId = 0;
+
 function loadTrashHealthSection() {
+    var requestId = ++_trashHealthRequestId;
     // First check if trash is enabled
     apiGet('JellyfinHelper/Configuration', function (cfg) {
         if (!cfg.UseTrash) {
@@ -110,9 +115,19 @@ function loadTrashHealthSection() {
         }
         // Load trash contents
         apiGet('JellyfinHelper/Trash/Contents', function (data) {
+            // Guard against stale/overlapping responses
+            if (requestId !== _trashHealthRequestId) {
+                return;
+            }
             var container = document.getElementById('healthContent');
             if (!container) {
                 return;
+            }
+            // Remove any previously appended trash section to avoid duplicates
+            var existingTrash = container.querySelector('.section-divider');
+            while (existingTrash) {
+                existingTrash.parentNode.removeChild(existingTrash);
+                existingTrash = container.querySelector('.section-divider');
             }
 
             var totalItems = 0;

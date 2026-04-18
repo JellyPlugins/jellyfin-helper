@@ -87,8 +87,9 @@ function getPathSegments(fullPath, rootPaths) {
 
     var bestRoot = '';
     for (var i = 0; i < rootPaths.length; i++) {
-        var root = rootPaths[i].replace(/\\/g, '/');
-        if (normalized.startsWith(root) && root.length > bestRoot.length) {
+        var root = rootPaths[i].replace(/\\/g, '/').replace(/\/+$/, '');
+        var matchesRoot = normalized === root || normalized.startsWith(root + '/');
+        if (matchesRoot && root.length > bestRoot.length) {
             bestRoot = root;
         }
     }
@@ -303,7 +304,7 @@ function addAutoSaveIndicator(element, success, index) {
     const indicator = createSaveIndicator(element, success);
     addFadingDelay(indicator, fadeDelay);
 
-    if (index) {
+    if (typeof index === 'number') {
         const referenceNode = element.childNodes[index] || null;
         element.insertBefore(indicator, referenceNode);
     } else {

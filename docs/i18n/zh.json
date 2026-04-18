@@ -1,5 +1,4 @@
 {
-  "title": "Jellyfin Helper — 媒体统计",
   "scanLibraries": "扫描媒体库",
   "scanning": "扫描中…",
   "scanDescription": "正在扫描媒体库…大型收藏可能需要一些时间。",

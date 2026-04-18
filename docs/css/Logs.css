@@ -195,9 +195,9 @@
 .log-exception {
     margin-top: 0.3em;
     padding: 0.4em 0.6em;
-    background: rgba(231, 76, 60, 0.08);
-    border-left: 3px solid rgba(231, 76, 60, 0.4);
-    border-radius: 3px;
+    background: var(--color-danger-bg-soft, rgba(231, 76, 60, 0.08));
+    border-left: 3px solid var(--color-danger-border-soft, rgba(231, 76, 60, 0.4));
+    border-radius: var(--radius-sm);
     font-size: 0.9em;
     white-space: pre-wrap;
     word-break: break-all;

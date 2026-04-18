@@ -15,6 +15,8 @@
     --color-success: #2ecc71;
     --color-danger: #e74c3c;
     --color-danger-hover: #c0392b;
+    --color-danger-bg-soft: rgba(231, 76, 60, 0.08);
+    --color-danger-border-soft: rgba(231, 76, 60, 0.4);
     --color-warning: #e67e22;
     --color-purple: #9b59b6;
     --color-yellow: #f1c40f;
@@ -120,8 +122,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 18px;
-    height: 18px;
+    min-width: 32px;
+    min-height: 32px;
     padding: 0;
     border: none;
     border-radius: var(--radius-round);
@@ -134,8 +136,8 @@
 .scan-libraries-btn svg {
     display: block;
     transition: transform 0.3s ease;
-    width: 22px;
-    height: 22px;
+    width: 18px;
+    height: 18px;
 }
 
 .scan-libraries-btn:hover {

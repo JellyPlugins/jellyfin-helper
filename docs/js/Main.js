@@ -262,6 +262,10 @@ function initPage() {
         if (result) {
             result.innerHTML = renderShell();
             result.style.display = 'block';
+            // Reset tab-level state after DOM re-render so handlers get rebound
+            if (typeof resetLogsTabState === 'function') {
+                resetLogsTabState();
+            }
         }
 
         // Initialize tab switching
@@ -306,6 +310,17 @@ function bindPageLifecycle() {
         _pageInitialized = false;
         _initRetries = 0;
         setTimeout(initPage, 0);
+    });
+    // Teardown when navigating away from the plugin page
+    pageEl.addEventListener('pagehide', function () {
+        if (typeof destroyLogsTab === 'function') {
+            destroyLogsTab();
+        }
+    });
+    pageEl.addEventListener('viewhide', function () {
+        if (typeof destroyLogsTab === 'function') {
+            destroyLogsTab();
+        }
     });
     _pageLifecycleBound = true;
 }

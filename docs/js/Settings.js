@@ -641,9 +641,9 @@ function attachSeerrHandlers() {
             btn.disabled = false;
             if (res && res.success) {
                 _seerrTimer = showButtonFeedback(btn, true, escHtml(res.message || 'OK'), originalHtml);
-                // Auto-save settings after successful connection test
+                // Auto-save settings after successful connection test (quiet to avoid double feedback)
                 var payload = buildSettingsPayload();
-                doSaveSettings(payload);
+                doSaveSettings(payload, {quiet: true, element: btn});
                 // Enable previously greyed-out Seerr UI sections
                 updateSeerrUIState(true);
             } else {
