@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jellyfin Helper — Live Demo</title>
+    <style>
+        /* === Jellyfin-like dark theme base === */
+        :root {
+            --bg-primary: #101010;
+            --bg-secondary: #1a1a2e;
+            --bg-card: #202040;
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0c0;
+            --accent: #00a4dc;
+            --accent-hover: #0088b8;
+            --border: #333355;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+        .demo-banner {
+            background: linear-gradient(135deg, #00a4dc 0%, #6c5ce7 100%);
+            color: #fff;
+            text-align: center;
+            padding: 12px 20px;
+            font-size: 14px;
+            position: sticky;
+            top: 0;
+            z-index: 9999;
+        }
+        .demo-banner a { color: #fff; font-weight: bold; text-decoration: underline; }
+        .demo-banner a:hover { opacity: 0.85; }
+        .demo-wrapper {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        /* Make the Jellyfin plugin page styles work standalone */
+        .pluginConfigurationPage { background: transparent; }
+    </style>
+</head>
+<body>
+    <!-- Demo banner -->
+    <div class="demo-banner">
+        🎮 <strong>Interactive Demo</strong> — This is a static preview with sample data. No real Jellyfin server required.
+        <a href="https://github.com/JellyPlugins/jellyfin-helper" target="_blank">⭐ View on GitHub</a>
+    </div>
+
+    <div class="demo-wrapper">
+        <!-- The actual plugin page (same structure as configPage.template.html) -->
+        <div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+             data-require="emby-input,emby-checkbox,emby-select">
+            <style id="pluginStyles">/* Injected at build */</style>
+            <div data-role="content">
+                <div class="content-primary">
+                    <div class="stats-container">
+                        <div class="stats-header">
+                            <h2>Jellyfin Helper &#x2014; Media Statistics</h2>
+                        <div class="header-actions">
+                                <span id="lastScanBadge" class="last-scan-badge" style="display:none;"></span>
+                                <button id="btnRefresh" class="refresh-btn" title="Scan Libraries">
+                                    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4C7.58 4 4.01 7.58 4.01 12S7.58 20 12 20c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="statsContent">
+                            <div class="loading-overlay" id="loadingIndicator" style="display:none;">
+                                <div class="spinner"></div>
+                                <p>Scanning libraries&#x2026; This may take a while for large collections.</p>
+                            </div>
+                            <div id="statsPlaceholder" style="text-align:center; padding:3em; opacity:0.5;">
+                                <p>Click <strong>Scan Libraries</strong> to analyze your media folders.</p>
+                            </div>
+                            <div id="statsResult" style="display:none;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mock ApiClient before loading plugin JS -->
+    <script>
+    // ========== MOCK DATA ==========
+    var MOCK_TRANSLATIONS = null; // loaded from en.json
+    // Helper: create a library object matching C# LibraryStatistics shape
+    function _lib(name, type, opts) {
+        var totalSize = (opts.VideoSize||0) + (opts.AudioSize||0) + (opts.SubtitleSize||0) +
+            (opts.ImageSize||0) + (opts.NfoSize||0) + (opts.TrickplaySize||0) + (opts.OtherSize||0);
+        return Object.assign({
+            LibraryName: name, CollectionType: type, RootPaths: opts.RootPaths || [],
+            VideoSize: 0, AudioSize: 0, SubtitleSize: 0, ImageSize: 0, NfoSize: 0, TrickplaySize: 0, OtherSize: 0,
+            VideoFileCount: 0, AudioFileCount: 0, SubtitleFileCount: 0, ImageFileCount: 0, NfoFileCount: 0,
+            TrickplayFileCount: 0, TrickplayFolderCount: opts.TrickplayFolderCount || 0, OtherFileCount: 0,
+            TotalSize: totalSize,
+            VideoCodecs: {}, VideoAudioCodecs: {}, MusicAudioCodecs: {},
+            ContainerFormats: {}, Resolutions: {},
+            VideoCodecPaths: {}, VideoAudioCodecPaths: {}, MusicAudioCodecPaths: {},
+            ContainerFormatPaths: {}, ResolutionPaths: {},
+            VideoCodecSizes: {}, VideoAudioCodecSizes: {}, MusicAudioCodecSizes: {},
+            ContainerSizes: {}, ResolutionSizes: {},
+            VideosWithoutSubtitles: 0, VideosWithoutImages: 0, VideosWithoutNfo: 0, OrphanedMetadataDirectories: 0,
+            VideosWithoutSubtitlesPaths: [], VideosWithoutImagesPaths: [], VideosWithoutNfoPaths: [], OrphanedMetadataDirectoriesPaths: []
+        }, opts);
+    }
+
+    var _moviesLib = _lib("Movies", "movies", {
+        RootPaths: ["/data/movies"],
+        VideoSize: 3298534883328, SubtitleSize: 3221225472,
+        ImageSize: 4294967296, NfoSize: 536870912, TrickplaySize: 19327352832, OtherSize: 268435456,
+        VideoFileCount: 1800, SubtitleFileCount: 3600, ImageFileCount: 7200, NfoFileCount: 1800,
+        TrickplayFileCount: 1500, TrickplayFolderCount: 1500, OtherFileCount: 64,
+        VideoCodecs: { "HEVC": 900, "H.264": 750, "AV1": 100, "VP9": 30, "MPEG-2": 20 },
+        VideoAudioCodecs: { "AAC": 900, "AC3": 450, "DTS": 300, "TrueHD": 150 },
+        ContainerFormats: { "MKV": 1100, "MP4": 600, "AVI": 80, "WebM": 20 },
+        Resolutions: { "4K": 500, "1080p": 1000, "720p": 200, "480p": 80, "576p": 20 },
+        VideoCodecPaths: { "HEVC": ["/data/movies/Inception (2010)/Inception.mkv", "/data/movies/Interstellar (2014)/Interstellar.mkv"], "H.264": ["/data/movies/The Matrix (1999)/The Matrix.mp4"], "AV1": ["/data/movies/Dune (2021)/Dune.mkv"] },
+        VideosWithoutSubtitles: 12, VideosWithoutImages: 3, VideosWithoutNfo: 1,
+        VideosWithoutSubtitlesPaths: ["/data/movies/Old Movie (1995)/Old Movie.avi"], VideosWithoutImagesPaths: [], VideosWithoutNfoPaths: []
+    });
+
+    var _tvLib = _lib("TV Shows", "tvshows", {
+        RootPaths: ["/data/tv"],
+        VideoSize: 2199023255552, SubtitleSize: 2147483648,
+        ImageSize: 3221225472, NfoSize: 536870912, TrickplaySize: 12884901888, OtherSize: 268435456,
+        VideoFileCount: 2042, SubtitleFileCount: 4080, ImageFileCount: 6000, NfoFileCount: 2040,
+        TrickplayFileCount: 1700, TrickplayFolderCount: 1700, OtherFileCount: 64,
+        VideoCodecs: { "HEVC": 1020, "H.264": 850, "AV1": 80, "VP9": 52, "MPEG-2": 40 },
+        VideoAudioCodecs: { "AAC": 900, "AC3": 450, "DTS": 300, "Opus": 142, "FLAC": 100, "TrueHD": 150 },
+        ContainerFormats: { "MKV": 1300, "MP4": 600, "AVI": 62, "WebM": 60, "TS": 20 },
+        Resolutions: { "4K": 300, "1080p": 1200, "720p": 400, "480p": 120, "576p": 22 },
+        VideoCodecPaths: { "HEVC": ["/data/tv/Breaking Bad/S01E01.mkv"], "H.264": ["/data/tv/Friends/S01E01.mp4"] },
+        VideosWithoutSubtitles: 45, VideosWithoutImages: 8, OrphanedMetadataDirectories: 1,
+        VideosWithoutSubtitlesPaths: ["/data/tv/New Show/S01E01.mkv"], VideosWithoutImagesPaths: ["/data/tv/New Show/S01E01.mkv", "/data/tv/New Show/S01E02.mkv"],
+        OrphanedMetadataDirectoriesPaths: ["/data/tv/Cancelled Show/"]
+    });
+
+    var _musicLib = _lib("Music", "music", {
+        RootPaths: ["/data/music"],
+        AudioSize: 214748364800, ImageSize: 1073741824,
+        AudioFileCount: 12450, ImageFileCount: 2000,
+        MusicAudioCodecs: { "FLAC": 6000, "MP3": 3200, "Opus": 1500, "AAC": 1000, "ALAC": 500, "WavPack": 250 },
+        MusicAudioCodecPaths: { "FLAC": ["/data/music/Pink Floyd/Dark Side of the Moon/01 - Speak to Me.flac"] }
+    });
+
+    var MOCK_STATISTICS = {
+        ScanTimestamp: new Date(Date.now() - 300000).toISOString(),
+        Libraries: [_moviesLib, _tvLib, _musicLib],
+        Movies: [_moviesLib],
+        TvShows: [_tvLib],
+        Music: [_musicLib],
+        Other: [],
+        // Computed totals (matching C# MediaStatisticsResult computed properties)
+        TotalMovieVideoSize: _moviesLib.VideoSize,
+        TotalTvShowVideoSize: _tvLib.VideoSize,
+        TotalMusicAudioSize: _musicLib.AudioSize,
+        TotalTrickplaySize: _moviesLib.TrickplaySize + _tvLib.TrickplaySize,
+        TotalSubtitleSize: _moviesLib.SubtitleSize + _tvLib.SubtitleSize,
+        TotalImageSize: _moviesLib.ImageSize + _tvLib.ImageSize + _musicLib.ImageSize,
+        TotalNfoSize: _moviesLib.NfoSize + _tvLib.NfoSize,
+        TotalVideoFileCount: _moviesLib.VideoFileCount + _tvLib.VideoFileCount,
+        TotalAudioFileCount: _musicLib.AudioFileCount,
+        MovieRootPaths: ["/data/movies"],
+        TvShowRootPaths: ["/data/tv"],
+        MusicRootPaths: ["/data/music"],
+        OtherRootPaths: []
+    };
+
+    var MOCK_CONFIG = {
+        IncludedLibraries: "",
+        ExcludedLibraries: "",
+        OrphanMinAgeDays: 0,
+        TrickplayTaskMode: "DryRun",
+        EmptyMediaFolderTaskMode: "Activate",
+        OrphanedSubtitleTaskMode: "DryRun",
+        LinkRepairTaskMode: "Deactivate",
+        UseTrash: true,
+        TrashFolderPath: ".jellyfin-trash",
+        TrashRetentionDays: 30,
+        Language: "en",
+        PluginLogLevel: "INFO",
+        RadarrInstances: [
+            { Name: "Radarr Main", Url: "http://192.168.1.100:7878", ApiKey: "demo-key-1234" },
+            { Name: "Radarr 4K", Url: "http://192.168.1.100:7879", ApiKey: "demo-key-5678" }
+        ],
+        SonarrInstances: [
+            { Name: "Sonarr", Url: "http://192.168.1.100:8989", ApiKey: "demo-key-abcd" }
+        ],
+        SeerrUrl: "http://192.168.1.100:5055",
+        SeerrApiKey: "demo-seerr-key-xyz",
+        SeerrCleanupTaskMode: "DryRun",
+        SeerrCleanupAgeDays: 365,
+        ConfigVersion: 3
+    };
+
+    var MOCK_CLEANUP_STATS = {
+        TotalBytesFreed: 8589934592,
+        TotalItemsDeleted: 247,
+        LastCleanupTimestamp: new Date(Date.now() - 86400000).toISOString()
+    };
+
+    var MOCK_HISTORY = (function() {
+        var snapshots = [];
+        var now = Date.now();
+        for (var i = 30; i >= 0; i--) {
+            var d = new Date(now - i * 86400000);
+            var growth = (30 - i) * 50000000000;
+            snapshots.push({
+                Timestamp: d.toISOString(),
+                TotalVideoSize: 5200000000000 + growth,
+                TotalAudioSize: 200000000000 + (30 - i) * 500000000,
+                TotalSubtitleSize: 5000000000,
+                TotalImageSize: 8000000000,
+                TotalNfoSize: 1000000000,
+                TotalTrickplaySize: 30000000000 + (30 - i) * 70000000,
+                TotalOtherSize: 500000000,
+                TotalVideoFileCount: 3700 + (30 - i) * 5,
+                TotalAudioFileCount: 12000 + (30 - i) * 15,
+                TotalSize: 5444500000000 + growth + (30 - i) * 570000000,
+                LibraryCount: 3
+            });
+        }
+        return snapshots;
+    })();
+
+    var MOCK_TRASH_CONTENTS = {
+        Libraries: [
+            {
+                LibraryName: "Movies",
+                Items: [
+                    { OriginalName: "Old Movie (1995)", Size: 4294967296, TrashedDate: new Date(Date.now() - 172800000).toISOString(), PurgeDate: new Date(Date.now() + 2419200000).toISOString(), IsDirectory: true },
+                    { OriginalName: "Duplicate.mkv", Size: 2147483648, TrashedDate: new Date(Date.now() - 604800000).toISOString(), PurgeDate: new Date(Date.now() + 1987200000).toISOString(), IsDirectory: false }
+                ]
+            },
+            {
+                LibraryName: "TV Shows",
+                Items: [
+                    { OriginalName: "Cancelled Show", Size: 10737418240, TrashedDate: new Date(Date.now() - 86400000).toISOString(), PurgeDate: new Date(Date.now() + 2505600000).toISOString(), IsDirectory: true }
+                ]
+            }
+        ]
+    };
+
+    var MOCK_TRASH_FOLDERS = { Paths: ["/data/movies/.jellyfin-trash", "/data/tv/.jellyfin-trash"] };
+
+    var MOCK_ARR_COMPARE = {
+        InBoth: ["Inception (2010)", "Interstellar (2014)", "The Dark Knight (2008)", "Dune (2021)", "Oppenheimer (2023)"],
+        InArrOnly: ["Arrival (2016)"],
+        InArrOnlyMissing: ["Tenet (2020)", "Blade Runner 2049 (2017)"],
+        InJellyfinOnly: ["Home Video (2023)", "Family Recording (2024)"]
+    };
+
+    var MOCK_LOGS = {
+        Entries: (function() {
+            var entries = [];
+            var sources = ["MediaStatistics", "TrickplayCleaner", "EmptyFolderCleaner", "SubtitleCleaner", "LinkRepair", "TrashService", "ArrIntegration"];
+            var levels = ["INFO", "INFO", "INFO", "DEBUG", "WARN", "ERROR", "INFO", "INFO", "DEBUG", "INFO"];
+            var messages = [
+                "Statistics scan started for 3 libraries",
+                "Scanning library: Movies (1800 video files)",
+                "Scanning library: TV Shows (2042 video files)",
+                "Processing directory: /data/movies/Inception (2010)",
+                "Trickplay folder has no matching video: /data/trickplay/deleted-movie",
+                "Failed to access directory: /data/restricted — Access denied",
+                "Statistics scan completed in 12.4s — 3842 videos, 12450 audio files",
+                "Empty folder cleanup: 3 folders deleted, 45.2 MB freed",
+                "Checking subtitle: /data/movies/Old Movie/Old Movie.en.srt",
+                "Link repair completed: 2 files repaired, 0 errors"
+            ];
+            var now = Date.now();
+            for (var i = 0; i < messages.length; i++) {
+                entries.push({
+                    Timestamp: new Date(now - (messages.length - i) * 60000).toISOString(),
+                    Level: levels[i],
+                    Source: sources[i % sources.length],
+                    Message: messages[i],
+                    Exception: levels[i] === "ERROR" ? "System.UnauthorizedAccessException: Access to the path '/data/restricted' is denied.\n   at System.IO.Directory.InternalEnumerateEntries(...)" : null
+                });
+            }
+            return entries;
+        })(),
+        TotalCount: 10
+    };
+
+    var MOCK_GROWTH_TIMELINE = (function() {
+        // Simulate ~10 years of monthly library growth (2016-2026)
+        var dataPoints = [];
+        var startDate = new Date(2016, 5, 1);
+        var now = new Date();
+        var cumulativeSize = 0;
+        var cumulativeFileCount = 0;
+        var month = new Date(startDate);
+        var seed = 42;
+        function pseudoRandom() {
+            seed = (seed * 16807) % 2147483647;
+            return (seed - 1) / 2147483646;
+        }
+        while (month <= now) {
+            var year = month.getFullYear();
+            var m = month.getMonth();
+            var yearIndex = year - 2016;
+            var baseFiles = Math.floor(10 + yearIndex * 8 + pseudoRandom() * (15 + yearIndex * 5));
+            if (m === 0 || m === 9 || m === 11) baseFiles = Math.floor(baseFiles * (1.3 + pseudoRandom() * 0.4));
+            var avgFileSize = (1.5 + yearIndex * 0.5 + pseudoRandom() * 1.5) * 1073741824;
+            cumulativeSize += Math.floor(baseFiles * avgFileSize);
+            cumulativeFileCount += baseFiles;
+            dataPoints.push({
+                date: new Date(year, m, 1).toISOString(),
+                cumulativeSize: cumulativeSize,
+                cumulativeFileCount: cumulativeFileCount
+            });
+            month.setMonth(month.getMonth() + 1);
+        }
+        return {
+            granularity: "monthly",
+            earliestFileDate: startDate.toISOString(),
+            computedAt: now.toISOString(),
+            totalFilesScanned: cumulativeFileCount,
+            dataPoints: dataPoints
+        };
+    })();
+
+    var MOCK_LIBRARIES = [
+        { Name: "Movies", CollectionType: "movies" },
+        { Name: "TV Shows", CollectionType: "tvshows" },
+        { Name: "Music", CollectionType: "music" }
+    ];
+
+    // ========== MOCK ApiClient ==========
+    var ApiClient = {
+        getUrl: function(path) {
+            return 'mock://' + path;
+        },
+        ajax: function(opts) {
+            var url = opts.url || '';
+            var method = (opts.type || 'GET').toUpperCase();
+
+            return new Promise(function(resolve) {
+                // Simulate network delay
+                setTimeout(function() {
+                    // Route to mock data
+                    if (url.indexOf('Translations') !== -1) {
+                        resolve(MOCK_TRANSLATIONS || {});
+                    } else if (url.indexOf('Statistics/Latest') !== -1) {
+                        resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
+                    } else if (url.indexOf('GrowthTimeline') !== -1) {
+                        resolve(JSON.parse(JSON.stringify(MOCK_GROWTH_TIMELINE)));
+                    } else if (url.indexOf('Statistics/History') !== -1) {
+                        resolve(MOCK_HISTORY);
+                    } else if (url.indexOf('Statistics') !== -1 && url.indexOf('forceRefresh') !== -1) {
+                        resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
+                    } else if (url.indexOf('CleanupStatistics') !== -1) {
+                        resolve(MOCK_CLEANUP_STATS);
+                    } else if (url.indexOf('Configuration/LogLevel') !== -1 && method === 'PUT') {
+                        // Update log level only
+                        try {
+                            var body = JSON.parse(opts.data);
+                            if (body.PluginLogLevel) MOCK_CONFIG.PluginLogLevel = body.PluginLogLevel;
+                        } catch(e) { console.warn('Mock ApiClient: failed to parse log level data', e); }
+                        resolve({ message: "Log level updated.", pluginLogLevel: MOCK_CONFIG.PluginLogLevel });
+                    } else if (url.indexOf('Configuration') !== -1 && method === 'POST') {
+                        // Save config — just succeed
+                        try {
+                            var newCfg = JSON.parse(opts.data);
+                            Object.assign(MOCK_CONFIG, newCfg);
+                        } catch(e) { console.warn('Mock ApiClient: failed to parse config data', e); }
+                        resolve({});
+                    } else if (url.indexOf('Configuration') !== -1) {
+                        resolve(JSON.parse(JSON.stringify(MOCK_CONFIG)));
+                    } else if (url.indexOf('Trash/Contents') !== -1) {
+                        resolve(MOCK_TRASH_CONTENTS);
+                    } else if (url.indexOf('Trash/Folders') !== -1 && method === 'DELETE') {
+                        resolve({ DeletedCount: 2, FailedCount: 0 });
+                    } else if (url.indexOf('Trash/Folders') !== -1) {
+                        resolve(MOCK_TRASH_FOLDERS);
+                    } else if (url.indexOf('Trash/Summary') !== -1) {
+                        resolve({ TotalSize: 17179869184, TotalItems: 3 });
+                    } else if (url.indexOf('Seerr/Test') !== -1) {
+                        resolve({ success: true, message: "Connected to Jellyseerr (demo)" });
+                    } else if (url.indexOf('ArrIntegration/TestConnection') !== -1) {
+                        resolve({ Success: true, Message: "Connection successful (demo)" });
+                    } else if (url.indexOf('ArrIntegration/Compare/') !== -1) {
+                        resolve(JSON.parse(JSON.stringify(MOCK_ARR_COMPARE)));
+                    } else if (url.indexOf('Logs/Download') !== -1) {
+                        var logText = MOCK_LOGS.Entries.map(function(e) {
+                            return e.Timestamp + ' [' + e.Level + '] ' + e.Source + ': ' + e.Message;
+                        }).join('\n');
+                        resolve(logText);
+                    } else if (url.indexOf('Logs') !== -1 && method === 'DELETE') {
+                        MOCK_LOGS.Entries = [];
+                        MOCK_LOGS.TotalCount = 0;
+                        resolve({});
+                    } else if (url.indexOf('Logs') !== -1) {
+                        resolve(JSON.parse(JSON.stringify(MOCK_LOGS)));
+                    } else if (url.indexOf('Libraries') !== -1) {
+                        resolve(MOCK_LIBRARIES);
+                    } else {
+                        console.warn('Mock ApiClient: unhandled URL', url);
+                        resolve({});
+                    }
+                }, 150 + Math.random() * 200);
+            });
+        }
+    };
+
+    // Polyfill Promise.then with two-arg style (Jellyfin's ApiClient.ajax uses .then(success, error))
+    // Standard Promises already support this — no polyfill needed.
+    </script>
+
+    <!-- Load translations, then inject plugin CSS & JS -->
+    <script>
+    // Load the English translations from the repo
+    fetch('i18n/en.json')
+        .then(function(r) { return r.json(); })
+        .then(function(t) {
+            MOCK_TRANSLATIONS = t;
+        })
+        .catch(function() {
+            console.warn('Could not load translations, using empty object');
+            MOCK_TRANSLATIONS = {};
+        })
+        .finally(function() {
+            // Now load the plugin CSS and JS
+            loadPluginAssets();
+        });
+
+    function loadPluginAssets() {
+        // Load all CSS files
+        var cssFiles = [
+            'css/Shared.css', 'css/Overview.css', 'css/Codecs.css', 'css/Health.css',
+            'css/Trends.css', 'css/Settings.css', 'css/ArrIntegration.css', 'css/Logs.css'
+        ];
+        var styleEl = document.getElementById('pluginStyles');
+        var cssPromises = cssFiles.map(function(f) {
+            return fetch(f).then(function(r) { return r.text(); }).catch(function() { return ''; });
+        });
+
+        Promise.all(cssPromises).then(function(results) {
+            styleEl.textContent = results.join('\n');
+
+            // Load all JS files in order
+            var jsFiles = [
+                'js/Shared.js', 'js/Overview.js', 'js/Codecs.js', 'js/Health.js',
+                'js/Trends.js', 'js/Settings.js', 'js/ArrIntegration.js', 'js/Logs.js', 'js/Main.js'
+            ];
+
+            // We need to concatenate all JS and eval, because they form one IIFE
+            var jsPromises = jsFiles.map(function(f) {
+                return fetch(f).then(function(r) { return r.text(); }).catch(function() { return ''; });
+            });
+
+            Promise.all(jsPromises).then(function(jsResults) {
+                var fullScript = jsResults.join('\n');
+                try {
+                    var scriptEl = document.createElement('script');
+                    scriptEl.textContent = fullScript;
+                    document.body.appendChild(scriptEl);
+                } catch(e) {
+                    console.error('Failed to load plugin JS:', e);
+                }
+            });
+        });
+    }
+    </script>
+</body>
+</html>

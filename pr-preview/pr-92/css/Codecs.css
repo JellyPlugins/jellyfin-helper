@@ -1,0 +1,175 @@
+/* Donut chart styles */
+.charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5em;
+    margin: 0 0 2em 0;
+}
+
+@media (max-width: 700px) {
+    .charts-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.chart-box {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    text-align: center;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.chart-box h4 {
+    margin: 0 0 0.8em 0;
+    font-size: 0.95em;
+    opacity: 0.8;
+}
+
+.donut-container {
+    position: relative;
+    display: inline-block;
+}
+
+.donut-svg .donut-segment {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 0.2s ease;
+    pointer-events: none;
+}
+
+.donut-svg .donut-segment circle {
+    pointer-events: visibleStroke;
+    cursor: pointer;
+}
+
+.donut-svg .donut-segment:hover {
+    transform: scale(1.05);
+}
+
+.donut-tooltip {
+    position: absolute;
+    z-index: 5;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    background: rgba(20, 20, 20, 0.92);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 0.35em 0.55em;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+
+.donut-tooltip.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* === Codec Breakdown (clickable legend/table below donut) === */
+
+.codec-breakdown {
+    margin-top: 1em;
+    text-align: left;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    padding-top: 0.6em;
+}
+
+.codec-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    padding: 0.45em 0.6em;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, transform 0.1s;
+    border: 1px solid transparent;
+    margin-bottom: 2px;
+    position: relative;
+}
+
+.codec-row:hover {
+    background: rgba(0, 164, 220, 0.08);
+    border-color: rgba(0, 164, 220, 0.25);
+}
+
+.codec-row:active {
+    transform: scale(0.98);
+}
+
+/* noinspection CssUnusedSymbol */
+.codec-row.codec-row-active {
+    background: rgba(0, 164, 220, 0.12);
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px var(--color-primary-border);
+}
+
+.codec-row-color {
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-round);
+    flex-shrink: 0;
+}
+
+.codec-row-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1em;
+}
+
+.codec-row-name {
+    font-size: 0.85em;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.codec-row-stats {
+    font-size: 0.72em;
+    opacity: 0.55;
+    white-space: nowrap;
+}
+
+.codec-row-bar {
+    width: 60px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.codec-row-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s ease;
+}
+
+.codec-row-arrow {
+    font-size: 1.1em;
+    opacity: 0.3;
+    transition: opacity 0.2s, transform 0.2s;
+    flex-shrink: 0;
+    width: 12px;
+    text-align: center;
+}
+
+.codec-row:hover .codec-row-arrow {
+    opacity: 0.7;
+}
+
+/* noinspection CssUnusedSymbol */
+.codec-row.codec-row-active .codec-row-arrow {
+    opacity: 1;
+    transform: rotate(90deg);
+    color: var(--color-primary);
+}

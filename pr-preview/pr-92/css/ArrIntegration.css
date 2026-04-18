@@ -1,0 +1,32 @@
+/* Arr comparison */
+.arr-section {
+    margin-top: 1em;
+}
+
+.arr-list {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md) 1em;
+    margin-top: 0.5em;
+    max-height: 300px;
+    overflow-y: auto;
+    overflow-x: auto;
+    font-size: 0.85em;
+}
+
+.arr-list ul {
+    margin: 0;
+    padding-left: 1.5em;
+}
+
+.arr-list li {
+    padding: 0.15em 0;
+    overflow-wrap: anywhere;
+}
+
+.arr-count {
+    font-weight: 700;
+    color: var(--color-primary);
+}
+
