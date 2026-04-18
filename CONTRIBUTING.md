@@ -167,7 +167,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── CleanTrickplayTask.cs
 │   ├── CleanEmptyMediaFoldersTask.cs
 │   ├── CleanOrphanedSubtitlesTask.cs
-│   └── RepairLinksTask.cs
+│   └── RepairLinksTask.cs            # Repairs broken STRM/symlink references
 └── PluginPages/
     ├── configPage.template.html # HTML shell (build-time composition)
     ├── configPage.html          # Generated output (do not edit)

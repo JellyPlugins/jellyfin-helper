@@ -339,6 +339,7 @@ public class SettingsHtmlTests : ConfigPageTestBase
         // Seerr uses a conditional pattern: cfgSeerrMode ? ...value : 'Deactivate'
         Assert.Contains("SeerrCleanupTaskMode:", HtmlContent);
         Assert.Contains("cfgSeerrMode", HtmlContent);
+        Assert.Contains("Deactivate", HtmlContent);
     }
 
     [Fact]

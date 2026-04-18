@@ -5,7 +5,7 @@ var _lastTrendPointData = null;
 
 function formatGranularityLabel(dateStr, granularity) {
     var d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
+    if (isNaN(d.getTime())) return '—';
 
     switch (granularity) {
         case 'yearly':
@@ -214,9 +214,10 @@ function renderTrendChart(timeline) {
         svg += '<text x="' + (padL - 5) + '" y="' + (gy + 4).toFixed(1) + '" text-anchor="end" fill="rgba(255,255,255,0.4)" font-size="10">' + formatBytes(yTicks[g]) + '</text>';
     }
 
-    // Area fill
+    // Area fill — use theme variable for consistent primary tint
+    var areaFill = getComputedStyle(document.documentElement).getPropertyValue('--color-primary-light').trim() || 'rgba(0,164,220,0.15)';
     var areaPoints = padL + ',' + (padT + chartH) + ' ' + points.join(' ') + ' ' + (padL + (dataPoints.length - 1) * step) + ',' + (padT + chartH);
-    svg += '<polygon points="' + areaPoints + '" fill="rgba(0,164,220,0.15)" />';
+    svg += '<polygon points="' + areaPoints + '" fill="' + areaFill + '" />';
 
     // Line
     var trendColor = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#00a4dc';
@@ -264,7 +265,9 @@ function renderTrendChart(timeline) {
     // Metadata line below chart
     var meta = '<div class="trend-meta" style="text-align:center;color:rgba(255,255,255,0.35);font-size:11px;margin-top:4px;">';
     meta += T('trendGranularity', 'Granularity') + ': ' + granularity;
-    meta += ' &middot; ' + (timeline.totalFilesScanned || 0) + ' ' + T('trendFiles', 'media files');
+    var safeFileCount = Number(timeline.totalFilesScanned);
+    if (!isFinite(safeFileCount) || safeFileCount < 0) safeFileCount = 0;
+    meta += ' &middot; ' + safeFileCount + ' ' + T('trendFiles', 'media files');
     if (timeline.earliestFileDate) {
         meta += ' &middot; ' + T('trendEarliest', 'Earliest') + ': ' + new Date(timeline.earliestFileDate).toLocaleDateString(undefined, {timeZone: 'UTC'});
     }

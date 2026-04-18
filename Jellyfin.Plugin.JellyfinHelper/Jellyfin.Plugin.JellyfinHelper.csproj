@@ -76,8 +76,8 @@
                 OutputFile="$(MSBuildProjectDirectory)\PluginPages\configPage.html"/>
     </Target>
 
-  <!-- Sync CSS, JS, and i18n files to docs/ for GitHub Pages demo (set SyncDocs=false to skip) -->
-  <Target Name="SyncDocsAssets" AfterTargets="ComposeConfigPageHtml" Condition="'$(SyncDocs)' != 'false'">
+  <!-- Sync CSS, JS, and i18n files to docs/ for GitHub Pages demo (set SyncDocs=true to enable) -->
+  <Target Name="SyncDocsAssets" AfterTargets="ComposeConfigPageHtml" Condition="'$(SyncDocs)' == 'true'">
     <PropertyGroup>
       <DocsRoot>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\docs'))</DocsRoot>
     </PropertyGroup>

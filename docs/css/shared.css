@@ -357,6 +357,13 @@
     background: var(--color-danger);
 }
 
+/* Ensure disabled always wins over success/error status variants */
+.action-btn:disabled.success,
+.action-btn:disabled.error {
+    background: #555;
+    cursor: not-allowed;
+}
+
 
 /* Arr button variants */
 .btn-arr-test {
@@ -623,7 +630,11 @@
         animation: none;
     }
 
+    .refresh-btn svg {
+        transition: none;
+    }
+
     .refresh-btn:hover svg {
-        animation: none;
+        transform: none;
     }
 }
