@@ -11,24 +11,27 @@ function renderLogsTab() {
 
     // Toolbar
     h += '<div class="logs-toolbar">';
+
+    h += '<div class="logs-toolbar-item">';
     h += '<label for="logsLevelFilter">' + T('logsLevel', 'Level') + ':</label>';
     h += '<div>';
-    h += '<select id="logsLevelFilter">';
+    h += '<select id="logsLevelFilter" style="min-width: 100px">';
     h += '<option value="DEBUG">DEBUG</option>';
     h += '<option value="INFO">INFO</option>';
     h += '<option value="WARN">WARN</option>';
     h += '<option value="ERROR">ERROR</option>';
     h += '</select>';
     h += '</div>';
+    h += '</div>';
 
+    h += '<div class="logs-toolbar-item">';
     h += '<label for="logsSourceFilter">' + T('logsSource', 'Source') + ':</label>';
     h += '<input type="text" id="logsSourceFilter" placeholder="' + T(
             'logsSourcePlaceholder', 'e.g. TrickplayCleaner')
-        + '" style="width:150px;">';
-
-    h += '<div class="logs-spacer"></div>';
+        + '" style="width:130px;">';
 
     h += '<span class="logs-count" id="logsCount"></span>';
+    h += '</div>';
 
     h += '<div class="logs-auto-refresh" id="logsAutoRefreshIndicator">';
     h += '<span class="dot"></span>';

@@ -44,6 +44,7 @@
     font-size: 0.85em;
     opacity: 0.6;
     margin-top: 0.3em;
+    margin-bottom: 0;
 }
 
 .stat-card.highlight {
