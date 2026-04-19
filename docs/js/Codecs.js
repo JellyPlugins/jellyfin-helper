@@ -251,9 +251,7 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
     for (var i = 0; i < entries.length; i++) {
         var color = DONUT_COLORS[i % DONUT_COLORS.length];
         var pct = (entries[i].count / total * 100).toFixed(1);
-        var isActive = '';
-
-        html += '<div class="codec-row codec-clickable' + isActive + '" data-chart="' + escAttr(chartId) + '"' +
+        html += '<div class="codec-row codec-clickable" data-chart="' + escAttr(chartId) + '"' +
             ' data-codec="' + escAttr(entries[i].label) + '" role="button" tabindex="0">';
         html += '<div class="codec-row-color" style="background:' + color + '"></div>';
         html += '<div class="codec-row-info">';
