@@ -140,7 +140,7 @@ public class LinkRepairService : ILinkRepairService
                 normalized = _fileSystem.Path.GetFullPath(resolved.FullName);
             }
         }
-        catch
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
         {
             // If symlink resolution fails (permissions, unsupported FS, etc.),
             // fall back to the lexically normalized path.
