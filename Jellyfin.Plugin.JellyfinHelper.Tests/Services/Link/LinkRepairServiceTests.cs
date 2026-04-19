@@ -186,7 +186,7 @@ public class LinkRepairServiceTests
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
         // The path does not exist on the mock filesystem, so it must be Broken (not Valid via URL bypass)
-        Assert.NotEqual(LinkFileStatus.Valid, result.Status);
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
     }
 
     [Fact]

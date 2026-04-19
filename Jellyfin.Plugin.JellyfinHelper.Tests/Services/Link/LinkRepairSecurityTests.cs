@@ -242,10 +242,10 @@ public class LinkRepairSecurityTests
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
         _fileSystem.AddFile(linkFile, new MockFileData("/movies/Movie1/movie\0.mkv"));
 
-        var exception = Record.Exception(() => _service.ProcessLinkFile(linkFile, _strmHandler, true));
+        var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
-        // The service must handle null bytes gracefully without throwing
-        Assert.Null(exception);
+        // The service must handle null bytes gracefully without throwing and must report Broken
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
     }
 
     // ===== Symlink: Null bytes in target =====
@@ -258,10 +258,10 @@ public class LinkRepairSecurityTests
         _symlinkHelper.Setup(h => h.GetSymlinkTarget(symlinkFile))
             .Returns("/movies/Movie1/movie\0.mkv");
 
-        var exception = Record.Exception(() => _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true));
+        var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true);
 
-        // The service must handle null bytes gracefully without throwing
-        Assert.Null(exception);
+        // The service must handle null bytes gracefully without throwing and must report Broken
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
     }
 
     // ===== FindLinkFiles: Edge cases =====

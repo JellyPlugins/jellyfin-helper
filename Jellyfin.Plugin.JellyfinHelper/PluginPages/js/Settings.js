@@ -262,7 +262,10 @@ function buildSettingsPayload() {
     return {
         IncludedLibraries: document.getElementById('cfgIncluded').value,
         ExcludedLibraries: document.getElementById('cfgExcluded').value,
-        OrphanMinAgeDays: parseInt(document.getElementById('cfgOrphanAge').value, 10) || 0,
+        OrphanMinAgeDays: (function () {
+            var v = parseInt(document.getElementById('cfgOrphanAge').value, 10);
+            return isNaN(v) || v < 0 ? 0 : v;
+        })(),
         TrickplayTaskMode: document.getElementById('cfgTrickplayMode').value,
         EmptyMediaFolderTaskMode: document.getElementById('cfgEmptyFolderMode').value,
         OrphanedSubtitleTaskMode: document.getElementById('cfgSubtitleMode').value,

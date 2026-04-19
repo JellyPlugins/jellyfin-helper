@@ -494,7 +494,7 @@ Sub-tasks executed in order (each respecting its configured task mode):
 The project includes a **comprehensive automated test suite** covering:
 
 - All services (cleanup, statistics, path validation, Arr integration, backup/restore, growth timeline, link repair, Seerr integration)
-- API endpoints (controller tests with mocked dependencies; Seerr and MediaStatistics controllers are not yet covered)
+- API endpoints (controller tests with mocked dependencies)
 - Configuration migration (legacy format → current)
 - UI structure (HTML element presence, tab structure)
 - Plugin logging (ring buffer, level filtering)
@@ -556,6 +556,7 @@ ConfigPageTestBase (abstract)
 
 ```text
 Jellyfin.Plugin.JellyfinHelper.Tests/
+├── MediaExtensionsTests.cs  # Centralized file extension list tests
 ├── TestFixtures/           # Shared base classes & factories
 │   ├── TestMockFactory.cs          # Central mock factory (ILibraryManager, IFileSystem, IPluginConfigurationService, PluginLogService, etc.)
 │   ├── TestDataGenerator.cs        # Sample data factory (libraries, files, statistics)
@@ -569,6 +570,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── ConfigurationControllerTests.cs
 │   ├── ConfigurationRequestValidatorTests.cs
 │   ├── GrowthTimelineControllerTests.cs
+│   ├── MediaStatisticsControllerTests.cs
+│   ├── SeerrControllerTests.cs
 │   ├── LogsControllerTests.cs
 │   ├── TranslationsControllerTests.cs
 │   └── TrashControllerTests.cs
@@ -612,8 +615,10 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
     │   ├── PluginLogEntryTests.cs
     │   └── PluginLogServiceTests.cs
     ├── Statistics/
+    │   ├── MediaStatisticsResultTests.cs
     │   ├── MediaStatisticsServiceTests.cs
-    │   └── MediaStatisticsServiceTvShowTests.cs
+    │   ├── MediaStatisticsServiceTvShowTests.cs
+    │   └── StatisticsCacheServiceTests.cs
     ├── Link/
     │   ├── LinkRepairServiceTests.cs
     │   ├── LinkRepairPerformanceTests.cs       # [Trait("Category", "Performance")]

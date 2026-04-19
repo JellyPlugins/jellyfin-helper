@@ -196,11 +196,15 @@ public class ConfigurationController : ControllerBase
             return;
         }
 
+        // Use trimmed values consistent with what ApplyRequestToConfig persists
+        var seerrUrl = request.SeerrUrl.Trim();
+        var seerrApiKey = request.SeerrApiKey.Trim();
+
         try
         {
             var (success, message) = await _seerrService.TestConnectionAsync(
-                request.SeerrUrl,
-                request.SeerrApiKey,
+                seerrUrl,
+                seerrApiKey,
                 cancellationToken).ConfigureAwait(false);
 
             if (success)
@@ -209,7 +213,7 @@ public class ConfigurationController : ControllerBase
             }
             else
             {
-                var warning = $"Seerr instance ({request.SeerrUrl}) is not reachable: {message}";
+                var warning = $"Seerr instance ({seerrUrl}) is not reachable: {message}";
                 warnings.Add(warning);
                 _pluginLog.LogWarning("API", warning, logger: _logger);
             }
@@ -221,7 +225,7 @@ public class ConfigurationController : ControllerBase
         catch (Exception ex) when (ex is HttpRequestException or TimeoutException or OperationCanceledException)
         {
             // Handles network errors, timeouts, and non-token OperationCanceledException (e.g., HttpClient timeout)
-            var warning = $"Connection test failed for Seerr ({request.SeerrUrl}): {ex.Message}";
+            var warning = $"Connection test failed for Seerr ({seerrUrl}): {ex.Message}";
             warnings.Add(warning);
             _pluginLog.LogWarning("API", warning, ex, _logger);
         }
