@@ -34,18 +34,19 @@
 }
 
 .donut-svg .donut-segment {
-    transform-box: fill-box;
+    transform-box: view-box;
     transform-origin: center;
     transition: transform 0.2s ease;
     pointer-events: none;
 }
 
-.donut-svg .donut-segment circle {
-    pointer-events: visibleStroke;
+.donut-svg .donut-segment path {
+    pointer-events: fill;
     cursor: pointer;
 }
 
-.donut-svg .donut-segment:hover {
+.donut-svg .donut-segment:has(path:hover),
+.donut-svg .donut-segment.donut-segment-hover {
     transform: scale(1.05);
 }
 

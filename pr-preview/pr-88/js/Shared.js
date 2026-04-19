@@ -757,15 +757,24 @@ function attachTogglePanelHandlers(opts) {
                 }
             }
 
+            // Track whether panel was already visible (content switch vs. fresh open)
+            var wasVisible = panel.classList.contains('file-tree-panel-visible');
+
             this.classList.add(opts.activeClass);
             panel.innerHTML = opts.renderContent(this);
             panel.classList.add('file-tree-panel-visible');
 
-            // Smooth scroll into view
-            var scrollPanel = panel;
-            setTimeout(function () {
-                scrollPanel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
-            }, 50);
+            // Scroll when: fresh panel open OR forced by donut click (user clicked far above panel)
+            var forceScroll = typeof _forceScrollOnPanelOpen !== 'undefined' && _forceScrollOnPanelOpen;
+            if (forceScroll) {
+                _forceScrollOnPanelOpen = false;
+            }
+            if (!wasVisible || forceScroll) {
+                var scrollPanel = panel;
+                setTimeout(function () {
+                    scrollPanel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+                }, 50);
+            }
         });
     }
 }

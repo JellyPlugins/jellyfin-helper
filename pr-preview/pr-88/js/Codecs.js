@@ -15,6 +15,9 @@ var _touchOutsideListenerAttached = false;
 // Timestamp of last touchend — used to suppress touch-originated click events cross-browser
 var _lastTouchEndTime = 0;
 
+// Flag: force scroll-into-view on next panel open (set by donut click, consumed by attachTogglePanelHandlers)
+var _forceScrollOnPanelOpen = false;
+
 // SVG donut tooltip — reads rich data from _donutTooltipData
 function showDonutTooltip(container, evt, segment) {
     var tooltip = container.querySelector('.donut-tooltip');
@@ -100,10 +103,46 @@ function triggerCodecRowForSegment(segment) {
     var rows = chartBox.querySelectorAll('.codec-clickable');
     for (var i = 0; i < rows.length; i++) {
         if (rows[i].getAttribute('data-codec') === codecName) {
+            // Force scroll when triggered from donut (user clicked far above the panel)
+            _forceScrollOnPanelOpen = true;
             rows[i].click();
             return;
         }
     }
+}
+
+// Helper: compute a point on a circle at a given angle (radians)
+function polarToCartesian(cx, cy, radius, angleRad) {
+    return {
+        x: cx + radius * Math.cos(angleRad),
+        y: cy + radius * Math.sin(angleRad)
+    };
+}
+
+// Helper: build an SVG arc path for a donut segment (annular sector)
+function describeArc(cx, cy, outerR, innerR, startAngle, endAngle) {
+    var arcSpan = endAngle - startAngle;
+
+    // Full circle: split into two half-arcs (SVG arc command cannot draw 360°)
+    if (arcSpan >= 2 * Math.PI - 0.0001) {
+        var mid = startAngle + Math.PI;
+        return describeArc(cx, cy, outerR, innerR, startAngle, mid)
+            + ' ' + describeArc(cx, cy, outerR, innerR, mid, endAngle);
+    }
+
+    var largeArc = arcSpan > Math.PI ? 1 : 0;
+    var oStart = polarToCartesian(cx, cy, outerR, startAngle);
+    var oEnd = polarToCartesian(cx, cy, outerR, endAngle);
+    var iStart = polarToCartesian(cx, cy, innerR, startAngle);
+    var iEnd = polarToCartesian(cx, cy, innerR, endAngle);
+
+    return 'M ' + oStart.x.toFixed(3) + ' ' + oStart.y.toFixed(3)
+        + ' A ' + outerR.toFixed(3) + ' ' + outerR.toFixed(3) + ' 0 ' + largeArc + ' 1 '
+        + oEnd.x.toFixed(3) + ' ' + oEnd.y.toFixed(3)
+        + ' L ' + iEnd.x.toFixed(3) + ' ' + iEnd.y.toFixed(3)
+        + ' A ' + innerR.toFixed(3) + ' ' + innerR.toFixed(3) + ' 0 ' + largeArc + ' 0 '
+        + iStart.x.toFixed(3) + ' ' + iStart.y.toFixed(3)
+        + ' Z';
 }
 
 // SVG donut chart generator (returns only the SVG + container, no legend)
@@ -126,8 +165,9 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
     });
 
     var cx = size / 2, cy = size / 2, r = size * 0.38, strokeWidth = size * 0.18;
-    var circumference = 2 * Math.PI * r;
-    var offset = 0;
+    var outerR = r + strokeWidth / 2;
+    var innerR = r - strokeWidth / 2;
+    var startAngle = -Math.PI / 2; // 12 o'clock position
 
     var donutContainer = '<div class="donut-container">';
     donutContainer += '<div class="donut-tooltip" aria-hidden="true"></div>';
@@ -138,8 +178,8 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
 
     for (var i = 0; i < entries.length; i++) {
         var pct = entries[i].value / total;
-        var dashLen = pct * circumference;
-        var dashGap = circumference - dashLen;
+        var sweepAngle = pct * 2 * Math.PI;
+        var endAngle = startAngle + sweepAngle;
         var color = DONUT_COLORS[i % DONUT_COLORS.length];
         var segId = chartId + '_' + i;
 
@@ -173,16 +213,14 @@ function renderDonutSvg(data, libraries, libraryProperty, chartId) {
             libraries: libEntries
         };
 
+        var arcPath = describeArc(cx, cy, outerR, innerR, startAngle, endAngle);
+
         donutContainer += '<g class="donut-segment" data-segment-id="' + escAttr(segId) + '"'
             + ' data-codec="' + escAttr(entries[i].label) + '">';
-        donutContainer += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" ' +
-            'stroke="' + color + '" stroke-width="' + strokeWidth + '" ' +
-            'stroke-dasharray="' + dashLen.toFixed(2) + ' ' + dashGap.toFixed(2) + '" ' +
-            'stroke-dashoffset="' + (-offset).toFixed(2) + '" ' +
-            'transform="rotate(-90 ' + cx + ' ' + cy + ')"></circle>';
+        donutContainer += '<path d="' + arcPath + '" fill="' + color + '"/>';
         donutContainer += '</g>';
 
-        offset += dashLen;
+        startAngle = endAngle;
     }
 
     donutContainer += '</svg>';
@@ -315,52 +353,68 @@ function attachDonutHoverTooltips() {
     var charts = document.querySelectorAll('.donut-container');
     for (var c = 0; c < charts.length; c++) {
         (function (container) {
-            var segments = container.querySelectorAll('.donut-segment');
+            // Bind events directly on <path> elements (not <g>) because
+            // mouseenter/mouseleave are non-bubbling and <g> with pointer-events:none
+            // would never receive them. We use .closest() to reach the parent <g> data attributes.
+            var paths = container.querySelectorAll('.donut-segment path');
 
-            for (var i = 0; i < segments.length; i++) {
-                // Desktop: mouse hover shows tooltip
-                segments[i].addEventListener('mouseenter', function (evt) {
-                    showDonutTooltip(container, evt, this);
-                    _activeTooltipSegmentId = this.getAttribute('data-segment-id');
+            for (var i = 0; i < paths.length; i++) {
+                // Desktop: mouse hover shows tooltip + highlight
+                paths[i].addEventListener('mouseenter', function (evt) {
+                    var seg = this.closest('.donut-segment');
+                    seg.classList.add('donut-segment-hover');
+                    showDonutTooltip(container, evt, seg);
+                    _activeTooltipSegmentId = seg.getAttribute('data-segment-id');
                 });
 
-                segments[i].addEventListener('mousemove', function (evt) {
-                    showDonutTooltip(container, evt, this);
+                paths[i].addEventListener('mousemove', function (evt) {
+                    var seg = this.closest('.donut-segment');
+                    showDonutTooltip(container, evt, seg);
                 });
 
-                segments[i].addEventListener('mouseleave', function () {
+                paths[i].addEventListener('mouseleave', function () {
+                    var seg = this.closest('.donut-segment');
+                    seg.classList.remove('donut-segment-hover');
                     hideDonutTooltip(container);
                     _activeTooltipSegmentId = null;
                 });
 
                 // Desktop: click triggers the codec-row tree-view
-                segments[i].addEventListener('click', function () {
+                paths[i].addEventListener('click', function () {
                     // Suppress touch-originated clicks (cross-browser, not just Chromium)
                     if (Date.now() - _lastTouchEndTime < 800) {
                         return;
                     }
-                    triggerCodecRowForSegment(this);
+                    triggerCodecRowForSegment(this.closest('.donut-segment'));
                 });
 
                 // Mobile: first tap shows tooltip, second tap triggers click
-                segments[i].addEventListener('touchend', function (evt) {
+                paths[i].addEventListener('touchend', function (evt) {
                     evt.preventDefault();
                     _lastTouchEndTime = Date.now();
-                    var segId = this.getAttribute('data-segment-id');
+                    var seg = this.closest('.donut-segment');
+                    var segId = seg.getAttribute('data-segment-id');
 
                     if (_activeTooltipSegmentId === segId) {
                         // Second tap on same segment — trigger the click action
+                        seg.classList.remove('donut-segment-hover');
                         hideDonutTooltip(container);
                         _activeTooltipSegmentId = null;
-                        triggerCodecRowForSegment(this);
+                        triggerCodecRowForSegment(seg);
                     } else {
-                        // First tap — show tooltip
+                        // First tap — show tooltip + highlight
+                        // Remove highlight from any previously highlighted segment
+                        var prevHighlighted = container.querySelectorAll('.donut-segment-hover');
+                        for (var h = 0; h < prevHighlighted.length; h++) {
+                            prevHighlighted[h].classList.remove('donut-segment-hover');
+                        }
+                        seg.classList.add('donut-segment-hover');
                         // Create a synthetic position from touch coordinates
                         var touch = evt.changedTouches && evt.changedTouches[0];
                         var syntheticEvt = touch
                             ? {clientX: touch.clientX, clientY: touch.clientY}
                             : evt;
-                        showDonutTooltip(container, syntheticEvt, this);
+                        showDonutTooltip(container, syntheticEvt, seg);
                         _activeTooltipSegmentId = segId;
                     }
                 });
@@ -376,6 +430,11 @@ function attachDonutHoverTooltips() {
                 var allContainers = document.querySelectorAll('.donut-container');
                 for (var d = 0; d < allContainers.length; d++) {
                     hideDonutTooltip(allContainers[d]);
+                    // Remove highlight from all segments
+                    var highlighted = allContainers[d].querySelectorAll('.donut-segment-hover');
+                    for (var h = 0; h < highlighted.length; h++) {
+                        highlighted[h].classList.remove('donut-segment-hover');
+                    }
                 }
                 _activeTooltipSegmentId = null;
             }
