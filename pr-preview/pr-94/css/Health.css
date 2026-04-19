@@ -1,0 +1,93 @@
+/* Health check styles */
+.health-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1em;
+    margin: 1em 0;
+}
+
+.health-item {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md) 1em;
+    text-align: center;
+}
+
+.health-item .health-value {
+    font-size: 1.5em;
+    font-weight: 700;
+}
+
+/* noinspection CssUnusedSymbol */
+.health-ok {
+    color: var(--color-success);
+}
+
+/* noinspection CssUnusedSymbol */
+.health-warn {
+    color: var(--color-warning);
+}
+
+/* noinspection CssUnusedSymbol */
+.health-bad {
+    color: var(--color-danger);
+}
+
+/* noinspection CssUnusedSymbol */
+.health-item .health-label {
+    font-size: 0.8em;
+    opacity: 0.6;
+    margin-top: 0.2em;
+}
+
+/* Health clickable items */
+.health-clickable {
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, transform 0.1s;
+}
+
+.health-clickable:hover {
+    border-color: var(--color-primary);
+    background: var(--color-primary-light);
+}
+
+.health-clickable:active {
+    transform: scale(0.97);
+}
+
+.health-clickable:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-color: var(--color-primary);
+    background: var(--color-primary-light);
+}
+
+/* noinspection CssUnusedSymbol */
+.health-clickable.health-active {
+    border-color: var(--color-primary);
+    background: var(--color-primary-light);
+    box-shadow: 0 0 0 2px var(--color-primary-scrollbar);
+}
+
+/* Health detail list */
+.health-detail-list {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md) 1em;
+    margin-top: 0.5em;
+    max-height: 400px;
+    overflow-y: auto;
+    font-size: 0.85em;
+}
+
+.health-detail-list ul {
+    margin: 0;
+    padding-left: 1.5em;
+}
+
+.health-detail-list li {
+    padding: 0.15em 0;
+    word-break: break-all;
+}
