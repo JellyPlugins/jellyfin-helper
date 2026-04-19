@@ -3,34 +3,75 @@
 // Store last scan data for codec detail clicks
 var _lastCodecData = null;
 
-// SVG donut tooltip helpers
+// Tooltip data store — avoids complex string parsing in DOM attributes
+var _donutTooltipData = {};
+
+// Track which segment currently shows a tooltip (for mobile tap-to-show, tap-again-to-click)
+var _activeTooltipSegmentId = null;
+
+// SVG donut tooltip — reads rich data from _donutTooltipData
 function showDonutTooltip(container, evt, segment) {
     var tooltip = container.querySelector('.donut-tooltip');
     if (!tooltip) {
         return;
     }
 
-    var rows = (segment.getAttribute('data-title') || '').split(';');
-    var firstRowSplit = rows[0].split(':');
-    var tooltipContent = '<span>' + firstRowSplit[0] + '</span>';
-    tooltipContent += '<table class="donut-tooltip-table">';
-    tooltipContent += '<tbody>';
-
-    for (let i = 1; i < rows.length; i++) {
-        var rowSplit = rows[i].split(':');
-        tooltipContent += '<tr><td>' + rowSplit[0] + '</td><td>' + rowSplit[1] + '</td></tr>';
+    var segId = segment.getAttribute('data-segment-id');
+    var info = _donutTooltipData[segId];
+    if (!info) {
+        return;
     }
 
-    tooltipContent += '<tr><td>' + T('all', 'All') + '</td><td>' + firstRowSplit[1] + '</td></tr>';
-    tooltipContent += '</tbody>';
-    tooltipContent += '</table>';
+    var html = '<div class="donut-tooltip-header">';
+    html += '<span class="donut-tooltip-codec">' + escHtml(info.codec) + '</span>';
+    html += '<span class="donut-tooltip-total">' + info.totalCount + ' '
+        + (info.totalCount === 1 ? T('file', 'file') : T('files', 'files')) + '</span>';
+    html += '</div>';
+    html += '<div class="donut-tooltip-pct">' + info.totalPct + '%</div>';
 
-    tooltip.innerHTML = tooltipContent;
+    if (info.libraries.length > 0) {
+        html += '<div class="donut-tooltip-divider"></div>';
+        html += '<table class="donut-tooltip-table"><tbody>';
+        for (var i = 0; i < info.libraries.length; i++) {
+            var lib = info.libraries[i];
+            html += '<tr>';
+            html += '<td class="donut-tooltip-lib">' + escHtml(lib.name) + '</td>';
+            html += '<td class="donut-tooltip-count">' + lib.count + ' ' + (lib.count === 1 ? T('file', 'file') : T('files', 'files')) + '</td>';
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+    }
+
+    tooltip.innerHTML = html;
     tooltip.classList.add('visible');
 
     var containerRect = container.getBoundingClientRect();
-    tooltip.style.left = (evt.clientX - containerRect.left + 12) + 'px';
-    tooltip.style.top = (evt.clientY - containerRect.top + 12) + 'px';
+    var tooltipX = evt.clientX - containerRect.left + 12;
+    var tooltipY = evt.clientY - containerRect.top + 12;
+
+    // Prevent tooltip from overflowing right edge of container
+    tooltip.style.left = tooltipX + 'px';
+    tooltip.style.top = tooltipY + 'px';
+
+    // After rendering, check if it overflows and adjust
+    var tooltipRect = tooltip.getBoundingClientRect();
+    if (tooltipRect.right > containerRect.right) {
+        tooltipX = evt.clientX - containerRect.left - tooltipRect.width - 12;
+        tooltip.style.left = tooltipX + 'px';
+    }
+    if (tooltipRect.bottom > containerRect.bottom + 50) {
+        tooltipY = evt.clientY - containerRect.top - tooltipRect.height - 12;
+        tooltip.style.top = tooltipY + 'px';
+    }
+
+    // Clamp to viewport edges (especially important on mobile)
+    tooltipRect = tooltip.getBoundingClientRect();
+    if (tooltipRect.left < 4) {
+        tooltip.style.left = (4 - containerRect.left) + 'px';
+    }
+    if (tooltipRect.top < 4) {
+        tooltip.style.top = (4 - containerRect.top) + 'px';
+    }
 }
 
 function hideDonutTooltip(container) {
@@ -40,8 +81,27 @@ function hideDonutTooltip(container) {
     }
 }
 
+// Trigger the matching codec-row click for a donut segment
+function triggerCodecRowForSegment(segment) {
+    var chartBox = segment.closest('.chart-box');
+    if (!chartBox) {
+        return;
+    }
+    var codecName = segment.getAttribute('data-codec');
+    if (!codecName) {
+        return;
+    }
+    var rows = chartBox.querySelectorAll('.codec-clickable');
+    for (var i = 0; i < rows.length; i++) {
+        if (rows[i].getAttribute('data-codec') === codecName) {
+            rows[i].click();
+            return;
+        }
+    }
+}
+
 // SVG donut chart generator (returns only the SVG + container, no legend)
-function renderDonutSvg(data, libraries, libraryProperty) {
+function renderDonutSvg(data, libraries, libraryProperty, chartId) {
     var size = 160;
     var entries = [];
     var total = 0;
@@ -75,9 +135,10 @@ function renderDonutSvg(data, libraries, libraryProperty) {
         var dashLen = pct * circumference;
         var dashGap = circumference - dashLen;
         var color = DONUT_COLORS[i % DONUT_COLORS.length];
+        var segId = chartId + '_' + i;
 
-        var titleLines = [entries[i].label + ':' + (pct * 100).toFixed(1) + '%'];
-
+        // Build tooltip data for this segment
+        var libEntries = [];
         if (libraries && libraries.length > 0) {
             for (var l = 0; l < libraries.length; l++) {
                 var lib = libraries[l];
@@ -85,21 +146,29 @@ function renderDonutSvg(data, libraries, libraryProperty) {
                 var libCount = libPropertyValue && libPropertyValue[entries[i].label]
                     ? libPropertyValue[entries[i].label]
                     : 0;
-                var libTotal = libPropertyValue
-                    ? Object.values(libPropertyValue).reduce(function (sum, v) {
-                        return sum + v;
-                    }, 0)
-                    : 0;
-
-                if (libCount > 0 && libTotal > 0) {
-                    titleLines.push(lib.LibraryName + ':' + (libCount / libTotal * 100).toFixed(1) + '%');
+                if (libCount > 0) {
+                    libEntries.push({
+                        name: lib.LibraryName,
+                        count: libCount
+                    });
                 }
             }
         }
 
-        var titleText = titleLines.join(';');
+        // Sort library entries by count descending
+        libEntries.sort(function (a, b) {
+            return b.count - a.count;
+        });
 
-        donutContainer += '<g class="donut-segment" data-title="' + escAttr(titleText) + '">';
+        _donutTooltipData[segId] = {
+            codec: entries[i].label,
+            totalCount: entries[i].value,
+            totalPct: (pct * 100).toFixed(1),
+            libraries: libEntries
+        };
+
+        donutContainer += '<g class="donut-segment" data-segment-id="' + escAttr(segId) + '"'
+            + ' data-codec="' + escAttr(entries[i].label) + '">';
         donutContainer += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" ' +
             'stroke="' + color + '" stroke-width="' + strokeWidth + '" ' +
             'stroke-dasharray="' + dashLen.toFixed(2) + ' ' + dashGap.toFixed(2) + '" ' +
@@ -163,7 +232,7 @@ function renderCodecBreakdown(countDict, sizeDict, chartId) {
 
 // Render a full chart box with donut + breakdown
 function renderDonutChart(countDict, sizeDict, chartId, libraries, libraryProperty) {
-    var svgHtml = renderDonutSvg(countDict, libraries, libraryProperty);
+    var svgHtml = renderDonutSvg(countDict, libraries, libraryProperty, chartId);
     var breakdownHtml = renderCodecBreakdown(countDict, sizeDict, chartId);
     return svgHtml + breakdownHtml;
 }
@@ -243,8 +312,10 @@ function attachDonutHoverTooltips() {
             var segments = container.querySelectorAll('.donut-segment');
 
             for (var i = 0; i < segments.length; i++) {
+                // Desktop: mouse hover shows tooltip
                 segments[i].addEventListener('mouseenter', function (evt) {
                     showDonutTooltip(container, evt, this);
+                    _activeTooltipSegmentId = this.getAttribute('data-segment-id');
                 });
 
                 segments[i].addEventListener('mousemove', function (evt) {
@@ -253,14 +324,58 @@ function attachDonutHoverTooltips() {
 
                 segments[i].addEventListener('mouseleave', function () {
                     hideDonutTooltip(container);
+                    _activeTooltipSegmentId = null;
+                });
+
+                // Desktop: click triggers the codec-row tree-view
+                segments[i].addEventListener('click', function (evt) {
+                    // Only handle non-touch clicks (touch is handled via touchend)
+                    if (evt.sourceCapabilities && evt.sourceCapabilities.firesTouchEvents) {
+                        return;
+                    }
+                    triggerCodecRowForSegment(this);
+                });
+
+                // Mobile: first tap shows tooltip, second tap triggers click
+                segments[i].addEventListener('touchend', function (evt) {
+                    evt.preventDefault();
+                    var segId = this.getAttribute('data-segment-id');
+
+                    if (_activeTooltipSegmentId === segId) {
+                        // Second tap on same segment — trigger the click action
+                        hideDonutTooltip(container);
+                        _activeTooltipSegmentId = null;
+                        triggerCodecRowForSegment(this);
+                    } else {
+                        // First tap — show tooltip
+                        // Create a synthetic position from touch coordinates
+                        var touch = evt.changedTouches && evt.changedTouches[0];
+                        var syntheticEvt = touch
+                            ? {clientX: touch.clientX, clientY: touch.clientY}
+                            : evt;
+                        showDonutTooltip(container, syntheticEvt, this);
+                        _activeTooltipSegmentId = segId;
+                    }
                 });
             }
         })(charts[c]);
     }
+
+    // Close tooltip when tapping outside any donut segment (mobile)
+    document.addEventListener('touchstart', function (evt) {
+        if (_activeTooltipSegmentId && !evt.target.closest('.donut-segment')) {
+            var allContainers = document.querySelectorAll('.donut-container');
+            for (var d = 0; d < allContainers.length; d++) {
+                hideDonutTooltip(allContainers[d]);
+            }
+            _activeTooltipSegmentId = null;
+        }
+    });
 }
 
 function fillCodecsData(data) {
     _lastCodecData = data;
+    _donutTooltipData = {};
 
     // Video-only libraries (Movies + TV Shows + Other) — used for video-specific charts
     var videoLibraries = (data.Movies || []).concat(data.TvShows || []).concat(data.Other || []);
@@ -281,7 +396,7 @@ function fillCodecsData(data) {
 
     var codecsHtml = '<div class="charts-row">';
     codecsHtml += '<div class="chart-box"><h4>🎬 ' + T('videoCodecs', 'Video Codecs') + '</h4>';
-    codecsHtml += renderDonutChart(videoCodecs, videoCodecSizes, 'videoCodecs', data.Libraries, 'VideoCodecs');
+    codecsHtml += renderDonutChart(videoCodecs, videoCodecSizes, 'videoCodecs', videoLibraries, 'VideoCodecs');
     codecsHtml += '</div>';
 
     var hasVideoAudio = Object.keys(videoAudioCodecs).length > 0;
@@ -289,13 +404,13 @@ function fillCodecsData(data) {
 
     if (hasVideoAudio) {
         codecsHtml += '<div class="chart-box"><h4>🔊 ' + T('videoAudioCodecs', 'Video Audio Codecs') + '</h4>';
-        codecsHtml += renderDonutChart(videoAudioCodecs, videoAudioCodecSizes, 'videoAudioCodecs', data.Libraries,
+        codecsHtml += renderDonutChart(videoAudioCodecs, videoAudioCodecSizes, 'videoAudioCodecs', videoLibraries,
             'VideoAudioCodecs');
         codecsHtml += '</div>';
     }
     if (hasMusicAudio) {
         codecsHtml += '<div class="chart-box"><h4>🎵 ' + T('musicAudioCodecs', 'Music Audio Codecs') + '</h4>';
-        codecsHtml += renderDonutChart(musicAudioCodecs, musicAudioCodecSizes, 'musicAudioCodecs', data.Libraries,
+        codecsHtml += renderDonutChart(musicAudioCodecs, musicAudioCodecSizes, 'musicAudioCodecs', musicLibraries,
             'MusicAudioCodecs');
         codecsHtml += '</div>';
     }
@@ -303,7 +418,7 @@ function fillCodecsData(data) {
     codecsHtml += renderDonutChart(containers, containerSizes, 'containers', data.Libraries, 'ContainerFormats');
     codecsHtml += '</div>';
     codecsHtml += '<div class="chart-box"><h4>📐 ' + T('resolutions', 'Resolutions') + '</h4>';
-    codecsHtml += renderDonutChart(resolutions, resolutionSizes, 'resolutions', data.Libraries, 'Resolutions');
+    codecsHtml += renderDonutChart(resolutions, resolutionSizes, 'resolutions', videoLibraries, 'Resolutions');
     codecsHtml += '</div>';
     codecsHtml += '</div>';
 

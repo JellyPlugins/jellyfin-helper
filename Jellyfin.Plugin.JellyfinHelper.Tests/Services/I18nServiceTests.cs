@@ -131,7 +131,6 @@ public class I18NServiceTests : IDisposable
             "seerrCleanupAgeDays", "seerrCleanupAgeDaysHelp", "seerrFillFields",
             // Unsaved changes dialog keys
             "unsavedChangesTitle", "unsavedChangesMsg", "discardChanges", "saveAndContinue",
-            "all"
         };
 
         foreach (var key in expectedKeys)

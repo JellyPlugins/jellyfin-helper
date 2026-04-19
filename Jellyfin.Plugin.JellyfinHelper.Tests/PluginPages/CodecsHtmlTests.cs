@@ -186,4 +186,37 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("file-tree-panel-visible", HtmlContent);
         Assert.Contains("max-height", HtmlContent);
     }
+
+    [Fact]
+    public void Html_ContainsDonutTooltipFunctions()
+    {
+        Assert.Contains("function showDonutTooltip", HtmlContent);
+        Assert.Contains("function hideDonutTooltip", HtmlContent);
+        Assert.Contains("function attachDonutHoverTooltips", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsDonutChartRenderer()
+    {
+        Assert.Contains("function renderDonutChart", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsDonutTooltipStateVariables()
+    {
+        Assert.Contains("_donutTooltipData", HtmlContent);
+        Assert.Contains("_activeTooltipSegmentId", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsDonutTooltipCssClass()
+    {
+        Assert.Contains("donut-tooltip", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_ContainsCodecRowTriggerForSegment()
+    {
+        Assert.Contains("function triggerCodecRowForSegment", HtmlContent);
+    }
 }

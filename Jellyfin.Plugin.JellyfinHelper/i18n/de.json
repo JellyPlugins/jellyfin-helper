@@ -201,6 +201,5 @@
   "unsavedChangesTitle": "Ungespeicherte Änderungen",
   "unsavedChangesMsg": "Du hast ungespeicherte Einstellungen. Was möchtest du tun?",
   "discardChanges": "Änderungen verwerfen",
-  "saveAndContinue": "Speichern & Fortfahren",
-  "all": "Alle"
+  "saveAndContinue": "Speichern & Fortfahren"
 }

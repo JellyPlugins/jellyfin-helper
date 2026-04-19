@@ -201,6 +201,5 @@
   "unsavedChangesTitle": "Modifications non enregistrées",
   "unsavedChangesMsg": "Vous avez des modifications non enregistrées. Que souhaitez-vous faire ?",
   "discardChanges": "Annuler les modifications",
-  "saveAndContinue": "Enregistrer et continuer",
-  "all": "Tous"
+  "saveAndContinue": "Enregistrer et continuer"
 }

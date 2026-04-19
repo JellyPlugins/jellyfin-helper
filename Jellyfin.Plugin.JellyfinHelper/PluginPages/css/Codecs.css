@@ -42,17 +42,17 @@
 
 .donut-svg .donut-segment circle {
     pointer-events: visibleStroke;
+    cursor: pointer;
 }
 
 .donut-svg .donut-segment:hover {
     transform: scale(1.05);
 }
 
+/* ── Donut Tooltip ── */
+
 .donut-tooltip {
     position: absolute;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5em;
     z-index: 5;
     pointer-events: none;
     opacity: 0;
@@ -62,11 +62,12 @@
     color: #e0e0e0;
     border: 1px solid var(--color-primary-scrollbar-hover);
     border-radius: 6px;
-    padding: 0.35em 0.55em;
+    padding: 0.5em 0.7em;
     font-size: 0.75rem;
-    line-height: 1.2;
-    /*white-space: nowrap;*/
+    line-height: 1.35;
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+    white-space: nowrap;
+    min-width: 120px;
 }
 
 .donut-tooltip.visible {
@@ -74,23 +75,63 @@
     transform: translateY(0);
 }
 
-.donut-tooltip span {
+/* Header row: codec name + file count */
+.donut-tooltip-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1em;
+}
+
+.donut-tooltip-codec {
     color: var(--color-primary);
     font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.donut-tooltip-total {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.7;
+    font-size: 0.72rem;
+}
+
+/* Percentage line */
+.donut-tooltip-pct {
+    opacity: 0.5;
+    font-size: 0.7rem;
+    margin-bottom: 0.15em;
+}
+
+/* Divider between header and library list */
+.donut-tooltip-divider {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    margin: 0.3em 0;
+}
+
+/* Library breakdown table */
+.donut-tooltip-table {
+    border-collapse: collapse;
+    width: 100%;
 }
 
 .donut-tooltip-table td {
-    white-space: nowrap;
-    padding: 0.2em 0;
+    padding: 0.15em 0;
+    vertical-align: middle;
 }
 
-.donut-tooltip-table tbody td:first-child {
-    padding-right: 0.6em;
+.donut-tooltip-table .donut-tooltip-lib {
     text-align: left;
+    padding-right: 0.8em;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.donut-tooltip-table tbody td:last-child {
+.donut-tooltip-table .donut-tooltip-count {
     text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    opacity: 0.85;
 }
 
 /* === Codec Breakdown (clickable legend/table below donut) === */

@@ -201,6 +201,5 @@
   "unsavedChangesTitle": "Kaydedilmemiş Değişiklikler",
   "unsavedChangesMsg": "Kaydedilmemiş ayar değişiklikleriniz var. Ne yapmak istersiniz?",
   "discardChanges": "Değişiklikleri At",
-  "saveAndContinue": "Kaydet ve Devam Et",
-  "all": "Hepsi"
+  "saveAndContinue": "Kaydet ve Devam Et"
 }
