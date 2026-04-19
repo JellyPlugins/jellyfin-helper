@@ -81,6 +81,11 @@ internal static class PathValidator
             }
         }
 
+        // Normalize backslashes to forward slashes for cross-platform safety.
+        // On Linux, '\' is a valid filename character but could be used in
+        // path traversal attempts — always treat it as a directory separator.
+        name = name.Replace('\\', '/');
+
         // Strip any directory separators
         name = Path.GetFileName(name);
 
