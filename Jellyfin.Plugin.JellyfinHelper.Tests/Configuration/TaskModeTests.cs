@@ -60,6 +60,7 @@ public class TaskModeTests
         Assert.Equal(TaskMode.DryRun, config.EmptyMediaFolderTaskMode);
         Assert.Equal(TaskMode.DryRun, config.OrphanedSubtitleTaskMode);
         Assert.Equal(TaskMode.DryRun, config.LinkRepairTaskMode);
+        Assert.Equal(TaskMode.Deactivate, config.SeerrCleanupTaskMode);
     }
 
     [Fact]
@@ -70,7 +71,8 @@ public class TaskModeTests
             TrickplayTaskMode = TaskMode.Activate,
             EmptyMediaFolderTaskMode = TaskMode.Deactivate,
             OrphanedSubtitleTaskMode = TaskMode.DryRun,
-            LinkRepairTaskMode = TaskMode.Activate
+            LinkRepairTaskMode = TaskMode.Activate,
+            SeerrCleanupTaskMode = TaskMode.Deactivate
         };
 
         var json = JsonSerializer.Serialize(config);
@@ -80,5 +82,6 @@ public class TaskModeTests
         Assert.Equal(TaskMode.Deactivate, deserialized.EmptyMediaFolderTaskMode);
         Assert.Equal(TaskMode.DryRun, deserialized.OrphanedSubtitleTaskMode);
         Assert.Equal(TaskMode.Activate, deserialized.LinkRepairTaskMode);
+        Assert.Equal(TaskMode.Deactivate, deserialized.SeerrCleanupTaskMode);
     }
 }

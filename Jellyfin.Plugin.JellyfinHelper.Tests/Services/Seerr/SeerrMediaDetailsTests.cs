@@ -33,10 +33,10 @@ public class SeerrMediaDetailsTests
     }
 
     [Fact]
-    public void DisplayTitle_BothNull_ReturnsUnknown()
+    public void DisplayTitle_BothNull_ReturnsNull()
     {
         var details = new SeerrMediaDetails { Title = null, Name = null };
-        Assert.Equal("Unknown", details.DisplayTitle);
+        Assert.Null(details.DisplayTitle);
     }
 
     [Fact]
@@ -54,31 +54,31 @@ public class SeerrMediaDetailsTests
     }
 
     [Fact]
-    public void DisplayTitle_EmptyName_FallsBackToUnknown()
+    public void DisplayTitle_EmptyName_ReturnsNull()
     {
         var details = new SeerrMediaDetails { Title = null, Name = "" };
-        Assert.Equal("Unknown", details.DisplayTitle);
+        Assert.Null(details.DisplayTitle);
     }
 
     [Fact]
-    public void DisplayTitle_WhitespaceName_FallsBackToUnknown()
+    public void DisplayTitle_WhitespaceName_ReturnsNull()
     {
         var details = new SeerrMediaDetails { Title = null, Name = "   " };
-        Assert.Equal("Unknown", details.DisplayTitle);
+        Assert.Null(details.DisplayTitle);
     }
 
     [Fact]
-    public void DisplayTitle_BothEmpty_ReturnsUnknown()
+    public void DisplayTitle_BothEmpty_ReturnsNull()
     {
         var details = new SeerrMediaDetails { Title = "", Name = "" };
-        Assert.Equal("Unknown", details.DisplayTitle);
+        Assert.Null(details.DisplayTitle);
     }
 
     [Fact]
-    public void DisplayTitle_BothWhitespace_ReturnsUnknown()
+    public void DisplayTitle_BothWhitespace_ReturnsNull()
     {
         var details = new SeerrMediaDetails { Title = "  ", Name = "  " };
-        Assert.Equal("Unknown", details.DisplayTitle);
+        Assert.Null(details.DisplayTitle);
     }
 
     // ===== Default Property Values =====
@@ -98,10 +98,10 @@ public class SeerrMediaDetailsTests
     }
 
     [Fact]
-    public void DefaultValues_DisplayTitleIsUnknown()
+    public void DefaultValues_DisplayTitleIsNull()
     {
         var details = new SeerrMediaDetails();
-        Assert.Equal("Unknown", details.DisplayTitle);
+        Assert.Null(details.DisplayTitle);
     }
 
     // ===== JSON Deserialization =====
@@ -151,7 +151,7 @@ public class SeerrMediaDetailsTests
         Assert.NotNull(details);
         Assert.Null(details!.Title);
         Assert.Null(details.Name);
-        Assert.Equal("Unknown", details.DisplayTitle);
+        Assert.Null(details.DisplayTitle);
     }
 
     [Fact]

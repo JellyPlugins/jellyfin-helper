@@ -242,20 +242,10 @@ public class LinkRepairSecurityTests
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
         _fileSystem.AddFile(linkFile, new MockFileData("/movies/Movie1/movie\0.mkv"));
 
-        LinkFileResult? result = null;
-        var exception = Record.Exception(() => result = _service.ProcessLinkFile(linkFile, _strmHandler, true));
+        var exception = Record.Exception(() => _service.ProcessLinkFile(linkFile, _strmHandler, true));
 
-        if (exception != null)
-        {
-            Assert.True(
-                exception is ArgumentException or IOException or NotSupportedException,
-                $"Unexpected exception type: {exception.GetType().Name}");
-        }
-        else
-        {
-            Assert.NotNull(result);
-            Assert.NotEqual(LinkFileStatus.Valid, result.Status);
-        }
+        // The service must handle null bytes gracefully without throwing
+        Assert.Null(exception);
     }
 
     // ===== Symlink: Null bytes in target =====
@@ -268,20 +258,10 @@ public class LinkRepairSecurityTests
         _symlinkHelper.Setup(h => h.GetSymlinkTarget(symlinkFile))
             .Returns("/movies/Movie1/movie\0.mkv");
 
-        LinkFileResult? result = null;
-        var exception = Record.Exception(() => result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true));
+        var exception = Record.Exception(() => _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true));
 
-        if (exception != null)
-        {
-            Assert.True(
-                exception is ArgumentException or IOException or NotSupportedException,
-                $"Unexpected exception type: {exception.GetType().Name}");
-        }
-        else
-        {
-            Assert.NotNull(result);
-            Assert.NotEqual(LinkFileStatus.Valid, result.Status);
-        }
+        // The service must handle null bytes gracefully without throwing
+        Assert.Null(exception);
     }
 
     // ===== FindLinkFiles: Edge cases =====

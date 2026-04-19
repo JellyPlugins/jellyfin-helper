@@ -147,7 +147,7 @@ function renderTreeLevel(node, level, icon) {
         var hasContent = Object.keys(childNode.children).length > 0 || childNode.items.length > 0;
 
         html += '<div class="tree-node">';
-        html += '<div class="tree-folder' + (hasContent ? ' tree-toggle' : '') + '" tabindex="0" role="button" aria-expanded="false" onclick="this.parentElement.classList.toggle(\'tree-expanded\');this.setAttribute(\'aria-expanded\',this.parentElement.classList.contains(\'tree-expanded\'))" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}">';
+        html += '<div class="tree-folder' + (hasContent ? ' tree-toggle" tabindex="0" role="button" aria-expanded="false" onclick="this.parentElement.classList.toggle(\'tree-expanded\');this.setAttribute(\'aria-expanded\',this.parentElement.classList.contains(\'tree-expanded\'))" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}"' : '"') + '>';
         html += '<span class="tree-icon">' + (hasContent ? '📁' : '📂') + '</span>';
         html += '<span class="tree-name">' + escHtml(childName) + '</span> <span class="tree-name-count">(' + countTreeItems(childNode) + ')</span>';
         html += '</div>';

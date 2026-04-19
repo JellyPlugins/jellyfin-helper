@@ -115,9 +115,13 @@ function addArrInstance(type) {
     var collapsible = document.getElementById('arrCollapsible' + type);
     if (collapsible && !collapsible.classList.contains('arr-expanded')) {
         collapsible.classList.add('arr-expanded');
-        var header = collapsible.querySelector('.arr-collapsible-header');
+        var header = document.getElementById('arrCollapsibleHeader' + type);
         if (header) {
             header.setAttribute('aria-expanded', 'true');
+        }
+        var body = collapsible.querySelector('.arr-collapsible-body');
+        if (body) {
+            body.setAttribute('aria-hidden', 'false');
         }
     }
     updateArrCollapsibleCount(type);

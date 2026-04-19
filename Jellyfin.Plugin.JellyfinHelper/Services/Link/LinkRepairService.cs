@@ -128,6 +128,24 @@ public class LinkRepairService : ILinkRepairService
     {
         visited ??= new HashSet<string>(PathComparer);
         var normalized = _fileSystem.Path.GetFullPath(directory);
+
+        // Resolve symlink targets so that two different symlinked paths
+        // pointing to the same physical directory are recognized as duplicates.
+        try
+        {
+            var dirInfo = _fileSystem.DirectoryInfo.New(normalized);
+            var resolved = dirInfo.ResolveLinkTarget(returnFinalTarget: true);
+            if (resolved != null)
+            {
+                normalized = _fileSystem.Path.GetFullPath(resolved.FullName);
+            }
+        }
+        catch
+        {
+            // If symlink resolution fails (permissions, unsupported FS, etc.),
+            // fall back to the lexically normalized path.
+        }
+
         if (!visited.Add(normalized))
         {
             return;

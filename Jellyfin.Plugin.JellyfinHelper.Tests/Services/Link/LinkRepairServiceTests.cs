@@ -176,6 +176,20 @@ public class LinkRepairServiceTests
     }
 
     [Fact]
+    public void ProcessLinkFile_Strm_WindowsStylePath_NotTreatedAsUrl()
+    {
+        // Regression: Windows paths like C:\media\movie.mkv must NOT be treated as URLs
+        // (Uri.TryCreate parses "C:" as a scheme, but the file:// scheme is excluded from the URL bypass)
+        var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(@"C:\media\movie.mkv"));
+
+        var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
+
+        // The path does not exist on the mock filesystem, so it must be Broken (not Valid via URL bypass)
+        Assert.NotEqual(LinkFileStatus.Valid, result.Status);
+    }
+
+    [Fact]
     public void ProcessLinkFile_Strm_BrokenTarget_SingleMediaFile_DryRun()
     {
         var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie1");
@@ -508,6 +522,34 @@ public class LinkRepairServiceTests
 
         Assert.Equal(2, result.ValidCount);
         Assert.Equal(2, result.FileResults.Count);
+    }
+
+    [Fact]
+    public void RepairLinks_MixedStrmAndSymlink_AggregatesBothHandlers()
+    {
+        var seriesDir = _fileSystem.Path.GetFullPath("/series");
+        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie1");
+        var validTarget = _fileSystem.Path.Join(movieDir, "movie.mkv");
+        var brokenStrmTarget = _fileSystem.Path.Join(movieDir, "old-name.mkv");
+
+        _fileSystem.AddDirectory(movieDir);
+        _fileSystem.AddFile(validTarget, new MockFileData("video"));
+
+        // Broken .strm file that can be repaired
+        var strmFile = _fileSystem.Path.GetFullPath("/series/Show1/movie.strm");
+        _fileSystem.AddFile(strmFile, new MockFileData(brokenStrmTarget));
+
+        // Valid symlink file
+        var symlinkFile = _fileSystem.Path.GetFullPath("/series/Show2/episode.mkv");
+        _fileSystem.AddFile(symlinkFile, new MockFileData("placeholder"));
+        _symlinkHelper.Setup(h => h.IsSymlink(symlinkFile)).Returns(true);
+        _symlinkHelper.Setup(h => h.GetSymlinkTarget(symlinkFile)).Returns(validTarget);
+
+        var result = _service.RepairLinks([seriesDir], true);
+
+        Assert.Equal(2, result.FileResults.Count);
+        Assert.Equal(1, result.ValidCount);
+        Assert.Equal(1, result.RepairedCount);
     }
 
     [Fact]

@@ -270,7 +270,11 @@ public class BackupService : IBackupService
         // Seerr settings
         config.SeerrUrl = BackupSanitizer.TruncateString(backup.SeerrUrl ?? string.Empty, BackupValidator.MaxUrlLength);
         config.SeerrApiKey = BackupSanitizer.TruncateString(backup.SeerrApiKey ?? string.Empty, BackupValidator.MaxApiKeyLength);
-        config.SeerrCleanupAgeDays = Math.Clamp(backup.SeerrCleanupAgeDays, 1, BackupValidator.MaxRetentionDays);
+        if (backup.SeerrCleanupAgeDays != 0)
+        {
+            config.SeerrCleanupAgeDays = Math.Clamp(
+                backup.SeerrCleanupAgeDays, 1, BackupValidator.MaxRetentionDays);
+        }
 
         // Trash settings
         config.UseTrash = backup.UseTrash;

@@ -108,9 +108,11 @@ public class HealthHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_HealthClickHandler_UsesCollectHealthPaths()
     {
-        // The health click handler should use collectHealthPaths to gather paths (whitespace-tolerant)
+        // The health click handler should use collectHealthPaths inside renderContent (within attachHealthClickHandlers)
         Assert.Matches(
-            @"collectHealthPaths\(\s*_lastScanResult\s*,\s*mapping\.prop\s*\)",
+            new Regex(
+                @"function\s+attachHealthClickHandlers\s*\(\s*\)\s*\{[\s\S]*?renderContent\s*:\s*function[\s\S]*?collectHealthPaths\(\s*_lastScanResult\s*,\s*mapping\.prop\s*\)",
+                RegexOptions.Multiline),
             HtmlContent);
     }
 

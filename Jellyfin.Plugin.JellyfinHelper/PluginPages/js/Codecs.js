@@ -443,6 +443,7 @@ function attachDonutHoverTooltips() {
 function fillCodecsData(data) {
     _lastCodecData = data;
     _donutTooltipData = {};
+    _activeTooltipSegmentId = null;
 
     // Video-only libraries (Movies + TV Shows + Other) — used for video-specific charts
     var videoLibraries = (data.Movies || []).concat(data.TvShows || []).concat(data.Other || []);

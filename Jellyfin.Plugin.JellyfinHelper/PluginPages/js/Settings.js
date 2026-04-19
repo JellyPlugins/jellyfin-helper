@@ -65,7 +65,7 @@ function checkUnsavedAndProceed(onProceed) {
     }));
     d.btnRow.appendChild(createDialogBtn('🚪 ' + T('discardChanges', 'Discard Changes'), 'danger', function () {
         removeDialogById('unsavedDialogOverlay');
-        loadSettings();
+        _settingsSnapshot = '';
         onProceed();
     }));
     d.btnRow.appendChild(createDialogBtn('💾 ' + T('saveAndContinue', 'Save & Continue'), 'success', function () {
@@ -179,7 +179,7 @@ function loadSettings() {
         h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
 
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
-            var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');this.setAttribute(\'aria-expanded\',p.classList.contains(\'arr-expanded\')? \'true\':\'false\')">';
+            var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');var ex=p.classList.contains(\'arr-expanded\');this.setAttribute(\'aria-expanded\',ex?\'true\':\'false\');var b=p.querySelector(\'.arr-collapsible-body\');if(b)b.setAttribute(\'aria-hidden\',ex?\'false\':\'true\')">';
             arrCollapseButton += '<span class="arr-chevron">▶</span>' + icon + '<span>' + text + '</span><span class="arr-instance-count" id="arrCount' + type + '">' + countText + '</span>';
             arrCollapseButton += '<span class="help-text">' + T('clickToExpand', 'click to expand') + '</span>';
             arrCollapseButton += '</button>';
@@ -192,7 +192,7 @@ function loadSettings() {
         var seerrHasCfg = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
         h += '<div class="arr-collapsible' + (!seerrHasCfg ? ' arr-expanded' : '') + '" id="arrCollapsibleSeerr">';
         h += renderArrCollapseButton(!seerrHasCfg, SVG.EYE, T('seerrInstance', 'Seerr Instance'), seerrHasCfg ? '✔' : '', 'Seerr');
-        h += '<div class="arr-collapsible-body">';
+        h += '<div class="arr-collapsible-body" aria-hidden="' + (seerrHasCfg ? 'true' : 'false') + '">';
         h += '<label for="cfgSeerrUrl">' + T('seerrUrl', 'Seerr URL') + '</label>';
         h += '<input type="text" id="cfgSeerrUrl" value="' + escAttr(cfg.SeerrUrl || '') + '" placeholder="http://localhost:5055">';
         h += '<label for="cfgSeerrApiKey">' + T('seerrApiKey', 'Seerr API Key') + '</label>';
@@ -213,7 +213,7 @@ function loadSettings() {
         var radarrCount = radarrInstances.length;
         h += '<div class="arr-collapsible' + (radarrCount === 0 ? ' arr-expanded' : '') + '" id="arrCollapsibleRadarr">';
         h += renderArrCollapseButton(radarrCount === 0, '<span>🎬</span>', T('radarrInstances', 'Radarr Instances'), createArrCountText(radarrCount), 'Radarr');
-        h += '<div class="arr-collapsible-body">';
+        h += '<div class="arr-collapsible-body" aria-hidden="' + (radarrCount === 0 ? 'false' : 'true') + '">';
         h += renderArrInstances('Radarr', radarrInstances);
         h += '</div></div>';
 
@@ -222,7 +222,7 @@ function loadSettings() {
         var sonarrCount = sonarrInstances.length;
         h += '<div class="arr-collapsible' + (sonarrCount === 0 ? ' arr-expanded' : '') + '" id="arrCollapsibleSonarr">';
         h += renderArrCollapseButton(sonarrCount === 0, '<span>📺</span>', T('sonarrInstances', 'Sonarr Instances'), createArrCountText(sonarrCount), 'Sonarr');
-        h += '<div class="arr-collapsible-body">';
+        h += '<div class="arr-collapsible-body" aria-hidden="' + (sonarrCount === 0 ? 'false' : 'true') + '">';
         h += renderArrInstances('Sonarr', sonarrInstances);
         h += '</div></div>';
 

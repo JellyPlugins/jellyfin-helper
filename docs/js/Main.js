@@ -68,7 +68,7 @@ function updateLastScanBadge(utcTimestamp) {
     if (utcTimestamp) {
         badge.textContent = '🕒 ' + T('lastScan', 'Last Scan') + ': '
             + formatTimeAgo(utcTimestamp);
-        badge.style.display = 'inline-block';
+        badge.style.display = '';
     } else {
         badge.style.display = 'none';
     }

@@ -47,6 +47,8 @@ public class StrmLinkHandler : ILinkHandler
     }
 
     /// <inheritdoc />
+    /// <exception cref="IOException">Thrown when the file cannot be written.</exception>
+    /// <exception cref="UnauthorizedAccessException">Thrown when write access to the file is denied.</exception>
     public void WriteTarget(string filePath, string targetPath)
     {
         _fileSystem.File.WriteAllText(filePath, targetPath);

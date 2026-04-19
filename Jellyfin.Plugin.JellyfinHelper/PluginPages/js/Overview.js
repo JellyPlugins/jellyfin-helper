@@ -60,7 +60,11 @@ function loadCleanupStats() {
         h += '<p class="stat-value">' + formatBytes(stats.TotalBytesFreed) + '</p></div>';
         h += '<div class="stat-card highlight"><h3>' + T('totalItemsDeleted', 'Total Items Deleted') + '</h3>';
         h += '<p class="stat-value">' + stats.TotalItemsDeleted + '</p>';
-        var lastTs = stats.LastCleanupTimestamp && stats.LastCleanupTimestamp !== '0001-01-01T00:00:00' ? new Date(stats.LastCleanupTimestamp).toLocaleString() : T('never', 'Never');
+        var parsedTs = new Date(stats.LastCleanupTimestamp);
+        var hasValidTs = stats.LastCleanupTimestamp &&
+            stats.LastCleanupTimestamp !== '0001-01-01T00:00:00' &&
+            !Number.isNaN(parsedTs.getTime());
+        var lastTs = hasValidTs ? parsedTs.toLocaleString() : T('never', 'Never');
         h += '<p class="stat-detail">' + T('lastCleanup', 'Last cleanup') + ': ' + lastTs + '</p></div>';
         h += '</div>';
         cleanupContainer.innerHTML = h;

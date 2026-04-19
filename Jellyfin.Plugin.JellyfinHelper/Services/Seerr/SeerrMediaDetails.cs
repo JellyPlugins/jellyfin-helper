@@ -22,9 +22,10 @@ internal sealed class SeerrMediaDetails
 
     /// <summary>
     ///     Gets the resolved display title, preferring "title" (movie) over "name" (TV).
+    ///     Returns <c>null</c> if neither title nor name is available, so the caller can choose a localized fallback.
     /// </summary>
     [JsonIgnore]
-    public string DisplayTitle => !string.IsNullOrWhiteSpace(Title) ? Title!
-        : !string.IsNullOrWhiteSpace(Name) ? Name!
-        : "Unknown";
+    public string? DisplayTitle => !string.IsNullOrWhiteSpace(Title) ? Title
+        : !string.IsNullOrWhiteSpace(Name) ? Name
+        : null;
 }

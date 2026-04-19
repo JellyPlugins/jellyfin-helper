@@ -44,9 +44,9 @@ internal static class PathValidator
                 basePath += Path.DirectorySeparatorChar;
             }
 
-            var comparison = OperatingSystem.IsLinux()
-                ? StringComparison.Ordinal
-                : StringComparison.OrdinalIgnoreCase;
+            var comparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
             return fullPath.StartsWith(basePath, comparison);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)

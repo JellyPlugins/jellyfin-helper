@@ -161,7 +161,7 @@ public static class BackupValidator
         ValidateTaskMode(result, backup.EmptyMediaFolderTaskMode, "EmptyMediaFolderTaskMode");
         ValidateTaskMode(result, backup.OrphanedSubtitleTaskMode, "OrphanedSubtitleTaskMode");
         ValidateTaskMode(result, backup.LinkRepairTaskMode, "LinkRepairTaskMode");
-        ValidateTaskMode(result, backup.SeerrCleanupTaskMode, "SeerrCleanupTaskMode");
+        ValidateTaskMode(result, backup.SeerrCleanupTaskMode, "SeerrCleanupTaskMode", "Deactivate");
 
         if (!string.IsNullOrEmpty(backup.PluginLogLevel) && !ValidLogLevels.Contains(backup.PluginLogLevel))
         {
@@ -232,11 +232,11 @@ public static class BackupValidator
         }
     }
 
-    private static void ValidateTaskMode(BackupValidationResult result, string? value, string fieldName)
+    private static void ValidateTaskMode(BackupValidationResult result, string? value, string fieldName, string fallback = "DryRun")
     {
         if (!string.IsNullOrEmpty(value) && !ValidTaskModes.Contains(value))
         {
-            result.Warnings.Add($"Unknown task mode '{value}' for {fieldName}. Will default to 'DryRun'.");
+            result.Warnings.Add($"Unknown task mode '{value}' for {fieldName}. Will default to '{fallback}'.");
         }
     }
 

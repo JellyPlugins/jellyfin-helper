@@ -123,11 +123,10 @@ function loadTrashHealthSection() {
             if (!container) {
                 return;
             }
-            // Remove any previously appended trash section to avoid duplicates
-            var existingTrash = container.querySelector('.section-divider');
-            while (existingTrash) {
+            // Remove the entire previously rendered trash section
+            var existingTrash = container.querySelector('#trashHealthSection');
+            if (existingTrash) {
                 existingTrash.parentNode.removeChild(existingTrash);
-                existingTrash = container.querySelector('.section-divider');
             }
 
             var totalItems = 0;
@@ -140,7 +139,8 @@ function loadTrashHealthSection() {
                 }
             }
 
-            var html = '<div class="section-divider" style="margin:1.5em 0;"></div>';
+            var html = '<div id="trashHealthSection">';
+            html += '<div class="section-divider" style="margin:1.5em 0;"></div>';
             html += '<div class="section-title">🗑️ ' + T('trashContents',
                 'Trash Contents') + '</div>';
 
@@ -187,6 +187,7 @@ function loadTrashHealthSection() {
                     'Trash is empty.') + '</p>';
             }
 
+            html += '</div>';
             container.insertAdjacentHTML('beforeend', html);
         }, function () {
             console.log(

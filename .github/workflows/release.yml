@@ -168,15 +168,24 @@ jobs:
         CHANGELOG=$(jq -er '.[0].versions[0].changelog' manifest.json)
         DESCRIPTION=$(jq -er '.[0].description' manifest.json)
         OVERVIEW=$(jq -er '.[0].overview' manifest.json)
-        echo "BUILD_CHANGELOG<<EOF" >> $GITHUB_ENV
-        echo "$CHANGELOG" >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
-        echo "BUILD_DESCRIPTION<<EOF" >> $GITHUB_ENV
-        echo "$DESCRIPTION" >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
-        echo "BUILD_OVERVIEW<<EOF" >> $GITHUB_ENV
-        echo "$OVERVIEW" >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
+        DELIM_CL="EOF_${GITHUB_RUN_ID}_BUILD_CHANGELOG"
+        DELIM_DESC="EOF_${GITHUB_RUN_ID}_BUILD_DESCRIPTION"
+        DELIM_OV="EOF_${GITHUB_RUN_ID}_BUILD_OVERVIEW"
+        {
+          echo "BUILD_CHANGELOG<<$DELIM_CL"
+          echo "$CHANGELOG"
+          echo "$DELIM_CL"
+        } >> "$GITHUB_ENV"
+        {
+          echo "BUILD_DESCRIPTION<<$DELIM_DESC"
+          echo "$DESCRIPTION"
+          echo "$DELIM_DESC"
+        } >> "$GITHUB_ENV"
+        {
+          echo "BUILD_OVERVIEW<<$DELIM_OV"
+          echo "$OVERVIEW"
+          echo "$DELIM_OV"
+        } >> "$GITHUB_ENV"
 
     - name: Create release package
       if: env.TAG_EXISTS == 'false'
@@ -265,9 +274,12 @@ jobs:
       if: env.TAG_EXISTS == 'false'
       run: |
         CHANGELOG=$(jq -er '.[0].versions[0].changelog' manifest.json)
-        echo "CHANGELOG<<EOF" >> $GITHUB_ENV
-        echo "$CHANGELOG" >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
+        DELIM_CL="EOF_${GITHUB_RUN_ID}_CHANGELOG"
+        {
+          echo "CHANGELOG<<$DELIM_CL"
+          echo "$CHANGELOG"
+          echo "$DELIM_CL"
+        } >> "$GITHUB_ENV"
 
     - name: Download build artifact
       if: env.TAG_EXISTS == 'false'
