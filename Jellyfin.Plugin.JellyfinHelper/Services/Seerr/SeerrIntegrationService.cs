@@ -207,11 +207,14 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         while (hasMore);
 
         // Phase 2: Process expired requests (log in dry-run, delete otherwise)
+        // Cache resolved titles to avoid redundant API calls for the same TMDB ID
+        var titleCache = new Dictionary<string, string>(StringComparer.Ordinal);
+
         foreach (var request in expiredRequests)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var mediaTitle = await ResolveMediaTitleAsync(client, request.Media, cancellationToken).ConfigureAwait(false);
+            var mediaTitle = await ResolveMediaTitleCachedAsync(client, request.Media, titleCache, cancellationToken).ConfigureAwait(false);
             var mediaInfo = request.Media != null
                 ? $"\"{mediaTitle}\" ({request.Media.MediaType}, TMDB: {request.Media.TmdbId})"
                 : $"request #{request.Id}";
@@ -268,10 +271,44 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                         ex,
                         _logger);
                 }
+
+                // Small delay between DELETE calls to avoid overwhelming the Seerr API
+                await Task.Delay(100, cancellationToken).ConfigureAwait(false);
             }
         }
 
         return result;
+    }
+
+    /// <summary>
+    ///     Resolves the human-readable title for a media item, using a per-run cache to avoid
+    ///     redundant API calls when the same TMDB ID appears in multiple requests.
+    /// </summary>
+    /// <param name="client">The configured HTTP client.</param>
+    /// <param name="media">The media info from the request (may be null).</param>
+    /// <param name="titleCache">Cache mapping "mediaType:tmdbId" to resolved titles.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The resolved title, or "Unknown" if resolution fails.</returns>
+    internal async Task<string> ResolveMediaTitleCachedAsync(
+        HttpClient client,
+        SeerrMedia? media,
+        Dictionary<string, string> titleCache,
+        CancellationToken cancellationToken)
+    {
+        if (media == null || media.TmdbId <= 0)
+        {
+            return "Unknown";
+        }
+
+        var cacheKey = $"{media.MediaType}:{media.TmdbId}";
+        if (titleCache.TryGetValue(cacheKey, out var cachedTitle))
+        {
+            return cachedTitle;
+        }
+
+        var title = await ResolveMediaTitleAsync(client, media, cancellationToken).ConfigureAwait(false);
+        titleCache[cacheKey] = title;
+        return title;
     }
 
     /// <summary>

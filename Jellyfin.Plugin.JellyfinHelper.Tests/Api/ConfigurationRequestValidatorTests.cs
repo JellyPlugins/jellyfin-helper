@@ -1,174 +1,199 @@
+using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
-/// <summary>
-///     Unit tests for <see cref="ConfigurationRequestValidator" />.
-/// </summary>
 public class ConfigurationRequestValidatorTests
 {
+    // ===== OrphanMinAgeDays =====
+
     [Fact]
-    public void Validate_ValidRequest_ReturnsNull()
+    public void Validate_ReturnsNull_ForValidRequest()
     {
-        var request = new ConfigurationUpdateRequest
-        {
-            OrphanMinAgeDays = 30,
-            TrashRetentionDays = 60
-        };
-
-        Assert.Null(ConfigurationRequestValidator.Validate(request));
-    }
-
-    [Theory]
-    [InlineData(-1)]
-    [InlineData(3651)]
-    public void Validate_InvalidOrphanMinAgeDays_ReturnsError(int days)
-    {
-        var request = new ConfigurationUpdateRequest { OrphanMinAgeDays = days };
-
-        var error = ConfigurationRequestValidator.Validate(request);
-
-        Assert.NotNull(error);
-        Assert.Contains("OrphanMinAgeDays", error);
-    }
-
-    [Theory]
-    [InlineData(-1)]
-    [InlineData(3651)]
-    public void Validate_InvalidTrashRetentionDays_ReturnsError(int days)
-    {
-        var request = new ConfigurationUpdateRequest { TrashRetentionDays = days };
-
-        var error = ConfigurationRequestValidator.Validate(request);
-
-        Assert.NotNull(error);
-        Assert.Contains("TrashRetentionDays", error);
+        var req = new ConfigurationUpdateRequest { OrphanMinAgeDays = 7, TrashRetentionDays = 30 };
+        Assert.Null(ConfigurationRequestValidator.Validate(req));
     }
 
     [Fact]
-    public void Validate_TooManyRadarrInstances_ReturnsError()
+    public void Validate_ReturnsError_WhenOrphanMinAgeDaysNegative()
     {
-        var request = new ConfigurationUpdateRequest
+        var req = new ConfigurationUpdateRequest { OrphanMinAgeDays = -1, TrashRetentionDays = 30 };
+        Assert.Contains("OrphanMinAgeDays", ConfigurationRequestValidator.Validate(req)!);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenOrphanMinAgeDaysTooLarge()
+    {
+        var req = new ConfigurationUpdateRequest { OrphanMinAgeDays = 3651, TrashRetentionDays = 30 };
+        Assert.NotNull(ConfigurationRequestValidator.Validate(req));
+    }
+
+    // ===== TrashRetentionDays =====
+
+    [Fact]
+    public void Validate_ReturnsError_WhenTrashRetentionDaysNegative()
+    {
+        var req = new ConfigurationUpdateRequest { OrphanMinAgeDays = 7, TrashRetentionDays = -1 };
+        Assert.Contains("TrashRetentionDays", ConfigurationRequestValidator.Validate(req)!);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_WhenTrashRetentionDaysTooLarge()
+    {
+        var req = new ConfigurationUpdateRequest { OrphanMinAgeDays = 7, TrashRetentionDays = 5000 };
+        Assert.NotNull(ConfigurationRequestValidator.Validate(req));
+    }
+
+    // ===== Arr Instance Limits =====
+
+    [Fact]
+    public void Validate_ReturnsError_WhenTooManyRadarrInstances()
+    {
+        var req = new ConfigurationUpdateRequest
         {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
             RadarrInstances = new List<ArrInstanceConfig>
             {
-                new() { Name = "R1", Url = "http://r1", ApiKey = "k1" },
-                new() { Name = "R2", Url = "http://r2", ApiKey = "k2" },
-                new() { Name = "R3", Url = "http://r3", ApiKey = "k3" },
-                new() { Name = "R4", Url = "http://r4", ApiKey = "k4" }
+                new() { Url = "http://a", ApiKey = "k" },
+                new() { Url = "http://b", ApiKey = "k" },
+                new() { Url = "http://c", ApiKey = "k" },
+                new() { Url = "http://d", ApiKey = "k" },
             }
         };
-
-        var error = ConfigurationRequestValidator.Validate(request);
-
-        Assert.NotNull(error);
-        Assert.Contains("Radarr", error);
+        Assert.Contains("Radarr", ConfigurationRequestValidator.Validate(req)!);
     }
 
     [Fact]
-    public void Validate_TooManySonarrInstances_ReturnsError()
+    public void Validate_ReturnsError_WhenTooManySonarrInstances()
     {
-        var request = new ConfigurationUpdateRequest
+        var req = new ConfigurationUpdateRequest
         {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
             SonarrInstances = new List<ArrInstanceConfig>
             {
-                new() { Name = "S1", Url = "http://s1", ApiKey = "k1" },
-                new() { Name = "S2", Url = "http://s2", ApiKey = "k2" },
-                new() { Name = "S3", Url = "http://s3", ApiKey = "k3" },
-                new() { Name = "S4", Url = "http://s4", ApiKey = "k4" }
+                new() { Url = "http://a", ApiKey = "k" },
+                new() { Url = "http://b", ApiKey = "k" },
+                new() { Url = "http://c", ApiKey = "k" },
+                new() { Url = "http://d", ApiKey = "k" },
             }
         };
+        Assert.Contains("Sonarr", ConfigurationRequestValidator.Validate(req)!);
+    }
 
-        var error = ConfigurationRequestValidator.Validate(request);
+    // ===== Seerr Validation =====
 
-        Assert.NotNull(error);
-        Assert.Contains("Sonarr", error);
+    [Fact]
+    public void Validate_ReturnsError_WhenSeerrCleanupAgeDaysTooLow()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7, TrashRetentionDays = 30,
+            SeerrUrl = "http://seerr.local", SeerrApiKey = "key", SeerrCleanupAgeDays = 0
+        };
+        Assert.Contains("SeerrCleanupAgeDays", ConfigurationRequestValidator.Validate(req)!);
     }
 
     [Fact]
-    public void Validate_InvalidArrUrl_ReturnsError()
+    public void Validate_ReturnsError_WhenSeerrCleanupAgeDaysTooHigh()
     {
-        var request = new ConfigurationUpdateRequest
+        var req = new ConfigurationUpdateRequest
         {
-            RadarrInstances = new List<ArrInstanceConfig>
-            {
-                new() { Name = "Bad", Url = "ftp://invalid", ApiKey = "key123" }
-            }
+            OrphanMinAgeDays = 7, TrashRetentionDays = 30,
+            SeerrUrl = "http://seerr.local", SeerrApiKey = "key", SeerrCleanupAgeDays = 5000
         };
-
-        var error = ConfigurationRequestValidator.Validate(request);
-
-        Assert.NotNull(error);
-        Assert.Contains("invalid URL", error);
+        Assert.NotNull(ConfigurationRequestValidator.Validate(req));
     }
 
     [Fact]
-    public void Validate_ArrUrlWithoutApiKey_ReturnsError()
+    public void Validate_ReturnsError_WhenSeerrUrlInvalid()
     {
-        var request = new ConfigurationUpdateRequest
+        var req = new ConfigurationUpdateRequest
         {
-            SonarrInstances = new List<ArrInstanceConfig>
-            {
-                new() { Name = "NoKey", Url = "http://sonarr:8989", ApiKey = "" }
-            }
+            OrphanMinAgeDays = 7, TrashRetentionDays = 30,
+            SeerrUrl = "ftp://invalid", SeerrApiKey = "key"
         };
-
-        var error = ConfigurationRequestValidator.Validate(request);
-
-        Assert.NotNull(error);
-        Assert.Contains("no API key", error);
+        Assert.Contains("Seerr URL", ConfigurationRequestValidator.Validate(req)!);
     }
 
     [Fact]
-    public void Validate_EmptyArrInstance_IsSkipped()
+    public void Validate_ReturnsError_WhenSeerrUrlSetButNoApiKey()
     {
-        var request = new ConfigurationUpdateRequest
+        var req = new ConfigurationUpdateRequest
         {
-            RadarrInstances = new List<ArrInstanceConfig>
-            {
-                new() { Name = "", Url = "", ApiKey = "" }
-            }
+            OrphanMinAgeDays = 7, TrashRetentionDays = 30,
+            SeerrUrl = "http://seerr.local", SeerrApiKey = ""
         };
-
-        Assert.Null(ConfigurationRequestValidator.Validate(request));
+        Assert.Contains("API key", ConfigurationRequestValidator.Validate(req)!);
     }
 
     [Fact]
-    public void Validate_BoundaryValues_AreAccepted()
+    public void Validate_NoSeerrError_WhenSeerrUrlBlank()
     {
-        var request = new ConfigurationUpdateRequest
+        var req = new ConfigurationUpdateRequest
         {
-            OrphanMinAgeDays = 0,
-            TrashRetentionDays = 3650
+            OrphanMinAgeDays = 7, TrashRetentionDays = 30,
+            SeerrUrl = "", SeerrCleanupAgeDays = 0
         };
+        Assert.Null(ConfigurationRequestValidator.Validate(req));
+    }
 
-        Assert.Null(ConfigurationRequestValidator.Validate(request));
+    // ===== Arr Instance Validation =====
+
+    [Fact]
+    public void ValidateArrInstances_ReturnsNull_WhenNull()
+    {
+        Assert.Null(ConfigurationRequestValidator.ValidateArrInstances(null, "Radarr"));
     }
 
     [Fact]
-    public void ValidateArrInstances_ValidInstances_ReturnsNull()
+    public void ValidateArrInstances_SkipsEmptyInstances()
     {
-        var instances = new List<ArrInstanceConfig>
-        {
-            new() { Name = "Test", Url = "http://localhost:7878", ApiKey = "abc123" },
-            new() { Name = "Test2", Url = "https://radarr.local", ApiKey = "def456" }
-        };
-
+        var instances = new List<ArrInstanceConfig> { new() { Url = "", ApiKey = "" } };
         Assert.Null(ConfigurationRequestValidator.ValidateArrInstances(instances, "Radarr"));
     }
 
     [Fact]
-    public void ValidateArrInstances_ThreeInstances_ReturnsNull()
+    public void ValidateArrInstances_ReturnsError_ForInvalidUrl()
     {
-        var instances = new List<ArrInstanceConfig>
-        {
-            new() { Name = "R1", Url = "http://r1:7878", ApiKey = "k1" },
-            new() { Name = "R2", Url = "http://r2:7878", ApiKey = "k2" },
-            new() { Name = "R3", Url = "http://r3:7878", ApiKey = "k3" }
-        };
+        var instances = new List<ArrInstanceConfig> { new() { Url = "not-a-url", ApiKey = "key", Name = "Test" } };
+        var error = ConfigurationRequestValidator.ValidateArrInstances(instances, "Radarr");
+        Assert.Contains("Test", error!);
+        Assert.Contains("invalid URL", error!);
+    }
 
+    [Fact]
+    public void ValidateArrInstances_ReturnsError_ForInvalidUrl_WithoutName()
+    {
+        var instances = new List<ArrInstanceConfig> { new() { Url = "ftp://bad", ApiKey = "key" } };
+        var error = ConfigurationRequestValidator.ValidateArrInstances(instances, "Sonarr");
+        Assert.Contains("#1", error!);
+    }
+
+    [Fact]
+    public void ValidateArrInstances_ReturnsError_WhenUrlSetButNoApiKey()
+    {
+        var instances = new List<ArrInstanceConfig> { new() { Url = "http://valid.local", ApiKey = "", Name = "MyArr" } };
+        var error = ConfigurationRequestValidator.ValidateArrInstances(instances, "Radarr");
+        Assert.Contains("MyArr", error!);
+        Assert.Contains("no API key", error!);
+    }
+
+    [Fact]
+    public void ValidateArrInstances_ReturnsError_WhenUrlSetButNoApiKey_WithoutName()
+    {
+        var instances = new List<ArrInstanceConfig> { new() { Url = "http://valid.local", ApiKey = "" } };
+        var error = ConfigurationRequestValidator.ValidateArrInstances(instances, "Radarr");
+        Assert.Contains("#1", error!);
+    }
+
+    [Fact]
+    public void ValidateArrInstances_ReturnsNull_WhenAllValid()
+    {
+        var instances = new List<ArrInstanceConfig> { new() { Url = "http://radarr.local", ApiKey = "key123", Name = "Main" } };
         Assert.Null(ConfigurationRequestValidator.ValidateArrInstances(instances, "Radarr"));
     }
 }

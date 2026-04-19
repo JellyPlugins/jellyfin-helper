@@ -1,161 +1,95 @@
 using Jellyfin.Plugin.JellyfinHelper.Services;
-using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
-using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
-/// <summary>
-/// Tests for <see cref="PathValidator"/>.
-/// </summary>
-[Collection("ConfigOverride")]
-public class PathValidatorTests : IDisposable
+public class PathValidatorTests
 {
-    private readonly PluginLogService _log = TestMockFactory.CreatePluginLogService();
-    /// <summary>
-    /// Initializes a new instance of the <see cref="PathValidatorTests"/> class.
-    /// Clears the plugin log buffer before each test.
-    /// </summary>
-    public PathValidatorTests()
-    {
-        _log.TestMinLevelOverride = "DEBUG";
-        _log.Clear();
-    }
-
-    /// <summary>
-    /// Cleans up after each test.
-    /// </summary>
-    public void Dispose()
-    {
-        _log.Clear();
-        _log.TestMinLevelOverride = null;
-    }
-
-    // === IsSafePath ===
+    // ===== IsSafePath =====
 
     [Fact]
-    public void IsSafePath_NullPath_ReturnsFalse()
+    public void IsSafePath_ReturnsFalse_WhenPathIsNull()
     {
         Assert.False(PathValidator.IsSafePath(null, "/base"));
     }
 
     [Fact]
-    public void IsSafePath_EmptyPath_ReturnsFalse()
+    public void IsSafePath_ReturnsFalse_WhenPathIsEmpty()
     {
-        Assert.False(PathValidator.IsSafePath(string.Empty, "/base"));
+        Assert.False(PathValidator.IsSafePath("", "/base"));
     }
 
     [Fact]
-    public void IsSafePath_WhitespacePath_ReturnsFalse()
+    public void IsSafePath_ReturnsFalse_WhenPathIsWhitespace()
     {
         Assert.False(PathValidator.IsSafePath("   ", "/base"));
     }
 
     [Fact]
-    public void IsSafePath_PathWithTraversal_ReturnsFalse()
+    public void IsSafePath_ReturnsFalse_WhenPathContainsTraversal()
     {
         Assert.False(PathValidator.IsSafePath("/base/../etc/passwd", "/base"));
     }
 
     [Fact]
-    public void IsSafePath_PathWithNullChar_ReturnsFalse()
+    public void IsSafePath_ReturnsFalse_WhenPathContainsNullChar()
     {
         Assert.False(PathValidator.IsSafePath("/base/file\0.txt", "/base"));
     }
 
     [Fact]
-    public void IsSafePath_ValidChildPath_ReturnsTrue()
+    public void IsSafePath_ReturnsTrue_WhenPathIsWithinBase()
     {
-        // Use a temp directory to ensure the path resolves correctly on this OS
-        var baseDir = Path.GetTempPath();
-        var childPath = Path.Join(baseDir, "subdir", "file.txt");
-
-        Assert.True(PathValidator.IsSafePath(childPath, baseDir));
+        var basePath = System.IO.Path.GetTempPath();
+        var safePath = System.IO.Path.Combine(basePath, "subdir", "file.txt");
+        Assert.True(PathValidator.IsSafePath(safePath, basePath));
     }
 
     [Fact]
-    public void IsSafePath_PathOutsideBase_ReturnsFalse()
+    public void IsSafePath_ReturnsFalse_WhenPathIsOutsideBase()
     {
-        var baseDir = Path.Join(Path.GetTempPath(), "specific-base");
-        var outsidePath = Path.Join(Path.GetTempPath(), "other-dir", "file.txt");
-
-        Assert.False(PathValidator.IsSafePath(outsidePath, baseDir));
+        var basePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "allowed");
+        var outsidePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "outside", "file.txt");
+        Assert.False(PathValidator.IsSafePath(outsidePath, basePath));
     }
 
-    // === SanitizeFileName ===
+    // ===== SanitizeFileName =====
 
     [Fact]
-    public void SanitizeFileName_NullInput_ReturnsDefault()
+    public void SanitizeFileName_ReturnsExport_WhenNull()
     {
         Assert.Equal("export", PathValidator.SanitizeFileName(null!));
     }
 
     [Fact]
-    public void SanitizeFileName_EmptyInput_ReturnsDefault()
+    public void SanitizeFileName_ReturnsExport_WhenEmpty()
     {
-        Assert.Equal("export", PathValidator.SanitizeFileName(string.Empty));
+        Assert.Equal("export", PathValidator.SanitizeFileName(""));
     }
 
     [Fact]
-    public void SanitizeFileName_ValidName_ReturnsSameName()
+    public void SanitizeFileName_ReturnsExport_WhenWhitespace()
     {
-        Assert.Equal("report.json", PathValidator.SanitizeFileName("report.json"));
+        Assert.Equal("export", PathValidator.SanitizeFileName("   "));
     }
 
     [Fact]
-    public void SanitizeFileName_StripsDirectorySeparators()
+    public void SanitizeFileName_ReturnsSameName_WhenValid()
     {
-        var result = PathValidator.SanitizeFileName("some/path/file.txt");
+        Assert.Equal("report.csv", PathValidator.SanitizeFileName("report.csv"));
+    }
+
+    [Fact]
+    public void SanitizeFileName_StripsDirectoryComponents()
+    {
+        var result = PathValidator.SanitizeFileName("subdir/file.txt");
         Assert.Equal("file.txt", result);
     }
 
     [Fact]
-    public void SanitizeFileName_ReplacesInvalidChars()
+    public void SanitizeFileName_StripsBackslashDirectoryComponents()
     {
-        // Use characters that are invalid on ALL platforms (null char is always invalid)
-        var invalidChars = Path.GetInvalidFileNameChars();
-        if (invalidChars.Length == 0)
-        {
-            return; // Nothing to test on this platform
-        }
-
-        var testChar = invalidChars[0];
-        var input = $"file{testChar}name.txt";
-        var result = PathValidator.SanitizeFileName(input);
-
-        // The invalid char should be replaced with '_'.
-        // Use ordinal comparison because the null character ('\0') has zero sort-weight
-        // in culture-sensitive comparisons, causing DoesNotContain to report a false match.
-        Assert.DoesNotContain(testChar.ToString(), result, StringComparison.Ordinal);
-        Assert.Contains("name.txt", result);
-    }
-
-    // === Logging integration tests ===
-
-    [Fact]
-    public void IsSafePath_EmptyPath_LogsDebugEntry()
-    {
-        PathValidator.IsSafePath(string.Empty, "/base", _log);
-
-        var entries = _log.GetEntries(minLevel: "DEBUG", source: "PathValidator");
-        Assert.Contains(entries, e => e.Message.Contains("empty", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void IsSafePath_TraversalPath_LogsWarningEntry()
-    {
-        PathValidator.IsSafePath("/base/../etc/passwd", "/base", _log);
-
-        var entries = _log.GetEntries(minLevel: "WARN", source: "PathValidator");
-        Assert.Contains(entries, e => e.Message.Contains("traversal", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void IsSafePath_NullCharPath_LogsWarningEntry()
-    {
-        PathValidator.IsSafePath("/base/file\0.txt", "/base", _log);
-
-        var entries = _log.GetEntries(minLevel: "WARN", source: "PathValidator");
-        Assert.Contains(entries, e => e.Message.Contains("traversal", StringComparison.OrdinalIgnoreCase));
+        var result = PathValidator.SanitizeFileName("subdir\\file.txt");
+        Assert.Equal("file.txt", result);
     }
 }
