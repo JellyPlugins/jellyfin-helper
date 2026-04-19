@@ -288,31 +288,6 @@ function showAutoSaveIndicatorOverlay(element, success) {
 }
 
 /**
- * Adds an auto-save indicator to the specified element to visually display the save status.
- *
- * @param {HTMLElement} element - The element to which the auto-save indicator should be added.
- * @param {boolean} success - A flag indicating whether the operation succeeded (true) or failed (false).
- * @param {number} [index] - Optional index specifying where in the element's child nodes the indicator should be inserted.
- * @return {void} Does not return a value.
- */
-function addAutoSaveIndicator(element, success, index) {
-    if (!element || !element.parentNode) return;
-
-    removeExistingSaveIndicator(element);
-
-    const fadeDelay = calculateFadeDelay(success);
-    const indicator = createSaveIndicator(element, success);
-    addFadingDelay(indicator, fadeDelay);
-
-    if (typeof index === 'number') {
-        const referenceNode = element.childNodes[index] || null;
-        element.insertBefore(indicator, referenceNode);
-    } else {
-        element.append(indicator);
-    }
-}
-
-/**
  * Removes an existing save indicator overlay if it is present as the previous sibling of the specified element.
  * The overlay is identified by having the 'fade-element' class.
  * Any associated fade or removal timers are cleared before the overlay is removed from the DOM.
@@ -324,23 +299,6 @@ function removeExistingSaveIndicatorOverlay(element) {
     const existing = element.previousElementSibling;
 
     if (existing && existing.classList.contains('fade-element')) {
-        clearTimeout(existing._fadeTimer);
-        clearTimeout(existing._removeTimer);
-        existing.remove();
-    }
-}
-
-/**
- * Removes an existing save indicator element with the class 'fade-element' from the specified element.
- * If the save indicator exists, any associated timers are cleared, and the element is removed.
- *
- * @param {HTMLElement} element The parent element to check for the existing save indicator.
- * @return {void}
- */
-function removeExistingSaveIndicator(element) {
-    const existing = element.querySelector('.fade-element');
-
-    if (existing) {
         clearTimeout(existing._fadeTimer);
         clearTimeout(existing._removeTimer);
         existing.remove();
