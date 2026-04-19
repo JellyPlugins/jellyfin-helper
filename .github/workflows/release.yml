@@ -263,12 +263,28 @@ jobs:
         TMP_DIR=$(mktemp -d)
         trap 'rm -rf "$TMP_DIR"' EXIT
         cd "$TMP_DIR"
-        wget -q https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64
-        wget -q https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/checksums
+        echo "Downloading yq ${YQ_VERSION}..."
+        wget --no-verbose https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64 || {
+          echo "::error::Failed to download yq binary ${YQ_VERSION}. Check if this version exists at https://github.com/mikefarah/yq/releases"
+          exit 1
+        }
+        wget --no-verbose https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/checksums || {
+          echo "::error::Failed to download yq checksums for ${YQ_VERSION}."
+          exit 1
+        }
         EXPECTED_HASH=$(awk '$2=="yq_linux_amd64"{print $1}' checksums | head -n1)
-        test -n "$EXPECTED_HASH"
-        echo "${EXPECTED_HASH}  yq_linux_amd64" | sha256sum -c -
+        if [ -z "$EXPECTED_HASH" ]; then
+          echo "::error::Could not extract checksum for yq_linux_amd64 from checksums file. Format may have changed."
+          echo "Checksums file content:"
+          cat checksums
+          exit 1
+        fi
+        echo "${EXPECTED_HASH}  yq_linux_amd64" | sha256sum -c - || {
+          echo "::error::yq checksum verification failed!"
+          exit 1
+        }
         sudo install -m 0755 yq_linux_amd64 /usr/bin/yq
+        echo "yq ${YQ_VERSION} installed successfully."
 
     - name: Read changelog from manifest
       if: env.TAG_EXISTS == 'false'
