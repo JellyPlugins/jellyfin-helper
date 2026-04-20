@@ -120,11 +120,11 @@ function loadSettings() {
         var h = '';
         h += '<div class="section-title">' + T('settingsGeneralTitle', 'General settings') + '</div>';
 
-        h += '<label for="cfgIncluded">' + T('includedLibraries', 'Included Libraries (whitelist, comma-separated)') + '</label>';
+        h += '<label for="cfgIncluded">' + T('includedLibraries', 'Included Libraries (comma-separated)') + '</label>';
         h += '<input type="text" id="cfgIncluded" value="' + escAttr(cfg.IncludedLibraries || '') + '">';
         h += '<div class="help-text">' + T('includedLibrariesHelp', 'Leave empty to include all libraries.') + '</div>';
 
-        h += '<label for="cfgExcluded">' + T('excludedLibraries', 'Excluded Libraries (blacklist, comma-separated)') + '</label>';
+        h += '<label for="cfgExcluded">' + T('excludedLibraries', 'Excluded Libraries (comma-separated)') + '</label>';
         h += '<input type="text" id="cfgExcluded" value="' + escAttr(cfg.ExcludedLibraries || '') + '">';
 
         h += '<label for="cfgOrphanAge">' + T('orphanMinAgeDays', 'Orphan Minimum Age (days)') + '</label>';

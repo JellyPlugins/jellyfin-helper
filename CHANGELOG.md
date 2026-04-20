@@ -227,7 +227,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Multi-language Dashboard** — UI translations for 7 languages: English, German, French, Spanish, Portuguese, Chinese, Turkish.
 
 #### ⚙️ Configuration
-- **Library Whitelist / Blacklist** — Include or exclude specific libraries from cleanup tasks.
+- **Library Include / Exclude Lists** — Include or exclude specific libraries from cleanup tasks.
 - **Orphan Minimum Age** — Configurable minimum age (days) before orphaned items are eligible for deletion.
 - **Music & Boxset Protection** — Music libraries and Boxset/Collection folders are automatically excluded from cleanup.
 

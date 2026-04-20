@@ -115,13 +115,13 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                 return false;
             }
 
-            // If whitelist is set, only include listed libraries
+            // If allow list is set, only include listed libraries
             if (includedSet.Count > 0 && !includedSet.Contains(name))
             {
                 return false;
             }
 
-            // If blacklist is set, exclude listed libraries
+            // If exclude list is set, exclude listed libraries
             if (excludedSet.Count > 0 && excludedSet.Contains(name))
             {
                 return false;

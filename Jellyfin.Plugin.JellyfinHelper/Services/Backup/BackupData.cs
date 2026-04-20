@@ -40,13 +40,13 @@ public class BackupData
     public string Language { get; set; } = "en";
 
     /// <summary>
-    ///     Gets or sets the included libraries whitelist (comma-separated).
+    ///     Gets or sets the included libraries allow list (comma-separated).
     /// </summary>
     [JsonPropertyName("includedLibraries")]
     public string IncludedLibraries { get; set; } = string.Empty;
 
     /// <summary>
-    ///     Gets or sets the excluded libraries blacklist (comma-separated).
+    ///     Gets or sets the excluded libraries exclude list (comma-separated).
     /// </summary>
     [JsonPropertyName("excludedLibraries")]
     public string ExcludedLibraries { get; set; } = string.Empty;

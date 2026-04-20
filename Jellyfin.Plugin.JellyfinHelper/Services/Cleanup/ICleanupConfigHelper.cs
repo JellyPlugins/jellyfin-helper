@@ -66,7 +66,7 @@ public interface ICleanupConfigHelper
     bool IsDryRunLinkRepair();
 
     /// <summary>
-    /// Gets the filtered library locations based on the whitelist/blacklist configuration.
+    /// Gets the filtered library locations based on the allow list/exclude list configuration.
     /// </summary>
     /// <param name="libraryManager">The library manager.</param>
     /// <returns>A filtered, deduplicated list of library root paths.</returns>

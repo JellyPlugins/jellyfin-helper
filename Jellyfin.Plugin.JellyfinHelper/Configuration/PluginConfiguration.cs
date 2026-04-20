@@ -12,13 +12,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Configuration;
 public class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>
-    ///     Gets or sets the library names to include (whitelist). Empty means all libraries are included.
+    ///     Gets or sets the library names to include (allow list). Empty means all libraries are included.
     ///     Comma-separated list of library names.
     /// </summary>
     public string IncludedLibraries { get; set; } = string.Empty;
 
     /// <summary>
-    ///     Gets or sets the library names to exclude (blacklist).
+    ///     Gets or sets the library names to exclude (exclude list).
     ///     Comma-separated list of library names.
     /// </summary>
     public string ExcludedLibraries { get; set; } = string.Empty;

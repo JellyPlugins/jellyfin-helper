@@ -344,8 +344,8 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| **Included Libraries** | Whitelist of library names (comma-separated) | Empty (all) |
-| **Excluded Libraries** | Blacklist of library names (comma-separated) | Empty (none) |
+| **Included Libraries** | Allow list of library names (comma-separated) | Empty (all) |
+| **Excluded Libraries** | Exclude list of library names (comma-separated) | Empty (none) |
 | **Orphan Minimum Age** | Minimum age (days) before considering items orphaned | 0 |
 | **Trickplay Task Mode** | Activate / DryRun / Deactivate | DryRun |
 | **Empty Folder Task Mode** | Activate / DryRun / Deactivate | DryRun |
