@@ -355,7 +355,7 @@
 
 .insight-badge-changed {
     color: var(--color-warning, #e5a00d);
-    background: rgba(229, 160, 13, 0.12);
+    background: var(--color-warning-soft, rgba(229, 160, 13, 0.12));
 }
 
 /* Touch / small-screen optimisations */
