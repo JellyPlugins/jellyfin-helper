@@ -540,6 +540,11 @@ public class LibraryInsightsServiceTests
                 throw new ArgumentException("File path must be a non-empty relative path.", nameof(relativePath));
             }
 
+            if (size < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(size), "File size cannot be negative.");
+            }
+
             if (System.IO.Path.IsPathRooted(relativePath))
             {
                 throw new ArgumentException("File path must be a relative path.", nameof(relativePath));
@@ -554,10 +559,7 @@ public class LibraryInsightsServiceTests
 
             // Write a file of the requested size
             using var fs = File.Create(fullPath);
-            if (size > 0)
-            {
-                fs.SetLength(size);
-            }
+            fs.SetLength(size);
 
             return fullPath;
         }
