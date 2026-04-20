@@ -374,12 +374,12 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Resolve the full trash path for this library root (handles both relative and absolute paths)
-            var fullTrashPath = Path.GetFullPath(_configHelper.GetTrashPath(location))
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
             try
             {
+                // Resolve the full trash path for this library root (handles both relative and absolute paths)
+                var fullTrashPath = Path.GetFullPath(_configHelper.GetTrashPath(location))
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
                 // Collect top-level subdirectories as media items
                 foreach (var subDir in _fileSystem.GetDirectories(location))
                 {
@@ -448,7 +448,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                         });
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
             {
                 _pluginLog.LogWarning("GrowthTimeline", $"Could not scan {location}", ex, _logger);
             }

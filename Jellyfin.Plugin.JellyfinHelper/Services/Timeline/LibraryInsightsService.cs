@@ -106,16 +106,16 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Resolve the full trash path for this library root (handles both relative and absolute paths)
-                var fullTrashPath = Path.GetFullPath(_configHelper.GetTrashPath(location))
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
                 try
                 {
+                    // Resolve the full trash path for this library root (handles both relative and absolute paths)
+                    var fullTrashPath = Path.GetFullPath(_configHelper.GetTrashPath(location))
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
                     CollectEntriesFromLocation(
                         location, libraryName, collectionTypeStr, trashFolderName, fullTrashPath, entries, cancellationToken);
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
                 {
                     _pluginLog.LogWarning("LibraryInsights", $"Could not scan {location}", ex, _logger);
                 }
