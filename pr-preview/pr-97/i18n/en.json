@@ -202,5 +202,13 @@
   "unsavedChangesTitle": "Unsaved Changes",
   "unsavedChangesMsg": "You have unsaved settings changes. What would you like to do?",
   "discardChanges": "Discard Changes",
-  "saveAndContinue": "Save & Continue"
+  "saveAndContinue": "Save & Continue",
+  "loadingInsights": "Loading insights…",
+  "insightsError": "Could not load insights.",
+  "insightLargest": "Largest",
+  "insightRecent": "Recently",
+  "insightNoData": "No data available.",
+  "insightNoRecent": "No recent changes found.",
+  "insightAdded": "added",
+  "insightChanged": "changed"
 }

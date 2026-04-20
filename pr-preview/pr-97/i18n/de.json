@@ -202,5 +202,13 @@
   "unsavedChangesTitle": "Ungespeicherte Änderungen",
   "unsavedChangesMsg": "Du hast ungespeicherte Einstellungen. Was möchtest du tun?",
   "discardChanges": "Änderungen verwerfen",
-  "saveAndContinue": "Speichern & Fortfahren"
+  "saveAndContinue": "Speichern & Fortfahren",
+  "loadingInsights": "Lade Einblicke…",
+  "insightsError": "Einblicke konnten nicht geladen werden.",
+  "insightLargest": "Größte",
+  "insightRecent": "Kürzlich",
+  "insightNoData": "Keine Daten verfügbar.",
+  "insightNoRecent": "Keine kürzlichen Änderungen gefunden.",
+  "insightAdded": "hinzugefügt",
+  "insightChanged": "geändert"
 }

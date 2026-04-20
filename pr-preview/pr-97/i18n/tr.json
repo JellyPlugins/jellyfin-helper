@@ -202,5 +202,13 @@
   "unsavedChangesTitle": "Kaydedilmemiş Değişiklikler",
   "unsavedChangesMsg": "Kaydedilmemiş ayar değişiklikleriniz var. Ne yapmak istersiniz?",
   "discardChanges": "Değişiklikleri At",
-  "saveAndContinue": "Kaydet ve Devam Et"
+  "saveAndContinue": "Kaydet ve Devam Et",
+  "loadingInsights": "Bilgiler yükleniyor…",
+  "insightsError": "Bilgiler yüklenemedi.",
+  "insightLargest": "En Büyük",
+  "insightRecent": "Son",
+  "insightNoData": "Veri bulunamadı.",
+  "insightNoRecent": "Son değişiklik bulunamadı.",
+  "insightAdded": "eklendi",
+  "insightChanged": "değiştirildi"
 }

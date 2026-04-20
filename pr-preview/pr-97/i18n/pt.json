@@ -202,5 +202,13 @@
   "unsavedChangesTitle": "Alterações não salvas",
   "unsavedChangesMsg": "Você tem alterações não salvas. O que deseja fazer?",
   "discardChanges": "Descartar alterações",
-  "saveAndContinue": "Salvar e continuar"
+  "saveAndContinue": "Salvar e continuar",
+  "loadingInsights": "Carregando informações…",
+  "insightsError": "Não foi possível carregar as informações.",
+  "insightLargest": "Maiores",
+  "insightRecent": "Recentes",
+  "insightNoData": "Nenhum dado disponível.",
+  "insightNoRecent": "Nenhuma alteração recente encontrada.",
+  "insightAdded": "adicionado",
+  "insightChanged": "modificado"
 }

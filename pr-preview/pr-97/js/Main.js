@@ -134,6 +134,8 @@ function renderShell() {
         'Library Growth Trend') + '</div>';
     html += '<div id="trendChartContainer" class="trend-container"><div class="trend-empty">'
         + T('loadingTrends', 'Loading trend data…') + '</div></div>';
+    html += '<div id="insightsContainer" class="insights-container"><div class="trend-empty">'
+        + T('loadingInsights', 'Loading insights…') + '</div></div>';
     html += '</div>';
 
     // === SETTINGS TAB ===
@@ -200,6 +202,7 @@ function loadStatistics() {
 
         // Load/refresh trend data (force recompute after a fresh scan)
         loadTrendData(true);
+        loadInsightsData();
     }, function (err) {
         if (loading) {
             loading.style.display = 'none';
@@ -285,6 +288,7 @@ function initPage() {
 
         // Load trend data async
         loadTrendData();
+        loadInsightsData();
     });
 
     if (!_handlersBound) {

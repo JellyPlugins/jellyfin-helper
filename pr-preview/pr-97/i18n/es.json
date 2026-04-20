@@ -202,5 +202,13 @@
   "unsavedChangesTitle": "Cambios sin guardar",
   "unsavedChangesMsg": "Tienes cambios sin guardar. ¿Qué deseas hacer?",
   "discardChanges": "Descartar cambios",
-  "saveAndContinue": "Guardar y continuar"
+  "saveAndContinue": "Guardar y continuar",
+  "loadingInsights": "Cargando información…",
+  "insightsError": "No se pudo cargar la información.",
+  "insightLargest": "Más grandes",
+  "insightRecent": "Recientes",
+  "insightNoData": "No hay datos disponibles.",
+  "insightNoRecent": "No se encontraron cambios recientes.",
+  "insightAdded": "añadido",
+  "insightChanged": "modificado"
 }

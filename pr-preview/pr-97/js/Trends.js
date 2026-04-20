@@ -542,6 +542,193 @@ function attachTrendInteraction(container) {
     }, {passive: true});
 }
 
+// --- Library Insights (Largest & Recently Added/Changed) ---
+
+var _insightsLoadSeq = 0;
+
+/**
+ * Fetches library insights from the API and renders the two insight cards.
+ */
+function loadInsightsData() {
+    var seq = ++_insightsLoadSeq;
+    var apiClient = ApiClient;
+    var url = apiClient.getUrl('JellyfinHelper/LibraryInsights');
+
+    apiClient.ajax({type: 'GET', url: url, dataType: 'json'}).then(function (data) {
+        if (seq !== _insightsLoadSeq) return;
+        renderInsightCards(data);
+    }, function () {
+        if (seq !== _insightsLoadSeq) return;
+        var c = document.getElementById('insightsContainer');
+        if (c) c.innerHTML = '<div class="trend-empty">' + T('insightsError', 'Could not load insights.') + '</div>';
+    });
+}
+
+/**
+ * Renders the two insight summary cards (Largest / Recently) plus their expandable trees.
+ */
+function renderInsightCards(data) {
+    var container = document.getElementById('insightsContainer');
+    if (!container) return;
+
+    var html = '<div class="insights-cards">';
+
+    // --- Largest card ---
+    html += '<button class="insight-card" id="insightLargestBtn" type="button" aria-expanded="false">';
+    html += '<span class="insight-icon">💾</span>';
+    html += '<span class="insight-value">' + formatBytes(data.LargestTotalSize) + '</span>';
+    html += '<span class="insight-label">' + T('insightLargest', 'Largest') + '</span>';
+    html += '</button>';
+
+    // --- Recently card ---
+    html += '<button class="insight-card" id="insightRecentBtn" type="button" aria-expanded="false">';
+    html += '<span class="insight-icon">🕐</span>';
+    html += '<span class="insight-value">' + data.RecentTotalCount + '</span>';
+    html += '<span class="insight-label">' + T('insightRecent', 'Recently') + '</span>';
+    html += '</button>';
+
+    html += '</div>';
+
+    // --- Expandable panels ---
+    html += '<div class="insight-panel" id="insightLargestPanel"></div>';
+    html += '<div class="insight-panel" id="insightRecentPanel"></div>';
+
+    container.innerHTML = html;
+
+    // Pre-render hidden tree content
+    document.getElementById('insightLargestPanel').innerHTML = buildLargestTree(data);
+    document.getElementById('insightRecentPanel').innerHTML = buildRecentTree(data);
+
+    // Toggle handlers
+    var largestBtn = document.getElementById('insightLargestBtn');
+    var recentBtn = document.getElementById('insightRecentBtn');
+    largestBtn.addEventListener('click', function () {
+        toggleInsightPanel('insightLargestPanel', 'insightRecentPanel', largestBtn, recentBtn);
+    });
+    recentBtn.addEventListener('click', function () {
+        toggleInsightPanel('insightRecentPanel', 'insightLargestPanel', recentBtn, largestBtn);
+    });
+}
+
+function toggleInsightPanel(showId, hideId, activeBtn, otherBtn) {
+    var show = document.getElementById(showId);
+    var hide = document.getElementById(hideId);
+    if (hide) hide.classList.remove('visible');
+    if (otherBtn) otherBtn.setAttribute('aria-expanded', 'false');
+    if (show) {
+        show.classList.toggle('visible');
+        var expanded = show.classList.contains('visible');
+        if (activeBtn) activeBtn.setAttribute('aria-expanded', String(expanded));
+    }
+}
+
+/**
+ * Builds the tree HTML for the "Largest" insight panel.
+ * Groups entries by library name, showing library total size.
+ */
+function buildLargestTree(data) {
+    if (!data.Largest || data.Largest.length === 0) {
+        return '<div class="trend-empty">' + T('insightNoData', 'No data available.') + '</div>';
+    }
+
+    var grouped = groupByLibrary(data.Largest);
+    var html = '<div class="insight-tree">';
+
+    Object.keys(grouped).forEach(function (lib) {
+        var items = grouped[lib];
+        var libSize = data.LibrarySizes && data.LibrarySizes[lib] ? data.LibrarySizes[lib] : 0;
+
+        html += '<div class="insight-tree-lib">';
+        html += '<div class="insight-tree-lib-header">';
+        html += '<span class="insight-tree-lib-name">' + escHtml(lib) + '</span>';
+        html += '<span class="insight-tree-lib-size">' + formatBytes(libSize) + '</span>';
+        html += '</div>';
+
+        for (var i = 0; i < items.length; i++) {
+            var e = items[i];
+            var badge = getInsightTypeBadge(e.CollectionType);
+            html += '<div class="insight-tree-item">';
+            html += '<span class="insight-tree-name">' + badge + ' ' + escHtml(e.Name) + '</span>';
+            html += '<span class="insight-tree-size">' + formatBytes(e.Size) + '</span>';
+            html += '</div>';
+        }
+
+        html += '</div>';
+    });
+
+    html += '</div>';
+    return html;
+}
+
+/**
+ * Builds the tree HTML for the "Recently" insight panel.
+ * Groups entries by library, shows added vs changed badge + date.
+ */
+function buildRecentTree(data) {
+    if (!data.Recent || data.Recent.length === 0) {
+        return '<div class="trend-empty">' + T('insightNoRecent', 'No recent changes found.') + '</div>';
+    }
+
+    var grouped = groupByLibrary(data.Recent);
+    var html = '<div class="insight-tree">';
+
+    Object.keys(grouped).forEach(function (lib) {
+        var items = grouped[lib];
+        var libSize = data.LibrarySizes && data.LibrarySizes[lib] ? data.LibrarySizes[lib] : 0;
+
+        html += '<div class="insight-tree-lib">';
+        html += '<div class="insight-tree-lib-header">';
+        html += '<span class="insight-tree-lib-name">' + escHtml(lib) + '</span>';
+        html += '<span class="insight-tree-lib-size">' + formatBytes(libSize) + '</span>';
+        html += '</div>';
+
+        for (var i = 0; i < items.length; i++) {
+            var e = items[i];
+            var changeBadge = e.ChangeType === 'added'
+                ? '<span class="insight-badge insight-badge-added">' + T('insightAdded', 'added') + '</span>'
+                : '<span class="insight-badge insight-badge-changed">' + T('insightChanged', 'changed') + '</span>';
+            var dateStr = e.ChangeType === 'changed'
+                ? formatInsightDate(e.ModifiedUtc)
+                : formatInsightDate(e.CreatedUtc);
+
+            html += '<div class="insight-tree-item">';
+            html += '<span class="insight-tree-name">' + changeBadge + ' ' + escHtml(e.Name) + '</span>';
+            html += '<span class="insight-tree-meta">' + formatBytes(e.Size) + ' · ' + dateStr + '</span>';
+            html += '</div>';
+        }
+
+        html += '</div>';
+    });
+
+    html += '</div>';
+    return html;
+}
+
+function groupByLibrary(entries) {
+    var map = {};
+    for (var i = 0; i < entries.length; i++) {
+        var lib = entries[i].LibraryName || 'Unknown';
+        if (!map[lib]) map[lib] = [];
+        map[lib].push(entries[i]);
+    }
+    return map;
+}
+
+function getInsightTypeBadge(collectionType) {
+    if (!collectionType) return '📁';
+    var ct = collectionType.toLowerCase();
+    if (ct === 'movies' || ct === 'homevideos' || ct === 'musicvideos') return '🎬';
+    if (ct === 'tvshows') return '📺';
+    return '📁';
+}
+
+function formatInsightDate(isoStr) {
+    if (!isoStr) return '—';
+    var d = new Date(isoStr);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'});
+}
+
 var _trendLoadRequestSeq = 0;
 
 function loadTrendData(forceRefresh) {

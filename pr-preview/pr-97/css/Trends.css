@@ -185,18 +185,176 @@
 }
 
 .trend-diff-stat.diff-up {
-    color: var(--color-success);
-    background: var(--color-success-soft);
+    color: var(--color-success, #4caf50);
+    background: var(--color-success-soft, rgba(76, 175, 80, 0.12));
 }
 
 .trend-diff-stat.diff-down {
-    color: var(--color-danger);
-    background: var(--color-danger-soft);
+    color: var(--color-danger, #f44336);
+    background: var(--color-danger-soft, rgba(244, 67, 54, 0.12));
 }
 
 .trend-diff-stat.diff-neutral {
     color: rgba(255, 255, 255, 0.4);
     background: rgba(255, 255, 255, 0.05);
+}
+
+/* --- Library Insights Cards & Panels --- */
+.insights-container {
+    margin: 2em 0 1em 0;
+}
+
+.insights-cards {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.insight-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-lg);
+    padding: 16px 28px;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+    color: inherit;
+    font-family: inherit;
+    min-width: 140px;
+}
+
+.insight-card:hover,
+.insight-card:focus-visible {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--color-primary-scrollbar);
+    transform: translateY(-2px);
+    outline: none;
+}
+
+.insight-icon {
+    font-size: 1.6em;
+    line-height: 1;
+}
+
+.insight-value {
+    font-size: 1.3em;
+    font-weight: 700;
+    color: var(--color-primary);
+}
+
+.insight-label {
+    font-size: 0.82em;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* Expandable panel (slides open) */
+.insight-panel {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.35s ease, opacity 0.25s ease, padding 0.3s ease;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid transparent;
+    border-radius: var(--radius-lg);
+    padding: 0 16px;
+}
+
+.insight-panel.visible {
+    max-height: 800px;
+    opacity: 1;
+    padding: 14px 16px;
+    border-color: rgba(255, 255, 255, 0.08);
+    margin-top: 8px;
+}
+
+/* Tree inside panels */
+.insight-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.insight-tree-lib {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.insight-tree-lib-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    margin-bottom: 2px;
+}
+
+.insight-tree-lib-name {
+    font-weight: 600;
+    font-size: 0.95em;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.insight-tree-lib-size {
+    font-size: 0.85em;
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+.insight-tree-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 0 3px 16px;
+    font-size: 0.88em;
+}
+
+.insight-tree-name {
+    color: rgba(255, 255, 255, 0.75);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.insight-tree-size,
+.insight-tree-meta {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 0.9em;
+    white-space: nowrap;
+    margin-left: 12px;
+    flex-shrink: 0;
+}
+
+/* Recently badges */
+.insight-badge {
+    display: inline-block;
+    font-size: 0.75em;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    vertical-align: middle;
+    margin-right: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.insight-badge-added {
+    color: var(--color-success, #4caf50);
+    background: var(--color-success-soft, rgba(76, 175, 80, 0.12));
+}
+
+.insight-badge-changed {
+    color: var(--color-warning, #e5a00d);
+    background: rgba(229, 160, 13, 0.12);
 }
 
 /* Touch / small-screen optimisations */
@@ -233,5 +391,28 @@
 
     .trend-diff-dates {
         font-size: 10px;
+    }
+
+    .insights-cards {
+        gap: 8px;
+    }
+
+    .insight-card {
+        padding: 12px 18px;
+        min-width: 110px;
+    }
+
+    .insight-value {
+        font-size: 1.1em;
+    }
+
+    .insight-panel.visible {
+        padding: 10px 12px;
+        max-height: 600px;
+    }
+
+    .insight-tree-item {
+        padding-left: 10px;
+        font-size: 0.84em;
     }
 }

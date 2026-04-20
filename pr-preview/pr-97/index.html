@@ -118,6 +118,9 @@
         ContainerFormats: { "MKV": 1100, "MP4": 600, "AVI": 80, "WebM": 20 },
         Resolutions: { "4K": 500, "1080p": 1000, "720p": 200, "480p": 80, "576p": 20 },
         VideoCodecPaths: { "HEVC": ["/data/movies/Inception (2010)/Inception.mkv", "/data/movies/Interstellar (2014)/Interstellar.mkv"], "H.264": ["/data/movies/The Matrix (1999)/The Matrix.mp4"], "AV1": ["/data/movies/Dune (2021)/Dune.mkv"] },
+        DynamicRanges: { "SDR": 1200, "HDR10": 350, "Dolby Vision": 180, "HLG": 50, "HDR10+": 20 },
+        DynamicRangeSizes: { "SDR": 1649267441664, "HDR10": 824633720832, "Dolby Vision": 494780232499, "HLG": 109951162778, "HDR10+": 54975581389 },
+        DynamicRangePaths: { "HDR10": ["/data/movies/Inception (2010)/Inception.mkv", "/data/movies/Interstellar (2014)/Interstellar.mkv"], "Dolby Vision": ["/data/movies/Dune (2021)/Dune.mkv"], "HDR10+": ["/data/movies/Oppenheimer (2023)/Oppenheimer.mkv"] },
         VideosWithoutSubtitles: 12, VideosWithoutImages: 3, VideosWithoutNfo: 1,
         VideosWithoutSubtitlesPaths: ["/data/movies/Old Movie (1995)/Old Movie.avi"], VideosWithoutImagesPaths: [], VideosWithoutNfoPaths: []
     });
@@ -133,6 +136,9 @@
         ContainerFormats: { "MKV": 1300, "MP4": 600, "AVI": 62, "WebM": 60, "TS": 20 },
         Resolutions: { "4K": 300, "1080p": 1200, "720p": 400, "480p": 120, "576p": 22 },
         VideoCodecPaths: { "HEVC": ["/data/tv/Breaking Bad/S01E01.mkv"], "H.264": ["/data/tv/Friends/S01E01.mp4"] },
+        DynamicRanges: { "SDR": 1500, "HDR10": 300, "Dolby Vision": 150, "HLG": 72, "HDR10+": 20 },
+        DynamicRangeSizes: { "SDR": 1319413953331, "HDR10": 549755813888, "Dolby Vision": 274877906944, "HLG": 42949672960, "HDR10+": 12884901427 },
+        DynamicRangePaths: { "HDR10": ["/data/tv/Breaking Bad/S01E01.mkv"], "Dolby Vision": ["/data/tv/Planet Earth III/S01E01.mkv"] },
         VideosWithoutSubtitles: 45, VideosWithoutImages: 8, OrphanedMetadataDirectories: 1,
         VideosWithoutSubtitlesPaths: ["/data/tv/New Show/S01E01.mkv"], VideosWithoutImagesPaths: ["/data/tv/New Show/S01E01.mkv", "/data/tv/New Show/S01E02.mkv"],
         OrphanedMetadataDirectoriesPaths: ["/data/tv/Cancelled Show/"]
@@ -323,6 +329,33 @@
         };
     })();
 
+    var MOCK_LIBRARY_INSIGHTS = {
+        Largest: [
+            { Name: "Interstellar (2014)", Size: 85899345920, CreatedUtc: "2020-03-15T10:00:00Z", ModifiedUtc: "2024-01-10T08:30:00Z", LibraryName: "Movies", CollectionType: "movies", ChangeType: "" },
+            { Name: "The Lord of the Rings Trilogy", Size: 75161927680, CreatedUtc: "2019-06-20T14:00:00Z", ModifiedUtc: "2023-12-01T09:00:00Z", LibraryName: "Movies", CollectionType: "movies", ChangeType: "" },
+            { Name: "Dune (2021)", Size: 64424509440, CreatedUtc: "2021-10-22T12:00:00Z", ModifiedUtc: "2023-11-15T07:00:00Z", LibraryName: "Movies", CollectionType: "movies", ChangeType: "" },
+            { Name: "Oppenheimer (2023)", Size: 53687091200, CreatedUtc: "2023-07-21T16:00:00Z", ModifiedUtc: "2024-02-28T11:00:00Z", LibraryName: "Movies", CollectionType: "movies", ChangeType: "" },
+            { Name: "Inception (2010)", Size: 48318382080, CreatedUtc: "2018-01-05T09:00:00Z", ModifiedUtc: "2023-06-10T10:00:00Z", LibraryName: "Movies", CollectionType: "movies", ChangeType: "" },
+            { Name: "Breaking Bad", Size: 214748364800, CreatedUtc: "2018-09-01T08:00:00Z", ModifiedUtc: "2024-03-05T12:00:00Z", LibraryName: "TV Shows", CollectionType: "tvshows", ChangeType: "" },
+            { Name: "Planet Earth III", Size: 161061273600, CreatedUtc: "2023-10-01T10:00:00Z", ModifiedUtc: "2024-01-20T14:00:00Z", LibraryName: "TV Shows", CollectionType: "tvshows", ChangeType: "" },
+            { Name: "Game of Thrones", Size: 150323855360, CreatedUtc: "2017-04-14T08:00:00Z", ModifiedUtc: "2023-08-10T09:00:00Z", LibraryName: "TV Shows", CollectionType: "tvshows", ChangeType: "" },
+            { Name: "The Expanse", Size: 128849018880, CreatedUtc: "2019-12-13T11:00:00Z", ModifiedUtc: "2024-02-01T07:00:00Z", LibraryName: "TV Shows", CollectionType: "tvshows", ChangeType: "" },
+            { Name: "Chernobyl", Size: 96636764160, CreatedUtc: "2019-05-06T20:00:00Z", ModifiedUtc: "2023-07-15T16:00:00Z", LibraryName: "TV Shows", CollectionType: "tvshows", ChangeType: "" }
+        ],
+        LargestTotalSize: 1079510332320,
+        Recent: [
+            { Name: "Dune: Part Two (2024)", Size: 59055800320, CreatedUtc: new Date(Date.now() - 3 * 86400000).toISOString(), ModifiedUtc: new Date(Date.now() - 3 * 86400000).toISOString(), LibraryName: "Movies", CollectionType: "movies", ChangeType: "added" },
+            { Name: "The Penguin", Size: 42949672960, CreatedUtc: new Date(Date.now() - 5 * 86400000).toISOString(), ModifiedUtc: new Date(Date.now() - 2 * 86400000).toISOString(), LibraryName: "TV Shows", CollectionType: "tvshows", ChangeType: "added" },
+            { Name: "Oppenheimer (2023)", Size: 53687091200, CreatedUtc: "2023-07-21T16:00:00Z", ModifiedUtc: new Date(Date.now() - 7 * 86400000).toISOString(), LibraryName: "Movies", CollectionType: "movies", ChangeType: "changed" },
+            { Name: "Breaking Bad", Size: 214748364800, CreatedUtc: "2018-09-01T08:00:00Z", ModifiedUtc: new Date(Date.now() - 10 * 86400000).toISOString(), LibraryName: "TV Shows", CollectionType: "tvshows", ChangeType: "changed" },
+            { Name: "Civil War (2024)", Size: 32212254720, CreatedUtc: new Date(Date.now() - 12 * 86400000).toISOString(), ModifiedUtc: new Date(Date.now() - 12 * 86400000).toISOString(), LibraryName: "Movies", CollectionType: "movies", ChangeType: "added" },
+            { Name: "Shogun", Size: 107374182400, CreatedUtc: new Date(Date.now() - 15 * 86400000).toISOString(), ModifiedUtc: new Date(Date.now() - 8 * 86400000).toISOString(), LibraryName: "TV Shows", CollectionType: "tvshows", ChangeType: "added" }
+        ],
+        RecentTotalCount: 6,
+        LibrarySizes: { "Movies": 3298534883328, "TV Shows": 2199023255552 },
+        ComputedAtUtc: new Date().toISOString()
+    };
+
     var MOCK_LIBRARIES = [
         { Name: "Movies", CollectionType: "movies" },
         { Name: "TV Shows", CollectionType: "tvshows" },
@@ -396,6 +429,8 @@
                         resolve({});
                     } else if (url.indexOf('Logs') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_LOGS)));
+                    } else if (url.indexOf('LibraryInsights') !== -1) {
+                        resolve(JSON.parse(JSON.stringify(MOCK_LIBRARY_INSIGHTS)));
                     } else if (url.indexOf('Libraries') !== -1) {
                         resolve(MOCK_LIBRARIES);
                     } else {
