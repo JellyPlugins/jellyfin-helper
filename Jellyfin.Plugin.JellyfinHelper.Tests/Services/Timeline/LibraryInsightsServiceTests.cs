@@ -570,7 +570,7 @@ public class LibraryInsightsServiceTests
                 basePath += System.IO.Path.DirectorySeparatorChar;
             }
 
-            var candidate = System.IO.Path.GetFullPath(System.IO.Path.Combine(Path, relativePath));
+            var candidate = System.IO.Path.GetFullPath(System.IO.Path.Join(basePath, relativePath));
             if (!candidate.StartsWith(basePath, StringComparison.Ordinal))
             {
                 throw new ArgumentException("Path must stay within the temp directory.", paramName);
