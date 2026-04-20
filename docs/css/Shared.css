@@ -97,7 +97,7 @@
     align-items: center;
     justify-content: space-between;
     margin-bottom: 1.5em;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 0.5em;
 }
 
@@ -122,6 +122,14 @@
     padding: var(--spacing-xs) var(--spacing-md);
     border-radius: var(--radius-pill);
     white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.last-scan-badge #lastScanBadge {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
 }
 
 .scan-libraries-btn {
