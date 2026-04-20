@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
 
+## [1.2.1.0] — 2026-04-20
+
+### Changed
+- **Statistics Refactored to MediaStream** — Video codecs, audio codecs, resolutions, and dynamic range are now extracted from Jellyfin `MediaStream` metadata instead of filename parsing. Supports differentiated audio codecs (TrueHD Atmos, DTS-X, DTS-HD MA, EAC3 Atmos, etc.).
+- **Dynamic Range Detection** — New per-library dynamic range statistics (`HDR10`, `HDR10+`, `Dolby Vision`, `HLG`, `SDR`) with `VideoRangeType` → `VideoRange` fallback chain.
+- **Resolution Classification** — Extended to 8K, 4K, 1440p, 1080p, 720p, 576p, 480p, SD with width+height-based classification.
+- **Donut Chart Enhancements** — Added dynamic range donut chart, improved codec icon mapping, animation support for all donut charts.
+- **Documentation** — Updated CONTRIBUTING.md and README.md to reflect MediaStream-based extraction and dynamic range feature.
+
+### Fixed
+- **Performance** — Video streams cached per-item to avoid redundant `GetMediaStreams()` calls during statistics scan.
+
+---
+
 ## [1.2.0.0] — 2026-04-16
 
 ### Added

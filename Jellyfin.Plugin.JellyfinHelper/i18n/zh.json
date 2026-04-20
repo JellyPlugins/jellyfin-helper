@@ -65,6 +65,7 @@
   "musicAudioCodecs": "音乐音频编解码器",
   "containerFormats": "容器格式",
   "resolutions": "分辨率",
+  "dynamicRange": "动态范围",
   "noData": "无数据",
   "healthChecks": "媒体库健康检查",
   "noSubtitles": "无字幕的视频",

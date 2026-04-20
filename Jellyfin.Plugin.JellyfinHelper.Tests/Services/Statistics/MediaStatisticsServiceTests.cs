@@ -1,7 +1,9 @@
+using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
@@ -739,90 +741,162 @@ public class MediaStatisticsServiceTests
         Assert.Equal(2175, stats.TotalSize);
     }
 
-    // ===== Video Codec Parsing Tests =====
+    // ===== ClassifyVideoCodec Tests =====
 
     [Theory]
-    [InlineData("Movie.x265.mkv", "HEVC")]
-    [InlineData("Movie.HEVC.mkv", "HEVC")]
-    [InlineData("Movie.H.265.mkv", "HEVC")]
-    [InlineData("Movie.h265.mkv", "HEVC")]
-    [InlineData("Movie.x264.mkv", "H.264")]
-    [InlineData("Movie.H.264.mkv", "H.264")]
-    [InlineData("Movie.AVC.mkv", "H.264")]
-    [InlineData("Movie.AV1.mkv", "AV1")]
-    [InlineData("Movie.VP9.webm", "VP9")]
-    [InlineData("Movie.XviD.avi", "XviD")]
-    [InlineData("Movie.DivX.avi", "DivX")]
-    [InlineData("Movie.MPEG2.mpg", "MPEG")]
-    [InlineData("Movie.mkv", "Unknown")]
-    public void ParseVideoCodec_DetectsCorrectCodec(string fileName, string expected)
+    [InlineData("hevc", "HEVC")]
+    [InlineData("HEVC", "HEVC")]
+    [InlineData("h265", "HEVC")]
+    [InlineData("h.265", "HEVC")]
+    [InlineData("h264", "H.264")]
+    [InlineData("H264", "H.264")]
+    [InlineData("h.264", "H.264")]
+    [InlineData("avc", "H.264")]
+    [InlineData("AVC", "H.264")]
+    [InlineData("av1", "AV1")]
+    [InlineData("vp9", "VP9")]
+    [InlineData("vp8", "VP8")]
+    [InlineData("mpeg2video", "MPEG-2")]
+    [InlineData("mpeg2", "MPEG-2")]
+    [InlineData("mpeg4", "MPEG-4")]
+    [InlineData("xvid", "XviD")]
+    [InlineData("divx", "DivX")]
+    [InlineData("vc1", "VC-1")]
+    [InlineData("wmv3", "VC-1")]
+    [InlineData("theora", "Theora")]
+    [InlineData(null, "Unknown")]
+    [InlineData("", "Unknown")]
+    public void ClassifyVideoCodec_MapsCorrectly(string? codec, string expected)
     {
-        var result = MediaStatisticsService.ParseVideoCodec(fileName);
-        Assert.Equal(expected, result);
-    }
-
-    // ===== Resolution Parsing Tests =====
-
-    [Theory]
-    [InlineData("Movie.2160p.mkv", "4K")]
-    [InlineData("Movie.4K.mkv", "4K")]
-    [InlineData("Movie.UHD.mkv", "4K")]
-    [InlineData("Movie.1080p.mkv", "1080p")]
-    [InlineData("Movie.1080i.mkv", "1080p")]
-    [InlineData("Movie.720p.mkv", "720p")]
-    [InlineData("Movie.480p.mkv", "480p")]
-    [InlineData("Movie.SD.mkv", "480p")]
-    [InlineData("Movie.576p.mkv", "576p")]
-    [InlineData("Movie.mkv", "Unknown")]
-    public void ParseResolution_DetectsCorrectResolution(string fileName, string expected)
-    {
-        var result = MediaStatisticsService.ParseResolution(fileName);
-        Assert.Equal(expected, result);
-    }
-
-    // ===== Audio Codec Parsing Tests =====
-
-    [Theory]
-    [InlineData("Song.FLAC.mp3", ".mp3", "FLAC")]
-    [InlineData("Song.AAC.m4a", ".m4a", "AAC")]
-    [InlineData("Song.Opus.ogg", ".ogg", "Opus")]
-    [InlineData("Song.DTS.mkv", ".mkv", "DTS")]
-    [InlineData("Song.AC3.mkv", ".mkv", "AC3")]
-    [InlineData("Song.EAC3.mkv", ".mkv", "EAC3")]
-    [InlineData("Song.TrueHD.mkv", ".mkv", "TrueHD")]
-    [InlineData("Song.Vorbis.ogg", ".ogg", "Vorbis")]
-    [InlineData("Song.ALAC.m4a", ".m4a", "ALAC")]
-    [InlineData("Song.PCM.wav", ".wav", "PCM")]
-    public void ParseAudioCodec_FromFilenameTag_DetectsCorrectCodec(string fileName, string ext, string expected)
-    {
-        var result = MediaStatisticsService.ParseAudioCodec(fileName, ext);
-        Assert.Equal(expected, result);
-    }
-
-    [Theory]
-    [InlineData("Song.flac", ".flac", "FLAC")]
-    [InlineData("Track.mp3", ".mp3", "MP3")]
-    [InlineData("Music.ogg", ".ogg", "Vorbis")]
-    [InlineData("Sound.opus", ".opus", "Opus")]
-    [InlineData("Audio.wav", ".wav", "WAV")]
-    [InlineData("Music.wma", ".wma", "WMA")]
-    [InlineData("Song.m4a", ".m4a", "AAC")]
-    [InlineData("Music.aac", ".aac", "AAC")]
-    [InlineData("Lossless.ape", ".ape", "APE")]
-    [InlineData("Music.wv", ".wv", "WavPack")]
-    [InlineData("HiRes.dsf", ".dsf", "DSD")]
-    [InlineData("HiRes.dff", ".dff", "DSD")]
-    public void ParseAudioCodec_FromExtension_DetectsCorrectCodec(string fileName, string ext, string expected)
-    {
-        var result = MediaStatisticsService.ParseAudioCodec(fileName, ext);
-        Assert.Equal(expected, result);
+        Assert.Equal(expected, MediaStatisticsService.ClassifyVideoCodec(codec));
     }
 
     [Fact]
-    public void ParseAudioCodec_UnknownExtension_ReturnsUnknown()
+    public void ClassifyVideoCodec_UnknownCodec_ReturnsUppercased()
     {
-        var result = MediaStatisticsService.ParseAudioCodec("file.xyz", ".xyz");
-        Assert.Equal("Unknown", result);
+        // Unknown codecs are returned uppercased as-is
+        Assert.Equal("SOMEWEIRDCODEC", MediaStatisticsService.ClassifyVideoCodec("someweirdcodec"));
+    }
+
+    // ===== ClassifyResolution Tests =====
+
+    [Theory]
+    [InlineData(7680, 4320, "8K")]
+    [InlineData(8192, 4320, "8K")]
+    [InlineData(3840, 2160, "4K")]
+    [InlineData(4096, 2160, "4K")]
+    [InlineData(1920, 1080, "1080p")]
+    [InlineData(1920, 1088, "1080p")]       // common MPEG encoding artifact
+    [InlineData(1280, 720, "720p")]
+    [InlineData(720, 576, "576p")]
+    [InlineData(720, 480, "480p")]
+    [InlineData(640, 480, "480p")]
+    [InlineData(320, 240, "SD")]
+    [InlineData(null, null, "Unknown")]
+    [InlineData(0, 0, "Unknown")]
+    [InlineData(-1, -1, "Unknown")]
+    public void ClassifyResolution_MapsCorrectly(int? width, int? height, string expected)
+    {
+        Assert.Equal(expected, MediaStatisticsService.ClassifyResolution(width, height));
+    }
+
+    [Fact]
+    public void ClassifyResolution_PortraitOrientation_StillClassifiesCorrectly()
+    {
+        // 1080×1920 portrait → should still detect as 1080p
+        Assert.Equal("1080p", MediaStatisticsService.ClassifyResolution(1080, 1920));
+    }
+
+    // ===== ClassifyAudioCodec Tests =====
+
+    [Theory]
+    [InlineData("truehd", null, "TrueHD")]
+    [InlineData("truehd", "Atmos", "TrueHD Atmos")]
+    [InlineData("truehd", "Dolby TrueHD + Atmos", "TrueHD Atmos")]
+    [InlineData("eac3", null, "EAC3")]
+    [InlineData("eac3", "Atmos", "EAC3 Atmos")]
+    [InlineData("eac3", "JOC", "EAC3 Atmos")]
+    [InlineData("ac3", null, "AC3")]
+    [InlineData("a_ac3", null, "AC3")]
+    [InlineData("dts", null, "DTS")]
+    [InlineData("dts", "DTS-HD MA", "DTS-HD MA")]
+    [InlineData("dts", "MA", "DTS-HD MA")]
+    [InlineData("dts", "DTS:X", "DTS:X")]
+    [InlineData("dts", "DTS-X", "DTS:X")]
+    [InlineData("dts", "HRA", "DTS-HD HRA")]
+    [InlineData("dts", "DTS-HD HRA", "DTS-HD HRA")]
+    [InlineData("dts", "ES", "DTS-ES")]
+    [InlineData("aac", null, "AAC")]
+    [InlineData("mp4a", null, "AAC")]
+    [InlineData("aac", "HE-AAC", "HE-AAC")]
+    [InlineData("aac", "HE_AAC v2", "HE-AAC")]
+    [InlineData("aac", "LC", "AAC-LC")]
+    [InlineData("flac", null, "FLAC")]
+    [InlineData("mp3", null, "MP3")]
+    [InlineData("opus", null, "Opus")]
+    [InlineData("vorbis", null, "Vorbis")]
+    [InlineData("pcm_s16le", null, "PCM")]
+    [InlineData("pcm_s24le", null, "PCM")]
+    [InlineData("pcm_s32le", null, "PCM")]
+    [InlineData("alac", null, "ALAC")]
+    [InlineData("wmav2", null, "WMA")]
+    [InlineData("wmapro", null, "WMA")]
+    [InlineData(null, null, "Unknown")]
+    [InlineData("", null, "Unknown")]
+    public void ClassifyAudioCodec_MapsCorrectly(string? codec, string? profile, string expected)
+    {
+        Assert.Equal(expected, MediaStatisticsService.ClassifyAudioCodec(codec, profile));
+    }
+
+    [Fact]
+    public void ClassifyAudioCodec_UnknownCodec_ReturnsUppercased()
+    {
+        Assert.Equal("SOMEAUDIOCODEC", MediaStatisticsService.ClassifyAudioCodec("someaudiocodec", null));
+    }
+
+    // ===== ClassifyDynamicRange Tests =====
+
+    [Fact]
+    public void ClassifyDynamicRange_NullStream_ReturnsUnknown()
+    {
+        Assert.Equal("Unknown", MediaStatisticsService.ClassifyDynamicRange(null));
+    }
+
+    [Theory]
+    [InlineData(VideoRangeType.DOVI, "Dolby Vision")]
+    [InlineData(VideoRangeType.DOVIWithHDR10, "Dolby Vision")]
+    [InlineData(VideoRangeType.DOVIWithHDR10Plus, "Dolby Vision")]
+    [InlineData(VideoRangeType.DOVIWithHLG, "Dolby Vision")]
+    [InlineData(VideoRangeType.DOVIWithSDR, "Dolby Vision")]
+    [InlineData(VideoRangeType.HDR10Plus, "HDR10+")]
+    [InlineData(VideoRangeType.HDR10, "HDR10")]
+    [InlineData(VideoRangeType.HLG, "HLG")]
+    [InlineData(VideoRangeType.SDR, "SDR")]
+    public void ClassifyDynamicRange_VideoRangeType_MapsCorrectly(VideoRangeType rangeType, string expected)
+    {
+        // Use the overload that accepts enum values directly (VideoRangeType/VideoRange are read-only on MediaStream)
+        Assert.Equal(expected, MediaStatisticsService.ClassifyDynamicRange(rangeType, default));
+    }
+
+    [Fact]
+    public void ClassifyDynamicRange_FallbackToVideoRange_HDR()
+    {
+        // When VideoRangeType is default (0), falls back to VideoRange
+        Assert.Equal("HDR", MediaStatisticsService.ClassifyDynamicRange(default, VideoRange.HDR));
+    }
+
+    [Fact]
+    public void ClassifyDynamicRange_FallbackToVideoRange_SDR()
+    {
+        Assert.Equal("SDR", MediaStatisticsService.ClassifyDynamicRange(default, VideoRange.SDR));
+    }
+
+    [Fact]
+    public void ClassifyDynamicRange_DefaultStream_ReturnsSdr()
+    {
+        // A stream with no range info defaults to SDR (VideoRangeType.SDR = 0 in Jellyfin 10.11)
+        var stream = new MediaStream { Type = MediaStreamType.Video };
+        Assert.Equal("SDR", MediaStatisticsService.ClassifyDynamicRange(stream));
     }
 
     // ===== Container Format Tracking Tests =====
@@ -1234,6 +1308,8 @@ public class MediaStatisticsServiceTests
     [Fact]
     public void CalculateStatistics_VideoWithAudioCodecInFilename_TracksVideoAudioCodecs()
     {
+        // Without Jellyfin metadata (no BaseItem in lookup), audio codecs from video files
+        // will be "Unknown" and are intentionally NOT tracked in VideoAudioCodecs.
         var libraryPath = TestPath("media", "movies");
 
         var virtualFolder = new VirtualFolderInfo
@@ -1257,10 +1333,9 @@ public class MediaStatisticsServiceTests
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
 
-        Assert.Equal(2, stats.VideoAudioCodecs["DTS"]);
-        Assert.Equal(1, stats.VideoAudioCodecs["AC3"]);
-        Assert.Equal(7_000_000_000, stats.VideoAudioCodecSizes["DTS"]);
-        Assert.Equal(1_500_000_000, stats.VideoAudioCodecSizes["AC3"]);
+        // Without metadata, audio codec is "Unknown" which is filtered out
+        Assert.Empty(stats.VideoAudioCodecs);
+        Assert.Empty(stats.VideoAudioCodecSizes);
     }
 
     [Fact]
@@ -1327,6 +1402,8 @@ public class MediaStatisticsServiceTests
     [Fact]
     public void CalculateStatistics_VideoWithCodecInFilename_TracksVideoCodecs()
     {
+        // Without Jellyfin metadata (no BaseItem in lookup), codecs and resolutions
+        // are "Unknown" since they now come from MediaStream, not from filenames.
         var libraryPath = TestPath("media", "movies");
 
         var virtualFolder = new VirtualFolderInfo
@@ -1349,10 +1426,9 @@ public class MediaStatisticsServiceTests
         var result = _service.CalculateStatistics();
         var stats = result.Libraries[0];
 
-        Assert.Equal(1, stats.VideoCodecs["HEVC"]);
-        Assert.Equal(1, stats.VideoCodecs["H.264"]);
-        Assert.Equal(1, stats.Resolutions["1080p"]);
-        Assert.Equal(1, stats.Resolutions["720p"]);
+        // Without metadata, both are "Unknown"
+        Assert.Equal(2, stats.VideoCodecs["Unknown"]);
+        Assert.Equal(2, stats.Resolutions["Unknown"]);
     }
 
     // ===== MediaStatisticsResult Aggregation Tests =====
@@ -1665,6 +1741,8 @@ public class MediaStatisticsServiceTests
     [Fact]
     public void CalculateStatistics_MovieLibrary_DoesNotPopulateMusicAudioCodecsFromVideoFiles()
     {
+        // Without Jellyfin metadata, video codec falls back to "Unknown" and
+        // audio codec is "Unknown" (filtered out of VideoAudioCodecs).
         var moviePath = TestPath("media", "movies");
 
         var movieFolder = new VirtualFolderInfo
@@ -1689,17 +1767,20 @@ public class MediaStatisticsServiceTests
         var result = _service.CalculateStatistics();
         var movieStats = result.Movies[0];
 
-        // Video files should populate VideoCodecs and VideoAudioCodecs, not MusicAudioCodecs
+        // VideoCodecs populated (as "Unknown" without metadata)
         Assert.NotEmpty(movieStats.VideoCodecs);
-        Assert.Contains("HEVC", movieStats.VideoCodecs.Keys);
-        Assert.NotEmpty(movieStats.VideoAudioCodecs);
-        Assert.Contains("DTS", movieStats.VideoAudioCodecs.Keys);
+        Assert.Contains("Unknown", movieStats.VideoCodecs.Keys);
+        // VideoAudioCodecs empty (Unknown is filtered out)
+        Assert.Empty(movieStats.VideoAudioCodecs);
+        // MusicAudioCodecs should remain empty (video files don't go there)
         Assert.Empty(movieStats.MusicAudioCodecs);
     }
 
     [Fact]
     public void CalculateStatistics_MixedLibraries_CodecsSeparatedByType()
     {
+        // Without Jellyfin metadata, video codecs/resolutions are "Unknown".
+        // Separation between Video and Music codecs still works.
         var moviePath = TestPath("media", "movies");
         var musicPath = TestPath("media", "music");
 
@@ -1739,10 +1820,10 @@ public class MediaStatisticsServiceTests
 
         var result = _service.CalculateStatistics();
 
-        // Movie library should have video-related codecs only
+        // Movie library should have video-related codecs (Unknown without metadata) and container
         var movieStats = result.Movies[0];
-        Assert.Contains("H.264", movieStats.VideoCodecs.Keys);
-        Assert.Contains("1080p", movieStats.Resolutions.Keys);
+        Assert.Contains("Unknown", movieStats.VideoCodecs.Keys);
+        Assert.Contains("Unknown", movieStats.Resolutions.Keys);
         Assert.Contains("MKV", movieStats.ContainerFormats.Keys);
         Assert.Empty(movieStats.MusicAudioCodecs);
 
@@ -2198,7 +2279,8 @@ public class EmbeddedSubtitleDetectionTests
 
     /// <summary>
     /// Testable subclass that overrides <see cref="MediaStatisticsService.HasEmbeddedSubtitles"/>
-    /// to allow controlling embedded subtitle detection without Jellyfin's runtime infrastructure.
+    /// and <see cref="MediaStatisticsService.BuildItemLookup"/> to allow controlling embedded
+    /// subtitle detection and metadata lookup without Jellyfin's runtime infrastructure.
     /// </summary>
     private sealed class TestableMediaStatisticsService(
         ILibraryManager libraryManager,
@@ -2209,11 +2291,959 @@ public class EmbeddedSubtitleDetectionTests
         : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper)
     {
         private readonly Dictionary<string, bool> _embeddedSubtitles = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, BaseItem> _itemLookup = new(StringComparer.OrdinalIgnoreCase);
 
         public void SetHasEmbeddedSubtitles(string filePath, bool value)
             => _embeddedSubtitles[filePath] = value;
 
-        internal override bool HasEmbeddedSubtitles(string filePath)
+        public void SetItemLookup(string filePath, BaseItem item)
+            => _itemLookup[filePath] = item;
+
+        internal override bool HasEmbeddedSubtitles(string filePath, IReadOnlyList<MediaStream>? streams)
             => _embeddedSubtitles.TryGetValue(filePath, out var result) && result;
+
+        internal override Dictionary<string, BaseItem> BuildItemLookup()
+            => new(_itemLookup, StringComparer.OrdinalIgnoreCase);
+    }
+}
+
+// ===== Classify Method Unit Tests =====
+
+/// <summary>
+/// Unit tests for the static classifier methods in <see cref="MediaStatisticsService"/>.
+/// These methods map raw MediaStream codec/resolution/range data into display labels.
+/// </summary>
+public class ClassifyMethodTests
+{
+    // === ClassifyVideoCodec ===
+
+    [Theory]
+    [InlineData("hevc", "HEVC")]
+    [InlineData("HEVC", "HEVC")]
+    [InlineData("h265", "HEVC")]
+    [InlineData("H.265", "HEVC")]
+    [InlineData("h264", "H.264")]
+    [InlineData("H.264", "H.264")]
+    [InlineData("avc", "H.264")]
+    [InlineData("AVC", "H.264")]
+    [InlineData("av1", "AV1")]
+    [InlineData("vp9", "VP9")]
+    [InlineData("vp8", "VP8")]
+    [InlineData("mpeg2video", "MPEG-2")]
+    [InlineData("mpeg2", "MPEG-2")]
+    [InlineData("mp2v", "MPEG-2")]
+    [InlineData("mpeg4", "MPEG-4")]
+    [InlineData("xvid", "XviD")]
+    [InlineData("divx", "DivX")]
+    [InlineData("vc1", "VC-1")]
+    [InlineData("wmv3", "VC-1")]
+    [InlineData("theora", "Theora")]
+    public void ClassifyVideoCodec_KnownCodecs(string input, string expected)
+    {
+        Assert.Equal(expected, MediaStatisticsService.ClassifyVideoCodec(input));
+    }
+
+    [Theory]
+    [InlineData(null, "Unknown")]
+    [InlineData("", "Unknown")]
+    public void ClassifyVideoCodec_NullOrEmpty_ReturnsUnknown(string? input, string expected)
+    {
+        Assert.Equal(expected, MediaStatisticsService.ClassifyVideoCodec(input));
+    }
+
+    [Fact]
+    public void ClassifyVideoCodec_UnknownCodec_ReturnsUppercased()
+    {
+        Assert.Equal("SOMECODEC", MediaStatisticsService.ClassifyVideoCodec("somecodec"));
+    }
+
+    // === ClassifyResolution ===
+
+    [Theory]
+    [InlineData(7680, 4320, "8K")]
+    [InlineData(8192, 4320, "8K")]
+    [InlineData(3840, 2160, "4K")]
+    [InlineData(4096, 2160, "4K")]
+    [InlineData(1920, 1080, "1080p")]
+    [InlineData(1920, 800, "720p")]   // Cinematic ratio — min dimension is 800
+    [InlineData(1280, 720, "720p")]
+    [InlineData(720, 576, "576p")]
+    [InlineData(720, 480, "480p")]
+    [InlineData(640, 480, "480p")]
+    [InlineData(320, 240, "SD")]
+    public void ClassifyResolution_KnownResolutions(int width, int height, string expected)
+    {
+        Assert.Equal(expected, MediaStatisticsService.ClassifyResolution(width, height));
+    }
+
+    [Theory]
+    [InlineData(null, null, "Unknown")]
+    [InlineData(0, 0, "Unknown")]
+    [InlineData(-1, 1080, "Unknown")]
+    [InlineData(1920, 0, "Unknown")]
+    [InlineData(1920, null, "Unknown")]
+    public void ClassifyResolution_InvalidDimensions_ReturnsUnknown(int? width, int? height, string expected)
+    {
+        Assert.Equal(expected, MediaStatisticsService.ClassifyResolution(width, height));
+    }
+
+    [Fact]
+    public void ClassifyResolution_Portrait_UsesMinMaxCorrectly()
+    {
+        // Portrait 1080×1920 should still be classified as 1080p
+        Assert.Equal("1080p", MediaStatisticsService.ClassifyResolution(1080, 1920));
+    }
+
+    [Fact]
+    public void ClassifyResolution_UltraWide_2560x1080()
+    {
+        // 2560×1080 ultrawide — minDimension=1080, maxDimension=2560
+        Assert.Equal("1080p", MediaStatisticsService.ClassifyResolution(2560, 1080));
+    }
+
+    [Fact]
+    public void ClassifyResolution_Narrow720p_960x720()
+    {
+        // 960×720 (4:3 at 720p) — minDimension=720, maxDimension=960 (< 1280)
+        // Matches the (>= 720, _) branch
+        Assert.Equal("720p", MediaStatisticsService.ClassifyResolution(960, 720));
+    }
+
+    [Fact]
+    public void ClassifyResolution_576p_PAL()
+    {
+        // Standard PAL resolution (portrait-order check)
+        Assert.Equal("576p", MediaStatisticsService.ClassifyResolution(576, 720));
+    }
+
+    // === ClassifyDynamicRange ===
+
+    [Theory]
+    [InlineData(VideoRangeType.DOVI, VideoRange.Unknown, "Dolby Vision")]
+    [InlineData(VideoRangeType.DOVIWithHDR10, VideoRange.Unknown, "Dolby Vision")]
+    [InlineData(VideoRangeType.DOVIWithHDR10Plus, VideoRange.Unknown, "Dolby Vision")]
+    [InlineData(VideoRangeType.DOVIWithHLG, VideoRange.Unknown, "Dolby Vision")]
+    [InlineData(VideoRangeType.DOVIWithSDR, VideoRange.Unknown, "Dolby Vision")]
+    [InlineData(VideoRangeType.HDR10Plus, VideoRange.Unknown, "HDR10+")]
+    [InlineData(VideoRangeType.HDR10, VideoRange.Unknown, "HDR10")]
+    [InlineData(VideoRangeType.HLG, VideoRange.Unknown, "HLG")]
+    [InlineData(VideoRangeType.SDR, VideoRange.Unknown, "SDR")]
+    public void ClassifyDynamicRange_FromVideoRangeType(VideoRangeType rangeType, VideoRange range, string expected)
+    {
+        Assert.Equal(expected, MediaStatisticsService.ClassifyDynamicRange(rangeType, range));
+    }
+
+    [Theory]
+    [InlineData(VideoRange.HDR, "HDR")]
+    [InlineData(VideoRange.SDR, "SDR")]
+    public void ClassifyDynamicRange_FallbackToVideoRange(VideoRange range, string expected)
+    {
+        // When VideoRangeType is Unknown, falls back to VideoRange
+        Assert.Equal(expected, MediaStatisticsService.ClassifyDynamicRange(VideoRangeType.Unknown, range));
+    }
+
+    [Fact]
+    public void ClassifyDynamicRange_BothUnknown_ReturnsUnknown()
+    {
+        Assert.Equal("Unknown", MediaStatisticsService.ClassifyDynamicRange(VideoRangeType.Unknown, VideoRange.Unknown));
+    }
+
+    [Fact]
+    public void ClassifyDynamicRange_NullStream_ReturnsUnknown()
+    {
+        Assert.Equal("Unknown", MediaStatisticsService.ClassifyDynamicRange(null));
+    }
+
+    // === ClassifyAudioCodec ===
+
+    [Theory]
+    [InlineData("truehd", null, "TrueHD")]
+    [InlineData("truehd", "Atmos", "TrueHD Atmos")]
+    [InlineData("truehd", "atmos", "TrueHD Atmos")]
+    [InlineData("eac3", null, "EAC3")]
+    [InlineData("eac3", "Atmos", "EAC3 Atmos")]
+    [InlineData("eac3", "JOC", "EAC3 Atmos")]
+    [InlineData("e-ac-3", null, "EAC3")]
+    [InlineData("ac3", null, "AC3")]
+    [InlineData("a_ac3", null, "AC3")]
+    [InlineData("dts", null, "DTS")]
+    [InlineData("dts", "DTS-HD MA", "DTS-HD MA")]
+    [InlineData("dts", "MA", "DTS-HD MA")]
+    [InlineData("dts", "DTS:X", "DTS:X")]
+    [InlineData("dts", "DTS-X", "DTS:X")]
+    [InlineData("dts", "DTS-HD HRA", "DTS-HD HRA")]
+    [InlineData("dts", "HRA", "DTS-HD HRA")]
+    [InlineData("dts", "DTS-ES", "DTS-ES")]
+    [InlineData("dts", "ES", "DTS-ES")]
+    [InlineData("aac", null, "AAC")]
+    [InlineData("aac", "LC", "AAC-LC")]
+    [InlineData("aac", "AAC-LC", "AAC-LC")]
+    [InlineData("aac", "AAC LC", "AAC-LC")]
+    [InlineData("aac", "HE-AAC", "HE-AAC")]
+    [InlineData("aac", "HE_AAC", "HE-AAC")]
+    [InlineData("aac", "HE AAC", "HE-AAC")]
+    [InlineData("mp4a", null, "AAC")]
+    [InlineData("flac", null, "FLAC")]
+    [InlineData("mp3", null, "MP3")]
+    [InlineData("mp2", null, "MP3")]
+    [InlineData("opus", null, "Opus")]
+    [InlineData("vorbis", null, "Vorbis")]
+    [InlineData("pcm_s16le", null, "PCM")]
+    [InlineData("pcm_s24le", null, "PCM")]
+    [InlineData("pcm_s32le", null, "PCM")]
+    [InlineData("pcm_f32le", null, "PCM")]
+    [InlineData("pcm", null, "PCM")]
+    [InlineData("lpcm", null, "PCM")]
+    [InlineData("alac", null, "ALAC")]
+    [InlineData("wmav2", null, "WMA")]
+    [InlineData("wmapro", null, "WMA")]
+    [InlineData("wma", null, "WMA")]
+    [InlineData("wav", null, "WAV")]
+    public void ClassifyAudioCodec_KnownCodecs(string? codec, string? profile, string expected)
+    {
+        Assert.Equal(expected, MediaStatisticsService.ClassifyAudioCodec(codec, profile));
+    }
+
+    [Theory]
+    [InlineData(null, null, "Unknown")]
+    [InlineData("", null, "Unknown")]
+    public void ClassifyAudioCodec_NullOrEmpty_ReturnsUnknown(string? codec, string? profile, string expected)
+    {
+        Assert.Equal(expected, MediaStatisticsService.ClassifyAudioCodec(codec, profile));
+    }
+
+    [Fact]
+    public void ClassifyAudioCodec_UnknownCodec_ReturnsUppercased()
+    {
+        Assert.Equal("SOMEAUDIO", MediaStatisticsService.ClassifyAudioCodec("someaudio", null));
+    }
+}
+
+// ===== Metadata Extraction Integration Tests =====
+
+/// <summary>
+/// Integration tests that verify video and music metadata extraction from Jellyfin
+/// MediaStream data, using a testable subclass with pre-populated item lookups.
+/// </summary>
+public class MetadataExtractionTests
+{
+    private readonly Mock<ILibraryManager> _libraryManagerMock;
+    private readonly Mock<IFileSystem> _fileSystemMock;
+    private readonly TestableMetadataService _service;
+
+    public MetadataExtractionTests()
+    {
+        _libraryManagerMock = new Mock<ILibraryManager>();
+        _fileSystemMock = new Mock<IFileSystem>();
+        var loggerMock = new Mock<ILogger<MediaStatisticsService>>();
+        var configHelperMock = TestMockFactory.CreateCleanupConfigHelper();
+        _service = new TestableMetadataService(
+            _libraryManagerMock.Object,
+            _fileSystemMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            loggerMock.Object,
+            configHelperMock.Object);
+    }
+
+    private static string TestPath(params string[] segments)
+        => Path.DirectorySeparatorChar + string.Join(Path.DirectorySeparatorChar, segments);
+
+    [Fact]
+    public void VideoWithMetadata_ExtractsCodecResolutionDynamicRange()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var videoPath = TestPath("media", "movies", "Film.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var videoFile = new FileSystemMetadata
+        {
+            FullName = videoPath,
+            Name = "Film.mkv",
+            Length = 5_000_000_000,
+            IsDirectory = false
+        };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([videoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        // Set up a mock BaseItem with MediaStreams
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = videoPath;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 3840, Height = 2160 },
+            new MediaStream
+            {
+                Type = MediaStreamType.Audio,
+                Codec = "truehd",
+                Profile = "Atmos"
+            }
+        ]);
+
+        _service.SetItemLookup(videoPath, mockItem.Object);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        // Video codec
+        Assert.Contains("HEVC", stats.VideoCodecs.Keys);
+        Assert.Equal(1, stats.VideoCodecs["HEVC"]);
+
+        // Resolution
+        Assert.Contains("4K", stats.Resolutions.Keys);
+        Assert.Equal(1, stats.Resolutions["4K"]);
+
+        // Dynamic range
+        // VideoRangeType is read-only on MediaStream; default maps to SDR
+        Assert.Contains("SDR", stats.DynamicRanges.Keys);
+        Assert.Equal(1, stats.DynamicRanges["SDR"]);
+
+        // Audio codec from video
+        Assert.Contains("TrueHD Atmos", stats.VideoAudioCodecs.Keys);
+        Assert.Equal(1, stats.VideoAudioCodecs["TrueHD Atmos"]);
+
+        // Container format from extension
+        Assert.Contains("MKV", stats.ContainerFormats.Keys);
+    }
+
+    [Fact]
+    public void VideoWithDolbyVision_ClassifiedCorrectly()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var videoPath = TestPath("media", "movies", "DoVi.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var videoFile = new FileSystemMetadata
+        {
+            FullName = videoPath,
+            Name = "DoVi.mkv",
+            Length = 8_000_000_000,
+            IsDirectory = false
+        };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([videoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = videoPath;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 3840, Height = 2160 },
+            new MediaStream
+            {
+                Type = MediaStreamType.Audio,
+                Codec = "eac3",
+                Profile = "Atmos"
+            }
+        ]);
+
+        _service.SetItemLookup(videoPath, mockItem.Object);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        // VideoRangeType is read-only; default maps to SDR (DoVi classification tested via ClassifyDynamicRange unit tests)
+        Assert.Contains("SDR", stats.DynamicRanges.Keys);
+        Assert.Contains("EAC3 Atmos", stats.VideoAudioCodecs.Keys);
+    }
+
+    [Fact]
+    public void VideoWithoutMetadata_FallsBackToUnknown()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var videoPath = TestPath("media", "movies", "Film.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var videoFile = new FileSystemMetadata
+        {
+            FullName = videoPath,
+            Name = "Film.mkv",
+            Length = 1_000_000,
+            IsDirectory = false
+        };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([videoFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        // No item in lookup → falls back to Unknown
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Contains("Unknown", stats.VideoCodecs.Keys);
+        Assert.Contains("Unknown", stats.Resolutions.Keys);
+        Assert.Contains("Unknown", stats.DynamicRanges.Keys);
+        // Audio codec "Unknown" is filtered out
+        Assert.Empty(stats.VideoAudioCodecs);
+    }
+
+    [Fact]
+    public void MusicFileWithMetadata_ExtractsAudioCodec()
+    {
+        var libraryPath = TestPath("media", "music");
+        var musicPath = TestPath("media", "music", "Song.flac");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Music",
+            CollectionType = CollectionTypeOptions.music,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var musicFile = new FileSystemMetadata
+        {
+            FullName = musicPath,
+            Name = "Song.flac",
+            Length = 30_000_000,
+            IsDirectory = false
+        };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([musicFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = musicPath;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream
+            {
+                Type = MediaStreamType.Audio,
+                Codec = "flac"
+            }
+        ]);
+
+        _service.SetItemLookup(musicPath, mockItem.Object);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Contains("FLAC", stats.MusicAudioCodecs.Keys);
+        Assert.Equal(1, stats.MusicAudioCodecs["FLAC"]);
+    }
+
+    [Fact]
+    public void MusicFileWithoutMetadata_FallsBackToExtensionMapping()
+    {
+        var libraryPath = TestPath("media", "music");
+        var musicPath = TestPath("media", "music", "Song.flac");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Music",
+            CollectionType = CollectionTypeOptions.music,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var musicFile = new FileSystemMetadata
+        {
+            FullName = musicPath,
+            Name = "Song.flac",
+            Length = 30_000_000,
+            IsDirectory = false
+        };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([musicFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        // No item in lookup → falls back to extension mapping
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Contains("FLAC", stats.MusicAudioCodecs.Keys);
+    }
+
+    [Fact]
+    public void MultipleVideos_DifferentCodecs_AllTrackedCorrectly()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var hevcPath = TestPath("media", "movies", "Film1.mkv");
+        var h264Path = TestPath("media", "movies", "Film2.mp4");
+        var av1Path = TestPath("media", "movies", "Film3.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var files = new[]
+        {
+            new FileSystemMetadata { FullName = hevcPath, Name = "Film1.mkv", Length = 5_000_000_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = h264Path, Name = "Film2.mp4", Length = 2_000_000_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = av1Path, Name = "Film3.mkv", Length = 3_000_000_000, IsDirectory = false },
+        };
+
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        // HEVC 4K HDR10
+        var mockItem1 = new Mock<BaseItem>();
+        mockItem1.Object.Path = hevcPath;
+        mockItem1.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 3840, Height = 2160 },
+            new MediaStream { Type = MediaStreamType.Audio, Codec = "dts", Profile = "DTS-HD MA" }
+        ]);
+
+        // H.264 1080p SDR
+        var mockItem2 = new Mock<BaseItem>();
+        mockItem2.Object.Path = h264Path;
+        mockItem2.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080 },
+            new MediaStream { Type = MediaStreamType.Audio, Codec = "aac", Profile = "LC" }
+        ]);
+
+        // AV1 4K Dolby Vision
+        var mockItem3 = new Mock<BaseItem>();
+        mockItem3.Object.Path = av1Path;
+        mockItem3.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Video, Codec = "av1", Width = 3840, Height = 2160 },
+            new MediaStream { Type = MediaStreamType.Audio, Codec = "truehd", Profile = "Atmos" }
+        ]);
+
+        _service.SetItemLookup(hevcPath, mockItem1.Object);
+        _service.SetItemLookup(h264Path, mockItem2.Object);
+        _service.SetItemLookup(av1Path, mockItem3.Object);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        // Video codecs
+        Assert.Equal(1, stats.VideoCodecs["HEVC"]);
+        Assert.Equal(1, stats.VideoCodecs["H.264"]);
+        Assert.Equal(1, stats.VideoCodecs["AV1"]);
+
+        // Resolutions
+        Assert.Equal(2, stats.Resolutions["4K"]);
+        Assert.Equal(1, stats.Resolutions["1080p"]);
+
+        // Dynamic ranges – VideoRangeType is read-only on MediaStream, so all default to SDR
+        // (specific DynamicRange classification is covered by ClassifyDynamicRange unit tests)
+        Assert.Equal(3, stats.DynamicRanges["SDR"]);
+
+        // Audio codecs
+        Assert.Equal(1, stats.VideoAudioCodecs["DTS-HD MA"]);
+        Assert.Equal(1, stats.VideoAudioCodecs["AAC-LC"]);
+        Assert.Equal(1, stats.VideoAudioCodecs["TrueHD Atmos"]);
+
+        // Container formats
+        Assert.Equal(2, stats.ContainerFormats["MKV"]);
+        Assert.Equal(1, stats.ContainerFormats["MP4"]);
+
+        // Sizes tracked correctly
+        Assert.Equal(5_000_000_000, stats.VideoCodecSizes["HEVC"]);
+        Assert.Equal(2_000_000_000, stats.VideoCodecSizes["H.264"]);
+        Assert.Equal(3_000_000_000, stats.VideoCodecSizes["AV1"]);
+    }
+
+    [Fact]
+    public void CalculateStatistics_VideoMetadata_TracksDynamicRangePaths()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var hevcPath = TestPath("media", "movies", "HDR.mkv");
+        var sdrPath = TestPath("media", "movies", "SDR.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var files = new[]
+        {
+            new FileSystemMetadata { FullName = hevcPath, Name = "HDR.mkv", Length = 5_000_000_000, IsDirectory = false },
+            new FileSystemMetadata { FullName = sdrPath, Name = "SDR.mkv", Length = 2_000_000_000, IsDirectory = false }
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        var mockItem1 = new Mock<BaseItem>();
+        mockItem1.Object.Path = hevcPath;
+        mockItem1.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 3840, Height = 2160 },
+            new MediaStream { Type = MediaStreamType.Audio, Codec = "truehd" }
+        ]);
+
+        var mockItem2 = new Mock<BaseItem>();
+        mockItem2.Object.Path = sdrPath;
+        mockItem2.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Video, Codec = "h264", Width = 1920, Height = 1080 },
+            new MediaStream { Type = MediaStreamType.Audio, Codec = "aac" }
+        ]);
+
+        _service.SetItemLookup(hevcPath, mockItem1.Object);
+        _service.SetItemLookup(sdrPath, mockItem2.Object);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        // DynamicRangePaths should be populated (VideoRangeType defaults to SDR on MediaStream)
+        Assert.True(stats.DynamicRangePaths.ContainsKey("SDR"));
+        Assert.Contains(hevcPath, stats.DynamicRangePaths["SDR"]);
+        Assert.Contains(sdrPath, stats.DynamicRangePaths["SDR"]);
+
+        // DynamicRangeSizes should be tracked
+        Assert.Equal(7_000_000_000, stats.DynamicRangeSizes["SDR"]);
+    }
+
+    [Fact]
+    public void BuildItemLookup_WhenGetItemListThrows_ReturnsEmptyDictionary()
+    {
+        _libraryManagerMock.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Throws(new InvalidOperationException("Database unavailable"));
+
+        // BuildItemLookup is internal virtual — call it directly on the base service
+        var baseService = new MediaStatisticsService(
+            _libraryManagerMock.Object,
+            _fileSystemMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<MediaStatisticsService>().Object,
+            TestMockFactory.CreateCleanupConfigHelper().Object);
+
+        var lookup = baseService.BuildItemLookup();
+
+        Assert.NotNull(lookup);
+        Assert.Empty(lookup);
+    }
+
+    [Fact]
+    public void CalculateStatistics_WhenGetMediaStreamsThrows_FallsBackToUnknown()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var filePath = TestPath("media", "movies", "Broken.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var file = new FileSystemMetadata
+        {
+            FullName = filePath,
+            Name = "Broken.mkv",
+            Length = 1_000_000_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        // Item exists but GetMediaStreams throws
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = filePath;
+        mockItem.Setup(i => i.GetMediaStreams()).Throws(new IOException("Corrupt media"));
+
+        _service.SetItemLookup(filePath, mockItem.Object);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        // Should fall back to "Unknown" for all metadata fields
+        Assert.Equal(1, stats.VideoCodecs["Unknown"]);
+        Assert.Equal(1, stats.Resolutions["Unknown"]);
+        Assert.Equal(1, stats.DynamicRanges["Unknown"]);
+        // Audio codec "Unknown" is NOT tracked in VideoAudioCodecs (by design)
+        Assert.Empty(stats.VideoAudioCodecs);
+
+        // Container format still works (from file extension, not streams)
+        Assert.Equal(1, stats.ContainerFormats["MKV"]);
+    }
+
+    // ===== Per-File FindByPath Fallback Tests =====
+
+    [Fact]
+    public void CalculateStatistics_VideoNotInLookup_FallsBackToFindByPath()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var filePath = TestPath("media", "movies", "NewFilm.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var file = new FileSystemMetadata
+        {
+            FullName = filePath,
+            Name = "NewFilm.mkv",
+            Length = 2_000_000_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        // Item is NOT added to the lookup (no SetItemLookup call).
+        // Instead, set up FindByPath to return the item as a fallback.
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = filePath;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Video, Codec = "hevc", Width = 3840, Height = 2160 },
+            new MediaStream { Type = MediaStreamType.Audio, Codec = "truehd", Profile = "Dolby TrueHD + Atmos" }
+        ]);
+
+        _libraryManagerMock.Setup(m => m.FindByPath(filePath, false)).Returns(mockItem.Object);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        // Metadata should be resolved via FindByPath fallback
+        Assert.Equal(1, stats.VideoCodecs["HEVC"]);
+        Assert.Equal(1, stats.Resolutions["4K"]);
+        // VideoRangeType is read-only on MediaStream; default maps to SDR
+        Assert.Equal(1, stats.DynamicRanges["SDR"]);
+        Assert.Equal(1, stats.VideoAudioCodecs["TrueHD Atmos"]);
+    }
+
+    [Fact]
+    public void CalculateStatistics_VideoNotInLookup_FindByPathReturnsNull_FallsBackToUnknown()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var filePath = TestPath("media", "movies", "Unscanned.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var file = new FileSystemMetadata
+        {
+            FullName = filePath,
+            Name = "Unscanned.mkv",
+            Length = 1_000_000_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        // Neither lookup nor FindByPath knows about this file
+        _libraryManagerMock.Setup(m => m.FindByPath(filePath, false)).Returns((BaseItem?)null);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Equal(1, stats.VideoCodecs["Unknown"]);
+        Assert.Equal(1, stats.Resolutions["Unknown"]);
+        Assert.Equal(1, stats.DynamicRanges["Unknown"]);
+        Assert.Empty(stats.VideoAudioCodecs);
+
+        // Container format still works (from file extension)
+        Assert.Equal(1, stats.ContainerFormats["MKV"]);
+    }
+
+    [Fact]
+    public void CalculateStatistics_VideoNotInLookup_FindByPathThrows_FallsBackToUnknown()
+    {
+        var libraryPath = TestPath("media", "movies");
+        var filePath = TestPath("media", "movies", "ErrorFile.mkv");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Movies",
+            CollectionType = CollectionTypeOptions.movies,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var file = new FileSystemMetadata
+        {
+            FullName = filePath,
+            Name = "ErrorFile.mkv",
+            Length = 500_000_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        // FindByPath throws an exception
+        _libraryManagerMock.Setup(m => m.FindByPath(filePath, false))
+            .Throws(new InvalidOperationException("Database error"));
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        Assert.Equal(1, stats.VideoCodecs["Unknown"]);
+        Assert.Equal(1, stats.Resolutions["Unknown"]);
+        Assert.Equal(1, stats.DynamicRanges["Unknown"]);
+        Assert.Empty(stats.VideoAudioCodecs);
+        Assert.Equal(1, stats.ContainerFormats["MKV"]);
+    }
+
+    [Fact]
+    public void CalculateStatistics_MusicNotInLookup_FallsBackToFindByPath()
+    {
+        var libraryPath = TestPath("media", "music");
+        var filePath = TestPath("media", "music", "NewSong.flac");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Music",
+            CollectionType = CollectionTypeOptions.music,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var file = new FileSystemMetadata
+        {
+            FullName = filePath,
+            Name = "NewSong.flac",
+            Length = 40_000_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        // Not in lookup; FindByPath returns item with Opus codec (different from extension)
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = filePath;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns(
+        [
+            new MediaStream { Type = MediaStreamType.Audio, Codec = "flac" }
+        ]);
+
+        _libraryManagerMock.Setup(m => m.FindByPath(filePath, false)).Returns(mockItem.Object);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        // Codec from Jellyfin streams via FindByPath fallback
+        Assert.Equal(1, stats.MusicAudioCodecs["FLAC"]);
+        Assert.Equal(40_000_000, stats.MusicAudioCodecSizes["FLAC"]);
+    }
+
+    [Fact]
+    public void CalculateStatistics_MusicNotInLookup_FindByPathReturnsNull_FallsBackToExtension()
+    {
+        var libraryPath = TestPath("media", "music");
+        var filePath = TestPath("media", "music", "Unknown.flac");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Music",
+            CollectionType = CollectionTypeOptions.music,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var file = new FileSystemMetadata
+        {
+            FullName = filePath,
+            Name = "Unknown.flac",
+            Length = 25_000_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        // Neither lookup nor FindByPath knows about this file
+        _libraryManagerMock.Setup(m => m.FindByPath(filePath, false)).Returns((BaseItem?)null);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        // Falls back to extension-based mapping: .flac → FLAC
+        Assert.Equal(1, stats.MusicAudioCodecs["FLAC"]);
+        Assert.Equal(25_000_000, stats.MusicAudioCodecSizes["FLAC"]);
+    }
+
+    [Fact]
+    public void CalculateStatistics_MusicItemFoundButNoAudioStream_FallsBackToExtension()
+    {
+        var libraryPath = TestPath("media", "music");
+        var filePath = TestPath("media", "music", "NoStreams.mp3");
+
+        var virtualFolder = new VirtualFolderInfo
+        {
+            Name = "Music",
+            CollectionType = CollectionTypeOptions.music,
+            Locations = [libraryPath]
+        };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        var file = new FileSystemMetadata
+        {
+            FullName = filePath,
+            Name = "NoStreams.mp3",
+            Length = 5_000_000,
+            IsDirectory = false
+        };
+        _fileSystemMock.Setup(f => f.GetFiles(libraryPath, false)).Returns([file]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, false)).Returns([]);
+
+        // Item found in lookup but has no audio streams (empty list)
+        var mockItem = new Mock<BaseItem>();
+        mockItem.Object.Path = filePath;
+        mockItem.Setup(i => i.GetMediaStreams()).Returns([]);
+
+        _service.SetItemLookup(filePath, mockItem.Object);
+
+        var result = _service.CalculateStatistics();
+        var stats = result.Libraries[0];
+
+        // ClassifyAudioCodec returns "Unknown" for null codec → extension fallback kicks in
+        Assert.Equal(1, stats.MusicAudioCodecs["MP3"]);
+        Assert.Equal(5_000_000, stats.MusicAudioCodecSizes["MP3"]);
+    }
+
+    /// <summary>
+    /// Testable subclass for metadata extraction tests that provides control over both
+    /// embedded subtitle detection and the item lookup dictionary.
+    /// </summary>
+    private sealed class TestableMetadataService(
+        ILibraryManager libraryManager,
+        IFileSystem fileSystem,
+        Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService pluginLog,
+        ILogger<MediaStatisticsService> logger,
+        ICleanupConfigHelper configHelper)
+        : MediaStatisticsService(libraryManager, fileSystem, pluginLog, logger, configHelper)
+    {
+        private readonly Dictionary<string, BaseItem> _itemLookup = new(StringComparer.OrdinalIgnoreCase);
+
+        public void SetItemLookup(string filePath, BaseItem item)
+            => _itemLookup[filePath] = item;
+
+        internal override Dictionary<string, BaseItem> BuildItemLookup()
+            => new(_itemLookup, StringComparer.OrdinalIgnoreCase);
+
+        internal override bool HasEmbeddedSubtitles(string filePath, IReadOnlyList<MediaStream>? streams)
+            => false;
     }
 }

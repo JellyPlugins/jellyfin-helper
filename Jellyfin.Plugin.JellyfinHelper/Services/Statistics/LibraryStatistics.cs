@@ -104,83 +104,99 @@ public class LibraryStatistics
     // === Codec/Quality Breakdown ===
 
     /// <summary>
-    /// Gets the container format breakdown (extension ? count), e.g. "MKV" ? 150.
+    /// Gets the container format breakdown (extension → count), e.g. "MKV" → 150.
     /// </summary>
     public Dictionary<string, int> ContainerFormats { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the resolution breakdown (tier ? count), e.g. "4K" ? 20, "1080p" ? 100.
+    /// Gets the resolution breakdown (tier → count), e.g. "4K" → 20, "1080p" → 100.
     /// </summary>
     public Dictionary<string, int> Resolutions { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the video codec breakdown (codec ? count), e.g. "HEVC" ? 80, "H.264" ? 50.
+    /// Gets the video codec breakdown (codec → count), e.g. "HEVC" → 80, "H.264" → 50.
     /// </summary>
     public Dictionary<string, int> VideoCodecs { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the audio codec breakdown for video files (codec ? count), e.g. "DTS" ? 40, "AAC" ? 30.
-    /// Parsed from video filenames.
+    /// Gets the audio codec breakdown for video files (codec → count), e.g. "DTS-HD MA" → 40, "AAC" → 30.
+    /// Extracted from Jellyfin MediaStream metadata with filename-based fallback.
     /// </summary>
     public Dictionary<string, int> VideoAudioCodecs { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the audio codec breakdown for music files (codec ? count), e.g. "FLAC" ? 100, "MP3" ? 50.
-    /// Parsed from filename tags with extension-based fallback.
+    /// Gets the audio codec breakdown for music files (codec → count), e.g. "FLAC" → 100, "MP3" → 50.
+    /// Extracted from Jellyfin MediaStream metadata with extension-based fallback.
     /// </summary>
     public Dictionary<string, int> MusicAudioCodecs { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the container format size breakdown (extension ? total bytes).
+    /// Gets the dynamic range breakdown (range type → count), e.g. "HDR10" → 20, "SDR" → 100.
+    /// Extracted from Jellyfin MediaStream metadata.
+    /// </summary>
+    public Dictionary<string, int> DynamicRanges { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the container format size breakdown (extension → total bytes).
     /// </summary>
     public Dictionary<string, long> ContainerSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the resolution size breakdown (tier ? total bytes).
+    /// Gets the resolution size breakdown (tier → total bytes).
     /// </summary>
     public Dictionary<string, long> ResolutionSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the video codec size breakdown (codec ? total bytes).
+    /// Gets the video codec size breakdown (codec → total bytes).
     /// </summary>
     public Dictionary<string, long> VideoCodecSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the audio codec size breakdown for video files (codec ? total bytes).
+    /// Gets the audio codec size breakdown for video files (codec → total bytes).
     /// </summary>
     public Dictionary<string, long> VideoAudioCodecSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the audio codec size breakdown for music files (codec ? total bytes).
+    /// Gets the audio codec size breakdown for music files (codec → total bytes).
     /// </summary>
     public Dictionary<string, long> MusicAudioCodecSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the dynamic range size breakdown (range type → total bytes).
+    /// </summary>
+    public Dictionary<string, long> DynamicRangeSizes { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     // === Codec File Path Tracking ===
 
     /// <summary>
-    /// Gets the video codec file paths (codec ? list of file paths).
+    /// Gets the video codec file paths (codec → list of file paths).
     /// </summary>
     public Dictionary<string, Collection<string>> VideoCodecPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the video audio codec file paths (codec ? list of file paths).
+    /// Gets the video audio codec file paths (codec → list of file paths).
     /// </summary>
     public Dictionary<string, Collection<string>> VideoAudioCodecPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the music audio codec file paths (codec ? list of file paths).
+    /// Gets the music audio codec file paths (codec → list of file paths).
     /// </summary>
     public Dictionary<string, Collection<string>> MusicAudioCodecPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the container format file paths (format ? list of file paths).
+    /// Gets the container format file paths (format → list of file paths).
     /// </summary>
     public Dictionary<string, Collection<string>> ContainerFormatPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Gets the resolution file paths (resolution ? list of file paths).
+    /// Gets the resolution file paths (resolution → list of file paths).
     /// </summary>
     public Dictionary<string, Collection<string>> ResolutionPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Gets the dynamic range file paths (range type → list of file paths).
+    /// </summary>
+    public Dictionary<string, Collection<string>> DynamicRangePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     // === Health Check Counters ===
 

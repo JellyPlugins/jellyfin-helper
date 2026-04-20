@@ -307,11 +307,12 @@ var CODEC_PATH_MAP = {
     'videoAudioCodecs': 'VideoAudioCodecPaths',
     'musicAudioCodecs': 'MusicAudioCodecPaths',
     'containers': 'ContainerFormatPaths',
-    'resolutions': 'ResolutionPaths'
+    'resolutions': 'ResolutionPaths',
+    'dynamicRanges': 'DynamicRangePaths'
 };
 
 // Map chart IDs to which media categories should be included
-// Video Codecs, Video Audio Codecs, Resolutions → only Movies + TV Shows + Other
+// Video Codecs, Video Audio Codecs, Resolutions, Dynamic Ranges → only Movies + TV Shows + Other
 // Music Audio Codecs → only Music
 // Container Formats → all libraries (Movies + TV Shows + Music + Other)
 var CODEC_CATEGORY_MAP = {
@@ -319,7 +320,8 @@ var CODEC_CATEGORY_MAP = {
     'videoAudioCodecs': {movies: true, tvShows: true, music: false, other: true},
     'musicAudioCodecs': {movies: false, tvShows: false, music: true, other: false},
     'containers': {movies: true, tvShows: true, music: true, other: true},
-    'resolutions': {movies: true, tvShows: true, music: false, other: true}
+    'resolutions': {movies: true, tvShows: true, music: false, other: true},
+    'dynamicRanges': {movies: true, tvShows: true, music: false, other: true}
 };
 
 // Attach click handlers to codec rows — delegates to shared attachTogglePanelHandlers
@@ -455,21 +457,43 @@ function fillCodecsData(data) {
     var musicAudioCodecs = aggregateDict(musicLibraries, 'MusicAudioCodecs');
     var containers = aggregateDict(data.Libraries, 'ContainerFormats');
     var resolutions = aggregateDict(videoLibraries, 'Resolutions');
+    var dynamicRanges = aggregateDict(videoLibraries, 'DynamicRanges');
 
     var videoCodecSizes = aggregateDict(videoLibraries, 'VideoCodecSizes');
     var videoAudioCodecSizes = aggregateDict(videoLibraries, 'VideoAudioCodecSizes');
     var musicAudioCodecSizes = aggregateDict(musicLibraries, 'MusicAudioCodecSizes');
     var containerSizes = aggregateDict(data.Libraries, 'ContainerSizes');
     var resolutionSizes = aggregateDict(videoLibraries, 'ResolutionSizes');
+    var dynamicRangeSizes = aggregateDict(videoLibraries, 'DynamicRangeSizes');
 
-    var codecsHtml = '<div class="charts-row">';
-    codecsHtml += '<div class="chart-box"><h4>🎬 ' + T('videoCodecs', 'Video Codecs') + '</h4>';
-    codecsHtml += renderDonutChart(videoCodecs, videoCodecSizes, 'videoCodecs', videoLibraries, 'VideoCodecs');
-    codecsHtml += '</div>';
-
+    var hasContainers = Object.keys(containers).length > 0;
+    var hasResolutions = Object.keys(resolutions).length > 0;
+    var hasDynamicRanges = Object.keys(dynamicRanges).length > 0;
+    var hasVideoCodecs = Object.keys(videoCodecs).length > 0;
     var hasVideoAudio = Object.keys(videoAudioCodecs).length > 0;
     var hasMusicAudio = Object.keys(musicAudioCodecs).length > 0;
 
+    var codecsHtml = '<div class="charts-row">';
+    if (hasContainers) {
+        codecsHtml += '<div class="chart-box"><h4>📦 ' + T('containerFormats', 'Container Formats') + '</h4>';
+        codecsHtml += renderDonutChart(containers, containerSizes, 'containers', data.Libraries, 'ContainerFormats');
+        codecsHtml += '</div>';
+    }
+    if (hasResolutions) {
+        codecsHtml += '<div class="chart-box"><h4>📐 ' + T('resolutions', 'Resolutions') + '</h4>';
+        codecsHtml += renderDonutChart(resolutions, resolutionSizes, 'resolutions', videoLibraries, 'Resolutions');
+        codecsHtml += '</div>';
+    }
+    if (hasDynamicRanges) {
+        codecsHtml += '<div class="chart-box"><h4>🌈 ' + T('dynamicRange', 'Dynamic Range') + '</h4>';
+        codecsHtml += renderDonutChart(dynamicRanges, dynamicRangeSizes, 'dynamicRanges', videoLibraries, 'DynamicRanges');
+        codecsHtml += '</div>';
+    }
+    if (hasVideoCodecs) {
+        codecsHtml += '<div class="chart-box"><h4>🎬 ' + T('videoCodecs', 'Video Codecs') + '</h4>';
+        codecsHtml += renderDonutChart(videoCodecs, videoCodecSizes, 'videoCodecs', videoLibraries, 'VideoCodecs');
+        codecsHtml += '</div>';
+    }
     if (hasVideoAudio) {
         codecsHtml += '<div class="chart-box"><h4>🔊 ' + T('videoAudioCodecs', 'Video Audio Codecs') + '</h4>';
         codecsHtml += renderDonutChart(videoAudioCodecs, videoAudioCodecSizes, 'videoAudioCodecs', videoLibraries,
@@ -482,12 +506,6 @@ function fillCodecsData(data) {
             'MusicAudioCodecs');
         codecsHtml += '</div>';
     }
-    codecsHtml += '<div class="chart-box"><h4>📦 ' + T('containerFormats', 'Container Formats') + '</h4>';
-    codecsHtml += renderDonutChart(containers, containerSizes, 'containers', data.Libraries, 'ContainerFormats');
-    codecsHtml += '</div>';
-    codecsHtml += '<div class="chart-box"><h4>📐 ' + T('resolutions', 'Resolutions') + '</h4>';
-    codecsHtml += renderDonutChart(resolutions, resolutionSizes, 'resolutions', videoLibraries, 'Resolutions');
-    codecsHtml += '</div>';
     codecsHtml += '</div>';
 
     var codecsContainer = document.getElementById('codecsContent');

@@ -65,6 +65,7 @@
   "musicAudioCodecs": "Müzik Ses Kodekleri",
   "containerFormats": "Konteyner Formatları",
   "resolutions": "Çözünürlükler",
+  "dynamicRange": "Dinamik Aralık",
   "noData": "Veri yok",
   "healthChecks": "Kütüphane Sağlık Kontrolleri",
   "noSubtitles": "Altyazısız videolar",

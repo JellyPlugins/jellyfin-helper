@@ -127,7 +127,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   └── PluginLogEntry.cs
 │   ├── Statistics/                   # Library scanning & statistics
 │   │   ├── IMediaStatisticsService.cs
-│   │   ├── MediaStatisticsService.cs # Full library scan with codec/resolution parsing
+│   │   ├── MediaStatisticsService.cs # Full library scan with MediaStream-based codec/resolution/dynamic-range extraction
 │   │   ├── IStatisticsCacheService.cs
 │   │   ├── StatisticsCacheService.cs # IMemoryCache wrapper (5-min TTL)
 │   │   ├── MediaStatisticsResult.cs
@@ -439,11 +439,12 @@ Sub-tasks executed in order (each respecting its configured task mode):
 
 ### Statistics & Analysis
 
-- **Codecs:** HEVC, H.264, AV1, VP9, XviD, DivX, MPEG — parsed from filenames
-- **Audio Codecs (Video):** AAC, FLAC, MP3, Opus, DTS, AC3, TrueHD, Vorbis, ALAC, PCM, WMA, APE, WavPack, DSD
-- **Audio Codecs (Music):** Separate analysis using filename tags with extension-based fallback
-- **Containers:** MKV, MP4, AVI, WebM, etc.
-- **Resolutions:** 4K, 1080p, 720p, 480p, 576p
+- **Codecs:** HEVC, H.264, AV1, VP9, XviD, DivX, MPEG — extracted from Jellyfin MediaStream metadata
+- **Audio Codecs (Video):** TrueHD Atmos, TrueHD, EAC3 Atmos, EAC3, AC3, DTS-X, DTS-HD MA, DTS-HD, DTS, AAC, FLAC, MP3, Opus, Vorbis, ALAC, PCM, WMA, APE, WavPack, DSD — extracted from MediaStream codec + profile
+- **Audio Codecs (Music):** Separate analysis using MediaStream metadata with extension-based fallback
+- **Containers:** MKV, MP4, AVI, WebM, etc. (from file extension)
+- **Resolutions:** 8K, 4K, 1440p, 1080p, 720p, 576p, 480p, SD — extracted from MediaStream width/height
+- **Dynamic Range:** HDR10, HDR10+, Dolby Vision, HLG, SDR — extracted from MediaStream VideoRangeType with VideoRange fallback
 - **Health Checks:** Detects embedded subtitle streams (not just external files)
 - **Boxset/Collection libraries** are automatically skipped for health checks
 

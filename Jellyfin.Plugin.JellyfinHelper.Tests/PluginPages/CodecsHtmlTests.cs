@@ -61,6 +61,7 @@ public class CodecsHtmlTests : ConfigPageTestBase
         Assert.Contains("MusicAudioCodecPaths", HtmlContent);
         Assert.Contains("ContainerFormatPaths", HtmlContent);
         Assert.Contains("ResolutionPaths", HtmlContent);
+        Assert.Contains("DynamicRangePaths", HtmlContent);
     }
 
     [Fact]
@@ -113,6 +114,14 @@ public class CodecsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_CodecCategoryMap_DynamicRangesExcludesMusic()
+    {
+        Assert.Matches(
+            @"'dynamicRanges':\s*\{\s*movies:\s*true,\s*tvShows:\s*true,\s*music:\s*false,\s*other:\s*true\s*\}",
+            HtmlContent);
+    }
+
+    [Fact]
     public void Html_FillCodecsData_UsesVideoLibrariesForVideoCodecs()
     {
         // fillCodecsData should aggregate video codecs from videoLibraries, not data.Libraries
@@ -139,6 +148,12 @@ public class CodecsHtmlTests : ConfigPageTestBase
     public void Html_FillCodecsData_UsesVideoLibrariesForResolutions()
     {
         Assert.Contains("aggregateDict(videoLibraries, 'Resolutions')", HtmlContent);
+    }
+
+    [Fact]
+    public void Html_FillCodecsData_UsesVideoLibrariesForDynamicRanges()
+    {
+        Assert.Contains("aggregateDict(videoLibraries, 'DynamicRanges')", HtmlContent);
     }
 
     [Fact]

@@ -65,6 +65,7 @@
   "musicAudioCodecs": "Music Audio Codecs",
   "containerFormats": "Container Formats",
   "resolutions": "Resolutions",
+  "dynamicRange": "Dynamic Range",
   "noData": "No data",
   "healthChecks": "Library Health Checks",
   "noSubtitles": "Videos without subtitles",

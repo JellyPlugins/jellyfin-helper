@@ -13,6 +13,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 public class MediaStatisticsResult
 {
     /// <summary>
+    /// Backing field for <see cref="VideoLibraries"/>.
+    /// Cached on first access to avoid re-computing the concatenation for each consumer.
+    /// </summary>
+    private IReadOnlyList<LibraryStatistics>? _videoLibraries;
+
+    /// <summary>
     /// Gets the list of all library statistics.
     /// </summary>
     public Collection<LibraryStatistics> Libraries { get; } = new();
@@ -89,6 +95,13 @@ public class MediaStatisticsResult
     /// </summary>
     public int TotalAudioFileCount => Libraries.Sum(l => l.AudioFileCount);
 
+    /// <summary>
+    /// Gets all video libraries (Movies + TV Shows + Other, excluding Music).
+    /// Used for aggregations that only apply to video content.
+    /// </summary>
+    private IReadOnlyList<LibraryStatistics> VideoLibraries =>
+        _videoLibraries ??= Movies.Concat(TvShows).Concat(Other).ToList();
+
     // === Aggregated Codec/Quality ===
 
     /// <summary>
@@ -140,6 +153,16 @@ public class MediaStatisticsResult
     /// Gets the aggregated music audio codec sizes across all libraries.
     /// </summary>
     public Dictionary<string, long> TotalMusicAudioCodecSizes => AggregateLongDictionaries(Music.Select(l => l.MusicAudioCodecSizes));
+
+    /// <summary>
+    /// Gets the aggregated dynamic range breakdown across video libraries only (Movies + TV Shows + Other).
+    /// </summary>
+    public Dictionary<string, int> TotalDynamicRanges => AggregateDictionaries(VideoLibraries.Select(l => l.DynamicRanges));
+
+    /// <summary>
+    /// Gets the aggregated dynamic range sizes across video libraries only (Movies + TV Shows + Other).
+    /// </summary>
+    public Dictionary<string, long> TotalDynamicRangeSizes => AggregateLongDictionaries(VideoLibraries.Select(l => l.DynamicRangeSizes));
 
     // === Aggregated Health Checks ===
 
