@@ -686,7 +686,7 @@ function buildRecentTree(data) {
 }
 
 function groupByLibrary(entries) {
-    var map = {};
+    var map = Object.create(null);
     for (var i = 0; i < entries.length; i++) {
         var lib = entries[i].LibraryName || 'Unknown';
         if (!map[lib]) map[lib] = [];
@@ -707,7 +707,12 @@ function formatInsightDate(isoStr) {
     if (!isoStr) return '—';
     var d = new Date(isoStr);
     if (isNaN(d.getTime())) return '—';
-    return d.toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'});
+    return d.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        timeZone: 'UTC'
+    });
 }
 
 var _trendLoadRequestSeq = 0;
