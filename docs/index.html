@@ -199,6 +199,7 @@
         SeerrApiKey: "demo-seerr-key-xyz",
         SeerrCleanupTaskMode: "DryRun",
         SeerrCleanupAgeDays: 365,
+        RecommendationsTaskMode: "Activate",
         ConfigVersion: 3
     };
 
@@ -362,6 +363,75 @@
         { Name: "Music", CollectionType: "music" }
     ];
 
+    // ========== MOCK Recommendations, Watch Profiles & User Activity ==========
+    var _mockUserId1 = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    var _mockUserId2 = 'b2c3d4e5-f6a7-8901-bcde-f12345678901';
+
+    var MOCK_RECOMMENDATIONS = [
+        {
+            UserId: _mockUserId1,
+            UserName: "Alice",
+            Recommendations: [
+                { Name: "Blade Runner 2049", Score: 0.94, ItemType: "Movie", Genres: ["Sci-Fi", "Thriller", "Drama"], Year: 2017, Reason: "Because you watched {0}", ReasonKey: "recsBecauseWatched", RelatedItemName: "Blade Runner" },
+                { Name: "Ex Machina", Score: 0.91, ItemType: "Movie", Genres: ["Sci-Fi", "Thriller"], Year: 2014, Reason: "Matches your top genres", ReasonKey: "recsGenreMatch" },
+                { Name: "The Martian", Score: 0.87, ItemType: "Movie", Genres: ["Sci-Fi", "Adventure", "Drama"], Year: 2015, Reason: "Directed by Ridley Scott", ReasonKey: "recsDirectorMatch" },
+                { Name: "Arrival", Score: 0.85, ItemType: "Movie", Genres: ["Sci-Fi", "Drama"], Year: 2016, Reason: "Because you watched {0}", ReasonKey: "recsBecauseWatched", RelatedItemName: "Interstellar" },
+                { Name: "Edge of Tomorrow", Score: 0.82, ItemType: "Movie", Genres: ["Sci-Fi", "Action"], Year: 2014, Reason: "Popular in your favorite genres", ReasonKey: "recsPopularGenre" },
+                { Name: "Westworld", Score: 0.79, ItemType: "Series", Genres: ["Sci-Fi", "Drama", "Thriller"], Year: 2016, Reason: "Matches your top genres", ReasonKey: "recsGenreMatch" },
+                { Name: "Annihilation", Score: 0.76, ItemType: "Movie", Genres: ["Sci-Fi", "Horror", "Mystery"], Year: 2018, Reason: "Because you watched {0}", ReasonKey: "recsBecauseWatched", RelatedItemName: "Ex Machina" },
+                { Name: "Gravity", Score: 0.72, ItemType: "Movie", Genres: ["Sci-Fi", "Thriller"], Year: 2013, Reason: "Highly rated in Sci-Fi", ReasonKey: "recsHighlyRated" }
+            ]
+        },
+        {
+            UserId: _mockUserId2,
+            UserName: "Bob",
+            Recommendations: [
+                { Name: "The Grand Budapest Hotel", Score: 0.92, ItemType: "Movie", Genres: ["Comedy", "Drama", "Adventure"], Year: 2014, Reason: "Directed by Wes Anderson", ReasonKey: "recsDirectorMatch" },
+                { Name: "Lady Bird", Score: 0.88, ItemType: "Movie", Genres: ["Comedy", "Drama"], Year: 2017, Reason: "Matches your top genres", ReasonKey: "recsGenreMatch" },
+                { Name: "Parasite", Score: 0.86, ItemType: "Movie", Genres: ["Drama", "Thriller", "Comedy"], Year: 2019, Reason: "Highly rated drama", ReasonKey: "recsHighlyRated" },
+                { Name: "Jojo Rabbit", Score: 0.83, ItemType: "Movie", Genres: ["Comedy", "Drama", "War"], Year: 2019, Reason: "Because you watched {0}", ReasonKey: "recsBecauseWatched", RelatedItemName: "The Grand Budapest Hotel" },
+                { Name: "The Office", Score: 0.80, ItemType: "Series", Genres: ["Comedy"], Year: 2005, Reason: "Popular in Comedy", ReasonKey: "recsPopularGenre" },
+                { Name: "Little Women", Score: 0.74, ItemType: "Movie", Genres: ["Drama", "Romance"], Year: 2019, Reason: "Because you watched {0}", ReasonKey: "recsBecauseWatched", RelatedItemName: "Lady Bird" }
+            ]
+        }
+    ];
+
+    var MOCK_WATCH_PROFILES = {};
+    MOCK_WATCH_PROFILES[_mockUserId1] = {
+        WatchedMovieCount: 85,
+        WatchedEpisodeCount: 240,
+        WatchedSeriesCount: 12,
+        FavoriteCount: 15,
+        GenreDistribution: { "Sci-Fi": 45, "Action": 38, "Thriller": 22, "Drama": 18, "Adventure": 12, "Mystery": 8, "Horror": 5 }
+    };
+    MOCK_WATCH_PROFILES[_mockUserId2] = {
+        WatchedMovieCount: 42,
+        WatchedEpisodeCount: 180,
+        WatchedSeriesCount: 8,
+        FavoriteCount: 8,
+        GenreDistribution: { "Drama": 40, "Comedy": 35, "Romance": 15, "Thriller": 10, "Adventure": 6, "War": 3 }
+    };
+
+    var MOCK_USER_ACTIVITY = {};
+    MOCK_USER_ACTIVITY[_mockUserId1] = [
+        { ItemName: "Interstellar", ItemType: "Movie", TotalPlayCount: 3, MostRecentWatch: new Date(Date.now() - 2 * 86400000).toISOString(), AverageCompletionPercent: 100 },
+        { ItemName: "Dune: Part Two", ItemType: "Movie", TotalPlayCount: 2, MostRecentWatch: new Date(Date.now() - 4 * 86400000).toISOString(), AverageCompletionPercent: 100 },
+        { ItemName: "The Expanse", ItemType: "Series", TotalPlayCount: 62, MostRecentWatch: new Date(Date.now() - 5 * 86400000).toISOString(), AverageCompletionPercent: 95 },
+        { ItemName: "Oppenheimer", ItemType: "Movie", TotalPlayCount: 1, MostRecentWatch: new Date(Date.now() - 8 * 86400000).toISOString(), AverageCompletionPercent: 100 },
+        { ItemName: "Blade Runner", ItemType: "Movie", TotalPlayCount: 2, MostRecentWatch: new Date(Date.now() - 12 * 86400000).toISOString(), AverageCompletionPercent: 100 },
+        { ItemName: "Foundation", ItemType: "Series", TotalPlayCount: 10, MostRecentWatch: new Date(Date.now() - 15 * 86400000).toISOString(), AverageCompletionPercent: 80 },
+        { ItemName: "Alien", ItemType: "Movie", TotalPlayCount: 1, MostRecentWatch: new Date(Date.now() - 20 * 86400000).toISOString(), AverageCompletionPercent: 65 },
+        { ItemName: "Inception", ItemType: "Movie", TotalPlayCount: 4, MostRecentWatch: new Date(Date.now() - 25 * 86400000).toISOString(), AverageCompletionPercent: 100 }
+    ];
+    MOCK_USER_ACTIVITY[_mockUserId2] = [
+        { ItemName: "The Grand Budapest Hotel", ItemType: "Movie", TotalPlayCount: 2, MostRecentWatch: new Date(Date.now() - 1 * 86400000).toISOString(), AverageCompletionPercent: 100 },
+        { ItemName: "Fleabag", ItemType: "Series", TotalPlayCount: 12, MostRecentWatch: new Date(Date.now() - 3 * 86400000).toISOString(), AverageCompletionPercent: 100 },
+        { ItemName: "Everything Everywhere All at Once", ItemType: "Movie", TotalPlayCount: 1, MostRecentWatch: new Date(Date.now() - 6 * 86400000).toISOString(), AverageCompletionPercent: 100 },
+        { ItemName: "Schitt's Creek", ItemType: "Series", TotalPlayCount: 80, MostRecentWatch: new Date(Date.now() - 10 * 86400000).toISOString(), AverageCompletionPercent: 92 },
+        { ItemName: "Knives Out", ItemType: "Movie", TotalPlayCount: 1, MostRecentWatch: new Date(Date.now() - 14 * 86400000).toISOString(), AverageCompletionPercent: 100 },
+        { ItemName: "The Farewell", ItemType: "Movie", TotalPlayCount: 1, MostRecentWatch: new Date(Date.now() - 22 * 86400000).toISOString(), AverageCompletionPercent: 45 }
+    ];
+
     // ========== MOCK ApiClient ==========
     var ApiClient = {
         accessToken: function() { return 'mock-demo-token'; },
@@ -429,6 +499,27 @@
                         resolve({});
                     } else if (url.indexOf('Logs') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_LOGS)));
+                    } else if (url.indexOf('Recommendations/WatchProfile/') !== -1) {
+                        // Extract userId from URL
+                        var wpParts = url.split('WatchProfile/');
+                        var wpUserId = wpParts.length > 1 ? wpParts[1].split('?')[0] : '';
+                        resolve(JSON.parse(JSON.stringify(MOCK_WATCH_PROFILES[wpUserId] || {})));
+                    } else if (url.indexOf('Recommendations/WatchProfiles') !== -1) {
+                        resolve(JSON.parse(JSON.stringify(MOCK_WATCH_PROFILES)));
+                    } else if (url.indexOf('Recommendations/') !== -1 && url.indexOf('WatchProfile') === -1) {
+                        // Per-user recommendations
+                        var recParts = url.split('Recommendations/');
+                        var recUserId = recParts.length > 1 ? recParts[1].split('?')[0] : '';
+                        var userRec = MOCK_RECOMMENDATIONS.filter(function(r) { return r.UserId === recUserId; });
+                        resolve(JSON.parse(JSON.stringify(userRec.length > 0 ? userRec[0] : {})));
+                    } else if (url.indexOf('Recommendations') !== -1) {
+                        resolve(JSON.parse(JSON.stringify(MOCK_RECOMMENDATIONS)));
+                    } else if (url.indexOf('UserActivity/User/') !== -1) {
+                        var uaParts = url.split('UserActivity/User/');
+                        var uaUserId = uaParts.length > 1 ? uaParts[1].split('?')[0] : '';
+                        resolve(JSON.parse(JSON.stringify(MOCK_USER_ACTIVITY[uaUserId] || [])));
+                    } else if (url.indexOf('UserActivity/Latest') !== -1) {
+                        resolve(JSON.parse(JSON.stringify(MOCK_USER_ACTIVITY)));
                     } else if (url.indexOf('LibraryInsights') !== -1) {
                         resolve(JSON.parse(JSON.stringify(MOCK_LIBRARY_INSIGHTS)));
                     } else if (url.indexOf('Libraries') !== -1) {
@@ -486,7 +577,8 @@
         // Load all CSS files
         var cssFiles = [
             'css/Shared.css', 'css/Overview.css', 'css/Codecs.css', 'css/Health.css',
-            'css/Trends.css', 'css/Settings.css', 'css/ArrIntegration.css', 'css/Logs.css'
+            'css/Trends.css', 'css/Settings.css', 'css/ArrIntegration.css', 'css/Logs.css',
+            'css/Recommendations.css'
         ];
         var styleEl = document.getElementById('pluginStyles');
         var cssPromises = cssFiles.map(function(f) {
@@ -499,7 +591,8 @@
             // Load all JS files in order
             var jsFiles = [
                 'js/Shared.js', 'js/Overview.js', 'js/Codecs.js', 'js/Health.js',
-                'js/Trends.js', 'js/Settings.js', 'js/ArrIntegration.js', 'js/Logs.js', 'js/Main.js'
+                'js/Trends.js', 'js/Settings.js', 'js/ArrIntegration.js', 'js/Logs.js',
+                'js/Recommendations.js', 'js/Main.js'
             ];
 
             // We need to concatenate all JS and eval, because they form one IIFE

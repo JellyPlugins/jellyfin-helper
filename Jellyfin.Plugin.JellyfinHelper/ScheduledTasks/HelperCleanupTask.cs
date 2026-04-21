@@ -453,7 +453,7 @@ public class HelperCleanupTask : IScheduledTask
         progress.Report(20);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var maxPerUser = config.RecommendationCount > 0 ? config.RecommendationCount : 20;
+        const int maxPerUser = 20;
         var results = _recsEngine.GetAllRecommendations(maxPerUser);
 
         progress.Report(80);

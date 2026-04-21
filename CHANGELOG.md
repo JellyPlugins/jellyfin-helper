@@ -11,7 +11,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ### Added
 - **Discover Tab** — New 8th dashboard tab "Discover" combining ML-powered smart recommendations and user activity insights in a single view. Includes `Recommendations.js`, `Recommendations.css` frontend modules with user selector, recommendation cards, activity summaries, and genre distribution charts.
 - **Smart Recommendation Engine** — ML-based per-user recommendation system (`Services/Recommendation/`) with dual scoring strategy.
-- **Recommendations Configuration** — New plugin settings: `RecommendationsTaskMode` (DryRun/Activate/Deactivate, default: DryRun), `RecommendationCount` (20).
+- **Recommendations Configuration** — New plugin setting: `RecommendationsTaskMode` (DryRun/Activate/Deactivate, default: DryRun). Generates up to 20 recommendations per user (fixed).
 - **Recommendations Scheduled Task** — Integrated into `HelperCleanupTask` to generate recommendations and activity data on the weekly cleanup schedule.
 - **Tests** — New test classes: `RecommendationControllerTests`, `UserActivityControllerTests`, `RecommendationEngineTests`, `WatchHistoryServiceTests`, `ScoringStrategyTests`, `RecommendationCacheServiceTests`, `RecommendationDtoTests`, `UserActivityCacheServiceTests`, `UserActivityInsightsServiceTests`.
 

@@ -143,12 +143,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public TaskMode RecommendationsTaskMode { get; set; } = TaskMode.DryRun;
 
     /// <summary>
-    ///     Gets or sets the maximum number of recommendations per user.
-    ///     Default is 20.
-    /// </summary>
-    public int RecommendationCount { get; set; } = 20;
-
-    /// <summary>
     ///     Gets or sets the minimum log level for the plugin's in-memory log buffer.
     ///     Supported values: DEBUG, INFO, WARN, ERROR. Default is "INFO".
     /// </summary>

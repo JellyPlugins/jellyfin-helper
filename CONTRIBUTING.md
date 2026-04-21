@@ -422,7 +422,6 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 | **Seerr API Key** | API key for Seerr cleanup / test connection | Empty |
 | **Seerr Cleanup Age (days)** | Max request age before deletion | 365 |
 | **Recommendations Task Mode** | Activate / DryRun / Deactivate | DryRun |
-| **Recommendation Count** | Max recommendations per user | 20 |
 
 Configuration is automatically migrated from legacy formats via `ConfigVersion`.
 
@@ -533,7 +532,7 @@ Sub-tasks executed in order (each respecting its configured task mode):
 - **Learned scoring** — Gradient-descent trained linear model that learns per-user weights from positive (watched) and implicit negative (skipped) examples
 - **Watch profile analysis** — Aggregates per-user genre, actor, director, and studio frequencies from Jellyfin playback data
 - **Candidate filtering** — Excludes already-watched items; scores all unwatched candidates against the user's profile
-- **Configurable** — `RecommendationsTaskMode` (DryRun/Activate/Deactivate) and `RecommendationCount` (default: 20)
+- **Configurable** — `RecommendationsTaskMode` (DryRun/Activate/Deactivate); generates up to 20 recommendations per user (fixed)
 - **Disk-persisted cache** — Results cached to `recommendations_cache.json` and served from cache until next scheduled run
 
 ### User Activity Insights
