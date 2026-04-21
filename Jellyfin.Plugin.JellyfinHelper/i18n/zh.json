@@ -259,6 +259,7 @@
   "reasonDefault": "为您推荐",
   "strategyHeuristic": "启发式（基于规则）",
   "strategyLearned": "学习型（自适应ML）",
+  "strategyEnsemble": "集成（自适应ML + 规则）",
   "recsMatch": "匹配度",
   "recsWatchProfiles": "观看档案概览",
   "recsProfilesError": "无法加载观看档案。",

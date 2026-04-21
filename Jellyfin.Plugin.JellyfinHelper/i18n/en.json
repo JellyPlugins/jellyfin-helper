@@ -259,6 +259,7 @@
   "reasonDefault": "Recommended for you",
   "strategyHeuristic": "Heuristic (Rule-based)",
   "strategyLearned": "Learned (Adaptive ML)",
+  "strategyEnsemble": "Ensemble (Adaptive ML + Rules)",
   "recsMatch": "match",
   "recsWatchProfiles": "Watch Profiles Overview",
   "recsProfilesError": "Could not load watch profiles.",

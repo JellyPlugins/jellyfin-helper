@@ -36,7 +36,7 @@ public class RecommendationEngineTests
     }
 
     [Fact]
-    public void BuildGenrePreferenceVector_ZeroCounts_ReturnsEmpty()
+    public void BuildGenrePreferenceVector_ZeroCounts_ReturnsZeroWeights()
     {
         var profile = new UserWatchProfile
         {
@@ -48,7 +48,11 @@ public class RecommendationEngineTests
         };
 
         var vector = RecommendationEngine.BuildGenrePreferenceVector(profile);
-        Assert.Empty(vector);
+
+        // When all counts are zero, weights are 0 (no division by zero)
+        Assert.Equal(2, vector.Count);
+        Assert.Equal(0.0, vector["Action"]);
+        Assert.Equal(0.0, vector["Comedy"]);
     }
 
     [Fact]
@@ -66,30 +70,78 @@ public class RecommendationEngineTests
     }
 
     [Fact]
-    public void ComputeGenreSimilarity_FullMatch_ReturnsOne()
+    public void ComputeGenreSimilarity_FullMatch_SingleGenre_ReturnsOne()
     {
+        // Single genre in both candidate and prefs → cosine = 1.0
+        var prefs = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Action", 1.0 }
+        };
+
+        var score = RecommendationEngine.ComputeGenreSimilarity(new[] { "Action" }, prefs);
+        Assert.Equal(1.0, score, 4);
+    }
+
+    [Fact]
+    public void ComputeGenreSimilarity_FullMatch_MultiGenre_ReturnsHighScore()
+    {
+        // Candidate has one matching genre, but prefs has multiple → cosine < 1.0
         var prefs = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
             { "Action", 1.0 },
             { "Comedy", 0.8 }
         };
 
-        // Single genre that matches perfectly
         var score = RecommendationEngine.ComputeGenreSimilarity(new[] { "Action" }, prefs);
-        Assert.Equal(1.0, score);
+        // dot=1.0, normC=1, normU=sqrt(1.64)≈1.28 → cosine≈0.78
+        Assert.True(score > 0.7 && score < 0.85,
+            $"Expected ~0.78 for single match against multi-genre prefs, got {score:F4}");
     }
 
     [Fact]
-    public void ComputeGenreSimilarity_PartialMatch_ReturnsAverage()
+    public void ComputeGenreSimilarity_PartialMatch_CosineScore()
     {
         var prefs = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
             { "Action", 1.0 }
         };
 
-        // Two genres, only one matches
+        // Two genres, only one matches → cosine = 1.0 / (sqrt(2) * 1.0) ≈ 0.707
         var score = RecommendationEngine.ComputeGenreSimilarity(new[] { "Action", "Horror" }, prefs);
-        Assert.Equal(0.5, score);
+        Assert.True(score > 0.65 && score < 0.75,
+            $"Expected ~0.707 for partial match, got {score:F4}");
+    }
+
+    [Fact]
+    public void ComputeGenreSimilarity_MultiGenreCandidate_NotPenalized()
+    {
+        // Marvel-style: candidate has many genres, all matching the user's prefs
+        var prefs = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Action", 1.0 },
+            { "SciFi", 0.9 },
+            { "Adventure", 0.8 },
+            { "Fantasy", 0.5 }
+        };
+
+        // A film with 3 genres, all matching
+        var score = RecommendationEngine.ComputeGenreSimilarity(
+            new[] { "Action", "SciFi", "Adventure" }, prefs);
+
+        Assert.True(score > 0.85, $"Multi-genre film with all-matching genres should score high, got {score:F4}");
+    }
+
+    [Fact]
+    public void ComputeGenreSimilarity_NoOverlap_ReturnsZero()
+    {
+        var prefs = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Action", 1.0 },
+            { "SciFi", 0.8 }
+        };
+
+        var score = RecommendationEngine.ComputeGenreSimilarity(new[] { "Horror", "Comedy" }, prefs);
+        Assert.Equal(0.0, score, 4);
     }
 
     [Fact]
@@ -374,10 +426,10 @@ public class RecommendationEngineTests
     }
 
     [Fact]
-    public void ResolveStrategy_AlwaysReturnsLearnedStrategy()
+    public void ResolveStrategy_AlwaysReturnsEnsembleStrategy()
     {
-        // Strategy is always Learned (adaptive ML), regardless of Plugin.Instance state
+        // Strategy is always Ensemble (combines adaptive ML + heuristic rules)
         var strategy = RecommendationEngine.ResolveStrategy();
-        Assert.IsType<LearnedScoringStrategy>(strategy);
+        Assert.IsType<EnsembleScoringStrategy>(strategy);
     }
 }

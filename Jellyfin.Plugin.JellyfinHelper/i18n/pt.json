@@ -259,6 +259,7 @@
   "reasonDefault": "Recomendado para você",
   "strategyHeuristic": "Heurístico (baseado em regras)",
   "strategyLearned": "Aprendido (ML adaptativo)",
+  "strategyEnsemble": "Conjunto (ML Adaptativo + Regras)",
   "recsMatch": "correspondência",
   "recsWatchProfiles": "Perfis de visualização",
   "recsProfilesError": "Não foi possível carregar os perfis.",

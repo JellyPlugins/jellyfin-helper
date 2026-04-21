@@ -259,20 +259,22 @@ public sealed class RecommendationEngine : IRecommendationEngine
     }
 
     /// <summary>
-    ///     Resolves the scoring strategy. Always uses the adaptive learned strategy
-    ///     which starts with heuristic-like weights and improves over time via training.
+    ///     Resolves the scoring strategy. Uses an ensemble strategy that combines
+    ///     the adaptive learned (ML) model with the rule-based heuristic model
+    ///     for more robust and accurate recommendations.
     /// </summary>
-    /// <returns>The learned scoring strategy.</returns>
+    /// <returns>The ensemble scoring strategy.</returns>
     internal static IScoringStrategy ResolveStrategy()
     {
-        return CreateLearnedStrategy();
+        return CreateEnsembleStrategy();
     }
 
     /// <summary>
-    ///     Creates a <see cref="LearnedScoringStrategy"/> with the appropriate weights path.
+    ///     Creates an <see cref="EnsembleScoringStrategy"/> with the appropriate weights path.
+    ///     The ensemble combines learned (adaptive ML) and heuristic (rule-based) scoring.
     /// </summary>
-    /// <returns>A configured learned scoring strategy.</returns>
-    internal static LearnedScoringStrategy CreateLearnedStrategy()
+    /// <returns>A configured ensemble scoring strategy.</returns>
+    internal static EnsembleScoringStrategy CreateEnsembleStrategy()
     {
         var dataPath = Plugin.Instance?.DataFolderPath;
         string? weightsPath = null;
@@ -281,7 +283,7 @@ public sealed class RecommendationEngine : IRecommendationEngine
             weightsPath = System.IO.Path.Join(dataPath, "ml_weights.json");
         }
 
-        return new LearnedScoringStrategy(weightsPath);
+        return new EnsembleScoringStrategy(weightsPath);
     }
 
     /// <summary>

@@ -259,6 +259,7 @@
   "reasonDefault": "Sizin için önerilen",
   "strategyHeuristic": "Sezgisel (Kural tabanlı)",
   "strategyLearned": "Öğrenilmiş (Uyarlanabilir ML)",
+  "strategyEnsemble": "Topluluk (Uyarlanabilir ML + Kurallar)",
   "recsMatch": "eşleşme",
   "recsWatchProfiles": "İzleme Profilleri",
   "recsProfilesError": "Profiller yüklenemedi.",

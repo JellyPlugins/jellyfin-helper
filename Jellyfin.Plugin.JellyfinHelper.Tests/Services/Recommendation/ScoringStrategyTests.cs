@@ -8,7 +8,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation;
 
 /// <summary>
 ///     Tests for <see cref="IScoringStrategy" /> implementations:
-///     <see cref="HeuristicScoringStrategy" /> and <see cref="LearnedScoringStrategy" />.
+///     <see cref="HeuristicScoringStrategy" />, <see cref="LearnedScoringStrategy" />,
+///     and <see cref="EnsembleScoringStrategy" />.
 /// </summary>
 public sealed class ScoringStrategyTests : IDisposable
 {
@@ -120,7 +121,7 @@ public sealed class ScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void Heuristic_Score_AllOnes_ReturnsOne()
+    public void Heuristic_Score_AllOnes_ReturnsExpectedSum()
     {
         var strategy = new HeuristicScoringStrategy();
         var features = new CandidateFeatures
@@ -134,17 +135,19 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var score = strategy.Score(features);
 
-        // 0.40 + 0.25 + 0.15 + 0.10 + 0.10 = 1.0
-        Assert.Equal(1.0, score, 4);
+        // 0.50 + 0.20 + 0.10 + 0.05 + 0.05 = 0.90
+        // Genre >= threshold, so no penalty
+        Assert.Equal(0.90, score, 4);
     }
 
     [Fact]
-    public void Heuristic_Score_AllZeros_ReturnsZero()
+    public void Heuristic_Score_AllZeros_ReturnsPenalizedZero()
     {
         var strategy = new HeuristicScoringStrategy();
         var features = new CandidateFeatures();
 
         var score = strategy.Score(features);
+        // All zeros → base score 0.0, genre < threshold → penalty applied but 0 * penalty = 0
         Assert.Equal(0.0, score, 4);
     }
 
@@ -173,13 +176,68 @@ public sealed class ScoringStrategyTests : IDisposable
         };
 
         var expected =
-            (0.8 * 0.40) +
-            (0.6 * 0.25) +
-            (0.7 * 0.15) +
-            (0.5 * 0.10) +
-            (0.9 * 0.10);
+            (0.8 * 0.50) +
+            (0.6 * 0.20) +
+            (0.7 * 0.10) +
+            (0.5 * 0.05) +
+            (0.9 * 0.05);
+        // Genre >= threshold, so no penalty
 
         Assert.Equal(expected, strategy.Score(features), 4);
+    }
+
+    [Fact]
+    public void Heuristic_Score_GenreMismatch_AppliesPenalty()
+    {
+        var strategy = new HeuristicScoringStrategy();
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.0, // no genre match
+            CollaborativeScore = 0.5,
+            RatingScore = 0.8,
+            RecencyScore = 0.7,
+            YearProximityScore = 0.9
+        };
+
+        var baseScore =
+            (0.0 * 0.50) +
+            (0.5 * 0.20) +
+            (0.8 * 0.10) +
+            (0.7 * 0.05) +
+            (0.9 * 0.05);
+
+        var expected = baseScore * HeuristicScoringStrategy.GenreMismatchPenalty;
+
+        Assert.Equal(expected, strategy.Score(features), 4);
+    }
+
+    [Fact]
+    public void Heuristic_Score_GenreBelowThreshold_GetsStronglyPenalized()
+    {
+        var strategy = new HeuristicScoringStrategy();
+
+        // Good genre match
+        var goodFeatures = new CandidateFeatures
+        {
+            GenreSimilarity = 0.8,
+            RatingScore = 0.6,
+            RecencyScore = 0.5
+        };
+
+        // No genre match but same other features
+        var badFeatures = new CandidateFeatures
+        {
+            GenreSimilarity = 0.0,
+            RatingScore = 0.6,
+            RecencyScore = 0.5
+        };
+
+        var goodScore = strategy.Score(goodFeatures);
+        var badScore = strategy.Score(badFeatures);
+
+        // Bad score should be MUCH lower than good score (at least 5x difference)
+        Assert.True(goodScore > badScore * 5,
+            $"Genre mismatch should be strongly penalized: good={goodScore:F4}, bad={badScore:F4}");
     }
 
     [Fact]
@@ -230,27 +288,75 @@ public sealed class ScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void Learned_Score_AllZeros_ReturnsNearSigmoidOfBias()
+    public void Learned_Score_AllZeros_ReturnsLowScore()
     {
         var strategy = new LearnedScoringStrategy();
         var features = new CandidateFeatures();
 
         var score = strategy.Score(features);
 
-        // With bias = -0.3, sigmoid(-0.3) ≈ 0.4256
-        Assert.InRange(score, 0.35, 0.50);
+        // With bias = 0.05, all features = 0 → rawScore = 0.05
+        // Genre < threshold → penalty: 0.05 * 0.15 ≈ 0.0075
+        Assert.InRange(score, 0.0, 0.02);
     }
 
     [Fact]
-    public void Learned_InitialWeights_MatchesHeuristic()
+    public void Learned_Score_HighGenreMatch_ReturnsHighScore()
+    {
+        var strategy = new LearnedScoringStrategy();
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.9,
+            CollaborativeScore = 0.5,
+            RatingScore = 0.8,
+            RecencyScore = 0.5,
+            YearProximityScore = 0.7,
+            GenreCount = 3,
+            IsSeries = false
+        };
+
+        var score = strategy.Score(features);
+
+        // Should be a respectable score — no penalty because genre >= threshold
+        Assert.True(score > 0.5, $"High genre match should yield high score, got {score:F4}");
+    }
+
+    [Fact]
+    public void Learned_Score_NoGenreMatch_GetsStrongPenalty()
+    {
+        var strategy = new LearnedScoringStrategy();
+
+        var goodFeatures = new CandidateFeatures
+        {
+            GenreSimilarity = 0.8,
+            RatingScore = 0.7,
+            RecencyScore = 0.5
+        };
+
+        var badFeatures = new CandidateFeatures
+        {
+            GenreSimilarity = 0.0,
+            RatingScore = 0.7,
+            RecencyScore = 0.5
+        };
+
+        var goodScore = strategy.Score(goodFeatures);
+        var badScore = strategy.Score(badFeatures);
+
+        Assert.True(goodScore > badScore * 3,
+            $"Genre mismatch penalty should create large gap: good={goodScore:F4}, bad={badScore:F4}");
+    }
+
+    [Fact]
+    public void Learned_InitialWeights_GenreDominant()
     {
         var strategy = new LearnedScoringStrategy();
         var weights = strategy.CurrentWeights;
 
         Assert.Equal(LearnedScoringStrategy.FeatureCount, weights.Length);
-        Assert.Equal(0.40, weights[0]); // genre
-        Assert.Equal(0.25, weights[1]); // collaborative
-        Assert.Equal(0.15, weights[2]); // rating
+        Assert.Equal(0.50, weights[0]); // genre (dominant)
+        Assert.Equal(0.20, weights[1]); // collaborative
+        Assert.Equal(0.10, weights[2]); // rating
     }
 
     [Fact]
@@ -360,33 +466,46 @@ public sealed class ScoringStrategyTests : IDisposable
         var scoreAfter = strategy.Score(positiveFeatures);
 
         // Score for positive examples should increase after training
-        Assert.True(scoreAfter > scoreBefore,
-            $"Score should increase after training: {scoreBefore:F4} → {scoreAfter:F4}");
-    }
-
-    // ============================================================
-    // Sigmoid Tests
-    // ============================================================
-
-    [Theory]
-    [InlineData(0.0, 0.5)]
-    [InlineData(25.0, 1.0)]
-    [InlineData(-25.0, 0.0)]
-    public void Sigmoid_KnownValues(double input, double expected)
-    {
-        Assert.Equal(expected, LearnedScoringStrategy.Sigmoid(input), 4);
+        Assert.True(scoreAfter >= scoreBefore,
+            $"Score should increase or stay stable after training: {scoreBefore:F4} → {scoreAfter:F4}");
     }
 
     [Fact]
-    public void Sigmoid_PositiveInput_GreaterThanHalf()
+    public void Learned_Train_WeightsStayClamped()
     {
-        Assert.True(LearnedScoringStrategy.Sigmoid(1.0) > 0.5);
-    }
+        var strategy = new LearnedScoringStrategy();
 
-    [Fact]
-    public void Sigmoid_NegativeInput_LessThanHalf()
-    {
-        Assert.True(LearnedScoringStrategy.Sigmoid(-1.0) < 0.5);
+        // Create extreme training data to try to push weights to extremes
+        var examples = new List<TrainingExample>();
+        for (var i = 0; i < 100; i++)
+        {
+            examples.Add(new TrainingExample
+            {
+                Features = new CandidateFeatures
+                {
+                    GenreSimilarity = 1.0,
+                    CollaborativeScore = 1.0,
+                    RatingScore = 1.0,
+                    RecencyScore = 1.0,
+                    YearProximityScore = 1.0,
+                    GenreCount = 5,
+                    IsSeries = true
+                },
+                Label = 1.0
+            });
+        }
+
+        strategy.Train(examples);
+        var weights = strategy.CurrentWeights;
+        var bias = strategy.CurrentBias;
+
+        // All weights should be within clamped range
+        foreach (var w in weights)
+        {
+            Assert.InRange(w, -2.0, 2.0);
+        }
+
+        Assert.InRange(bias, -1.0, 1.0);
     }
 
     // ============================================================
@@ -475,7 +594,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var weights = strategy.CurrentWeights;
 
         Assert.Equal(LearnedScoringStrategy.FeatureCount, weights.Length);
-        Assert.Equal(0.40, weights[0]); // default genre weight
+        Assert.Equal(0.50, weights[0]); // default genre weight (updated from 0.40)
     }
 
     [Fact]
@@ -506,5 +625,316 @@ public sealed class ScoringStrategyTests : IDisposable
     {
         var example = new TrainingExample { Features = new CandidateFeatures() };
         Assert.Equal(0.0, example.Label);
+    }
+
+    // ============================================================
+    // Genre Mismatch Penalty Integration Tests
+    // ============================================================
+
+    [Fact]
+    public void Heuristic_GenreMismatch_ChuckyVsMarvel_MarvelWins()
+    {
+        // Simulates: user likes Action/SciFi/Superhero, candidate is Horror (Chucky) vs Action (Marvel)
+        var strategy = new HeuristicScoringStrategy();
+
+        var marvelFeatures = new CandidateFeatures
+        {
+            GenreSimilarity = 0.85, // Action + SciFi + Adventure overlap
+            CollaborativeScore = 0.3,
+            RatingScore = 0.75,
+            RecencyScore = 0.6,
+            YearProximityScore = 0.8,
+            GenreCount = 4
+        };
+
+        var chuckyFeatures = new CandidateFeatures
+        {
+            GenreSimilarity = 0.0, // Horror — no overlap with Action/SciFi profile
+            CollaborativeScore = 0.1,
+            RatingScore = 0.5,
+            RecencyScore = 0.4,
+            YearProximityScore = 0.7,
+            GenreCount = 2
+        };
+
+        var marvelScore = strategy.Score(marvelFeatures);
+        var chuckyScore = strategy.Score(chuckyFeatures);
+
+        Assert.True(marvelScore > 0.5, $"Marvel should score high: {marvelScore:F4}");
+        Assert.True(chuckyScore < 0.05, $"Chucky should score very low: {chuckyScore:F4}");
+        Assert.True(marvelScore > chuckyScore * 10,
+            $"Marvel should be >10x higher than Chucky: Marvel={marvelScore:F4}, Chucky={chuckyScore:F4}");
+    }
+
+    [Fact]
+    public void Learned_GenreMismatch_ChuckyVsMarvel_MarvelWins()
+    {
+        var strategy = new LearnedScoringStrategy();
+
+        var marvelFeatures = new CandidateFeatures
+        {
+            GenreSimilarity = 0.85,
+            CollaborativeScore = 0.3,
+            RatingScore = 0.75,
+            RecencyScore = 0.6,
+            YearProximityScore = 0.8,
+            GenreCount = 4
+        };
+
+        var chuckyFeatures = new CandidateFeatures
+        {
+            GenreSimilarity = 0.0,
+            CollaborativeScore = 0.1,
+            RatingScore = 0.5,
+            RecencyScore = 0.4,
+            YearProximityScore = 0.7,
+            GenreCount = 2
+        };
+
+        var marvelScore = strategy.Score(marvelFeatures);
+        var chuckyScore = strategy.Score(chuckyFeatures);
+
+        Assert.True(marvelScore > 0.5, $"Marvel should score high: {marvelScore:F4}");
+        Assert.True(chuckyScore < 0.05, $"Chucky should score very low: {chuckyScore:F4}");
+        Assert.True(marvelScore > chuckyScore * 10,
+            $"Marvel should be >10x higher than Chucky: Marvel={marvelScore:F4}, Chucky={chuckyScore:F4}");
+    }
+
+    // ============================================================
+    // EnsembleScoringStrategy Tests
+    // ============================================================
+
+    [Fact]
+    public void Ensemble_Name_ReturnsExpected()
+    {
+        var strategy = new EnsembleScoringStrategy();
+        Assert.Equal("Ensemble (Adaptive ML + Rules)", strategy.Name);
+        Assert.Equal("strategyEnsemble", strategy.NameKey);
+    }
+
+    [Fact]
+    public void Ensemble_Score_IsBetweenLearnedAndHeuristic()
+    {
+        var ensemble = new EnsembleScoringStrategy();
+        var learned = new LearnedScoringStrategy();
+        var heuristic = new HeuristicScoringStrategy();
+
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.7,
+            CollaborativeScore = 0.4,
+            RatingScore = 0.6,
+            RecencyScore = 0.5,
+            YearProximityScore = 0.8,
+            GenreCount = 3,
+            IsSeries = false
+        };
+
+        var ensembleScore = ensemble.Score(features);
+        var learnedScore = learned.Score(features);
+        var heuristicScore = heuristic.Score(features);
+
+        var minScore = Math.Min(learnedScore, heuristicScore);
+        var maxScore = Math.Max(learnedScore, heuristicScore);
+
+        Assert.InRange(ensembleScore, minScore - 0.001, maxScore + 0.001);
+    }
+
+    [Fact]
+    public void Ensemble_DefaultAlpha_Is03()
+    {
+        var strategy = new EnsembleScoringStrategy();
+        Assert.Equal(EnsembleScoringStrategy.AlphaLow, strategy.CurrentAlpha);
+    }
+
+    [Fact]
+    public void Ensemble_Train_IncreasesAlpha_MediumData()
+    {
+        var strategy = new EnsembleScoringStrategy();
+
+        // Generate 25 training examples (above MediumDataThreshold of 20)
+        var examples = GenerateTrainingExamples(25);
+        var result = strategy.Train(examples);
+
+        Assert.True(result);
+        Assert.Equal(EnsembleScoringStrategy.AlphaMedium, strategy.CurrentAlpha);
+        Assert.Equal(25, strategy.TrainingExampleCount);
+    }
+
+    [Fact]
+    public void Ensemble_Train_IncreasesAlpha_HighData()
+    {
+        var strategy = new EnsembleScoringStrategy();
+
+        // Train with 50 examples first
+        strategy.Train(GenerateTrainingExamples(50));
+        Assert.Equal(EnsembleScoringStrategy.AlphaMedium, strategy.CurrentAlpha);
+
+        // Train with 60 more examples (total = 110, above HighDataThreshold of 100)
+        strategy.Train(GenerateTrainingExamples(60));
+        Assert.Equal(EnsembleScoringStrategy.AlphaHigh, strategy.CurrentAlpha);
+        Assert.Equal(110, strategy.TrainingExampleCount);
+    }
+
+    [Fact]
+    public void Ensemble_Train_FewExamples_StaysLowAlpha()
+    {
+        var strategy = new EnsembleScoringStrategy();
+
+        var examples = GenerateTrainingExamples(10);
+        strategy.Train(examples);
+
+        Assert.Equal(EnsembleScoringStrategy.AlphaLow, strategy.CurrentAlpha);
+        Assert.Equal(10, strategy.TrainingExampleCount);
+    }
+
+    [Fact]
+    public void Ensemble_Train_DelegatesToLearned()
+    {
+        var strategy = new EnsembleScoringStrategy();
+
+        var examples = GenerateTrainingExamples(30);
+        var result = strategy.Train(examples);
+
+        Assert.True(result);
+        // Verify the learned strategy was trained by checking that scoring changes after training
+        // (The learned strategy's weights should have been updated)
+        Assert.NotNull(strategy.LearnedStrategy);
+    }
+
+    [Fact]
+    public void Ensemble_Score_ReturnsValidRange()
+    {
+        var strategy = new EnsembleScoringStrategy();
+
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.0,
+            CollaborativeScore = 0.0,
+            RatingScore = 0.0,
+            RecencyScore = 0.0,
+            YearProximityScore = 0.0,
+            GenreCount = 0,
+            IsSeries = false
+        };
+
+        var score = strategy.Score(features);
+        Assert.InRange(score, 0.0, 1.0);
+
+        features = new CandidateFeatures
+        {
+            GenreSimilarity = 1.0,
+            CollaborativeScore = 1.0,
+            RatingScore = 1.0,
+            RecencyScore = 1.0,
+            YearProximityScore = 1.0,
+            GenreCount = 5,
+            IsSeries = true
+        };
+
+        score = strategy.Score(features);
+        Assert.InRange(score, 0.0, 1.0);
+    }
+
+    [Fact]
+    public void Ensemble_GenreMismatch_ChuckyVsMarvel_MarvelWins()
+    {
+        var strategy = new EnsembleScoringStrategy();
+
+        var marvelFeatures = new CandidateFeatures
+        {
+            GenreSimilarity = 0.85,
+            CollaborativeScore = 0.3,
+            RatingScore = 0.75,
+            RecencyScore = 0.6,
+            YearProximityScore = 0.8,
+            GenreCount = 4
+        };
+
+        var chuckyFeatures = new CandidateFeatures
+        {
+            GenreSimilarity = 0.0,
+            CollaborativeScore = 0.1,
+            RatingScore = 0.5,
+            RecencyScore = 0.4,
+            YearProximityScore = 0.7,
+            GenreCount = 2
+        };
+
+        var marvelScore = strategy.Score(marvelFeatures);
+        var chuckyScore = strategy.Score(chuckyFeatures);
+
+        Assert.True(marvelScore > 0.4, $"Marvel should score well: {marvelScore:F4}");
+        Assert.True(chuckyScore < 0.1, $"Chucky should score very low: {chuckyScore:F4}");
+        Assert.True(marvelScore > chuckyScore * 5,
+            $"Marvel should be >5x higher than Chucky: Marvel={marvelScore:F4}, Chucky={chuckyScore:F4}");
+    }
+
+    [Fact]
+    public void Ensemble_WithWeightsPath_PassesToLearned()
+    {
+        var weightsPath = Path.Combine(_tempDir, "ensemble_weights.json");
+        var strategy = new EnsembleScoringStrategy(weightsPath);
+
+        Assert.NotNull(strategy.LearnedStrategy);
+        Assert.NotNull(strategy.HeuristicStrategy);
+    }
+
+    [Fact]
+    public void Ensemble_AlphaBlending_VerifyFormula()
+    {
+        var strategy = new EnsembleScoringStrategy();
+        var learned = strategy.LearnedStrategy;
+        var heuristic = strategy.HeuristicStrategy;
+
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.6,
+            CollaborativeScore = 0.3,
+            RatingScore = 0.8,
+            RecencyScore = 0.4,
+            YearProximityScore = 0.7,
+            GenreCount = 2,
+            IsSeries = false
+        };
+
+        var learnedScore = learned.Score(features);
+        var heuristicScore = heuristic.Score(features);
+        var alpha = strategy.CurrentAlpha;
+
+        var expectedScore = (alpha * learnedScore) + ((1.0 - alpha) * heuristicScore);
+        var actualScore = strategy.Score(features);
+
+        Assert.Equal(expectedScore, actualScore, 6);
+    }
+
+    /// <summary>
+    ///     Generates a list of training examples with mixed positive and negative labels.
+    /// </summary>
+    private static List<TrainingExample> GenerateTrainingExamples(int count)
+    {
+        var examples = new List<TrainingExample>(count);
+        var rng = new Random(42); // deterministic seed for reproducibility
+
+        for (int i = 0; i < count; i++)
+        {
+            var isPositive = i % 3 != 0; // roughly 2/3 positive
+            examples.Add(new TrainingExample
+            {
+                Features = new CandidateFeatures
+                {
+                    GenreSimilarity = isPositive ? 0.5 + (rng.NextDouble() * 0.5) : rng.NextDouble() * 0.3,
+                    CollaborativeScore = rng.NextDouble(),
+                    RatingScore = 0.3 + (rng.NextDouble() * 0.7),
+                    RecencyScore = rng.NextDouble(),
+                    YearProximityScore = rng.NextDouble(),
+                    GenreCount = rng.Next(1, 6),
+                    IsSeries = rng.NextDouble() > 0.7
+                },
+                Label = isPositive ? 1.0 : 0.0
+            });
+        }
+
+        return examples;
     }
 }

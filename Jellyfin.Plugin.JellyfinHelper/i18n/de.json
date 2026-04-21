@@ -259,6 +259,7 @@
   "reasonDefault": "Empfohlen für dich",
   "strategyHeuristic": "Heuristisch (regelbasiert)",
   "strategyLearned": "Lernfähig (adaptives ML)",
+  "strategyEnsemble": "Ensemble (Adaptives ML + Regeln)",
   "recsMatch": "Übereinstimmung",
   "recsWatchProfiles": "Sehprofil-Übersicht",
   "recsProfilesError": "Sehprofile konnten nicht geladen werden.",

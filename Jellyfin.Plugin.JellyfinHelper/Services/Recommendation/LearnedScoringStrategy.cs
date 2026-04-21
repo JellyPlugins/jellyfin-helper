@@ -77,7 +77,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
             0.05, // recency
             0.05, // year proximity
             0.05, // genre count
-            0.00  // isSeries (neutral start)
+            0.00 // isSeries (neutral start)
         ];
         _bias = 0.05; // slight positive bias so perfect matches approach 1.0
 
