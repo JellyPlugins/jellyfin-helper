@@ -257,6 +257,8 @@
   "reasonGenre": "Because you enjoy {0}",
   "reasonHighlyRated": "Highly rated",
   "reasonDefault": "Recommended for you",
+  "strategyHeuristic": "Heuristic (Rule-based)",
+  "strategyLearned": "Learned (Adaptive ML)",
   "recsMatch": "match",
   "recsWatchProfiles": "Watch Profiles Overview",
   "recsProfilesError": "Could not load watch profiles.",

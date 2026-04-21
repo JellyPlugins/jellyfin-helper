@@ -257,6 +257,8 @@
   "reasonGenre": "{0} sevdiğiniz için",
   "reasonHighlyRated": "Yüksek puanlı",
   "reasonDefault": "Sizin için önerilen",
+  "strategyHeuristic": "Sezgisel (Kural tabanlı)",
+  "strategyLearned": "Öğrenilmiş (Uyarlanabilir ML)",
   "recsMatch": "eşleşme",
   "recsWatchProfiles": "İzleme Profilleri",
   "recsProfilesError": "Profiller yüklenemedi.",

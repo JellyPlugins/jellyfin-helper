@@ -257,6 +257,8 @@
   "reasonGenre": "Porque você gosta de {0}",
   "reasonHighlyRated": "Altamente avaliado",
   "reasonDefault": "Recomendado para você",
+  "strategyHeuristic": "Heurístico (baseado em regras)",
+  "strategyLearned": "Aprendido (ML adaptativo)",
   "recsMatch": "correspondência",
   "recsWatchProfiles": "Perfis de visualização",
   "recsProfilesError": "Não foi possível carregar os perfis.",

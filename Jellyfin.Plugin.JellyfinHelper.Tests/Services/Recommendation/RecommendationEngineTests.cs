@@ -372,4 +372,12 @@ public class RecommendationEngineTests
         var map = RecommendationEngine.BuildCollaborativeMap(user, [user]);
         Assert.Empty(map);
     }
+
+    [Fact]
+    public void ResolveStrategy_NoPluginInstance_ReturnsHeuristic()
+    {
+        // Plugin.Instance is null in unit tests → should fall back to Heuristic
+        var strategy = RecommendationEngine.ResolveStrategy();
+        Assert.IsType<HeuristicScoringStrategy>(strategy);
+    }
 }
