@@ -39,6 +39,9 @@ public static class DefaultWeights
     public const double UserRatingScore = 0.10;
 
     /// <summary>Weight for watch completion ratio (penalizes abandoned items).</summary>
+    // TODO: CompletionRatio acts as a positive signal but items ~80% completed get boosted
+    // rather than penalized. Consider adding an explicit "abandoned" feature (< 25% completion)
+    // with a negative weight, or changing CompletionRatio semantics to penalize partial views.
     public const double CompletionRatio = 0.04;
 
     /// <summary>Default bias term for the learned strategy.</summary>

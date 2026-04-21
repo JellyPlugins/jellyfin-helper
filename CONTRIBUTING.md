@@ -237,7 +237,11 @@ serviceCollection.AddSingleton<IRecommendationEngine, RecommendationEngine>();
 serviceCollection.AddSingleton<IRecommendationCacheService, RecommendationCacheService>();
 serviceCollection.AddSingleton<IUserActivityInsightsService, UserActivityInsightsService>();
 serviceCollection.AddSingleton<IUserActivityCacheService, UserActivityCacheService>();
+// IScoringStrategy resolved via factory method based on RecommendationStrategy config
+serviceCollection.AddSingleton<IScoringStrategy>(sp => ResolveScoringStrategy(sp));
 ```
+
+The `IScoringStrategy` registration uses a factory method (`ResolveScoringStrategy`) that reads `PluginConfiguration.RecommendationStrategy` and resolves the appropriate implementation (`heuristic` → `HeuristicScoringStrategy`, `learned` → `LearnedScoringStrategy`, `ensemble` → `EnsembleScoringStrategy`). The Ensemble strategy wraps both Heuristic and Learned internally.
 
 Named `HttpClient` instances are configured for external API communication: `"ArrIntegration"` (Radarr/Sonarr, 15-second timeout) and `"SeerrIntegration"` (Overseerr/Jellyseerr, 30-second timeout).
 
@@ -249,7 +253,7 @@ Named `HttpClient` instances are configured for external API communication: `"Ar
 |---------|-----------|-------------|
 | **Template Method** | `BaseLibraryCleanupTask` | Abstract base class orchestrates the cleanup lifecycle (config → log → iterate → process → summary → record). Concrete subclasses only implement `ProcessLocation()`. |
 | **Interface Segregation** | All services | Every service has a dedicated `I*Service` interface enabling mock-based testing and loose coupling. |
-| **Strategy** | `TaskMode` enum, `IScoringStrategy` | Each cleanup task can be independently set to `Activate`, `DryRun`, or `Deactivate`. Recommendation scoring uses interchangeable strategies (Heuristic vs Learned). |
+| **Strategy** | `TaskMode` enum, `IScoringStrategy` | Each cleanup task can be independently set to `Activate`, `DryRun`, or `Deactivate`. Recommendation scoring uses interchangeable strategies (Heuristic, Learned, Ensemble) selected via `RecommendationStrategy` config. |
 | **Singleton Lifetime** | DI registration | All plugin services are registered with singleton lifetime; services with shared mutable state (caches, tracking, ring buffer) still need explicit thread-safety. |
 | **Configuration Abstraction** | `IPluginConfigurationService` | Decouples all services from the static `Plugin.Instance` singleton. Services receive configuration via DI, enabling isolated unit tests without shared mutable state. |
 | **Build-time Composition** | UI pipeline | CSS/JS modules concatenated into a single `configPage.html` at build time (MSBuild target). |
@@ -426,6 +430,10 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 | **Seerr API Key** | API key for Seerr cleanup / test connection | Empty |
 | **Seerr Cleanup Age (days)** | Max request age before deletion | 365 |
 | **Recommendations Task Mode** | Activate / DryRun / Deactivate | DryRun |
+| **Recommendation Strategy** | Scoring strategy: `heuristic`, `learned`, or `ensemble` | `ensemble` |
+| **Ensemble Alpha Min** | Minimum ML blend factor (0 = pure heuristic) | 0.3 |
+| **Ensemble Alpha Max** | Maximum ML blend factor (1 = pure ML) | 0.8 |
+| **Ensemble Genre Penalty Floor** | Minimum score multiplier for zero-genre-overlap items (0–1) | 0.10 |
 
 Configuration is automatically migrated from legacy formats via `ConfigVersion`.
 
