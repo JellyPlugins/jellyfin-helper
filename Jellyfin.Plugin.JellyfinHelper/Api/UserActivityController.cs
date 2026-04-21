@@ -45,7 +45,6 @@ public class UserActivityController : ControllerBase
     /// <returns>The user activity result.</returns>
     [HttpGet("Latest")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public ActionResult<UserActivityResult> GetLatestActivity()
     {
         var cached = _cacheService.LoadResult();
@@ -65,12 +64,15 @@ public class UserActivityController : ControllerBase
     ///     Returns only items where the specified user has activity.
     /// </summary>
     /// <param name="userId">The Jellyfin user ID to filter by.</param>
+    /// <param name="maxResults">Maximum number of results to return (1–200, default 15).</param>
     /// <returns>Activity summaries containing only the specified user's data.</returns>
     [HttpGet("User/{userId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult<List<UserActivitySummary>> GetUserActivity(Guid userId)
+    public ActionResult<List<UserActivitySummary>> GetUserActivity(Guid userId, [FromQuery] int maxResults = 15)
     {
+        maxResults = Math.Clamp(maxResults, 1, 200);
+
         var cached = _cacheService.LoadResult();
         var source = cached ?? _insightsService.BuildActivityReport();
 
@@ -100,6 +102,7 @@ public class UserActivityController : ControllerBase
                     s.UserActivities.Where(a => a.UserId == userId).ToList())
             })
             .OrderByDescending(s => s.UserActivities.FirstOrDefault()?.LastPlayedDate)
+            .Take(maxResults)
             .ToList();
 
         if (userItems.Count == 0)

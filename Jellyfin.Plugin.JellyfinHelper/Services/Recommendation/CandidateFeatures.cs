@@ -48,7 +48,7 @@ public sealed class CandidateFeatures
             RatingScore,
             RecencyScore,
             YearProximityScore,
-            Math.Min(GenreCount / GenreCountNormalizationCeiling, 1.0),
+            Math.Clamp(GenreCount / GenreCountNormalizationCeiling, 0.0, 1.0),
             IsSeries ? 1.0 : 0.0
         ];
     }

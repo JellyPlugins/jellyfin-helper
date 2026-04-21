@@ -395,6 +395,64 @@
         background: rgba(0, 0, 0, 0.03);
         border-color: rgba(0, 0, 0, 0.08);
     }
+
+    .recs-info-line {
+        background: rgba(0, 0, 0, 0.03);
+        border-color: rgba(0, 0, 0, 0.06);
+    }
+
+    .recs-item {
+        background: rgba(0, 0, 0, 0.02);
+        border-color: rgba(0, 0, 0, 0.08);
+    }
+
+    .recs-tag {
+        background: rgba(0, 0, 0, 0.06);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .recs-tag-year {
+        background: rgba(0, 0, 0, 0.04);
+    }
+
+    .recs-item-score {
+        background: rgba(0, 0, 0, 0.06);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .recs-score-low .recs-score-bar {
+        background: rgba(0, 0, 0, 0.12);
+    }
+
+    .recs-collapsible {
+        border-top-color: rgba(0, 0, 0, 0.08);
+    }
+
+    .recs-profile-compact {
+        background: rgba(0, 0, 0, 0.02);
+        border-color: rgba(0, 0, 0, 0.06);
+    }
+
+    .activity-table th {
+        border-bottom-color: rgba(0, 0, 0, 0.12);
+    }
+
+    .activity-table td {
+        border-bottom-color: rgba(0, 0, 0, 0.06);
+    }
+
+    .activity-table tbody tr:hover {
+        background: rgba(0, 0, 0, 0.03);
+    }
+
+    .activity-completion-bar {
+        background: rgba(0, 0, 0, 0.06);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .activity-status-new {
+        background: rgba(0, 0, 0, 0.10);
+    }
 }
 
 /* Responsive: hide some columns on small screens */

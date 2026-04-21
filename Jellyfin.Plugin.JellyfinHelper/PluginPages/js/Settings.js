@@ -695,11 +695,18 @@ function attachAutoSaveHandlers() {
             var el = document.getElementById(id);
             if (!el) return;
             el.addEventListener('change', function () {
-                doSaveSettings(buildSettingsPayload(), {quiet: true, element: el});
-                // Update Recommendations tab visibility when its mode changes
+                // Update Recommendations tab visibility only after save succeeds
                 if (id === 'cfgRecommendationsMode') {
-                    updateRecsTabVisibility(el.value);
+                    doSaveSettings(buildSettingsPayload(), {
+                        quiet: true,
+                        element: el,
+                        onSuccess: function () {
+                            updateRecsTabVisibility(el.value);
+                        }
+                    });
+                    return;
                 }
+                doSaveSettings(buildSettingsPayload(), {quiet: true, element: el});
             });
         })(taskModeIds[i]);
     }

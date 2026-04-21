@@ -1,10 +1,11 @@
 // --- Recommendations Tab (Smart Suggestions) ---
 
 var _recsLoaded = false;
+var _profileReqId = 0;
+var _activityReqId = 0;
 
 function initRecommendationsTab() {
     if (_recsLoaded) return;
-    _recsLoaded = true;
     loadRecommendations();
 }
 
@@ -17,8 +18,10 @@ function loadRecommendations() {
         + '<p>' + T('loadingRecommendations', 'Loading recommendations…') + '</p></div>';
 
     apiGet('JellyfinHelper/Recommendations', function (data) {
+        _recsLoaded = true;
         renderRecommendations(container, data);
     }, function (err) {
+        _recsLoaded = false;
         container.innerHTML = '<div class="error-msg">❌ '
             + T('recsError', 'Failed to load recommendations. Make sure the recommendation task has run at least once.')
             + '</div>';
@@ -224,9 +227,12 @@ function loadUserWatchProfile(index) {
 
     container.innerHTML = '<div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div>';
 
+    var reqId = ++_profileReqId;
     apiGet('JellyfinHelper/Recommendations/WatchProfile/' + result.UserId, function (profile) {
+        if (reqId !== _profileReqId) return;
         renderCompactWatchProfile(container, profile);
     }, function () {
+        if (reqId !== _profileReqId) return;
         container.innerHTML = '<div class="recs-profile-compact-empty">'
             + T('recsNoProfiles', 'No watch profile available.') + '</div>';
     });
@@ -278,9 +284,12 @@ function loadUserActivity(index) {
 
     container.innerHTML = '<div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div>';
 
+    var reqId = ++_activityReqId;
     apiGet('JellyfinHelper/UserActivity/User/' + result.UserId, function (items) {
+        if (reqId !== _activityReqId) return;
         renderCompactActivityTable(container, items);
     }, function () {
+        if (reqId !== _activityReqId) return;
         container.innerHTML = '<div class="recs-profile-compact-empty">'
             + T('activityNoData', 'No watch activity data available.') + '</div>';
     });

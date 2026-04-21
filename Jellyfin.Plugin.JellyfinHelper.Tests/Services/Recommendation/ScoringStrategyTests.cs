@@ -79,6 +79,15 @@ public sealed class ScoringStrategyTests : IDisposable
     }
 
     [Fact]
+    public void CandidateFeatures_ToVector_NegativeGenreCountNormalizesToZero()
+    {
+        var features = new CandidateFeatures { GenreCount = -1 };
+        var vector = features.ToVector();
+        // -1/5 = -0.2, Math.Clamp(-0.2, 0.0, 1.0) = 0.0 — clamped to lower bound
+        Assert.Equal(0.0, vector[5]);
+    }
+
+    [Fact]
     public void CandidateFeatures_ToVector_DefaultsAllZero()
     {
         var features = new CandidateFeatures();
@@ -405,7 +414,7 @@ public sealed class ScoringStrategyTests : IDisposable
             });
         }
 
-        strategy.Train(examples);
+        Assert.True(strategy.Train(examples), "Training should succeed with sufficient examples");
 
         Assert.True(File.Exists(weightsPath), "Weights file should be created after training");
 
@@ -438,7 +447,7 @@ public sealed class ScoringStrategyTests : IDisposable
             });
         }
 
-        strategy1.Train(examples);
+        Assert.True(strategy1.Train(examples), "Training should succeed with sufficient examples");
         var savedWeights = strategy1.CurrentWeights;
         var savedBias = strategy1.CurrentBias;
 

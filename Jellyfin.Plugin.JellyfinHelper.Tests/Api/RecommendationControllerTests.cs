@@ -95,6 +95,7 @@ public class RecommendationControllerTests
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<RecommendationResult>(ok.Value);
         Assert.Equal("Alice", data.UserName);
+        _mockEngine.Verify(e => e.GetRecommendations(It.IsAny<Guid>(), It.IsAny<int>()), Times.Never);
     }
 
     [Fact]

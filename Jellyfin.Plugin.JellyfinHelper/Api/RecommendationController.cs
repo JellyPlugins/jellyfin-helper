@@ -63,6 +63,8 @@ public class RecommendationController : ControllerBase
         var cached = _cacheService.LoadResults();
         if (cached is not null)
         {
+            // Cache returns the full result set from the scheduled task;
+            // maxPerUser is only applied during on-demand generation below.
             return Ok(cached);
         }
 
@@ -93,7 +95,8 @@ public class RecommendationController : ControllerBase
 
         maxResults = Math.Clamp(maxResults, 1, 100);
 
-        // Try cache first
+        // Try cache first — cached results contain the full recommendation set
+        // from the scheduled task; maxResults is only applied during on-demand generation below.
         var cached = _cacheService.LoadResults();
         var cachedUser = cached?.FirstOrDefault(r => r.UserId == userId);
         if (cachedUser is not null)

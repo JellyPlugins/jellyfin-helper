@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
@@ -460,11 +461,7 @@ public class HelperCleanupTask : IScheduledTask
         progress.Report(80);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var totalRecs = 0;
-        foreach (var r in results)
-        {
-            totalRecs += r.Recommendations.Count;
-        }
+        var totalRecs = results.Sum(r => r.Recommendations.Count);
 
         if (isDryRun)
         {

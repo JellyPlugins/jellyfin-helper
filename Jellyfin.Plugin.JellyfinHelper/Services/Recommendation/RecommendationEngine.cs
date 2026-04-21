@@ -172,10 +172,11 @@ public sealed class RecommendationEngine : IRecommendationEngine
             }
         }
 
+        var positiveCount = examples.Count(e => e.Label > 0.5);
         _pluginLog.LogInfo(
             "Recommendations",
-            $"Built {examples.Count} training examples ({examples.Count(e => e.Label > 0.5)} positive, " +
-            $"{examples.Count(e => e.Label <= 0.5)} negative) from {previousResults.Count} users.",
+            $"Built {examples.Count} training examples ({positiveCount} positive, " +
+            $"{examples.Count - positiveCount} negative) from {previousResults.Count} users.",
             _logger);
 
         var trained = strategy.Train(examples);

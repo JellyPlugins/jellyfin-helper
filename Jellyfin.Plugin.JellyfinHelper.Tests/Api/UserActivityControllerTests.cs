@@ -192,7 +192,10 @@ public class UserActivityControllerTests
 
         var result = _controller.GetUserActivity(userId);
 
-        Assert.IsType<OkObjectResult>(result.Result);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
+        Assert.Single(data);
+        Assert.Equal("Movie C", data[0].ItemName);
         _mockCache.Verify(c => c.SaveResult(generated), Times.Once);
     }
 }
