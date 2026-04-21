@@ -60,6 +60,7 @@ public class TaskModeTests
         Assert.Equal(TaskMode.DryRun, config.EmptyMediaFolderTaskMode);
         Assert.Equal(TaskMode.DryRun, config.OrphanedSubtitleTaskMode);
         Assert.Equal(TaskMode.DryRun, config.LinkRepairTaskMode);
+        Assert.Equal(TaskMode.DryRun, config.RecommendationsTaskMode);
         Assert.Equal(TaskMode.Deactivate, config.SeerrCleanupTaskMode);
     }
 
@@ -72,6 +73,7 @@ public class TaskModeTests
             EmptyMediaFolderTaskMode = TaskMode.Deactivate,
             OrphanedSubtitleTaskMode = TaskMode.DryRun,
             LinkRepairTaskMode = TaskMode.Activate,
+            RecommendationsTaskMode = TaskMode.Activate,
             SeerrCleanupTaskMode = TaskMode.Deactivate
         };
 
@@ -82,6 +84,7 @@ public class TaskModeTests
         Assert.Equal(TaskMode.Deactivate, deserialized.EmptyMediaFolderTaskMode);
         Assert.Equal(TaskMode.DryRun, deserialized.OrphanedSubtitleTaskMode);
         Assert.Equal(TaskMode.Activate, deserialized.LinkRepairTaskMode);
+        Assert.Equal(TaskMode.Activate, deserialized.RecommendationsTaskMode);
         Assert.Equal(TaskMode.Deactivate, deserialized.SeerrCleanupTaskMode);
     }
 }

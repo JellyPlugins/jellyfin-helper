@@ -1,11 +1,13 @@
 ﻿using System;
 using System.IO.Abstractions;
+using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
@@ -49,5 +51,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ILinkRepairService, LinkRepairService>();
         serviceCollection.AddSingleton<IArrIntegrationService, ArrIntegrationService>();
         serviceCollection.AddSingleton<ISeerrIntegrationService, SeerrIntegrationService>();
+        serviceCollection.AddSingleton<IWatchHistoryService, WatchHistoryService>();
+        serviceCollection.AddSingleton<IRecommendationEngine, RecommendationEngine>();
+        serviceCollection.AddSingleton<IRecommendationCacheService, RecommendationCacheService>();
+        serviceCollection.AddSingleton<IUserActivityInsightsService, UserActivityInsightsService>();
+        serviceCollection.AddSingleton<IUserActivityCacheService, UserActivityCacheService>();
     }
 }

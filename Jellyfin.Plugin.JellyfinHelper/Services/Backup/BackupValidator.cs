@@ -39,6 +39,11 @@ public static class BackupValidator
     internal const int MaxRetentionDays = 3650;
 
     /// <summary>
+    ///     Maximum number of recommendations per user allowed in a backup.
+    /// </summary>
+    internal const int MaxRecommendationCount = 100;
+
+    /// <summary>
     ///     Maximum string length for general text fields (library names, paths, etc.).
     /// </summary>
     internal const int MaxStringLength = 1000;
@@ -143,6 +148,7 @@ public static class BackupValidator
         ValidateStringField(result, backup.SeerrCleanupTaskMode, "SeerrCleanupTaskMode", MaxStringLength);
         ValidateStringField(result, backup.SeerrUrl, "SeerrUrl", MaxUrlLength);
         ValidateStringField(result, backup.SeerrApiKey, "SeerrApiKey", MaxApiKeyLength);
+        ValidateStringField(result, backup.RecommendationsTaskMode, "RecommendationsTaskMode", MaxStringLength);
 
         if (!string.IsNullOrEmpty(backup.SeerrUrl) &&
             (!Uri.TryCreate(backup.SeerrUrl, UriKind.Absolute, out var seerrUri) ||
@@ -162,6 +168,7 @@ public static class BackupValidator
         ValidateTaskMode(result, backup.OrphanedSubtitleTaskMode, "OrphanedSubtitleTaskMode");
         ValidateTaskMode(result, backup.LinkRepairTaskMode, "LinkRepairTaskMode");
         ValidateTaskMode(result, backup.SeerrCleanupTaskMode, "SeerrCleanupTaskMode", "Deactivate");
+        ValidateTaskMode(result, backup.RecommendationsTaskMode, "RecommendationsTaskMode");
 
         if (!string.IsNullOrEmpty(backup.PluginLogLevel) && !ValidLogLevels.Contains(backup.PluginLogLevel))
         {
@@ -184,6 +191,13 @@ public static class BackupValidator
             (backup.SeerrCleanupAgeDays < 1 || backup.SeerrCleanupAgeDays > MaxRetentionDays))
         {
             result.Errors.Add($"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 1–{MaxRetentionDays}.");
+        }
+
+        // Smart Recommendations — older backups default to 0 (treat as absent)
+        if (backup.RecommendationCount != 0 &&
+            (backup.RecommendationCount < 1 || backup.RecommendationCount > MaxRecommendationCount))
+        {
+            result.Errors.Add($"RecommendationCount out of range: {backup.RecommendationCount}. Must be 1–{MaxRecommendationCount}.");
         }
 
         // Path traversal check for trash folder

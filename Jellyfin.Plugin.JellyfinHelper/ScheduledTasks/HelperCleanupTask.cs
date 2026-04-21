@@ -5,9 +5,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
+using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
@@ -33,11 +35,15 @@ public class HelperCleanupTask : IScheduledTask
     private readonly ILogger<HelperCleanupTask> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IPluginLogService _pluginLog;
+    private readonly IRecommendationCacheService _recsCacheService;
+    private readonly IRecommendationEngine _recsEngine;
     private readonly IMediaStatisticsService _statisticsService;
     private readonly ILinkRepairService _linkRepairService;
     private readonly ISeerrIntegrationService _seerrService;
     private readonly ICleanupTrackingService _trackingService;
     private readonly ITrashService _trashService;
+    private readonly IUserActivityCacheService _userActivityCacheService;
+    private readonly IUserActivityInsightsService _userActivityInsightsService;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="HelperCleanupTask" /> class.
@@ -54,6 +60,10 @@ public class HelperCleanupTask : IScheduledTask
     /// <param name="trashService">The trash service.</param>
     /// <param name="linkRepairService">The link repair service.</param>
     /// <param name="seerrService">The Seerr integration service.</param>
+    /// <param name="userActivityInsightsService">The user activity insights service.</param>
+    /// <param name="userActivityCacheService">The user activity cache service.</param>
+    /// <param name="recsEngine">The recommendation engine.</param>
+    /// <param name="recsCacheService">The recommendation cache service.</param>
     public HelperCleanupTask(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
@@ -66,7 +76,11 @@ public class HelperCleanupTask : IScheduledTask
         ICleanupTrackingService trackingService,
         ITrashService trashService,
         ILinkRepairService linkRepairService,
-        ISeerrIntegrationService seerrService)
+        ISeerrIntegrationService seerrService,
+        IUserActivityInsightsService userActivityInsightsService,
+        IUserActivityCacheService userActivityCacheService,
+        IRecommendationEngine recsEngine,
+        IRecommendationCacheService recsCacheService)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
@@ -81,6 +95,10 @@ public class HelperCleanupTask : IScheduledTask
         _trashService = trashService;
         _linkRepairService = linkRepairService;
         _seerrService = seerrService;
+        _userActivityInsightsService = userActivityInsightsService;
+        _userActivityCacheService = userActivityCacheService;
+        _recsEngine = recsEngine;
+        _recsCacheService = recsCacheService;
     }
 
     /// <inheritdoc />
@@ -91,7 +109,7 @@ public class HelperCleanupTask : IScheduledTask
 
     /// <inheritdoc />
     public string Description =>
-        "Runs all configured cleanup and repair tasks sequentially (Trickplay, Empty Folders, Orphaned Subtitles, Link Repair, Seerr Cleanup).";
+        "Runs all configured cleanup and repair tasks sequentially (Trickplay, Empty Folders, Orphaned Subtitles, Link Repair, Seerr Cleanup, User Activity, Smart Recommendations).";
 
     /// <inheritdoc />
     public string Category => "Jellyfin Helper";
@@ -108,7 +126,9 @@ public class HelperCleanupTask : IScheduledTask
             ("Empty Media Folder Cleanup", config.EmptyMediaFolderTaskMode, RunEmptyMediaFolderCleanup),
             ("Orphaned Subtitle Cleanup", config.OrphanedSubtitleTaskMode, RunOrphanedSubtitleCleanup),
             ("Link Repair", config.LinkRepairTaskMode, RunLinkRepair),
-            ("Seerr Cleanup", config.SeerrCleanupTaskMode, (p, ct) => RunSeerrCleanup(config, p, ct))
+            ("Seerr Cleanup", config.SeerrCleanupTaskMode, (p, ct) => RunSeerrCleanup(config, p, ct)),
+            ("User Watch Activity", config.RecommendationsTaskMode, RunUserActivityUpdate),
+            ("Smart Recommendations", config.RecommendationsTaskMode, (p, ct) => RunRecommendationsUpdate(config, p, ct))
         };
 
         var totalTasks = subTasks.Length;
@@ -367,6 +387,72 @@ public class HelperCleanupTask : IScheduledTask
             _logger);
 
         progress.Report(100);
+    }
+
+    private Task RunUserActivityUpdate(IProgress<double> progress, CancellationToken cancellationToken)
+    {
+        _pluginLog.LogInfo("HelperCleanup", "Updating user watch activity data...", _logger);
+        progress.Report(10);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var result = _userActivityInsightsService.BuildActivityReport();
+        progress.Report(80);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        _userActivityCacheService.SaveResult(result);
+
+        _pluginLog.LogInfo(
+            "HelperCleanup",
+            $"User activity update completed: {result.TotalItemsWithActivity} items, " +
+            $"{result.TotalPlayCount} plays across {result.TotalUsersAnalyzed} users.",
+            _logger);
+
+        progress.Report(100);
+        return Task.CompletedTask;
+    }
+
+    private Task RunRecommendationsUpdate(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
+    {
+        var taskMode = config.RecommendationsTaskMode;
+        var isDryRun = taskMode == TaskMode.DryRun;
+        var modeLabel = isDryRun ? "[DRY-RUN]" : "[ACTIVE]";
+
+        _pluginLog.LogInfo("HelperCleanup", $"{modeLabel} Generating smart recommendations...", _logger);
+        progress.Report(10);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var maxPerUser = config.RecommendationCount > 0 ? config.RecommendationCount : 20;
+        var results = _recsEngine.GetAllRecommendations(maxPerUser);
+
+        progress.Report(80);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var totalRecs = 0;
+        foreach (var r in results)
+        {
+            totalRecs += r.Recommendations.Count;
+        }
+
+        if (isDryRun)
+        {
+            _pluginLog.LogInfo(
+                "HelperCleanup",
+                $"{modeLabel} Recommendations: {results.Count} users, {totalRecs} total. NOT saved (dry-run).",
+                _logger);
+        }
+        else
+        {
+            _recsCacheService.SaveResults(results);
+            _pluginLog.LogInfo(
+                "HelperCleanup",
+                $"{modeLabel} Recommendations: {results.Count} users, {totalRecs} total. Saved to cache.",
+                _logger);
+        }
+
+        progress.Report(100);
+        return Task.CompletedTask;
     }
 
     private Task RunLinkRepair(IProgress<double> progress, CancellationToken cancellationToken)

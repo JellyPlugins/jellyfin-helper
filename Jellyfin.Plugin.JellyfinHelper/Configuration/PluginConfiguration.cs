@@ -134,6 +134,26 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public string Language { get; set; } = "en";
 
+    // ===== Smart Recommendations =====
+
+    /// <summary>
+    ///     Gets or sets the execution mode for the Smart Recommendations task.
+    ///     Default is <see cref="TaskMode.DryRun" /> (safe mode — generates but does not persist).
+    /// </summary>
+    public TaskMode RecommendationsTaskMode { get; set; } = TaskMode.DryRun;
+
+    /// <summary>
+    ///     Gets or sets the maximum number of recommendations per user.
+    ///     Default is 20.
+    /// </summary>
+    public int RecommendationCount { get; set; } = 20;
+
+    /// <summary>
+    ///     Gets or sets the scoring strategy for recommendations.
+    ///     Default is <see cref="ScoringStrategyType.Heuristic" /> (fixed weights).
+    /// </summary>
+    public ScoringStrategyType RecommendationScoringStrategy { get; set; } = ScoringStrategyType.Heuristic;
+
     /// <summary>
     ///     Gets or sets the minimum log level for the plugin's in-memory log buffer.
     ///     Supported values: DEBUG, INFO, WARN, ERROR. Default is "INFO".

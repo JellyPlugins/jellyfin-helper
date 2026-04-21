@@ -113,7 +113,11 @@ public class BackupService : IBackupService
             // Trash settings
             UseTrash = config.UseTrash,
             TrashFolderPath = config.TrashFolderPath,
-            TrashRetentionDays = config.TrashRetentionDays
+            TrashRetentionDays = config.TrashRetentionDays,
+
+            // Smart Recommendations
+            RecommendationsTaskMode = config.RecommendationsTaskMode.ToString(),
+            RecommendationCount = config.RecommendationCount
         };
 
         // Arr instances
@@ -282,6 +286,14 @@ public class BackupService : IBackupService
             ? ".jellyfin-trash"
             : backup.TrashFolderPath;
         config.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
+
+        // Smart Recommendations
+        config.RecommendationsTaskMode = ParseTaskMode(backup.RecommendationsTaskMode);
+        if (backup.RecommendationCount > 0)
+        {
+            config.RecommendationCount = Math.Clamp(
+                backup.RecommendationCount, 1, BackupValidator.MaxRecommendationCount);
+        }
 
         // Arr instances
         config.RadarrInstances.Clear();

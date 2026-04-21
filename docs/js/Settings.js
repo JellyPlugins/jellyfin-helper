@@ -10,6 +10,20 @@ var _wasTrashEnabled = false;
 var _currentLogLevel = 'INFO';
 var _logLevelLoaded = false;
 
+// Show/hide the Recommendations tab button+content based on TaskMode
+function updateRecsTabVisibility(taskMode) {
+    var show = taskMode !== 'Deactivate';
+    var btn = document.querySelector('.tab-btn[data-tab="recommendations"]');
+    var panel = document.getElementById('tab-recommendations');
+    if (btn) btn.style.display = show ? '' : 'none';
+    if (panel) panel.style.display = show ? '' : 'none';
+    // If the hidden tab was active, switch to overview
+    if (!show && btn && btn.classList.contains('active')) {
+        var overviewBtn = document.querySelector('.tab-btn[data-tab="overview"]');
+        if (overviewBtn) overviewBtn.click();
+    }
+}
+
 // Update Seerr greyed-out UI state based on whether URL+Key are configured
 function updateSeerrUIState(isConfigured) {
     var taskW = document.querySelector('.seerr-task-mode-wrapper');
@@ -163,6 +177,7 @@ function loadSettings() {
         h += renderTaskModeSelect('cfgEmptyFolderMode', T('emptyMediaFolderCleaner', 'Empty Media Folder Cleaner'), cfg.EmptyMediaFolderTaskMode || 'DryRun');
         h += renderTaskModeSelect('cfgSubtitleMode', T('orphanedSubtitleCleaner', 'Orphaned Subtitle Cleaner'), cfg.OrphanedSubtitleTaskMode || 'DryRun');
         h += renderTaskModeSelect('cfgLinkMode', T('linkRepair', 'Link Repair'), cfg.LinkRepairTaskMode || 'DryRun');
+        h += renderTaskModeSelect('cfgRecommendationsMode', T('recommendations', 'Recommendations'), cfg.RecommendationsTaskMode || 'DryRun');
 
         // Seerr Cleanup task mode - greyed out if not configured
         var seerrConfigured = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
@@ -251,6 +266,9 @@ function loadSettings() {
 
         initArrButtons(cfg);
 
+        // Show/hide Recommendations tab based on task mode
+        updateRecsTabVisibility(cfg.RecommendationsTaskMode || 'DryRun');
+
         // Take snapshot after settings are fully rendered
         setTimeout(takeSettingsSnapshot, 0);
     }, function () {
@@ -272,6 +290,7 @@ function buildSettingsPayload() {
         EmptyMediaFolderTaskMode: document.getElementById('cfgEmptyFolderMode').value,
         OrphanedSubtitleTaskMode: document.getElementById('cfgSubtitleMode').value,
         LinkRepairTaskMode: document.getElementById('cfgLinkMode').value,
+        RecommendationsTaskMode: document.getElementById('cfgRecommendationsMode').value,
         SeerrUrl: (document.getElementById('cfgSeerrUrl') || {}).value || '',
         SeerrApiKey: (document.getElementById('cfgSeerrApiKey') || {}).value || '',
         SeerrCleanupTaskMode: (function () {
@@ -670,13 +689,17 @@ function attachSeerrHandlers() {
  */
 function attachAutoSaveHandlers() {
     // Task mode dropdowns — auto-save on change
-    var taskModeIds = ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgSeerrMode'];
+    var taskModeIds = ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgRecommendationsMode', 'cfgSeerrMode'];
     for (var i = 0; i < taskModeIds.length; i++) {
         (function (id) {
             var el = document.getElementById(id);
             if (!el) return;
             el.addEventListener('change', function () {
                 doSaveSettings(buildSettingsPayload(), {quiet: true, element: el});
+                // Update Recommendations tab visibility when its mode changes
+                if (id === 'cfgRecommendationsMode') {
+                    updateRecsTabVisibility(el.value);
+                }
             });
         })(taskModeIds[i]);
     }

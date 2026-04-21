@@ -1,9 +1,12 @@
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using System.Collections.ObjectModel;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
@@ -91,6 +94,17 @@ public class HelperCleanupTaskTests : IDisposable
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SeerrCleanupResult());
 
+        var userActivityInsightsMock = new Mock<IUserActivityInsightsService>();
+        userActivityInsightsMock
+            .Setup(s => s.BuildActivityReport())
+            .Returns(new UserActivityResult());
+        var userActivityCacheMock = new Mock<IUserActivityCacheService>();
+        var recsEngineMock = new Mock<IRecommendationEngine>();
+        recsEngineMock
+            .Setup(e => e.GetAllRecommendations(It.IsAny<int>()))
+            .Returns(new Collection<RecommendationResult>());
+        var recsCacheMock = new Mock<IRecommendationCacheService>();
+
         _task = new HelperCleanupTask(
             libraryManagerMock.Object,
             fileSystemMock.Object,
@@ -103,7 +117,11 @@ public class HelperCleanupTaskTests : IDisposable
             trackingServiceMock.Object,
             trashServiceMock.Object,
             linkRepairServiceMock.Object,
-            _seerrServiceMock.Object);
+            _seerrServiceMock.Object,
+            userActivityInsightsMock.Object,
+            userActivityCacheMock.Object,
+            recsEngineMock.Object,
+            recsCacheMock.Object);
     }
 
     public void Dispose()
@@ -296,13 +314,17 @@ public class HelperCleanupTaskTests : IDisposable
 
         await _task.ExecuteAsync(progress, CancellationToken.None);
 
-        // 5 sub-tasks → progress at 20, 40, 60, 80, 100
-        Assert.Equal(5, reportedValues.Count);
-        Assert.Equal(20.0, reportedValues[0]);
-        Assert.Equal(40.0, reportedValues[1]);
-        Assert.Equal(60.0, reportedValues[2]);
-        Assert.Equal(80.0, reportedValues[3]);
-        Assert.Equal(100.0, reportedValues[4]);
+        // At least 7 reports (one per sub-task boundary, plus internal sub-progress)
+        Assert.True(reportedValues.Count >= 7,
+            $"Expected at least 7 progress reports, got {reportedValues.Count}");
+        // All values should be non-decreasing and end at ~100
+        for (var i = 1; i < reportedValues.Count; i++)
+        {
+            Assert.True(reportedValues[i] >= reportedValues[i - 1],
+                $"Progress should be non-decreasing: [{i - 1}]={reportedValues[i - 1]}, [{i}]={reportedValues[i]}");
+        }
+
+        Assert.Equal(100.0, reportedValues[^1], 0.01);
     }
 
     [Fact]

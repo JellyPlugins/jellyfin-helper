@@ -48,6 +48,13 @@ public static class BackupSanitizer
         backup.ExcludedLibraries = TruncateString(backup.ExcludedLibraries, BackupValidator.MaxStringLength);
         backup.TrashFolderPath = TruncateString(backup.TrashFolderPath, BackupValidator.MaxStringLength);
 
+        // Seerr task mode
+        backup.SeerrCleanupTaskMode = SanitizeTaskMode(backup.SeerrCleanupTaskMode);
+
+        // Smart Recommendations
+        backup.RecommendationsTaskMode = SanitizeTaskMode(backup.RecommendationsTaskMode);
+        backup.RecommendationCount = Math.Clamp(backup.RecommendationCount, 1, BackupValidator.MaxRecommendationCount);
+
         // Arr instances
         SanitizeArrInstances(backup.RadarrInstances);
         SanitizeArrInstances(backup.SonarrInstances);
