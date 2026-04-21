@@ -53,10 +53,16 @@ public sealed class TrainingExample
     ///     Computes a temporal decay weight based on the age of this example.
     ///     Newer examples get weight closer to 1.0, older examples decay exponentially.
     /// </summary>
+    /// <param name="referenceTimeUtc">
+    ///     The reference point in time to compute age against.
+    ///     If <c>null</c>, <see cref="DateTime.UtcNow"/> is used.
+    ///     Passing an explicit value ensures consistent weights within a single training batch.
+    /// </param>
     /// <returns>A decay weight between 0 and 1.</returns>
-    public double ComputeTemporalWeight()
+    public double ComputeTemporalWeight(DateTime? referenceTimeUtc = null)
     {
-        var ageDays = (DateTime.UtcNow - GeneratedAtUtc).TotalDays;
+        var reference = referenceTimeUtc ?? DateTime.UtcNow;
+        var ageDays = (reference - GeneratedAtUtc).TotalDays;
         if (ageDays <= 0)
         {
             return 1.0;
@@ -69,9 +75,13 @@ public sealed class TrainingExample
     ///     Computes the effective weight for this example, combining the explicit sample weight
     ///     with the temporal decay weight.
     /// </summary>
+    /// <param name="referenceTimeUtc">
+    ///     The reference point in time for temporal decay.
+    ///     If <c>null</c>, <see cref="DateTime.UtcNow"/> is used.
+    /// </param>
     /// <returns>The effective weight between 0 and 1.</returns>
-    public double ComputeEffectiveWeight()
+    public double ComputeEffectiveWeight(DateTime? referenceTimeUtc = null)
     {
-        return SampleWeight * ComputeTemporalWeight();
+        return SampleWeight * ComputeTemporalWeight(referenceTimeUtc);
     }
 }

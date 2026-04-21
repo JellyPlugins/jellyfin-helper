@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 
@@ -42,8 +44,59 @@ public sealed class ScoreExplanation
     public string StrategyName { get; set; } = string.Empty;
 
     /// <summary>
+    ///     Blends this explanation with another using a linear interpolation factor.
+    ///     Result = (1 - alpha) × this + alpha × other.
+    /// </summary>
+    /// <param name="other">The other explanation to blend with.</param>
+    /// <param name="alpha">The blending factor (0 = 100% this, 1 = 100% other).</param>
+    /// <returns>A new blended explanation.</returns>
+    public ScoreExplanation Blend(ScoreExplanation other, double alpha)
+    {
+        var oneMinusAlpha = 1.0 - alpha;
+        return new ScoreExplanation
+        {
+            FinalScore = (oneMinusAlpha * FinalScore) + (alpha * other.FinalScore),
+            GenreContribution = (oneMinusAlpha * GenreContribution) + (alpha * other.GenreContribution),
+            CollaborativeContribution = (oneMinusAlpha * CollaborativeContribution) + (alpha * other.CollaborativeContribution),
+            RatingContribution = (oneMinusAlpha * RatingContribution) + (alpha * other.RatingContribution),
+            RecencyContribution = (oneMinusAlpha * RecencyContribution) + (alpha * other.RecencyContribution),
+            YearProximityContribution = (oneMinusAlpha * YearProximityContribution) + (alpha * other.YearProximityContribution),
+            UserRatingContribution = (oneMinusAlpha * UserRatingContribution) + (alpha * other.UserRatingContribution),
+            InteractionContribution = (oneMinusAlpha * InteractionContribution) + (alpha * other.InteractionContribution),
+            GenrePenaltyMultiplier = 1.0, // Penalty is applied separately after blending
+            StrategyName = StrategyName // Caller can override
+        };
+    }
+
+    /// <summary>
+    ///     Applies a genre penalty multiplier to all contribution values and the final score.
+    ///     Returns a new explanation with the penalty applied.
+    /// </summary>
+    /// <param name="penaltyMultiplier">The penalty multiplier (0–1).</param>
+    /// <returns>A new explanation with all values scaled by the penalty.</returns>
+    public ScoreExplanation WithPenalty(double penaltyMultiplier)
+    {
+        return new ScoreExplanation
+        {
+            FinalScore = Math.Clamp(FinalScore * penaltyMultiplier, 0.0, 1.0),
+            GenreContribution = GenreContribution * penaltyMultiplier,
+            CollaborativeContribution = CollaborativeContribution * penaltyMultiplier,
+            RatingContribution = RatingContribution * penaltyMultiplier,
+            RecencyContribution = RecencyContribution * penaltyMultiplier,
+            YearProximityContribution = YearProximityContribution * penaltyMultiplier,
+            UserRatingContribution = UserRatingContribution * penaltyMultiplier,
+            InteractionContribution = InteractionContribution * penaltyMultiplier,
+            GenrePenaltyMultiplier = penaltyMultiplier,
+            DominantSignal = DominantSignal,
+            StrategyName = StrategyName
+        };
+    }
+
+    /// <summary>
     ///     Determines the dominant signal name from the per-feature contributions.
-    ///     Returns the name of the feature with the highest contribution value.
+    ///     Returns the name of the feature with the highest absolute contribution value.
+    ///     Uses a dictionary-based approach for extensibility — adding new features
+    ///     only requires adding an entry to the dictionary.
     /// </summary>
     /// <param name="genreContrib">Genre similarity contribution.</param>
     /// <param name="collabContrib">Collaborative filtering contribution.</param>
@@ -62,46 +115,18 @@ public sealed class ScoreExplanation
         double yearProxContrib,
         double interactionContrib = 0.0)
     {
-        // Use absolute values so that strong negative contributions are also detected
-        var dominant = "Genre";
-        var maxContrib = Math.Abs(genreContrib);
-
-        if (Math.Abs(collabContrib) > maxContrib)
+        var contributions = new Dictionary<string, double>(7)
         {
-            dominant = "Collaborative";
-            maxContrib = Math.Abs(collabContrib);
-        }
+            ["Genre"] = Math.Abs(genreContrib),
+            ["Collaborative"] = Math.Abs(collabContrib),
+            ["Rating"] = Math.Abs(ratingContrib),
+            ["UserRating"] = Math.Abs(userRatingContrib),
+            ["Recency"] = Math.Abs(recencyContrib),
+            ["YearProximity"] = Math.Abs(yearProxContrib),
+            ["Interaction"] = Math.Abs(interactionContrib)
+        };
 
-        if (Math.Abs(ratingContrib) > maxContrib)
-        {
-            dominant = "Rating";
-            maxContrib = Math.Abs(ratingContrib);
-        }
-
-        if (Math.Abs(userRatingContrib) > maxContrib)
-        {
-            dominant = "UserRating";
-            maxContrib = Math.Abs(userRatingContrib);
-        }
-
-        if (Math.Abs(recencyContrib) > maxContrib)
-        {
-            dominant = "Recency";
-            maxContrib = Math.Abs(recencyContrib);
-        }
-
-        if (Math.Abs(yearProxContrib) > maxContrib)
-        {
-            dominant = "YearProximity";
-            maxContrib = Math.Abs(yearProxContrib);
-        }
-
-        if (Math.Abs(interactionContrib) > maxContrib)
-        {
-            dominant = "Interaction";
-        }
-
-        return dominant;
+        return contributions.MaxBy(kvp => kvp.Value).Key;
     }
 
     /// <summary>

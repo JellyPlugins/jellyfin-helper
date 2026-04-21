@@ -297,7 +297,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Heuristic_DoesNotImplementITrainableStrategy()
     {
-        var strategy = new HeuristicScoringStrategy();
+        object strategy = new HeuristicScoringStrategy();
         // HeuristicScoringStrategy no longer implements ITrainableStrategy (ISP compliance)
         Assert.False(strategy is ITrainableStrategy);
     }

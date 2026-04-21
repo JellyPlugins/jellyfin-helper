@@ -11,7 +11,17 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 /// </summary>
 public sealed class HeuristicScoringStrategy : IScoringStrategy
 {
-    private static readonly double[] Weights = DefaultWeights.CreateWeightArray();
+    /// <summary>
+    ///     Pre-allocated weight array for <see cref="ScoringHelper"/> which requires <c>double[]</c>.
+    ///     Safe because this class never mutates the array after construction.
+    /// </summary>
+    private static readonly double[] WeightsArray = DefaultWeights.CreateWeightArray();
+
+    /// <summary>
+    ///     Thread-local reusable buffer to avoid allocating a new vector per Score() call.
+    /// </summary>
+    [ThreadStatic]
+    private static double[]? _vectorBuffer;
 
     private readonly double _genrePenaltyFloor;
 
@@ -37,9 +47,11 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
-        // Fast path: compute score directly without allocating a ScoreExplanation object
-        var vector = features.ToVector();
-        var raw = ScoringHelper.ComputeRawScore(vector, Weights, bias: 0.0);
+        // Reuse thread-local buffer to avoid per-call allocation (Point 1)
+        _vectorBuffer ??= new double[CandidateFeatures.FeatureCount];
+        features.WriteToVector(_vectorBuffer);
+
+        var raw = ScoringHelper.ComputeRawScore(_vectorBuffer, WeightsArray, bias: 0.0);
         var score = Math.Clamp(raw, 0.0, 1.0);
 
         // Apply genre penalty when used standalone
@@ -56,8 +68,10 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     /// <inheritdoc />
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
-        var vector = features.ToVector();
-        var explanation = ScoringHelper.BuildExplanation(vector, Weights, bias: 0.0, Name);
+        _vectorBuffer ??= new double[CandidateFeatures.FeatureCount];
+        features.WriteToVector(_vectorBuffer);
+
+        var explanation = ScoringHelper.BuildExplanation(_vectorBuffer, WeightsArray, bias: 0.0, Name);
 
         // Apply genre penalty when used standalone
         if (_genrePenaltyFloor < 1.0)

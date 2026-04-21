@@ -536,10 +536,7 @@ public sealed class RecommendationEngine : IRecommendationEngine
             return coOccurrence;
         }
 
-        // Build inverted index: itemId → list of (userId, watchedSet) for users who watched that item.
-        // This avoids O(users × items) iteration when the library is large but each user
-        // has only watched a small fraction of items.
-        var invertedIndex = new Dictionary<Guid, List<(Guid UserId, HashSet<Guid> WatchedIds)>>();
+        // Build a lookup of other users' watched-item sets for collaborative scoring.
         var otherUserSets = new Dictionary<Guid, HashSet<Guid>>();
 
         foreach (var otherProfile in allProfiles)
@@ -558,17 +555,6 @@ public sealed class RecommendationEngine : IRecommendationEngine
             }
 
             otherUserSets[otherProfile.UserId] = otherWatchedIds;
-
-            foreach (var itemId in otherWatchedIds)
-            {
-                if (!invertedIndex.TryGetValue(itemId, out var list))
-                {
-                    list = [];
-                    invertedIndex[itemId] = list;
-                }
-
-                list.Add((otherProfile.UserId, otherWatchedIds));
-            }
         }
 
         // Compute overlap + Jaccard per other user (cached to avoid recomputation)
@@ -772,12 +758,19 @@ public sealed class RecommendationEngine : IRecommendationEngine
     /// <returns>The average production year, or 0 if no years are available.</returns>
     internal static double ComputeAverageYear(UserWatchProfile profile)
     {
-        var years = profile.WatchedItems
-            .Where(w => w.Played && w.Year.HasValue)
-            .Select(w => w.Year!.Value)
-            .ToList();
+        long sum = 0;
+        var count = 0;
 
-        return years.Count > 0 ? years.Average() : 0;
+        foreach (var w in profile.WatchedItems)
+        {
+            if (w.Played && w.Year.HasValue)
+            {
+                sum += w.Year.Value;
+                count++;
+            }
+        }
+
+        return count > 0 ? (double)sum / count : 0;
     }
 
     /// <summary>
@@ -899,28 +892,6 @@ public sealed class RecommendationEngine : IRecommendationEngine
         }
 
         var union = setA.Count + setB.Count - intersection;
-        return union > 0 ? (double)intersection / union : 0;
-    }
-
-    /// <summary>
-    ///     Computes Jaccard similarity between two genre arrays.
-    /// </summary>
-    /// <param name="genresA">First genre array.</param>
-    /// <param name="genresB">Second genre array.</param>
-    /// <returns>Jaccard similarity (0–1).</returns>
-    internal static double ComputeGenreJaccard(string[]? genresA, string[]? genresB)
-    {
-        if (genresA is null or { Length: 0 } || genresB is null or { Length: 0 })
-        {
-            return 0;
-        }
-
-        var setA = new HashSet<string>(genresA, StringComparer.OrdinalIgnoreCase);
-        var setB = new HashSet<string>(genresB, StringComparer.OrdinalIgnoreCase);
-
-        var intersection = setA.Count(g => setB.Contains(g));
-        var union = setA.Count + setB.Count - intersection;
-
         return union > 0 ? (double)intersection / union : 0;
     }
 

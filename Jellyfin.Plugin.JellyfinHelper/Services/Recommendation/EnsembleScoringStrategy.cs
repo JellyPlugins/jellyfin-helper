@@ -200,46 +200,22 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             alpha = _alpha;
         }
 
-        // Weighted blend of per-feature contributions
-        var blendedScore = (alpha * learnedExplanation.FinalScore)
-            + ((1.0 - alpha) * heuristicExplanation.FinalScore);
-
-        // Apply centralized soft genre-mismatch penalty (applied ONCE here, not in sub-strategies)
+        // Blend sub-strategy explanations using the Blend helper, then apply centralized penalty
+        var blended = heuristicExplanation.Blend(learnedExplanation, alpha);
         var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
-        var finalScore = blendedScore * penalty;
+        var result = blended.WithPenalty(penalty);
 
-        // Blend the per-feature contributions and apply penalty for consistency
-        // (so that sum of contributions ≈ finalScore)
-        var genreContrib = ((alpha * learnedExplanation.GenreContribution)
-            + ((1.0 - alpha) * heuristicExplanation.GenreContribution)) * penalty;
-        var collabContrib = ((alpha * learnedExplanation.CollaborativeContribution)
-            + ((1.0 - alpha) * heuristicExplanation.CollaborativeContribution)) * penalty;
-        var ratingContrib = ((alpha * learnedExplanation.RatingContribution)
-            + ((1.0 - alpha) * heuristicExplanation.RatingContribution)) * penalty;
-        var recencyContrib = ((alpha * learnedExplanation.RecencyContribution)
-            + ((1.0 - alpha) * heuristicExplanation.RecencyContribution)) * penalty;
-        var yearProxContrib = ((alpha * learnedExplanation.YearProximityContribution)
-            + ((1.0 - alpha) * heuristicExplanation.YearProximityContribution)) * penalty;
-        var userRatingContrib = ((alpha * learnedExplanation.UserRatingContribution)
-            + ((1.0 - alpha) * heuristicExplanation.UserRatingContribution)) * penalty;
-        var interactionContrib = ((alpha * learnedExplanation.InteractionContribution)
-            + ((1.0 - alpha) * heuristicExplanation.InteractionContribution)) * penalty;
+        result.StrategyName = Name;
+        result.DominantSignal = ScoreExplanation.DetermineDominantSignal(
+            result.GenreContribution,
+            result.CollaborativeContribution,
+            result.RatingContribution,
+            result.UserRatingContribution,
+            result.RecencyContribution,
+            result.YearProximityContribution,
+            result.InteractionContribution);
 
-        return new ScoreExplanation
-        {
-            FinalScore = finalScore,
-            GenreContribution = genreContrib,
-            CollaborativeContribution = collabContrib,
-            RatingContribution = ratingContrib,
-            RecencyContribution = recencyContrib,
-            YearProximityContribution = yearProxContrib,
-            UserRatingContribution = userRatingContrib,
-            InteractionContribution = interactionContrib,
-            GenrePenaltyMultiplier = penalty,
-            DominantSignal = ScoreExplanation.DetermineDominantSignal(
-                genreContrib, collabContrib, ratingContrib, userRatingContrib, recencyContrib, yearProxContrib, interactionContrib),
-            StrategyName = Name
-        };
+        return result;
     }
 
     /// <summary>
