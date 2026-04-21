@@ -45,6 +45,11 @@ public class ConfigurationUpdateRequest
     public TaskMode LinkRepairTaskMode { get; init; } = TaskMode.DryRun;
 
     /// <summary>
+    ///     Gets the execution mode for the Smart Recommendations task.
+    /// </summary>
+    public TaskMode RecommendationsTaskMode { get; init; } = TaskMode.DryRun;
+
+    /// <summary>
     ///     Gets the execution mode for the Seerr Cleanup task.
     /// </summary>
     public TaskMode SeerrCleanupTaskMode { get; init; } = TaskMode.Deactivate;

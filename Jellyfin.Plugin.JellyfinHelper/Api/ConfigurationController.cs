@@ -308,6 +308,7 @@ public class ConfigurationController : ControllerBase
         config.EmptyMediaFolderTaskMode = request.EmptyMediaFolderTaskMode;
         config.OrphanedSubtitleTaskMode = request.OrphanedSubtitleTaskMode;
         config.LinkRepairTaskMode = request.LinkRepairTaskMode;
+        config.RecommendationsTaskMode = request.RecommendationsTaskMode;
         config.SeerrCleanupTaskMode = request.SeerrCleanupTaskMode;
 
         config.UseTrash = request.UseTrash;
