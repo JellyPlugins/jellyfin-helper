@@ -650,4 +650,113 @@ public class RecommendationEngineTests
         Assert.True(map.ContainsKey(uniqueItem));
         Assert.True(map[uniqueItem] > 0.75, $"Expected accumulated weight > 0.75 from two users, got {map[uniqueItem]}");
     }
+
+    // ── PeopleSimilarity Tests ──────────────────────────────────────────
+
+    [Fact]
+    public void ComputePeopleSimilarity_EmptySets_ReturnsZero()
+    {
+        var empty = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = RecommendationEngine.ComputePeopleSimilarity(empty, empty);
+        Assert.Equal(0.0, result);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarity_NoOverlap_ReturnsZero()
+    {
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor A", "Actor B" };
+        var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor C", "Actor D" };
+        var result = RecommendationEngine.ComputePeopleSimilarity(candidate, preferred);
+        Assert.Equal(0.0, result);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarity_FullOverlap_ReturnsOne()
+    {
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor A", "Director B" };
+        var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor A", "Director B" };
+        var result = RecommendationEngine.ComputePeopleSimilarity(candidate, preferred);
+        Assert.Equal(1.0, result);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarity_PartialOverlap_ReturnsJaccard()
+    {
+        // Intersection = {A}, Union = {A, B, C} → Jaccard = 1/3
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A", "B" };
+        var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A", "C" };
+        var result = RecommendationEngine.ComputePeopleSimilarity(candidate, preferred);
+        Assert.Equal(1.0 / 3.0, result, 6);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarity_CaseInsensitive()
+    {
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "tom hanks" };
+        var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Tom Hanks" };
+        var result = RecommendationEngine.ComputePeopleSimilarity(candidate, preferred);
+        Assert.Equal(1.0, result);
+    }
+
+    [Fact]
+    public void BuildPeoplePreferenceSet_EmptyProfile_ReturnsEmpty()
+    {
+        var profile = new UserWatchProfile { WatchedItems = [] };
+        var lookup = new Dictionary<Guid, HashSet<string>>();
+        var result = RecommendationEngine.BuildPeoplePreferenceSet(
+            profile, lookup, new HashSet<Guid>(), new HashSet<Guid>());
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void BuildPeoplePreferenceSet_CollectsFromWatchedItems()
+    {
+        var itemId = Guid.NewGuid();
+        var seriesId = Guid.NewGuid();
+        var lookup = new Dictionary<Guid, HashSet<string>>
+        {
+            { itemId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor A", "Director B" } },
+            { seriesId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor C" } }
+        };
+
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = itemId, Played = true },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, SeriesId = seriesId }
+            ]
+        };
+
+        var watchedIds = new HashSet<Guid> { itemId };
+        var watchedSeriesIds = new HashSet<Guid> { seriesId };
+
+        var result = RecommendationEngine.BuildPeoplePreferenceSet(
+            profile, lookup, watchedIds, watchedSeriesIds);
+
+        Assert.Contains("Actor A", result);
+        Assert.Contains("Director B", result);
+        Assert.Contains("Actor C", result);
+        Assert.Equal(3, result.Count);
+    }
+
+    [Fact]
+    public void BuildPeoplePreferenceSet_SkipsUnplayedItems()
+    {
+        var itemId = Guid.NewGuid();
+        var lookup = new Dictionary<Guid, HashSet<string>>
+        {
+            { itemId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor A" } }
+        };
+
+        var profile = new UserWatchProfile
+        {
+            WatchedItems = [new WatchedItemInfo { ItemId = itemId, Played = false }]
+        };
+
+        var result = RecommendationEngine.BuildPeoplePreferenceSet(
+            profile, lookup, new HashSet<Guid>(), new HashSet<Guid>());
+
+        Assert.Empty(result);
+    }
 }

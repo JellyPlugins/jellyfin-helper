@@ -11,6 +11,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
@@ -112,6 +113,13 @@ public sealed class RecommendationEngine : IRecommendationEngine
     /// </summary>
     internal const int GenrePreFilterMinPreferences = 3;
 
+    /// <summary>
+    ///     PersonKind types considered for people similarity scoring.
+    ///     Only actors and directors are used — writers/producers are less predictive
+    ///     of user preference and would add noise to the similarity signal.
+    /// </summary>
+    private static readonly PersonKind[] RelevantPersonKinds = [PersonKind.Actor, PersonKind.Director];
+
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<RecommendationEngine> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -154,7 +162,11 @@ public sealed class RecommendationEngine : IRecommendationEngine
 
         // Load candidates once
         var candidates = LoadCandidateItems();
-        return GenerateForUser(userProfile, allProfiles, candidates, maxResults, _strategy, cancellationToken);
+
+        // Batch-load people data once for all candidates (performance: single pass over library)
+        var peopleLookup = BuildCandidatePeopleLookup(candidates);
+
+        return GenerateForUser(userProfile, allProfiles, candidates, peopleLookup, maxResults, _strategy, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -313,6 +325,9 @@ public sealed class RecommendationEngine : IRecommendationEngine
         // Load candidates once for ALL users (performance optimization)
         var candidates = LoadCandidateItems();
 
+        // Batch-load people data once for all candidates, shared across ALL users (performance: avoids N×M queries)
+        var peopleLookup = BuildCandidatePeopleLookup(candidates);
+
         _pluginLog.LogInfo(
             "Recommendations",
             $"Starting recommendation generation for {allProfiles.Count} users using strategy '{_strategy.Name}'...",
@@ -323,7 +338,7 @@ public sealed class RecommendationEngine : IRecommendationEngine
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                results.Add(GenerateForUser(profile, allProfiles, candidates, maxResultsPerUser, _strategy, cancellationToken));
+                results.Add(GenerateForUser(profile, allProfiles, candidates, peopleLookup, maxResultsPerUser, _strategy, cancellationToken));
             }
             catch (Exception ex)
             {
@@ -389,6 +404,7 @@ public sealed class RecommendationEngine : IRecommendationEngine
     /// <param name="userProfile">The target user's watch profile.</param>
     /// <param name="allProfiles">All user watch profiles for collaborative filtering.</param>
     /// <param name="allCandidates">Pre-loaded candidate items from the library.</param>
+    /// <param name="peopleLookup">Pre-built people lookup (item ID → person names) for people similarity scoring.</param>
     /// <param name="maxResults">Maximum number of recommendations to return.</param>
     /// <param name="strategy">The scoring strategy to use.</param>
     /// <param name="cancellationToken">Cancellation token for cooperative cancellation in large libraries.</param>
@@ -397,6 +413,7 @@ public sealed class RecommendationEngine : IRecommendationEngine
         UserWatchProfile userProfile,
         Collection<UserWatchProfile> allProfiles,
         List<BaseItem> allCandidates,
+        Dictionary<Guid, HashSet<string>> peopleLookup,
         int maxResults,
         IScoringStrategy strategy,
         CancellationToken cancellationToken = default)
@@ -455,6 +472,9 @@ public sealed class RecommendationEngine : IRecommendationEngine
 
         // Build user's preferred studios set from watched items for StudioMatch feature (Fix #5)
         var preferredStudios = BuildStudioPreferenceSet(userProfile, candidateLookup, watchedIds, watchedSeriesIds);
+
+        // Build user's preferred people set from watched items for PeopleSimilarity feature
+        var preferredPeople = BuildPeoplePreferenceSet(userProfile, peopleLookup, watchedIds, watchedSeriesIds);
 
         // Score each candidate that the user has NOT watched
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
@@ -529,6 +549,11 @@ public sealed class RecommendationEngine : IRecommendationEngine
             var studioMatch = candidate.Studios is { Length: > 0 }
                 && candidate.Studios.Any(s => preferredStudios.Contains(s));
 
+            // Compute people similarity via pre-built lookup (O(1) lookup + Jaccard)
+            var peopleSimilarity = peopleLookup.TryGetValue(candidate.Id, out var candidatePeople)
+                ? ComputePeopleSimilarity(candidatePeople, preferredPeople)
+                : 0.0;
+
             // Build feature vector and delegate scoring to strategy
             var features = new CandidateFeatures
             {
@@ -541,8 +566,7 @@ public sealed class RecommendationEngine : IRecommendationEngine
                 IsSeries = candidate is Series,
                 UserRatingScore = userRatingScore,
                 CompletionRatio = completionRatio,
-                // PeopleSimilarity is left at default 0 — requires expensive per-item People queries.
-                // TODO: Integrate when WatchedItemInfo carries People data or batch People loading is available.
+                PeopleSimilarity = peopleSimilarity,
                 StudioMatch = studioMatch
             };
 
@@ -1121,6 +1145,112 @@ public sealed class RecommendationEngine : IRecommendationEngine
         }
 
         return studios;
+    }
+
+    /// <summary>
+    ///     Batch-loads people (actors/directors) for all candidate items into a lookup dictionary.
+    ///     Called once per recommendation run and shared across all users for performance.
+    ///     Only stores person names for relevant types (Actor, Director) to keep memory compact.
+    /// </summary>
+    /// <param name="candidates">All candidate base items.</param>
+    /// <returns>A dictionary mapping item IDs to their associated person name sets (case-insensitive).</returns>
+    internal Dictionary<Guid, HashSet<string>> BuildCandidatePeopleLookup(List<BaseItem> candidates)
+    {
+        var lookup = new Dictionary<Guid, HashSet<string>>(candidates.Count);
+
+        foreach (var candidate in candidates)
+        {
+            var people = _libraryManager.GetPeople(candidate);
+            if (people is null || people.Count == 0)
+            {
+                continue;
+            }
+
+            HashSet<string>? names = null;
+            foreach (var person in people)
+            {
+                if (string.IsNullOrWhiteSpace(person.Name))
+                {
+                    continue;
+                }
+
+                // Only include actors and directors — other types add noise without predictive value
+                if (!Array.Exists(RelevantPersonKinds, k => k == person.Type))
+                {
+                    continue;
+                }
+
+                names ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                names.Add(person.Name);
+            }
+
+            if (names is { Count: > 0 })
+            {
+                lookup[candidate.Id] = names;
+            }
+        }
+
+        _pluginLog.LogDebug(
+            "Recommendations",
+            $"Built people lookup for {lookup.Count}/{candidates.Count} candidates.",
+            _logger);
+
+        return lookup;
+    }
+
+    /// <summary>
+    ///     Builds a set of preferred person names (actors/directors) from the user's watched items.
+    ///     Uses the pre-built people lookup to avoid additional library queries.
+    ///     Includes people from both directly watched items and series the user has watched episodes of.
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile.</param>
+    /// <param name="peopleLookup">Pre-built candidate people lookup (item ID → person names).</param>
+    /// <param name="watchedIds">Set of item IDs the user has watched.</param>
+    /// <param name="watchedSeriesIds">Set of series IDs the user has watched episodes of.</param>
+    /// <returns>A HashSet of preferred person names (case-insensitive).</returns>
+    internal static HashSet<string> BuildPeoplePreferenceSet(
+        UserWatchProfile userProfile,
+        Dictionary<Guid, HashSet<string>> peopleLookup,
+        HashSet<Guid> watchedIds,
+        HashSet<Guid> watchedSeriesIds)
+    {
+        var people = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var w in userProfile.WatchedItems)
+        {
+            if (!w.Played)
+            {
+                continue;
+            }
+
+            // Direct item match (movies, episodes)
+            if (peopleLookup.TryGetValue(w.ItemId, out var itemPeople))
+            {
+                people.UnionWith(itemPeople);
+            }
+
+            // Series match (episodes → parent series)
+            if (w.SeriesId.HasValue && peopleLookup.TryGetValue(w.SeriesId.Value, out var seriesPeople))
+            {
+                people.UnionWith(seriesPeople);
+            }
+        }
+
+        return people;
+    }
+
+    /// <summary>
+    ///     Computes people similarity between a candidate's cast/directors and the user's
+    ///     preferred people set using Jaccard similarity.
+    /// </summary>
+    /// <param name="candidatePeople">The candidate item's person names.</param>
+    /// <param name="preferredPeople">The user's preferred person names.</param>
+    /// <returns>A Jaccard similarity score between 0 and 1.</returns>
+    internal static double ComputePeopleSimilarity(
+        HashSet<string> candidatePeople,
+        HashSet<string> preferredPeople)
+    {
+        return ComputeJaccardFromSets(candidatePeople, preferredPeople);
     }
 
     /// <summary>
