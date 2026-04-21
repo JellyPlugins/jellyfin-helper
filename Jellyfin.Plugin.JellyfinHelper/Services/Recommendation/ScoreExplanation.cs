@@ -53,17 +53,26 @@ public sealed class ScoreExplanation
     public ScoreExplanation Blend(ScoreExplanation other, double alpha)
     {
         var oneMinusAlpha = 1.0 - alpha;
+        var blendedGenre = (oneMinusAlpha * GenreContribution) + (alpha * other.GenreContribution);
+        var blendedCollab = (oneMinusAlpha * CollaborativeContribution) + (alpha * other.CollaborativeContribution);
+        var blendedRating = (oneMinusAlpha * RatingContribution) + (alpha * other.RatingContribution);
+        var blendedRecency = (oneMinusAlpha * RecencyContribution) + (alpha * other.RecencyContribution);
+        var blendedYearProx = (oneMinusAlpha * YearProximityContribution) + (alpha * other.YearProximityContribution);
+        var blendedUserRating = (oneMinusAlpha * UserRatingContribution) + (alpha * other.UserRatingContribution);
+        var blendedInteraction = (oneMinusAlpha * InteractionContribution) + (alpha * other.InteractionContribution);
+
         return new ScoreExplanation
         {
             FinalScore = (oneMinusAlpha * FinalScore) + (alpha * other.FinalScore),
-            GenreContribution = (oneMinusAlpha * GenreContribution) + (alpha * other.GenreContribution),
-            CollaborativeContribution = (oneMinusAlpha * CollaborativeContribution) + (alpha * other.CollaborativeContribution),
-            RatingContribution = (oneMinusAlpha * RatingContribution) + (alpha * other.RatingContribution),
-            RecencyContribution = (oneMinusAlpha * RecencyContribution) + (alpha * other.RecencyContribution),
-            YearProximityContribution = (oneMinusAlpha * YearProximityContribution) + (alpha * other.YearProximityContribution),
-            UserRatingContribution = (oneMinusAlpha * UserRatingContribution) + (alpha * other.UserRatingContribution),
-            InteractionContribution = (oneMinusAlpha * InteractionContribution) + (alpha * other.InteractionContribution),
+            GenreContribution = blendedGenre,
+            CollaborativeContribution = blendedCollab,
+            RatingContribution = blendedRating,
+            RecencyContribution = blendedRecency,
+            YearProximityContribution = blendedYearProx,
+            UserRatingContribution = blendedUserRating,
+            InteractionContribution = blendedInteraction,
             GenrePenaltyMultiplier = 1.0, // Penalty is applied separately after blending
+            DominantSignal = DetermineDominantSignal(blendedGenre, blendedCollab, blendedRating, blendedUserRating, blendedRecency, blendedYearProx, blendedInteraction),
             StrategyName = StrategyName // Caller can override
         };
     }

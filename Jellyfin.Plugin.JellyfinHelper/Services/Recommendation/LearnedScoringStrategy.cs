@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
@@ -489,24 +488,6 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         }
 
         return ComputeMseLoss(examples, precomputedVectors, effectiveWeights, allIndices, weights, bias);
-    }
-
-    /// <summary>
-    ///     Validates that a feature vector has the expected length.
-    /// </summary>
-    /// <exception cref="ArgumentException">Thrown when the vector length doesn't match the expected feature count.</exception>
-    private static void ValidateVectorLength(double[] vector)
-    {
-        Debug.Assert(
-            vector.Length == CandidateFeatures.FeatureCount,
-            $"Feature vector length mismatch: expected {CandidateFeatures.FeatureCount}, got {vector.Length}");
-
-        if (vector.Length != CandidateFeatures.FeatureCount)
-        {
-            throw new ArgumentException(
-                $"Feature vector length mismatch: expected {CandidateFeatures.FeatureCount}, got {vector.Length}",
-                nameof(vector));
-        }
     }
 
     /// <summary>

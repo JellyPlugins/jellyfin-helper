@@ -1233,4 +1233,76 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Contains("0.7500", str);
         Assert.Contains("genre", str);
     }
+
+    [Fact]
+    public void ScoreExplanation_Blend_SetsDominantSignal()
+    {
+        // Arrange: 'a' is genre-dominant, 'b' is collaborative-dominant
+        var a = new ScoreExplanation
+        {
+            FinalScore = 0.6,
+            GenreContribution = 0.5,
+            CollaborativeContribution = 0.05,
+            RatingContribution = 0.02,
+            RecencyContribution = 0.01,
+            YearProximityContribution = 0.01,
+            UserRatingContribution = 0.0,
+            InteractionContribution = 0.01,
+            DominantSignal = "Genre",
+            StrategyName = "A"
+        };
+
+        var b = new ScoreExplanation
+        {
+            FinalScore = 0.8,
+            GenreContribution = 0.05,
+            CollaborativeContribution = 0.6,
+            RatingContribution = 0.02,
+            RecencyContribution = 0.01,
+            YearProximityContribution = 0.01,
+            UserRatingContribution = 0.0,
+            InteractionContribution = 0.01,
+            DominantSignal = "Collaborative",
+            StrategyName = "B"
+        };
+
+        // Act: blend 50/50
+        var blended = a.Blend(b, 0.5);
+
+        // Assert: DominantSignal must not be empty
+        Assert.False(string.IsNullOrEmpty(blended.DominantSignal), "Blend must set DominantSignal");
+
+        // With equal alpha, genre=0.275 and collab=0.325, so collaborative should dominate
+        Assert.Equal("Collaborative", blended.DominantSignal);
+    }
+
+    [Fact]
+    public void ScoreExplanation_Blend_InterpolatesCorrectly()
+    {
+        var a = new ScoreExplanation
+        {
+            FinalScore = 1.0,
+            GenreContribution = 1.0,
+            CollaborativeContribution = 0.0,
+            DominantSignal = "Genre",
+            StrategyName = "A"
+        };
+
+        var b = new ScoreExplanation
+        {
+            FinalScore = 0.0,
+            GenreContribution = 0.0,
+            CollaborativeContribution = 1.0,
+            DominantSignal = "Collaborative",
+            StrategyName = "B"
+        };
+
+        // alpha=0.3 → result = 0.7*a + 0.3*b
+        var blended = a.Blend(b, 0.3);
+
+        Assert.Equal(0.7, blended.FinalScore, 10);
+        Assert.Equal(0.7, blended.GenreContribution, 10);
+        Assert.Equal(0.3, blended.CollaborativeContribution, 10);
+        Assert.Equal("Genre", blended.DominantSignal); // 0.7 > 0.3
+    }
 }
