@@ -784,7 +784,7 @@ public sealed class ScoringStrategyTests : IDisposable
     {
         var strategy = new EnsembleScoringStrategy();
         // Default alpha is AlphaMin before any training occurs
-        Assert.Equal(EnsembleScoringStrategy.AlphaMin, strategy.CurrentAlpha, 4);
+        Assert.Equal(EnsembleScoringStrategy.DefaultAlphaMin, strategy.CurrentAlpha, 4);
     }
 
     [Fact]
@@ -798,7 +798,8 @@ public sealed class ScoringStrategyTests : IDisposable
         var result = strategy.Train(examples);
 
         Assert.True(result);
-        Assert.Equal(EnsembleScoringStrategy.ComputeSigmoidAlpha(25), strategy.CurrentAlpha, 4);
+        var expectedAlpha25 = EnsembleScoringStrategy.ComputeSigmoidAlpha(25, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax);
+        Assert.Equal(expectedAlpha25, strategy.CurrentAlpha, 4);
         Assert.True(strategy.CurrentAlpha > initialAlpha, "Alpha should increase with training data");
         Assert.Equal(25, strategy.TrainingExampleCount);
     }
@@ -811,11 +812,11 @@ public sealed class ScoringStrategyTests : IDisposable
         // Train with 50 examples first
         strategy.Train(GenerateTrainingExamples(50));
         var alphaAfter50 = strategy.CurrentAlpha;
-        Assert.Equal(EnsembleScoringStrategy.ComputeSigmoidAlpha(50), alphaAfter50, 4);
+        Assert.Equal(EnsembleScoringStrategy.ComputeSigmoidAlpha(50, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax), alphaAfter50, 4);
 
         // Train with 60 more examples (total = 110)
         strategy.Train(GenerateTrainingExamples(60));
-        Assert.Equal(EnsembleScoringStrategy.ComputeSigmoidAlpha(110), strategy.CurrentAlpha, 4);
+        Assert.Equal(EnsembleScoringStrategy.ComputeSigmoidAlpha(110, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax), strategy.CurrentAlpha, 4);
         Assert.True(strategy.CurrentAlpha > alphaAfter50, "Alpha should increase with more data");
         Assert.Equal(110, strategy.TrainingExampleCount);
     }
@@ -829,9 +830,9 @@ public sealed class ScoringStrategyTests : IDisposable
         strategy.Train(examples);
 
         // With few examples, alpha should still be close to AlphaMin
-        var expectedAlpha = EnsembleScoringStrategy.ComputeSigmoidAlpha(10);
+        var expectedAlpha = EnsembleScoringStrategy.ComputeSigmoidAlpha(10, EnsembleScoringStrategy.DefaultAlphaMin, EnsembleScoringStrategy.DefaultAlphaMax);
         Assert.Equal(expectedAlpha, strategy.CurrentAlpha, 4);
-        Assert.True(strategy.CurrentAlpha < (EnsembleScoringStrategy.AlphaMin + EnsembleScoringStrategy.AlphaMax) / 2.0,
+        Assert.True(strategy.CurrentAlpha < (EnsembleScoringStrategy.DefaultAlphaMin + EnsembleScoringStrategy.DefaultAlphaMax) / 2.0,
             "With few examples, alpha should be below the midpoint");
         Assert.Equal(10, strategy.TrainingExampleCount);
     }
@@ -950,7 +951,8 @@ public sealed class ScoringStrategyTests : IDisposable
         var heuristicScore = heuristic.Score(features);
         var alpha = strategy.CurrentAlpha;
 
-        var expectedScore = (alpha * learnedScore) + ((1.0 - alpha) * heuristicScore);
+        var penalty = EnsembleScoringStrategy.ComputeSoftGenrePenalty(features.GenreSimilarity, EnsembleScoringStrategy.DefaultGenrePenaltyFloor);
+        var expectedScore = ((alpha * learnedScore) + ((1.0 - alpha) * heuristicScore)) * penalty;
         var actualScore = strategy.Score(features);
 
         Assert.Equal(expectedScore, actualScore, 6);
@@ -984,5 +986,220 @@ public sealed class ScoringStrategyTests : IDisposable
         }
 
         return examples;
+    }
+
+    // ============================================================
+    // Edge-Case & Validation Tests
+    // ============================================================
+
+    [Fact]
+    public void CandidateFeatures_Clamping_NegativeValues_ClampedToZero()
+    {
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = -0.5,
+            CollaborativeScore = -1.0,
+            RatingScore = -0.3,
+            RecencyScore = -2.0,
+            YearProximityScore = -0.1,
+            UserRatingScore = -0.5,
+            CompletionRatio = -0.8
+        };
+
+        Assert.Equal(0.0, features.GenreSimilarity);
+        Assert.Equal(0.0, features.CollaborativeScore);
+        Assert.Equal(0.0, features.RatingScore);
+        Assert.Equal(0.0, features.RecencyScore);
+        Assert.Equal(0.0, features.YearProximityScore);
+        Assert.Equal(0.0, features.UserRatingScore);
+        Assert.Equal(0.0, features.CompletionRatio);
+    }
+
+    [Fact]
+    public void CandidateFeatures_Clamping_OverOneValues_ClampedToOne()
+    {
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 1.5,
+            CollaborativeScore = 2.0,
+            RatingScore = 10.0,
+            RecencyScore = 3.0,
+            YearProximityScore = 1.1,
+            UserRatingScore = 5.0,
+            CompletionRatio = 1.001
+        };
+
+        Assert.Equal(1.0, features.GenreSimilarity);
+        Assert.Equal(1.0, features.CollaborativeScore);
+        Assert.Equal(1.0, features.RatingScore);
+        Assert.Equal(1.0, features.RecencyScore);
+        Assert.Equal(1.0, features.YearProximityScore);
+        Assert.Equal(1.0, features.UserRatingScore);
+        Assert.Equal(1.0, features.CompletionRatio);
+    }
+
+    [Fact]
+    public void Heuristic_ScoreWithExplanation_MatchesScore()
+    {
+        var strategy = new HeuristicScoringStrategy();
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.8,
+            CollaborativeScore = 0.5,
+            RatingScore = 0.7,
+            RecencyScore = 0.3,
+            YearProximityScore = 0.9,
+            GenreCount = 3,
+            UserRatingScore = 0.6,
+            CompletionRatio = 0.75
+        };
+
+        var explanation = strategy.ScoreWithExplanation(features);
+
+        Assert.Equal(strategy.Score(features), explanation.FinalScore, 10);
+        Assert.Equal("Heuristic (Fixed Weights)", explanation.StrategyName);
+        Assert.False(string.IsNullOrEmpty(explanation.DominantSignal));
+        Assert.Equal(1.0, explanation.GenrePenaltyMultiplier);
+    }
+
+    [Fact]
+    public void Learned_ScoreWithExplanation_MatchesScore()
+    {
+        var strategy = new LearnedScoringStrategy();
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.7,
+            CollaborativeScore = 0.4,
+            RatingScore = 0.6,
+            RecencyScore = 0.5,
+            YearProximityScore = 0.8,
+            GenreCount = 2,
+            IsSeries = true
+        };
+
+        var explanation = strategy.ScoreWithExplanation(features);
+
+        Assert.Equal(strategy.Score(features), explanation.FinalScore, 10);
+        Assert.Equal("Learned (Adaptive ML)", explanation.StrategyName);
+        Assert.False(string.IsNullOrEmpty(explanation.DominantSignal));
+    }
+
+    [Fact]
+    public void Ensemble_ScoreWithExplanation_IncludesGenrePenalty()
+    {
+        var strategy = new EnsembleScoringStrategy();
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.0,
+            CollaborativeScore = 0.5,
+            RatingScore = 0.8,
+            UserRatingScore = 0.0,
+            CompletionRatio = 0.0
+        };
+
+        var explanation = strategy.ScoreWithExplanation(features);
+
+        Assert.True(explanation.GenrePenaltyMultiplier < 1.0,
+            $"Genre penalty should apply for zero similarity, got {explanation.GenrePenaltyMultiplier:F4}");
+        Assert.Equal(EnsembleScoringStrategy.DefaultGenrePenaltyFloor, explanation.GenrePenaltyMultiplier, 4);
+    }
+
+    [Fact]
+    public void Ensemble_ScoreWithExplanation_NoPenaltyForHighGenreSimilarity()
+    {
+        var strategy = new EnsembleScoringStrategy();
+        var features = new CandidateFeatures { GenreSimilarity = 0.8, RatingScore = 0.7 };
+
+        var explanation = strategy.ScoreWithExplanation(features);
+        Assert.Equal(1.0, explanation.GenrePenaltyMultiplier, 4);
+    }
+
+    [Fact]
+    public void Ensemble_ConfigurableAlpha_AffectsBlending()
+    {
+        var lowAlpha = new EnsembleScoringStrategy(alphaMin: 0.1, alphaMax: 0.2);
+        var highAlpha = new EnsembleScoringStrategy(alphaMin: 0.9, alphaMax: 0.95);
+
+        Assert.Equal(0.1, lowAlpha.CurrentAlpha, 4);
+        Assert.Equal(0.9, highAlpha.CurrentAlpha, 4);
+
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.6, CollaborativeScore = 0.5, RatingScore = 0.7
+        };
+
+        Assert.InRange(lowAlpha.Score(features), 0.0, 1.0);
+        Assert.InRange(highAlpha.Score(features), 0.0, 1.0);
+    }
+
+    [Fact]
+    public void Ensemble_ConfigurableGenrePenalty_StrictVsLenient()
+    {
+        var lenient = new EnsembleScoringStrategy(genrePenaltyFloor: 0.5);
+        var strict = new EnsembleScoringStrategy(genrePenaltyFloor: 0.01);
+
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.0, CollaborativeScore = 0.8, RatingScore = 0.9,
+            UserRatingScore = 0.0, CompletionRatio = 0.0
+        };
+
+        Assert.True(lenient.Score(features) > strict.Score(features),
+            "Lenient penalty should produce higher score than strict penalty");
+    }
+
+    [Fact]
+    public void Ensemble_SoftGenrePenalty_LinearRamp()
+    {
+        var atZero = EnsembleScoringStrategy.ComputeSoftGenrePenalty(0.0, EnsembleScoringStrategy.DefaultGenrePenaltyFloor);
+        var atThreshold = EnsembleScoringStrategy.ComputeSoftGenrePenalty(
+            EnsembleScoringStrategy.GenrePenaltyThreshold, EnsembleScoringStrategy.DefaultGenrePenaltyFloor);
+        var aboveThreshold = EnsembleScoringStrategy.ComputeSoftGenrePenalty(0.5, EnsembleScoringStrategy.DefaultGenrePenaltyFloor);
+
+        Assert.Equal(EnsembleScoringStrategy.DefaultGenrePenaltyFloor, atZero, 4);
+        Assert.Equal(1.0, atThreshold, 4);
+        Assert.Equal(1.0, aboveThreshold, 4);
+
+        // Midpoint should be between floor and 1.0
+        var midSim = EnsembleScoringStrategy.GenrePenaltyThreshold / 2.0;
+        var atMid = EnsembleScoringStrategy.ComputeSoftGenrePenalty(midSim, EnsembleScoringStrategy.DefaultGenrePenaltyFloor);
+        Assert.True(atMid > atZero && atMid < atThreshold,
+            $"Midpoint penalty ({atMid:F4}) should be between floor ({atZero:F4}) and 1.0");
+    }
+
+    [Fact]
+    public void Heuristic_Score_IdenticalFeatures_DeterministicOutput()
+    {
+        var strategy = new HeuristicScoringStrategy();
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.5, CollaborativeScore = 0.3, RatingScore = 0.6
+        };
+
+        Assert.Equal(strategy.Score(features), strategy.Score(features), 15);
+    }
+
+    [Fact]
+    public void ScoreExplanation_ToString_ContainsAllFields()
+    {
+        var explanation = new ScoreExplanation
+        {
+            FinalScore = 0.75,
+            GenreContribution = 0.3,
+            CollaborativeContribution = 0.1,
+            RatingContribution = 0.05,
+            RecencyContribution = 0.02,
+            YearProximityContribution = 0.03,
+            UserRatingContribution = 0.08,
+            InteractionContribution = 0.04,
+            GenrePenaltyMultiplier = 0.9,
+            DominantSignal = "genre",
+            StrategyName = "TestStrategy"
+        };
+
+        var str = explanation.ToString();
+        Assert.Contains("TestStrategy", str);
+        Assert.Contains("0.7500", str);
+        Assert.Contains("genre", str);
     }
 }

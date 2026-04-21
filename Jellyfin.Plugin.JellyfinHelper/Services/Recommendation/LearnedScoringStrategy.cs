@@ -116,21 +116,71 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
+        return ScoreWithExplanation(features).FinalScore;
+    }
+
+    /// <inheritdoc />
+    public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
+    {
         var vector = features.ToVector();
         double rawScore;
+        double genreContrib, collabContrib, ratingContrib, recencyContrib;
+        double yearProxContrib, userRatingContrib, interactionContrib;
 
         lock (_lock)
         {
             rawScore = _bias;
-            for (var i = 0; i < Math.Min(vector.Length, _weights.Length); i++)
+            var len = Math.Min(vector.Length, _weights.Length);
+
+            // Compute individual contributions
+            genreContrib = len > 0 ? vector[0] * _weights[0] : 0;
+            collabContrib = len > 1 ? vector[1] * _weights[1] : 0;
+            ratingContrib = len > 2 ? vector[2] * _weights[2] : 0;
+            recencyContrib = len > 3 ? vector[3] * _weights[3] : 0;
+            yearProxContrib = len > 4 ? vector[4] * _weights[4] : 0;
+            userRatingContrib = len > 9 ? vector[9] * _weights[9] : 0;
+
+            // Interaction + minor features (genreCount, isSeries, genre×rating, genre×collab, completionRatio)
+            interactionContrib = 0;
+            for (var i = 5; i < len; i++)
             {
-                rawScore += vector[i] * _weights[i];
+                if (i == 9)
+                {
+                    continue; // userRating already counted separately
+                }
+
+                interactionContrib += vector[i] * _weights[i];
             }
+
+            rawScore += genreContrib + collabContrib + ratingContrib + recencyContrib
+                + yearProxContrib + userRatingContrib + interactionContrib;
         }
 
-        // Clamp to [0, 1] — linear model, no sigmoid compression
-        // No genre-mismatch penalty here — applied centrally in the Ensemble strategy
-        return Math.Clamp(rawScore, 0.0, 1.0);
+        var score = Math.Clamp(rawScore, 0.0, 1.0);
+
+        // Determine dominant signal
+        var dominant = "genre";
+        var maxContrib = genreContrib;
+        if (collabContrib > maxContrib) { dominant = "collaborative"; maxContrib = collabContrib; }
+        if (ratingContrib > maxContrib) { dominant = "communityRating"; maxContrib = ratingContrib; }
+        if (userRatingContrib > maxContrib) { dominant = "userRating"; maxContrib = userRatingContrib; }
+        if (recencyContrib > maxContrib) { dominant = "recency"; maxContrib = recencyContrib; }
+        if (yearProxContrib > maxContrib) { dominant = "yearProximity"; }
+
+        return new ScoreExplanation
+        {
+            FinalScore = score,
+            GenreContribution = genreContrib,
+            CollaborativeContribution = collabContrib,
+            RatingContribution = ratingContrib,
+            RecencyContribution = recencyContrib,
+            YearProximityContribution = yearProxContrib,
+            UserRatingContribution = userRatingContrib,
+            InteractionContribution = interactionContrib,
+            GenrePenaltyMultiplier = 1.0, // No penalty in Learned — applied in Ensemble
+            DominantSignal = dominant,
+            StrategyName = Name
+        };
     }
 
     /// <inheritdoc />

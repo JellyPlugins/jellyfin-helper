@@ -54,25 +54,58 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
+        return ScoreWithExplanation(features).FinalScore;
+    }
+
+    /// <inheritdoc />
+    public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
+    {
         var vector = features.ToVector();
 
         // vector: [genre, collab, rating, recency, yearProx, genreCount_norm, isSeries,
         //          genre×rating, genre×collab, userRating, completionRatio]
-        var score =
-            (vector[0] * GenreWeight) +
-            (vector[1] * CollaborativeWeight) +
-            (vector[2] * RatingWeight) +
-            (vector[3] * RecencyWeight) +
-            (vector[4] * YearProximityWeight) +
-            (vector[5] * GenreCountWeight) +
-            (vector[6] * IsSeriesWeight) +
-            (vector[7] * GenreRatingInteractionWeight) +
-            (vector[8] * GenreCollabInteractionWeight) +
-            (vector[9] * UserRatingWeight) +
-            (vector[10] * CompletionRatioWeight);
+        var genreContrib = vector[0] * GenreWeight;
+        var collabContrib = vector[1] * CollaborativeWeight;
+        var ratingContrib = vector[2] * RatingWeight;
+        var recencyContrib = vector[3] * RecencyWeight;
+        var yearProxContrib = vector[4] * YearProximityWeight;
+        var genreCountContrib = vector[5] * GenreCountWeight;
+        var isSeriesContrib = vector[6] * IsSeriesWeight;
+        var genreRatingInteraction = vector[7] * GenreRatingInteractionWeight;
+        var genreCollabInteraction = vector[8] * GenreCollabInteractionWeight;
+        var userRatingContrib = vector[9] * UserRatingWeight;
+        var completionContrib = vector[10] * CompletionRatioWeight;
 
-        // No genre-mismatch penalty here — applied centrally in the Ensemble strategy
-        return Math.Clamp(score, 0.0, 1.0);
+        var interactionTotal = genreRatingInteraction + genreCollabInteraction
+            + genreCountContrib + isSeriesContrib + completionContrib;
+
+        var score = genreContrib + collabContrib + ratingContrib + recencyContrib
+            + yearProxContrib + interactionTotal + userRatingContrib;
+        score = Math.Clamp(score, 0.0, 1.0);
+
+        // Determine dominant signal
+        var dominant = "genre";
+        var maxContrib = genreContrib;
+        if (collabContrib > maxContrib) { dominant = "collaborative"; maxContrib = collabContrib; }
+        if (ratingContrib > maxContrib) { dominant = "communityRating"; maxContrib = ratingContrib; }
+        if (userRatingContrib > maxContrib) { dominant = "userRating"; maxContrib = userRatingContrib; }
+        if (recencyContrib > maxContrib) { dominant = "recency"; maxContrib = recencyContrib; }
+        if (yearProxContrib > maxContrib) { dominant = "yearProximity"; }
+
+        return new ScoreExplanation
+        {
+            FinalScore = score,
+            GenreContribution = genreContrib,
+            CollaborativeContribution = collabContrib,
+            RatingContribution = ratingContrib,
+            RecencyContribution = recencyContrib,
+            YearProximityContribution = yearProxContrib,
+            UserRatingContribution = userRatingContrib,
+            InteractionContribution = interactionTotal,
+            GenrePenaltyMultiplier = 1.0, // No penalty in heuristic — applied in Ensemble
+            DominantSignal = dominant,
+            StrategyName = Name
+        };
     }
 
     /// <inheritdoc />

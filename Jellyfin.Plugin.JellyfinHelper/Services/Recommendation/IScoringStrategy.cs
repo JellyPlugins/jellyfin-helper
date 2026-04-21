@@ -26,6 +26,14 @@ public interface IScoringStrategy
     double Score(CandidateFeatures features);
 
     /// <summary>
+    ///     Computes the recommendation score with a detailed explanation of how each
+    ///     feature contributed to the final score. Useful for debugging and transparency.
+    /// </summary>
+    /// <param name="features">The pre-computed feature signals for the candidate.</param>
+    /// <returns>A detailed score explanation including per-feature contributions.</returns>
+    ScoreExplanation ScoreWithExplanation(CandidateFeatures features);
+
+    /// <summary>
     ///     Optional: Train/update the strategy's internal weights from labelled examples.
     ///     Strategies that do not support learning should return false.
     /// </summary>

@@ -23,11 +23,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 /// </remarks>
 public sealed class EnsembleScoringStrategy : IScoringStrategy
 {
-    /// <summary>Minimum blending factor (heuristic dominates with no training data).</summary>
-    internal const double AlphaMin = 0.3;
+    /// <summary>Default minimum blending factor (heuristic dominates with no training data).</summary>
+    internal const double DefaultAlphaMin = 0.3;
 
-    /// <summary>Maximum blending factor (learned dominates with abundant data).</summary>
-    internal const double AlphaMax = 0.8;
+    /// <summary>Default maximum blending factor (learned dominates with abundant data).</summary>
+    internal const double DefaultAlphaMax = 0.8;
 
     /// <summary>Sigmoid steepness for alpha transition.</summary>
     internal const double AlphaSigmoidK = 0.05;
@@ -42,10 +42,10 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy
     internal const double GenrePenaltyThreshold = 0.15;
 
     /// <summary>
-    ///     Minimum penalty multiplier for items with zero genre overlap.
+    ///     Default minimum penalty multiplier for items with zero genre overlap.
     ///     Items with GenreSimilarity = 0 get score × this value.
     /// </summary>
-    internal const double GenrePenaltyFloor = 0.10;
+    internal const double DefaultGenrePenaltyFloor = 0.10;
 
     /// <summary>Cached JSON serializer options for ensemble state persistence.</summary>
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
@@ -53,8 +53,11 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy
     private readonly HeuristicScoringStrategy _heuristic;
     private readonly LearnedScoringStrategy _learned;
     private readonly Lock _lock = new();
+    private readonly double _alphaMax;
+    private readonly double _alphaMin;
+    private readonly double _genrePenaltyFloor;
     private readonly string? _statePath;
-    private double _alpha = AlphaMin;
+    private double _alpha;
     private int _trainingExampleCount;
 
     /// <summary>
@@ -64,8 +67,26 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy
     ///     Optional file path for persisting learned weights.
     ///     Passed through to the underlying <see cref="LearnedScoringStrategy" />.
     /// </param>
-    public EnsembleScoringStrategy(string? weightsPath = null)
+    /// <param name="alphaMin">
+    ///     Minimum blending factor (default: <see cref="DefaultAlphaMin" />).
+    /// </param>
+    /// <param name="alphaMax">
+    ///     Maximum blending factor (default: <see cref="DefaultAlphaMax" />).
+    /// </param>
+    /// <param name="genrePenaltyFloor">
+    ///     Minimum genre penalty multiplier (default: <see cref="DefaultGenrePenaltyFloor" />).
+    /// </param>
+    public EnsembleScoringStrategy(
+        string? weightsPath = null,
+        double alphaMin = DefaultAlphaMin,
+        double alphaMax = DefaultAlphaMax,
+        double genrePenaltyFloor = DefaultGenrePenaltyFloor)
     {
+        _alphaMin = Math.Clamp(alphaMin, 0.0, 1.0);
+        _alphaMax = Math.Clamp(alphaMax, _alphaMin, 1.0);
+        _genrePenaltyFloor = Math.Clamp(genrePenaltyFloor, 0.0, 1.0);
+        _alpha = _alphaMin;
+
         _learned = new LearnedScoringStrategy(weightsPath);
         _heuristic = new HeuristicScoringStrategy();
 
@@ -128,8 +149,14 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
-        var learnedScore = _learned.Score(features);
-        var heuristicScore = _heuristic.Score(features);
+        return ScoreWithExplanation(features).FinalScore;
+    }
+
+    /// <inheritdoc />
+    public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
+    {
+        var learnedExplanation = _learned.ScoreWithExplanation(features);
+        var heuristicExplanation = _heuristic.ScoreWithExplanation(features);
 
         double alpha;
         lock (_lock)
@@ -137,12 +164,53 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy
             alpha = _alpha;
         }
 
-        // Weighted blend: α × learned + (1 - α) × heuristic
-        var blendedScore = (alpha * learnedScore) + ((1.0 - alpha) * heuristicScore);
+        // Weighted blend of per-feature contributions
+        var blendedScore = (alpha * learnedExplanation.FinalScore)
+            + ((1.0 - alpha) * heuristicExplanation.FinalScore);
 
         // Apply centralized soft genre-mismatch penalty (applied ONCE here, not in sub-strategies)
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity);
-        return blendedScore * penalty;
+        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+        var finalScore = blendedScore * penalty;
+
+        // Blend the per-feature contributions for the explanation
+        var genreContrib = (alpha * learnedExplanation.GenreContribution)
+            + ((1.0 - alpha) * heuristicExplanation.GenreContribution);
+        var collabContrib = (alpha * learnedExplanation.CollaborativeContribution)
+            + ((1.0 - alpha) * heuristicExplanation.CollaborativeContribution);
+        var ratingContrib = (alpha * learnedExplanation.RatingContribution)
+            + ((1.0 - alpha) * heuristicExplanation.RatingContribution);
+        var recencyContrib = (alpha * learnedExplanation.RecencyContribution)
+            + ((1.0 - alpha) * heuristicExplanation.RecencyContribution);
+        var yearProxContrib = (alpha * learnedExplanation.YearProximityContribution)
+            + ((1.0 - alpha) * heuristicExplanation.YearProximityContribution);
+        var userRatingContrib = (alpha * learnedExplanation.UserRatingContribution)
+            + ((1.0 - alpha) * heuristicExplanation.UserRatingContribution);
+        var interactionContrib = (alpha * learnedExplanation.InteractionContribution)
+            + ((1.0 - alpha) * heuristicExplanation.InteractionContribution);
+
+        // Determine dominant signal from the blended contributions
+        var dominant = "genre";
+        var maxContrib = genreContrib;
+        if (collabContrib > maxContrib) { dominant = "collaborative"; maxContrib = collabContrib; }
+        if (ratingContrib > maxContrib) { dominant = "communityRating"; maxContrib = ratingContrib; }
+        if (userRatingContrib > maxContrib) { dominant = "userRating"; maxContrib = userRatingContrib; }
+        if (recencyContrib > maxContrib) { dominant = "recency"; maxContrib = recencyContrib; }
+        if (yearProxContrib > maxContrib) { dominant = "yearProximity"; }
+
+        return new ScoreExplanation
+        {
+            FinalScore = finalScore,
+            GenreContribution = genreContrib,
+            CollaborativeContribution = collabContrib,
+            RatingContribution = ratingContrib,
+            RecencyContribution = recencyContrib,
+            YearProximityContribution = yearProxContrib,
+            UserRatingContribution = userRatingContrib,
+            InteractionContribution = interactionContrib,
+            GenrePenaltyMultiplier = penalty,
+            DominantSignal = dominant,
+            StrategyName = Name
+        };
     }
 
     /// <inheritdoc />
@@ -156,7 +224,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy
             {
                 // Track cumulative training examples to adjust blending factor
                 _trainingExampleCount += examples.Count;
-                _alpha = ComputeSigmoidAlpha(_trainingExampleCount);
+                _alpha = ComputeSigmoidAlpha(_trainingExampleCount, _alphaMin, _alphaMax);
             }
 
             TrySaveState();
@@ -167,22 +235,27 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy
 
     /// <summary>
     ///     Computes a soft genre-mismatch penalty that ramps linearly from
-    ///     <see cref="GenrePenaltyFloor"/> (at GenreSimilarity = 0) to 1.0
+    ///     <paramref name="penaltyFloor"/> (at GenreSimilarity = 0) to 1.0
     ///     (at GenreSimilarity ≥ <see cref="GenrePenaltyThreshold"/>).
     ///     This avoids the hard cutoff of the previous implementation.
     /// </summary>
     /// <param name="genreSimilarity">The candidate's genre similarity score (0–1).</param>
-    /// <returns>A penalty multiplier between <see cref="GenrePenaltyFloor"/> and 1.0.</returns>
-    internal static double ComputeSoftGenrePenalty(double genreSimilarity)
+    /// <param name="penaltyFloor">
+    ///     Minimum penalty multiplier (default: <see cref="DefaultGenrePenaltyFloor"/>).
+    /// </param>
+    /// <returns>A penalty multiplier between <paramref name="penaltyFloor"/> and 1.0.</returns>
+    internal static double ComputeSoftGenrePenalty(
+        double genreSimilarity,
+        double penaltyFloor = DefaultGenrePenaltyFloor)
     {
         if (genreSimilarity >= GenrePenaltyThreshold)
         {
             return 1.0;
         }
 
-        // Linear ramp from GenrePenaltyFloor to 1.0 as genreSimilarity goes from 0 to GenrePenaltyThreshold
+        // Linear ramp from penaltyFloor to 1.0 as genreSimilarity goes from 0 to GenrePenaltyThreshold
         var t = genreSimilarity / GenrePenaltyThreshold;
-        return GenrePenaltyFloor + (t * (1.0 - GenrePenaltyFloor));
+        return penaltyFloor + (t * (1.0 - penaltyFloor));
     }
 
     /// <summary>
@@ -190,11 +263,20 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy
     ///     Formula: α = αMin + (αMax - αMin) / (1 + e^(-k × (n - midpoint))).
     /// </summary>
     /// <param name="trainingExampleCount">The cumulative number of training examples.</param>
-    /// <returns>A blending factor between <see cref="AlphaMin"/> and <see cref="AlphaMax"/>.</returns>
-    internal static double ComputeSigmoidAlpha(int trainingExampleCount)
+    /// <param name="alphaMin">
+    ///     Minimum alpha value (default: <see cref="DefaultAlphaMin"/>).
+    /// </param>
+    /// <param name="alphaMax">
+    ///     Maximum alpha value (default: <see cref="DefaultAlphaMax"/>).
+    /// </param>
+    /// <returns>A blending factor between <paramref name="alphaMin"/> and <paramref name="alphaMax"/>.</returns>
+    internal static double ComputeSigmoidAlpha(
+        int trainingExampleCount,
+        double alphaMin = DefaultAlphaMin,
+        double alphaMax = DefaultAlphaMax)
     {
         var exponent = -AlphaSigmoidK * (trainingExampleCount - AlphaSigmoidMidpoint);
-        return AlphaMin + ((AlphaMax - AlphaMin) / (1.0 + Math.Exp(exponent)));
+        return alphaMin + ((alphaMax - alphaMin) / (1.0 + Math.Exp(exponent)));
     }
 
     /// <summary>
@@ -220,7 +302,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy
                 lock (_lock)
                 {
                     _trainingExampleCount = data.TrainingExampleCount;
-                    _alpha = ComputeSigmoidAlpha(_trainingExampleCount);
+                    _alpha = ComputeSigmoidAlpha(_trainingExampleCount, _alphaMin, _alphaMax);
                 }
             }
         }

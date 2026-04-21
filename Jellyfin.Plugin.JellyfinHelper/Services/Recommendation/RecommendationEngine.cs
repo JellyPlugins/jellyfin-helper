@@ -72,7 +72,7 @@ public sealed class RecommendationEngine : IRecommendationEngine
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<RecommendationEngine> _logger;
     private readonly IPluginLogService _pluginLog;
-    private readonly EnsembleScoringStrategy _strategy;
+    private readonly IScoringStrategy _strategy;
     private readonly IWatchHistoryService _watchHistoryService;
 
     /// <summary>
@@ -82,13 +82,13 @@ public sealed class RecommendationEngine : IRecommendationEngine
     /// <param name="libraryManager">The Jellyfin library manager.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
-    /// <param name="strategy">The ensemble scoring strategy (injected via DI).</param>
+    /// <param name="strategy">The scoring strategy resolved via DI (based on configuration).</param>
     public RecommendationEngine(
         IWatchHistoryService watchHistoryService,
         ILibraryManager libraryManager,
         IPluginLogService pluginLog,
         ILogger<RecommendationEngine> logger,
-        EnsembleScoringStrategy strategy)
+        IScoringStrategy strategy)
     {
         _watchHistoryService = watchHistoryService;
         _libraryManager = libraryManager;
@@ -387,7 +387,14 @@ public sealed class RecommendationEngine : IRecommendationEngine
                 CompletionRatio = completionRatio
             };
 
-            var totalScore = strategy.Score(features);
+            var explanation = strategy.ScoreWithExplanation(features);
+            var totalScore = explanation.FinalScore;
+
+            // Debug-log individual score breakdowns for transparency
+            _pluginLog.LogDebug(
+                "Recommendations",
+                $"Score for '{candidate.Name}': {explanation}",
+                _logger);
 
             // Determine the primary reason
             var (reason, reasonKey, relatedItem) = DetermineReason(

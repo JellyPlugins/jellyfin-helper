@@ -53,7 +53,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IArrIntegrationService, ArrIntegrationService>();
         serviceCollection.AddSingleton<ISeerrIntegrationService, SeerrIntegrationService>();
         serviceCollection.AddSingleton<IWatchHistoryService, WatchHistoryService>();
-        serviceCollection.AddSingleton<EnsembleScoringStrategy>(_ =>
+        serviceCollection.AddSingleton(_ =>
         {
             var dataPath = Plugin.Instance?.DataFolderPath;
             string? weightsPath = null;
@@ -62,11 +62,45 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
                 weightsPath = Path.Join(dataPath, "ml_weights.json");
             }
 
-            return new EnsembleScoringStrategy(weightsPath);
+            var config = Plugin.Instance?.Configuration;
+            var alphaMin = config?.EnsembleAlphaMin ?? 0.3;
+            var alphaMax = config?.EnsembleAlphaMax ?? 0.8;
+            var genrePenaltyFloor = config?.EnsembleGenrePenaltyFloor ?? 0.10;
+
+            return new EnsembleScoringStrategy(weightsPath, alphaMin, alphaMax, genrePenaltyFloor);
         });
+        serviceCollection.AddSingleton<HeuristicScoringStrategy>();
+        serviceCollection.AddSingleton<IScoringStrategy>(ResolveScoringStrategy);
         serviceCollection.AddSingleton<IRecommendationEngine, RecommendationEngine>();
         serviceCollection.AddSingleton<IRecommendationCacheService, RecommendationCacheService>();
         serviceCollection.AddSingleton<IUserActivityInsightsService, UserActivityInsightsService>();
         serviceCollection.AddSingleton<IUserActivityCacheService, UserActivityCacheService>();
+    }
+
+    /// <summary>
+    ///     Resolves the active <see cref="IScoringStrategy"/> based on plugin configuration.
+    ///     Valid strategy values: "ensemble" (default), "heuristic", "learned".
+    /// </summary>
+    private static IScoringStrategy ResolveScoringStrategy(IServiceProvider sp)
+    {
+        var config = Jellyfin.Plugin.JellyfinHelper.Plugin.Instance?.Configuration;
+        var strategy = config?.RecommendationStrategy ?? "ensemble";
+
+        switch (strategy.ToLowerInvariant())
+        {
+            case "heuristic":
+                return (IScoringStrategy?)sp.GetService(typeof(HeuristicScoringStrategy))
+                    ?? new HeuristicScoringStrategy();
+
+            case "learned":
+                var ensembleForLearned =
+                    (EnsembleScoringStrategy?)sp.GetService(typeof(EnsembleScoringStrategy));
+                return ensembleForLearned?.LearnedStrategy
+                    ?? (IScoringStrategy)new LearnedScoringStrategy();
+
+            default:
+                return (IScoringStrategy?)sp.GetService(typeof(EnsembleScoringStrategy))
+                    ?? new EnsembleScoringStrategy();
+        }
     }
 }
