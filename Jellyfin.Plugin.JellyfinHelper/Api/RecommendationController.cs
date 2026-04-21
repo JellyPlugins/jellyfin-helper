@@ -8,7 +8,6 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
@@ -26,7 +25,6 @@ public class RecommendationController : ControllerBase
     private readonly IRecommendationCacheService _cacheService;
     private readonly IPluginConfigurationService _configService;
     private readonly IRecommendationEngine _engine;
-    private readonly ILogger<RecommendationController> _logger;
     private readonly IWatchHistoryService _watchHistoryService;
 
     /// <summary>
@@ -36,19 +34,16 @@ public class RecommendationController : ControllerBase
     /// <param name="cacheService">The recommendation cache service.</param>
     /// <param name="watchHistoryService">The watch history service.</param>
     /// <param name="configService">The plugin configuration service.</param>
-    /// <param name="logger">The logger instance.</param>
     public RecommendationController(
         IRecommendationEngine engine,
         IRecommendationCacheService cacheService,
         IWatchHistoryService watchHistoryService,
-        IPluginConfigurationService configService,
-        ILogger<RecommendationController> logger)
+        IPluginConfigurationService configService)
     {
         _engine = engine;
         _cacheService = cacheService;
         _watchHistoryService = watchHistoryService;
         _configService = configService;
-        _logger = logger;
     }
 
     /// <summary>

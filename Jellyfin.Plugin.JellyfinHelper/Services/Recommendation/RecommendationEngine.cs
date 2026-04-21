@@ -73,6 +73,22 @@ public sealed class RecommendationEngine : IRecommendationEngine
     /// </summary>
     internal const double AbandonedCompletionThreshold = 0.25;
 
+    /// <summary>
+    ///     Soft label for watched items (not 1.0 to leave headroom and reduce label noise).
+    /// </summary>
+    internal const double WatchedLabel = 0.85;
+
+    /// <summary>
+    ///     Label for items the user started but abandoned (strong negative signal).
+    /// </summary>
+    internal const double AbandonedLabel = 0.0;
+
+    /// <summary>
+    ///     Label for previously recommended but unwatched items (exposure bias mitigation —
+    ///     user saw the recommendation but didn't engage).
+    /// </summary>
+    internal const double ExposureLabel = 0.1;
+
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<RecommendationEngine> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -202,22 +218,22 @@ public sealed class RecommendationEngine : IRecommendationEngine
                 if (wasWatched)
                 {
                     // Binary engagement signal: the user chose to watch this item.
-                    // We use 0.85 instead of 1.0 to leave headroom and reduce label noise.
-                    label = 0.85;
+                    // We use WatchedLabel instead of 1.0 to leave headroom and reduce label noise.
+                    label = WatchedLabel;
                 }
                 else if (features.CompletionRatio > 0 && features.CompletionRatio < AbandonedCompletionThreshold)
                 {
                     // Hard negative: user started watching but abandoned before 25% completion.
                     // This is a stronger negative signal than simply not watching — the user
                     // actively tried the content and chose not to continue.
-                    label = 0.0;
+                    label = AbandonedLabel;
                 }
                 else
                 {
                     // Exposure bias mitigation: items that were recommended but not watched
                     // get a softened negative label (0.1 instead of 0.0) because "not watched"
                     // doesn't necessarily mean "not interested" — the user may not have seen it yet.
-                    label = 0.1;
+                    label = ExposureLabel;
                 }
 
                 examples.Add(new TrainingExample

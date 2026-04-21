@@ -541,7 +541,7 @@ Sub-tasks executed in order (each respecting its configured task mode):
 
 - **ML-powered per-user recommendations** using three-tier scoring architecture (Heuristic + Learned + Ensemble blend)
 - **Heuristic scoring** — Rule-based scoring using genre overlap, community rating, recency, year proximity, collaborative filtering, and interaction terms (fixed weights from `DefaultWeights`)
-- **Learned scoring** — Gradient-descent trained linear model (11 features + bias) that learns per-user weights from labelled examples via mini-batch SGD with L2 regularization, Z-score standardization, and early stopping
+- **Learned scoring** — Gradient-descent trained linear model (12 features + bias) that learns per-user weights from labelled examples via mini-batch SGD with L2 regularization, Z-score standardization, and early stopping
 - **Ensemble scoring** — Adaptive blend of Heuristic and Learned strategies using a sigmoid-driven α factor that shifts weight toward the ML model as training data accumulates. Includes a **quality gate**: if validation loss exceeds the threshold (MSE > 0.15), α progression is frozen to prevent an unreliable model from dominating
 - **Hard negative mining** — Items the user started but abandoned (< 25% completion) receive a strong negative label (0.0) during training, providing a clearer signal than simply "not watched"
 - **Soft labels** — Watched items get label 0.85 (not 1.0, to reduce label noise); recommended-but-not-watched items get 0.1 (exposure bias mitigation)
@@ -551,7 +551,7 @@ Sub-tasks executed in order (each respecting its configured task mode):
 - **Collaborative filtering** — Jaccard-weighted co-occurrence across users with minimum overlap threshold
 - **Candidate filtering** — Excludes already-watched items and series with watched episodes; scores all unwatched candidates against the user's profile
 - **Configurable** — `RecommendationsTaskMode` (DryRun/Activate/Deactivate); defaults to 20 recommendations per user (API accepts 1–100 via `maxResults` query parameter)
-- **Disk-persisted state** — Learned weights (`learned_weights.json`), ensemble state (`ensemble_state.json`), and recommendation cache (`recommendations_cache.json`) are all persisted to survive server restarts
+- **Disk-persisted state** — Learned weights (`ml_weights.json`), ensemble state (`ensemble_state.json`), and recommendation cache (`jellyfin-helper-recommendations-latest.json`) are all persisted to survive server restarts
 
 ### User Activity Insights
 

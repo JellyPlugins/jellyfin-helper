@@ -38,7 +38,7 @@ public sealed class ScoringStrategyTests : IDisposable
     // ============================================================
 
     [Fact]
-    public void CandidateFeatures_ToVector_Returns11Elements()
+    public void CandidateFeatures_ToVector_Returns12Elements()
     {
         var features = new CandidateFeatures
         {

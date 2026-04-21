@@ -6,7 +6,6 @@ using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -35,8 +34,7 @@ public class RecommendationControllerTests
             _mockEngine.Object,
             _mockCache.Object,
             _mockWatchHistory.Object,
-            _mockConfigService.Object,
-            Mock.Of<ILogger<RecommendationController>>());
+            _mockConfigService.Object);
     }
 
     // === GetAllRecommendations ===
