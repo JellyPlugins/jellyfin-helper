@@ -259,7 +259,7 @@ public sealed class RecommendationEngine : IRecommendationEngine
         string? weightsPath = null;
         if (!string.IsNullOrEmpty(dataPath))
         {
-            weightsPath = System.IO.Path.Combine(dataPath, "ml_weights.json");
+            weightsPath = System.IO.Path.Join(dataPath, "ml_weights.json");
         }
 
         return new LearnedScoringStrategy(weightsPath);

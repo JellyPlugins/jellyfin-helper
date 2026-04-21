@@ -215,7 +215,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
                 _bias = data.Bias;
             }
         }
-        catch
+        catch (Exception)
         {
             // Silently fall back to default weights
         }
@@ -256,7 +256,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
             File.WriteAllText(tempPath, json);
             File.Move(tempPath, _weightsPath, overwrite: true);
         }
-        catch
+        catch (Exception)
         {
             // Non-critical — silently ignore
         }

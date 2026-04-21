@@ -41,7 +41,11 @@ public class RecommendationCacheServiceTests : IDisposable
                 Directory.Delete(_tempDir, true);
             }
         }
-        catch
+        catch (IOException)
+        {
+            // best-effort cleanup
+        }
+        catch (UnauthorizedAccessException)
         {
             // best-effort cleanup
         }

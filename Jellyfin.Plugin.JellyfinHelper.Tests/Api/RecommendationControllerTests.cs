@@ -60,7 +60,7 @@ public class RecommendationControllerTests
 
         var result = _controller.GetAllRecommendations();
 
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        Assert.IsType<OkObjectResult>(result.Result);
         _mockCache.Verify(c => c.SaveResults(generated), Times.Once);
     }
 

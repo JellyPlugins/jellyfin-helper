@@ -192,7 +192,7 @@ public class UserActivityControllerTests
 
         var result = _controller.GetUserActivity(userId);
 
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        Assert.IsType<OkObjectResult>(result.Result);
         _mockCache.Verify(c => c.SaveResult(generated), Times.Once);
     }
 }
