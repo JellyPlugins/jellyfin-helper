@@ -3,11 +3,56 @@ using System;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 
 /// <summary>
+///     Named indices for the feature vector produced by <see cref="CandidateFeatures.ToVector"/>.
+///     Use these instead of magic numbers when accessing vector elements.
+/// </summary>
+public enum FeatureIndex
+{
+    /// <summary>Genre similarity (0–1).</summary>
+    GenreSimilarity = 0,
+
+    /// <summary>Collaborative filtering score (0–1).</summary>
+    CollaborativeScore = 1,
+
+    /// <summary>Normalized community rating (0–1).</summary>
+    RatingScore = 2,
+
+    /// <summary>Recency score (0–1).</summary>
+    RecencyScore = 3,
+
+    /// <summary>Year proximity score (0–1).</summary>
+    YearProximityScore = 4,
+
+    /// <summary>Normalized genre count (0–1).</summary>
+    GenreCountNormalized = 5,
+
+    /// <summary>Is series flag (0 or 1).</summary>
+    IsSeries = 6,
+
+    /// <summary>Genre × Rating interaction term.</summary>
+    GenreRatingInteraction = 7,
+
+    /// <summary>Genre × Collaborative interaction term.</summary>
+    GenreCollabInteraction = 8,
+
+    /// <summary>User personal rating score (0–1).</summary>
+    UserRatingScore = 9,
+
+    /// <summary>Watch completion ratio (0–1).</summary>
+    CompletionRatio = 10,
+}
+
+/// <summary>
 ///     Pre-computed feature signals for a recommendation candidate.
 ///     All values are normalized to approximately 0–1 range.
 /// </summary>
 public sealed class CandidateFeatures
 {
+    /// <summary>
+    ///     The number of features produced by <see cref="ToVector"/>.
+    /// </summary>
+    public const int FeatureCount = 11;
+
     /// <summary>
     ///     Normalization ceiling for genre count (items with ≥ this many genres map to 1.0).
     /// </summary>
@@ -78,28 +123,25 @@ public sealed class CandidateFeatures
 
     /// <summary>
     ///     Converts the features into a fixed-size double array for ML processing.
-    ///     Order: [genre, collab, rating, recency, yearProx, genreCount_norm, isSeries,
-    ///             genre×rating (interaction), genre×collab (interaction), userRating, completionRatio].
+    ///     Order is defined by <see cref="FeatureIndex"/>.
     /// </summary>
-    /// <returns>An 11-element feature vector.</returns>
+    /// <returns>An <see cref="FeatureCount"/>-element feature vector.</returns>
     public double[] ToVector()
     {
         var normalizedGenreCount = Math.Clamp(GenreCount / GenreCountNormalizationCeiling, 0.0, 1.0);
 
-        return
-        [
-            GenreSimilarity,
-            CollaborativeScore,
-            RatingScore,
-            RecencyScore,
-            YearProximityScore,
-            normalizedGenreCount,
-            IsSeries ? 1.0 : 0.0,
-            // Interaction features — capture non-linear relationships
-            GenreSimilarity * RatingScore, // high genre match + high rating = extra boost
-            GenreSimilarity * CollaborativeScore, // high genre match + popular with similar users = extra boost
-            UserRatingScore, // personal rating signal (stronger than community rating)
-            CompletionRatio // watch completion — low values for candidates indicate no prior abandonment
-        ];
+        var vector = new double[FeatureCount];
+        vector[(int)FeatureIndex.GenreSimilarity] = GenreSimilarity;
+        vector[(int)FeatureIndex.CollaborativeScore] = CollaborativeScore;
+        vector[(int)FeatureIndex.RatingScore] = RatingScore;
+        vector[(int)FeatureIndex.RecencyScore] = RecencyScore;
+        vector[(int)FeatureIndex.YearProximityScore] = YearProximityScore;
+        vector[(int)FeatureIndex.GenreCountNormalized] = normalizedGenreCount;
+        vector[(int)FeatureIndex.IsSeries] = IsSeries ? 1.0 : 0.0;
+        vector[(int)FeatureIndex.GenreRatingInteraction] = GenreSimilarity * RatingScore;
+        vector[(int)FeatureIndex.GenreCollabInteraction] = GenreSimilarity * CollaborativeScore;
+        vector[(int)FeatureIndex.UserRatingScore] = UserRatingScore;
+        vector[(int)FeatureIndex.CompletionRatio] = CompletionRatio;
+        return vector;
     }
 }

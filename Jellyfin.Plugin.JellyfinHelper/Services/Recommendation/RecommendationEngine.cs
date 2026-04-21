@@ -526,6 +526,12 @@ public sealed class RecommendationEngine : IRecommendationEngine
             return coOccurrence;
         }
 
+        // Build inverted index: itemId → list of (userId, watchedSet) for users who watched that item.
+        // This avoids O(users × items) iteration when the library is large but each user
+        // has only watched a small fraction of items.
+        var invertedIndex = new Dictionary<Guid, List<(Guid UserId, HashSet<Guid> WatchedIds)>>();
+        var otherUserSets = new Dictionary<Guid, HashSet<Guid>>();
+
         foreach (var otherProfile in allProfiles)
         {
             if (otherProfile.UserId == userProfile.UserId)
@@ -536,20 +542,47 @@ public sealed class RecommendationEngine : IRecommendationEngine
             var otherWatchedIds = new HashSet<Guid>(
                 otherProfile.WatchedItems.Where(w => w.Played).Select(w => w.ItemId));
 
-            // Compute overlap: how many items did both users watch?
-            var overlap = userWatchedIds.Count(id => otherWatchedIds.Contains(id));
+            if (otherWatchedIds.Count == 0)
+            {
+                continue;
+            }
 
-            // Only consider users with meaningful overlap
+            otherUserSets[otherProfile.UserId] = otherWatchedIds;
+
+            foreach (var itemId in otherWatchedIds)
+            {
+                if (!invertedIndex.TryGetValue(itemId, out var list))
+                {
+                    list = [];
+                    invertedIndex[itemId] = list;
+                }
+
+                list.Add((otherProfile.UserId, otherWatchedIds));
+            }
+        }
+
+        // Compute overlap + Jaccard per other user (cached to avoid recomputation)
+        var jaccardCache = new Dictionary<Guid, double>();
+
+        foreach (var (otherUserId, otherWatchedIds) in otherUserSets)
+        {
+            var overlap = 0;
+            foreach (var id in userWatchedIds)
+            {
+                if (otherWatchedIds.Contains(id))
+                {
+                    overlap++;
+                }
+            }
+
             if (overlap < MinCollaborativeOverlap)
             {
                 continue;
             }
 
-            // Weight by Jaccard similarity: overlap / union gives similarity 0–1.
-            // Using true double precision instead of discretized integers avoids
-            // information loss (e.g., Jaccard 0.31 and 0.39 are now distinguishable).
             var union = userWatchedIds.Count + otherWatchedIds.Count - overlap;
             var weight = union > 0 ? (double)overlap / union : 0.0;
+            jaccardCache[otherUserId] = weight;
 
             // Accumulate Jaccard-weighted co-occurrence for items the other user watched but we haven't
             foreach (var itemId in otherWatchedIds)
@@ -797,7 +830,16 @@ public sealed class RecommendationEngine : IRecommendationEngine
             if (bestIdx >= 0)
             {
                 selected.Add(remaining[bestIdx]);
-                remaining.RemoveAt(bestIdx);
+
+                // Swap-remove: O(1) instead of O(n) for RemoveAt in the middle of a list.
+                // Order of remaining doesn't matter since we scan all elements each iteration.
+                var lastIdx = remaining.Count - 1;
+                if (bestIdx < lastIdx)
+                {
+                    remaining[bestIdx] = remaining[lastIdx];
+                }
+
+                remaining.RemoveAt(lastIdx);
             }
             else
             {

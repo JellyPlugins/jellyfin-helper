@@ -54,7 +54,8 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
-        return ScoreWithExplanation(features).FinalScore;
+        var vector = features.ToVector();
+        return Math.Clamp(ComputeRawScore(vector), 0.0, 1.0);
     }
 
     /// <inheritdoc />
@@ -62,19 +63,17 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     {
         var vector = features.ToVector();
 
-        // vector: [genre, collab, rating, recency, yearProx, genreCount_norm, isSeries,
-        //          genre×rating, genre×collab, userRating, completionRatio]
-        var genreContrib = vector[0] * GenreWeight;
-        var collabContrib = vector[1] * CollaborativeWeight;
-        var ratingContrib = vector[2] * RatingWeight;
-        var recencyContrib = vector[3] * RecencyWeight;
-        var yearProxContrib = vector[4] * YearProximityWeight;
-        var genreCountContrib = vector[5] * GenreCountWeight;
-        var isSeriesContrib = vector[6] * IsSeriesWeight;
-        var genreRatingInteraction = vector[7] * GenreRatingInteractionWeight;
-        var genreCollabInteraction = vector[8] * GenreCollabInteractionWeight;
-        var userRatingContrib = vector[9] * UserRatingWeight;
-        var completionContrib = vector[10] * CompletionRatioWeight;
+        var genreContrib = vector[(int)FeatureIndex.GenreSimilarity] * GenreWeight;
+        var collabContrib = vector[(int)FeatureIndex.CollaborativeScore] * CollaborativeWeight;
+        var ratingContrib = vector[(int)FeatureIndex.RatingScore] * RatingWeight;
+        var recencyContrib = vector[(int)FeatureIndex.RecencyScore] * RecencyWeight;
+        var yearProxContrib = vector[(int)FeatureIndex.YearProximityScore] * YearProximityWeight;
+        var genreCountContrib = vector[(int)FeatureIndex.GenreCountNormalized] * GenreCountWeight;
+        var isSeriesContrib = vector[(int)FeatureIndex.IsSeries] * IsSeriesWeight;
+        var genreRatingInteraction = vector[(int)FeatureIndex.GenreRatingInteraction] * GenreRatingInteractionWeight;
+        var genreCollabInteraction = vector[(int)FeatureIndex.GenreCollabInteraction] * GenreCollabInteractionWeight;
+        var userRatingContrib = vector[(int)FeatureIndex.UserRatingScore] * UserRatingWeight;
+        var completionContrib = vector[(int)FeatureIndex.CompletionRatio] * CompletionRatioWeight;
 
         var interactionTotal = genreRatingInteraction + genreCollabInteraction
             + genreCountContrib + isSeriesContrib + completionContrib;
@@ -82,15 +81,6 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
         var score = genreContrib + collabContrib + ratingContrib + recencyContrib
             + yearProxContrib + interactionTotal + userRatingContrib;
         score = Math.Clamp(score, 0.0, 1.0);
-
-        // Determine dominant signal
-        var dominant = "genre";
-        var maxContrib = genreContrib;
-        if (collabContrib > maxContrib) { dominant = "collaborative"; maxContrib = collabContrib; }
-        if (ratingContrib > maxContrib) { dominant = "communityRating"; maxContrib = ratingContrib; }
-        if (userRatingContrib > maxContrib) { dominant = "userRating"; maxContrib = userRatingContrib; }
-        if (recencyContrib > maxContrib) { dominant = "recency"; maxContrib = recencyContrib; }
-        if (yearProxContrib > maxContrib) { dominant = "yearProximity"; }
 
         return new ScoreExplanation
         {
@@ -103,7 +93,8 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
             UserRatingContribution = userRatingContrib,
             InteractionContribution = interactionTotal,
             GenrePenaltyMultiplier = 1.0, // No penalty in heuristic — applied in Ensemble
-            DominantSignal = dominant,
+            DominantSignal = ScoreExplanation.DetermineDominantSignal(
+                genreContrib, collabContrib, ratingContrib, userRatingContrib, recencyContrib, yearProxContrib),
             StrategyName = Name
         };
     }
@@ -113,5 +104,23 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     {
         // Heuristic strategy does not support learning
         return false;
+    }
+
+    /// <summary>
+    ///     Computes the raw weighted score from a feature vector without allocating explanation objects.
+    /// </summary>
+    private static double ComputeRawScore(double[] vector)
+    {
+        return (vector[(int)FeatureIndex.GenreSimilarity] * GenreWeight)
+            + (vector[(int)FeatureIndex.CollaborativeScore] * CollaborativeWeight)
+            + (vector[(int)FeatureIndex.RatingScore] * RatingWeight)
+            + (vector[(int)FeatureIndex.RecencyScore] * RecencyWeight)
+            + (vector[(int)FeatureIndex.YearProximityScore] * YearProximityWeight)
+            + (vector[(int)FeatureIndex.GenreCountNormalized] * GenreCountWeight)
+            + (vector[(int)FeatureIndex.IsSeries] * IsSeriesWeight)
+            + (vector[(int)FeatureIndex.GenreRatingInteraction] * GenreRatingInteractionWeight)
+            + (vector[(int)FeatureIndex.GenreCollabInteraction] * GenreCollabInteractionWeight)
+            + (vector[(int)FeatureIndex.UserRatingScore] * UserRatingWeight)
+            + (vector[(int)FeatureIndex.CompletionRatio] * CompletionRatioWeight);
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
@@ -16,27 +17,33 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 ///     No external ML dependencies required — pure C# implementation.
 /// </summary>
 /// <remarks>
-///     Architecture: 9 input features → 9 weights + 1 bias → clamp(0,1) → score (0–1).
+///     Architecture: 11 input features → 11 weights + 1 bias → clamp(0,1) → score (0–1).
 ///     Features include 2 interaction terms (genre×rating, genre×collab).
-///     Training uses mean squared error (MSE) loss with L2 regularization.
+///     Training uses mean squared error (MSE) loss with L2 regularization and early stopping.
 ///     Weights are persisted to disk so they survive server restarts.
 /// </remarks>
 public sealed class LearnedScoringStrategy : IScoringStrategy
 {
-    /// <summary>Number of input features (must match <see cref="CandidateFeatures.ToVector"/> length).</summary>
-    internal const int FeatureCount = 11;
-
     /// <summary>Default learning rate for gradient descent.</summary>
     internal const double DefaultLearningRate = 0.02;
 
     /// <summary>L2 regularization strength (weight decay).</summary>
     internal const double L2Lambda = 0.001;
 
-    /// <summary>Number of training epochs per <see cref="Train"/> call.</summary>
-    internal const int TrainingEpochs = 15;
+    /// <summary>Maximum number of training epochs per <see cref="Train"/> call.</summary>
+    internal const int MaxTrainingEpochs = 30;
 
     /// <summary>Minimum number of training examples required before training runs.</summary>
     internal const int MinTrainingExamples = 5;
+
+    /// <summary>Number of consecutive epochs without improvement before early stopping triggers.</summary>
+    internal const int EarlyStoppingPatience = 3;
+
+    /// <summary>Minimum fraction of examples used for validation (rest is training).</summary>
+    internal const double ValidationSplitRatio = 0.2;
+
+    /// <summary>Minimum number of validation examples required for early stopping.</summary>
+    internal const int MinValidationExamples = 2;
 
     /// <summary>Cached JSON serializer options for weight persistence.</summary>
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
@@ -59,20 +66,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
         _weightsPath = weightsPath;
 
         // Initialize with genre-dominant weights — genre match is the strongest signal
-        _weights =
-        [
-            0.35, // genre similarity (dominant signal)
-            0.12, // collaborative
-            0.08, // community rating
-            0.05, // recency
-            0.05, // year proximity
-            0.05, // genre count
-            0.00, // isSeries (neutral start — no inherent preference)
-            0.08, // genre × rating interaction
-            0.08, // genre × collaborative interaction
-            0.10, // user personal rating (stronger than community rating)
-            0.04 // completion ratio (penalizes abandoned items)
-        ];
+        _weights = CreateDefaultWeights();
         _bias = 0.05; // slight positive bias so perfect matches approach 1.0
 
         // Try to load persisted weights
@@ -116,56 +110,50 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
-        return ScoreWithExplanation(features).FinalScore;
+        var vector = features.ToVector();
+        ValidateVectorLength(vector);
+
+        lock (_lock)
+        {
+            return Math.Clamp(ComputeRawScore(vector, _weights, _bias), 0.0, 1.0);
+        }
     }
 
     /// <inheritdoc />
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
         var vector = features.ToVector();
-        double rawScore;
+        ValidateVectorLength(vector);
+
         double genreContrib, collabContrib, ratingContrib, recencyContrib;
         double yearProxContrib, userRatingContrib, interactionContrib;
+        double rawScore;
 
         lock (_lock)
         {
             rawScore = _bias;
-            var len = Math.Min(vector.Length, _weights.Length);
 
-            // Compute individual contributions
-            genreContrib = len > 0 ? vector[0] * _weights[0] : 0;
-            collabContrib = len > 1 ? vector[1] * _weights[1] : 0;
-            ratingContrib = len > 2 ? vector[2] * _weights[2] : 0;
-            recencyContrib = len > 3 ? vector[3] * _weights[3] : 0;
-            yearProxContrib = len > 4 ? vector[4] * _weights[4] : 0;
-            userRatingContrib = len > 9 ? vector[9] * _weights[9] : 0;
+            // Compute individual contributions using named indices
+            genreContrib = vector[(int)FeatureIndex.GenreSimilarity] * _weights[(int)FeatureIndex.GenreSimilarity];
+            collabContrib = vector[(int)FeatureIndex.CollaborativeScore] * _weights[(int)FeatureIndex.CollaborativeScore];
+            ratingContrib = vector[(int)FeatureIndex.RatingScore] * _weights[(int)FeatureIndex.RatingScore];
+            recencyContrib = vector[(int)FeatureIndex.RecencyScore] * _weights[(int)FeatureIndex.RecencyScore];
+            yearProxContrib = vector[(int)FeatureIndex.YearProximityScore] * _weights[(int)FeatureIndex.YearProximityScore];
+            userRatingContrib = vector[(int)FeatureIndex.UserRatingScore] * _weights[(int)FeatureIndex.UserRatingScore];
 
             // Interaction + minor features (genreCount, isSeries, genre×rating, genre×collab, completionRatio)
             interactionContrib = 0;
-            for (var i = 5; i < len; i++)
-            {
-                if (i == 9)
-                {
-                    continue; // userRating already counted separately
-                }
-
-                interactionContrib += vector[i] * _weights[i];
-            }
+            interactionContrib += vector[(int)FeatureIndex.GenreCountNormalized] * _weights[(int)FeatureIndex.GenreCountNormalized];
+            interactionContrib += vector[(int)FeatureIndex.IsSeries] * _weights[(int)FeatureIndex.IsSeries];
+            interactionContrib += vector[(int)FeatureIndex.GenreRatingInteraction] * _weights[(int)FeatureIndex.GenreRatingInteraction];
+            interactionContrib += vector[(int)FeatureIndex.GenreCollabInteraction] * _weights[(int)FeatureIndex.GenreCollabInteraction];
+            interactionContrib += vector[(int)FeatureIndex.CompletionRatio] * _weights[(int)FeatureIndex.CompletionRatio];
 
             rawScore += genreContrib + collabContrib + ratingContrib + recencyContrib
                 + yearProxContrib + userRatingContrib + interactionContrib;
         }
 
         var score = Math.Clamp(rawScore, 0.0, 1.0);
-
-        // Determine dominant signal
-        var dominant = "genre";
-        var maxContrib = genreContrib;
-        if (collabContrib > maxContrib) { dominant = "collaborative"; maxContrib = collabContrib; }
-        if (ratingContrib > maxContrib) { dominant = "communityRating"; maxContrib = ratingContrib; }
-        if (userRatingContrib > maxContrib) { dominant = "userRating"; maxContrib = userRatingContrib; }
-        if (recencyContrib > maxContrib) { dominant = "recency"; maxContrib = recencyContrib; }
-        if (yearProxContrib > maxContrib) { dominant = "yearProximity"; }
 
         return new ScoreExplanation
         {
@@ -178,7 +166,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
             UserRatingContribution = userRatingContrib,
             InteractionContribution = interactionContrib,
             GenrePenaltyMultiplier = 1.0, // No penalty in Learned — applied in Ensemble
-            DominantSignal = dominant,
+            DominantSignal = ScoreExplanation.DetermineDominantSignal(
+                genreContrib, collabContrib, ratingContrib, userRatingContrib, recencyContrib, yearProxContrib),
             StrategyName = Name
         };
     }
@@ -193,38 +182,67 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
 
         lock (_lock)
         {
-            // Create a mutable index list for Fisher-Yates shuffling each epoch.
-            // Shuffling prevents order-dependent bias in stochastic gradient descent
-            // (last examples in a fixed order would disproportionately influence weights).
-            var indices = new int[examples.Count];
-            for (var j = 0; j < indices.Length; j++)
-            {
-                indices[j] = j;
-            }
+            // Split into training and validation sets for early stopping
+            var validationCount = Math.Max(MinValidationExamples, (int)(examples.Count * ValidationSplitRatio));
+            validationCount = Math.Min(validationCount, examples.Count - MinTrainingExamples);
+
+            // If we can't split properly, train on all data without early stopping
+            var useEarlyStopping = validationCount >= MinValidationExamples
+                && examples.Count - validationCount >= MinTrainingExamples;
 
             var rng = new Random();
 
-            for (var epoch = 0; epoch < TrainingEpochs; epoch++)
+            // Create shuffled index array for split
+            var allIndices = new int[examples.Count];
+            for (var j = 0; j < allIndices.Length; j++)
             {
-                // Fisher-Yates shuffle for this epoch
-                for (var j = indices.Length - 1; j > 0; j--)
+                allIndices[j] = j;
+            }
+
+            // Fisher-Yates shuffle for random split
+            for (var j = allIndices.Length - 1; j > 0; j--)
+            {
+                var k = rng.Next(j + 1);
+                (allIndices[j], allIndices[k]) = (allIndices[k], allIndices[j]);
+            }
+
+            int[] trainIndices;
+            int[] valIndices;
+
+            if (useEarlyStopping)
+            {
+                trainIndices = allIndices[..^validationCount];
+                valIndices = allIndices[^validationCount..];
+            }
+            else
+            {
+                trainIndices = allIndices;
+                valIndices = [];
+            }
+
+            var bestLoss = double.MaxValue;
+            var patienceCounter = 0;
+            var bestWeights = (double[])_weights.Clone();
+            var bestBias = _bias;
+
+            var maxEpochs = useEarlyStopping ? MaxTrainingEpochs : Math.Min(MaxTrainingEpochs, 15);
+
+            for (var epoch = 0; epoch < maxEpochs; epoch++)
+            {
+                // Fisher-Yates shuffle training indices each epoch
+                for (var j = trainIndices.Length - 1; j > 0; j--)
                 {
                     var k = rng.Next(j + 1);
-                    (indices[j], indices[k]) = (indices[k], indices[j]);
+                    (trainIndices[j], trainIndices[k]) = (trainIndices[k], trainIndices[j]);
                 }
 
-                foreach (var idx in indices)
+                foreach (var idx in trainIndices)
                 {
                     var example = examples[idx];
                     var vector = example.Features.ToVector();
 
-                    // Forward pass — linear model (no sigmoid)
-                    var z = _bias;
-                    for (var i = 0; i < Math.Min(vector.Length, _weights.Length); i++)
-                    {
-                        z += vector[i] * _weights[i];
-                    }
-
+                    // Forward pass — linear model
+                    var z = ComputeRawScore(vector, _weights, _bias);
                     var predicted = Math.Clamp(z, 0.0, 1.0);
 
                     // Error = predicted - label (gradient of MSE loss)
@@ -237,12 +255,11 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
                     }
 
                     // Update weights with gradient descent + L2 regularization
-                    for (var i = 0; i < Math.Min(vector.Length, _weights.Length); i++)
+                    var len = Math.Min(vector.Length, _weights.Length);
+                    for (var i = 0; i < len; i++)
                     {
                         var gradient = (error * vector[i]) + (L2Lambda * _weights[i]);
                         _weights[i] -= DefaultLearningRate * gradient;
-
-                        // Clamp weights to prevent extreme values from bad training data
                         _weights[i] = Math.Clamp(_weights[i], -2.0, 2.0);
                     }
 
@@ -250,12 +267,111 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
                     _bias -= DefaultLearningRate * error;
                     _bias = Math.Clamp(_bias, -1.0, 1.0);
                 }
+
+                // Early stopping: evaluate on validation set
+                if (useEarlyStopping && valIndices.Length > 0)
+                {
+                    var valLoss = ComputeMseLoss(examples, valIndices, _weights, _bias);
+
+                    if (valLoss < bestLoss - 1e-6)
+                    {
+                        bestLoss = valLoss;
+                        patienceCounter = 0;
+                        Array.Copy(_weights, bestWeights, _weights.Length);
+                        bestBias = _bias;
+                    }
+                    else
+                    {
+                        patienceCounter++;
+                        if (patienceCounter >= EarlyStoppingPatience)
+                        {
+                            // Restore best weights
+                            Array.Copy(bestWeights, _weights, _weights.Length);
+                            _bias = bestBias;
+                            break;
+                        }
+                    }
+                }
             }
         }
 
         // Persist updated weights
         TrySaveWeights();
         return true;
+    }
+
+    /// <summary>
+    ///     Creates the default weight array with genre-dominant initial weights.
+    /// </summary>
+    private static double[] CreateDefaultWeights()
+    {
+        var weights = new double[CandidateFeatures.FeatureCount];
+        weights[(int)FeatureIndex.GenreSimilarity] = 0.35;      // dominant signal
+        weights[(int)FeatureIndex.CollaborativeScore] = 0.12;
+        weights[(int)FeatureIndex.RatingScore] = 0.08;
+        weights[(int)FeatureIndex.RecencyScore] = 0.05;
+        weights[(int)FeatureIndex.YearProximityScore] = 0.05;
+        weights[(int)FeatureIndex.GenreCountNormalized] = 0.05;
+        weights[(int)FeatureIndex.IsSeries] = 0.00;              // neutral start
+        weights[(int)FeatureIndex.GenreRatingInteraction] = 0.08;
+        weights[(int)FeatureIndex.GenreCollabInteraction] = 0.08;
+        weights[(int)FeatureIndex.UserRatingScore] = 0.10;
+        weights[(int)FeatureIndex.CompletionRatio] = 0.04;
+        return weights;
+    }
+
+    /// <summary>
+    ///     Computes the raw linear score from a feature vector, weights, and bias.
+    /// </summary>
+    private static double ComputeRawScore(double[] vector, double[] weights, double bias)
+    {
+        var score = bias;
+        var len = Math.Min(vector.Length, weights.Length);
+        for (var i = 0; i < len; i++)
+        {
+            score += vector[i] * weights[i];
+        }
+
+        return score;
+    }
+
+    /// <summary>
+    ///     Computes the mean squared error loss on a subset of examples.
+    /// </summary>
+    private static double ComputeMseLoss(
+        IReadOnlyList<TrainingExample> examples,
+        int[] indices,
+        double[] weights,
+        double bias)
+    {
+        var totalLoss = 0.0;
+        foreach (var idx in indices)
+        {
+            var vector = examples[idx].Features.ToVector();
+            var predicted = Math.Clamp(ComputeRawScore(vector, weights, bias), 0.0, 1.0);
+            var error = predicted - examples[idx].Label;
+            totalLoss += error * error;
+        }
+
+        return totalLoss / indices.Length;
+    }
+
+    /// <summary>
+    ///     Validates that a feature vector has the expected length.
+    /// </summary>
+    /// <exception cref="ArgumentException">Thrown when the vector length doesn't match the expected feature count.</exception>
+    private static void ValidateVectorLength(double[] vector)
+    {
+        Debug.Assert(
+            vector.Length == CandidateFeatures.FeatureCount,
+            $"Feature vector length mismatch: expected {CandidateFeatures.FeatureCount}, got {vector.Length}");
+
+        if (vector.Length != CandidateFeatures.FeatureCount)
+        {
+            throw new ArgumentException(
+                $"Feature vector length mismatch: expected {CandidateFeatures.FeatureCount}, got {vector.Length}",
+                nameof(vector));
+        }
     }
 
     /// <summary>
@@ -276,7 +392,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
         {
             var json = File.ReadAllText(_weightsPath);
             var data = JsonSerializer.Deserialize<WeightsData>(json);
-            if (data?.Weights is { Length: FeatureCount })
+            if (data?.Weights is { Length: CandidateFeatures.FeatureCount })
             {
                 _weights = data.Weights;
                 _bias = data.Bias;
@@ -315,7 +431,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
                 Weights = (double[])_weights.Clone(),
                 Bias = _bias,
                 UpdatedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
-                Version = 3
+                Version = 4
             };
 
             var json = JsonSerializer.Serialize(data, SerializerOptions);

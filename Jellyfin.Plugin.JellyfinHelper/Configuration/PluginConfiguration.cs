@@ -143,6 +143,30 @@ public class PluginConfiguration : BasePluginConfiguration
     public TaskMode RecommendationsTaskMode { get; set; } = TaskMode.DryRun;
 
     /// <summary>
+    ///     Gets or sets the scoring strategy for recommendations.
+    ///     Valid values: "ensemble" (default), "heuristic", "learned".
+    /// </summary>
+    public string RecommendationStrategy { get; set; } = "ensemble";
+
+    /// <summary>
+    ///     Gets or sets the minimum alpha value for the ensemble scoring strategy.
+    ///     Controls the lower bound of learned model blending (0–1). Default is 0.3.
+    /// </summary>
+    public double EnsembleAlphaMin { get; set; } = 0.3;
+
+    /// <summary>
+    ///     Gets or sets the maximum alpha value for the ensemble scoring strategy.
+    ///     Controls the upper bound of learned model blending (0–1). Default is 0.8.
+    /// </summary>
+    public double EnsembleAlphaMax { get; set; } = 0.8;
+
+    /// <summary>
+    ///     Gets or sets the genre penalty floor for the ensemble scoring strategy.
+    ///     Items with zero genre overlap are penalized down to this floor value. Default is 0.10.
+    /// </summary>
+    public double EnsembleGenrePenaltyFloor { get; set; } = 0.10;
+
+    /// <summary>
     ///     Gets or sets the minimum log level for the plugin's in-memory log buffer.
     ///     Supported values: DEBUG, INFO, WARN, ERROR. Default is "INFO".
     /// </summary>

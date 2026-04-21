@@ -119,7 +119,7 @@ public sealed class ScoringStrategyTests : IDisposable
         // Guard: if a new feature is added to ToVector() but FeatureCount is not updated
         // (or vice versa), training and scoring will silently produce wrong results.
         var vector = new CandidateFeatures().ToVector();
-        Assert.Equal(LearnedScoringStrategy.FeatureCount, vector.Length);
+        Assert.Equal(CandidateFeatures.FeatureCount, vector.Length);
     }
 
     // ============================================================
@@ -381,7 +381,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var strategy = new LearnedScoringStrategy();
         var weights = strategy.CurrentWeights;
 
-        Assert.Equal(LearnedScoringStrategy.FeatureCount, weights.Length);
+        Assert.Equal(CandidateFeatures.FeatureCount, weights.Length);
         Assert.Equal(0.35, weights[0]); // genre (dominant)
         Assert.Equal(0.12, weights[1]); // collaborative
         Assert.Equal(0.08, weights[2]); // rating
@@ -625,7 +625,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var strategy = new LearnedScoringStrategy(weightsPath);
         var weights = strategy.CurrentWeights;
 
-        Assert.Equal(LearnedScoringStrategy.FeatureCount, weights.Length);
+        Assert.Equal(CandidateFeatures.FeatureCount, weights.Length);
         Assert.Equal(0.35, weights[0]); // default genre weight
     }
 
