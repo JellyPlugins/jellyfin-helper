@@ -77,7 +77,7 @@ internal static class ScoringHelper
         var yearProxContrib = vector[(int)FeatureIndex.YearProximityScore] * weights[(int)FeatureIndex.YearProximityScore];
         var userRatingContrib = vector[(int)FeatureIndex.UserRatingScore] * weights[(int)FeatureIndex.UserRatingScore];
 
-        // Interaction + minor features (genreCount, isSeries, genre×rating, genre×collab, completionRatio, isAbandoned, novelty, peopleSimilarity, studioMatch)
+    // Interaction + minor features (genreCount, isSeries, genre×rating, genre×collab, completionRatio, isAbandoned, hasInteraction, peopleSimilarity, studioMatch)
         var interactionContrib =
             (vector[(int)FeatureIndex.GenreCountNormalized] * weights[(int)FeatureIndex.GenreCountNormalized]) +
             (vector[(int)FeatureIndex.IsSeries] * weights[(int)FeatureIndex.IsSeries]) +
@@ -85,7 +85,7 @@ internal static class ScoringHelper
             (vector[(int)FeatureIndex.GenreCollabInteraction] * weights[(int)FeatureIndex.GenreCollabInteraction]) +
             (vector[(int)FeatureIndex.CompletionRatio] * weights[(int)FeatureIndex.CompletionRatio]) +
             (vector[(int)FeatureIndex.IsAbandoned] * weights[(int)FeatureIndex.IsAbandoned]) +
-            (vector[(int)FeatureIndex.NoveltyScore] * weights[(int)FeatureIndex.NoveltyScore]) +
+            (vector[(int)FeatureIndex.HasInteraction] * weights[(int)FeatureIndex.HasInteraction]) +
             (vector[(int)FeatureIndex.PeopleSimilarity] * weights[(int)FeatureIndex.PeopleSimilarity]) +
             (vector[(int)FeatureIndex.StudioMatch] * weights[(int)FeatureIndex.StudioMatch]);
 

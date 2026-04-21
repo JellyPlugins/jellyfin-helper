@@ -64,8 +64,8 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.8 * 0.5, vector[8], 10); // genre × collab interaction
         Assert.Equal(0.6, vector[9]); // userRating
         Assert.Equal(0.75, vector[10]); // completionRatio
-        Assert.Equal(0.0, vector[11]); // isAbandoned (0.75 >= 0.25 → not abandoned)
-        Assert.Equal(0.2, vector[12], 10); // novelty = 1.0 - 0.8 (genre similarity)
+        Assert.Equal(0.0, vector[11]); // isAbandoned (no HasUserInteraction → 0)
+        Assert.Equal(0.0, vector[12]); // hasInteraction (default false → 0)
         Assert.Equal(0.0, vector[13]); // peopleSimilarity (default 0)
         Assert.Equal(0.0, vector[14]); // studioMatch (default false → 0)
     }
@@ -100,21 +100,17 @@ public sealed class ScoringStrategyTests : IDisposable
     {
         var features = new CandidateFeatures();
         var vector = features.ToVector();
-        // Most default to 0.0, but UserRatingScore defaults to 0.5
-        // and IsAbandoned = 1.0 because default CompletionRatio (0.0) < 0.25
+        // Most default to 0.0, but UserRatingScore defaults to 0.5 and CompletionRatio defaults to 0.5
+        // IsAbandoned = 0.0 because HasUserInteraction defaults to false
         for (var i = 0; i < vector.Length; i++)
         {
             if (i == 9) // UserRatingScore default is 0.5
             {
                 Assert.Equal(0.5, vector[i]);
             }
-            else if (i == 11) // IsAbandoned = 1.0 (CompletionRatio 0.0 < 0.25)
+            else if (i == 10) // CompletionRatio default is 0.5
             {
-                Assert.Equal(1.0, vector[i]);
-            }
-            else if (i == 12) // NoveltyScore = 1.0 - 0.0 (GenreSimilarity) = 1.0
-            {
-                Assert.Equal(1.0, vector[i]);
+                Assert.Equal(0.5, vector[i]);
             }
             else
             {
@@ -180,7 +176,8 @@ public sealed class ScoringStrategyTests : IDisposable
         var features = new CandidateFeatures { UserRatingScore = 0.0 };
 
         var score = strategy.Score(features);
-        Assert.Equal(0.0, score, 4);
+        // With bias = 0.02, genre penalty floor = 0.20 → 0.20 * 0.02 = 0.004
+        Assert.Equal(0.004, score, 4);
     }
 
     [Fact]
@@ -192,10 +189,10 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var score = strategy.Score(features);
 
-        // Default CompletionRatio=0.0 → IsAbandoned=1.0, so abandoned penalty applies
-        // NoveltyScore = 1.0 - 0.5 = 0.5
-        var expected = (0.5 * DefaultWeights.GenreSimilarity) + (1.0 * DefaultWeights.IsAbandoned)
-            + (0.5 * DefaultWeights.NoveltyScore);
+        // Default CompletionRatio=0.5 (no interaction), HasUserInteraction=false → IsAbandoned=0
+        // HasInteraction = 0 (no interaction)
+        var expected = (0.5 * DefaultWeights.GenreSimilarity)
+            + (0.5 * DefaultWeights.CompletionRatio); // CompletionRatio default is now 0.5
         Assert.Equal(expected, score, 4);
     }
 
@@ -215,7 +212,7 @@ public sealed class ScoringStrategyTests : IDisposable
             CompletionRatio = 0.0
         };
 
-        // CompletionRatio=0.0 → IsAbandoned=1.0
+        // CompletionRatio=0.0 with no HasUserInteraction → IsAbandoned=0, HasInteraction=0
         var expected =
             (0.8 * DefaultWeights.GenreSimilarity) +
             (0.6 * DefaultWeights.CollaborativeScore) +
@@ -223,9 +220,7 @@ public sealed class ScoringStrategyTests : IDisposable
             (0.5 * DefaultWeights.RecencyScore) +
             (0.9 * DefaultWeights.YearProximityScore) +
             (0.8 * 0.7 * DefaultWeights.GenreRatingInteraction) +
-            (0.8 * 0.6 * DefaultWeights.GenreCollabInteraction) +
-            (1.0 * DefaultWeights.IsAbandoned) +
-            (0.2 * DefaultWeights.NoveltyScore); // NoveltyScore = 1.0 - 0.8
+            (0.8 * 0.6 * DefaultWeights.GenreCollabInteraction);
 
         Assert.Equal(expected, strategy.Score(features), 4);
     }
@@ -245,15 +240,13 @@ public sealed class ScoringStrategyTests : IDisposable
             CompletionRatio = 0.0
         };
 
-        // CompletionRatio=0.0 → IsAbandoned=1.0
+        // CompletionRatio=0.0 with no HasUserInteraction → IsAbandoned=0, HasInteraction=0
         var rawExpected =
             (0.0 * DefaultWeights.GenreSimilarity) +
             (0.5 * DefaultWeights.CollaborativeScore) +
             (0.8 * DefaultWeights.RatingScore) +
             (0.7 * DefaultWeights.RecencyScore) +
-            (0.9 * DefaultWeights.YearProximityScore) +
-            (1.0 * DefaultWeights.IsAbandoned) +
-            (1.0 * DefaultWeights.NoveltyScore); // NoveltyScore = 1.0 - 0.0
+            (0.9 * DefaultWeights.YearProximityScore);
 
         // With genrePenaltyFloor=0.10 and GenreSimilarity=0.0, penalty = 0.10
         var expected = rawExpected * 0.10;
@@ -275,15 +268,13 @@ public sealed class ScoringStrategyTests : IDisposable
             CompletionRatio = 0.0
         };
 
-        // CompletionRatio=0.0 → IsAbandoned=1.0
+        // CompletionRatio=0.0 with no HasUserInteraction → IsAbandoned=0, HasInteraction=0
         var expected =
             (0.0 * DefaultWeights.GenreSimilarity) +
             (0.5 * DefaultWeights.CollaborativeScore) +
             (0.8 * DefaultWeights.RatingScore) +
             (0.7 * DefaultWeights.RecencyScore) +
-            (0.9 * DefaultWeights.YearProximityScore) +
-            (1.0 * DefaultWeights.IsAbandoned) +
-            (1.0 * DefaultWeights.NoveltyScore); // NoveltyScore = 1.0 - 0.0
+            (0.9 * DefaultWeights.YearProximityScore);
 
         Assert.Equal(expected, strategy.Score(features), 4);
     }
@@ -368,9 +359,9 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var score = strategy.Score(features);
 
-        // With bias = 0.05, all features = 0 → rawScore = 0.05
-        // Genre penalty is now in Ensemble, not Learned, so score = 0.05
-        Assert.InRange(score, 0.0, 0.10);
+        // With bias and updated weights, all features = 0 → small positive score
+        // Genre penalty is now in Ensemble, not Learned, so no penalty applied here
+        Assert.InRange(score, 0.0, 0.20);
     }
 
     [Fact]
@@ -439,7 +430,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.10, weights[9]); // user rating
         Assert.Equal(0.08, weights[10]); // completion ratio
         Assert.Equal(-0.04, weights[11]); // isAbandoned
-        Assert.Equal(0.02, weights[12]); // novelty
+        Assert.Equal(0.02, weights[12]); // hasInteraction
         Assert.Equal(0.05, weights[13]); // people similarity
         Assert.Equal(0.02, weights[14]); // studio match
     }
@@ -787,7 +778,7 @@ public sealed class ScoringStrategyTests : IDisposable
 
         Assert.True(marvelScore > 0.5, $"Marvel should score high: {marvelScore:F4}");
         // Without penalty, Chucky gets a modest score from non-genre signals + bias
-        Assert.True(chuckyScore < 0.25, $"Chucky should score low (no genre overlap): {chuckyScore:F4}");
+        Assert.True(chuckyScore < 0.30, $"Chucky should score low (no genre overlap): {chuckyScore:F4}");
         Assert.True(marvelScore > chuckyScore * 2,
             $"Marvel should be significantly higher than Chucky: Marvel={marvelScore:F4}, Chucky={chuckyScore:F4}");
     }

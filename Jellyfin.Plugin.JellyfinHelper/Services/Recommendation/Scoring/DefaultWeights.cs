@@ -54,11 +54,11 @@ public static class DefaultWeights
     public const double IsAbandoned = -0.04;
 
     /// <summary>
-    ///     Weight for novelty/serendipity signal (1 − GenreSimilarity).
-    ///     A small positive weight that gently nudges recommendations towards items
-    ///     outside the user's usual genre preferences, promoting discovery of new content.
+    ///     Weight for has-interaction signal (1 if user interacted, 0 for new candidates).
+    ///     A small positive weight that gives a slight boost to items the user has some
+    ///     history with, allowing the model to distinguish "not yet seen" from "abandoned".
     /// </summary>
-    public const double NoveltyScore = 0.02;
+    public const double HasInteraction = 0.02;
 
     /// <summary>
     ///     Weight for people (cast/director) similarity signal.
@@ -95,7 +95,7 @@ public static class DefaultWeights
         weights[(int)FeatureIndex.UserRatingScore] = UserRatingScore;
         weights[(int)FeatureIndex.CompletionRatio] = CompletionRatio;
         weights[(int)FeatureIndex.IsAbandoned] = IsAbandoned;
-        weights[(int)FeatureIndex.NoveltyScore] = NoveltyScore;
+        weights[(int)FeatureIndex.HasInteraction] = HasInteraction;
         weights[(int)FeatureIndex.PeopleSimilarity] = PeopleSimilarity;
         weights[(int)FeatureIndex.StudioMatch] = StudioMatch;
         return weights;

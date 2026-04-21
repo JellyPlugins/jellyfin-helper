@@ -524,8 +524,12 @@ public sealed class RecommendationEngine : IRecommendationEngine
             double userRatingScore;
             double completionRatio;
 
+            bool hasUserInteraction;
+
             if (candidate is Series && seriesEpisodeLookup.TryGetValue(candidate.Id, out var episodesForScoring))
             {
+                hasUserInteraction = true;
+
                 // Aggregate user rating: average of rated episodes
                 var ratedEpisodes = episodesForScoring.Where(e => e.UserRating is > 0).ToList();
                 userRatingScore = ratedEpisodes.Count > 0
@@ -536,13 +540,14 @@ public sealed class RecommendationEngine : IRecommendationEngine
                 var playedEps = episodesForScoring.Count(e => e.Played);
                 completionRatio = episodesForScoring.Count > 0
                     ? Math.Clamp((double)playedEps / episodesForScoring.Count, 0.0, 1.0)
-                    : 0.0;
+                    : 0.5;
             }
             else
             {
                 watchedItemLookup.TryGetValue(candidate.Id, out var watchedItem);
+                hasUserInteraction = watchedItem is not null;
                 userRatingScore = ComputeUserRatingScore(watchedItem);
-                completionRatio = ComputeCompletionRatio(watchedItem);
+                completionRatio = hasUserInteraction ? ComputeCompletionRatio(watchedItem) : 0.5;
             }
 
             // Compute studio match (Fix #5)
@@ -565,6 +570,7 @@ public sealed class RecommendationEngine : IRecommendationEngine
                 GenreCount = candidate.Genres?.Length ?? 0,
                 IsSeries = candidate is Series,
                 UserRatingScore = userRatingScore,
+                HasUserInteraction = hasUserInteraction,
                 CompletionRatio = completionRatio,
                 PeopleSimilarity = peopleSimilarity,
                 StudioMatch = studioMatch
@@ -1241,16 +1247,39 @@ public sealed class RecommendationEngine : IRecommendationEngine
 
     /// <summary>
     ///     Computes people similarity between a candidate's cast/directors and the user's
-    ///     preferred people set using Jaccard similarity.
+    ///     preferred people set using Overlap coefficient: |A ∩ B| / min(|A|, |B|).
+    ///     This is preferred over Jaccard for people similarity because the user's preferred
+    ///     people set is typically much larger than a single candidate's cast, which would
+    ///     make Jaccard converge towards zero. Overlap coefficient focuses on what fraction
+    ///     of the smaller set is shared, giving a meaningful signal.
     /// </summary>
     /// <param name="candidatePeople">The candidate item's person names.</param>
     /// <param name="preferredPeople">The user's preferred person names.</param>
-    /// <returns>A Jaccard similarity score between 0 and 1.</returns>
+    /// <returns>An overlap coefficient between 0 and 1.</returns>
     internal static double ComputePeopleSimilarity(
         HashSet<string> candidatePeople,
         HashSet<string> preferredPeople)
     {
-        return ComputeJaccardFromSets(candidatePeople, preferredPeople);
+        if (candidatePeople.Count == 0 || preferredPeople.Count == 0)
+        {
+            return 0;
+        }
+
+        var intersection = 0;
+        // Iterate over the smaller set for efficiency
+        var (smaller, larger) = candidatePeople.Count <= preferredPeople.Count
+            ? (candidatePeople, preferredPeople)
+            : (preferredPeople, candidatePeople);
+        foreach (var name in smaller)
+        {
+            if (larger.Contains(name))
+            {
+                intersection++;
+            }
+        }
+
+        var minSize = Math.Min(candidatePeople.Count, preferredPeople.Count);
+        return minSize > 0 ? (double)intersection / minSize : 0;
     }
 
     /// <summary>

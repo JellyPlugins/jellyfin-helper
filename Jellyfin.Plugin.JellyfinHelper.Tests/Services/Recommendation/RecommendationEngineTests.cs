@@ -680,13 +680,13 @@ public class RecommendationEngineTests
     }
 
     [Fact]
-    public void ComputePeopleSimilarity_PartialOverlap_ReturnsJaccard()
+    public void ComputePeopleSimilarity_PartialOverlap_ReturnsOverlapCoefficient()
     {
-        // Intersection = {A}, Union = {A, B, C} → Jaccard = 1/3
+        // Intersection = {A}, min(|candidate|, |preferred|) = min(2, 2) = 2 → Overlap = 1/2
         var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A", "B" };
         var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A", "C" };
         var result = RecommendationEngine.ComputePeopleSimilarity(candidate, preferred);
-        Assert.Equal(1.0 / 3.0, result, 6);
+        Assert.Equal(0.5, result, 6);
     }
 
     [Fact]

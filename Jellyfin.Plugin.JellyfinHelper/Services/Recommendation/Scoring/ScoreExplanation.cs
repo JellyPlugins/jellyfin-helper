@@ -104,8 +104,7 @@ public sealed class ScoreExplanation
     /// <summary>
     ///     Determines the dominant signal name from the per-feature contributions.
     ///     Returns the name of the feature with the highest absolute contribution value.
-    ///     Uses a dictionary-based approach for extensibility — adding new features
-    ///     only requires adding an entry to the dictionary.
+    ///     Uses allocation-free inline comparisons for hot-path performance.
     /// </summary>
     /// <param name="genreContrib">Genre similarity contribution.</param>
     /// <param name="collabContrib">Collaborative filtering contribution.</param>
@@ -124,18 +123,52 @@ public sealed class ScoreExplanation
         double yearProxContrib,
         double interactionContrib = 0.0)
     {
-        var contributions = new Dictionary<string, double>(7)
-        {
-            ["Genre"] = Math.Abs(genreContrib),
-            ["Collaborative"] = Math.Abs(collabContrib),
-            ["Rating"] = Math.Abs(ratingContrib),
-            ["UserRating"] = Math.Abs(userRatingContrib),
-            ["Recency"] = Math.Abs(recencyContrib),
-            ["YearProximity"] = Math.Abs(yearProxContrib),
-            ["Interaction"] = Math.Abs(interactionContrib)
-        };
+        // Allocation-free comparison — this runs per candidate in the scoring hot path.
+        var bestName = "Genre";
+        var bestValue = Math.Abs(genreContrib);
 
-        return contributions.MaxBy(kvp => kvp.Value).Key;
+        var v = Math.Abs(collabContrib);
+        if (v > bestValue)
+        {
+            bestName = "Collaborative";
+            bestValue = v;
+        }
+
+        v = Math.Abs(ratingContrib);
+        if (v > bestValue)
+        {
+            bestName = "Rating";
+            bestValue = v;
+        }
+
+        v = Math.Abs(userRatingContrib);
+        if (v > bestValue)
+        {
+            bestName = "UserRating";
+            bestValue = v;
+        }
+
+        v = Math.Abs(recencyContrib);
+        if (v > bestValue)
+        {
+            bestName = "Recency";
+            bestValue = v;
+        }
+
+        v = Math.Abs(yearProxContrib);
+        if (v > bestValue)
+        {
+            bestName = "YearProximity";
+            bestValue = v;
+        }
+
+        v = Math.Abs(interactionContrib);
+        if (v > bestValue)
+        {
+            bestName = "Interaction";
+        }
+
+        return bestName;
     }
 
     /// <summary>
