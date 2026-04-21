@@ -164,8 +164,9 @@ function renderShell() {
     html += '<div class="tab-content" id="tab-recommendations">';
     html += '<div class="section-title">🤖 ' + T('recsTitle',
         'Smart Recommendations') + '</div>';
-    html += '<div id="recsContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
-        + T('recsLoading', 'Select this tab to load recommendations…') + '</p></div>';
+    html += '<div id="recsContent"><div class="loading-overlay" style="padding:2em;">'
+        + '<div class="spinner"></div>'
+        + '<p>' + T('loadingRecommendations', 'Loading recommendations…') + '</p></div></div>';
     html += '</div>';
 
     // === LOGS TAB ===
