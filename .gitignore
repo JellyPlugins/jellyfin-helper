@@ -10,5 +10,10 @@ artifacts
 # But include CI scripts that must be checked in
 !.github/scripts/*.ps1
 publish_output/
+publish_test/
+TestResults/
 # Generated at build time from template + CSS + JS
 Jellyfin.Plugin.JellyfinHelper/PluginPages/configPage.html
+# Build artifacts / local-only files
+_diff_output.txt
+*.DotSettings.user

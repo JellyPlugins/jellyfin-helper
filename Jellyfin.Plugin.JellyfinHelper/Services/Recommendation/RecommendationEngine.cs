@@ -103,6 +103,11 @@ public sealed class RecommendationEngine : IRecommendationEngine
         var candidates = LoadCandidateItems();
         var strategy = ResolveStrategy();
 
+        _pluginLog.LogInfo(
+            "Recommendations",
+            $"Starting recommendation generation for {allProfiles.Count} users using strategy '{strategy.Name}'...",
+            _logger);
+
         foreach (var profile in allProfiles)
         {
             try
@@ -118,6 +123,12 @@ public sealed class RecommendationEngine : IRecommendationEngine
                     _logger);
             }
         }
+
+        var totalRecs = results.Sum(r => r.Recommendations.Count);
+        _pluginLog.LogInfo(
+            "Recommendations",
+            $"Finished recommendation generation: {results.Count} users, {totalRecs} total recommendations.",
+            _logger);
 
         return results;
     }

@@ -63,7 +63,7 @@ public class WatchHistoryService : IWatchHistoryService
         var users = _userManager.Users.ToList();
         _pluginLog.LogInfo(
             "WatchHistory",
-            $"Building watch profiles for {users.Count} users",
+            $"Starting watch profile collection for {users.Count} users...",
             _logger);
 
         // Load library items once for all users (performance: avoids redundant DB queries)
@@ -85,6 +85,11 @@ public class WatchHistoryService : IWatchHistoryService
                     _logger);
             }
         }
+
+        _pluginLog.LogInfo(
+            "WatchHistory",
+            $"Finished watch profile collection: {profiles.Count} profiles built.",
+            _logger);
 
         return profiles;
     }

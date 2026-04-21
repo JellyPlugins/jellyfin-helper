@@ -212,7 +212,7 @@
   "insightAdded": "已添加",
   "insightChanged": "已更改",
   "recommendations": "推荐",
-  "tabRecommendations": "智能推荐",
+  "tabRecommendations": "探索",
   "activityTitle": "用户观看活动",
   "activityLoading": "正在加载活动数据…",
   "activityNoData": "没有可用的活动数据。请先运行「更新用户观看活动」计划任务。",

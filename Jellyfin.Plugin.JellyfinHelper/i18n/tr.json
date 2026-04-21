@@ -212,7 +212,7 @@
   "insightAdded": "eklendi",
   "insightChanged": "değiştirildi",
   "recommendations": "Öneriler",
-  "tabRecommendations": "Akıllı Öneriler",
+  "tabRecommendations": "Keşfet",
   "activityTitle": "Kullanıcı İzleme Etkinliği",
   "activityLoading": "Etkinlik verileri yükleniyor…",
   "activityNoData": "Etkinlik verisi yok. Önce 'Update User Watch Activity' zamanlanmış görevini çalıştırın.",

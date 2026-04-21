@@ -212,7 +212,7 @@
   "insightAdded": "ajouté",
   "insightChanged": "modifié",
   "recommendations": "Recommandations",
-  "tabRecommendations": "Smart Recs",
+  "tabRecommendations": "Découvrir",
   "activityTitle": "Activité des utilisateurs",
   "activityLoading": "Chargement des données d'activité…",
   "activityNoData": "Aucune donnée d'activité disponible. Exécutez d'abord la tâche planifiée 'Update User Watch Activity'.",
