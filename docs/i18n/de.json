@@ -216,6 +216,8 @@
   "recsTitle": "Smarte Empfehlungen",
   "recsSubtabActivity": "Wiedergabeaktivität",
   "recsSubtabRecommendations": "Empfehlungen",
+  "recsActivityToggle": "Wiedergabeaktivität",
+  "recsRecentActivity": "Letzte Aktivität",
   "activityTitle": "Benutzer-Aktivität",
   "activityLoading": "Lade Aktivitätsdaten…",
   "activityNoData": "Keine Aktivitätsdaten verfügbar. Führe zuerst den Geplanten Task 'Update User Watch Activity' aus.",

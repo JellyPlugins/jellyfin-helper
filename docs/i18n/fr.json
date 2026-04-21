@@ -238,6 +238,8 @@
   "recsTitle": "Recommandations intelligentes",
   "recsSubtabActivity": "Activité de visionnage",
   "recsSubtabRecommendations": "Recommandations",
+  "recsActivityToggle": "Activité de visionnage",
+  "recsRecentActivity": "Activité récente",
   "recsLoading": "Sélectionnez cet onglet pour charger les recommandations…",
   "loadingRecommendations": "Chargement des recommandations…",
   "recsError": "Impossible de charger les recommandations. Assurez-vous que la tâche a été exécutée au moins une fois.",

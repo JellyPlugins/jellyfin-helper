@@ -238,6 +238,8 @@
   "recsTitle": "Akıllı Öneriler",
   "recsSubtabActivity": "İzleme Etkinliği",
   "recsSubtabRecommendations": "Öneriler",
+  "recsActivityToggle": "İzleme Etkinliği",
+  "recsRecentActivity": "Son Etkinlik",
   "recsLoading": "Önerileri yüklemek için bu sekmeyi seçin…",
   "loadingRecommendations": "Öneriler yükleniyor…",
   "recsError": "Öneriler yüklenemedi. Öneri görevinin en az bir kez çalıştığından emin olun.",

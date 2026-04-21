@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
@@ -23,4 +22,16 @@ public interface IRecommendationEngine
     /// <param name="maxResultsPerUser">Maximum number of recommendations per user.</param>
     /// <returns>A list of recommendation results, one per user.</returns>
     Collection<RecommendationResult> GetAllRecommendations(int maxResultsPerUser = 20);
+
+    /// <summary>
+    ///     Trains the active scoring strategy using implicit feedback from previous recommendations.
+    ///     Compares previously recommended items against current watch data:
+    ///     items that were recommended and subsequently watched get label 1.0 (positive),
+    ///     items that were recommended but remain unwatched get label 0.0 (negative).
+    /// </summary>
+    /// <param name="previousResults">
+    ///     The recommendation results from the previous run (loaded from cache).
+    /// </param>
+    /// <returns>True if training was performed, false if skipped (insufficient data or unsupported strategy).</returns>
+    bool TrainStrategy(Collection<RecommendationResult> previousResults);
 }

@@ -238,6 +238,8 @@
   "recsTitle": "智能推荐",
   "recsSubtabActivity": "观看活动",
   "recsSubtabRecommendations": "推荐",
+  "recsActivityToggle": "观看活动",
+  "recsRecentActivity": "最近活动",
   "recsLoading": "选择此标签以加载推荐…",
   "loadingRecommendations": "正在加载推荐…",
   "recsError": "无法加载推荐。请确保推荐任务至少运行过一次。",

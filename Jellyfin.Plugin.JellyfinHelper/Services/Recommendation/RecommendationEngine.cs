@@ -93,6 +93,113 @@ public sealed class RecommendationEngine : IRecommendationEngine
     }
 
     /// <inheritdoc />
+    public bool TrainStrategy(Collection<RecommendationResult> previousResults)
+    {
+        var strategy = ResolveStrategy();
+        if (previousResults.Count == 0)
+        {
+            _pluginLog.LogInfo("Recommendations", "Training skipped — no previous recommendations available.", _logger);
+            return false;
+        }
+
+        // Build current watch profiles to detect which recommended items have been watched since
+        var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+        var profileLookup = new Dictionary<Guid, HashSet<Guid>>();
+        foreach (var profile in allProfiles)
+        {
+            profileLookup[profile.UserId] = new HashSet<Guid>(
+                profile.WatchedItems.Where(w => w.Played).Select(w => w.ItemId));
+        }
+
+        // Also collect watched series IDs (user may have watched episodes → series counts as watched)
+        var seriesLookup = new Dictionary<Guid, HashSet<Guid>>();
+        foreach (var profile in allProfiles)
+        {
+            seriesLookup[profile.UserId] = new HashSet<Guid>(
+                profile.WatchedItems
+                    .Where(w => w.Played && w.SeriesId.HasValue)
+                    .Select(w => w.SeriesId!.Value));
+        }
+
+        // Build training examples from previous recommendations
+        var examples = new List<TrainingExample>();
+
+        foreach (var prevResult in previousResults)
+        {
+            if (!profileLookup.TryGetValue(prevResult.UserId, out var watchedIds))
+            {
+                continue;
+            }
+
+            seriesLookup.TryGetValue(prevResult.UserId, out var watchedSeriesIds);
+
+            // Find the user's current profile for feature recomputation
+            var userProfile = allProfiles.FirstOrDefault(p => p.UserId == prevResult.UserId);
+            if (userProfile is null)
+            {
+                continue;
+            }
+
+            var genrePreferences = BuildGenrePreferenceVector(userProfile);
+            var coOccurrence = BuildCollaborativeMap(userProfile, allProfiles);
+            var collaborativeMax = coOccurrence.Count > 0 ? (double)coOccurrence.Values.Max() : 0;
+            var avgYear = ComputeAverageYear(userProfile);
+
+            foreach (var rec in prevResult.Recommendations)
+            {
+                // Determine label: did the user watch this item since it was recommended?
+                var wasWatched = watchedIds.Contains(rec.ItemId)
+                    || (watchedSeriesIds?.Contains(rec.ItemId) ?? false);
+
+                // Recompute features for this candidate (scores may have shifted)
+                var features = new CandidateFeatures
+                {
+                    GenreSimilarity = ComputeGenreSimilarity(rec.Genres ?? [], genrePreferences),
+                    CollaborativeScore = ComputeCollaborativeScore(rec.ItemId, coOccurrence, collaborativeMax),
+                    RatingScore = NormalizeRating(rec.CommunityRating),
+                    RecencyScore = rec.Year.HasValue
+                        ? ComputeYearProximity(rec.Year, avgYear)
+                        : 0.5,
+                    YearProximityScore = ComputeYearProximity(rec.Year, avgYear),
+                    GenreCount = rec.Genres?.Length ?? 0,
+                    IsSeries = string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase)
+                };
+
+                examples.Add(new TrainingExample
+                {
+                    Features = features,
+                    Label = wasWatched ? 1.0 : 0.0
+                });
+            }
+        }
+
+        _pluginLog.LogInfo(
+            "Recommendations",
+            $"Built {examples.Count} training examples ({examples.Count(e => e.Label > 0.5)} positive, " +
+            $"{examples.Count(e => e.Label <= 0.5)} negative) from {previousResults.Count} users.",
+            _logger);
+
+        var trained = strategy.Train(examples);
+
+        if (trained)
+        {
+            _pluginLog.LogInfo(
+                "Recommendations",
+                $"Strategy '{strategy.Name}' training completed successfully.",
+                _logger);
+        }
+        else
+        {
+            _pluginLog.LogInfo(
+                "Recommendations",
+                $"Strategy '{strategy.Name}' training skipped (not supported or insufficient data).",
+                _logger);
+        }
+
+        return trained;
+    }
+
+    /// <inheritdoc />
     public Collection<RecommendationResult> GetAllRecommendations(int maxResultsPerUser = 20)
     {
         maxResultsPerUser = Math.Clamp(maxResultsPerUser, 1, MaxRecommendationsPerUser);

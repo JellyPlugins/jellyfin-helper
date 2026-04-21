@@ -216,6 +216,8 @@
   "recsTitle": "Smart Recommendations",
   "recsSubtabActivity": "Watch Activity",
   "recsSubtabRecommendations": "Recommendations",
+  "recsActivityToggle": "Watch Activity",
+  "recsRecentActivity": "Recent Activity",
   "activityTitle": "User Watch Activity",
   "activityLoading": "Loading activity data…",
   "activityNoData": "No watch activity data available. Run the 'Update User Watch Activity' scheduled task first.",

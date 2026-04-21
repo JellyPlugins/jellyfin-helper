@@ -419,8 +419,33 @@ public class HelperCleanupTask : IScheduledTask
         var modeLabel = isDryRun ? "[DRY-RUN]" : "[ACTIVE]";
 
         _pluginLog.LogInfo("HelperCleanup", $"{modeLabel} Generating smart recommendations...", _logger);
-        progress.Report(10);
+        progress.Report(5);
 
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Train the scoring strategy using feedback from previous recommendations
+        // (items recommended last run that were subsequently watched → positive signal)
+        try
+        {
+            var previousResults = _recsCacheService.LoadResults();
+            if (previousResults is { Count: > 0 })
+            {
+                _pluginLog.LogInfo("HelperCleanup", $"{modeLabel} Training scoring strategy from {previousResults.Count} cached user results...", _logger);
+                var trained = _recsEngine.TrainStrategy(previousResults);
+                _pluginLog.LogInfo(
+                    "HelperCleanup",
+                    trained
+                        ? $"{modeLabel} Strategy training completed."
+                        : $"{modeLabel} Strategy training skipped (insufficient data or unsupported strategy).",
+                    _logger);
+            }
+        }
+        catch (Exception ex)
+        {
+            _pluginLog.LogWarning("HelperCleanup", "Strategy training failed — continuing with current weights.", ex, _logger);
+        }
+
+        progress.Report(20);
         cancellationToken.ThrowIfCancellationRequested();
 
         var maxPerUser = config.RecommendationCount > 0 ? config.RecommendationCount : 20;
