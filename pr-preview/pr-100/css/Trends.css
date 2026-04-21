@@ -1,0 +1,419 @@
+/* Trend graph */
+.trend-container {
+    margin: 1em 0 2em 0;
+}
+
+.trend-chart {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
+    overflow: visible;
+    position: relative;
+    touch-action: manipulation; /* allow pinch-zoom on chart area */
+}
+
+.trend-chart svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    min-height: 160px;
+}
+
+.trend-empty {
+    text-align: center;
+    padding: 2em;
+    opacity: 0.5;
+    font-size: 0.9em;
+}
+
+/* Custom tooltip overlay */
+.trend-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid var(--color-primary-scrollbar-hover);
+    border-radius: var(--radius-md);
+    padding: 6px 10px;
+    color: #e0e0e0;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: nowrap;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.trend-tooltip.visible {
+    opacity: 1;
+}
+
+.trend-tooltip .tt-date {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 10px;
+}
+
+.trend-tooltip .tt-size {
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+.trend-tooltip .tt-files {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 10px;
+}
+
+/* Crosshair line shown on hover/touch */
+.trend-crosshair {
+    position: absolute;
+    top: 0;
+    width: 1px;
+    height: 100%;
+    background: var(--color-primary-scrollbar);
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+
+.trend-crosshair.visible {
+    opacity: 1;
+}
+
+/* Active dot highlight */
+.trend-active-dot {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-round);
+    background: var(--color-primary);
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 6;
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+
+.trend-active-dot.visible {
+    opacity: 1;
+}
+
+/* Diff panel below trend chart */
+.trend-diff-panel {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    margin-top: 8px;
+    padding: 0 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
+    text-align: center;
+    transition: max-height 0.3s ease, opacity 0.25s ease, padding 0.3s ease;
+}
+
+.trend-diff-panel.visible {
+    max-height: 140px;
+    opacity: 1;
+    padding: 12px 16px;
+}
+
+.trend-diff-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Two-column comparison row: "then" → "now" */
+.trend-diff-compare {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    justify-content: center;
+}
+
+.trend-diff-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    min-width: 100px;
+}
+
+.trend-diff-dates,
+.trend-diff-now-date {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.trend-diff-val {
+    color: var(--color-primary);
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.trend-diff-cnt {
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 10px;
+}
+
+.trend-diff-arrow {
+    color: rgba(255, 255, 255, 0.25);
+    font-size: 18px;
+    line-height: 1;
+    padding: 0 4px;
+}
+
+/* Delta row */
+.trend-diff-delta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.trend-diff-stat {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: var(--radius-sm);
+}
+
+.trend-diff-stat.diff-up {
+    color: var(--color-success, #4caf50);
+    background: var(--color-success-soft, rgba(76, 175, 80, 0.12));
+}
+
+.trend-diff-stat.diff-down {
+    color: var(--color-danger, #f44336);
+    background: var(--color-danger-soft, rgba(244, 67, 54, 0.12));
+}
+
+.trend-diff-stat.diff-neutral {
+    color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+/* --- Library Insights Cards & Panels --- */
+.insights-container {
+    margin: 2em 0 1em 0;
+}
+
+.insights-cards {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.insight-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-lg);
+    padding: 16px 28px;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+    color: inherit;
+    font-family: inherit;
+    min-width: 140px;
+}
+
+.insight-card:hover,
+.insight-card:focus-visible {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--color-primary-scrollbar);
+    transform: translateY(-2px);
+    outline: none;
+}
+
+.insight-icon {
+    font-size: 1.6em;
+    line-height: 1;
+}
+
+.insight-value {
+    font-size: 1.3em;
+    font-weight: 700;
+    color: var(--color-primary);
+}
+
+.insight-label {
+    font-size: 0.82em;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* Expandable panel (slides open) */
+.insight-panel {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.35s ease, opacity 0.25s ease, padding 0.3s ease;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid transparent;
+    border-radius: var(--radius-lg);
+    padding: 0 16px;
+}
+
+.insight-panel.visible {
+    max-height: min(70vh, 800px);
+    opacity: 1;
+    padding: 14px 16px;
+    border-color: rgba(255, 255, 255, 0.08);
+    margin-top: 8px;
+    overflow-y: auto;
+}
+
+/* Tree inside panels */
+.insight-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.insight-tree-lib {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.insight-tree-lib-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    margin-bottom: 2px;
+}
+
+.insight-tree-lib-name {
+    font-weight: 600;
+    font-size: 0.95em;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.insight-tree-lib-size {
+    font-size: 0.85em;
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+.insight-tree-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 0 3px 16px;
+    font-size: 0.88em;
+}
+
+.insight-tree-name {
+    color: rgba(255, 255, 255, 0.75);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.insight-tree-size,
+.insight-tree-meta {
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 0.9em;
+    white-space: nowrap;
+    margin-left: 12px;
+    flex-shrink: 0;
+}
+
+/* Recently badges */
+.insight-badge {
+    display: inline-block;
+    font-size: 0.75em;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    vertical-align: middle;
+    margin-right: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.insight-badge-added {
+    color: var(--color-success, #4caf50);
+    background: var(--color-success-soft, rgba(76, 175, 80, 0.12));
+}
+
+.insight-badge-changed {
+    color: var(--color-warning, #e5a00d);
+    background: var(--color-warning-soft, rgba(229, 160, 13, 0.12));
+}
+
+/* Touch / small-screen optimisations */
+@media (max-width: 600px) {
+    .trend-container {
+        margin: 0.5em 0 1.5em 0;
+    }
+
+    .trend-chart {
+        border-radius: var(--radius-sm);
+    }
+
+    .trend-tooltip {
+        font-size: 10px;
+        padding: 4px 8px;
+    }
+
+    .trend-diff-panel {
+        padding: 0 10px;
+    }
+
+    .trend-diff-panel.visible {
+        padding: 8px 10px;
+    }
+
+    .trend-diff-content {
+        gap: 6px;
+    }
+
+    .trend-diff-stat {
+        font-size: 12px;
+        padding: 2px 6px;
+    }
+
+    .trend-diff-dates {
+        font-size: 10px;
+    }
+
+    .insights-cards {
+        gap: 8px;
+    }
+
+    .insight-card {
+        padding: 12px 18px;
+        min-width: 110px;
+    }
+
+    .insight-value {
+        font-size: 1.1em;
+    }
+
+    .insight-panel.visible {
+        padding: 10px 12px;
+        max-height: min(60vh, 600px);
+    }
+
+    .insight-tree-item {
+        padding-left: 10px;
+        font-size: 0.84em;
+    }
+}
