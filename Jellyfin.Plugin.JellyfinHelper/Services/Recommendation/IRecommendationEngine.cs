@@ -32,6 +32,6 @@ public interface IRecommendationEngine
     /// <param name="previousResults">
     ///     The recommendation results from the previous run (loaded from cache).
     /// </param>
-    /// <returns>True if training was performed, false if skipped (insufficient data or unsupported strategy).</returns>
+    /// <returns>True if training was performed, false if skipped (insufficient training data).</returns>
     bool TrainStrategy(Collection<RecommendationResult> previousResults);
 }

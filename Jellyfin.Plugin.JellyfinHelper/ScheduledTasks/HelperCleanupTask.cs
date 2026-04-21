@@ -419,11 +419,12 @@ public class HelperCleanupTask : IScheduledTask
 
     private Task RunRecommendationsUpdate(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var taskMode = config.RecommendationsTaskMode;
-        var isDryRun = taskMode == TaskMode.DryRun;
-        var modeLabel = isDryRun ? "[DRY-RUN]" : "[ACTIVE]";
+        var isDryRun = config.RecommendationsTaskMode == TaskMode.DryRun;
 
-        _pluginLog.LogInfo("HelperCleanup", $"{modeLabel} Generating smart recommendations...", _logger);
+        _pluginLog.LogInfo(
+            "Recommendations",
+            isDryRun ? "Task started (Dry Run). Recommendations will not be saved." : "Task started.",
+            _logger);
         progress.Report(5);
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -435,19 +436,19 @@ public class HelperCleanupTask : IScheduledTask
             var previousResults = _recsCacheService.LoadResults();
             if (previousResults is { Count: > 0 })
             {
-                _pluginLog.LogInfo("HelperCleanup", $"{modeLabel} Training scoring strategy from {previousResults.Count} cached user results...", _logger);
+                _pluginLog.LogInfo("Recommendations", $"Training scoring strategy from {previousResults.Count} cached user results...", _logger);
                 var trained = _recsEngine.TrainStrategy(previousResults);
                 _pluginLog.LogInfo(
-                    "HelperCleanup",
+                    "Recommendations",
                     trained
-                        ? $"{modeLabel} Strategy training completed."
-                        : $"{modeLabel} Strategy training skipped (insufficient data or unsupported strategy).",
+                        ? "Strategy training completed."
+                        : "Strategy training skipped (insufficient training data).",
                     _logger);
             }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            _pluginLog.LogWarning("HelperCleanup", "Strategy training failed — continuing with current weights.", ex, _logger);
+            _pluginLog.LogWarning("Recommendations", "Strategy training failed — continuing with current weights.", ex, _logger);
         }
 
         progress.Report(20);
@@ -468,16 +469,16 @@ public class HelperCleanupTask : IScheduledTask
         if (isDryRun)
         {
             _pluginLog.LogInfo(
-                "HelperCleanup",
-                $"{modeLabel} Recommendations: {results.Count} users, {totalRecs} total. NOT saved (dry-run).",
+                "Recommendations",
+                $"Task finished (Dry Run). Generated {totalRecs} recommendations for {results.Count} users. NOT saved.",
                 _logger);
         }
         else
         {
             _recsCacheService.SaveResults(results);
             _pluginLog.LogInfo(
-                "HelperCleanup",
-                $"{modeLabel} Recommendations: {results.Count} users, {totalRecs} total. Saved to cache.",
+                "Recommendations",
+                $"Task finished. Generated {totalRecs} recommendations for {results.Count} users. Saved to cache.",
                 _logger);
         }
 

@@ -191,7 +191,7 @@ public sealed class RecommendationEngine : IRecommendationEngine
         {
             _pluginLog.LogInfo(
                 "Recommendations",
-                $"Strategy '{strategy.Name}' training skipped (not supported or insufficient data).",
+                $"Strategy '{strategy.Name}' training skipped (insufficient training data).",
                 _logger);
         }
 
