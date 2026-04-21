@@ -161,6 +161,50 @@ public class UserActivityControllerTests
     }
 
     [Fact]
+    public void GetUserActivity_EpisodeFields_AreMappedCorrectly()
+    {
+        var userId = Guid.NewGuid();
+
+        var cached = new UserActivityResult
+        {
+            Items = new Collection<UserActivitySummary>
+            {
+                new()
+                {
+                    ItemId = Guid.NewGuid(),
+                    ItemName = "Folge 3",
+                    ItemType = "Episode",
+                    SeriesName = "Frieren: Beyond Journey's End",
+                    EpisodeLabel = "S01E03",
+                    TotalPlayCount = 1,
+                    UniqueViewers = 1,
+                    UserActivities = new Collection<UserItemActivity>
+                    {
+                        new()
+                        {
+                            UserId = userId,
+                            UserName = "Alice",
+                            PlayCount = 1,
+                            Played = true,
+                            LastPlayedDate = DateTime.UtcNow
+                        }
+                    }
+                }
+            }
+        };
+        _mockCache.Setup(c => c.LoadResult()).Returns(cached);
+
+        var result = _controller.GetUserActivity(userId);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
+        Assert.Single(data);
+        Assert.Equal("Frieren: Beyond Journey's End", data[0].SeriesName);
+        Assert.Equal("S01E03", data[0].EpisodeLabel);
+        Assert.Equal("Folge 3", data[0].ItemName);
+    }
+
+    [Fact]
     public void GetUserActivity_CacheMiss_GeneratesAndCaches()
     {
         var userId = Guid.NewGuid();
