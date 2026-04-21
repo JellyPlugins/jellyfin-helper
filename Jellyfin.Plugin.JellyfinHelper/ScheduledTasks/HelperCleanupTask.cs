@@ -397,90 +397,22 @@ public class HelperCleanupTask : IScheduledTask
 
     private Task RunUserActivityUpdate(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        _pluginLog.LogInfo("HelperCleanup", "Updating user watch activity data...", _logger);
-        progress.Report(10);
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var result = _userActivityInsightsService.BuildActivityReport();
-        progress.Report(80);
-
-        cancellationToken.ThrowIfCancellationRequested();
-        _userActivityCacheService.SaveResult(result);
-
-        _pluginLog.LogInfo(
-            "HelperCleanup",
-            $"User activity update completed: {result.TotalItemsWithActivity} items, " +
-            $"{result.TotalPlayCount} plays across {result.TotalUsersAnalyzed} users.",
+        var task = new UserActivityUpdateTask(
+            _userActivityInsightsService,
+            _userActivityCacheService,
+            _pluginLog,
             _logger);
-
-        progress.Report(100);
-        return Task.CompletedTask;
+        return task.ExecuteAsync(progress, cancellationToken);
     }
 
     private Task RunRecommendationsUpdate(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var isDryRun = config.RecommendationsTaskMode == TaskMode.DryRun;
-
-        _pluginLog.LogInfo(
-            "Recommendations",
-            isDryRun ? "Task started (Dry Run). Recommendations will not be saved." : "Task started.",
+        var task = new RecommendationsTask(
+            _recsEngine,
+            _recsCacheService,
+            _pluginLog,
             _logger);
-        progress.Report(5);
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        // Train the scoring strategy using feedback from previous recommendations
-        // (items recommended last run that were subsequently watched → positive signal)
-        try
-        {
-            var previousResults = _recsCacheService.LoadResults();
-            if (previousResults is { Count: > 0 })
-            {
-                _pluginLog.LogInfo("Recommendations", $"Training scoring strategy from {previousResults.Count} cached user results...", _logger);
-                var trained = _recsEngine.TrainStrategy(previousResults);
-                _pluginLog.LogInfo(
-                    "Recommendations",
-                    trained
-                        ? "Strategy training completed."
-                        : "Strategy training skipped (insufficient training data).",
-                    _logger);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-        {
-            _pluginLog.LogWarning("Recommendations", "Strategy training failed — continuing with current weights.", ex, _logger);
-        }
-
-        progress.Report(20);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        const int maxPerUser = 20;
-        var results = _recsEngine.GetAllRecommendations(maxPerUser, cancellationToken);
-
-        progress.Report(80);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var totalRecs = results.Sum(r => r.Recommendations.Count);
-
-        if (isDryRun)
-        {
-            _pluginLog.LogInfo(
-                "Recommendations",
-                $"Task finished (Dry Run). Generated {totalRecs} recommendations for {results.Count} users. NOT saved.",
-                _logger);
-        }
-        else
-        {
-            _recsCacheService.SaveResults(results);
-            _pluginLog.LogInfo(
-                "Recommendations",
-                $"Task finished. Generated {totalRecs} recommendations for {results.Count} users. Saved to cache.",
-                _logger);
-        }
-
-        progress.Report(100);
-        return Task.CompletedTask;
+        return task.ExecuteAsync(config, progress, cancellationToken);
     }
 
     private Task RunLinkRepair(IProgress<double> progress, CancellationToken cancellationToken)
