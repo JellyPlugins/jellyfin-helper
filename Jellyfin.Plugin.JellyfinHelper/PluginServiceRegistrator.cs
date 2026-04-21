@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.IO.Abstractions;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
@@ -52,6 +53,17 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IArrIntegrationService, ArrIntegrationService>();
         serviceCollection.AddSingleton<ISeerrIntegrationService, SeerrIntegrationService>();
         serviceCollection.AddSingleton<IWatchHistoryService, WatchHistoryService>();
+        serviceCollection.AddSingleton<EnsembleScoringStrategy>(_ =>
+        {
+            var dataPath = Plugin.Instance?.DataFolderPath;
+            string? weightsPath = null;
+            if (!string.IsNullOrEmpty(dataPath))
+            {
+                weightsPath = Path.Join(dataPath, "ml_weights.json");
+            }
+
+            return new EnsembleScoringStrategy(weightsPath);
+        });
         serviceCollection.AddSingleton<IRecommendationEngine, RecommendationEngine>();
         serviceCollection.AddSingleton<IRecommendationCacheService, RecommendationCacheService>();
         serviceCollection.AddSingleton<IUserActivityInsightsService, UserActivityInsightsService>();

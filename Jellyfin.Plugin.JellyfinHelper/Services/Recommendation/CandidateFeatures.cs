@@ -34,12 +34,18 @@ public sealed class CandidateFeatures
     /// <summary>Gets or sets a value indicating whether the item is a series (vs movie).</summary>
     public bool IsSeries { get; set; }
 
+    /// <summary>Gets or sets the user's personal rating score (0–1), or 0.5 if unrated.</summary>
+    public double UserRatingScore { get; set; } = 0.5;
+
+    /// <summary>Gets or sets the watch completion ratio (0–1). 1.0 = fully watched, 0 = not started. Used as a negative signal for abandoned items.</summary>
+    public double CompletionRatio { get; set; }
+
     /// <summary>
     ///     Converts the features into a fixed-size double array for ML processing.
     ///     Order: [genre, collab, rating, recency, yearProx, genreCount_norm, isSeries,
-    ///             genre×rating (interaction), genre×collab (interaction)].
+    ///             genre×rating (interaction), genre×collab (interaction), userRating, completionRatio].
     /// </summary>
-    /// <returns>A 9-element feature vector.</returns>
+    /// <returns>An 11-element feature vector.</returns>
     public double[] ToVector()
     {
         var normalizedGenreCount = Math.Clamp(GenreCount / GenreCountNormalizationCeiling, 0.0, 1.0);
@@ -55,7 +61,9 @@ public sealed class CandidateFeatures
             IsSeries ? 1.0 : 0.0,
             // Interaction features — capture non-linear relationships
             GenreSimilarity * RatingScore, // high genre match + high rating = extra boost
-            GenreSimilarity * CollaborativeScore // high genre match + popular with similar users = extra boost
+            GenreSimilarity * CollaborativeScore, // high genre match + popular with similar users = extra boost
+            UserRatingScore, // personal rating signal (stronger than community rating)
+            CompletionRatio // watch completion — low values for candidates indicate no prior abandonment
         ];
     }
 }

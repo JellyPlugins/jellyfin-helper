@@ -24,7 +24,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 public sealed class LearnedScoringStrategy : IScoringStrategy
 {
     /// <summary>Number of input features (must match <see cref="CandidateFeatures.ToVector"/> length).</summary>
-    internal const int FeatureCount = 9;
+    internal const int FeatureCount = 11;
 
     /// <summary>Default learning rate for gradient descent.</summary>
     internal const double DefaultLearningRate = 0.02;
@@ -61,15 +61,17 @@ public sealed class LearnedScoringStrategy : IScoringStrategy
         // Initialize with genre-dominant weights — genre match is the strongest signal
         _weights =
         [
-            0.40, // genre similarity (dominant signal)
-            0.15, // collaborative
-            0.10, // rating
+            0.35, // genre similarity (dominant signal)
+            0.12, // collaborative
+            0.08, // community rating
             0.05, // recency
             0.05, // year proximity
             0.05, // genre count
             0.00, // isSeries (neutral start — no inherent preference)
-            0.10, // genre × rating interaction
-            0.10 // genre × collaborative interaction
+            0.08, // genre × rating interaction
+            0.08, // genre × collaborative interaction
+            0.10, // user personal rating (stronger than community rating)
+            0.04 // completion ratio (penalizes abandoned items)
         ];
         _bias = 0.05; // slight positive bias so perfect matches approach 1.0
 

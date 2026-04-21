@@ -38,7 +38,7 @@ public sealed class ScoringStrategyTests : IDisposable
     // ============================================================
 
     [Fact]
-    public void CandidateFeatures_ToVector_Returns9Elements()
+    public void CandidateFeatures_ToVector_Returns11Elements()
     {
         var features = new CandidateFeatures
         {
@@ -48,12 +48,14 @@ public sealed class ScoringStrategyTests : IDisposable
             RecencyScore = 0.3,
             YearProximityScore = 0.9,
             GenreCount = 3,
-            IsSeries = false
+            IsSeries = false,
+            UserRatingScore = 0.6,
+            CompletionRatio = 0.75
         };
 
         var vector = features.ToVector();
 
-        Assert.Equal(9, vector.Length);
+        Assert.Equal(11, vector.Length);
         Assert.Equal(0.8, vector[0]); // genre
         Assert.Equal(0.5, vector[1]); // collab
         Assert.Equal(0.7, vector[2]); // rating
@@ -63,6 +65,8 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.0, vector[6]); // not a series
         Assert.Equal(0.8 * 0.7, vector[7], 10); // genre × rating interaction
         Assert.Equal(0.8 * 0.5, vector[8], 10); // genre × collab interaction
+        Assert.Equal(0.6, vector[9]); // userRating
+        Assert.Equal(0.75, vector[10]); // completionRatio
     }
 
     [Fact]
@@ -91,13 +95,21 @@ public sealed class ScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void CandidateFeatures_ToVector_DefaultsAllZero()
+    public void CandidateFeatures_ToVector_DefaultsExpected()
     {
         var features = new CandidateFeatures();
         var vector = features.ToVector();
-        foreach (var v in vector)
+        // Most default to 0.0, but UserRatingScore defaults to 0.5
+        for (var i = 0; i < vector.Length; i++)
         {
-            Assert.Equal(0.0, v);
+            if (i == 9) // UserRatingScore default is 0.5
+            {
+                Assert.Equal(0.5, vector[i]);
+            }
+            else
+            {
+                Assert.Equal(0.0, vector[i]);
+            }
         }
     }
 
@@ -134,13 +146,14 @@ public sealed class ScoringStrategyTests : IDisposable
             RecencyScore = 1.0,
             YearProximityScore = 1.0,
             GenreCount = 5, // normalizes to 1.0
-            IsSeries = true // 1.0
+            IsSeries = true, // 1.0
+            UserRatingScore = 1.0,
+            CompletionRatio = 1.0
         };
 
         var score = strategy.Score(features);
 
-        // 0.45 + 0.20 + 0.10 + 0.05 + 0.05 + 0.05 + 0.10 = 1.00
-        // Genre >= threshold, so no penalty
+        // Sum of all weights = 1.00
         Assert.Equal(1.00, score, 4);
     }
 
@@ -148,10 +161,10 @@ public sealed class ScoringStrategyTests : IDisposable
     public void Heuristic_Score_AllZeros_ReturnsPenalizedZero()
     {
         var strategy = new HeuristicScoringStrategy();
-        var features = new CandidateFeatures();
+        // UserRatingScore defaults to 0.5, so explicitly set to 0 for "all zeros" test
+        var features = new CandidateFeatures { UserRatingScore = 0.0 };
 
         var score = strategy.Score(features);
-        // All zeros → base score 0.0, genre < threshold → penalty applied but 0 * penalty = 0
         Assert.Equal(0.0, score, 4);
     }
 
@@ -159,7 +172,7 @@ public sealed class ScoringStrategyTests : IDisposable
     public void Heuristic_Score_GenreOnly()
     {
         var strategy = new HeuristicScoringStrategy();
-        var features = new CandidateFeatures { GenreSimilarity = 0.5 };
+        var features = new CandidateFeatures { GenreSimilarity = 0.5, UserRatingScore = 0.0 };
 
         var score = strategy.Score(features);
 
@@ -176,11 +189,11 @@ public sealed class ScoringStrategyTests : IDisposable
             CollaborativeScore = 0.6,
             RatingScore = 0.7,
             RecencyScore = 0.5,
-            YearProximityScore = 0.9
+            YearProximityScore = 0.9,
+            UserRatingScore = 0.0,
+            CompletionRatio = 0.0
         };
 
-        // GenreCount=0 → normalized 0, IsSeries=false → 0
-        // Includes interaction terms: genre×rating = 0.56, genre×collab = 0.48
         var expected =
             (0.8 * HeuristicScoringStrategy.GenreWeight) +
             (0.6 * HeuristicScoringStrategy.CollaborativeWeight) +
@@ -203,11 +216,11 @@ public sealed class ScoringStrategyTests : IDisposable
             CollaborativeScore = 0.5,
             RatingScore = 0.8,
             RecencyScore = 0.7,
-            YearProximityScore = 0.9
+            YearProximityScore = 0.9,
+            UserRatingScore = 0.0,
+            CompletionRatio = 0.0
         };
 
-        // Genre penalty is now applied centrally in Ensemble, not in Heuristic.
-        // With GenreSimilarity=0, interaction terms are also 0.
         var expected =
             (0.0 * HeuristicScoringStrategy.GenreWeight) +
             (0.5 * HeuristicScoringStrategy.CollaborativeWeight) +

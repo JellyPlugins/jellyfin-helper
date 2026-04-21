@@ -62,6 +62,13 @@ public sealed class RecommendationEngine : IRecommendationEngine
     /// </summary>
     internal const double MmrLambda = 0.7;
 
+    /// <summary>
+    ///     Minimum watch completion ratio below which an item is considered "abandoned".
+    ///     Items abandoned by the user receive a penalty in scoring to avoid re-recommending
+    ///     content the user already tried and didn't like.
+    /// </summary>
+    internal const double AbandonedCompletionThreshold = 0.25;
+
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<RecommendationEngine> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -75,26 +82,19 @@ public sealed class RecommendationEngine : IRecommendationEngine
     /// <param name="libraryManager">The Jellyfin library manager.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
+    /// <param name="strategy">The ensemble scoring strategy (injected via DI).</param>
     public RecommendationEngine(
         IWatchHistoryService watchHistoryService,
         ILibraryManager libraryManager,
         IPluginLogService pluginLog,
-        ILogger<RecommendationEngine> logger)
+        ILogger<RecommendationEngine> logger,
+        EnsembleScoringStrategy strategy)
     {
         _watchHistoryService = watchHistoryService;
         _libraryManager = libraryManager;
         _pluginLog = pluginLog;
         _logger = logger;
-
-        // Create the ensemble strategy once — it persists learned weights and alpha across calls
-        var dataPath = Plugin.Instance?.DataFolderPath;
-        string? weightsPath = null;
-        if (!string.IsNullOrEmpty(dataPath))
-        {
-            weightsPath = System.IO.Path.Join(dataPath, "ml_weights.json");
-        }
-
-        _strategy = new EnsembleScoringStrategy(weightsPath);
+        _strategy = strategy;
     }
 
     /// <inheritdoc />
@@ -185,17 +185,17 @@ public sealed class RecommendationEngine : IRecommendationEngine
                     IsSeries = string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase)
                 };
 
-                // Soft labels: watched items get a confidence-weighted label
-                // instead of hard 0/1 to improve gradient quality.
-                // - Watched + high rating → close to 1.0 (strong positive signal)
-                // - Watched + low/no rating → moderate positive (0.6–0.8)
-                // - Not watched → 0.0 (negative signal)
+                // Soft labels: watched items get a positive label, unwatched items a softened negative.
+                // NOTE: The label must NOT depend on the community rating — that would cause
+                // feature leakage because RatingScore is already a feature in the model.
+                // Using rating in the label causes the model to learn "high rating → high label"
+                // which is circular and doesn't reflect actual user engagement.
                 double label;
                 if (wasWatched)
                 {
-                    var ratingConfidence = NormalizeRating(rec.CommunityRating);
-                    // Scale from 0.6 (low-rated watched) to 1.0 (high-rated watched)
-                    label = 0.6 + (0.4 * ratingConfidence);
+                    // Binary engagement signal: the user chose to watch this item.
+                    // We use 0.85 instead of 1.0 to leave headroom and reduce label noise.
+                    label = 0.85;
                 }
                 else
                 {
@@ -369,6 +369,10 @@ public sealed class RecommendationEngine : IRecommendationEngine
             var recencyScore = ComputeRecencyScore(candidate.PremiereDate ?? candidate.DateCreated);
             var yearScore = ComputeYearProximity(candidate.ProductionYear, avgYear);
 
+            // Compute user-specific signals for this candidate
+            var userRatingScore = ComputeUserRatingScore(candidate.Id, userProfile);
+            var completionRatio = ComputeCompletionRatio(candidate.Id, userProfile);
+
             // Build feature vector and delegate scoring to strategy
             var features = new CandidateFeatures
             {
@@ -378,7 +382,9 @@ public sealed class RecommendationEngine : IRecommendationEngine
                 RecencyScore = recencyScore,
                 YearProximityScore = yearScore,
                 GenreCount = candidate.Genres?.Length ?? 0,
-                IsSeries = candidate is Series
+                IsSeries = candidate is Series,
+                UserRatingScore = userRatingScore,
+                CompletionRatio = completionRatio
             };
 
             var totalScore = strategy.Score(features);
@@ -673,6 +679,44 @@ public sealed class RecommendationEngine : IRecommendationEngine
 
         // Gaussian-like decay with σ ≈ 10 years
         return Math.Exp(-diff * diff / YearProximityDenominator);
+    }
+
+    /// <summary>
+    ///     Computes a normalized user rating score (0–1) for a candidate item.
+    ///     If the user has not rated this item, returns 0.5 (neutral).
+    /// </summary>
+    /// <param name="candidateId">The candidate item ID.</param>
+    /// <param name="profile">The user's watch profile.</param>
+    /// <returns>A normalized user rating between 0 and 1.</returns>
+    internal static double ComputeUserRatingScore(Guid candidateId, UserWatchProfile profile)
+    {
+        var item = profile.WatchedItems.FirstOrDefault(w => w.ItemId == candidateId);
+        if (item?.UserRating is null or <= 0)
+        {
+            return 0.5; // neutral default — no user rating available
+        }
+
+        // User ratings are typically 0–10, normalize to 0–1
+        return Math.Clamp(item.UserRating.Value / 10.0, 0.0, 1.0);
+    }
+
+    /// <summary>
+    ///     Computes the watch completion ratio for a candidate item.
+    ///     Returns 0 if the user has never started the item (new candidate),
+    ///     or a ratio of played ticks to runtime ticks for partially watched items.
+    /// </summary>
+    /// <param name="candidateId">The candidate item ID.</param>
+    /// <param name="profile">The user's watch profile.</param>
+    /// <returns>A completion ratio between 0 and 1.</returns>
+    internal static double ComputeCompletionRatio(Guid candidateId, UserWatchProfile profile)
+    {
+        var item = profile.WatchedItems.FirstOrDefault(w => w.ItemId == candidateId);
+        if (item is null || item.RuntimeTicks <= 0)
+        {
+            return 0.0; // not started or no runtime info — neutral for candidates
+        }
+
+        return Math.Clamp((double)item.PlaybackPositionTicks / item.RuntimeTicks, 0.0, 1.0);
     }
 
     /// <summary>

@@ -13,13 +13,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 public sealed class HeuristicScoringStrategy : IScoringStrategy
 {
     /// <summary>Weight for genre similarity signal (dominant).</summary>
-    internal const double GenreWeight = 0.40;
+    internal const double GenreWeight = 0.35;
 
     /// <summary>Weight for collaborative filtering signal.</summary>
-    internal const double CollaborativeWeight = 0.15;
+    internal const double CollaborativeWeight = 0.12;
 
     /// <summary>Weight for community rating signal.</summary>
-    internal const double RatingWeight = 0.10;
+    internal const double RatingWeight = 0.08;
 
     /// <summary>Weight for recency signal.</summary>
     internal const double RecencyWeight = 0.05;
@@ -34,10 +34,16 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     internal const double IsSeriesWeight = 0.00;
 
     /// <summary>Weight for genre × rating interaction signal.</summary>
-    internal const double GenreRatingInteractionWeight = 0.10;
+    internal const double GenreRatingInteractionWeight = 0.08;
 
     /// <summary>Weight for genre × collaborative interaction signal.</summary>
-    internal const double GenreCollabInteractionWeight = 0.10;
+    internal const double GenreCollabInteractionWeight = 0.08;
+
+    /// <summary>Weight for user personal rating signal (stronger than community rating).</summary>
+    internal const double UserRatingWeight = 0.10;
+
+    /// <summary>Weight for watch completion ratio (penalizes abandoned items).</summary>
+    internal const double CompletionRatioWeight = 0.04;
 
     /// <inheritdoc />
     public string Name => "Heuristic (Fixed Weights)";
@@ -50,7 +56,8 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     {
         var vector = features.ToVector();
 
-        // vector: [genre, collab, rating, recency, yearProx, genreCount_norm, isSeries, genre×rating, genre×collab]
+        // vector: [genre, collab, rating, recency, yearProx, genreCount_norm, isSeries,
+        //          genre×rating, genre×collab, userRating, completionRatio]
         var score =
             (vector[0] * GenreWeight) +
             (vector[1] * CollaborativeWeight) +
@@ -60,7 +67,9 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
             (vector[5] * GenreCountWeight) +
             (vector[6] * IsSeriesWeight) +
             (vector[7] * GenreRatingInteractionWeight) +
-            (vector[8] * GenreCollabInteractionWeight);
+            (vector[8] * GenreCollabInteractionWeight) +
+            (vector[9] * UserRatingWeight) +
+            (vector[10] * CompletionRatioWeight);
 
         // No genre-mismatch penalty here — applied centrally in the Ensemble strategy
         return Math.Clamp(score, 0.0, 1.0);
