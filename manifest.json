@@ -13,8 +13,8 @@
         "changelog": "v1.2.1.0: Statistics refactored to use Jellyfin MediaStream metadata (replaces filename parsing). Dynamic range detection (HDR10, HDR10+, Dolby Vision, HLG, SDR). Extended resolution classification (8K, 1440p, SD). Differentiated audio codecs (TrueHD Atmos, DTS-X, DTS-HD MA, EAC3 Atmos). Donut chart enhancements with dynamic range visualization. Library Insights in Trends tab (top-10 largest directories, recently added/changed items, per-library size breakdown with 15-min cache). Performance improvement via per-item video stream caching. Documentation updated.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/1.2.1.0/JellyfinHelper_1.2.1.0.zip",
-        "checksum": "",
-        "timestamp": "2026-04-20T12:00:00Z"
+        "checksum": "e47c75ff602b90c3f0c2bc3c089ceadc",
+        "timestamp": "2026-04-20T19:10:33Z"
       },
       {
         "version": "1.2.0.0",
