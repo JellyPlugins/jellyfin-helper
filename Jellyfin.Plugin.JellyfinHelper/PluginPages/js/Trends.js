@@ -622,7 +622,8 @@ function buildLargestTree(data) {
 
     Object.keys(grouped).forEach(function (lib) {
         var items = grouped[lib];
-        var libSize = data.LibrarySizes && data.LibrarySizes[lib] ? data.LibrarySizes[lib] : 0;
+        var libSize = 0;
+        for (var s = 0; s < items.length; s++) { libSize += items[s].Size; }
 
         html += '<div class="insight-tree-lib">';
         html += '<div class="insight-tree-lib-header">';
@@ -660,7 +661,8 @@ function buildRecentTree(data) {
 
     Object.keys(grouped).forEach(function (lib) {
         var items = grouped[lib];
-        var libSize = data.LibrarySizes && data.LibrarySizes[lib] ? data.LibrarySizes[lib] : 0;
+        var libSize = 0;
+        for (var s = 0; s < items.length; s++) { libSize += items[s].Size; }
 
         html += '<div class="insight-tree-lib">';
         html += '<div class="insight-tree-lib-header">';
