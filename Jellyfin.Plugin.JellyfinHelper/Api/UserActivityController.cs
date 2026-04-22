@@ -89,6 +89,7 @@ public class UserActivityController : ControllerBase
     /// <returns>Activity summaries containing only the specified user's data.</returns>
     [HttpGet("User/{userId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public ActionResult<List<UserActivitySummary>> GetUserActivity(Guid userId, [FromQuery] int maxResults = 15)
@@ -96,6 +97,11 @@ public class UserActivityController : ControllerBase
         if (!IsFeatureEnabled())
         {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, "User Activity insights are disabled in plugin configuration.");
+        }
+
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("A valid, non-empty userId is required.");
         }
 
         maxResults = Math.Clamp(maxResults, 1, 200);

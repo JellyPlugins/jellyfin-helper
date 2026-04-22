@@ -133,6 +133,15 @@ public class RecommendationControllerTests
         Assert.IsType<NotFoundResult>(result.Result);
     }
 
+    [Fact]
+    public void GetUserRecommendations_EmptyGuid_Returns400()
+    {
+        var result = _controller.GetUserRecommendations(Guid.Empty);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Contains("userId", badRequest.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
     // === GetUserWatchProfile ===
 
     [Fact]
@@ -157,6 +166,15 @@ public class RecommendationControllerTests
         var result = _controller.GetUserWatchProfile(userId);
 
         Assert.IsType<NotFoundResult>(result.Result);
+    }
+
+    [Fact]
+    public void GetUserWatchProfile_EmptyGuid_Returns400()
+    {
+        var result = _controller.GetUserWatchProfile(Guid.Empty);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Contains("userId", badRequest.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     // === 503 Disabled ===

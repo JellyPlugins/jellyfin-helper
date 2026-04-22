@@ -170,6 +170,15 @@ public class UserActivityControllerTests
     }
 
     [Fact]
+    public void GetUserActivity_EmptyGuid_Returns400()
+    {
+        var result = _controller.GetUserActivity(Guid.Empty);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Contains("userId", badRequest.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void GetUserActivity_EpisodeFields_AreMappedCorrectly()
     {
         var userId = Guid.NewGuid();

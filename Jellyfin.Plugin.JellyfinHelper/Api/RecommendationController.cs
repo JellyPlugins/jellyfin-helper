@@ -110,6 +110,7 @@ public class RecommendationController : ControllerBase
     /// <returns>The recommendation result for the user.</returns>
     [HttpGet("{userId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public ActionResult<RecommendationResult> GetUserRecommendations(
@@ -120,6 +121,11 @@ public class RecommendationController : ControllerBase
         if (!IsRecommendationsEnabled())
         {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, "Smart Recommendations are disabled in plugin configuration.");
+        }
+
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("A valid, non-empty userId is required.");
         }
 
         var config = _configService.GetConfiguration();
@@ -174,6 +180,7 @@ public class RecommendationController : ControllerBase
     /// <returns>The user's watch profile.</returns>
     [HttpGet("WatchProfile/{userId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public ActionResult<UserWatchProfile> GetUserWatchProfile(Guid userId)
@@ -181,6 +188,11 @@ public class RecommendationController : ControllerBase
         if (!IsRecommendationsEnabled())
         {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, "Smart Recommendations are disabled in plugin configuration.");
+        }
+
+        if (userId == Guid.Empty)
+        {
+            return BadRequest("A valid, non-empty userId is required.");
         }
 
         var profile = _watchHistoryService.GetUserWatchProfile(userId);
