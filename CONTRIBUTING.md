@@ -157,15 +157,15 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── UserWatchProfile.cs              # Per-user affinity profile
 │   │   ├── WatchedItemInfo.cs               # Watched item record
 │   │   └── Scoring/                         # Scoring strategies & ML models
-│   │       ├── HeuristicScoringStrategy.cs      # Rule-based scoring (fixed weights)
-│   │       ├── LearnedScoringStrategy.cs        # Gradient-descent linear ML scoring
-│   │       ├── NeuralScoringStrategy.cs         # Single-hidden-layer MLP (Adam optimizer)
-│   │       ├── EnsembleScoringStrategy.cs       # Adaptive 3-way blend (Heuristic + Learned + Neural)
-│   │       ├── ScoringHelper.cs                 # Shared scoring utilities (raw score, genre penalty)
-│   │       ├── DefaultWeights.cs                # Centralized default feature weights
-│   │       ├── CandidateFeatures.cs             # Feature vector struct (18 features)
+│   │       ├── HeuristicScoringStrategy.cs      # Rule-based scoring (fixed weights, genre penalty)
+│   │       ├── LearnedScoringStrategy.cs        # Gradient-descent linear ML (Z-score, ArrayPool, importance logging)
+│   │       ├── NeuralScoringStrategy.cs         # Two-hidden-layer MLP (21→16→8→1, Adam, Xavier, schema v3)
+│   │       ├── EnsembleScoringStrategy.cs       # Adaptive 3-way blend (α sigmoid + β neural ramp)
+│   │       ├── ScoringHelper.cs                 # Shared scoring utilities (raw score, explanation builder)
+│   │       ├── DefaultWeights.cs                # Centralized default feature weights (sum=1.0, 21 features)
+│   │       ├── CandidateFeatures.cs             # Feature vector (21 features incl. TagSimilarity, HourOfDay, IsWeekend)
 │   │       ├── ScoreExplanation.cs              # Per-score breakdown model with Blend/WithPenalty
-│   │       └── TrainingExample.cs               # Labelled training data with temporal decay
+│   │       └── TrainingExample.cs               # Labelled training data (completion-ratio labels, temporal decay)
 │   ├── Seerr/                         # Overseerr/Jellyseerr integration
 │   │   ├── ISeerrIntegrationService.cs
 │   │   ├── SeerrIntegrationService.cs # HTTP client for Seerr API communication & cleanup
@@ -209,8 +209,15 @@ Jellyfin.Plugin.JellyfinHelper/
 └── PluginPages/
     ├── configPage.template.html # HTML shell (build-time composition)
     ├── configPage.html          # Generated output (do not edit)
-    ├── css/                     # Per-tab CSS modules (incl. Recommendations.css)
-    └── js/                      # Per-tab JS modules (incl. Recommendations.js) + .eslintrc.json
+    ├── css/                     # Per-tab CSS modules
+│   ├── Shared.css, Overview.css, Codecs.css, Health.css
+│   ├── Trends.css, Settings.css, ArrIntegration.css, Logs.css
+│   └── Recommendations.css  # Discover tab styles
+└── js/                      # Per-tab JS modules + .eslintrc.json
+    ├── Shared.js, Overview.js, Codecs.js, Health.js
+    ├── Trends.js, Settings.js, ArrIntegration.js, Logs.js
+    ├── Recommendations.js    # Discover tab logic
+    └── Main.js               # Tab routing, IIFE close
 ```
 
 ### Service Registration
@@ -298,7 +305,8 @@ PluginPages/
 │   ├── Trends.css            # Trend graph styling
 │   ├── Settings.css          # Settings form layout
 │   ├── ArrIntegration.css    # Arr comparison tables
-│   └── Logs.css              # Log viewer (table, toolbar, level colors)
+│   ├── Logs.css              # Log viewer (table, toolbar, level colors)
+│   └── Recommendations.css   # Discover tab (recommendation cards, activity charts)
 └── js/
     ├── Shared.js             # IIFE open, utilities (formatBytes, escHtml, T(), showAutoSaveIndicator())
     ├── Overview.js           # Overview tab rendering
@@ -308,6 +316,7 @@ PluginPages/
     ├── Settings.js           # Settings tab (task modes, trash, language, Arr, Seerr, backup/restore, auto-save, collapsible sections)
     ├── ArrIntegration.js     # Arr tab (instance comparison, connection test)
     ├── Logs.js               # Logs tab (filtering, download, auto-refresh)
+    ├── Recommendations.js    # Discover tab (user selector, recommendation cards, genre charts)
     └── Main.js               # Tab routing, scan trigger, IIFE close
 ```
 
@@ -544,8 +553,8 @@ Sub-tasks executed in order (each respecting its configured task mode):
 
 - **ML-powered per-user recommendations** using four-tier scoring architecture (Heuristic + Learned + Neural MLP + Ensemble blend)
 - **Heuristic scoring** — Rule-based scoring using genre overlap, community rating, recency, year proximity, collaborative filtering, and interaction terms (fixed weights from `DefaultWeights`)
-- **Learned scoring** — Gradient-descent trained linear model (18 features + bias, see `CandidateFeatures.FeatureCount`) that learns per-user weights from labelled examples via mini-batch SGD with L2 regularization, cosine annealing LR decay, Z-score standardization, and early stopping
-- **Neural scoring** — Single-hidden-layer MLP (18 inputs → 8 hidden ReLU → 1 sigmoid output = 161 parameters) trained via backpropagation with Adam optimizer, L2 weight decay (no bias regularization), Xavier initialization, temporal sample weighting, and early stopping. Pure C# implementation with zero external ML dependencies
+- **Learned scoring** — Gradient-descent trained linear model (21 features + bias) that learns per-user weights from labelled examples via mini-batch SGD with L2 regularization, cosine annealing LR decay, Z-score standardization, early stopping, and per-feature weight importance logging at Debug level
+- **Neural scoring** — Two-hidden-layer MLP (21 inputs → 16 hidden₁ ReLU → 8 hidden₂ ReLU → 1 sigmoid output = 497 parameters) trained via three-layer backpropagation with Adam optimizer, L2 weight decay (no bias regularization), Xavier/Glorot initialization per layer, temporal sample weighting, early stopping, weight clamping (±3.0), and per-feature importance logging (L2 norm) at Debug level. Weight persistence via JSON (schema v3, auto-discards older schemas). Pure C# implementation with zero external ML dependencies
 - **Ensemble scoring** — Adaptive 3-way blend of Heuristic, Learned, and Neural strategies using a sigmoid-driven α factor (Heuristic↔ML balance) and a linear β ramp (Learned↔Neural split within the ML budget). Includes a **quality gate**: if validation loss exceeds the threshold (MSE > 0.30), α progression is soft-dampened. Neural β activates after 50+ training examples and is gated by its own validation loss quality check
 - **Hard negative mining** — Items the user started but abandoned (< 25% completion) receive a strong negative label (0.0) during training, providing a clearer signal than simply "not watched"
 - **Soft labels** — Watched items get label 0.85 (not 1.0, to reduce label noise); recommended-but-not-watched items get 0.1 (exposure bias mitigation)
@@ -733,7 +742,11 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
     ├── Recommendation/
     │   ├── RecommendationEngineTests.cs         # Engine orchestration tests
     │   ├── WatchHistoryServiceTests.cs          # Watch profile building tests
-    │   ├── ScoringStrategyTests.cs              # Heuristic & learned scoring tests
+    │   ├── Scoring/
+    │   │   ├── ScoringStrategyTests.cs          # Heuristic, learned & ensemble scoring tests
+    │   │   ├── NeuralScoringStrategyTests.cs    # Neural MLP (21→16→8→1) tests
+    │   │   ├── ScoreExplanationTests.cs         # Explanation, blend, penalty tests
+    │   │   └── TrainingExampleTests.cs          # Label quality, temporal decay tests
     │   ├── RecommendationCacheServiceTests.cs   # Cache persistence tests
     │   └── RecommendationDtoTests.cs            # DTO serialization tests
     ├── Activity/

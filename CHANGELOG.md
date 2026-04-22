@@ -10,21 +10,26 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Added
 - **Discover Tab** — New 8th dashboard tab "Discover" combining ML-powered smart recommendations and user activity insights in a single view. Includes `Recommendations.js`, `Recommendations.css` frontend modules with user selector, recommendation cards, activity summaries, and genre distribution charts.
-- **Smart Recommendation Engine** — ML-based per-user recommendation system (`Services/Recommendation/`) with four-tier scoring architecture: `HeuristicScoringStrategy` (rule-based), `LearnedScoringStrategy` (gradient-descent ML), `NeuralScoringStrategy` (multi-layer perceptron with Adam optimizer, Xavier initialization, and sigmoid activation), and `EnsembleScoringStrategy` (adaptive 3-way blend with sigmoid-based alpha transition for learned/heuristic and beta ramp for neural activation). Includes centralized weight management (`DefaultWeights`, `ScoringHelper`), per-score explainability (`ScoreExplanation`), temporal decay for training data (`TrainingExample`), collaborative filtering with Jaccard similarity, series progression boost, and thread-safe state persistence.
+- **Smart Recommendation Engine** — ML-based per-user recommendation system (`Services/Recommendation/`) with four-tier scoring architecture:
+  - `HeuristicScoringStrategy` — rule-based weighted scoring with centralized genre-mismatch penalty.
+  - `LearnedScoringStrategy` — gradient-descent ML with Z-score standardization, `ArrayPool`-based scoring, and per-feature weight importance logging (Debug level).
+  - `NeuralScoringStrategy` — two-hidden-layer MLP (21→16→8→1, 497 params) with Adam optimizer, Xavier/Glorot initialization per layer, three-layer backpropagation, sigmoid output, early stopping with validation split, temporal sample weighting, weight clamping, `ReaderWriterLockSlim` thread-safety, `[ThreadStatic]` scratch buffers, input-gradient attribution for `ScoreWithExplanation()`, and per-feature importance logging (L2 norm, Debug level). Weights persisted to disk (JSON, schema v3).
+  - `EnsembleScoringStrategy` — adaptive 3-way blend (Heuristic + Learned + Neural) with sigmoid-based alpha transition, beta ramp for neural activation, centralized soft genre-mismatch penalty, and state persistence.
+  - `CandidateFeatures` — 21 features including `TagSimilarity` (Jaccard on item tags), `HourOfDayAffinity`, `IsWeekend`, `CompletionRatio`, `IsAbandoned`, `PeopleSimilarity`, `StudioMatch`, `SeriesProgressionBoost`, `PopularityScore`, `DayOfWeekAffinity`, genre/rating/collab interaction terms.
+  - `DefaultWeights` — balanced weights summing to 1.0 across all 21 features.
+  - `ScoringHelper` — centralized raw-score computation and `BuildExplanation()` with contribution buckets.
+  - `ScoreExplanation` — per-score explainability with dominant signal detection, `Blend()`, and `WithPenalty()`.
+  - `TrainingExample` — temporal decay (exponential half-life), completion-ratio labels (0.0–1.0 instead of binary), configurable sample weights.
+  - `RecommendationEngine` — collaborative filtering (Jaccard on watched sets), tag-based content filtering (pre-computed per-user tag HashSets), people/studio similarity, series deduplication, MMR diversity re-ranking.
 - **Recommendations Configuration** — New plugin setting: `RecommendationsTaskMode` (DryRun/Activate/Deactivate, default: DryRun). Generates up to 20 recommendations per user (fixed).
 - **Recommendations Scheduled Task** — Integrated into `HelperCleanupTask` to generate recommendations and activity data on the weekly cleanup schedule.
-- **Tests** — New test classes: `RecommendationControllerTests`, `UserActivityControllerTests`, `RecommendationEngineTests`, `WatchHistoryServiceTests`, `ScoringStrategyTests`, `RecommendationCacheServiceTests`, `RecommendationDtoTests`, `UserActivityCacheServiceTests`, `UserActivityInsightsServiceTests`.
+- **Recommendations Service Registration** — `PluginServiceRegistrator` registers 5 new services (`IWatchHistoryService`, `IRecommendationEngine`, `IRecommendationCacheService`, `IUserActivityInsightsService`, `IUserActivityCacheService`) and 4 scoring strategies with configurable strategy selection via `RecommendationStrategy` config setting.
+- **i18n — Discover Tab** — All 7 language files (en, de, fr, es, pt, zh, tr) updated with Discover tab translations (tab label, recommendation cards, activity summaries, empty states).
+- **Tests** — New test classes: `RecommendationControllerTests`, `UserActivityControllerTests`, `RecommendationEngineTests`, `WatchHistoryServiceTests`, `ScoringStrategyTests`, `NeuralScoringStrategyTests`, `ScoreExplanationTests`, `TrainingExampleTests`, `RecommendationCacheServiceTests`, `RecommendationDtoTests`, `UserActivityCacheServiceTests`, `UserActivityInsightsServiceTests`. Total: 1784 tests.
 
 ### Changed
 - **8-Tab Dashboard** — Dashboard expanded from 7 to 8 tabs: Overview, Codecs, Health, Trends, **Discover**, Settings, Arr, Logs.
-- **NeuralScoringStrategy** — Implements `IDisposable` for proper `ReaderWriterLockSlim` disposal. Thread-safe scratch buffers via `[ThreadStatic]`, `ReaderWriterLockSlim` for concurrent read access during scoring, `try/finally` lock pattern.
-- **LearnedScoringStrategy** — Uses `ArrayPool<double>.Shared` for temporary vector allocation during scoring.
-- **CandidateFeatures** — Implemented with `HourOfDayAffinity` and `IsWeekend` properties; `FeatureCount` 20; `FeatureIndex` enum extended accordingly.
-- **DefaultWeights** — Balanced weights to sum to exactly 1.0, added weights for `HourOfDayAffinity` (0.02) and `IsWeekend` (0.01).
-- **ScoringHelper** — `BuildExplanation()` includes `HourOfDayAffinity` and `IsWeekend` in the interaction contribution bucket.
-- **Service Registration** — `PluginServiceRegistrator` registers 5 new services: `IWatchHistoryService`, `IRecommendationEngine`, `IRecommendationCacheService`, `IUserActivityInsightsService`, `IUserActivityCacheService`. Additionally registers 4 scoring strategies (`HeuristicScoringStrategy`, `LearnedScoringStrategy`, `NeuralScoringStrategy`, `EnsembleScoringStrategy`) with configurable strategy selection via `RecommendationStrategy` config setting.
 - **HelperCleanupTask** — Extended to run recommendation generation and user activity aggregation alongside existing cleanup tasks.
-- **i18n** — All 7 language files (en, de, fr, es, pt, zh, tr) updated with Discover tab translations (tab label, recommendation cards, activity summaries, empty states).
 - **Documentation** — Updated README.md, CONTRIBUTING.md, manifest.json, build.yaml, and CHANGELOG.md for the new Discover tab and all associated features.
 
 ### Fixed
