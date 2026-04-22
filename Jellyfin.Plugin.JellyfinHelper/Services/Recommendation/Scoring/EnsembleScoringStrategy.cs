@@ -437,6 +437,24 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
             TrySaveState();
         }
+        else
+        {
+            // Learned training failed (insufficient data). Decay neuralBeta to prevent
+            // a stale high value from persisting when the neural strategy may have
+            // outdated weights. This ensures cold-start scenarios don't over-weight
+            // a potentially unreliable neural model.
+            lock (_syncRoot)
+            {
+                if (_neuralBeta > 0)
+                {
+                    _neuralBeta *= 0.5;
+                    if (_neuralBeta < NeuralBetaMinFloor)
+                    {
+                        _neuralBeta = 0.0;
+                    }
+                }
+            }
+        }
 
         return result;
     }

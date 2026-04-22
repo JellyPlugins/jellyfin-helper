@@ -451,7 +451,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                         }
 
                         {
-                            var g = hErr[h] + (L2Lambda * _biasHidden[h]);
+                            // Best practice: no L2 regularization on bias terms — biases should be
+                            // free to learn offsets without being pulled toward zero by weight decay.
+                            var g = hErr[h];
                             _mBH![h] = (AdamBeta1 * _mBH[h]) + ((1 - AdamBeta1) * g);
                             _vBH![h] = (AdamBeta2 * _vBH[h]) + ((1 - AdamBeta2) * g * g);
                             _biasHidden[h] -= DefaultLearningRate * (_mBH[h] / bc1) / (Math.Sqrt(_vBH[h] / bc2) + AdamEpsilon);

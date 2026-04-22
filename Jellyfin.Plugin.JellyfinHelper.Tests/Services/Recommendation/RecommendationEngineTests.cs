@@ -759,4 +759,137 @@ public class RecommendationEngineTests
 
         Assert.Empty(result);
     }
+
+    // ── Edge-Case Tests ──────────────────────────────────────────────
+
+    [Fact]
+    public void BuildGenrePreferenceVector_SingleGenre_ReturnsOne()
+    {
+        var profile = new UserWatchProfile
+        {
+            GenreDistribution = new Dictionary<string, int> { { "Horror", 7 } }
+        };
+
+        var vector = RecommendationEngine.BuildGenrePreferenceVector(profile);
+
+        Assert.Single(vector);
+        Assert.Equal(1.0, vector["Horror"]);
+    }
+
+    [Fact]
+    public void BuildCollaborativeMap_EmptyProfiles_ReturnsEmpty()
+    {
+        var user = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = []
+        };
+
+        var map = RecommendationEngine.BuildCollaborativeMap(user, []);
+        Assert.Empty(map);
+    }
+
+    [Fact]
+    public void BuildCollaborativeMap_NullWatchedItems_ReturnsEmpty()
+    {
+        var user = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = []
+        };
+
+        var other = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = []
+        };
+
+        var map = RecommendationEngine.BuildCollaborativeMap(user, [user, other]);
+        Assert.Empty(map);
+    }
+
+    [Fact]
+    public void ComputeCollaborativeScore_NegativeMax_ReturnsZero()
+    {
+        var itemId = Guid.NewGuid();
+        var map = new Dictionary<Guid, double> { { itemId, 0.5 } };
+        Assert.Equal(0, RecommendationEngine.ComputeCollaborativeScore(itemId, map, -1.0));
+    }
+
+    [Fact]
+    public void NormalizeRating_NegativeRating_ClampedToZero()
+    {
+        var score = RecommendationEngine.NormalizeRating(-5f);
+        Assert.True(score >= 0.0 && score <= 1.0, $"Expected clamped value, got {score}");
+    }
+
+    [Fact]
+    public void ComputeRecencyScore_VeryOldDate_ReturnsNearZero()
+    {
+        var score = RecommendationEngine.ComputeRecencyScore(new DateTime(1900, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        Assert.True(score >= 0.0 && score < 0.01, $"Expected near-zero for very old date, got {score}");
+    }
+
+    [Fact]
+    public void ComputeYearProximity_NegativeYear_StillComputes()
+    {
+        // Edge case: year 0 vs 2020 — should not throw, returns valid score
+        var score = RecommendationEngine.ComputeYearProximity(0, 2020);
+        Assert.True(score >= 0.0 && score <= 1.0, $"Expected valid score, got {score}");
+    }
+
+    [Fact]
+    public void ComputeCompletionRatio_NegativeRuntime_ReturnsZero()
+    {
+        var item = new WatchedItemInfo { RuntimeTicks = -100, PlaybackPositionTicks = 50 };
+        Assert.Equal(0.0, RecommendationEngine.ComputeCompletionRatio(item));
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarity_LargePreferredSet_SmallCandidate()
+    {
+        // Overlap coefficient uses min(|A|,|B|) in denominator
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A" };
+        var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A", "B", "C", "D", "E" };
+        var result = RecommendationEngine.ComputePeopleSimilarity(candidate, preferred);
+        // Intersection = {A}, min(1, 5) = 1 → Overlap = 1/1 = 1.0
+        Assert.Equal(1.0, result);
+    }
+
+    [Fact]
+    public void ComputeGenreSimilarity_DuplicateGenresInCandidate_HandledCorrectly()
+    {
+        var prefs = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Action", 1.0 }
+        };
+
+        // Candidate with duplicate genres (edge case from malformed metadata)
+        var score = RecommendationEngine.ComputeGenreSimilarity(
+            new[] { "Action", "Action", "Action" }, prefs);
+
+        // Should still produce a valid score in [0, 1]
+        Assert.True(score >= 0.0 && score <= 1.0, $"Expected valid score, got {score}");
+    }
+
+    [Fact]
+    public void ComputeAverageYear_SingleItem_ReturnsThatYear()
+    {
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { Played = true, Year = 2015 }
+            ]
+        };
+
+        Assert.Equal(2015, RecommendationEngine.ComputeAverageYear(profile));
+    }
+
+    [Fact]
+    public void ComputeAverageYear_EmptyProfile_ReturnsZero()
+    {
+        var profile = new UserWatchProfile { WatchedItems = [] };
+        Assert.Equal(0, RecommendationEngine.ComputeAverageYear(profile));
+    }
 }

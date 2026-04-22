@@ -6,24 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
 
-## [1.2.2.0] — 2026-04-21
+## [2.0.0.0] — 2026-04-21
 
 ### Added
 - **Discover Tab** — New 8th dashboard tab "Discover" combining ML-powered smart recommendations and user activity insights in a single view. Includes `Recommendations.js`, `Recommendations.css` frontend modules with user selector, recommendation cards, activity summaries, and genre distribution charts.
-- **Smart Recommendation Engine** — ML-based per-user recommendation system (`Services/Recommendation/`) with three-tier scoring architecture: `HeuristicScoringStrategy` (rule-based), `LearnedScoringStrategy` (gradient-descent ML), and `EnsembleScoringStrategy` (adaptive blend with sigmoid-based alpha transition). Includes centralized weight management (`DefaultWeights`, `ScoringHelper`), per-score explainability (`ScoreExplanation`), temporal decay for training data (`TrainingExample`), and thread-safe state persistence.
+- **Smart Recommendation Engine** — ML-based per-user recommendation system (`Services/Recommendation/`) with four-tier scoring architecture: `HeuristicScoringStrategy` (rule-based), `LearnedScoringStrategy` (gradient-descent ML), `NeuralScoringStrategy` (multi-layer perceptron with Adam optimizer, Xavier initialization, and sigmoid activation), and `EnsembleScoringStrategy` (adaptive 3-way blend with sigmoid-based alpha transition for learned/heuristic and beta ramp for neural activation). Includes centralized weight management (`DefaultWeights`, `ScoringHelper`), per-score explainability (`ScoreExplanation`), temporal decay for training data (`TrainingExample`), collaborative filtering with Jaccard similarity, series progression boost, and thread-safe state persistence.
 - **Recommendations Configuration** — New plugin setting: `RecommendationsTaskMode` (DryRun/Activate/Deactivate, default: DryRun). Generates up to 20 recommendations per user (fixed).
 - **Recommendations Scheduled Task** — Integrated into `HelperCleanupTask` to generate recommendations and activity data on the weekly cleanup schedule.
 - **Tests** — New test classes: `RecommendationControllerTests`, `UserActivityControllerTests`, `RecommendationEngineTests`, `WatchHistoryServiceTests`, `ScoringStrategyTests`, `RecommendationCacheServiceTests`, `RecommendationDtoTests`, `UserActivityCacheServiceTests`, `UserActivityInsightsServiceTests`.
 
 ### Changed
 - **8-Tab Dashboard** — Dashboard expanded from 7 to 8 tabs: Overview, Codecs, Health, Trends, **Discover**, Settings, Arr, Logs.
-- **Service Registration** — `PluginServiceRegistrator` registers 5 new services: `IWatchHistoryService`, `IRecommendationEngine`, `IRecommendationCacheService`, `IUserActivityInsightsService`, `IUserActivityCacheService`.
+- **Service Registration** — `PluginServiceRegistrator` registers 5 new services: `IWatchHistoryService`, `IRecommendationEngine`, `IRecommendationCacheService`, `IUserActivityInsightsService`, `IUserActivityCacheService`. Additionally registers 4 scoring strategies (`HeuristicScoringStrategy`, `LearnedScoringStrategy`, `NeuralScoringStrategy`, `EnsembleScoringStrategy`) with configurable strategy selection via `RecommendationStrategy` config setting.
 - **HelperCleanupTask** — Extended to run recommendation generation and user activity aggregation alongside existing cleanup tasks.
 - **i18n** — All 7 language files (en, de, fr, es, pt, zh, tr) updated with Discover tab translations (tab label, recommendation cards, activity summaries, empty states).
 - **Documentation** — Updated README.md, CONTRIBUTING.md, manifest.json, build.yaml, and CHANGELOG.md for the new Discover tab and all associated features.
 
 ### Fixed
 - **Trends Tab** — "Largest" and "Recent" sections in the Trends tab were displaying the total size of the library in the tree view instead of the sum of the displayed objects.
+- **Plugin Log** — More precise logs if trash is activated.
 ---
 
 ## [1.2.1.0] — 2026-04-20
