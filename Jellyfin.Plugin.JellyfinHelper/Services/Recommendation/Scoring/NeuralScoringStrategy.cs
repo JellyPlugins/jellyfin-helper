@@ -198,9 +198,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _tlsHiddenPre ??= new double[HiddenSize];
         _tlsHiddenAct ??= new double[HiddenSize];
 
-        _rwLock.EnterReadLock();
         try
         {
+            _rwLock.EnterReadLock();
+
             if (_featureMeans is not null && _featureStdDevs is not null)
             {
                 LearnedScoringStrategy.StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
@@ -217,7 +218,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
         finally
         {
-            _rwLock.ExitReadLock();
+            if (_rwLock.IsReadLockHeld)
+            {
+                _rwLock.ExitReadLock();
+            }
         }
     }
 
@@ -227,9 +231,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         var vector = new double[CandidateFeatures.FeatureCount];
         features.WriteToVector(vector);
 
-        _rwLock.EnterReadLock();
         try
         {
+            _rwLock.EnterReadLock();
+
             if (_featureMeans is not null && _featureStdDevs is not null)
             {
                 LearnedScoringStrategy.StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
@@ -306,7 +311,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
         finally
         {
-            _rwLock.ExitReadLock();
+            if (_rwLock.IsReadLockHeld)
+            {
+                _rwLock.ExitReadLock();
+            }
         }
     }
 
@@ -343,9 +351,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             LearnedScoringStrategy.StandardizeVectors(vectors, featureMeans, featureStdDevs);
         }
 
-        _rwLock.EnterWriteLock();
         try
         {
+            _rwLock.EnterWriteLock();
+
             EnsureAdamState(inputSize);
 
             var valCount = Math.Max(MinValidationExamples, (int)(examples.Count * ValidationSplitRatio));
@@ -523,7 +532,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
         finally
         {
-            _rwLock.ExitWriteLock();
+            if (_rwLock.IsWriteLockHeld)
+            {
+                _rwLock.ExitWriteLock();
+            }
         }
 
         return true;
