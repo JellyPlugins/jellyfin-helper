@@ -177,6 +177,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 }
                 else if (config.UseTrash)
                 {
+                    PluginLog.LogInfo(TaskName, $"Moving orphaned media folder to trash: {topDir.FullName}", Logger);
                     var trashPath = ConfigHelper.GetTrashPath(libraryPath);
                     var size = TrashService.MoveToTrash(topDir.FullName, trashPath, Logger);
                     if (size <= 0)

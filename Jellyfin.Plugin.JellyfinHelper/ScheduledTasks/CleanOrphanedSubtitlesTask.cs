@@ -184,6 +184,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                     }
                     else if (config.UseTrash)
                     {
+                        PluginLog.LogInfo(TaskName, $"Moving orphaned subtitle to trash: {file.FullName}", Logger);
                         var size = TrashService.MoveFileToTrash(file.FullName, trashFullPath, Logger);
                         if (size <= 0)
                         {
