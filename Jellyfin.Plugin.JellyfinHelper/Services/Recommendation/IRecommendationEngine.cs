@@ -35,6 +35,11 @@ public interface IRecommendationEngine
     /// <param name="previousResults">
     ///     The recommendation results from the previous run (loaded from cache).
     /// </param>
+    /// <param name="incremental">
+    ///     When true (requires TaskMode=Activate), only new examples since last training are fully
+    ///     processed; a random sample of older examples is included to prevent catastrophic forgetting.
+    ///     When false (default), all examples are used for full retraining.
+    /// </param>
     /// <returns>True if training was performed, false if skipped (insufficient training data).</returns>
-    bool TrainStrategy(IReadOnlyList<RecommendationResult> previousResults);
+    bool TrainStrategy(IReadOnlyList<RecommendationResult> previousResults, bool incremental = false);
 }

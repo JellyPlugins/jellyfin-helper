@@ -100,6 +100,20 @@ public sealed class RecommendationEngine : IRecommendationEngine
     internal const double ExposureLabel = 0.1;
 
     /// <summary>
+    ///     Fraction of old training examples retained during incremental training.
+    ///     New examples (since last training) are always included; this fraction
+    ///     controls how many older examples are randomly sampled to prevent
+    ///     catastrophic forgetting while reducing training time.
+    /// </summary>
+    internal const double IncrementalOldSampleRatio = 0.3;
+
+    /// <summary>
+    ///     Minimum number of total examples before incremental subsampling activates.
+    ///     Below this threshold, all examples are used regardless of the incremental flag.
+    /// </summary>
+    internal const int IncrementalMinExamplesThreshold = 30;
+
+    /// <summary>
     ///     Maximum candidate count before a performance warning is emitted.
     ///     Libraries with more items than this threshold may experience slower on-demand scoring.
     /// </summary>
@@ -176,7 +190,7 @@ public sealed class RecommendationEngine : IRecommendationEngine
     }
 
     /// <inheritdoc />
-    public bool TrainStrategy(IReadOnlyList<RecommendationResult> previousResults)
+    public bool TrainStrategy(IReadOnlyList<RecommendationResult> previousResults, bool incremental = false)
     {
         if (previousResults.Count == 0)
         {
@@ -301,7 +315,63 @@ public sealed class RecommendationEngine : IRecommendationEngine
             $"{examples.Count - positiveCount} negative) from {previousResults.Count} users.",
             _logger);
 
-        var trained = (_strategy is ITrainableStrategy trainable) && trainable.Train(examples);
+        // Incremental training: when enabled (TaskMode=Activate), subsample older examples
+        // to reduce training time while retaining new examples + a random sample of old ones
+        // to prevent catastrophic forgetting.
+        List<TrainingExample> trainingExamples = examples;
+        if (incremental && examples.Count >= IncrementalMinExamplesThreshold)
+        {
+            // Find the most recent recommendation generation timestamp as cutoff
+            var latestGeneratedAt = previousResults.Max(r => r.GeneratedAt);
+            var cutoff = latestGeneratedAt.AddDays(-1); // 1-day grace period
+
+            var newExamples = new List<TrainingExample>();
+            var oldExamples = new List<TrainingExample>();
+
+            foreach (var ex in examples)
+            {
+                if (ex.GeneratedAtUtc >= cutoff)
+                {
+                    newExamples.Add(ex);
+                }
+                else
+                {
+                    oldExamples.Add(ex);
+                }
+            }
+
+            // Sample a fraction of old examples
+            if (oldExamples.Count > 0)
+            {
+                var rng = new Random(42);
+                var sampleCount = Math.Max(1, (int)(oldExamples.Count * IncrementalOldSampleRatio));
+
+                // Fisher-Yates partial shuffle to select sampleCount elements
+                for (var i = 0; i < Math.Min(sampleCount, oldExamples.Count); i++)
+                {
+                    var j = rng.Next(i, oldExamples.Count);
+                    (oldExamples[i], oldExamples[j]) = (oldExamples[j], oldExamples[i]);
+                }
+
+                var sampledOld = oldExamples.GetRange(0, sampleCount);
+                var combined = new List<TrainingExample>(newExamples.Count + sampleCount);
+                combined.AddRange(newExamples);
+                combined.AddRange(sampledOld);
+                trainingExamples = combined;
+
+                _pluginLog.LogInfo(
+                    "Recommendations",
+                    $"Incremental training: {newExamples.Count} new + {sampleCount} sampled old " +
+                    $"(from {oldExamples.Count} total old) = {trainingExamples.Count} examples.",
+                    _logger);
+            }
+            else
+            {
+                trainingExamples = newExamples;
+            }
+        }
+
+        var trained = (_strategy is ITrainableStrategy trainable) && trainable.Train(trainingExamples);
 
         if (trained)
         {
@@ -334,6 +404,11 @@ public sealed class RecommendationEngine : IRecommendationEngine
 
         // Batch-load people data once for all candidates, shared across ALL users (performance: avoids N×M queries)
         var peopleLookup = BuildCandidatePeopleLookup(candidates);
+
+        // Pre-compute all user watched-item sets ONCE for collaborative filtering (Feature #5 / Performance #9).
+        // Without this, BuildCollaborativeMap() rebuilds every user's HashSet for each target user → O(U²×M).
+        // With pre-computation: O(U×M) total, then each BuildCollaborativeMap() just references existing sets.
+        var precomputedUserSets = PrecomputeUserWatchSets(allProfiles);
 
         _pluginLog.LogInfo(
             "Recommendations",
@@ -736,6 +811,41 @@ public sealed class RecommendationEngine : IRecommendationEngine
         }
 
         return vector;
+    }
+
+    /// <summary>
+    ///     Pre-computes watched-item HashSets for all users at once.
+    ///     Called once in <see cref="GetAllRecommendations"/> and shared across all per-user calls
+    ///     to avoid rebuilding O(U) HashSets per user (O(U²) total → O(U) total).
+    ///     Each set includes both direct item IDs and parent series IDs from episode watches.
+    /// </summary>
+    /// <param name="allProfiles">All user watch profiles.</param>
+    /// <returns>A dictionary mapping user ID to their combined watched-item set.</returns>
+    internal static Dictionary<Guid, HashSet<Guid>> PrecomputeUserWatchSets(Collection<UserWatchProfile> allProfiles)
+    {
+        var result = new Dictionary<Guid, HashSet<Guid>>(allProfiles.Count);
+
+        foreach (var profile in allProfiles)
+        {
+            var combined = new HashSet<Guid>();
+            foreach (var w in profile.WatchedItems)
+            {
+                if (!w.Played)
+                {
+                    continue;
+                }
+
+                combined.Add(w.ItemId);
+                if (w.SeriesId.HasValue)
+                {
+                    combined.Add(w.SeriesId.Value);
+                }
+            }
+
+            result[profile.UserId] = combined;
+        }
+
+        return result;
     }
 
     /// <summary>

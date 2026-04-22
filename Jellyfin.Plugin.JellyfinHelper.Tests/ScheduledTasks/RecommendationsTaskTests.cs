@@ -37,7 +37,7 @@ public class RecommendationsTaskTests
             new() { UserId = Guid.NewGuid(), Recommendations = new Collection<RecommendedItem> { new() { ItemId = Guid.NewGuid(), Score = 0.8 } } }
         };
         _recsCacheMock.Setup(x => x.LoadResults()).Returns(cached);
-        _recsEngineMock.Setup(x => x.TrainStrategy(cached)).Returns(true);
+        _recsEngineMock.Setup(x => x.TrainStrategy(cached, It.IsAny<bool>())).Returns(true);
 
         var results = new List<RecommendationResult>
         {
@@ -51,7 +51,7 @@ public class RecommendationsTaskTests
         await sut.ExecuteAsync(config, progress.Object, CancellationToken.None);
 
         // Assert
-        _recsEngineMock.Verify(x => x.TrainStrategy(cached), Times.Once);
+        _recsEngineMock.Verify(x => x.TrainStrategy(cached, It.IsAny<bool>()), Times.Once);
         _recsEngineMock.Verify(x => x.GetAllRecommendations(20, It.IsAny<CancellationToken>()), Times.Once);
         _recsCacheMock.Verify(x => x.SaveResults(results), Times.Once);
     }
@@ -91,7 +91,7 @@ public class RecommendationsTaskTests
             new() { UserId = Guid.NewGuid(), Recommendations = new Collection<RecommendedItem> { new() { ItemId = Guid.NewGuid(), Score = 0.7 } } }
         };
         _recsCacheMock.Setup(x => x.LoadResults()).Returns(cached);
-        _recsEngineMock.Setup(x => x.TrainStrategy(It.IsAny<IReadOnlyList<RecommendationResult>>()))
+        _recsEngineMock.Setup(x => x.TrainStrategy(It.IsAny<IReadOnlyList<RecommendationResult>>(), It.IsAny<bool>()))
             .Throws(new InvalidOperationException("Training failed"));
 
         var results = new List<RecommendationResult>();
@@ -123,7 +123,7 @@ public class RecommendationsTaskTests
         await sut.ExecuteAsync(config, progress.Object, CancellationToken.None);
 
         // Assert
-        _recsEngineMock.Verify(x => x.TrainStrategy(It.IsAny<IReadOnlyList<RecommendationResult>>()), Times.Never);
+        _recsEngineMock.Verify(x => x.TrainStrategy(It.IsAny<IReadOnlyList<RecommendationResult>>(), It.IsAny<bool>()), Times.Never);
     }
 
     [Fact]
