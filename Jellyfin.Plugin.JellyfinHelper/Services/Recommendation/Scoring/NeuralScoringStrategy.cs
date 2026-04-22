@@ -23,7 +23,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     Genre-mismatch penalties are NOT applied here — handled centrally by the ensemble layer.
 ///     Weights are persisted to disk so they survive server restarts.
 /// </remarks>
-public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
+public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy, IDisposable
 {
     /// <summary>Number of neurons in the hidden layer.</summary>
     internal const int HiddenSize = 8;
@@ -767,6 +767,12 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         {
             _logger?.LogWarning(ex, "NeuralScoringStrategy: Failed to serialize weights");
         }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _rwLock.Dispose();
     }
 
     /// <summary>Serializable container for persisted neural network weights.</summary>
