@@ -378,10 +378,13 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             // Persist Z-score statistics so scoring uses the same standardization
             _featureMeans = featureMeans;
             _featureStdDevs = featureStdDevs;
+
+            // Persist inside the lock so that no concurrent Score() call can observe
+            // a window between training completion and save snapshot.
+            // C# Monitor (lock) is reentrant, so the inner lock in TrySaveWeights() is a no-op.
+            TrySaveWeights();
         }
 
-        // Persist updated weights synchronously
-        TrySaveWeights();
         return true;
     }
 

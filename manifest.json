@@ -12,7 +12,7 @@
         "version": "2.0.0.0",
         "changelog": "v2.0.0.0: New Discover tab with ML-powered smart recommendations per user (four scoring strategies: heuristic, learned, neural MLP, ensemble with adaptive 3-way blending; genre/actor/director/studio affinity, collaborative filtering, series progression boost, watch profile analysis) and user activity insights (per-item play count, completion tracking, favorites). New services: Recommendation Engine, Watch History, four Scoring Strategies (HeuristicScoringStrategy, LearnedScoringStrategy, NeuralScoringStrategy, EnsembleScoringStrategy), User Activity Insights/Cache. New API endpoints for recommendations and user activity. Dashboard expanded from 7 to 8 tabs. Documentation updated.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.0.0.0/JellyfinHelper_1.2.2.0.zip",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.0.0.0/JellyfinHelper_2.0.0.0.zip",
         "checksum": "",
         "timestamp": "2026-04-21T09:00:00Z"
       },
