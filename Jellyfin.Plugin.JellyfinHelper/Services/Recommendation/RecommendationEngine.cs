@@ -563,6 +563,24 @@ public sealed class RecommendationEngine : IRecommendationEngine
                 ? ComputePeopleSimilarity(candidatePeople, preferredPeople)
                 : 0.0;
 
+            // Compute series progression boost: reward next-season recommendations
+            var seriesProgressionBoost = 0.0;
+            if (candidate is Series candidateSeries && seriesEpisodeLookup.TryGetValue(candidateSeries.Id, out var progressionEps))
+            {
+                // User has watched some episodes → boost proportional to completion so they continue
+                var playedEps = progressionEps.Count(e => e.Played);
+                var totalEps = progressionEps.Count;
+                if (totalEps > 0)
+                {
+                    var ratio = (double)playedEps / totalEps;
+                    // Highest boost for partially-watched series (40–90% complete)
+                    seriesProgressionBoost = ratio < 0.9 ? Math.Clamp(ratio * 1.2, 0.0, 1.0) : 0.2;
+                }
+            }
+
+            // Compute popularity score: proxy from collaborative scores (items watched by many users)
+            var popularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : ratingScore * 0.3;
+
             // Build feature vector and delegate scoring to strategy
             var features = new CandidateFeatures
             {
@@ -577,7 +595,10 @@ public sealed class RecommendationEngine : IRecommendationEngine
                 HasUserInteraction = hasUserInteraction,
                 CompletionRatio = completionRatio,
                 PeopleSimilarity = peopleSimilarity,
-                StudioMatch = studioMatch
+                StudioMatch = studioMatch,
+                SeriesProgressionBoost = seriesProgressionBoost,
+                PopularityScore = popularityScore,
+                DayOfWeekAffinity = ComputeDayOfWeekAffinity(candidate, userProfile)
             };
 
             var explanation = strategy.ScoreWithExplanation(features);
@@ -1297,6 +1318,55 @@ public sealed class RecommendationEngine : IRecommendationEngine
 
         var minSize = Math.Min(candidatePeople.Count, preferredPeople.Count);
         return minSize > 0 ? (double)intersection / minSize : 0;
+    }
+
+    /// <summary>
+    ///     Computes day-of-week affinity: how well a candidate's genre matches
+    ///     the user's viewing patterns for the current day of week.
+    ///     Returns 0.5 (neutral) if insufficient data.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <param name="userProfile">The user's watch profile.</param>
+    /// <returns>An affinity score between 0 and 1.</returns>
+    internal static double ComputeDayOfWeekAffinity(BaseItem candidate, UserWatchProfile userProfile)
+    {
+        if (candidate.Genres is not { Length: > 0 } || userProfile.WatchedItems.Count < 10)
+        {
+            return 0.5; // not enough data
+        }
+
+        var today = DateTime.UtcNow.DayOfWeek;
+
+        // Count how many watched items with matching genres were watched on this day of week
+        var matchCount = 0;
+        var totalToday = 0;
+        var candidateGenreSet = new HashSet<string>(candidate.Genres, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var w in userProfile.WatchedItems)
+        {
+            if (!w.Played || !w.LastPlayedDate.HasValue)
+            {
+                continue;
+            }
+
+            if (w.LastPlayedDate.Value.DayOfWeek != today)
+            {
+                continue;
+            }
+
+            totalToday++;
+            if (w.Genres is not null && w.Genres.Any(g => candidateGenreSet.Contains(g)))
+            {
+                matchCount++;
+            }
+        }
+
+        if (totalToday < 3)
+        {
+            return 0.5; // not enough data for this day
+        }
+
+        return Math.Clamp((double)matchCount / totalToday, 0.0, 1.0);
     }
 
     /// <summary>

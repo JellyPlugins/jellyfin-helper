@@ -52,6 +52,15 @@ public enum FeatureIndex
 
     /// <summary>Studio similarity flag (0 or 1). Whether the item is from a studio the user has watched before.</summary>
     StudioMatch = 14,
+
+    /// <summary>Series progression boost (0–1). Higher when the user has watched previous seasons and this is a follow-up.</summary>
+    SeriesProgressionBoost = 15,
+
+    /// <summary>Popularity score (0–1). Based on how many users have watched this item globally. Helps cold-start users.</summary>
+    PopularityScore = 16,
+
+    /// <summary>Day-of-week affinity (0–1). How well this content type matches the user's typical viewing pattern for the current day.</summary>
+    DayOfWeekAffinity = 17,
 }
 
 /// <summary>
@@ -63,7 +72,7 @@ public sealed class CandidateFeatures
     /// <summary>
     ///     The number of features produced by <see cref="ToVector"/>.
     /// </summary>
-    public const int FeatureCount = 15;
+    public const int FeatureCount = 18;
 
     /// <summary>
     ///     Normalization ceiling for genre count (items with ≥ this many genres map to 1.0).
@@ -85,6 +94,9 @@ public sealed class CandidateFeatures
     private double _userRatingScore = 0.5;
     private double _completionRatio = 0.5;
     private double _peopleSimilarity;
+    private double _seriesProgressionBoost;
+    private double _popularityScore;
+    private double _dayOfWeekAffinity;
 
     /// <summary>Gets or sets the genre similarity score (0–1). Values are clamped to [0, 1].</summary>
     public double GenreSimilarity
@@ -154,6 +166,27 @@ public sealed class CandidateFeatures
     /// <summary>Gets or sets a value indicating whether the item is from a studio the user has watched before.</summary>
     public bool StudioMatch { get; set; }
 
+    /// <summary>Gets or sets the series progression boost (0–1). Higher when this is a follow-up season the user hasn't watched yet. Values are clamped to [0, 1].</summary>
+    public double SeriesProgressionBoost
+    {
+        get => _seriesProgressionBoost;
+        set => _seriesProgressionBoost = Math.Clamp(value, 0.0, 1.0);
+    }
+
+    /// <summary>Gets or sets the popularity score (0–1). Based on global watch count, helps cold-start users. Values are clamped to [0, 1].</summary>
+    public double PopularityScore
+    {
+        get => _popularityScore;
+        set => _popularityScore = Math.Clamp(value, 0.0, 1.0);
+    }
+
+    /// <summary>Gets or sets the day-of-week affinity (0–1). How well this content matches the user's viewing patterns for the current day. Values are clamped to [0, 1].</summary>
+    public double DayOfWeekAffinity
+    {
+        get => _dayOfWeekAffinity;
+        set => _dayOfWeekAffinity = Math.Clamp(value, 0.0, 1.0);
+    }
+
     /// <summary>
     ///     Converts the features into a fixed-size double array for ML processing.
     ///     Order is defined by <see cref="FeatureIndex"/>.
@@ -200,5 +233,8 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.HasInteraction] = HasUserInteraction ? 1.0 : 0.0;
         buffer[(int)FeatureIndex.PeopleSimilarity] = PeopleSimilarity;
         buffer[(int)FeatureIndex.StudioMatch] = StudioMatch ? 1.0 : 0.0;
+        buffer[(int)FeatureIndex.SeriesProgressionBoost] = SeriesProgressionBoost;
+        buffer[(int)FeatureIndex.PopularityScore] = PopularityScore;
+        buffer[(int)FeatureIndex.DayOfWeekAffinity] = DayOfWeekAffinity;
     }
 }

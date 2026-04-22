@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 /// <summary>
 ///     Neural network scoring strategy using a single-hidden-layer MLP (Multi-Layer Perceptron).
 ///     Learns non-linear feature interactions from user watch history via backpropagation.
-///     Architecture: 15 inputs → 8 hidden (ReLU) → 1 output (Sigmoid) = 137 parameters.
+///     Architecture: 18 inputs → 8 hidden (ReLU) → 1 output (Sigmoid) = 161 parameters.
 ///     Optimized for NAS/Docker with limited hardware: zero-allocation scoring path,
 ///     pre-allocated training buffers, ~130 FP multiplications per score.
 ///     No external ML dependencies — pure C# implementation.
@@ -72,7 +72,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     internal const int MaxEpochsWithoutEarlyStopping = 20;
 
     /// <summary>Schema version for persisted weights. Increment on architecture changes.</summary>
-    internal const int CurrentWeightsVersion = 1;
+    internal const int CurrentWeightsVersion = 2;
 
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
 
@@ -257,7 +257,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 attr[(int)FeatureIndex.GenreCollabInteraction] +
                 attr[(int)FeatureIndex.CompletionRatio] +
                 attr[(int)FeatureIndex.IsAbandoned] +
-                attr[(int)FeatureIndex.HasInteraction];
+                attr[(int)FeatureIndex.HasInteraction] +
+                attr[(int)FeatureIndex.SeriesProgressionBoost] +
+                attr[(int)FeatureIndex.PopularityScore] +
+                attr[(int)FeatureIndex.DayOfWeekAffinity];
 
             return new ScoreExplanation
             {
@@ -654,7 +657,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var data = JsonSerializer.Deserialize<NeuralWeightsData>(json);
             if (data is not null
                 && data.Version == CurrentWeightsVersion
-                && data.WeightsHidden is { Length: HiddenSize * CandidateFeatures.FeatureCount }
+                && data.WeightsHidden?.Length == HiddenSize * CandidateFeatures.FeatureCount
                 && data.BiasHidden is { Length: HiddenSize }
                 && data.WeightsOutput is { Length: HiddenSize })
             {

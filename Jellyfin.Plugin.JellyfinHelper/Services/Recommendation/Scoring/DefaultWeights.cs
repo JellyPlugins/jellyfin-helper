@@ -9,13 +9,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 public static class DefaultWeights
 {
     /// <summary>Weight for genre similarity signal (dominant).</summary>
-    public const double GenreSimilarity = 0.28;
+    public const double GenreSimilarity = 0.25;
 
     /// <summary>Weight for collaborative filtering signal.</summary>
-    public const double CollaborativeScore = 0.12;
+    public const double CollaborativeScore = 0.10;
 
     /// <summary>Weight for community rating signal.</summary>
-    public const double RatingScore = 0.08;
+    public const double RatingScore = 0.07;
 
     /// <summary>Weight for recency signal.</summary>
     public const double RecencyScore = 0.05;
@@ -32,23 +32,23 @@ public static class DefaultWeights
     ///     model to learn user preference for series vs. movies. The ML model can further adjust
     ///     this weight via training.
     /// </summary>
-    public const double IsSeries = 0.05;
+    public const double IsSeries = 0.04;
 
     /// <summary>Weight for genre × rating interaction signal.</summary>
-    public const double GenreRatingInteraction = 0.06;
+    public const double GenreRatingInteraction = 0.05;
 
     /// <summary>Weight for genre × collaborative interaction signal.</summary>
-    public const double GenreCollabInteraction = 0.06;
+    public const double GenreCollabInteraction = 0.05;
 
     /// <summary>Weight for user personal rating signal (stronger than community rating).</summary>
-    public const double UserRatingScore = 0.10;
+    public const double UserRatingScore = 0.09;
 
     /// <summary>
     ///     Weight for watch completion ratio (positive signal — rewards fully watched items).
-    ///     Increased from 0.04 to 0.08 to strengthen the reward for completed items while
-    ///     the companion <see cref="IsAbandoned"/> feature penalizes abandoned ones.
+    ///     Works together with the companion <see cref="IsAbandoned"/> feature which penalizes
+    ///     abandoned ones.
     /// </summary>
-    public const double CompletionRatio = 0.08;
+    public const double CompletionRatio = 0.07;
 
     /// <summary>
     ///     Negative weight for abandoned items (CompletionRatio &lt; 25%).
@@ -78,6 +78,28 @@ public static class DefaultWeights
     /// </summary>
     public const double StudioMatch = 0.02;
 
+    /// <summary>
+    ///     Weight for series progression boost signal.
+    ///     Rewards follow-up seasons when the user has watched earlier seasons of the same series,
+    ///     encouraging "continue watching" style recommendations.
+    /// </summary>
+    public const double SeriesProgressionBoost = 0.06;
+
+    /// <summary>
+    ///     Weight for popularity score signal.
+    ///     Provides a baseline signal from global watch counts, particularly useful for cold-start
+    ///     users who have little personal history. The ML model can adjust this weight down as
+    ///     personalized signals strengthen.
+    /// </summary>
+    public const double PopularityScore = 0.03;
+
+    /// <summary>
+    ///     Weight for day-of-week affinity signal.
+    ///     Captures temporal viewing patterns (e.g., comedies on weekends, dramas on weeknights).
+    ///     A small weight so it acts as a tiebreaker rather than a dominant signal.
+    /// </summary>
+    public const double DayOfWeekAffinity = 0.02;
+
     /// <summary>Default bias term for the learned strategy.</summary>
     public const double Bias = 0.05;
 
@@ -103,6 +125,9 @@ public static class DefaultWeights
         weights[(int)FeatureIndex.HasInteraction] = HasInteraction;
         weights[(int)FeatureIndex.PeopleSimilarity] = PeopleSimilarity;
         weights[(int)FeatureIndex.StudioMatch] = StudioMatch;
+        weights[(int)FeatureIndex.SeriesProgressionBoost] = SeriesProgressionBoost;
+        weights[(int)FeatureIndex.PopularityScore] = PopularityScore;
+        weights[(int)FeatureIndex.DayOfWeekAffinity] = DayOfWeekAffinity;
         return weights;
     }
 }

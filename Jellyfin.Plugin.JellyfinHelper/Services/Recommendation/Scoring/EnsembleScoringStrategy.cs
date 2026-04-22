@@ -101,6 +101,13 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     internal const double NeuralMaxBetaFraction = 0.4;
 
+    /// <summary>
+    ///     Minimum neural beta below which the neural strategy is deactivated.
+    ///     Prevents infinitesimal floating-point ghost values from keeping the neural
+    ///     path active with no meaningful contribution.
+    /// </summary>
+    internal const double NeuralBetaMinFloor = 0.01;
+
     /// <summary>Cached JSON serializer options for ensemble state persistence.</summary>
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
 
@@ -408,8 +415,13 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                     }
                     else
                     {
-                        // Neural not generalizing well — reduce its influence
+                        // Neural not generalizing well — reduce its influence.
+                        // Apply floor to avoid infinitesimal ghost values.
                         _neuralBeta *= 0.5;
+                        if (_neuralBeta < NeuralBetaMinFloor)
+                        {
+                            _neuralBeta = 0.0;
+                        }
                     }
                 }
             }
@@ -523,8 +535,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                         _alpha = ComputeSigmoidAlpha(_trainingExampleCount, _alphaMin, _alphaMax);
                     }
 
-                    // Restore neural beta so it survives server restarts (Point 6)
-                    if (data.NeuralBeta >= 0 && data.NeuralBeta <= NeuralMaxBetaFraction)
+                    // Restore neural beta so it survives server restarts
+                    if (data.NeuralBeta >= NeuralBetaMinFloor && data.NeuralBeta <= NeuralMaxBetaFraction)
                     {
                         _neuralBeta = data.NeuralBeta;
                     }
