@@ -62,6 +62,15 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>Weight clamp magnitude to prevent gradient explosion.</summary>
     internal const double WeightClamp = 3.0;
 
+    /// <summary>Minimum sample weight below which a training example is skipped (temporal decay floor).</summary>
+    internal const double MinSampleWeight = 0.01;
+
+    /// <summary>Early stopping improvement threshold (avoids triggering on noise).</summary>
+    internal const double EarlyStoppingMinDelta = 1e-6;
+
+    /// <summary>Maximum epochs when early stopping is disabled (fewer epochs to avoid overfitting).</summary>
+    internal const int MaxEpochsWithoutEarlyStopping = 20;
+
     /// <summary>Schema version for persisted weights. Increment on architecture changes.</summary>
     internal const int CurrentWeightsVersion = 1;
 
@@ -320,6 +329,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var useEarlyStopping = valCount >= MinValidationExamples
                 && examples.Count - valCount >= MinTrainingExamples;
 
+            // Deterministic seed varies by generation to prevent identical train/val splits
+            // across successive Train() calls while keeping results reproducible per generation.
             var rng = new Random(42 + _trainingGeneration);
             _trainingGeneration++;
 
@@ -360,7 +371,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var hAct = new double[HiddenSize];
             var hErr = new double[HiddenSize];
 
-            var maxEpochs = useEarlyStopping ? MaxTrainingEpochs : Math.Min(MaxTrainingEpochs, 20);
+            var maxEpochs = useEarlyStopping ? MaxTrainingEpochs : Math.Min(MaxTrainingEpochs, MaxEpochsWithoutEarlyStopping);
 
             for (var epoch = 0; epoch < maxEpochs; epoch++)
             {
@@ -373,7 +384,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 foreach (var idx in trainIdx)
                 {
                     var sw = weights[idx];
-                    if (sw < 0.01)
+                    if (sw < MinSampleWeight)
                     {
                         continue;
                     }
@@ -449,7 +460,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 if (useEarlyStopping && valIdx.Length > 0)
                 {
                     var valLoss = ComputeMseLoss(examples, vectors, weights, valIdx);
-                    if (valLoss < bestLoss - 1e-6)
+                    if (valLoss < bestLoss - EarlyStoppingMinDelta)
                     {
                         bestLoss = valLoss;
                         patience = 0;
@@ -654,7 +665,12 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _featureMeans = data.FeatureMeans;
                 _featureStdDevs = data.FeatureStdDevs;
                 _trainingGeneration = data.TrainingGeneration;
-                _adamTimestep = data.AdamTimestep;
+
+                // Reset Adam timestep: the moment arrays (m/v) are NOT persisted,
+                // so restoring a high timestep with zero moments would cause incorrect
+                // bias correction factors (bc1/bc2 ≈ 1.0 with zero numerators).
+                // Starting fresh ensures Adam's adaptive learning rate works correctly.
+                _adamTimestep = 0;
             }
             else if (data is not null)
             {

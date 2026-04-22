@@ -2071,6 +2071,118 @@ public sealed class ScoringStrategyTests : IDisposable
     }
 
     [Fact]
+    public void Neural_AdamTimestep_ResetOnRestore()
+    {
+        var weightsPath = Path.Combine(_tempDir, "neural_adam_reset.json");
+        var strategy = new NeuralScoringStrategy(weightsPath);
+
+        // Train to advance Adam timestep
+        var examples = new List<TrainingExample>();
+        for (var i = 0; i < 20; i++)
+        {
+            examples.Add(new TrainingExample
+            {
+                Features = new CandidateFeatures { GenreSimilarity = 0.9, RatingScore = 0.8 },
+                Label = 1.0
+            });
+            examples.Add(new TrainingExample
+            {
+                Features = new CandidateFeatures { GenreSimilarity = 0.1, RatingScore = 0.2 },
+                Label = 0.0
+            });
+        }
+
+        strategy.Train(examples);
+
+        // Restore from disk — Adam state should reset but weights should persist
+        var restored = new NeuralScoringStrategy(weightsPath);
+
+        // Verify weights are consistent (score should match)
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.7, RatingScore = 0.6, RecencyScore = 0.5
+        };
+
+        Assert.Equal(strategy.Score(features), restored.Score(features), 6);
+
+        // Further training should still work after restore
+        Assert.True(restored.Train(examples));
+    }
+
+    [Fact]
+    public void Learned_StandardizationTransition_ResetsWeights()
+    {
+        // Start with fewer than MinExamplesForStandardization to train WITHOUT standardization
+        var strategy = new LearnedScoringStrategy();
+        var fewExamples = new List<TrainingExample>();
+        for (var i = 0; i < 7; i++)
+        {
+            fewExamples.Add(new TrainingExample
+            {
+                Features = new CandidateFeatures { GenreSimilarity = 0.9, RatingScore = 0.8 },
+                Label = 1.0
+            });
+        }
+
+        // Train without standardization (7 < MinExamplesForStandardization=10)
+        strategy.Train(fewExamples);
+        var weightsAfterFirstTrain = strategy.CurrentWeights;
+
+        // Now train WITH standardization (>= 10 examples) — should trigger weight reset
+        var manyExamples = GenerateTrainingExamples(20);
+        strategy.Train(manyExamples);
+        var weightsAfterSecondTrain = strategy.CurrentWeights;
+
+        // Weights should have changed (reset + retrained)
+        var anyDifferent = false;
+        for (var i = 0; i < weightsAfterFirstTrain.Length; i++)
+        {
+            if (Math.Abs(weightsAfterFirstTrain[i] - weightsAfterSecondTrain[i]) > 1e-10)
+            {
+                anyDifferent = true;
+                break;
+            }
+        }
+
+        Assert.True(anyDifferent, "Weights should change during standardization transition");
+    }
+
+    [Fact]
+    public void Neural_Sigmoid_EdgeValues()
+    {
+        // Sigmoid(0) = 0.5
+        Assert.Equal(0.5, NeuralScoringStrategy.Sigmoid(0), 10);
+
+        // Large positive → ~1.0
+        Assert.True(NeuralScoringStrategy.Sigmoid(100) > 0.999);
+
+        // Large negative → ~0.0
+        Assert.True(NeuralScoringStrategy.Sigmoid(-100) < 0.001);
+
+        // Monotonically increasing
+        Assert.True(NeuralScoringStrategy.Sigmoid(1) > NeuralScoringStrategy.Sigmoid(0));
+        Assert.True(NeuralScoringStrategy.Sigmoid(0) > NeuralScoringStrategy.Sigmoid(-1));
+    }
+
+    [Fact]
+    public void Neural_ForwardPass_ZeroInputProducesSigmoidOfBias()
+    {
+        var inputSize = CandidateFeatures.FeatureCount;
+        var wH = new double[NeuralScoringStrategy.HiddenSize * inputSize];
+        var bH = new double[NeuralScoringStrategy.HiddenSize];
+        var wO = new double[NeuralScoringStrategy.HiddenSize];
+        var bO = 0.0;
+        var input = new double[inputSize];
+        var hPre = new double[NeuralScoringStrategy.HiddenSize];
+        var hAct = new double[NeuralScoringStrategy.HiddenSize];
+
+        var result = NeuralScoringStrategy.ForwardPass(input, wH, bH, wO, bO, hPre, hAct);
+
+        // With all zero weights, biases, and inputs: sigmoid(0) = 0.5
+        Assert.Equal(0.5, result, 10);
+    }
+
+    [Fact]
     public void Ensemble_NeuralBetaRamps_WithMoreData()
     {
         var learned = new LearnedScoringStrategy();

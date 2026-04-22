@@ -46,6 +46,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>Minimum number of validation examples required for early stopping.</summary>
     internal const int MinValidationExamples = 2;
 
+    /// <summary>Minimum sample weight below which a training example is skipped (temporal decay floor).</summary>
+    internal const double MinSampleWeight = 0.01;
+
+    /// <summary>Early stopping improvement threshold (avoids triggering on noise).</summary>
+    internal const double EarlyStoppingMinDelta = 1e-6;
+
     /// <summary>
     ///     Minimum number of examples before Z-score standardization is applied.
     ///     Below this threshold, raw features are used to avoid unstable statistics.
@@ -229,6 +235,19 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
         lock (_syncRoot)
         {
+            // Handle standardization transition: if we're applying standardization for the
+            // first time but weights were previously trained on raw (unstandardized) features,
+            // reset to defaults. Without this, the old weights would produce wildly wrong
+            // predictions on the now-standardized inputs until gradient descent corrects them.
+            if (featureMeans is not null && _featureMeans is null)
+            {
+                _weights = DefaultWeights.CreateWeightArray();
+                _bias = DefaultWeights.Bias;
+                _logger?.LogInformation(
+                    "LearnedScoringStrategy: Reset weights to defaults for standardization transition (generation {Gen})",
+                    _trainingGeneration);
+            }
+
             // Split into training and validation sets for early stopping
             var validationCount = Math.Max(MinValidationExamples, (int)(examples.Count * ValidationSplitRatio));
             validationCount = Math.Min(validationCount, examples.Count - MinTrainingExamples);
@@ -295,7 +314,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                     var sampleWeight = effectiveWeights[idx];
 
                     // Skip examples with negligible weight (very old data)
-                    if (sampleWeight < 0.01)
+                    if (sampleWeight < MinSampleWeight)
                     {
                         continue;
                     }
@@ -332,7 +351,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 {
                     var valLoss = ComputeMseLoss(examples, precomputedVectors, effectiveWeights, valIndices, _weights, _bias);
 
-                    if (valLoss < bestLoss - 1e-6)
+                    if (valLoss < bestLoss - EarlyStoppingMinDelta)
                     {
                         bestLoss = valLoss;
                         patienceCounter = 0;
