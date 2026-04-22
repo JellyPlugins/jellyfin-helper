@@ -288,7 +288,7 @@ internal sealed class TrainingService
                 var ratingScore = ContentScoring.NormalizeRating(w.CommunityRating);
                 var completionRatio = w.RuntimeTicks > 0
                     ? Math.Clamp((double)w.PlaybackPositionTicks / w.RuntimeTicks, 0.0, 1.0)
-                    : (w.Played ? 1.0 : 0.0);
+                    : 1.0;
 
                 var features = new CandidateFeatures
                 {

@@ -138,7 +138,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
                         mostRecent = userData.LastPlayedDate;
                     }
                 }
-                catch (Exception ex)
+                catch (InvalidOperationException ex)
                 {
                     _pluginLog.LogWarning(
                         "UserActivity",
