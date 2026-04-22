@@ -983,6 +983,26 @@ public sealed class RecommendationEngine : IRecommendationEngine
     }
 
     /// <summary>
+    ///     Computes a completion-ratio-modulated engagement label for watched items.
+    ///     Instead of a flat label, this interpolates between <see cref="WatchedLabelFloor"/>
+    ///     and <see cref="WatchedLabel"/> based on how much of the item the user completed.
+    ///     This gives the model richer gradient signal: fully-watched items get ~0.85,
+    ///     while barely-started items still get a positive label (~0.5) since the user chose to watch.
+    /// </summary>
+    /// <param name="completionRatio">The watch completion ratio (0–1).</param>
+    /// <returns>An engagement label between <see cref="WatchedLabelFloor"/> and <see cref="WatchedLabel"/>.</returns>
+    internal static double ComputeEngagementLabel(double completionRatio)
+    {
+        // Clamp input to valid range
+        var ratio = Math.Clamp(completionRatio, 0.0, 1.0);
+
+        // Linear interpolation: floor + ratio * (ceiling - floor)
+        // At 0% completion: WatchedLabelFloor (0.5) — user chose to watch, still positive
+        // At 100% completion: WatchedLabel (0.85) — strong positive signal
+        return WatchedLabelFloor + (ratio * (WatchedLabel - WatchedLabelFloor));
+    }
+
+    /// <summary>
     ///     Computes the watch completion ratio for a candidate item.
     ///     Returns 0 if the user has never started the item (new candidate),
     ///     or a ratio of played ticks to runtime ticks for partially watched items.
