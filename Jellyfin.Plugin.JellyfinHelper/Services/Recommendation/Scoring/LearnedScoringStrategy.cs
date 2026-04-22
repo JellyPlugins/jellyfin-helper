@@ -44,6 +44,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>Minimum fraction of examples used for validation (rest is training).</summary>
     internal const double ValidationSplitRatio = 0.2;
 
+    /// <summary>Number of folds for k-fold cross-validation. Set to 1 to disable k-fold (simple split).</summary>
+    internal const int KFoldCount = 3;
+
+    /// <summary>Minimum number of examples required per fold for k-fold cross-validation.</summary>
+    internal const int MinExamplesPerFold = 3;
+
     /// <summary>Minimum number of validation examples required for early stopping.</summary>
     internal const int MinValidationExamples = 2;
 
@@ -266,20 +272,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                     _trainingGeneration);
             }
 
-            // Split into training and validation sets for early stopping
-            var validationCount = Math.Max(MinValidationExamples, (int)(examples.Count * ValidationSplitRatio));
-            validationCount = Math.Min(validationCount, examples.Count - MinTrainingExamples);
-
-            // If we can't split properly, train on all data without early stopping
-            var useEarlyStopping = validationCount >= MinValidationExamples
-                && examples.Count - validationCount >= MinTrainingExamples;
-
             // Use a varying seed based on training generation to avoid always placing
             // the same examples in validation. Still deterministic per generation.
             var rng = new Random(42 + _trainingGeneration);
             _trainingGeneration++;
 
-            // Create shuffled index array for split
+            // Create shuffled index array
             var allIndices = new int[examples.Count];
             for (var j = 0; j < allIndices.Length; j++)
             {
@@ -293,105 +291,67 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 (allIndices[j], allIndices[k]) = (allIndices[k], allIndices[j]);
             }
 
-            int[] trainIndices;
-            int[] valIndices;
+            // Determine whether to use k-fold cross-validation or simple split
+            var useKFold = KFoldCount >= 2 && examples.Count >= KFoldCount * MinExamplesPerFold;
+            var kFoldLossSum = 0.0;
+            var kFoldLossCount = 0;
 
-            if (useEarlyStopping)
+            if (useKFold)
             {
-                trainIndices = allIndices[..^validationCount];
-                valIndices = allIndices[^validationCount..];
-            }
-            else
-            {
-                trainIndices = allIndices;
-                valIndices = [];
-            }
+                // === K-fold cross-validation for reliable loss estimation ===
+                var foldSize = examples.Count / KFoldCount;
+                var savedWeights = (double[])_weights.Clone();
+                var savedBias = _bias;
 
-            var bestLoss = double.MaxValue;
-            var patienceCounter = 0;
-            var bestWeights = (double[])_weights.Clone();
-            var bestBias = _bias;
-
-            var maxEpochs = useEarlyStopping ? MaxTrainingEpochs : Math.Min(MaxTrainingEpochs, 15);
-
-            for (var epoch = 0; epoch < maxEpochs; epoch++)
-            {
-                // Cosine annealing learning rate decay: lr decreases from DefaultLearningRate to ~0
-                var lr = DefaultLearningRate * 0.5 * (1.0 + Math.Cos(Math.PI * epoch / maxEpochs));
-
-                // Fisher-Yates shuffle training indices each epoch
-                for (var j = trainIndices.Length - 1; j > 0; j--)
+                for (var fold = 0; fold < KFoldCount; fold++)
                 {
-                    var k = rng.Next(j + 1);
-                    (trainIndices[j], trainIndices[k]) = (trainIndices[k], trainIndices[j]);
-                }
+                    // Determine fold boundaries
+                    var valStart = fold * foldSize;
+                    var valEnd = fold == KFoldCount - 1 ? examples.Count : valStart + foldSize;
 
-                foreach (var idx in trainIndices)
-                {
-                    var vector = precomputedVectors[idx];
-                    var sampleWeight = effectiveWeights[idx];
-
-                    // Skip examples with negligible weight (very old data)
-                    if (sampleWeight < MinSampleWeight)
+                    // Build train/val index arrays for this fold
+                    var foldValIndices = allIndices[valStart..valEnd];
+                    var foldTrainIndices = new int[examples.Count - foldValIndices.Length];
+                    var ti = 0;
+                    for (var j = 0; j < allIndices.Length; j++)
                     {
-                        continue;
-                    }
-
-                    // Forward pass — linear model
-                    var z = ScoringHelper.ComputeRawScore(vector, _weights, _bias);
-                    var predicted = Math.Clamp(z, 0.0, 1.0);
-
-                    // Error = predicted - label (gradient of MSE loss), weighted by sample importance
-                    var error = (predicted - examples[idx].Label) * sampleWeight;
-
-                    // Only update if not clamped (sub-gradient: skip when at boundary moving wrong way)
-                    if ((z <= 0 && error < 0) || (z >= 1 && error > 0))
-                    {
-                        continue;
-                    }
-
-                    // Update weights with gradient descent + L2 regularization + LR decay
-                    var len = Math.Min(vector.Length, _weights.Length);
-                    for (var i = 0; i < len; i++)
-                    {
-                        var gradient = (error * vector[i]) + (L2Lambda * _weights[i]);
-                        _weights[i] -= lr * gradient;
-                        _weights[i] = Math.Clamp(_weights[i], -2.0, 2.0);
-                    }
-
-                    // Update bias (no regularization on bias)
-                    _bias -= lr * error;
-                    _bias = Math.Clamp(_bias, -1.0, 1.0);
-                }
-
-                // Early stopping: evaluate on validation set
-                if (useEarlyStopping && valIndices.Length > 0)
-                {
-                    var valLoss = ComputeMseLoss(examples, precomputedVectors, effectiveWeights, valIndices, _weights, _bias);
-
-                    if (valLoss < bestLoss - EarlyStoppingMinDelta)
-                    {
-                        bestLoss = valLoss;
-                        patienceCounter = 0;
-                        Array.Copy(_weights, bestWeights, _weights.Length);
-                        bestBias = _bias;
-                    }
-                    else
-                    {
-                        patienceCounter++;
-                        if (patienceCounter >= EarlyStoppingPatience)
+                        if (j < valStart || j >= valEnd)
                         {
-                            // Restore best weights
-                            Array.Copy(bestWeights, _weights, _weights.Length);
-                            _bias = bestBias;
-                            break;
+                            foldTrainIndices[ti++] = allIndices[j];
                         }
                     }
+
+                    // Reset weights to defaults for each fold (fresh start)
+                    _weights = DefaultWeights.CreateWeightArray();
+                    _bias = DefaultWeights.Bias;
+
+                    // Train on this fold's training set with early stopping
+                    var foldLoss = TrainSingleSplit(
+                        examples, precomputedVectors, effectiveWeights,
+                        foldTrainIndices, foldValIndices, rng, useEarlyStopping: true);
+                    kFoldLossSum += foldLoss;
+                    kFoldLossCount++;
                 }
+
+                // Restore weights for final training on all data
+                _weights = savedWeights;
+                _bias = savedBias;
             }
 
+            // === Final training on ALL data (no validation holdout) ===
+            // Reset weights to defaults for a clean final training pass
+            _weights = DefaultWeights.CreateWeightArray();
+            _bias = DefaultWeights.Bias;
+
+            var finalLoss = TrainSingleSplit(
+                examples, precomputedVectors, effectiveWeights,
+                allIndices, valIndices: [], rng, useEarlyStopping: false);
+
             // Store validation loss for ensemble alpha gating
-            _lastValidationLoss = bestLoss < double.MaxValue ? bestLoss : ComputeTrainingLoss(examples, precomputedVectors, effectiveWeights, _weights, _bias);
+            // K-fold average loss is more reliable; fall back to training loss if k-fold wasn't used
+            _lastValidationLoss = kFoldLossCount > 0
+                ? kFoldLossSum / kFoldLossCount
+                : finalLoss;
 
             // Persist Z-score statistics so scoring uses the same standardization
             _featureMeans = featureMeans;
