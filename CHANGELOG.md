@@ -17,6 +17,11 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Changed
 - **8-Tab Dashboard** — Dashboard expanded from 7 to 8 tabs: Overview, Codecs, Health, Trends, **Discover**, Settings, Arr, Logs.
+- **NeuralScoringStrategy** — Implements `IDisposable` for proper `ReaderWriterLockSlim` disposal. Thread-safe scratch buffers via `[ThreadStatic]`, `ReaderWriterLockSlim` for concurrent read access during scoring, `try/finally` lock pattern.
+- **LearnedScoringStrategy** — Uses `ArrayPool<double>.Shared` for temporary vector allocation during scoring.
+- **CandidateFeatures** — Implemented with `HourOfDayAffinity` and `IsWeekend` properties; `FeatureCount` 20; `FeatureIndex` enum extended accordingly.
+- **DefaultWeights** — Balanced weights to sum to exactly 1.0, added weights for `HourOfDayAffinity` (0.02) and `IsWeekend` (0.01).
+- **ScoringHelper** — `BuildExplanation()` includes `HourOfDayAffinity` and `IsWeekend` in the interaction contribution bucket.
 - **Service Registration** — `PluginServiceRegistrator` registers 5 new services: `IWatchHistoryService`, `IRecommendationEngine`, `IRecommendationCacheService`, `IUserActivityInsightsService`, `IUserActivityCacheService`. Additionally registers 4 scoring strategies (`HeuristicScoringStrategy`, `LearnedScoringStrategy`, `NeuralScoringStrategy`, `EnsembleScoringStrategy`) with configurable strategy selection via `RecommendationStrategy` config setting.
 - **HelperCleanupTask** — Extended to run recommendation generation and user activity aggregation alongside existing cleanup tasks.
 - **i18n** — All 7 language files (en, de, fr, es, pt, zh, tr) updated with Discover tab translations (tab label, recommendation cards, activity summaries, empty states).
