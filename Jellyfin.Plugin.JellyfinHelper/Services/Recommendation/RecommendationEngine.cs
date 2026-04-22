@@ -1429,6 +1429,70 @@ public sealed class RecommendationEngine : IRecommendationEngine
     }
 
     /// <summary>
+    ///     Computes hour-of-day affinity: how well a candidate's genre matches
+    ///     the user's viewing patterns for the current time-of-day bucket.
+    ///     Uses 4 buckets: morning (6–12), afternoon (12–18), evening (18–24), night (0–6).
+    ///     Returns 0.5 (neutral) if insufficient data.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <param name="userProfile">The user's watch profile.</param>
+    /// <returns>An affinity score between 0 and 1.</returns>
+    internal static double ComputeHourOfDayAffinity(BaseItem candidate, UserWatchProfile userProfile)
+    {
+        if (candidate.Genres is not { Length: > 0 } || userProfile.WatchedItems.Count < 10)
+        {
+            return 0.5; // not enough data
+        }
+
+        var currentHour = DateTime.UtcNow.Hour;
+        var currentBucket = GetTimeBucket(currentHour);
+        var candidateGenreSet = new HashSet<string>(candidate.Genres, StringComparer.OrdinalIgnoreCase);
+
+        var matchCount = 0;
+        var totalInBucket = 0;
+
+        foreach (var w in userProfile.WatchedItems)
+        {
+            if (!w.Played || !w.LastPlayedDate.HasValue)
+            {
+                continue;
+            }
+
+            if (GetTimeBucket(w.LastPlayedDate.Value.Hour) != currentBucket)
+            {
+                continue;
+            }
+
+            totalInBucket++;
+            if (w.Genres is not null && w.Genres.Any(g => candidateGenreSet.Contains(g)))
+            {
+                matchCount++;
+            }
+        }
+
+        if (totalInBucket < 3)
+        {
+            return 0.5; // not enough data for this time bucket
+        }
+
+        return Math.Clamp((double)matchCount / totalInBucket, 0.0, 1.0);
+    }
+
+    /// <summary>
+    ///     Maps an hour (0–23) to a time-of-day bucket for temporal affinity computation.
+    ///     Buckets: 0 = night (0–5), 1 = morning (6–11), 2 = afternoon (12–17), 3 = evening (18–23).
+    /// </summary>
+    /// <param name="hour">The hour of day (0–23).</param>
+    /// <returns>A bucket index (0–3).</returns>
+    internal static int GetTimeBucket(int hour) => hour switch
+    {
+        < 6 => 0,   // night
+        < 12 => 1,  // morning
+        < 18 => 2,  // afternoon
+        _ => 3      // evening
+    };
+
+    /// <summary>
     ///     Determines the most relevant human-readable reason for a recommendation
     ///     based on the dominant signal from the score explanation.
     /// </summary>
