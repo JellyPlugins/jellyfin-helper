@@ -327,8 +327,13 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
                     // Train on this fold's training set with early stopping
                     var foldLoss = TrainSingleSplit(
-                        examples, precomputedVectors, effectiveWeights,
-                        foldTrainIndices, foldValIndices, rng, useEarlyStopping: true);
+                        examples,
+                        precomputedVectors,
+                        effectiveWeights,
+                        foldTrainIndices,
+                        foldValIndices,
+                        rng,
+                        useEarlyStopping: true);
                     kFoldLossSum += foldLoss;
                     kFoldLossCount++;
                 }
@@ -344,8 +349,13 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             _bias = DefaultWeights.Bias;
 
             var finalLoss = TrainSingleSplit(
-                examples, precomputedVectors, effectiveWeights,
-                allIndices, valIndices: [], rng, useEarlyStopping: false);
+                examples,
+                precomputedVectors,
+                effectiveWeights,
+                allIndices,
+                valIndices: [],
+                rng,
+                useEarlyStopping: false);
 
             // Store validation loss for ensemble alpha gating
             // K-fold average loss is more reliable; fall back to training loss if k-fold wasn't used

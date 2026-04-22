@@ -21,6 +21,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
   - `ScoreExplanation` — per-score explainability with dominant signal detection, `Blend()`, and `WithPenalty()`.
   - `TrainingExample` — temporal decay (exponential half-life), completion-ratio labels (0.0–1.0 instead of binary), configurable sample weights.
   - `RecommendationEngine` — collaborative filtering (Jaccard on watched sets), tag-based content filtering (pre-computed per-user tag HashSets), people/studio similarity, series deduplication, MMR diversity re-ranking.
+  - `LearnedScoringStrategy` — 3-fold cross-validation for reliable validation loss estimation used by ensemble alpha gating, with automatic fallback to simple split for small datasets (<9 examples).
 - **Recommendations Configuration** — New plugin setting: `RecommendationsTaskMode` (DryRun/Activate/Deactivate, default: DryRun). Generates up to 20 recommendations per user (fixed).
 - **Recommendations Scheduled Task** — Integrated into `HelperCleanupTask` to generate recommendations and activity data on the weekly cleanup schedule.
 - **Recommendations Service Registration** — `PluginServiceRegistrator` registers 5 new services (`IWatchHistoryService`, `IRecommendationEngine`, `IRecommendationCacheService`, `IUserActivityInsightsService`, `IUserActivityCacheService`) and 4 scoring strategies with configurable strategy selection via `RecommendationStrategy` config setting.
