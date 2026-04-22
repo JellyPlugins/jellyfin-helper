@@ -57,7 +57,7 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var vector = features.ToVector();
 
-        Assert.Equal(20, vector.Length);
+        Assert.Equal(21, vector.Length);
         Assert.Equal(0.8, vector[0]); // genre
         Assert.Equal(0.5, vector[1]); // collab
         Assert.Equal(0.7, vector[2]); // rating
@@ -432,7 +432,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var weights = strategy.CurrentWeights;
 
         Assert.Equal(CandidateFeatures.FeatureCount, weights.Length);
-        Assert.Equal(0.25, weights[0]); // genre (dominant)
+        Assert.Equal(0.23, weights[0]); // genre (dominant)
         Assert.Equal(0.10, weights[1]); // collaborative
         Assert.Equal(0.07, weights[2]); // rating
         Assert.Equal(0.05, weights[7]); // genre × rating interaction
@@ -448,6 +448,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.02, weights[17]); // dayOfWeekAffinity
         Assert.Equal(0.02, weights[18]); // hourOfDayAffinity
         Assert.Equal(0.01, weights[19]); // isWeekend
+        Assert.Equal(0.02, weights[20]); // tagSimilarity
     }
 
     [Fact]
@@ -685,7 +686,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var weights = strategy.CurrentWeights;
 
         Assert.Equal(CandidateFeatures.FeatureCount, weights.Length);
-        Assert.Equal(0.25, weights[0]); // default genre weight
+        Assert.Equal(0.23, weights[0]); // default genre weight
     }
 
     [Fact]
@@ -754,7 +755,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var marvelScore = strategy.Score(marvelFeatures);
         var chuckyScore = strategy.Score(chuckyFeatures);
 
-        Assert.True(marvelScore > 0.5, $"Marvel should score high: {marvelScore:F4}");
+        Assert.True(marvelScore > 0.45, $"Marvel should score high: {marvelScore:F4}");
         // Without penalty, Chucky gets a modest score from non-genre signals
         Assert.True(chuckyScore < 0.20, $"Chucky should score low (no genre overlap): {chuckyScore:F4}");
         Assert.True(marvelScore > chuckyScore * 3,

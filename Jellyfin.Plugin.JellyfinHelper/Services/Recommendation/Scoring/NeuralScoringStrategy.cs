@@ -529,6 +529,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             // Persist inside the write lock so that no concurrent Score() call can observe
             // a window between training completion and save snapshot.
             TrySaveWeights();
+
+            LogFeatureImportance(inputSize);
         }
         finally
         {
@@ -779,6 +781,52 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         {
             _logger?.LogWarning(ex, "NeuralScoringStrategy: Failed to serialize weights");
         }
+    }
+
+    /// <summary>
+    ///     Logs per-feature importance based on input→hidden weight L2 norms.
+    ///     Importance[f] = sqrt(Σ_h weightsHidden[h, f]²) — measures how strongly
+    ///     each input feature drives hidden layer activations.
+    ///     Must be called under write lock.
+    /// </summary>
+    private void LogFeatureImportance(int inputSize)
+    {
+        if (_logger is null || !_logger.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
+        var featureNames = Enum.GetNames<FeatureIndex>();
+        var importances = new double[inputSize];
+
+        for (var f = 0; f < inputSize; f++)
+        {
+            var sumSq = 0.0;
+            for (var h = 0; h < HiddenSize; h++)
+            {
+                var w = _weightsHidden[(h * inputSize) + f];
+                sumSq += w * w;
+            }
+
+            importances[f] = Math.Sqrt(sumSq);
+        }
+
+        // Sort by importance descending for readability
+        var ranked = new (string Name, double Importance)[inputSize];
+        for (var i = 0; i < inputSize; i++)
+        {
+            ranked[i] = (i < featureNames.Length ? featureNames[i] : $"Feature{i}", importances[i]);
+        }
+
+        Array.Sort(ranked, (a, b) => b.Importance.CompareTo(a.Importance));
+
+        var parts = new string[ranked.Length];
+        for (var i = 0; i < ranked.Length; i++)
+        {
+            parts[i] = string.Format(CultureInfo.InvariantCulture, "{0}={1:F4}", ranked[i].Name, ranked[i].Importance);
+        }
+
+        _logger.LogDebug("NeuralScoringStrategy feature importance (L2 norm): {FeatureImportance}", string.Join(", ", parts));
     }
 
     /// <inheritdoc />
