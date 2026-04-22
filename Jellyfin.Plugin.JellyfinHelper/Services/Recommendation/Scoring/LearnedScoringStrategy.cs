@@ -401,6 +401,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             // a window between training completion and save snapshot.
             // C# Monitor (lock) is reentrant, so the inner lock in TrySaveWeights() is a no-op.
             TrySaveWeights();
+
+            LogFeatureImportance();
         }
 
         return true;
@@ -534,6 +536,39 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         }
 
         return ComputeMseLoss(examples, precomputedVectors, effectiveWeights, allIndices, weights, bias);
+    }
+
+    /// <summary>
+    ///     Logs per-feature importance based on absolute weight magnitudes.
+    ///     For a linear model, |weight[f]| directly indicates feature f's influence on the score.
+    ///     Must be called under lock.
+    /// </summary>
+    private void LogFeatureImportance()
+    {
+        if (_logger is null || !_logger.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
+
+        var featureNames = Enum.GetNames<FeatureIndex>();
+        var inputSize = _weights.Length;
+
+        // Sort by absolute weight descending for readability
+        var ranked = new (string Name, double Weight)[inputSize];
+        for (var i = 0; i < inputSize; i++)
+        {
+            ranked[i] = (i < featureNames.Length ? featureNames[i] : $"Feature{i}", _weights[i]);
+        }
+
+        Array.Sort(ranked, (a, b) => Math.Abs(b.Weight).CompareTo(Math.Abs(a.Weight)));
+
+        var parts = new string[ranked.Length];
+        for (var i = 0; i < ranked.Length; i++)
+        {
+            parts[i] = string.Format(CultureInfo.InvariantCulture, "{0}={1:F4}", ranked[i].Name, ranked[i].Weight);
+        }
+
+        _logger.LogDebug("LearnedScoringStrategy feature weights (sorted by |w|): {FeatureWeights}", string.Join(", ", parts));
     }
 
     /// <summary>
