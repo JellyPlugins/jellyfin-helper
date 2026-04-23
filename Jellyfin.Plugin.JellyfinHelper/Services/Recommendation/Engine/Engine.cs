@@ -352,9 +352,18 @@ public sealed class Engine : IRecommendationEngine
                 continue;
             }
 
-            // Skip fully-watched series but keep partially-watched ones for "continue watching"
+            // Skip favorited and fully-watched series from recommendations.
+            // Series-level favorites are always excluded — the user already knows and loves this series.
+            // Partially-watched (non-favorited) series are kept for "continue watching" style recommendations.
             if (candidate is Series && watchedSeriesIds.Contains(candidate.Id))
             {
+                // Always exclude series the user explicitly favorited at the series level
+                if (userProfile.FavoriteSeriesIds.Contains(candidate.Id))
+                {
+                    continue;
+                }
+
+                // For non-favorited series: skip if ≥90% watched, keep if partially watched
                 if (seriesEpisodeLookup.TryGetValue(candidate.Id, out var eps))
                 {
                     if (eps.Count > 0 && (double)eps.Count(e => e.Played) / eps.Count >= 0.9)
