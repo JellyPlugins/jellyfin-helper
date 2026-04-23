@@ -283,12 +283,21 @@ internal sealed class TrainingService
         // === Phase 2: Add organic watch examples (watched-but-never-recommended items) ===
         // Items the user found and watched on their own provide strong positive signal
         // that the recommendation-only approach misses. This reduces training bias.
-        var recommendedItemIds = new HashSet<Guid>();
+        //
+        // Build per-user recommended item sets so that an item recommended to user A
+        // does not suppress user B's organic discovery of the same item.
+        var recommendedItemIdsByUser = new Dictionary<Guid, HashSet<Guid>>();
         foreach (var prevResult in previousResults)
         {
+            if (!recommendedItemIdsByUser.TryGetValue(prevResult.UserId, out var userRecommendedItemIds))
+            {
+                userRecommendedItemIds = [];
+                recommendedItemIdsByUser[prevResult.UserId] = userRecommendedItemIds;
+            }
+
             foreach (var rec in prevResult.Recommendations)
             {
-                recommendedItemIds.Add(rec.ItemId);
+                userRecommendedItemIds.Add(rec.ItemId);
             }
         }
 
@@ -296,6 +305,12 @@ internal sealed class TrainingService
         foreach (var userProfile in allProfiles)
         {
             var (genrePreferences, coOccurrence, collaborativeMax, avgYear) = perUserCache[userProfile.UserId];
+
+            // Resolve the per-user recommended set; users with no previous results get an empty set
+            if (!recommendedItemIdsByUser.TryGetValue(userProfile.UserId, out var recommendedItemIds))
+            {
+                recommendedItemIds = [];
+            }
 
             // Build per-user preference sets for organic feature computation (mirrors Phase 1).
             var preferredPeopleOrganic = PreferenceBuilder.BuildPeoplePreferenceSet(userProfile, cachedPeopleLookup);

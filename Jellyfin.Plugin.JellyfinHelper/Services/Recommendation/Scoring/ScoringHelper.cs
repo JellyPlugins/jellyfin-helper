@@ -143,7 +143,13 @@ internal static class ScoringHelper
             GetContribution(vector, weights, FeatureIndex.PeopleGenreInteraction) +
             GetContribution(vector, weights, FeatureIndex.RecencyRatingInteraction));
 
-        var rawScore = ComputeRawScore(vector, weights, bias);
+        // Compute FinalScore from the sum of contributions + bias instead of re-calling
+        // ComputeRawScore. This ensures FinalScore is always consistent with the individual
+        // contribution values, even if a corrupted weight produces a non-finite product
+        // (GetContribution returns 0.0 for non-finite, while ComputeRawScore returns 0.5).
+        var contributionSum = genreContrib + collabContrib + ratingContrib + recencyContrib +
+            yearProxContrib + userRatingContrib + peopleContrib + studioContrib + interactionContrib;
+        var rawScore = GuardScore(contributionSum + bias);
         var score = Math.Clamp(rawScore, 0.0, 1.0);
 
         return new ScoreExplanation

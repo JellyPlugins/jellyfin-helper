@@ -9,6 +9,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 /// </summary>
 public sealed class UserWatchProfile
 {
+    private Dictionary<string, int> _genreDistribution = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     ///     Gets or sets the Jellyfin user ID.
     /// </summary>
@@ -35,7 +37,10 @@ public sealed class UserWatchProfile
     public int WatchedSeriesCount { get; set; }
 
     /// <summary>
-    ///     Gets or sets the total watch time in ticks (based on runtime of watched items).
+    ///     Gets or sets the total unique content runtime in ticks (sum of runtime for each
+    ///     distinct played item, counted once regardless of <c>PlayCount</c>).
+    ///     This represents "how much unique content was consumed", not "total time spent watching"
+    ///     which would require multiplying by re-watch count.
     /// </summary>
     public long TotalWatchTimeTicks { get; set; }
 
@@ -46,8 +51,16 @@ public sealed class UserWatchProfile
 
     /// <summary>
     ///     Gets or sets the genre distribution (genre name → watch count).
+    ///     The setter preserves <see cref="StringComparer.OrdinalIgnoreCase"/> to ensure
+    ///     genre aggregation is always case-insensitive, even when a new dictionary is assigned.
     /// </summary>
-    public Dictionary<string, int> GenreDistribution { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, int> GenreDistribution
+    {
+        get => _genreDistribution;
+        set => _genreDistribution = value is null
+            ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, int>(value, StringComparer.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     ///     Gets or sets the number of favorite items.

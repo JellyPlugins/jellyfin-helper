@@ -619,7 +619,55 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     var bc1 = 1.0 - Math.Pow(AdamBeta1, _adamTimestep);
                     var bc2 = 1.0 - Math.Pow(AdamBeta2, _adamTimestep);
 
-                    // === Output layer Adam update (hidden3 → output) ===
+                    // === Compute ALL error signals BEFORE updating any weights ===
+                    // Correct backpropagation requires using the forward-pass weights
+                    // for error computation. Updating weights first would skew gradients.
+
+                    // Hidden3 layer error (backprop through ReLU from output)
+                    for (var k = 0; k < Hidden3Size; k++)
+                    {
+                        h3Err[k] = h3Pre[k] > 0 ? outErr * _weightsH3O[k] : 0.0;
+                    }
+
+                    // Hidden2 layer error (backprop through ReLU from hidden3)
+                    for (var k = 0; k < Hidden2Size; k++)
+                    {
+                        if (h2Pre[k] <= 0)
+                        {
+                            h2Err[k] = 0.0;
+                            continue;
+                        }
+
+                        var sum = 0.0;
+                        for (var l = 0; l < Hidden3Size; l++)
+                        {
+                            sum += h3Err[l] * _weightsH2H3[(l * Hidden2Size) + k];
+                        }
+
+                        h2Err[k] = sum;
+                    }
+
+                    // Hidden1 layer error (backprop through ReLU from hidden2)
+                    for (var j = 0; j < Hidden1Size; j++)
+                    {
+                        if (h1Pre[j] <= 0)
+                        {
+                            h1Err[j] = 0.0;
+                            continue;
+                        }
+
+                        var sum = 0.0;
+                        for (var k = 0; k < Hidden2Size; k++)
+                        {
+                            sum += h2Err[k] * _weightsH1H2[(k * Hidden1Size) + j];
+                        }
+
+                        h1Err[j] = sum;
+                    }
+
+                    // === Now update all weights using the pre-computed error signals ===
+
+                    // Output layer Adam update (hidden3 → output)
                     for (var k = 0; k < Hidden3Size; k++)
                     {
                         var g = (outErr * h3Act[k]) + (L2Lambda * _weightsH3O[k]);
@@ -637,13 +685,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                         _biasOutput = Math.Clamp(_biasOutput, -WeightClamp, WeightClamp);
                     }
 
-                    // === Hidden3 layer error (backprop through ReLU) ===
-                    for (var k = 0; k < Hidden3Size; k++)
-                    {
-                        h3Err[k] = h3Pre[k] > 0 ? outErr * _weightsH3O[k] : 0.0;
-                    }
-
-                    // === Hidden2→Hidden3 layer Adam update ===
+                    // Hidden2→Hidden3 layer Adam update
                     for (var k = 0; k < Hidden3Size; k++)
                     {
                         var bIdx = k * Hidden2Size;
@@ -666,25 +708,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                         }
                     }
 
-                    // === Hidden2 layer error (backprop through ReLU from hidden3) ===
-                    for (var k = 0; k < Hidden2Size; k++)
-                    {
-                        if (h2Pre[k] <= 0)
-                        {
-                            h2Err[k] = 0.0;
-                            continue;
-                        }
-
-                        var sum = 0.0;
-                        for (var l = 0; l < Hidden3Size; l++)
-                        {
-                            sum += h3Err[l] * _weightsH2H3[(l * Hidden2Size) + k];
-                        }
-
-                        h2Err[k] = sum;
-                    }
-
-                    // === Hidden1→Hidden2 layer Adam update ===
+                    // Hidden1→Hidden2 layer Adam update
                     for (var k = 0; k < Hidden2Size; k++)
                     {
                         var bIdx = k * Hidden1Size;
@@ -707,25 +731,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                         }
                     }
 
-                    // === Hidden1 layer error (backprop through ReLU from hidden2) ===
-                    for (var j = 0; j < Hidden1Size; j++)
-                    {
-                        if (h1Pre[j] <= 0)
-                        {
-                            h1Err[j] = 0.0;
-                            continue;
-                        }
-
-                        var sum = 0.0;
-                        for (var k = 0; k < Hidden2Size; k++)
-                        {
-                            sum += h2Err[k] * _weightsH1H2[(k * Hidden1Size) + j];
-                        }
-
-                        h1Err[j] = sum;
-                    }
-
-                    // === Input→Hidden1 layer Adam update ===
+                    // Input→Hidden1 layer Adam update
                     for (var j = 0; j < Hidden1Size; j++)
                     {
                         var bIdx = j * inputSize;

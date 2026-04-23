@@ -426,13 +426,14 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             _lastRecallAtK = rAtK;
             _lastNdcgAtK = nAtK;
 
-            // Persist inside the lock so that no concurrent Score() call can observe
-            // a window between training completion and save snapshot.
-            // C# Monitor (lock) is reentrant, so the inner lock in TrySaveWeights() is a no-op.
-            TrySaveWeights();
-
             LogFeatureImportance();
-        }
+        } // release _syncRoot before disk I/O to avoid blocking concurrent Score() calls
+
+        // Persist outside the lock — TrySaveWeights() takes its own lock for
+        // a brief snapshot, then performs serialization and file I/O without
+        // holding the scoring lock. This prevents slow disk writes from blocking
+        // all concurrent Score()/ScoreWithExplanation() callers.
+        TrySaveWeights();
 
         return true;
     }
