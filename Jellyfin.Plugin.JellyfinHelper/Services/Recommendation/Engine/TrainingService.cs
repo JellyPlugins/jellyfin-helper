@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -35,11 +36,13 @@ internal sealed class TrainingService
     /// <param name="strategy">The scoring strategy to train.</param>
     /// <param name="previousResults">The recommendation results from the previous run.</param>
     /// <param name="incremental">When true, subsample older examples for efficiency.</param>
+    /// <param name="cancellationToken">Token to cancel the training operation.</param>
     /// <returns>True if training was performed, false if skipped.</returns>
     internal bool Train(
         IScoringStrategy strategy,
         IReadOnlyList<RecommendationResult> previousResults,
-        bool incremental = false)
+        bool incremental = false,
+        CancellationToken cancellationToken = default)
     {
         if (previousResults.Count == 0)
         {

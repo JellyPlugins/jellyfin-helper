@@ -40,6 +40,7 @@ public interface IRecommendationEngine
     ///     processed; a random sample of older examples is included to prevent catastrophic forgetting.
     ///     When false (default), all examples are used for full retraining.
     /// </param>
+    /// <param name="cancellationToken">Token to cancel the training operation.</param>
     /// <returns>True if training was performed, false if skipped (insufficient training data).</returns>
-    bool TrainStrategy(IReadOnlyList<RecommendationResult> previousResults, bool incremental = false);
+    bool TrainStrategy(IReadOnlyList<RecommendationResult> previousResults, bool incremental = false, CancellationToken cancellationToken = default);
 }

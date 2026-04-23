@@ -37,7 +37,7 @@ public class RecommendationsTaskTests
             new() { UserId = Guid.NewGuid(), Recommendations = new Collection<RecommendedItem> { new() { ItemId = Guid.NewGuid(), Score = 0.8 } } }
         };
         _recsCacheMock.Setup(x => x.LoadResults()).Returns(cached);
-        _recsEngineMock.Setup(x => x.TrainStrategy(cached, It.IsAny<bool>())).Returns(true);
+        _recsEngineMock.Setup(x => x.TrainStrategy(cached, It.IsAny<bool>(), It.IsAny<CancellationToken>())).Returns(true);
 
         var results = new List<RecommendationResult>
         {
@@ -51,9 +51,32 @@ public class RecommendationsTaskTests
         await sut.ExecuteAsync(config, progress.Object, CancellationToken.None);
 
         // Assert
-        _recsEngineMock.Verify(x => x.TrainStrategy(cached, It.IsAny<bool>()), Times.Once);
+        _recsEngineMock.Verify(x => x.TrainStrategy(cached, It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
         _recsEngineMock.Verify(x => x.GetAllRecommendations(20, It.IsAny<CancellationToken>()), Times.Once);
         _recsCacheMock.Verify(x => x.SaveResults(results), Times.Once);
+    }
+
+    [Fact]
+    public async Task Execute_DeactivateMode_DoesNotTrainOrGenerateOrSave()
+    {
+        // Arrange
+        var config = new PluginConfiguration { RecommendationsTaskMode = TaskMode.Deactivate };
+        var progress = new Mock<IProgress<double>>();
+
+        var sut = CreateSut();
+
+        // Act
+        await sut.ExecuteAsync(config, progress.Object, CancellationToken.None);
+
+        // Assert — Deactivate is a true no-op: no training, no generation, no cache save
+        _recsEngineMock.Verify(
+            x => x.TrainStrategy(It.IsAny<IReadOnlyList<RecommendationResult>>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _recsEngineMock.Verify(
+            x => x.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _recsCacheMock.Verify(
+            x => x.SaveResults(It.IsAny<IReadOnlyList<RecommendationResult>>()), Times.Never);
     }
 
     [Fact]
@@ -91,7 +114,7 @@ public class RecommendationsTaskTests
             new() { UserId = Guid.NewGuid(), Recommendations = new Collection<RecommendedItem> { new() { ItemId = Guid.NewGuid(), Score = 0.7 } } }
         };
         _recsCacheMock.Setup(x => x.LoadResults()).Returns(cached);
-        _recsEngineMock.Setup(x => x.TrainStrategy(It.IsAny<IReadOnlyList<RecommendationResult>>(), It.IsAny<bool>()))
+        _recsEngineMock.Setup(x => x.TrainStrategy(It.IsAny<IReadOnlyList<RecommendationResult>>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .Throws(new InvalidOperationException("Training failed"));
 
         var results = new List<RecommendationResult>();
@@ -123,7 +146,7 @@ public class RecommendationsTaskTests
         await sut.ExecuteAsync(config, progress.Object, CancellationToken.None);
 
         // Assert
-        _recsEngineMock.Verify(x => x.TrainStrategy(It.IsAny<IReadOnlyList<RecommendationResult>>(), It.IsAny<bool>()), Times.Never);
+        _recsEngineMock.Verify(x => x.TrainStrategy(It.IsAny<IReadOnlyList<RecommendationResult>>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

@@ -84,8 +84,8 @@ public sealed class Engine : IRecommendationEngine
     }
 
     /// <inheritdoc />
-    public bool TrainStrategy(IReadOnlyList<RecommendationResult> previousResults, bool incremental = false)
-        => _trainingService.Train(_strategy, previousResults, incremental);
+    public bool TrainStrategy(IReadOnlyList<RecommendationResult> previousResults, bool incremental = false, CancellationToken cancellationToken = default)
+        => _trainingService.Train(_strategy, previousResults, incremental, cancellationToken);
 
     /// <inheritdoc />
     public IReadOnlyList<RecommendationResult> GetAllRecommendations(int maxResultsPerUser = 20, CancellationToken cancellationToken = default)

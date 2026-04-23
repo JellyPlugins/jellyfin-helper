@@ -83,7 +83,7 @@ public class RecommendationsTask
                 if (previousResults is { Count: > 0 })
                 {
                     _pluginLog.LogInfo("Recommendations", $"Training scoring strategy from {previousResults.Count} cached user results (incremental=true)...", _logger);
-                    var trained = _recsEngine.TrainStrategy(previousResults, incremental: true);
+                    var trained = _recsEngine.TrainStrategy(previousResults, incremental: true, cancellationToken: cancellationToken);
                     _pluginLog.LogInfo(
                         "Recommendations",
                         trained
