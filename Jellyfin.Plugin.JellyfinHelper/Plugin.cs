@@ -89,11 +89,17 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
 
             // Match all files created by this plugin: jellyfin-helper-*
-            // This covers .json data files as well as .tmp leftovers from atomic writes
-            var pluginFiles = Directory.GetFiles(dataPath, "jellyfin-helper-*");
-
-            foreach (var file in pluginFiles)
+            // Only delete known extensions (.json data files and .tmp atomic-write leftovers)
+            // to avoid accidental deletion of unrelated files sharing the prefix.
+            foreach (var file in Directory.GetFiles(dataPath, "jellyfin-helper-*"))
             {
+                var extension = Path.GetExtension(file);
+                if (!extension.Equals(".json", StringComparison.OrdinalIgnoreCase) &&
+                    !extension.Equals(".tmp", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 try
                 {
                     File.Delete(file);

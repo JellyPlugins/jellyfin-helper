@@ -141,7 +141,11 @@ public class UserActivityController : ControllerBase
                     CommunityRating = s.CommunityRating,
                     RuntimeTicks = s.RuntimeTicks,
                     TotalPlayCount = filteredActivities.Sum(a => a.PlayCount),
-                    UniqueViewers = filteredActivities.Count,
+
+                    // Per-user context: effectively 0 or 1 since filteredActivities
+                    // only contains entries for the single requested user.
+                    UniqueViewers = filteredActivities.Count > 0 ? 1 : 0,
+
                     MostRecentWatch = filteredActivities
                         .Where(a => a.LastPlayedDate.HasValue)
                         .Select(a => a.LastPlayedDate)

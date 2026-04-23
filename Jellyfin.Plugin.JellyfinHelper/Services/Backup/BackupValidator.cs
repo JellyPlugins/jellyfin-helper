@@ -163,7 +163,7 @@ public static class BackupValidator
         ValidateTaskMode(result, backup.OrphanedSubtitleTaskMode, "OrphanedSubtitleTaskMode");
         ValidateTaskMode(result, backup.LinkRepairTaskMode, "LinkRepairTaskMode");
         ValidateTaskMode(result, backup.SeerrCleanupTaskMode, "SeerrCleanupTaskMode", "Deactivate");
-        ValidateTaskMode(result, backup.RecommendationsTaskMode, "RecommendationsTaskMode");
+        ValidateTaskMode(result, backup.RecommendationsTaskMode, "RecommendationsTaskMode", "Deactivate");
 
         if (!string.IsNullOrEmpty(backup.PluginLogLevel) && !ValidLogLevels.Contains(backup.PluginLogLevel))
         {

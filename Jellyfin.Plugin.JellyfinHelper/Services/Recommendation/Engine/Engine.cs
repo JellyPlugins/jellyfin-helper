@@ -73,7 +73,7 @@ public sealed class Engine : IRecommendationEngine
         if (userProfile.WatchedItems.Count == 0)
         {
             // Cold-start: user exists but has no watch history — return popular/trending items
-            return GenerateColdStartRecommendations(userId, maxResults);
+            return GenerateColdStartRecommendations(userId, maxResults, userProfile.UserName);
         }
 
         // Reuse cached candidates/people from last batch run if available, otherwise load fresh
@@ -125,7 +125,7 @@ public sealed class Engine : IRecommendationEngine
                 try
                 {
                     var result = profile.WatchedItems.Count == 0
-                        ? GenerateColdStartRecommendations(profile.UserId, maxResultsPerUser)
+                        ? GenerateColdStartRecommendations(profile.UserId, maxResultsPerUser, profile.UserName, candidates)
                         : GenerateForUser(
                             profile,
                             allProfiles,
@@ -167,10 +167,19 @@ public sealed class Engine : IRecommendationEngine
     /// </summary>
     /// <param name="userId">The user's ID.</param>
     /// <param name="maxResults">Maximum recommendations to return.</param>
+    /// <param name="userName">Optional user display name for the result metadata.</param>
+    /// <param name="preloadedCandidates">
+    ///     Optional pre-loaded candidate list from the batch path.
+    ///     When null, candidates are loaded fresh via <see cref="LoadCandidateItems"/>.
+    /// </param>
     /// <returns>A recommendation result with popular/trending items.</returns>
-    internal RecommendationResult GenerateColdStartRecommendations(Guid userId, int maxResults)
+    internal RecommendationResult GenerateColdStartRecommendations(
+        Guid userId,
+        int maxResults,
+        string? userName = null,
+        List<BaseItem>? preloadedCandidates = null)
     {
-        var candidates = LoadCandidateItems();
+        var candidates = preloadedCandidates ?? LoadCandidateItems();
 
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
         foreach (var candidate in candidates)
@@ -208,6 +217,7 @@ public sealed class Engine : IRecommendationEngine
         return new RecommendationResult
         {
             UserId = userId,
+            UserName = userName ?? string.Empty,
             Recommendations = new Collection<RecommendedItem>(topItems),
             GeneratedAt = DateTime.UtcNow,
             ScoringStrategy = "Cold Start (Popular + Recent)",

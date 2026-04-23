@@ -51,11 +51,15 @@ internal sealed class TrainingService
         }
 
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+
+        // Include both played AND favorited items as positive interactions.
+        // A favorited-but-not-played recommended item signals explicit interest
+        // and should not be labeled as exposure/abandonment.
         var profileLookup = new Dictionary<Guid, HashSet<Guid>>();
         foreach (var profile in allProfiles)
         {
             profileLookup[profile.UserId] = new HashSet<Guid>(
-                profile.WatchedItems.Where(w => w.Played).Select(w => w.ItemId));
+                profile.WatchedItems.Where(w => w.Played || w.IsFavorite).Select(w => w.ItemId));
         }
 
         var seriesLookup = new Dictionary<Guid, HashSet<Guid>>();
@@ -63,7 +67,7 @@ internal sealed class TrainingService
         {
             seriesLookup[profile.UserId] = new HashSet<Guid>(
                 profile.WatchedItems
-                    .Where(w => w.Played && w.SeriesId.HasValue)
+                    .Where(w => (w.Played || w.IsFavorite) && w.SeriesId.HasValue)
                     .Select(w => w.SeriesId!.Value));
         }
 

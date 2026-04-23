@@ -95,7 +95,8 @@ public class UserActivityUpdateTaskTests
         // Act
         await sut.ExecuteAsync(new Progress<double>(), CancellationToken.None, Configuration.TaskMode.DryRun);
 
-        // Assert
+        // Assert — dry-run still builds the report but does NOT persist to cache
+        _insightsMock.Verify(x => x.BuildActivityReport(), Times.Once);
         _cacheMock.Verify(x => x.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
     }
 

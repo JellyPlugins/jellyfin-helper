@@ -9,6 +9,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// <summary>
 ///     Computes temporal context features: day-of-week affinity,
 ///     hour-of-day affinity, and time-bucket classification.
+///     <para>
+///         <b>UTC caveat:</b> All timestamps (both <c>DateTime.UtcNow</c> and
+///         <c>LastPlayedDate</c> from Jellyfin) are compared in UTC. For users in
+///         non-UTC time zones this can skew day-of-week and time-of-day bucket
+///         assignments (e.g., a Saturday evening in PST maps to Sunday UTC).
+///         Per-user timezone is not available from Jellyfin's API, so UTC is
+///         used consistently to avoid mixed-kind DateTime issues.
+///     </para>
 /// </summary>
 internal static class TemporalFeatures
 {
