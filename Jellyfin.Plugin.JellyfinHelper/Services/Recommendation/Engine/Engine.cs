@@ -352,29 +352,13 @@ public sealed class Engine : IRecommendationEngine
                 continue;
             }
 
-            // Skip favorited and fully-watched series from recommendations.
-            // Series-level favorites are always excluded — the user already knows and loves this series.
-            // Partially-watched (non-favorited) series are kept for "continue watching" style recommendations.
+            // Skip any series the user already knows about — whether favorited, partially watched,
+            // or fully watched. Jellyfin natively shows "Next Up" for in-progress series, so
+            // recommending them again wastes a slot. Their signals still flow into preferences
+            // (genre, studio, people) via PreferenceBuilder.
             if (candidate is Series && watchedSeriesIds.Contains(candidate.Id))
             {
-                // Always exclude series the user explicitly favorited at the series level
-                if (userProfile.FavoriteSeriesIds.Contains(candidate.Id))
-                {
-                    continue;
-                }
-
-                // For non-favorited series: skip if ≥90% watched, keep if partially watched
-                if (seriesEpisodeLookup.TryGetValue(candidate.Id, out var eps))
-                {
-                    if (eps.Count > 0 && (double)eps.Count(e => e.Played) / eps.Count >= 0.9)
-                    {
-                        continue;
-                    }
-                }
-                else
-                {
-                    continue;
-                }
+                continue;
             }
 
             scored.Add(ScoreCandidate(
