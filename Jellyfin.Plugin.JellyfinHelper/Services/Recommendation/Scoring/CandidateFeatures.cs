@@ -150,7 +150,7 @@ public sealed class CandidateFeatures
         set => _yearProximityScore = Math.Clamp(value, 0.0, 1.0);
     }
 
-    /// <summary>Gets or sets the number of genres the candidate has (raw, for interaction terms). Negative values are clamped to 0.</summary>
+    /// <summary>Gets or sets the number of genres the candidate has (raw, for interaction terms). Normalized to [0, 1] in <see cref="WriteToVector"/>.</summary>
     public int GenreCount { get; set; }
 
     /// <summary>Gets or sets a value indicating whether the item is a series (vs movie).</summary>

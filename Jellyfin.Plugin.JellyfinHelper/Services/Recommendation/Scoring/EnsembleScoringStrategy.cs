@@ -449,6 +449,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             // a stale high value from persisting when the neural strategy may have
             // outdated weights. This ensures cold-start scenarios don't over-weight
             // a potentially unreliable neural model.
+            var stateChanged = false;
             lock (_syncRoot)
             {
                 if (_neuralBeta > 0)
@@ -458,7 +459,14 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                     {
                         _neuralBeta = 0.0;
                     }
+
+                    stateChanged = true;
                 }
+            }
+
+            if (stateChanged)
+            {
+                TrySaveState();
             }
         }
 

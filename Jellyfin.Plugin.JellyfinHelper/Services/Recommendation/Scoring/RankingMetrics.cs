@@ -47,6 +47,8 @@ internal static class RankingMetrics
             return 0.0;
         }
 
+        ValidateArrayLengths(predictedScores, labels);
+
         var effectiveK = Math.Min(k, predictedScores.Length);
         var topKIndices = GetTopKIndices(predictedScores, effectiveK);
 
@@ -87,6 +89,8 @@ internal static class RankingMetrics
         {
             return 0.0;
         }
+
+        ValidateArrayLengths(predictedScores, labels);
 
         var totalRelevant = 0;
         for (var i = 0; i < labels.Length; i++)
@@ -141,6 +145,8 @@ internal static class RankingMetrics
         {
             return 0.0;
         }
+
+        ValidateArrayLengths(predictedScores, labels);
 
         var effectiveK = Math.Min(k, predictedScores.Length);
 
@@ -223,6 +229,19 @@ internal static class RankingMetrics
             ComputePrecisionAtK(predictions, labels, k, relevanceThreshold),
             ComputeRecallAtK(predictions, labels, k, relevanceThreshold),
             ComputeNdcgAtK(predictions, labels, k));
+    }
+
+    /// <summary>
+    ///     Validates that prediction and label arrays have matching lengths.
+    /// </summary>
+    private static void ValidateArrayLengths(double[] predictedScores, double[] labels)
+    {
+        if (labels.Length != predictedScores.Length)
+        {
+            throw new ArgumentException(
+                $"labels length ({labels.Length}) must match predictedScores length ({predictedScores.Length}).",
+                nameof(labels));
+        }
     }
 
     /// <summary>

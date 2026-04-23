@@ -30,7 +30,7 @@ public sealed class TrainingExample
     public double Label
     {
         get => _label;
-        set => _label = Math.Clamp(value, 0.0, 1.0);
+        set => _label = double.IsFinite(value) ? Math.Clamp(value, 0.0, 1.0) : 0.0;
     }
 
     /// <summary>
@@ -41,7 +41,7 @@ public sealed class TrainingExample
     public double SampleWeight
     {
         get => _sampleWeight;
-        set => _sampleWeight = Math.Clamp(value, 0.0, 1.0);
+        set => _sampleWeight = double.IsFinite(value) ? Math.Clamp(value, 0.0, 1.0) : 0.0;
     }
 
     /// <summary>

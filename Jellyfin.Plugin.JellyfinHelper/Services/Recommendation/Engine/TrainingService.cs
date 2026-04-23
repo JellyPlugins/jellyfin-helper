@@ -303,9 +303,21 @@ internal sealed class TrainingService
 
                 var collabScore = ContentScoring.ComputeCollaborativeScore(w.ItemId, coOccurrence, collaborativeMax);
                 var ratingScore = ContentScoring.NormalizeRating(w.CommunityRating);
-                var completionRatio = w.RuntimeTicks > 0
-                    ? Math.Clamp((double)w.PlaybackPositionTicks / w.RuntimeTicks, 0.0, 1.0)
-                    : 1.0;
+                // Gate completion fallback on w.Played to avoid mis-labeling favorite-only items
+                // as fully watched. Favorites without playback evidence get 0.0 completion.
+                double completionRatio;
+                if (w.Played)
+                {
+                    completionRatio = 1.0;
+                }
+                else if (w.RuntimeTicks > 0)
+                {
+                    completionRatio = Math.Clamp((double)w.PlaybackPositionTicks / w.RuntimeTicks, 0.0, 1.0);
+                }
+                else
+                {
+                    completionRatio = 0.0;
+                }
 
                 var features = new CandidateFeatures
                 {
@@ -372,7 +384,7 @@ internal sealed class TrainingService
 
             if (oldExamples.Count > 0)
             {
-                var rng = new Random(42);
+                var rng = Random.Shared;
                 var sampleCount = Math.Max(1, (int)(oldExamples.Count * EngineConstants.IncrementalOldSampleRatio));
 
                 for (var i = 0; i < Math.Min(sampleCount, oldExamples.Count); i++)

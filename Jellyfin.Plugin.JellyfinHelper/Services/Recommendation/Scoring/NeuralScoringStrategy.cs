@@ -1059,7 +1059,15 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         {
             var json = File.ReadAllText(_weightsPath);
             var data = JsonSerializer.Deserialize<NeuralWeightsData>(json);
+            // Validate standardization arrays: both must be null or both must have FeatureCount length.
+            // Stale files with mismatched lengths would crash StandardizeSingleVector at scoring time.
+            var hasValidStandardization = data is null
+                || (data.FeatureMeans is null && data.FeatureStdDevs is null)
+                || (data.FeatureMeans is { Length: CandidateFeatures.FeatureCount }
+                    && data.FeatureStdDevs is { Length: CandidateFeatures.FeatureCount });
+
             if (data is not null
+                && hasValidStandardization
                 && data.Version == CurrentWeightsVersion
                 && data.WeightsIH?.Length == Hidden1Size * CandidateFeatures.FeatureCount
                 && data.BiasH1 is { Length: Hidden1Size }
