@@ -138,7 +138,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var profile = new UserWatchProfile
         {
             UserId = user.Id,
-            UserName = user.Username
+            UserName = user.Username,
+            MaxParentalRating = user.MaxParentalRating
         };
 
         // Use pre-loaded items or query on demand (single-user path)

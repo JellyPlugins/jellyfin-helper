@@ -73,7 +73,7 @@ public sealed class Engine : IRecommendationEngine
         if (userProfile.WatchedItems.Count == 0)
         {
             // Cold-start: user exists but has no watch history — return popular/trending items
-            return GenerateColdStartRecommendations(userId, maxResults, userProfile.UserName);
+            return GenerateColdStartRecommendations(userId, maxResults, userProfile.UserName, maxParentalRating: userProfile.MaxParentalRating);
         }
 
         // Reuse cached candidates/people from last batch run if available, otherwise load fresh
@@ -125,7 +125,7 @@ public sealed class Engine : IRecommendationEngine
                 try
                 {
                     var result = profile.WatchedItems.Count == 0
-                        ? GenerateColdStartRecommendations(profile.UserId, maxResultsPerUser, profile.UserName, candidates)
+                        ? GenerateColdStartRecommendations(profile.UserId, maxResultsPerUser, profile.UserName, candidates, profile.MaxParentalRating)
                         : GenerateForUser(
                             profile,
                             allProfiles,
@@ -172,18 +172,29 @@ public sealed class Engine : IRecommendationEngine
     ///     Optional pre-loaded candidate list from the batch path.
     ///     When null, candidates are loaded fresh via <see cref="LoadCandidateItems"/>.
     /// </param>
+    /// <param name="maxParentalRating">
+    ///     Optional maximum parental rating for the user.
+    ///     Candidates exceeding this rating are excluded from cold-start recommendations.
+    /// </param>
     /// <returns>A recommendation result with popular/trending items.</returns>
     internal RecommendationResult GenerateColdStartRecommendations(
         Guid userId,
         int maxResults,
         string? userName = null,
-        List<BaseItem>? preloadedCandidates = null)
+        List<BaseItem>? preloadedCandidates = null,
+        int? maxParentalRating = null)
     {
         var candidates = preloadedCandidates ?? LoadCandidateItems();
 
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
         foreach (var candidate in candidates)
         {
+            // Parental rating filter — skip items the user is not allowed to see
+            if (maxParentalRating.HasValue && candidate.InheritedParentalRatingValue > maxParentalRating.Value)
+            {
+                continue;
+            }
+
             var ratingScore = ContentScoring.NormalizeRating(candidate.CommunityRating);
             var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? candidate.DateCreated);
             // Cold-start formula: 60% rating, 40% recency — prioritize quality + freshness
@@ -339,12 +350,22 @@ public sealed class Engine : IRecommendationEngine
         // Score each unwatched candidate
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
         var candidateIndex = 0;
+        var userMaxRating = userProfile.MaxParentalRating;
         foreach (var candidate in allCandidates)
         {
             // Periodically check cancellation to stay responsive for large libraries
             if (++candidateIndex % EngineConstants.CancellationCheckBatchSize == 0)
             {
                 ct.ThrowIfCancellationRequested();
+            }
+
+            // Parental rating filter — skip items the user is not allowed to see.
+            // Uses Jellyfin's InheritedParentalRatingValue which cascades from parent items
+            // (e.g., a series rating applies to all its episodes).
+            // This ensures children with restricted profiles only get age-appropriate recommendations.
+            if (userMaxRating.HasValue && candidate.InheritedParentalRatingValue > userMaxRating.Value)
+            {
+                continue;
             }
 
             if (watchedIds.Contains(candidate.Id))

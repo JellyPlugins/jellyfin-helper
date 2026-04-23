@@ -217,6 +217,7 @@ internal static class ReasonResolver
             GenreDistribution = new Dictionary<string, int>(profile.GenreDistribution),
             FavoriteCount = profile.FavoriteCount,
             AverageCommunityRating = profile.AverageCommunityRating,
+            MaxParentalRating = profile.MaxParentalRating,
             WatchedItems = []
         };
     }

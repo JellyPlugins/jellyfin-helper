@@ -81,6 +81,15 @@ public sealed class UserWatchProfile
     public double AverageCommunityRating { get; set; }
 
     /// <summary>
+    ///     Gets or sets the user's maximum allowed parental rating value.
+    ///     Corresponds to the Jellyfin user setting <c>MaxParentalRating</c>.
+    ///     When set, recommendation candidates with <c>InheritedParentalRatingValue</c>
+    ///     exceeding this value are excluded from scoring.
+    ///     Null means no restriction (the user can see all content).
+    /// </summary>
+    public int? MaxParentalRating { get; set; }
+
+    /// <summary>
     ///     Gets or sets the list of watched items with detailed play data.
     /// </summary>
     public Collection<WatchedItemInfo> WatchedItems { get; set; } = [];

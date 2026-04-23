@@ -165,9 +165,10 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── WatchHistoryService.cs           # Builds per-user watch profiles
 │   │   │   ├── UserWatchProfile.cs              # Per-user affinity profile
 │   │   │   └── WatchedItemInfo.cs               # Watched item record
-│   │   └── Scoring/                         # Scoring strategies & ML models
-│   │       ├── HeuristicScoringStrategy.cs      # Rule-based scoring (fixed weights, genre penalty)
-│   │       ├── LearnedScoringStrategy.cs        # Gradient-descent linear ML (Z-score, ArrayPool, importance logging)
+    │   │   └── Scoring/                         # Scoring strategies & ML models
+    │   │       ├── IScoringStrategy.cs               # Scoring interface + ITrainableStrategy (learning support)
+    │   │       ├── HeuristicScoringStrategy.cs      # Rule-based scoring (fixed weights, genre penalty)
+    │   │       ├── LearnedScoringStrategy.cs        # Gradient-descent linear ML (Z-score, ArrayPool, importance logging)
 │   │       ├── NeuralScoringStrategy.cs         # Three-hidden-layer MLP (23→32→16→8→1, Adam, Xavier, schema v4)
 │   │       ├── EnsembleScoringStrategy.cs       # Adaptive 3-way blend (α sigmoid + β neural ramp)
 │   │       ├── ScoringHelper.cs                 # Shared scoring utilities (raw score, explanation builder)
@@ -579,7 +580,8 @@ Sub-tasks executed in order (each respecting its configured task mode):
 - **Centralized genre penalty** — Applied once in the Ensemble layer after blending to avoid double-penalization. Items with zero genre overlap receive a 90% penalty (configurable floor)
 - **Watch profile analysis** — Aggregates per-user genre frequencies from Jellyfin playback data, with favorite-item genre boosting (3× weight)
 - **Collaborative filtering** — Jaccard-weighted co-occurrence across users with minimum overlap threshold
-- **Candidate filtering** — Excludes already-watched items and series with watched episodes; scores all unwatched candidates against the user's profile
+- **Parental rating enforcement** — Respects Jellyfin's per-user `MaxParentalRating` setting. Candidates exceeding the user's rating limit are excluded before scoring, ensuring children with restricted profiles only receive age-appropriate recommendations. Works dynamically with all rating systems (FSK, MPAA, BBFC, etc.) via Jellyfin's numeric `InheritedParentalRatingValue`
+- **Candidate filtering** — Excludes already-watched items, series with watched episodes, and items above the user's parental rating; scores all eligible unwatched candidates against the user's profile
 - **Configurable** — `RecommendationsTaskMode` (DryRun/Activate/Deactivate); defaults to 20 recommendations per user (API accepts 1–100 via `maxResults` query parameter)
 - **Disk-persisted state** — Learned weights (`ml_weights.json`), ensemble state (`ensemble_state.json`), and recommendation cache (`jellyfin-helper-recommendations-latest.json`) are all persisted to survive server restarts
 
@@ -670,6 +672,7 @@ ConfigPageTestBase (abstract)
   ├── TrendsHtmlTests
   ├── SettingsHtmlTests
   ├── ArrIntegrationHtmlTests
+  ├── DiscoverHtmlTests
   └── LogsHtmlTests
 ```
 
@@ -718,12 +721,15 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── TrendsHtmlTests.cs
 │   ├── SettingsHtmlTests.cs
 │   ├── ArrIntegrationHtmlTests.cs
+│   ├── DiscoverHtmlTests.cs        # Discover tab (recommendations + activity)
 │   └── LogsHtmlTests.cs
 ├── ScheduledTasks/         # Task tests (inherit CleanupTaskTestBase)
 │   ├── CleanTrickplayTaskTests.cs
 │   ├── CleanEmptyMediaFoldersTaskTests.cs
 │   ├── CleanOrphanedSubtitlesTaskTests.cs
-│   └── HelperCleanupTaskTests.cs
+│   ├── HelperCleanupTaskTests.cs
+│   ├── RecommendationsTaskTests.cs         # ML recommendation generation tests
+│   └── UserActivityUpdateTaskTests.cs      # User activity aggregation tests
 └── Services/               # Service logic tests (use TestMockFactory & TestDataGenerator)
     ├── FileSystemHelperTests.cs
     ├── I18nServiceTests.cs
@@ -764,6 +770,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
     │   │   ├── ScoreExplanationTests.cs         # Explanation, blend, penalty tests
     │   │   ├── TrainingExampleTests.cs          # Label quality, temporal decay tests
     │   │   └── RankingMetricsTests.cs           # Precision@K, Recall@K, NDCG@K metric tests
+    │   ├── WatchHistory/
+    │   │   └── WatchHistoryServiceTests.cs      # Watch profile building & series favorite tests
     │   ├── RecommendationCacheServiceTests.cs   # Cache persistence tests
     │   └── RecommendationDtoTests.cs            # DTO serialization tests
     ├── Activity/
