@@ -6,14 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
 
-## [2.0.0.0] — 2026-04-21
+## [Unreleased] — 2.0.0.0
 
 ### Added
 - **Discover Tab** — New 8th dashboard tab "Discover" combining ML-powered smart recommendations and user activity insights in a single view. Includes `Recommendations.js`, `Recommendations.css` frontend modules with user selector, recommendation cards, activity summaries, and genre distribution charts.
 - **Smart Recommendation Engine** — ML-based per-user recommendation system (`Services/Recommendation/`) with four-tier scoring architecture:
   - `HeuristicScoringStrategy` — rule-based weighted scoring with centralized genre-mismatch penalty.
-  - `LearnedScoringStrategy` — gradient-descent ML with Z-score standardization, `ArrayPool`-based scoring, and per-feature weight importance logging (Debug level).
-  - `NeuralScoringStrategy` — three-hidden-layer MLP (23→32→16→8→1, 1441 params) with Adam optimizer, Xavier/Glorot initialization per layer, three-layer backpropagation, sigmoid output, early stopping with validation split, temporal sample weighting, weight clamping, `ReaderWriterLockSlim` thread-safety, `[ThreadStatic]` scratch buffers, input-gradient attribution for `ScoreWithExplanation()`, and per-feature importance logging (L2 norm, Debug level). Weights persisted to disk (JSON, schema v3).
+  - `LearnedScoringStrategy` — gradient-descent ML with Z-score standardization, `ArrayPool`-based scoring, and per-feature weight importance logging (Debug level). Weights persisted to disk (JSON, schema v9).
+  - `NeuralScoringStrategy` — three-hidden-layer MLP (23→32→16→8→1, 1441 params) with Adam optimizer, Xavier/Glorot initialization per layer, three-layer backpropagation, sigmoid output, early stopping with validation split, temporal sample weighting, weight clamping, `ReaderWriterLockSlim` thread-safety, `[ThreadStatic]` scratch buffers, input-gradient attribution for `ScoreWithExplanation()`, and per-feature importance logging (L2 norm, Debug level). Weights persisted to disk (JSON, schema v4).
   - `EnsembleScoringStrategy` — adaptive 3-way blend (Heuristic + Learned + Neural) with sigmoid-based alpha transition, beta ramp for neural activation, centralized soft genre-mismatch penalty, and state persistence.
   - `CandidateFeatures` — 23 features including `TagSimilarity` (Jaccard on item tags), `HourOfDayAffinity`, `IsWeekend`, `CompletionRatio`, `IsAbandoned`, `PeopleSimilarity`, `StudioMatch`, `SeriesProgressionBoost`, `PopularityScore`, `DayOfWeekAffinity`, `PeopleGenreInteraction`, `RecencyRatingInteraction`, and genre/rating/collab interaction terms.
   - `DefaultWeights` — balanced weights summing to 1.0 across all 23 features.
@@ -25,20 +25,26 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
   - `RecommendationEngine` — incremental training support (`TrainStrategy(incremental: true)`) that keeps all new examples + samples 30% of old examples to reduce training time while preventing catastrophic forgetting. Only activated when `RecommendationsTaskMode=Activate`.
   - `RankingMetrics` — ranking-based evaluation metrics (Precision@K, Recall@K, NDCG@K) for measuring recommendation quality. Used after training to evaluate whether items the user likes appear in the top K predictions. Standard practice: train with MSE (differentiable), evaluate with ranking metrics (non-differentiable but directly measure recommendation quality).
   - `RecommendationEngine` — `PrecomputeUserWatchSets()` pre-computes all user watched-item HashSets once per batch, reducing collaborative filtering overhead from O(U²×M) to O(U×M).
-- **Recommendations Configuration** — New plugin setting: `RecommendationsTaskMode` (DryRun/Activate/Deactivate, default: DryRun). Generates up to 20 recommendations per user (fixed).
+- **Series-level favorites** — `UserWatchProfile.FavoriteSeriesIds` captures series the user has favorited at the series level (not just individual episodes). `WatchHistoryService` detects these via `IUserDataManager` on `Series` items. The recommendation engine treats series-level favorites as positive signals for genre/studio/people preferences and excludes favorited series from candidate scoring (the user already knows them).
+- **Plugin data cleanup on uninstall** — `Plugin.OnUninstalling()` now calls `CleanupDataFiles()` which deletes all `jellyfin-helper-*.json` and `.tmp` files from the Jellyfin data directory. ML weight files (`ml_weights.json`, `neural_weights.json`, `ensemble_state.json`) are cleaned up automatically by Jellyfin when it removes the plugin's `DataFolderPath`.
+- **CancellationToken in TrainStrategy** — `IRecommendationEngine.TrainStrategy()` now accepts a `CancellationToken` for cooperative cancellation during long training runs.
+- **Recommendations Configuration** — New plugin settings: `RecommendationsTaskMode` (DryRun/Activate/Deactivate, default: DryRun), `MaxRecommendationsPerUser` (default: 20, range: 1–100), `EnsembleAlphaMin` (default: 0.3), `EnsembleAlphaMax` (default: 0.8), `EnsembleGenrePenaltyFloor` (default: 0.10).
 - **Recommendations Scheduled Task** — Integrated into `HelperCleanupTask` to generate recommendations and activity data on the weekly cleanup schedule.
 - **Recommendations Service Registration** — `PluginServiceRegistrator` registers 5 new services (`IWatchHistoryService`, `IRecommendationEngine`, `IRecommendationCacheService`, `IUserActivityInsightsService`, `IUserActivityCacheService`) and 4 scoring strategies (Heuristic, Learned, Neural, Ensemble) with Ensemble always active as the default strategy.
 - **i18n — Discover Tab** — All 7 language files (en, de, fr, es, pt, zh, tr) updated with Discover tab translations (tab label, recommendation cards, activity summaries, empty states).
-- **Tests** — New test classes: `RecommendationControllerTests`, `UserActivityControllerTests`, `RecommendationEngineTests`, `WatchHistoryServiceTests`, `ScoringStrategyTests`, `NeuralScoringStrategyTests`, `ScoreExplanationTests`, `TrainingExampleTests`, `RankingMetricsTests`, `RecommendationCacheServiceTests`, `RecommendationDtoTests`, `UserActivityCacheServiceTests`, `UserActivityInsightsServiceTests`. Includes concurrency tests (parallel `Score()` + `Train()`), three-hidden-layer architecture tests, k-fold constant verification, and ranking evaluation metric tests (Precision@K, Recall@K, NDCG@K). Total: **1892 tests**.
+- **Tests** — New test classes: `RecommendationControllerTests`, `UserActivityControllerTests`, `RecommendationEngineTests`, `WatchHistoryServiceTests`, `ScoringStrategyTests`, `NeuralScoringStrategyTests`, `ScoreExplanationTests`, `TrainingExampleTests`, `RankingMetricsTests`, `RecommendationCacheServiceTests`, `RecommendationDtoTests`, `UserActivityCacheServiceTests`, `UserActivityInsightsServiceTests`. Includes concurrency tests (parallel `Score()` + `Train()`), three-hidden-layer architecture tests, k-fold constant verification, and ranking evaluation metric tests (Precision@K, Recall@K, NDCG@K). Total: **1893 tests**.
 
 ### Changed
 - **8-Tab Dashboard** — Dashboard expanded from 7 to 8 tabs: Overview, Codecs, Health, Trends, **Discover**, Settings, Arr, Logs.
 - **HelperCleanupTask** — Extended to run recommendation generation and user activity aggregation alongside existing cleanup tasks.
+- **Series exclusion in recommendations** — All known series (favorited, partially watched, fully watched) are now excluded from recommendation candidates. Jellyfin natively shows "Next Up" for in-progress series, so recommending them again wastes a slot. Their genre/studio/people signals still flow into user preferences.
+- **Score calculation consistency** — Optimized scoring strategies for consistent score computation across heuristic, learned, and neural paths.
 - **Documentation** — Updated README.md, CONTRIBUTING.md, manifest.json, build.yaml, and CHANGELOG.md for the new Discover tab and all associated features.
 
 ### Fixed
 - **Trends Tab** — "Largest" and "Recent" sections in the Trends tab were displaying the total size of the library in the tree view instead of the sum of the displayed objects.
 - **Plugin Log** — More precise logs if trash is activated.
+- **Ranking metrics validation** — Improved edge case handling for prediction and label arrays in `RankingMetrics`.
 ---
 
 ## [1.2.1.0] — 2026-04-20

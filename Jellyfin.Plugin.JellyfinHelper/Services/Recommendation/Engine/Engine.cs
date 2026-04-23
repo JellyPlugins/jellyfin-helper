@@ -516,7 +516,8 @@ public sealed class Engine : IRecommendationEngine
             _pluginLog.LogDebug("Recommendations", $"Score for '{candidate.Name}': {explanation}", _logger);
         }
 
-        var (reason, reasonKey, relatedItem) = ReasonResolver.DetermineReason(candidate, explanation, genrePreferences);
+        var (reason, reasonKey, relatedItem) = ReasonResolver.DetermineReason(
+            candidate, explanation, genrePreferences, preferredPeople, preferredStudios, peopleLookup);
 
         return (candidate, explanation.FinalScore, reason, reasonKey, relatedItem);
     }
