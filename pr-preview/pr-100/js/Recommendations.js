@@ -106,7 +106,11 @@ function renderRecommendationCard(rec, rank) {
     html += '</div>';
     html += '<div class="recs-item-reason"><span class="recs-reason-label">' + T('recsReason', 'Why') + ':</span> ';
     var reasonText = rec.ReasonKey ? T(rec.ReasonKey, rec.Reason || '') : (rec.Reason || T('recsReasonGeneric', 'Based on your viewing history'));
-    if (rec.RelatedItemName && reasonText.indexOf('{0}') !== -1) { reasonText = reasonText.split('{0}').join(rec.RelatedItemName); }
+    // Replace {0}, {1}, ... placeholders with parts from RelatedItemName (split on " | ")
+    if (rec.RelatedItemName) {
+        var parts = rec.RelatedItemName.split(' | ');
+        for (var p = 0; p < parts.length; p++) { reasonText = reasonText.split('{' + p + '}').join(parts[p]); }
+    }
     html += escHtml(reasonText) + '</div>';
     html += '<div class="recs-item-score ' + scoreClass + '"><div class="recs-score-bar" style="width:' + scorePercent + '%"></div>';
     html += '<span class="recs-score-text">' + scorePercent + '% ' + T('recsMatch', 'match') + '</span></div>';
