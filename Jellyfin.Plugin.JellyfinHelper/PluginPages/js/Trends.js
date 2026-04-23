@@ -636,7 +636,8 @@ function buildLargestTree(data) {
             var badge = getInsightTypeBadge(e.CollectionType);
             html += '<div class="insight-tree-item">';
             html += '<span class="insight-tree-name">' + badge + ' ' + escHtml(e.Name) + '</span>';
-            html += '<span class="insight-tree-size">' + formatBytes(e.Size) + '</span>';
+            var safeSize = Math.max(0, Number(e.Size) || 0);
+            html += '<span class="insight-tree-size">' + formatBytes(safeSize) + '</span>';
             html += '</div>';
         }
 
@@ -681,7 +682,8 @@ function buildRecentTree(data) {
 
             html += '<div class="insight-tree-item">';
             html += '<span class="insight-tree-name">' + changeBadge + ' ' + escHtml(e.Name) + '</span>';
-            html += '<span class="insight-tree-meta">' + formatBytes(e.Size) + ' · ' + dateStr + '</span>';
+            var safeSize = Math.max(0, Number(e.Size) || 0);
+            html += '<span class="insight-tree-meta">' + formatBytes(safeSize) + ' · ' + dateStr + '</span>';
             html += '</div>';
         }
 

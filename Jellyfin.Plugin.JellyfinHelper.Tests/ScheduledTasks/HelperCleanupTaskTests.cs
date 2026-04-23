@@ -198,6 +198,8 @@ public class HelperCleanupTaskTests : IDisposable
         VerifyLogContains("Skipping Orphaned Subtitle Cleanup (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Link Repair (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Seerr Cleanup (deactivated in settings)", LogLevel.Information);
+        VerifyLogContains("Skipping User Watch Activity (deactivated in settings)", LogLevel.Information);
+        VerifyLogContains("Skipping Smart Recommendations (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Helper Cleanup finished", LogLevel.Information);
     }
 

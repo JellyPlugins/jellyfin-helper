@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -65,7 +66,7 @@ internal sealed class SimilarityComputer
                     }
 
                     // Only include actors and directors — other types add noise without predictive value
-                    if (!Array.Exists(EngineConstants.RelevantPersonKinds, k => k == person.Type))
+                    if (!EngineConstants.RelevantPersonKinds.Contains(person.Type))
                     {
                         continue;
                     }

@@ -109,7 +109,7 @@ function renderShell() {
         'Settings') + '</button>';
     html += '<button class="tab-btn" data-tab="arr">🔗 ' + T('tabArr', 'Arr')
         + '</button>';
-    html += '<button class="tab-btn" data-tab="recommendations">🤖 ' + T('tabRecommendations',
+    html += '<button class="tab-btn" data-tab="recommendations" style="display:none;">🤖 ' + T('tabRecommendations',
         'Smart Recs') + '</button>';
     html += '<button class="tab-btn" data-tab="logs">📋 ' + T('tabLogs', 'Logs')
         + '</button>';

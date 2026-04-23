@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Jellyfin.Data.Enums;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
@@ -125,5 +127,5 @@ internal static class EngineConstants
     ///     Only actors and directors are used — writers/producers are less predictive
     ///     of user preference and would add noise to the similarity signal.
     /// </summary>
-    internal static readonly PersonKind[] RelevantPersonKinds = [PersonKind.Actor, PersonKind.Director];
+    internal static readonly IReadOnlyList<PersonKind> RelevantPersonKinds = Array.AsReadOnly(new[] { PersonKind.Actor, PersonKind.Director });
 }

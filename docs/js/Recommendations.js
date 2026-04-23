@@ -183,7 +183,7 @@ function renderRecommendationCard(rec, rank) {
         }
     }
 
-    if (rec.Year && rec.Year > 0) {
+    if (typeof rec.Year === 'number' && rec.Year > 0) {
         html += '<span class="recs-tag recs-tag-year">' + rec.Year + '</span>';
     }
 

@@ -65,6 +65,15 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                try
+                {
+                    File.Delete(_cacheFilePath + ".tmp");
+                }
+                catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
+                {
+                    // best effort
+                }
+
                 _pluginLog.LogWarning(
                     "RecommendationCache",
                     $"Could not save recommendation results to {_cacheFilePath}",

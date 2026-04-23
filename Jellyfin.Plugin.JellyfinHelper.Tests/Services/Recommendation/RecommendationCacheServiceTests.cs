@@ -43,6 +43,10 @@ public sealed class RecommendationCacheServiceTests : IDisposable
                 Directory.Delete(_tempDir, true);
             }
         }
+        catch (DirectoryNotFoundException)
+        {
+            // Best-effort cleanup — TOCTOU race between Exists check and Delete
+        }
         catch (IOException)
         {
             // Best-effort cleanup — don't fail the test run for transient IO issues
