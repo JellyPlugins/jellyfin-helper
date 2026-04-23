@@ -139,7 +139,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         {
             UserId = user.Id,
             UserName = user.Username,
-            MaxParentalRating = user.MaxParentalRating
+            MaxParentalRating = user.MaxParentalRatingScore
         };
 
         // Use pre-loaded items or query on demand (single-user path)
