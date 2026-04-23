@@ -68,7 +68,7 @@ public class UserActivityCacheService : IUserActivityCacheService
                 {
                     File.Delete(_cacheFilePath + ".tmp");
                 }
-                catch
+                catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
                 {
                     // best effort
                 }
