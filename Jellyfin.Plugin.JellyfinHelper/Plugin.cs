@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
@@ -13,6 +14,8 @@ namespace Jellyfin.Plugin.JellyfinHelper;
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
+    private readonly IApplicationPaths _applicationPaths;
+
     /// <summary>
     ///     Initializes a new instance of the <see cref="Plugin" /> class.
     /// </summary>
@@ -22,6 +25,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
+        _applicationPaths = applicationPaths;
     }
 
     /// <inheritdoc />
@@ -40,6 +44,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public static Plugin? Instance { get; private set; }
 
     /// <inheritdoc />
+    public override void OnUninstalling()
+    {
+        CleanupDataFiles();
+        base.OnUninstalling();
+    }
+
+    /// <inheritdoc />
     public IEnumerable<PluginPageInfo> GetPages()
     {
         return
@@ -53,5 +64,50 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 EmbeddedResourcePath = GetType().Namespace + ".PluginPages.configPage.html"
             }
         ];
+    }
+
+    /// <summary>
+    ///     Deletes all persistent data files created by this plugin from the Jellyfin data directory.
+    ///     All plugin data files follow the naming convention <c>jellyfin-helper-*.json</c>:
+    ///     <list type="bullet">
+    ///         <item><c>jellyfin-helper-statistics-latest.json</c> — media statistics cache</item>
+    ///         <item><c>jellyfin-helper-recommendations-latest.json</c> — recommendation results cache</item>
+    ///         <item><c>jellyfin-helper-useractivity-latest.json</c> — user activity insights cache</item>
+    ///         <item><c>jellyfin-helper-growth-timeline.json</c> — library growth timeline data</item>
+    ///         <item><c>jellyfin-helper-growth-baseline.json</c> — library growth baseline snapshot</item>
+    ///     </list>
+    ///     Also removes any leftover <c>.tmp</c> files from atomic write operations.
+    /// </summary>
+    private void CleanupDataFiles()
+    {
+        try
+        {
+            var dataPath = _applicationPaths.DataPath;
+            if (!Directory.Exists(dataPath))
+            {
+                return;
+            }
+
+            // Match all files created by this plugin: jellyfin-helper-*
+            // This covers .json data files as well as .tmp leftovers from atomic writes
+            var pluginFiles = Directory.GetFiles(dataPath, "jellyfin-helper-*");
+
+            foreach (var file in pluginFiles)
+            {
+                try
+                {
+                    File.Delete(file);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Best effort — file may be locked or permission-restricted.
+                    // Skip and continue with the next file.
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Best effort — if the data directory is inaccessible, nothing we can do.
+        }
     }
 }
