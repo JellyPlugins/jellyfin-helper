@@ -115,39 +115,39 @@ public sealed class CandidateFeatures
     private double _hourOfDayAffinity;
     private double _tagSimilarity;
 
-    /// <summary>Gets or sets the genre similarity score (0–1). Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the genre similarity score (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double GenreSimilarity
     {
         get => _genreSimilarity;
-        set => _genreSimilarity = Math.Clamp(value, 0.0, 1.0);
+        set => _genreSimilarity = Clamp01(value);
     }
 
-    /// <summary>Gets or sets the collaborative filtering score (0–1). Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the collaborative filtering score (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double CollaborativeScore
     {
         get => _collaborativeScore;
-        set => _collaborativeScore = Math.Clamp(value, 0.0, 1.0);
+        set => _collaborativeScore = Clamp01(value);
     }
 
-    /// <summary>Gets or sets the normalized community rating (0–1). Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the normalized community rating (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double RatingScore
     {
         get => _ratingScore;
-        set => _ratingScore = Math.Clamp(value, 0.0, 1.0);
+        set => _ratingScore = Clamp01(value);
     }
 
-    /// <summary>Gets or sets the recency score (0–1, newer = higher). Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the recency score (0–1, newer = higher). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double RecencyScore
     {
         get => _recencyScore;
-        set => _recencyScore = Math.Clamp(value, 0.0, 1.0);
+        set => _recencyScore = Clamp01(value);
     }
 
-    /// <summary>Gets or sets the year proximity score (0–1). Values are clamped to [0, 1].</summary>
+    /// <summary>Gets or sets the year proximity score (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double YearProximityScore
     {
         get => _yearProximityScore;
-        set => _yearProximityScore = Math.Clamp(value, 0.0, 1.0);
+        set => _yearProximityScore = Clamp01(value);
     }
 
     /// <summary>Gets or sets the number of genres the candidate has (raw, for interaction terms). Normalized to [0, 1] in <see cref="WriteToVector"/>.</summary>
@@ -160,7 +160,7 @@ public sealed class CandidateFeatures
     public double UserRatingScore
     {
         get => _userRatingScore;
-        set => _userRatingScore = Math.Clamp(value, 0.0, 1.0);
+        set => _userRatingScore = Clamp01(value, 0.5);
     }
 
     /// <summary>Gets or sets a value indicating whether the user has interacted with this item (watched, started, or rated).</summary>
@@ -170,14 +170,14 @@ public sealed class CandidateFeatures
     public double CompletionRatio
     {
         get => _completionRatio;
-        set => _completionRatio = Math.Clamp(value, 0.0, 1.0);
+        set => _completionRatio = Clamp01(value, 0.5);
     }
 
     /// <summary>Gets or sets the people (cast/director) similarity score (0–1). Values are clamped to [0, 1].</summary>
     public double PeopleSimilarity
     {
         get => _peopleSimilarity;
-        set => _peopleSimilarity = Math.Clamp(value, 0.0, 1.0);
+        set => _peopleSimilarity = Clamp01(value);
     }
 
     /// <summary>Gets or sets a value indicating whether the item is from a studio the user has watched before.</summary>
@@ -187,28 +187,28 @@ public sealed class CandidateFeatures
     public double SeriesProgressionBoost
     {
         get => _seriesProgressionBoost;
-        set => _seriesProgressionBoost = Math.Clamp(value, 0.0, 1.0);
+        set => _seriesProgressionBoost = Clamp01(value);
     }
 
     /// <summary>Gets or sets the popularity score (0–1). Based on global watch count, helps cold-start users. Values are clamped to [0, 1].</summary>
     public double PopularityScore
     {
         get => _popularityScore;
-        set => _popularityScore = Math.Clamp(value, 0.0, 1.0);
+        set => _popularityScore = Clamp01(value);
     }
 
     /// <summary>Gets or sets the day-of-week affinity (0–1). How well this content matches the user's viewing patterns for the current day. Values are clamped to [0, 1].</summary>
     public double DayOfWeekAffinity
     {
         get => _dayOfWeekAffinity;
-        set => _dayOfWeekAffinity = Math.Clamp(value, 0.0, 1.0);
+        set => _dayOfWeekAffinity = Clamp01(value);
     }
 
     /// <summary>Gets or sets the hour-of-day affinity (0–1). How well this content matches the user's viewing patterns for the current time of day (e.g. evening vs morning). Values are clamped to [0, 1].</summary>
     public double HourOfDayAffinity
     {
         get => _hourOfDayAffinity;
-        set => _hourOfDayAffinity = Math.Clamp(value, 0.0, 1.0);
+        set => _hourOfDayAffinity = Clamp01(value);
     }
 
     /// <summary>Gets or sets a value indicating whether the current request is on a weekend day (Saturday or Sunday).</summary>
@@ -218,8 +218,16 @@ public sealed class CandidateFeatures
     public double TagSimilarity
     {
         get => _tagSimilarity;
-        set => _tagSimilarity = Math.Clamp(value, 0.0, 1.0);
+        set => _tagSimilarity = Clamp01(value);
     }
+
+    /// <summary>
+    ///     Clamps a value to [0, 1], returning <paramref name="defaultWhenNaN"/> if the value is NaN or Infinity.
+    ///     Math.Clamp does not normalize NaN — it preserves it — so this helper prevents
+    ///     NaN from flowing into interaction terms and poisoning learned/neural scoring.
+    /// </summary>
+    private static double Clamp01(double value, double defaultWhenNaN = 0.0) =>
+        double.IsFinite(value) ? Math.Clamp(value, 0.0, 1.0) : defaultWhenNaN;
 
     /// <summary>
     ///     Converts the features into a fixed-size double array for ML processing.

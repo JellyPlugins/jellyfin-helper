@@ -401,7 +401,7 @@ public class HelperCleanupTask : IScheduledTask
             _userActivityInsightsService,
             _userActivityCacheService,
             _pluginLog,
-            _logger);
+            _loggerFactory.CreateLogger<UserActivityUpdateTask>());
         return task.ExecuteAsync(progress, cancellationToken, config.RecommendationsTaskMode);
     }
 
@@ -411,7 +411,7 @@ public class HelperCleanupTask : IScheduledTask
             _recsEngine,
             _recsCacheService,
             _pluginLog,
-            _logger);
+            _loggerFactory.CreateLogger<RecommendationsTask>());
         return task.ExecuteAsync(config, progress, cancellationToken);
     }
 

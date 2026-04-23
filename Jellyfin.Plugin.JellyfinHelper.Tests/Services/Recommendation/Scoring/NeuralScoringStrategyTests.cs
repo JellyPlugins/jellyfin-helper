@@ -612,9 +612,12 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         File.WriteAllText(weightsPath, json);
 
         var strategy = new NeuralScoringStrategy(weightsPath);
-        var score = strategy.Score(new CandidateFeatures());
+        var features = new CandidateFeatures();
+        var score = strategy.Score(features);
+        var expectedFreshScore = new NeuralScoringStrategy(null).Score(features);
 
-        Assert.InRange(score, 0.0, 1.0);
+        // Old-version weights should be discarded; score must match a freshly initialized strategy
+        Assert.Equal(expectedFreshScore, score, 10);
     }
 
     // ============================================================

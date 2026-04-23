@@ -324,12 +324,13 @@ public sealed class ScoreExplanationTests
     [Fact]
     public void WithPenalty_FinalScore_ClampedToZeroOne()
     {
-        // FinalScore = 0.9, penalty = 1.5 → 1.35, should clamp to 1.0
+        // FinalScore = 0.9, penalty = 1.5 → penalty clamped to 1.0 → 0.9 × 1.0 = 0.9
         var explanation = new ScoreExplanation { FinalScore = 0.9 };
 
         var result = explanation.WithPenalty(1.5);
 
-        Assert.Equal(1.0, result.FinalScore, 10);
+        // Penalty is clamped to [0, 1], so 1.5 becomes 1.0 — FinalScore stays 0.9
+        Assert.Equal(0.9, result.FinalScore, 10);
     }
 
     [Fact]

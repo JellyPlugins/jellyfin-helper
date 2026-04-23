@@ -98,6 +98,7 @@ public sealed class ScoreExplanation
     /// <returns>A new explanation with all values scaled by the penalty.</returns>
     public ScoreExplanation WithPenalty(double penaltyMultiplier)
     {
+        penaltyMultiplier = Math.Clamp(penaltyMultiplier, 0.0, 1.0);
         return new ScoreExplanation
         {
             FinalScore = Math.Clamp(FinalScore * penaltyMultiplier, 0.0, 1.0),

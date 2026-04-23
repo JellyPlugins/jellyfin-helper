@@ -11,6 +11,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
+    // ===== Backing fields for clamped properties =====
+    private int _maxRecommendationsPerUser = 20;
+    private double _ensembleAlphaMin = 0.3;
+    private double _ensembleAlphaMax = 0.8;
+    private double _ensembleGenrePenaltyFloor = 0.10;
+
     /// <summary>
     ///     Gets or sets the library names to include (allow list). Empty means all libraries are included.
     ///     Comma-separated list of library names.
@@ -144,9 +150,13 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the maximum number of recommendations to generate per user.
-    ///     Default is 20. Valid range: 1–100.
+    ///     Default is 20. Valid range: 1–100. Out-of-range values are clamped.
     /// </summary>
-    public int MaxRecommendationsPerUser { get; set; } = 20;
+    public int MaxRecommendationsPerUser
+    {
+        get => _maxRecommendationsPerUser;
+        set => _maxRecommendationsPerUser = Math.Clamp(value, 1, 100);
+    }
 
     // RecommendationStrategy removed — Ensemble is always used (combines all methods).
     // The property is kept as read-only for backward compatibility with serialized configs.
@@ -155,20 +165,51 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     ///     Gets or sets the minimum alpha value for the ensemble scoring strategy.
     ///     Controls the lower bound of learned model blending (0–1). Default is 0.3.
+    ///     Out-of-range values are clamped. Enforces AlphaMin ≤ AlphaMax.
     /// </summary>
-    public double EnsembleAlphaMin { get; set; } = 0.3;
+    public double EnsembleAlphaMin
+    {
+        get => _ensembleAlphaMin;
+        set
+        {
+            _ensembleAlphaMin = Math.Clamp(value, 0.0, 1.0);
+            // Ensure min ≤ max invariant
+            if (_ensembleAlphaMin > _ensembleAlphaMax)
+            {
+                _ensembleAlphaMax = _ensembleAlphaMin;
+            }
+        }
+    }
 
     /// <summary>
     ///     Gets or sets the maximum alpha value for the ensemble scoring strategy.
     ///     Controls the upper bound of learned model blending (0–1). Default is 0.8.
+    ///     Out-of-range values are clamped. Enforces AlphaMin ≤ AlphaMax.
     /// </summary>
-    public double EnsembleAlphaMax { get; set; } = 0.8;
+    public double EnsembleAlphaMax
+    {
+        get => _ensembleAlphaMax;
+        set
+        {
+            _ensembleAlphaMax = Math.Clamp(value, 0.0, 1.0);
+            // Ensure min ≤ max invariant
+            if (_ensembleAlphaMax < _ensembleAlphaMin)
+            {
+                _ensembleAlphaMin = _ensembleAlphaMax;
+            }
+        }
+    }
 
     /// <summary>
     ///     Gets or sets the genre penalty floor for the ensemble scoring strategy.
     ///     Items with zero genre overlap are penalized down to this floor value. Default is 0.10.
+    ///     Out-of-range values are clamped to [0, 1].
     /// </summary>
-    public double EnsembleGenrePenaltyFloor { get; set; } = 0.10;
+    public double EnsembleGenrePenaltyFloor
+    {
+        get => _ensembleGenrePenaltyFloor;
+        set => _ensembleGenrePenaltyFloor = Math.Clamp(value, 0.0, 1.0);
+    }
 
     /// <summary>
     ///     Gets or sets the minimum log level for the plugin's in-memory log buffer.

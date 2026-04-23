@@ -69,12 +69,13 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
 
         var explanation = ScoringHelper.BuildExplanation(vector, WeightsArray, bias: 0.0, Name);
 
-        // Apply genre penalty when used standalone (shared formula with EnsembleScoringStrategy)
+        // Apply genre penalty when used standalone (shared formula with EnsembleScoringStrategy).
+        // Uses WithPenalty() to scale both FinalScore and all contributions consistently,
+        // so that FinalScore = Σ(contributions) × GenrePenaltyMultiplier holds true.
         if (_genrePenaltyFloor < 1.0)
         {
             var penalty = ScoringHelper.ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
-            explanation.FinalScore *= penalty;
-            explanation.GenrePenaltyMultiplier = penalty;
+            explanation = explanation.WithPenalty(penalty);
         }
 
         return explanation;

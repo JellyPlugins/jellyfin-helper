@@ -34,7 +34,7 @@ internal static class ScoringHelper
     /// <returns>A penalty multiplier between <paramref name="floor"/> and 1.0.</returns>
     internal static double ComputeSoftGenrePenalty(double genreSimilarity, double floor, double threshold = DefaultGenrePenaltyThreshold)
     {
-        if (genreSimilarity >= threshold)
+        if (threshold <= 0.0 || genreSimilarity >= threshold)
         {
             return 1.0;
         }
@@ -94,7 +94,8 @@ internal static class ScoringHelper
             return 0.0;
         }
 
-        return GuardScore(values[i] * coeffs[i]);
+        var contribution = values[i] * coeffs[i];
+        return double.IsFinite(contribution) ? contribution : 0.0;
     }
 
     /// <summary>

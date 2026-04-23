@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using MediaBrowser.Common.Configuration;
@@ -198,8 +199,11 @@ public sealed class RecommendationCacheServiceTests : IDisposable
     [Fact]
     public void LoadResults_CorruptedFile_ReturnsNull()
     {
-        // Write invalid JSON to the cache file
-        var cacheFilePath = Path.Combine(_tempDir, "jellyfin-helper-recommendations-latest.json");
+        // First, save valid results through the service so the correct cache file is created
+        _cacheService.SaveResults(new Collection<RecommendationResult>());
+
+        // Locate the generated cache file and corrupt it
+        var cacheFilePath = Directory.GetFiles(_tempDir, "*.json").Single();
         File.WriteAllText(cacheFilePath, "{ this is not valid json !!!");
 
         var result = _cacheService.LoadResults();

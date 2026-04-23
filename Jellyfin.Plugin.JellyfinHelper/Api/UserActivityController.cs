@@ -154,7 +154,7 @@ public class UserActivityController : ControllerBase
                     UserActivities = new Collection<UserItemActivity>(filteredActivities)
                 };
             })
-            .OrderByDescending(s => s.UserActivities.FirstOrDefault()?.LastPlayedDate)
+            .OrderByDescending(s => s.MostRecentWatch)
             .Take(maxResults)
             .ToList();
 

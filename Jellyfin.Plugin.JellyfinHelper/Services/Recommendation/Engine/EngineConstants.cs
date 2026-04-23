@@ -45,9 +45,11 @@ internal static class EngineConstants
     internal const double YearProximityDenominator = 200.0;
 
     /// <summary>
-    ///     Maximum allowed recommendations per user (input validation clamp).
+    ///     Maximum allowed recommendations per user (upper clamp for input validation).
+    ///     Distinct from <c>PluginConfiguration.MaxRecommendationsPerUser</c> which is the
+    ///     user-chosen value (default 20). This constant defines the hard upper bound.
     /// </summary>
-    internal const int MaxRecommendationsPerUser = 100;
+    internal const int MaxRecommendationsPerUserLimit = 100;
 
     /// <summary>
     ///     MMR diversity trade-off parameter (0 = pure diversity, 1 = pure relevance).

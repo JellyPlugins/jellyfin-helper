@@ -61,7 +61,7 @@ public sealed class Engine : IRecommendationEngine
     public RecommendationResult? GetRecommendations(Guid userId, int maxResults = 20, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        maxResults = Math.Clamp(maxResults, 1, EngineConstants.MaxRecommendationsPerUser);
+        maxResults = Math.Clamp(maxResults, 1, EngineConstants.MaxRecommendationsPerUserLimit);
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
         var userProfile = allProfiles.FirstOrDefault(p => p.UserId == userId);
         if (userProfile is null)
@@ -91,7 +91,7 @@ public sealed class Engine : IRecommendationEngine
     public IReadOnlyList<RecommendationResult> GetAllRecommendations(int maxResultsPerUser = 20, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        maxResultsPerUser = Math.Clamp(maxResultsPerUser, 1, EngineConstants.MaxRecommendationsPerUser);
+        maxResultsPerUser = Math.Clamp(maxResultsPerUser, 1, EngineConstants.MaxRecommendationsPerUserLimit);
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
         var candidates = LoadCandidateItems();
         var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
@@ -124,15 +124,17 @@ public sealed class Engine : IRecommendationEngine
             {
                 try
                 {
-                    var result = GenerateForUser(
-                        profile,
-                        allProfiles,
-                        candidates,
-                        peopleLookup,
-                        maxResultsPerUser,
-                        _strategy,
-                        precomputedUserSets,
-                        cancellationToken);
+                    var result = profile.WatchedItems.Count == 0
+                        ? GenerateColdStartRecommendations(profile.UserId, maxResultsPerUser)
+                        : GenerateForUser(
+                            profile,
+                            allProfiles,
+                            candidates,
+                            peopleLookup,
+                            maxResultsPerUser,
+                            _strategy,
+                            precomputedUserSets,
+                            cancellationToken);
                     concurrentResults.Add(result);
                 }
                 catch (OperationCanceledException)

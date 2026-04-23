@@ -335,6 +335,32 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.False(strategy is ITrainableStrategy);
     }
 
+    [Fact]
+    public void DefaultWeights_CreateWeightArray_CoversAllFeatureIndexValues()
+    {
+        // Guard test: ensures every FeatureIndex enum value has an explicit weight assignment
+        // in DefaultWeights.CreateWeightArray(). If a new FeatureIndex is added without updating
+        // CreateWeightArray, this test will fail — preventing silently unweighted features.
+        var weights = DefaultWeights.CreateWeightArray();
+        var allIndices = Enum.GetValues<FeatureIndex>();
+
+        foreach (var index in allIndices)
+        {
+            var i = (int)index;
+            Assert.True(
+                i < weights.Length,
+                $"FeatureIndex.{index} ({i}) is out of bounds for weight array (length {weights.Length}). " +
+                $"Update CandidateFeatures.FeatureCount and DefaultWeights.CreateWeightArray().");
+
+            // Every feature must have a non-zero default weight (positive or negative).
+            // IsAbandoned intentionally has a negative weight (-0.04).
+            Assert.True(
+                weights[i] != 0.0,
+                $"FeatureIndex.{index} ({i}) has weight 0.0 in DefaultWeights.CreateWeightArray(). " +
+                $"Add an explicit assignment or document why it should be zero.");
+        }
+    }
+
     // ============================================================
     // LearnedScoringStrategy Tests
     // ============================================================

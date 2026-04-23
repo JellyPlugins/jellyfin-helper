@@ -163,7 +163,7 @@ function renderUserRecommendations(index) {
 }
 
 function renderRecommendationCard(rec, rank) {
-    var scorePercent = Math.round((rec.Score || 0) * 100);
+    var scorePercent = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
     var scoreClass = scorePercent >= 80 ? 'recs-score-high'
         : scorePercent >= 50 ? 'recs-score-mid' : 'recs-score-low';
 
@@ -313,7 +313,7 @@ function renderCompactActivityTable(container, items) {
 
     for (var r = 0; r < maxRows; r++) {
         var it = items[r];
-        var completionPct = Math.round(it.AverageCompletionPercent || 0);
+        var completionPct = Math.max(0, Math.min(100, Math.round(Number(it.AverageCompletionPercent) || 0)));
         var statusClass = completionPct >= 90 ? 'activity-status-done'
             : completionPct > 0 ? 'activity-status-progress' : 'activity-status-new';
 
