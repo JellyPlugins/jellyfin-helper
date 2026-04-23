@@ -325,7 +325,7 @@ public class HelperCleanupTaskTests : IDisposable
                 $"Progress should be non-decreasing: [{i - 1}]={reportedValues[i - 1]}, [{i}]={reportedValues[i]}");
         }
 
-        Assert.Equal(100.0, reportedValues[^1], 0.01);
+        Assert.InRange(reportedValues[^1], 100.0 - 0.01, 100.0 + 0.01);
     }
 
     [Fact]

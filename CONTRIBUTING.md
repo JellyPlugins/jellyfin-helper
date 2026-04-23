@@ -221,15 +221,15 @@ Jellyfin.Plugin.JellyfinHelper/
 └── PluginPages/
     ├── configPage.template.html # HTML shell (build-time composition)
     ├── configPage.html          # Generated output (do not edit)
-    ├── css/                     # Per-tab CSS modules
-│   ├── Shared.css, Overview.css, Codecs.css, Health.css
-│   ├── Trends.css, Settings.css, ArrIntegration.css, Logs.css
-│   └── Recommendations.css  # Discover tab styles
-└── js/                      # Per-tab JS modules + .eslintrc.json
-    ├── Shared.js, Overview.js, Codecs.js, Health.js
-    ├── Trends.js, Settings.js, ArrIntegration.js, Logs.js
-    ├── Recommendations.js    # Discover tab logic
-    └── Main.js               # Tab routing, IIFE close
+    │   ├── css/                     # Per-tab CSS modules
+    │   │   ├── Shared.css, Overview.css, Codecs.css, Health.css
+    │   │   ├── Trends.css, Settings.css, ArrIntegration.css, Logs.css
+    │   │   └── Recommendations.css  # Discover tab styles
+    │   └── js/                      # Per-tab JS modules + .eslintrc.json
+    │       ├── Shared.js, Overview.js, Codecs.js, Health.js
+    │       ├── Trends.js, Settings.js, ArrIntegration.js, Logs.js
+    │       ├── Recommendations.js    # Discover tab logic
+    │       └── Main.js               # Tab routing, IIFE close
 ```
 
 ### Service Registration
@@ -459,6 +459,7 @@ All endpoints require admin authorization (`RequiresElevation`) except `/Transla
 | **Seerr API Key** | API key for Seerr cleanup / test connection | Empty |
 | **Seerr Cleanup Age (days)** | Max request age before deletion | 365 |
 | **Recommendations Task Mode** | Activate / DryRun / Deactivate | DryRun |
+| **MaxRecommendationsPerUser** | Maximum number of recommendations returned per user | 20 |
 | **Ensemble Alpha Min** | Minimum ML blend factor (0 = pure heuristic) | 0.3 |
 | **Ensemble Alpha Max** | Maximum ML blend factor (1 = pure ML) | 0.8 |
 | **Ensemble Genre Penalty Floor** | Minimum score multiplier for zero-genre-overlap items (0–1) | 0.10 |

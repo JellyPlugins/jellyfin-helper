@@ -256,7 +256,7 @@ public sealed class ScoreExplanationTests
         // alpha=0.5 → genre=0.5, rating=0.5 → tie, Genre wins (checked first)
         var result = a.Blend(b, 0.5);
         // Both are 0.5 → first one checked (Genre) wins
-        Assert.Contains(result.DominantSignal, new[] { "Genre", "Rating" });
+        Assert.Equal("Genre", result.DominantSignal);
     }
 
     [Fact]

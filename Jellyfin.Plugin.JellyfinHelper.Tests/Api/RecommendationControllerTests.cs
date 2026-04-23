@@ -242,7 +242,7 @@ public class RecommendationControllerTests
 
         var result = _controller.GetAllRecommendations();
 
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        Assert.IsType<OkObjectResult>(result.Result);
         // DryRun should NOT persist to cache
         _mockCache.Verify(c => c.SaveResults(It.IsAny<IReadOnlyList<RecommendationResult>>()), Times.Never);
     }

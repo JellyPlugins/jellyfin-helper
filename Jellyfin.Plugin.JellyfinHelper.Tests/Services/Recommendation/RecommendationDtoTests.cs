@@ -60,13 +60,14 @@ public class RecommendationDtoTests
     [Fact]
     public void RecommendationResult_DefaultValues_AreCorrect()
     {
+        var before = DateTime.UtcNow;
         var result = new RecommendationResult();
+        var after = DateTime.UtcNow;
         Assert.Equal(Guid.Empty, result.UserId);
         Assert.Equal(string.Empty, result.UserName);
         Assert.Null(result.Profile);
         Assert.Empty(result.Recommendations);
-        Assert.True(result.GeneratedAt <= DateTime.UtcNow);
-        Assert.True(result.GeneratedAt > DateTime.UtcNow.AddMinutes(-1));
+        Assert.InRange(result.GeneratedAt, before, after);
     }
 
     [Fact]
