@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
 ///     Adaptive ML scoring strategy using a linear model with learned weights.
-///     Learns personalized feature weights from user watch history via mini-batch gradient descent.
+///     Learns personalized feature weights from user watch history via stochastic gradient descent (SGD).
 ///     Genre-mismatch penalties are NOT applied here — they are handled centrally by the
 ///     ensemble layer to avoid double-penalization.
 ///     No external ML dependencies required — pure C# implementation.
@@ -270,7 +270,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
-    ///     Trains the model weights from labelled examples using mini-batch gradient descent.
+    ///     Trains the model weights from labelled examples using stochastic gradient descent (SGD).
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <returns>True if training was performed, false if insufficient data.</returns>
@@ -419,15 +419,20 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             _featureMeans = featureMeans;
             _featureStdDevs = featureStdDevs;
 
-            // Compute ranking metrics after training — measures recommendation quality
-            // (are relevant items in the top K?) rather than score accuracy (MSE).
-            var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(examples, this, RankingMetrics.DefaultK);
+            LogFeatureImportance();
+        } // release _syncRoot before disk I/O and ranking metrics to avoid blocking concurrent Score() calls
+
+        // Compute ranking metrics OUTSIDE the lock — ComputeAll() calls Score() internally,
+        // which acquires _syncRoot. While Monitor is reentrant (no deadlock), holding the lock
+        // during the entire scoring loop unnecessarily blocks all concurrent Score() callers.
+        // This mirrors the pattern used by NeuralScoringStrategy.Train().
+        var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(examples, this, RankingMetrics.DefaultK);
+        lock (_syncRoot)
+        {
             _lastPrecisionAtK = pAtK;
             _lastRecallAtK = rAtK;
             _lastNdcgAtK = nAtK;
-
-            LogFeatureImportance();
-        } // release _syncRoot before disk I/O to avoid blocking concurrent Score() calls
+        }
 
         // Persist outside the lock — TrySaveWeights() takes its own lock for
         // a brief snapshot, then performs serialization and file I/O without
@@ -697,6 +702,22 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     }
 
     /// <summary>
+    ///     Checks whether all elements in the array are finite (not NaN or Infinity).
+    /// </summary>
+    private static bool AllFinite(double[] values)
+    {
+        for (var i = 0; i < values.Length; i++)
+        {
+            if (!double.IsFinite(values[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
     ///     Tries to load persisted weights from disk.
     /// </summary>
     private void TryLoadWeights()
@@ -718,11 +739,23 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 var stdDevsValid = data.FeatureStdDevs is null || data.FeatureStdDevs.Length == CandidateFeatures.FeatureCount;
                 var bothNullOrBothPresent = (data.FeatureMeans is null) == (data.FeatureStdDevs is null);
 
+                // Validate all loaded values are finite (not NaN/Infinity).
+                // A corrupt-but-parseable JSON could contain NaN values that would
+                // silently produce wrong scores without causing obvious failures.
+                if (!AllFinite(data.Weights) || !double.IsFinite(data.Bias))
+                {
+                    _logger?.LogWarning(
+                        "LearnedScoringStrategy: Discarding persisted weights containing NaN/Infinity values. Resetting to defaults");
+                    return;
+                }
+
                 _weights = data.Weights;
                 _bias = data.Bias;
                 _trainingGeneration = data.TrainingGeneration;
 
-                if (meansValid && stdDevsValid && bothNullOrBothPresent)
+                if (meansValid && stdDevsValid && bothNullOrBothPresent
+                    && (data.FeatureMeans is null || AllFinite(data.FeatureMeans))
+                    && (data.FeatureStdDevs is null || AllFinite(data.FeatureStdDevs)))
                 {
                     _featureMeans = data.FeatureMeans;
                     _featureStdDevs = data.FeatureStdDevs;

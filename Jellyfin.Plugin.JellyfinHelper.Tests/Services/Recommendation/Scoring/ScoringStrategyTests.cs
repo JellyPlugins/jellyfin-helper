@@ -427,8 +427,12 @@ public sealed class ScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void Learned_Score_NoGenreMatch_GetsStrongPenalty()
+    public void Learned_Score_NoGenreMatch_ScoresSignificantlyLower()
     {
+        // Learned strategy does NOT apply a genre penalty multiplier — that's in the Ensemble.
+        // However, genre similarity has the highest weight (0.20) and contributes to interaction
+        // terms (genre×rating, genre×collab), so items with zero genre match naturally score
+        // much lower due to weight dominance alone.
         var strategy = new LearnedScoringStrategy();
 
         var goodFeatures = new CandidateFeatures
@@ -453,7 +457,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var badScore = strategy.Score(badFeatures);
 
         Assert.True(goodScore > badScore * 2,
-            $"Genre mismatch penalty should create large gap: good={goodScore:F4}, bad={badScore:F4}");
+            $"Genre weight dominance should create large score gap: good={goodScore:F4}, bad={badScore:F4}");
     }
 
     [Fact]
@@ -758,9 +762,12 @@ public sealed class ScoringStrategyTests : IDisposable
     public void Heuristic_GenreMismatch_ChuckyVsMarvel_MarvelWins()
     {
         // Simulates: user likes Action/SciFi/Superhero, candidate is Horror (Chucky) vs Action (Marvel)
-        // Note: Heuristic no longer applies genre penalty — that's in the Ensemble.
-        // But Marvel still scores much higher because genre similarity dominates the weights
-        // and interaction terms (genre×rating, genre×collab) amplify genre-matching items.
+        // Note: When used standalone (default constructor), Heuristic DOES apply genre penalty
+        // (genrePenaltyFloor=0.10). When used inside Ensemble, penalty is disabled (floor=1.0)
+        // and the Ensemble applies it centrally instead.
+        // Marvel scores much higher because genre similarity dominates the weights,
+        // interaction terms (genre×rating, genre×collab) amplify genre-matching items,
+        // and the standalone penalty further suppresses zero-genre-overlap items.
         var strategy = new HeuristicScoringStrategy();
 
         var marvelFeatures = new CandidateFeatures
