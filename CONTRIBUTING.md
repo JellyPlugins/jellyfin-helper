@@ -165,6 +165,10 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── WatchHistoryService.cs           # Builds per-user watch profiles
 │   │   │   ├── UserWatchProfile.cs              # Per-user affinity profile
 │   │   │   └── WatchedItemInfo.cs               # Watched item record
+│   │   ├── Playlist/                         # Recommendation playlist management
+│   │   │   ├── IRecommendationPlaylistService.cs # Interface for playlist sync
+│   │   │   ├── RecommendationPlaylistService.cs  # Creates/updates native Jellyfin playlists per user
+│   │   │   └── PlaylistSyncResult.cs             # Sync result DTO
 │   │   └── Scoring/                         # Scoring strategies & ML models
 │   │       ├── IScoringStrategy.cs               # Scoring interface + ITrainableStrategy (learning support)
 │   │       ├── HeuristicScoringStrategy.cs      # Rule-based scoring (fixed weights, genre penalty)
@@ -601,7 +605,7 @@ Sub-tasks executed in order (each respecting its configured task mode):
 - **XSS protection** in badge rendering, configuration page, and backup import
 - **Script injection detection** via regex for `<script>`, `javascript:`, event handlers, `<iframe>`, etc.
 - **Backup payload validation** — size limits, null-byte checks, URL scheme validation for Arr instances
-- **Graceful error handling** — `IOException` / `UnauthorizedAccessException` logged and skipped per directory
+- **Graceful error handling** — `IOException` / `UnauthorizedAccessException` logged and skipped per directory; ML weight persistence (`TryLoadWeights`, `TrySaveWeights`, `TryLoadState`, `TrySaveState`) catches both exception types to prevent data loss from transient permission errors
 - **Trash path safety** — refuses filesystem roots, library roots, and `..` traversal
 
 ---
@@ -776,7 +780,9 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
     │   ├── WatchHistory/
     │   │   └── WatchHistoryServiceTests.cs      # Watch profile building & series favorite tests
     │   ├── RecommendationCacheServiceTests.cs   # Cache persistence tests
-    │   └── RecommendationDtoTests.cs            # DTO serialization tests
+    │   ├── RecommendationDtoTests.cs            # DTO serialization tests
+    │   └── Playlist/
+    │       └── RecommendationPlaylistServiceTests.cs  # Playlist sync tests
     ├── Activity/
     │   ├── UserActivityCacheServiceTests.cs     # Activity cache tests
     │   └── UserActivityInsightsServiceTests.cs  # Activity aggregation tests
