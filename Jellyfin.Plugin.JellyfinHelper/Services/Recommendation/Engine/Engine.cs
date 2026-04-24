@@ -254,17 +254,63 @@ public sealed class Engine : IRecommendationEngine
             IsFolder = true
         });
 
-        if (movies.Count + series.Count > EngineConstants.CandidateCountWarningThreshold)
+        var candidates = new List<BaseItem>(movies.Count + series.Count);
+
+        // Filter out placeholder movies that have no media file on disk.
+        // Arr stacks (Radarr/Sonarr) may create library entries with metadata
+        // before the actual media file has been downloaded, resulting in items
+        // with no Path that cannot be played.
+        var skippedMovies = 0;
+        foreach (var movie in movies)
+        {
+            if (string.IsNullOrEmpty(movie.Path))
+            {
+                skippedMovies++;
+                continue;
+            }
+
+            candidates.Add(movie);
+        }
+
+        // Filter out empty series that have no episodes indexed yet.
+        // Arr stacks may create series folders before any episodes are available.
+        // A series without episodes cannot be resolved to a playable item and would
+        // waste a recommendation slot.
+        var skippedSeries = 0;
+        foreach (var s in series)
+        {
+            var hasEpisodes = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Episode],
+                AncestorIds = [s.Id],
+                Limit = 1
+            }).Count > 0;
+
+            if (!hasEpisodes)
+            {
+                skippedSeries++;
+                continue;
+            }
+
+            candidates.Add(s);
+        }
+
+        if (skippedMovies > 0 || skippedSeries > 0)
+        {
+            _pluginLog.LogInfo(
+                "Recommendations",
+                $"Filtered {skippedMovies} empty movies and {skippedSeries} empty series from candidate pool.",
+                _logger);
+        }
+
+        if (candidates.Count > EngineConstants.CandidateCountWarningThreshold)
         {
             _pluginLog.LogWarning(
                 "Recommendations",
-                $"Large candidate set: {movies.Count + series.Count} items. Consider using the scheduled task.",
+                $"Large candidate set: {candidates.Count} items. Consider using the scheduled task.",
                 logger: _logger);
         }
 
-        var candidates = new List<BaseItem>(movies.Count + series.Count);
-        candidates.AddRange(movies);
-        candidates.AddRange(series);
         return candidates;
     }
 

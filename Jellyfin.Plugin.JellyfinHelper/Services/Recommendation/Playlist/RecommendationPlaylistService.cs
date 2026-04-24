@@ -94,7 +94,9 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 // Create new playlist with items in score-ranked order.
                 // Series items are resolved to their first episode to prevent Jellyfin's
                 // PlaylistManager from expanding the entire series into individual episodes.
-                var itemIds = ResolvePlaylistItemIds(result.Recommendations);
+                // Items that cannot be resolved (e.g., empty series) are skipped,
+                // so we pass the full list and let the resolver collect up to maxResults playable items.
+                var itemIds = ResolvePlaylistItemIds(result.Recommendations, result.Recommendations.Count);
 
                 if (itemIds.Length == 0)
                 {
@@ -229,16 +231,27 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     ///     </para>
     ///     <para>
     ///         Movies and other non-series items are passed through unchanged.
+    ///         Items that cannot be resolved (empty series, missing media) are skipped.
+    ///         The method iterates through the full ranked list until <paramref name="maxItems"/>
+    ///         playable items have been collected, ensuring the playlist always reaches the
+    ///         desired count when enough candidates are available.
     ///     </para>
     /// </summary>
     /// <param name="recommendations">The score-ranked recommendations to resolve.</param>
+    /// <param name="maxItems">Maximum number of playable items to collect.</param>
     /// <returns>An array of playable item IDs suitable for playlist creation.</returns>
-    internal Guid[] ResolvePlaylistItemIds(IEnumerable<RecommendedItem> recommendations)
+    internal Guid[] ResolvePlaylistItemIds(IEnumerable<RecommendedItem> recommendations, int maxItems)
     {
         var resolvedIds = new List<Guid>();
+        var skippedCount = 0;
 
         foreach (var rec in recommendations.OrderByDescending(r => r.Score))
         {
+            if (resolvedIds.Count >= maxItems)
+            {
+                break;
+            }
+
             if (string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase))
             {
                 // Resolve series to its first episode to avoid playlist explosion.
@@ -255,11 +268,11 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 }
                 else
                 {
-                    // Fallback: if no episode found, skip this series to avoid the expansion problem.
-                    // This can happen for empty series or series with no indexed episodes.
+                    // Skip unresolvable series and let the loop pick the next candidate.
+                    skippedCount++;
                     _pluginLog.LogDebug(
                         "PlaylistSync",
-                        $"Could not resolve first episode for series '{rec.Name}' (ID: {rec.ItemId}) — skipping.",
+                        $"Could not resolve first episode for series '{rec.Name}' (ID: {rec.ItemId}) — skipping, will backfill.",
                         _logger);
                 }
             }
@@ -268,6 +281,14 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 // Movies and other playable items — use directly
                 resolvedIds.Add(rec.ItemId);
             }
+        }
+
+        if (skippedCount > 0)
+        {
+            _pluginLog.LogInfo(
+                "PlaylistSync",
+                $"Skipped {skippedCount} unresolvable items during playlist resolution. Resolved {resolvedIds.Count}/{maxItems} items.",
+                _logger);
         }
 
         return resolvedIds.ToArray();

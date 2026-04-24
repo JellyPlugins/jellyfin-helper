@@ -14,7 +14,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 
     public NeuralScoringStrategyTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "jf-neural-test-" + Guid.NewGuid().ToString("N")[..8]);
+        _tempDir = Path.Join(Path.GetTempPath(), "jf-neural-test-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_tempDir);
     }
 

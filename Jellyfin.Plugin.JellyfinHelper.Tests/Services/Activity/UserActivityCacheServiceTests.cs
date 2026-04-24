@@ -17,7 +17,7 @@ public class UserActivityCacheServiceTests : IDisposable
 
     public UserActivityCacheServiceTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "jellyfin-helper-test-" + Guid.NewGuid().ToString("N"));
+        _tempDir = Path.Join(Path.GetTempPath(), "jellyfin-helper-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
 
         var mockPaths = new Mock<IApplicationPaths>();

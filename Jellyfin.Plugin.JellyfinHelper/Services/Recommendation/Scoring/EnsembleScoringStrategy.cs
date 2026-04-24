@@ -573,14 +573,9 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                     // Restore persisted alpha directly instead of recomputing via sigmoid,
                     // so that the quality-gate freeze state is preserved across restarts.
                     // Only recompute if the persisted alpha is outside the valid range.
-                    if (data.Alpha >= _alphaMin && data.Alpha <= _alphaMax)
-                    {
-                        _alpha = data.Alpha;
-                    }
-                    else
-                    {
-                        _alpha = ComputeSigmoidAlpha(_trainingExampleCount, _alphaMin, _alphaMax);
-                    }
+                    _alpha = (data.Alpha >= _alphaMin && data.Alpha <= _alphaMax)
+                        ? data.Alpha
+                        : ComputeSigmoidAlpha(_trainingExampleCount, _alphaMin, _alphaMax);
 
                     // Restore neural beta so it survives server restarts
                     if (data.NeuralBeta >= NeuralBetaMinFloor && data.NeuralBeta <= NeuralMaxBetaFraction)

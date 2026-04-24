@@ -19,7 +19,7 @@ public sealed class RecommendationCacheServiceTests : IDisposable
 
     public RecommendationCacheServiceTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "jf-helper-cache-test-" + Guid.NewGuid().ToString("N")[..8]);
+        _tempDir = Path.Join(Path.GetTempPath(), "jf-helper-cache-test-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_tempDir);
 
         var mockPaths = new Mock<IApplicationPaths>();

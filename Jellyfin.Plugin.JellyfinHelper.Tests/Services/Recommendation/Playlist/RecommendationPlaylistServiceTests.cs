@@ -240,7 +240,7 @@ public class RecommendationPlaylistServiceTests
             new() { ItemId = movieId, Name = "Test Movie", ItemType = "Movie", Score = 0.9 }
         };
 
-        var result = sut.ResolvePlaylistItemIds(recs);
+        var result = sut.ResolvePlaylistItemIds(recs, 100);
 
         Assert.Single(result);
         Assert.Equal(movieId, result[0]);
@@ -259,7 +259,7 @@ public class RecommendationPlaylistServiceTests
             new() { ItemId = seriesId, Name = "Breaking Bad", ItemType = "Series", Score = 0.95 }
         };
 
-        var result = sut.ResolvePlaylistItemIds(recs);
+        var result = sut.ResolvePlaylistItemIds(recs, 100);
 
         Assert.Single(result);
         Assert.Equal(episodeId, result[0]);
@@ -281,7 +281,7 @@ public class RecommendationPlaylistServiceTests
             new() { ItemId = Guid.NewGuid(), Name = "Empty Series", ItemType = "Series", Score = 0.9 }
         };
 
-        var result = sut.ResolvePlaylistItemIds(recs);
+        var result = sut.ResolvePlaylistItemIds(recs, 100);
 
         Assert.Empty(result);
     }
@@ -301,7 +301,7 @@ public class RecommendationPlaylistServiceTests
             new() { ItemId = seriesId, Name = "Breaking Bad", ItemType = "Series", Score = 0.90 }
         };
 
-        var result = sut.ResolvePlaylistItemIds(recs);
+        var result = sut.ResolvePlaylistItemIds(recs, 100);
 
         Assert.Equal(2, result.Length);
         Assert.Equal(movieId, result[0]);
@@ -328,7 +328,7 @@ public class RecommendationPlaylistServiceTests
             new() { ItemId = series2, Name = "Series B", ItemType = "Series", Score = 0.8 }
         };
 
-        var result = sut.ResolvePlaylistItemIds(recs);
+        var result = sut.ResolvePlaylistItemIds(recs, 100);
 
         // Each series should produce exactly one episode entry
         Assert.Equal(2, result.Length);
