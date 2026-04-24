@@ -149,7 +149,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void ForwardPass_ReluActivation_BlocksNegativePreActivation()
+    public void Score_DefaultFeatures_ReturnsScoreInRange()
     {
         var strategy = new NeuralScoringStrategy();
         var score = strategy.Score(new CandidateFeatures());

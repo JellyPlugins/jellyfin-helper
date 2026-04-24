@@ -159,7 +159,7 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     // RecommendationStrategy removed — Ensemble is always used (combines all methods).
-    // System.Text.Json silently ignores unknown properties during deserialization,
+    // XmlSerializer silently ignores unknown XML elements during deserialization,
     // so previously saved "RecommendationStrategy" values are harmlessly discarded.
 
     /// <summary>

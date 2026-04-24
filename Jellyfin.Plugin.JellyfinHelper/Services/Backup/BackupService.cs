@@ -286,8 +286,9 @@ public class BackupService : IBackupService
             : backup.TrashFolderPath;
         config.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
 
-        // Smart Recommendations (only task mode — count and strategy use sensible defaults)
-        config.RecommendationsTaskMode = ParseTaskMode(backup.RecommendationsTaskMode, TaskMode.Deactivate);
+        // Smart Recommendations (only task mode — count and strategy use sensible defaults).
+        // Default to DryRun so importing an older backup enables the Discover UI in read-only mode.
+        config.RecommendationsTaskMode = ParseTaskMode(backup.RecommendationsTaskMode, TaskMode.DryRun);
 
         // Arr instances
         config.RadarrInstances.Clear();

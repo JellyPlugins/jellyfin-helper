@@ -322,7 +322,7 @@ public sealed class ScoreExplanationTests
     }
 
     [Fact]
-    public void WithPenalty_FinalScore_ClampedToZeroOne()
+    public void WithPenalty_PenaltyAboveOne_IsClampedToOne()
     {
         // FinalScore = 0.9, penalty = 1.5 → penalty clamped to 1.0 → 0.9 × 1.0 = 0.9
         var explanation = new ScoreExplanation { FinalScore = 0.9 };

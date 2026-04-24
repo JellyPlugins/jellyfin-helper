@@ -216,6 +216,7 @@ internal static class ReasonResolver
             LastActivityDate = profile.LastActivityDate,
             GenreDistribution = new Dictionary<string, int>(profile.GenreDistribution),
             FavoriteCount = profile.FavoriteCount,
+            FavoriteSeriesIds = profile.FavoriteSeriesIds,
             AverageCommunityRating = profile.AverageCommunityRating,
             MaxParentalRating = profile.MaxParentalRating,
             WatchedItems = []

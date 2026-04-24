@@ -163,7 +163,9 @@ public static class BackupValidator
         ValidateTaskMode(result, backup.OrphanedSubtitleTaskMode, "OrphanedSubtitleTaskMode");
         ValidateTaskMode(result, backup.LinkRepairTaskMode, "LinkRepairTaskMode");
         ValidateTaskMode(result, backup.SeerrCleanupTaskMode, "SeerrCleanupTaskMode", "Deactivate");
-        ValidateTaskMode(result, backup.RecommendationsTaskMode, "RecommendationsTaskMode", "Deactivate");
+        // Recommendations defaults to DryRun — importing an older backup without this field
+        // should enable the Discover UI in read-only mode rather than silently activating writes.
+        ValidateTaskMode(result, backup.RecommendationsTaskMode, "RecommendationsTaskMode");
 
         if (!string.IsNullOrEmpty(backup.PluginLogLevel) && !ValidLogLevels.Contains(backup.PluginLogLevel))
         {
