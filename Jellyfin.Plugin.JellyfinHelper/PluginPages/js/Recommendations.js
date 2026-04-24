@@ -184,7 +184,11 @@ function renderCompactActivityTable(container, items) {
         var pct = Math.max(0, Math.min(100, Math.round(Number(it.AverageCompletionPercent) || 0)));
         var sc = pct >= 90 ? 'activity-status-done' : pct > 0 ? 'activity-status-progress' : 'activity-status-new';
         var dn = it.ItemName || '\u2014';
-        if (it.SeriesName) { dn = it.SeriesName; if (it.EpisodeLabel) { dn += ' \u2013 ' + it.EpisodeLabel; } }
+        if (it.SeriesName) {
+            dn = it.SeriesName;
+            var episodePart = it.EpisodeLabel || it.ItemName;
+            if (episodePart) { dn += ' \u2013 ' + episodePart; }
+        }
         html += '<tr><td class="activity-cell-title">' + escHtml(dn) + '</td>';
         html += '<td><span class="recs-tag recs-tag-type">' + escHtml(it.ItemType || '') + '</span></td>';
         html += '<td class="activity-cell-num">' + (it.TotalPlayCount || 0) + '</td>';

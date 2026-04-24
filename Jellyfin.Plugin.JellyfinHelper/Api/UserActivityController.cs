@@ -129,6 +129,12 @@ public class UserActivityController : ControllerBase
                     .Where(a => a.UserId == userId)
                     .ToList();
 
+                // Separate playback-only activities for viewer/completion metrics
+                // to avoid counting favorite-only rows as watchers.
+                var playbackActivities = filteredActivities
+                    .Where(a => a.Played || a.PlayCount > 0 || a.PlaybackPositionTicks > 0)
+                    .ToList();
+
                 return new UserActivitySummary
                 {
                     ItemId = s.ItemId,
@@ -142,17 +148,17 @@ public class UserActivityController : ControllerBase
                     RuntimeTicks = s.RuntimeTicks,
                     TotalPlayCount = filteredActivities.Sum(a => a.PlayCount),
 
-                    // Per-user context: effectively 0 or 1 since filteredActivities
-                    // only contains entries for the single requested user.
-                    UniqueViewers = filteredActivities.Count > 0 ? 1 : 0,
+                    // Per-user context: effectively 0 or 1 since playbackActivities
+                    // only contains entries for the single requested user with actual playback.
+                    UniqueViewers = playbackActivities.Count > 0 ? 1 : 0,
 
-                    MostRecentWatch = filteredActivities
+                    MostRecentWatch = playbackActivities
                         .Where(a => a.LastPlayedDate.HasValue)
                         .Select(a => a.LastPlayedDate)
                         .DefaultIfEmpty(null)
                         .Max(),
-                    AverageCompletionPercent = filteredActivities.Count > 0
-                        ? Math.Round(filteredActivities.Average(a => a.CompletionPercent), 1)
+                    AverageCompletionPercent = playbackActivities.Count > 0
+                        ? Math.Round(playbackActivities.Average(a => a.CompletionPercent), 1)
                         : 0,
                     FavoriteCount = filteredActivities.Count(a => a.IsFavorite),
                     UserActivities = new Collection<UserItemActivity>(filteredActivities)

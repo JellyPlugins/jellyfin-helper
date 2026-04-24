@@ -778,11 +778,15 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                     }
                     else
                     {
-                        // Mismatched stats — discard them, scoring will use raw features
+                        // Mismatched stats — can't safely apply loaded weights either, because
+                        // they may have been trained in standardized space. Reset everything
+                        // to defaults and let the next Train() call re-fit from scratch.
+                        _weights = DefaultWeights.CreateWeightArray();
+                        _bias = DefaultWeights.Bias;
                         _featureMeans = null;
                         _featureStdDevs = null;
                         _logger?.LogWarning(
-                            "LearnedScoringStrategy: Discarding mismatched standardization stats (means={MeansLen}, stdDevs={StdDevsLen})",
+                            "LearnedScoringStrategy: Discarding weights + mismatched standardization stats (means={MeansLen}, stdDevs={StdDevsLen})",
                             data.FeatureMeans?.Length ?? -1,
                             data.FeatureStdDevs?.Length ?? -1);
                     }

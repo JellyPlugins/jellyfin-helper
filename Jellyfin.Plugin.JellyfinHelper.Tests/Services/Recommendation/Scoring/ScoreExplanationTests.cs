@@ -160,11 +160,11 @@ public sealed class ScoreExplanationTests
     }
 
     [Fact]
-    public void DetermineDominantSignal_AllZeros_ReturnsGenre()
+    public void DetermineDominantSignal_AllZeros_ReturnsNone()
     {
-        // When all are zero, Genre wins by default (first checked)
+        // When all contributions are zero, no signal is dominant
         var result = ScoreExplanation.DetermineDominantSignal(0, 0, 0, 0, 0, 0);
-        Assert.Equal("Genre", result);
+        Assert.Equal("None", result);
     }
 
     [Fact]

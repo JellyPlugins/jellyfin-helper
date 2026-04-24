@@ -468,7 +468,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void Train_MultipleTimes_ContinuesLearning()
+    public void Train_MultipleTimes_ProducesFiniteLoss()
     {
         var strategy = new NeuralScoringStrategy();
         var examples = GenerateExamples(20);
@@ -481,6 +481,11 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 
         Assert.False(double.IsNaN(loss1));
         Assert.False(double.IsNaN(loss2));
+
+        // Second training pass should not regress significantly
+        // (allowing a small epsilon for stochastic variation)
+        Assert.True(loss2 <= loss1 + 0.05,
+            $"Second training pass regressed: loss1={loss1:F6}, loss2={loss2:F6}");
     }
 
     // ============================================================

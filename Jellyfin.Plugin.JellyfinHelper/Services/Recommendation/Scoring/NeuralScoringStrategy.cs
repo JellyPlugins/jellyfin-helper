@@ -790,6 +790,23 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 }
             }
 
+            // Always restore the best weights if early stopping ever observed an improvement,
+            // otherwise the reported _lastValidationLoss won't match the persisted model.
+            // The restore inside the patience >= EarlyStoppingPatience branch only fires on
+            // early-stop break; when training runs to maxEpochs the last-epoch weights may
+            // differ from the best-observed weights.
+            if (useEarlyStopping && bestLoss < double.MaxValue)
+            {
+                Array.Copy(bestWIH, _weightsIH, _weightsIH.Length);
+                Array.Copy(bestBH1, _biasH1, _biasH1.Length);
+                Array.Copy(bestWH1H2, _weightsH1H2, _weightsH1H2.Length);
+                Array.Copy(bestBH2, _biasH2, _biasH2.Length);
+                Array.Copy(bestWH2H3, _weightsH2H3, _weightsH2H3.Length);
+                Array.Copy(bestBH3, _biasH3, _biasH3.Length);
+                Array.Copy(bestWH3O, _weightsH3O, _weightsH3O.Length);
+                _biasOutput = bestBO;
+            }
+
             _lastValidationLoss = bestLoss < double.MaxValue
                 ? bestLoss
                 : ComputeMseLoss(examples, vectors, weights, trainIdx);
@@ -808,7 +825,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
 
         // Persist weights outside the write lock so concurrent Score() calls are not blocked
-        // by disk I/O. TrySaveWeights() acquires its own brief read lock for snapshotting.
+        // by disk I/O. TrySaveWeights() reads the weight fields without a lock; this is safe
+        // because Train() is the only writer and is serialized by the scheduled task.
         TrySaveWeights();
 
         // Compute ranking metrics outside the write lock (Score() needs read lock).

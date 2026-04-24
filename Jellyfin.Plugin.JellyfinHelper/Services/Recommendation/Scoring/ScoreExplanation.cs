@@ -200,9 +200,11 @@ public sealed class ScoreExplanation
         if (v > bestValue)
         {
             bestName = "Studio";
+            bestValue = v;
         }
 
-        return bestName;
+        // When every contribution is zero, no signal is dominant.
+        return bestValue == 0 ? "None" : bestName;
     }
 
     /// <summary>

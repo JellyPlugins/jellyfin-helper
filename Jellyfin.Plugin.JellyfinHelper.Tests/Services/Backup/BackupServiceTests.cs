@@ -32,6 +32,7 @@ public class BackupServiceTests
             OrphanedSubtitleTaskMode = "Deactivate",
             LinkRepairTaskMode = "DryRun",
             SeerrCleanupTaskMode = "DryRun",
+            RecommendationsTaskMode = "DryRun",
             UseTrash = true,
             TrashFolderPath = ".jellyfin-trash",
             TrashRetentionDays = 30

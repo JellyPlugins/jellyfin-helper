@@ -30,7 +30,10 @@ public sealed class UserActivityResult
     public long TotalPlayCount { get; set; }
 
     /// <summary>
-    ///     Gets the per-item activity summaries sorted by total play count descending.
+    ///     Gets the per-item activity summaries. The builder
+    ///     (<see cref="UserActivityInsightsService.BuildActivityReport"/>) populates this
+    ///     ordered by total play count descending; cached/deserialized instances preserve
+    ///     whatever order was persisted.
     /// </summary>
     public Collection<UserActivitySummary> Items { get; init; } = [];
 }

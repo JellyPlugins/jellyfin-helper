@@ -36,7 +36,7 @@ public interface IScoringStrategy
 
 /// <summary>
 ///     Optional interface for scoring strategies that support learning from labelled examples.
-///     Separates the training concern from the scoring concern (Liskov Substitution Principle).
+///     Separates the training concern from the scoring concern (Interface Segregation Principle).
 /// </summary>
 public interface ITrainableStrategy
 {

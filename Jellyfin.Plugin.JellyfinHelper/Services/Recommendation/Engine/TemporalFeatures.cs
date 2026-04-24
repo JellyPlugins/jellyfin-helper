@@ -74,7 +74,7 @@ internal static class TemporalFeatures
     /// <summary>
     ///     Computes hour-of-day affinity: how well a candidate's genre matches
     ///     the user's viewing patterns for the current time-of-day bucket.
-    ///     Uses 4 buckets: morning (6–12), afternoon (12–18), evening (18–24), night (0–6).
+    ///     Uses 4 buckets: night (0–5), morning (6–11), afternoon (12–17), evening (18–23).
     ///     Returns 0.5 (neutral) if insufficient data.
     /// </summary>
     /// <param name="candidate">The candidate item.</param>

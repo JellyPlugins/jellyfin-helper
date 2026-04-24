@@ -96,7 +96,16 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
                 }
 
                 var json = File.ReadAllText(_cacheFilePath);
-                return JsonSerializer.Deserialize<List<RecommendationResult>>(json, JsonOptions);
+                var results = JsonSerializer.Deserialize<List<RecommendationResult>>(json, JsonOptions);
+                if (results is null)
+                {
+                    _pluginLog.LogWarning(
+                        "RecommendationCache",
+                        $"Cache file {_cacheFilePath} deserialized to null.",
+                        logger: _logger);
+                }
+
+                return results;
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
