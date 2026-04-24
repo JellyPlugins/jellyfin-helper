@@ -461,8 +461,8 @@ internal sealed class TrainingService
                     // Use content release year for recency (not watch date) to match Phase 1 semantics.
                     // Phase 1 uses rec.PremiereDate; organic items lack premiere metadata so
                     // approximate via ProductionYear, falling back to neutral 0.5.
-                    RecencyScore = w.Year.HasValue
-                        ? ContentScoring.ComputeRecencyScore(new DateTime(w.Year.Value, 7, 1))
+                    RecencyScore = w.Year is int recY and >= 1 and <= 9999
+                        ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1))
                         : 0.5,
                     YearProximityScore = ContentScoring.ComputeYearProximity(w.Year, avgYear),
                     GenreCount = w.Genres?.Count ?? 0,

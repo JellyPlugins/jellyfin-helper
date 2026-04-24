@@ -1173,7 +1173,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             };
             var json = JsonSerializer.Serialize(data, SerializerOptions);
 
-            var tempPath = _weightsPath + ".tmp";
+            var tempPath = _weightsPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
             File.WriteAllText(tempPath, json);
             File.Move(tempPath, _weightsPath, overwrite: true);
         }

@@ -24,9 +24,24 @@ public sealed class ScoringStrategyTests : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
-        if (Directory.Exists(_tempDir))
+        try
         {
-            Directory.Delete(_tempDir, true);
+            if (Directory.Exists(_tempDir))
+            {
+                Directory.Delete(_tempDir, true);
+            }
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // best-effort cleanup — directory may have been removed between Exists and Delete
+        }
+        catch (IOException)
+        {
+            // best-effort cleanup — file may be locked on CI
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // best-effort cleanup — permission edge cases on CI
         }
     }
 
@@ -2192,7 +2207,9 @@ public sealed class ScoringStrategyTests : IDisposable
         }
 
         // Train without standardization (7 < MinExamplesForStandardization=10)
-        strategy.Train(fewExamples);
+        Assert.True(
+            strategy.Train(fewExamples),
+            "Pre-condition: non-standardized training must succeed for the transition test to be meaningful.");
         var weightsAfterFirstTrain = strategy.CurrentWeights;
 
         // Now train WITH standardization (>= 10 examples) — should trigger weight reset

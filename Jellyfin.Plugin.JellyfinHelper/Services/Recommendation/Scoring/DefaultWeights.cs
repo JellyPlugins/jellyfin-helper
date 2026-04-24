@@ -167,6 +167,12 @@ public static class DefaultWeights
     /// <returns>A new array with <see cref="CandidateFeatures.FeatureCount"/> elements.</returns>
     public static double[] CreateWeightArray()
     {
+        // Guard: every FeatureIndex enum value must map to a valid slot.
+        // If a new FeatureIndex is added without updating FeatureCount, this fires immediately.
+        System.Diagnostics.Debug.Assert(
+            System.Enum.GetValues<FeatureIndex>().Length == CandidateFeatures.FeatureCount,
+            $"FeatureIndex count ({System.Enum.GetValues<FeatureIndex>().Length}) must match CandidateFeatures.FeatureCount ({CandidateFeatures.FeatureCount}).");
+
         var weights = new double[CandidateFeatures.FeatureCount];
         weights[(int)FeatureIndex.GenreSimilarity] = GenreSimilarity;
         weights[(int)FeatureIndex.CollaborativeScore] = CollaborativeScore;

@@ -55,6 +55,10 @@ public class RecommendationDtoTests
         Assert.Null(item.CommunityRating);
         Assert.Null(item.OfficialRating);
         Assert.Null(item.PrimaryImageTag);
+        Assert.Null(item.PremiereDate);
+        Assert.Empty(item.PeopleNames);
+        Assert.Empty(item.Studios);
+        Assert.Empty(item.Tags);
     }
 
     [Fact]

@@ -317,6 +317,8 @@ public sealed class CandidateFeatures
     /// <exception cref="ArgumentException">Thrown when the buffer is too small.</exception>
     public void WriteToVector(double[] buffer)
     {
+        ArgumentNullException.ThrowIfNull(buffer);
+
         if (buffer.Length < FeatureCount)
         {
             throw new ArgumentException(

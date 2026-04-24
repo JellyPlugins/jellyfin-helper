@@ -117,11 +117,21 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
+        // Deduplicate candidate genres to avoid inflated similarity from repeated entries
+        var uniqueCandidateGenres = new HashSet<string>(
+            candidateGenres.Where(static g => !string.IsNullOrWhiteSpace(g)),
+            StringComparer.OrdinalIgnoreCase);
+
+        if (uniqueCandidateGenres.Count == 0)
+        {
+            return 0;
+        }
+
         // Cosine similarity: dot(candidate, user) / (|candidate| * |user|)
         // Candidate vector: 1.0 for each genre present, 0.0 otherwise
         // User vector: preference weight for each genre
         var dotProduct = 0.0;
-        foreach (var genre in candidateGenres)
+        foreach (var genre in uniqueCandidateGenres)
         {
             if (genrePreferences.TryGetValue(genre, out var weight))
             {
@@ -134,8 +144,8 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        // |candidate| = sqrt(number of genres) since each component is 1.0
-        var candidateNorm = Math.Sqrt(candidateGenres.Count);
+        // |candidate| = sqrt(number of unique genres) since each component is 1.0
+        var candidateNorm = Math.Sqrt(uniqueCandidateGenres.Count);
 
         // |user| = sqrt(sum of squared weights)
         var userNormSq = 0.0;

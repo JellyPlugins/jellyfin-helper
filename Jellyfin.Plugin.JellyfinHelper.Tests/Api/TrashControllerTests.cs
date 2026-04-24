@@ -37,6 +37,10 @@ public class TrashControllerTests : IDisposable
                 Directory.Delete(_tempPath, true);
             }
         }
+        catch (DirectoryNotFoundException)
+        {
+            // best-effort cleanup — directory may have been removed between Exists and Delete
+        }
         catch (IOException)
         {
             // best-effort cleanup
