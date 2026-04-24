@@ -283,5 +283,8 @@
   "recsPlayCount": "Plays",
   "recsTopGenres": "Top Genres",
   "recsFavorites": "Favorites",
-  "recsSeries": "Series"
+  "recsSeries": "Series",
+  "syncPlaylistToggle": "Sync recommendations to Jellyfin playlist",
+  "syncPlaylistHelp": "Creates a per-user playlist visible in the Jellyfin UI. Updated on each scheduled run.",
+  "syncPlaylistDisabledHint": "Set Recommendations to 'Activate' to enable this option."
 }

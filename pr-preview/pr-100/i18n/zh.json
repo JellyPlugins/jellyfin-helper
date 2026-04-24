@@ -283,5 +283,8 @@
   "recsPlayCount": "播放次数",
   "recsTopGenres": "热门类型",
   "recsFavorites": "收藏",
-  "recsSeries": "剧集"
+  "recsSeries": "剧集",
+  "syncPlaylistToggle": "Sync recommendations to Jellyfin playlist",
+  "syncPlaylistHelp": "Creates a per-user playlist visible in the Jellyfin UI. Updated on each scheduled run.",
+  "syncPlaylistDisabledHint": "Set Recommendations to Activate to enable this option."
 }
