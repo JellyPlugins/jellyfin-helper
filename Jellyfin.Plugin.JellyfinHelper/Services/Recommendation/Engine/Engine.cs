@@ -276,17 +276,29 @@ public sealed class Engine : IRecommendationEngine
         // Arr stacks may create series folders before any episodes are available.
         // A series without episodes cannot be resolved to a playable item and would
         // waste a recommendation slot.
+        //
+        // Performance: load all episodes in a single query and collect distinct SeriesIds,
+        // rather than querying per-series (N queries → 1 query). This is O(E) in memory
+        // but avoids N round-trips to the database on slow NAS/Docker systems.
+        var allEpisodes = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Episode],
+            IsFolder = false
+        });
+
+        var seriesIdsWithEpisodes = new HashSet<Guid>();
+        foreach (var ep in allEpisodes)
+        {
+            if (ep is MediaBrowser.Controller.Entities.TV.Episode episode && episode.SeriesId != Guid.Empty)
+            {
+                seriesIdsWithEpisodes.Add(episode.SeriesId);
+            }
+        }
+
         var skippedSeries = 0;
         foreach (var s in series)
         {
-            var hasEpisodes = _libraryManager.GetItemList(new InternalItemsQuery
-            {
-                IncludeItemTypes = [BaseItemKind.Episode],
-                AncestorIds = [s.Id],
-                Limit = 1
-            }).Count > 0;
-
-            if (!hasEpisodes)
+            if (!seriesIdsWithEpisodes.Contains(s.Id))
             {
                 skippedSeries++;
                 continue;
