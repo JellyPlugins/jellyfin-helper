@@ -17,7 +17,7 @@ public sealed class ScoringStrategyTests : IDisposable
     /// </summary>
     public ScoringStrategyTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "jf-helper-test-" + Guid.NewGuid().ToString("N")[..8]);
+        _tempDir = Path.Join(Path.GetTempPath(), "jf-helper-test-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_tempDir);
     }
 
@@ -657,7 +657,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Learned_PersistsWeights_ToFile()
     {
-        var weightsPath = Path.Combine(_tempDir, "weights.json");
+        var weightsPath = Path.Join(_tempDir, "weights.json");
         var strategy = new LearnedScoringStrategy(weightsPath);
 
         var examples = new List<TrainingExample>();
@@ -688,7 +688,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Learned_LoadsWeights_FromFile()
     {
-        var weightsPath = Path.Combine(_tempDir, "weights2.json");
+        var weightsPath = Path.Join(_tempDir, "weights2.json");
 
         // Train and save
         var strategy1 = new LearnedScoringStrategy(weightsPath);
@@ -728,7 +728,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Learned_GracefulFallback_OnCorruptFile()
     {
-        var weightsPath = Path.Combine(_tempDir, "corrupt.json");
+        var weightsPath = Path.Join(_tempDir, "corrupt.json");
         File.WriteAllText(weightsPath, "not valid json {{{");
 
         // Should not throw, should use default weights
@@ -1041,7 +1041,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_WithWeightsPath_PassesToLearned()
     {
-        var weightsPath = Path.Combine(_tempDir, "ensemble_weights.json");
+        var weightsPath = Path.Join(_tempDir, "ensemble_weights.json");
         var strategy = new EnsembleScoringStrategy(weightsPath);
 
         Assert.NotNull(strategy.LearnedStrategy);
@@ -1700,8 +1700,8 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_State_PersistsAndRestores()
     {
-        var statePath = Path.Combine(_tempDir, "ensemble_state.json");
-        var weightsPath = Path.Combine(_tempDir, "ml_weights.json");
+        var statePath = Path.Join(_tempDir, "ensemble_state.json");
+        var weightsPath = Path.Join(_tempDir, "ml_weights.json");
 
         var learned = new LearnedScoringStrategy(weightsPath);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
@@ -1725,7 +1725,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_State_MissingFileStartsFromDefaults()
     {
-        var statePath = Path.Combine(_tempDir, "nonexistent_state.json");
+        var statePath = Path.Join(_tempDir, "nonexistent_state.json");
         var learned = new LearnedScoringStrategy();
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         var strategy = new EnsembleScoringStrategy(learned, heuristic, statePath: statePath);
@@ -1974,7 +1974,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Neural_PersistsAndRestoresWeights()
     {
-        var weightsPath = Path.Combine(_tempDir, "neural_weights.json");
+        var weightsPath = Path.Join(_tempDir, "neural_weights.json");
         var strategy = new NeuralScoringStrategy(weightsPath);
 
         var features = new CandidateFeatures
@@ -2133,9 +2133,9 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Ensemble_NeuralBetaPersisted_SurvivesRestart()
     {
-        var statePath = Path.Combine(_tempDir, "ensemble_neural_state.json");
-        var weightsPath = Path.Combine(_tempDir, "learned_neural_weights.json");
-        var neuralWeightsPath = Path.Combine(_tempDir, "neural_weights.json");
+        var statePath = Path.Join(_tempDir, "ensemble_neural_state.json");
+        var weightsPath = Path.Join(_tempDir, "learned_neural_weights.json");
+        var neuralWeightsPath = Path.Join(_tempDir, "neural_weights.json");
 
         var learned = new LearnedScoringStrategy(weightsPath);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
@@ -2160,7 +2160,7 @@ public sealed class ScoringStrategyTests : IDisposable
     [Fact]
     public void Neural_AdamTimestep_ResetOnRestore()
     {
-        var weightsPath = Path.Combine(_tempDir, "neural_adam_reset.json");
+        var weightsPath = Path.Join(_tempDir, "neural_adam_reset.json");
         var strategy = new NeuralScoringStrategy(weightsPath);
 
         // Train to advance Adam timestep
