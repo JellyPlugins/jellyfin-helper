@@ -288,18 +288,13 @@ internal sealed class TrainingService
                         : watchedItemForRec is null && isSeries
                             ? 0.65 // Series-level favorite without episode data
                             : ContentScoring.ComputeEngagementLabel(features.CompletionRatio);
-                    if (watchedItemForRec?.LastPlayedDate is not null
+                    // Watched shortly after recommendation — boost label
+                    label = watchedItemForRec?.LastPlayedDate is not null
                         && (watchedItemForRec.LastPlayedDate.Value - prevResult.GeneratedAt).TotalDays
                             <= EngineConstants.RecommendationInfluenceWindowDays
-                        && watchedItemForRec.LastPlayedDate.Value >= prevResult.GeneratedAt)
-                    {
-                        // Watched shortly after recommendation — boost label
-                        label = Math.Max(baseLabel, EngineConstants.RecommendationInfluencedLabel);
-                    }
-                    else
-                    {
-                        label = baseLabel;
-                    }
+                        && watchedItemForRec.LastPlayedDate.Value >= prevResult.GeneratedAt
+                        ? Math.Max(baseLabel, EngineConstants.RecommendationInfluencedLabel)
+                        : baseLabel;
                 }
                 else if (features.CompletionRatio > 0 && features.CompletionRatio < EngineConstants.AbandonedCompletionThreshold)
                 {
@@ -705,16 +700,10 @@ internal sealed class TrainingService
                 continue;
             }
 
-            bool inBucket;
-            if (isDay)
-            {
-                inBucket = w.LastPlayedDate.Value.DayOfWeek == watchDate.DayOfWeek;
-            }
-            else
-            {
-                inBucket = TemporalFeatures.GetTimeBucket(w.LastPlayedDate.Value.Hour)
+            var inBucket = isDay
+                ? w.LastPlayedDate.Value.DayOfWeek == watchDate.DayOfWeek
+                : TemporalFeatures.GetTimeBucket(w.LastPlayedDate.Value.Hour)
                     == TemporalFeatures.GetTimeBucket(watchDate.Hour);
-            }
 
             if (!inBucket)
             {

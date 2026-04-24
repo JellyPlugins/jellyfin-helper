@@ -61,7 +61,7 @@ function renderRecommendations(container, results) {
         }
     } catch (e) { /* localStorage unavailable — use default */ }
     if (recsSelect && initialIdx > 0) { recsSelect.value = '' + initialIdx; }
-    if (results.length > 0) { onUserChanged(initialIdx); }
+    onUserChanged(initialIdx);
 }
 
 function onUserChanged(index) {
@@ -99,7 +99,7 @@ function renderRecommendationCard(rec, rank) {
     var scorePercent = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
     var scoreClass = scorePercent >= 80 ? 'recs-score-high' : scorePercent >= 50 ? 'recs-score-mid' : 'recs-score-low';
     var html = '<div class="recs-item"><div class="recs-item-rank">#' + rank + '</div><div class="recs-item-body">';
-    html += '<div class="recs-item-title">' + escHtml(rec.Name || 'Unknown') + '</div><div class="recs-item-meta">';
+    html += '<div class="recs-item-title">' + escHtml(rec.Name || T('recsUnknownTitle', 'Unknown')) + '</div><div class="recs-item-meta">';
     if (rec.ItemType) { html += '<span class="recs-tag recs-tag-type">' + escHtml(rec.ItemType) + '</span>'; }
     if (rec.Genres && rec.Genres.length > 0) { for (var g = 0; g < Math.min(rec.Genres.length, 3); g++) { html += '<span class="recs-tag">' + escHtml(rec.Genres[g]) + '</span>'; } }
     if (typeof rec.Year === 'number' && rec.Year > 0) { html += '<span class="recs-tag recs-tag-year">' + rec.Year + '</span>'; }
@@ -175,7 +175,7 @@ function renderCompactActivityTable(container, items) {
     html += '<table class="activity-table"><thead><tr>';
     html += '<th>' + T('activityItemName', 'Title') + '</th>';
     html += '<th>' + T('activityItemType', 'Type') + '</th>';
-    html += '<th>' + T('activityPlays', 'Plays') + '</th>';
+    html += '<th class="activity-cell-num">' + T('activityPlays', 'Plays') + '</th>';
     html += '<th>' + T('activityLastWatched', 'Last Watched') + '</th>';
     html += '<th>' + T('activityCompletion', 'Completion') + '</th>';
     html += '</tr></thead><tbody>';

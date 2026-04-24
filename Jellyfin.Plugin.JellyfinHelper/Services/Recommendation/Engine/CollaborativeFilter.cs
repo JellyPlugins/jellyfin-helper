@@ -86,16 +86,10 @@ internal static class CollaborativeFilter
         var coOccurrence = new Dictionary<Guid, double>();
 
         // Resolve the current user's combined watch set
-        HashSet<Guid> userCombinedIds;
-        if (precomputedUserSets is not null && precomputedUserSets.TryGetValue(userProfile.UserId, out var precomputed))
-        {
-            userCombinedIds = precomputed;
-        }
-        else
-        {
-            // Fallback: build on-the-fly (single-user mode)
-            userCombinedIds = BuildCombinedWatchSet(userProfile);
-        }
+        var userCombinedIds =
+            precomputedUserSets is not null && precomputedUserSets.TryGetValue(userProfile.UserId, out var precomputed)
+                ? precomputed
+                : BuildCombinedWatchSet(userProfile); // Fallback: build on-the-fly (single-user mode)
 
         if (userCombinedIds.Count == 0)
         {
@@ -111,16 +105,10 @@ internal static class CollaborativeFilter
             }
 
             // Resolve the other user's combined watch set
-            HashSet<Guid> otherCombinedIds;
-            if (precomputedUserSets is not null && precomputedUserSets.TryGetValue(otherProfile.UserId, out var otherPrecomputed))
-            {
-                otherCombinedIds = otherPrecomputed;
-            }
-            else
-            {
-                // Fallback: build on-the-fly
-                otherCombinedIds = BuildCombinedWatchSet(otherProfile);
-            }
+            var otherCombinedIds =
+                precomputedUserSets is not null && precomputedUserSets.TryGetValue(otherProfile.UserId, out var otherPrecomputed)
+                    ? otherPrecomputed
+                    : BuildCombinedWatchSet(otherProfile); // Fallback: build on-the-fly
 
             if (otherCombinedIds.Count == 0)
             {

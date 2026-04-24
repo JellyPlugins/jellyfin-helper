@@ -74,7 +74,7 @@ public class UserActivityUpdateTask
                 $"{result.TotalPlayCount} plays across {result.TotalUsersAnalyzed} users. Saved to cache.",
                 _logger);
         }
-        else // DryRun
+        else if (taskMode == TaskMode.DryRun)
         {
             // DryRun: do NOT save to cache — no side effects
             _pluginLog.LogInfo(

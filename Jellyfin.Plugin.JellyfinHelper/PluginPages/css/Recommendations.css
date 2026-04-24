@@ -313,6 +313,7 @@
     text-overflow: ellipsis;
 }
 
+.activity-table th.activity-cell-num,
 .activity-cell-num {
     text-align: center;
     font-weight: 600;

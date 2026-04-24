@@ -72,14 +72,7 @@ public class RecommendationController : ControllerBase
 
         var config = _configService.GetConfiguration();
         // Use config default if not specified via query parameter
-        if (maxPerUser <= 0)
-        {
-            maxPerUser = Math.Clamp(config.MaxRecommendationsPerUser, 1, 100);
-        }
-        else
-        {
-            maxPerUser = Math.Clamp(maxPerUser, 1, 100);
-        }
+        maxPerUser = Math.Clamp(maxPerUser <= 0 ? config.MaxRecommendationsPerUser : maxPerUser, 1, 100);
 
         var cached = _cacheService.LoadResults();
         if (cached is not null)
@@ -129,14 +122,7 @@ public class RecommendationController : ControllerBase
         }
 
         var config = _configService.GetConfiguration();
-        if (maxResults <= 0)
-        {
-            maxResults = Math.Clamp(config.MaxRecommendationsPerUser, 1, 100);
-        }
-        else
-        {
-            maxResults = Math.Clamp(maxResults, 1, 100);
-        }
+        maxResults = Math.Clamp(maxResults <= 0 ? config.MaxRecommendationsPerUser : maxResults, 1, 100);
 
         // Try cache first — return a copy to avoid mutating the cached object
         var cached = _cacheService.LoadResults();

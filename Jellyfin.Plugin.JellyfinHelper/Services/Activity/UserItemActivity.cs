@@ -8,6 +8,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 /// </summary>
 public sealed class UserItemActivity
 {
+    private DateTime? _lastPlayedDate;
+
     /// <summary>
     ///     Gets or sets the Jellyfin user ID.
     /// </summary>
@@ -26,7 +28,11 @@ public sealed class UserItemActivity
     /// <summary>
     ///     Gets or sets the date the user last played this item (UTC).
     /// </summary>
-    public DateTime? LastPlayedDate { get; set; }
+    public DateTime? LastPlayedDate
+    {
+        get => _lastPlayedDate;
+        set => _lastPlayedDate = value.HasValue ? NormalizeToUtc(value.Value) : null;
+    }
 
     /// <summary>
     ///     Gets or sets the playback position in ticks (for partially watched items).
@@ -52,4 +58,12 @@ public sealed class UserItemActivity
     ///     Gets or sets the user's personal rating (if any).
     /// </summary>
     public double? UserRating { get; set; }
+
+    private static DateTime NormalizeToUtc(DateTime value) =>
+        value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
 }

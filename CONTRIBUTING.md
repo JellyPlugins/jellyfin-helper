@@ -16,9 +16,6 @@ Thank you for your interest in contributing! This guide covers everything you ne
 - [Architecture Overview](#architecture-overview)
 - [Configuration Page Build System](#configuration-page-build-system)
 - [Adding a New Feature](#adding-a-new-feature)
-- [Code Style](#code-style)
-- [Submitting Changes](#submitting-changes)
-- [Documentation Site](#documentation-site)
 
 ## Development Setup
 
@@ -95,7 +92,7 @@ dotnet test --filter "FullyQualifiedName~CreateBackup_IncludesAllSettings"
 
 Tests mirror the source structure:
 
-```
+```text
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── Api/                           # Controller tests
 │   ├── TrashControllerTests.cs
@@ -135,7 +132,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 
 ### Project Structure
 
-```
+```text
 Jellyfin.Plugin.JellyfinHelper/
 ├── Plugin.cs                    # Entry point, web page registration
 ├── PluginServiceRegistrator.cs  # DI registration for all services
@@ -243,7 +240,7 @@ Each task receives its mode from `PluginConfiguration` and logs differently base
 
 The ML recommendation system uses a layered scoring approach:
 
-```
+```text
 User Watch History → Feature Extraction (26 features) → Scoring Strategy → Ranked Results
                                                               ↑
                                                     ┌─────────┴──────────┐
@@ -271,7 +268,7 @@ The plugin's configuration page is a **single HTML file** (`configPage.html`) th
 
 ### Build Process
 
-```
+```text
 configPage.template.html (shell with placeholders)
     ├── css/*.css           → injected into <style> block
     └── js/*.js             → injected into <script> block
