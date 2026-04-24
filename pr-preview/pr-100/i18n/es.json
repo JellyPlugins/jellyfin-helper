@@ -244,6 +244,7 @@
   "loadingRecommendations": "Cargando recomendaciones…",
   "recsError": "No se pudieron cargar las recomendaciones. Asegúrate de que la tarea se haya ejecutado al menos una vez.",
   "recsEmpty": "Aún no hay recomendaciones. Ejecuta primero la tarea programada 'Helper Cleanup'.",
+  "recsUnknownTitle": "Desconocido",
   "recsUsers": "Usuarios analizados",
   "recsTotal": "Total de recomendaciones",
   "recsEngine": "Motor",

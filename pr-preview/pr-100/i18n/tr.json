@@ -244,6 +244,7 @@
   "loadingRecommendations": "Öneriler yükleniyor…",
   "recsError": "Öneriler yüklenemedi. Öneri görevinin en az bir kez çalıştığından emin olun.",
   "recsEmpty": "Henüz öneri yok. Önce 'Helper Cleanup' zamanlanmış görevini çalıştırın.",
+  "recsUnknownTitle": "Bilinmeyen",
   "recsUsers": "Analiz Edilen Kullanıcılar",
   "recsTotal": "Toplam Öneri",
   "recsEngine": "Motor",

@@ -244,6 +244,7 @@
   "loadingRecommendations": "Lade Empfehlungen…",
   "recsError": "Empfehlungen konnten nicht geladen werden. Stelle sicher, dass der Empfehlungs-Task mindestens einmal gelaufen ist.",
   "recsEmpty": "Noch keine Empfehlungen verfügbar. Führe zuerst den geplanten Task 'Helper Cleanup' aus.",
+  "recsUnknownTitle": "Unbekannt",
   "recsUsers": "Analysierte Benutzer",
   "recsTotal": "Empfehlungen gesamt",
   "recsEngine": "Engine",

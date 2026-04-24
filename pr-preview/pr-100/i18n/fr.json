@@ -244,6 +244,7 @@
   "loadingRecommendations": "Chargement des recommandations…",
   "recsError": "Impossible de charger les recommandations. Assurez-vous que la tâche a été exécutée au moins une fois.",
   "recsEmpty": "Aucune recommandation disponible. Exécutez d'abord la tâche planifiée 'Helper Cleanup'.",
+  "recsUnknownTitle": "Inconnu",
   "recsUsers": "Utilisateurs analysés",
   "recsTotal": "Recommandations totales",
   "recsEngine": "Moteur",
