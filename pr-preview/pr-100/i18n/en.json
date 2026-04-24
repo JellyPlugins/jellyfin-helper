@@ -243,7 +243,7 @@
   "recsLoading": "Select this tab to load recommendations…",
   "loadingRecommendations": "Loading recommendations…",
   "recsError": "Failed to load recommendations. Make sure the recommendation task has run at least once.",
-  "recsEmpty": "No recommendations available yet. Run the \"Helper Cleanup\" scheduled task first.",
+  "recsEmpty": "No recommendations available yet. Run the 'Helper Cleanup' scheduled task first.",
   "recsUsers": "Users Analyzed",
   "recsTotal": "Total Recommendations",
   "recsEngine": "Engine",
