@@ -9,10 +9,16 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 /// </summary>
 public sealed class UserActivityResult
 {
+    private DateTime _generatedAt = DateTime.UtcNow;
+
     /// <summary>
     ///     Gets or sets the UTC timestamp when this activity data was generated.
     /// </summary>
-    public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
+    public DateTime GeneratedAt
+    {
+        get => _generatedAt;
+        set => _generatedAt = NormalizeToUtc(value);
+    }
 
     /// <summary>
     ///     Gets or sets the total number of items with any user activity.
@@ -36,4 +42,12 @@ public sealed class UserActivityResult
     ///     whatever order was persisted.
     /// </summary>
     public Collection<UserActivitySummary> Items { get; init; } = [];
+
+    private static DateTime NormalizeToUtc(DateTime value) =>
+        value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
 }

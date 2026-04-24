@@ -285,11 +285,21 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         {
             IncludeItemTypes = [BaseItemKind.Episode],
             AncestorIds = [seriesId],
-            Limit = 1,
             IsFolder = false
         });
 
-        return episodes.Count > 0 ? episodes[0].Id : null;
+        if (episodes.Count == 0)
+        {
+            return null;
+        }
+
+        // Sort by season index then episode index to get S01E01
+        var first = episodes
+            .OrderBy(e => (e as Episode)?.ParentIndexNumber ?? int.MaxValue)
+            .ThenBy(e => e.IndexNumber ?? int.MaxValue)
+            .First();
+
+        return first.Id;
     }
 
     /// <summary>
@@ -303,6 +313,12 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        var user = _userManager.GetUserById(userId);
+        if (user is null)
+        {
+            return Task.FromResult(0);
+        }
+
         // Load ALL playlists visible to this user without SearchTerm filtering.
         // Jellyfin's search index does not reliably match Unicode characters (emoji prefix),
         // which caused old playlists to survive deletion and accumulate with suffixed names
@@ -310,7 +326,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         var existingPlaylists = _libraryManager.GetItemList(new InternalItemsQuery
         {
             IncludeItemTypes = [BaseItemKind.Playlist],
-            User = _userManager.GetUserById(userId)
+            User = user
         });
 
         var removed = 0;

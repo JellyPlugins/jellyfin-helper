@@ -706,13 +706,19 @@ function attachAutoSaveHandlers() {
             el.addEventListener('change', function () {
                 // Update Recommendations tab visibility only after save succeeds
                 if (id === 'cfgRecommendationsMode') {
+                    var isActive = el.value === 'Activate';
+                    // If deactivating/dry-running, uncheck playlist toggle BEFORE building payload
+                    // so the unchecked state is persisted to the server
+                    if (!isActive) {
+                        var chkPre = document.getElementById('cfgSyncPlaylist');
+                        if (chkPre) chkPre.checked = false;
+                    }
                     doSaveSettings(buildSettingsPayload(), {
                         quiet: true,
                         element: el,
                         onSuccess: function () {
                             updateRecsTabVisibility(el.value);
                             // Update playlist sync toggle greyed-out state
-                            var isActive = el.value === 'Activate';
                             var wrapper = document.getElementById('playlistSyncWrapper');
                             if (wrapper) {
                                 wrapper.style.opacity = isActive ? '' : '0.5';
@@ -720,11 +726,6 @@ function attachAutoSaveHandlers() {
                             }
                             var hint = document.querySelector('.playlist-sync-disabled-hint');
                             if (hint) hint.style.display = isActive ? 'none' : '';
-                            // If deactivating, also uncheck the toggle
-                            if (!isActive) {
-                                var chk = document.getElementById('cfgSyncPlaylist');
-                                if (chk) chk.checked = false;
-                            }
                         }
                     });
                     return;

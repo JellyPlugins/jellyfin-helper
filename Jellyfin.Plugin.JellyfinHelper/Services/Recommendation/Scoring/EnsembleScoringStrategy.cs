@@ -644,7 +644,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 json = JsonSerializer.Serialize(data, SerializerOptions);
             }
 
-            var tempPath = _statePath + ".tmp";
+            var tempPath = _statePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
             File.WriteAllText(tempPath, json);
             File.Move(tempPath, _statePath, overwrite: true);
         }

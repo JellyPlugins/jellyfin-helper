@@ -30,7 +30,21 @@ public class TrashControllerTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_tempPath)) Directory.Delete(_tempPath, true);
+        try
+        {
+            if (Directory.Exists(_tempPath))
+            {
+                Directory.Delete(_tempPath, true);
+            }
+        }
+        catch (IOException)
+        {
+            // best-effort cleanup
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // best-effort cleanup
+        }
     }
 
     private void SetupLibraries(params string[] paths)

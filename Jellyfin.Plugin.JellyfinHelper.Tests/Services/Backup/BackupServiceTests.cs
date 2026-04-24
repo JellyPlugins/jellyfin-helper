@@ -837,4 +837,19 @@ public class BackupServiceTests
             Directory.Delete(tempDir, true);
         }
     }
+
+    [Fact]
+    public void BackupData_RecommendationsTaskMode_SurvivesJsonRoundTrip()
+    {
+        var backup = CreateValidBackup();
+        backup.RecommendationsTaskMode = "Activate";
+        backup.SyncRecommendationsToPlaylist = true;
+
+        var json = JsonSerializer.Serialize(backup);
+        var deserialized = JsonSerializer.Deserialize<BackupData>(json);
+
+        Assert.NotNull(deserialized);
+        Assert.Equal("Activate", deserialized!.RecommendationsTaskMode);
+        Assert.True(deserialized.SyncRecommendationsToPlaylist);
+    }
 }

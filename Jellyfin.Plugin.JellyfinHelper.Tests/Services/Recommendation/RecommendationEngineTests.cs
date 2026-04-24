@@ -651,11 +651,12 @@ public class RecommendationEngineTests
         var map = CollaborativeFilter.BuildCollaborativeMap(user, [user, other1, other2]);
 
         // uniqueItem should have accumulated Jaccard weight from both other users
+        // Each user shares 3/4 items with user → Jaccard = 0.75, total = 1.5
         Assert.True(map.ContainsKey(uniqueItem));
-        Assert.True(map[uniqueItem] > 0.75, $"Expected accumulated weight > 0.75 from two users, got {map[uniqueItem]}");
+        Assert.Equal(1.5, map[uniqueItem], 4);
     }
 
-    // â”€â”€ PeopleSimilarity Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â”€â”€ PeopleSimilarity Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [Fact]
     public void ComputePeopleSimilarity_EmptySets_ReturnsZero()
@@ -1140,7 +1141,7 @@ public class RecommendationEngineTests
 
         Assert.Equal(0.0, underexposure); // None are underexposed
         Assert.Equal(1.0, dominance); // All 2/2 genres are in top-3
-        Assert.Equal(0.0, gap); // Candidate avg (0.9) > overall avg (0.5)
+        Assert.Equal(0.0, gap); // Candidate avg (0.9) > overall avg (0.5) → gap = 0
     }
 
     [Fact]

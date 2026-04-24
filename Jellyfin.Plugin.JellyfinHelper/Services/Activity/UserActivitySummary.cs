@@ -10,6 +10,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 /// </summary>
 public sealed class UserActivitySummary
 {
+    private DateTime? _mostRecentWatch;
+
     /// <summary>
     ///     Gets or sets the Jellyfin item ID.
     /// </summary>
@@ -72,7 +74,11 @@ public sealed class UserActivitySummary
     /// <summary>
     ///     Gets or sets the most recent watch date across all users (UTC).
     /// </summary>
-    public DateTime? MostRecentWatch { get; set; }
+    public DateTime? MostRecentWatch
+    {
+        get => _mostRecentWatch;
+        set => _mostRecentWatch = value.HasValue ? NormalizeToUtc(value.Value) : null;
+    }
 
     /// <summary>
     ///     Gets or sets the average completion percentage across all users.
@@ -88,4 +94,12 @@ public sealed class UserActivitySummary
     ///     Gets the per-user activity details for this item.
     /// </summary>
     public Collection<UserItemActivity> UserActivities { get; init; } = [];
+
+    private static DateTime NormalizeToUtc(DateTime value) =>
+        value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
 }

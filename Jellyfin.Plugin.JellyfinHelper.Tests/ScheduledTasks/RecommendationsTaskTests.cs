@@ -128,6 +128,11 @@ public class RecommendationsTaskTests
 
         // Assert — generation still happens
         _recsEngineMock.Verify(x => x.GetAllRecommendations(20, It.IsAny<CancellationToken>()), Times.Once);
+
+        // Assert — training failure is logged as a warning
+        _pluginLogMock.Verify(
+            x => x.LogWarning("Recommendations", It.Is<string>(s => s.Contains("training failed", StringComparison.OrdinalIgnoreCase)), It.IsAny<Exception>(), It.IsAny<ILogger>()),
+            Times.Once);
     }
 
     [Fact]

@@ -53,10 +53,10 @@ function renderRecommendations(container, results) {
     // Restore previously selected user from browser storage (fallback: first user)
     var initialIdx = 0;
     try {
-        var savedUserId = localStorage.getItem('jh_recsSelectedUser');
+        var savedUserId = (localStorage.getItem('jh_recsSelectedUser') || '').toLowerCase();
         if (savedUserId) {
             for (var s = 0; s < results.length; s++) {
-                if (results[s].UserId === savedUserId) { initialIdx = s; break; }
+                if ((results[s].UserId || '').toLowerCase() === savedUserId) { initialIdx = s; break; }
             }
         }
     } catch (e) { /* localStorage unavailable — use default */ }

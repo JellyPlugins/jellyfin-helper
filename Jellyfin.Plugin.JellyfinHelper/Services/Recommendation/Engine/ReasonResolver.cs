@@ -117,7 +117,8 @@ internal static class ReasonResolver
             return ("Matches your viewing patterns", "reasonInteraction", null);
         }
 
-        if (string.Equals(dominant, "People", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(dominant, "People", StringComparison.OrdinalIgnoreCase)
+            && explanation.PeopleContribution > EngineConstants.ReasonScoreThreshold)
         {
             if (matchedPerson is not null)
             {
@@ -127,7 +128,8 @@ internal static class ReasonResolver
             return ("Features actors/directors you enjoy", "reasonPeople", null);
         }
 
-        if (string.Equals(dominant, "Studio", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(dominant, "Studio", StringComparison.OrdinalIgnoreCase)
+            && explanation.StudioContribution > EngineConstants.ReasonScoreThreshold)
         {
             if (matchedStudio is not null)
             {

@@ -115,7 +115,7 @@ public class BackupService : IBackupService
             TrashFolderPath = config.TrashFolderPath,
             TrashRetentionDays = config.TrashRetentionDays,
 
-            // Smart Recommendations (only task mode â€” count and strategy use sensible defaults)
+            // Smart Recommendations (only task mode — count and strategy use sensible defaults)
             RecommendationsTaskMode = config.RecommendationsTaskMode.ToString(),
             SyncRecommendationsToPlaylist = config.SyncRecommendationsToPlaylist
         };
@@ -287,11 +287,11 @@ public class BackupService : IBackupService
             : backup.TrashFolderPath;
         config.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
 
-        // Smart Recommendations (only task mode â€” count and strategy use sensible defaults).
+        // Smart Recommendations (only task mode — count and strategy use sensible defaults).
         // Default to DryRun so importing an older backup enables the Discover UI in read-only mode.
         config.RecommendationsTaskMode = ParseTaskMode(backup.RecommendationsTaskMode, TaskMode.DryRun);
 
-        // Playlist sync toggle â€” defaults to false for older backups without this field
+        // Playlist sync toggle — defaults to false for older backups without this field
         config.SyncRecommendationsToPlaylist = backup.SyncRecommendationsToPlaylist;
 
         // Arr instances

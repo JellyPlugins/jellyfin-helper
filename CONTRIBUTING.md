@@ -589,7 +589,7 @@ Sub-tasks executed in order (each respecting its configured task mode):
 - **Parental rating enforcement** — Respects Jellyfin's per-user `MaxParentalRating` setting. Candidates exceeding the user's rating limit are excluded before scoring, ensuring children with restricted profiles only receive age-appropriate recommendations. Works dynamically with all rating systems (FSK, MPAA, BBFC, etc.) via Jellyfin's numeric `InheritedParentalRatingValue`
 - **Candidate filtering** — Excludes already-watched items, series with watched episodes, and items above the user's parental rating; scores all eligible unwatched candidates against the user's profile
 - **Configurable** — `RecommendationsTaskMode` (DryRun/Activate/Deactivate); defaults to 20 recommendations per user (API accepts 1–100 via `maxResults` query parameter)
-- **Playlist sync** â€” Optional feature that creates native Jellyfin playlists per user containing recommended items in score-ranked order. Playlists appear in all Jellyfin clients (Web, Android, TV). Automatically cleaned up when disabled. Toggle in Settings is greyed out unless Recommendations TaskMode is set to Activate
+- **Playlist sync** — Optional feature that creates native Jellyfin playlists per user containing recommended items in score-ranked order. Playlists appear in all Jellyfin clients (Web, Android, TV). Automatically cleaned up when disabled. Toggle in Settings is greyed out unless Recommendations TaskMode is set to Activate
 - **Disk-persisted state** — Learned weights (`ml_weights.json`), ensemble state (`ensemble_state.json`), and recommendation cache (`jellyfin-helper-recommendations-latest.json`) are all persisted to survive server restarts
 
 ### User Activity Insights

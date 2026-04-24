@@ -198,6 +198,15 @@ internal sealed class TrainingService
                         ? Math.Clamp((double)episodesForScoring.Count(e => e.Played) / episodesForScoring.Count, 0.0, 1.0)
                         : 0.5;
                 }
+                else if (isSeries && wasWatched && watchedItemForRec is null)
+                {
+                    // Series-level favorite without watched episodes: the user favorited
+                    // the series itself but hasn't played any episodes yet.
+                    // Treat as explicit positive interaction with favorite-appropriate defaults.
+                    hasUserInteraction = true;
+                    userRatingScore = 0.5;
+                    completionRatio = 0.0;
+                }
                 else
                 {
                     hasUserInteraction = watchedItemForRec is not null;
@@ -276,7 +285,9 @@ internal sealed class TrainingService
                     // influenced the watch — reward with a higher label.
                     var baseLabel = watchedItemForRec is { IsFavorite: true, Played: false }
                         ? 0.65 // Favorite-only: explicit interest signal even without playback
-                        : ContentScoring.ComputeEngagementLabel(features.CompletionRatio);
+                        : watchedItemForRec is null && isSeries
+                            ? 0.65 // Series-level favorite without episode data
+                            : ContentScoring.ComputeEngagementLabel(features.CompletionRatio);
                     if (watchedItemForRec?.LastPlayedDate is not null
                         && (watchedItemForRec.LastPlayedDate.Value - prevResult.GeneratedAt).TotalDays
                             <= EngineConstants.RecommendationInfluenceWindowDays
@@ -487,7 +498,7 @@ internal sealed class TrainingService
                 {
                     Features = features,
                     Label = label,
-                    GeneratedAtUtc = w.LastPlayedDate ?? DateTime.UtcNow,
+                    GeneratedAtUtc = w.LastPlayedDate ?? DateTime.UtcNow.AddDays(-90),
                     SampleWeight = 0.7 // Slightly lower weight than recommended items to avoid overwhelming
                 });
                 organicCount++;
