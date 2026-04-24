@@ -152,6 +152,17 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         double genrePenaltyFloor = DefaultGenrePenaltyFloor,
         ILogger? logger = null)
     {
+        // Guard: the heuristic must have its genre penalty disabled (floor = 1.0) because
+        // the ensemble applies the penalty centrally via ComputeSoftGenrePenalty after blending.
+        // A default-configured heuristic (floor 0.10) would cause double-penalization.
+        if (Math.Abs(heuristic.GenrePenaltyFloor - 1.0) > 0.001)
+        {
+            throw new ArgumentException(
+                $"Heuristic sub-strategy must have genrePenaltyFloor=1.0 (penalty disabled) to avoid " +
+                $"double-penalization. Got {heuristic.GenrePenaltyFloor:F3}.",
+                nameof(heuristic));
+        }
+
         _alphaMin = Math.Clamp(alphaMin, 0.0, 1.0);
         _alphaMax = Math.Clamp(alphaMax, _alphaMin, 1.0);
         _genrePenaltyFloor = Math.Clamp(genrePenaltyFloor, 0.0, 1.0);
@@ -159,7 +170,6 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         _learned = learned;
         _neural = neural;
-        // Disable penalty in sub-strategies since ensemble applies it centrally
         _heuristic = heuristic;
         _logger = logger;
 

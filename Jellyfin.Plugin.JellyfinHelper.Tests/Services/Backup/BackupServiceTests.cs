@@ -852,4 +852,24 @@ public class BackupServiceTests
         Assert.Equal("Activate", deserialized!.RecommendationsTaskMode);
         Assert.True(deserialized.SyncRecommendationsToPlaylist);
     }
+
+    [Fact]
+    public void Sanitize_InvalidSeerrCleanupTaskMode_DefaultsToDeactivate()
+    {
+        var backup = CreateValidBackup();
+        backup.SeerrCleanupTaskMode = "InvalidMode";
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Equal("Deactivate", backup.SeerrCleanupTaskMode);
+    }
+
+    [Fact]
+    public void Sanitize_InvalidRecommendationsTaskMode_DefaultsToDryRun()
+    {
+        var backup = CreateValidBackup();
+        backup.RecommendationsTaskMode = "InvalidMode";
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Equal("DryRun", backup.RecommendationsTaskMode);
+    }
 }

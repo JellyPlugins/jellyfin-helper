@@ -43,6 +43,8 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
     /// <inheritdoc />
     public void SaveResults(IReadOnlyList<RecommendationResult> results)
     {
+        ArgumentNullException.ThrowIfNull(results);
+
         lock (_fileLock)
         {
             try

@@ -287,5 +287,6 @@
   "recsSeries": "Diziler",
   "syncPlaylistToggle": "Onerileri Jellyfin oynatma listesine senkronize et",
   "syncPlaylistHelp": "Her kullanici icin Jellyfin arayuzunde gorunen bir oynatma listesi olusturur.",
-  "syncPlaylistDisabledHint": "Bu secenegi etkinlestirmek icin Onerileri Aktif olarak ayarlayin."
+  "syncPlaylistDisabledHint": "Bu secenegi etkinlestirmek icin Onerileri Aktif olarak ayarlayin.",
+  "recsAndMore": "ve {0} daha…"
 }

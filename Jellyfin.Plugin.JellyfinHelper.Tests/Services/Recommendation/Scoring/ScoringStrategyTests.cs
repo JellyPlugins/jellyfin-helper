@@ -961,13 +961,31 @@ public sealed class ScoringStrategyTests : IDisposable
     {
         var strategy = new EnsembleScoringStrategy();
 
+        // Capture weights before training to verify they actually change
+        var weightsBefore = (double[])strategy.LearnedStrategy.CurrentWeights.Clone();
+        var biasBefore = strategy.LearnedStrategy.CurrentBias;
+
         var examples = GenerateTrainingExamples(30);
         var result = strategy.Train(examples);
 
         Assert.True(result);
-        // Verify the learned strategy was trained by checking that scoring changes after training
-        // (The learned strategy's weights should have been updated)
         Assert.NotNull(strategy.LearnedStrategy);
+
+        // Verify the learned strategy's weights were actually updated by training
+        var weightsAfter = strategy.LearnedStrategy.CurrentWeights;
+        var weightsChanged = false;
+        for (var i = 0; i < weightsBefore.Length; i++)
+        {
+            if (Math.Abs(weightsBefore[i] - weightsAfter[i]) > 1e-10)
+            {
+                weightsChanged = true;
+                break;
+            }
+        }
+
+        var biasChanged = Math.Abs(biasBefore - strategy.LearnedStrategy.CurrentBias) > 1e-10;
+        Assert.True(weightsChanged || biasChanged,
+            "Training should have changed at least one weight or the bias in the learned strategy");
     }
 
     [Fact]

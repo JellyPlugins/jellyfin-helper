@@ -169,10 +169,11 @@ public static class DefaultWeights
     {
         // Guard: every FeatureIndex enum value must map to a valid slot.
         // If a new FeatureIndex is added without updating FeatureCount, this fires immediately.
-        if (System.Enum.GetValues<FeatureIndex>().Length != CandidateFeatures.FeatureCount)
+        var featureIndexCount = System.Enum.GetValues<FeatureIndex>().Length;
+        if (featureIndexCount != CandidateFeatures.FeatureCount)
         {
             throw new System.InvalidOperationException(
-                $"FeatureIndex count ({System.Enum.GetValues<FeatureIndex>().Length}) must match CandidateFeatures.FeatureCount ({CandidateFeatures.FeatureCount}).");
+                $"FeatureIndex count ({featureIndexCount}) must match CandidateFeatures.FeatureCount ({CandidateFeatures.FeatureCount}).");
         }
 
         var weights = new double[CandidateFeatures.FeatureCount];

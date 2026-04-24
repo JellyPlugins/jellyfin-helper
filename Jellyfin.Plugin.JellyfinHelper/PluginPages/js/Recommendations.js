@@ -201,7 +201,7 @@ function renderCompactActivityTable(container, items) {
         html += '<span class="activity-completion-text">' + pct + '%</span></div></td></tr>';
     }
     html += '</tbody></table>';
-    if (items.length > maxRows) { html += '<div class="activity-more">' + T('andMore', 'and') + ' ' + (items.length - maxRows) + ' ' + T('more', 'more') + '\u2026</div>'; }
+    if (items.length > maxRows) { html += '<div class="activity-more">' + escHtml(T('recsAndMore', 'and {0} more\u2026').replace('{0}', items.length - maxRows)) + '</div>'; }
     container.innerHTML = html;
 }
 

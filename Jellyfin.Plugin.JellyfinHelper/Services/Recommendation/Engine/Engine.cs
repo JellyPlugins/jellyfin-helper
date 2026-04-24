@@ -73,7 +73,8 @@ public sealed class Engine : IRecommendationEngine
         if (userProfile.WatchedItems.Count == 0)
         {
             // Cold-start: user exists but has no watch history — return popular/trending items
-            return GenerateColdStartRecommendations(userId, maxResults, userProfile.UserName, maxParentalRating: userProfile.MaxParentalRating);
+            // Reuse cached candidates from the last batch run if available to avoid redundant library queries
+            return GenerateColdStartRecommendations(userId, maxResults, userProfile.UserName, _cachedSnapshot?.Candidates, userProfile.MaxParentalRating);
         }
 
         // Reuse cached candidates/people from last batch run if available, otherwise load fresh

@@ -108,6 +108,9 @@ internal sealed class TrainingService
             double AvgYear,
             PreferenceBuilder.GenreExposureAnalysis GenreExposure)>();
 
+        // Build a lookup for O(1) profile access by user ID (avoids O(N) FirstOrDefault per result)
+        var profileById = new Dictionary<Guid, UserWatchProfile>(allProfiles.Count);
+
         foreach (var profile in allProfiles)
         {
             var gp = PreferenceBuilder.BuildGenrePreferenceVector(profile);
@@ -116,6 +119,7 @@ internal sealed class TrainingService
             var ay = ContentScoring.ComputeAverageYear(profile);
             var ge = PreferenceBuilder.BuildGenreExposureAnalysis(gp, profile);
             perUserCache[profile.UserId] = (gp, co, cm, ay, ge);
+            profileById[profile.UserId] = profile;
         }
 
         foreach (var prevResult in previousResults)
@@ -129,8 +133,7 @@ internal sealed class TrainingService
 
             seriesLookup.TryGetValue(prevResult.UserId, out var watchedSeriesIds);
 
-            var userProfile = allProfiles.FirstOrDefault(p => p.UserId == prevResult.UserId);
-            if (userProfile is null)
+            if (!profileById.TryGetValue(prevResult.UserId, out var userProfile))
             {
                 continue;
             }

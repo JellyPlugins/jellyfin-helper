@@ -10,6 +10,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 /// </summary>
 public sealed class RecommendationResult
 {
+    private DateTime _generatedAt = DateTime.UtcNow;
+
     /// <summary>
     ///     Gets or sets the user ID these recommendations belong to.
     /// </summary>
@@ -32,8 +34,14 @@ public sealed class RecommendationResult
 
     /// <summary>
     ///     Gets or sets the UTC timestamp when these recommendations were generated.
+    ///     Normalized to UTC on set to ensure consistency after JSON deserialization
+    ///     (mirrors <see cref="Activity.UserActivityResult.GeneratedAt"/>).
     /// </summary>
-    public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
+    public DateTime GeneratedAt
+    {
+        get => _generatedAt;
+        set => _generatedAt = NormalizeToUtc(value);
+    }
 
     /// <summary>
     ///     Gets or sets the name of the scoring strategy used to generate these recommendations.
@@ -44,4 +52,12 @@ public sealed class RecommendationResult
     ///     Gets or sets the i18n key for the scoring strategy name.
     /// </summary>
     public string ScoringStrategyKey { get; set; } = string.Empty;
+
+    private static DateTime NormalizeToUtc(DateTime value) =>
+        value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
 }

@@ -287,5 +287,6 @@
   "recsSeries": "Séries",
   "syncPlaylistToggle": "Sincronizar recomendacoes com playlist do Jellyfin",
   "syncPlaylistHelp": "Cria uma playlist por utilizador visivel no Jellyfin. Atualizada em cada execucao agendada.",
-  "syncPlaylistDisabledHint": "Ative as recomendacoes para habilitar esta opcao."
+  "syncPlaylistDisabledHint": "Ative as recomendacoes para habilitar esta opcao.",
+  "recsAndMore": "e mais {0}…"
 }

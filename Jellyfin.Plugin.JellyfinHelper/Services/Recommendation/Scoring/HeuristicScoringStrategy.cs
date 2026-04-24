@@ -32,6 +32,13 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
         _genrePenaltyFloor = Math.Clamp(genrePenaltyFloor, 0.0, 1.0);
     }
 
+    /// <summary>
+    ///     Gets the configured genre penalty floor for this instance.
+    ///     Used by <see cref="EnsembleScoringStrategy"/> to validate that the heuristic
+    ///     was constructed with penalty disabled (floor = 1.0) to avoid double-penalization.
+    /// </summary>
+    internal double GenrePenaltyFloor => _genrePenaltyFloor;
+
     /// <inheritdoc />
     public string Name => "Heuristic (Fixed Weights)";
 
