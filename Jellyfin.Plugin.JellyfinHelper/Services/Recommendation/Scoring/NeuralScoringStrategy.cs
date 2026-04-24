@@ -797,7 +797,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             _featureMeans = featureMeans;
             _featureStdDevs = featureStdDevs;
 
-            TrySaveWeights();
             LogFeatureImportance(inputSize);
         }
         finally
@@ -807,6 +806,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _rwLock.ExitWriteLock();
             }
         }
+
+        // Persist weights outside the write lock so concurrent Score() calls are not blocked
+        // by disk I/O. TrySaveWeights() acquires its own brief read lock for snapshotting.
+        TrySaveWeights();
 
         // Compute ranking metrics outside the write lock (Score() needs read lock).
         var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(examples, this, RankingMetrics.DefaultK);

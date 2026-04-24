@@ -265,7 +265,9 @@ internal sealed class TrainingService
                     // Check temporal proximity: was the item watched within the influence window
                     // after the recommendation was generated? If so, the recommendation likely
                     // influenced the watch — reward with a higher label.
-                    var baseLabel = ContentScoring.ComputeEngagementLabel(features.CompletionRatio);
+                    var baseLabel = watchedItemForRec is { IsFavorite: true, Played: false }
+                        ? 0.65 // Favorite-only: explicit interest signal even without playback
+                        : ContentScoring.ComputeEngagementLabel(features.CompletionRatio);
                     if (watchedItemForRec?.LastPlayedDate is not null
                         && (watchedItemForRec.LastPlayedDate.Value - prevResult.GeneratedAt).TotalDays
                             <= EngineConstants.RecommendationInfluenceWindowDays
@@ -436,8 +438,11 @@ internal sealed class TrainingService
                     GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(w.Genres ?? [], genrePreferences),
                     CollaborativeScore = collabScore,
                     RatingScore = ratingScore,
-                    RecencyScore = w.LastPlayedDate.HasValue
-                        ? ContentScoring.ComputeRecencyScore(w.LastPlayedDate.Value)
+                    // Use content release year for recency (not watch date) to match Phase 1 semantics.
+                    // Phase 1 uses rec.PremiereDate; organic items lack premiere metadata so
+                    // approximate via ProductionYear, falling back to neutral 0.5.
+                    RecencyScore = w.Year.HasValue
+                        ? ContentScoring.ComputeRecencyScore(new DateTime(w.Year.Value, 7, 1))
                         : 0.5,
                     YearProximityScore = ContentScoring.ComputeYearProximity(w.Year, avgYear),
                     GenreCount = w.Genres?.Count ?? 0,
@@ -455,8 +460,12 @@ internal sealed class TrainingService
                     TagSimilarity = tagSimilarity
                 };
 
-                // Organic watches are strong positive signals — label based on completion
-                var label = ContentScoring.ComputeEngagementLabel(completionRatio);
+                // Organic watches are strong positive signals — label based on completion.
+                // Favorite-only items (not played) get an explicit positive label since
+                // favoriting signals interest even without playback evidence.
+                var label = (!w.Played && w.IsFavorite)
+                    ? 0.65
+                    : ContentScoring.ComputeEngagementLabel(completionRatio);
 
                 examples.Add(new TrainingExample
                 {

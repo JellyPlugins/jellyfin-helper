@@ -195,8 +195,7 @@ internal static class ReasonResolver
         }
 
         return candidate.Studios
-            .Where(s => !string.IsNullOrEmpty(s) && preferredStudios.Contains(s))
-            .FirstOrDefault();
+            .FirstOrDefault(s => !string.IsNullOrEmpty(s) && preferredStudios.Contains(s));
     }
 
     /// <summary>

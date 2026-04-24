@@ -130,7 +130,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     ///     with injected sub-strategies for testability and flexibility.
     /// </summary>
     /// <param name="learned">The learned (adaptive ML) sub-strategy.</param>
-    /// <param name="heuristic">The heuristic (rule-based) sub-strategy.</param>
+    /// <param name="heuristic">
+    ///     The heuristic (rule-based) sub-strategy. Must be constructed with
+    ///     <c>genrePenaltyFloor: 1.0</c> (penalty disabled) because the ensemble applies
+    ///     the genre penalty centrally via <see cref="ComputeSoftGenrePenalty"/> after blending.
+    ///     Passing a default-configured heuristic (floor 0.10) would cause double-penalization.
+    /// </param>
     /// <param name="neural">Optional neural (MLP) sub-strategy. When provided, it is blended in after sufficient training data is available.</param>
     /// <param name="statePath">Optional file path for persisting ensemble state.</param>
     /// <param name="alphaMin">Minimum blending factor.</param>

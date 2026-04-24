@@ -324,12 +324,13 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             // first time but weights were previously trained on raw (unstandardized) features,
             // reset to defaults. Without this, the old weights would produce wildly wrong
             // predictions on the now-standardized inputs until gradient descent corrects them.
-            if (featureMeans is not null && _featureMeans is null)
+            var standardizationModeChanged = (featureMeans is null) != (_featureMeans is null);
+            if (standardizationModeChanged)
             {
                 _weights = DefaultWeights.CreateWeightArray();
                 _bias = DefaultWeights.Bias;
                 _logger?.LogInformation(
-                    "LearnedScoringStrategy: Reset weights to defaults for standardization transition (generation {Gen})",
+                    "LearnedScoringStrategy: Reset weights to defaults after standardization mode change (generation {Gen})",
                     _trainingGeneration);
             }
 

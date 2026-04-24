@@ -160,12 +160,10 @@ public class BackupData
     // === Smart Recommendations ===
 
     /// <summary>
-    ///     Gets or sets the execution mode for the Smart Recommendations task.
-    ///     Other recommendation settings (count, scoring strategy) are intentionally
-    ///     excluded — they are runtime preferences that use sensible defaults.
+    ///     Gets or sets the Recommendations task mode.
     /// </summary>
     [JsonPropertyName("recommendationsTaskMode")]
-    public string RecommendationsTaskMode { get; set; } = string.Empty;
+    public string RecommendationsTaskMode { get; set; } = "DryRun";
 
     // === Historical Data ===
 
