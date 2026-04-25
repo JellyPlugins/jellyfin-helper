@@ -100,6 +100,11 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
                 if (itemIds.Length == 0)
                 {
+                    // Clean up stale playlists when no playable items resolve,
+                    // so users don't keep seeing outdated recommendations.
+                    var removedStale = await RemoveUserPlaylistsAsync(result.UserId, cancellationToken).ConfigureAwait(false);
+                    syncResult.OldPlaylistsRemoved += removedStale;
+
                     _pluginLog.LogDebug(
                         "PlaylistSync",
                         $"No playable items resolved for user '{result.UserName}' — skipping playlist creation.",

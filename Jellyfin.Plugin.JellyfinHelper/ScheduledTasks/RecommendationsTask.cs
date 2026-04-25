@@ -16,7 +16,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 ///     and generates fresh recommendations for all users.
 ///     Training and incremental updates only run when TaskMode is Activate.
 ///     DryRun mode generates recommendations but does NOT persist them or train models.
-///     Deactivate mode skips the task entirely (true no-op).
+///     Deactivate mode skips the task entirely (true no-op), but cleans up any
+///     previously created recommendation playlists as a best-effort step.
 /// </summary>
 public class RecommendationsTask
 {
@@ -74,10 +75,18 @@ public class RecommendationsTask
     /// <returns>A completed task.</returns>
     public async Task ExecuteAsync(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
-        // Deactivate mode: true no-op — skip all expensive work
+        // Deactivate mode: true no-op — skip all expensive work.
+        // However, clean up any previously created recommendation playlists
+        // so users who switch from Activate to Deactivate don't keep stale playlists.
         if (config.RecommendationsTaskMode == TaskMode.Deactivate)
         {
             _pluginLog.LogInfo("Recommendations", "Task skipped (Deactivated).", _logger);
+
+            if (_playlistService != null)
+            {
+                await CleanupOldPlaylistsAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             progress.Report(100);
             return;
         }
@@ -181,7 +190,8 @@ public class RecommendationsTask
 
     /// <summary>
     ///     Attempts to remove all recommendation playlists from a previous run.
-    ///     This is called when playlist sync is disabled to clean up stale playlists.
+    ///     This is called when playlist sync is disabled or the task is deactivated
+    ///     to clean up stale playlists.
     ///     Errors are logged but do not fail the task.
     /// </summary>
     private async Task CleanupOldPlaylistsAsync(CancellationToken cancellationToken)

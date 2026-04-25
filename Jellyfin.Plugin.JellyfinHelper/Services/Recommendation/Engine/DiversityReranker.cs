@@ -73,7 +73,7 @@ internal static class DiversityReranker
     {
         if (count <= 0)
         {
-            return new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
+            return [];
         }
 
         if (candidates.Count <= count)

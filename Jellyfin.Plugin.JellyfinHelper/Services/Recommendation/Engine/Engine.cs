@@ -594,6 +594,9 @@ public sealed class Engine : IRecommendationEngine
             PopularityScore = popularityScore,
             DayOfWeekAffinity = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, userProfile),
             HourOfDayAffinity = TemporalFeatures.ComputeHourOfDayAffinity(candidate, userProfile),
+            // TODO: IsWeekend uses server UTC time, not the user's local calendar.
+            // Jellyfin does not expose per-user timezone, so this is the best available approximation.
+            // Users in distant timezones will see the weekend signal flip several hours early or late.
             IsWeekend = DateTime.UtcNow.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
             TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags)
         };

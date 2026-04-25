@@ -86,4 +86,12 @@ public class UserActivityInsightsServiceTests
         var result = UserActivityInsightsService.CalculateCompletion(0, 0, played: false);
         Assert.Equal(0.0, result);
     }
+
+    [Fact]
+    public void CalculateCompletion_Played_ZeroRuntime_StillReturns100()
+    {
+        // Played flag takes precedence regardless of runtime/position values
+        var result = UserActivityInsightsService.CalculateCompletion(0, 0, played: true);
+        Assert.Equal(100.0, result);
+    }
 }

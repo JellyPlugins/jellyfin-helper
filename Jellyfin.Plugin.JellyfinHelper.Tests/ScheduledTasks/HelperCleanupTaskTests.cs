@@ -217,7 +217,8 @@ public class HelperCleanupTaskTests : IDisposable
             LinkRepairTaskMode = TaskMode.Activate,
             SeerrCleanupTaskMode = TaskMode.Activate,
             SeerrUrl = "http://localhost:5055",
-            SeerrApiKey = "test-key"
+            SeerrApiKey = "test-key",
+            RecommendationsTaskMode = TaskMode.Activate
         };
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
@@ -227,6 +228,8 @@ public class HelperCleanupTaskTests : IDisposable
         VerifyLogContains("Starting Orphaned Subtitle Cleanup (Active)", LogLevel.Information);
         VerifyLogContains("Starting Link Repair (Active)", LogLevel.Information);
         VerifyLogContains("Starting Seerr Cleanup (Active)", LogLevel.Information);
+        VerifyLogContains("Starting User Watch Activity (Active)", LogLevel.Information);
+        VerifyLogContains("Starting Smart Recommendations (Active)", LogLevel.Information);
         VerifyLogContains("Helper Cleanup finished", LogLevel.Information);
     }
 

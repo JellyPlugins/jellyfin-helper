@@ -242,6 +242,22 @@ public class PluginConfiguration : BasePluginConfiguration
     public DateTime LastCleanupTimestamp { get; set; } = DateTime.MinValue;
 
     /// <summary>
+    ///     Normalizes the alpha range to ensure <see cref="EnsembleAlphaMin"/> ≤ <see cref="EnsembleAlphaMax"/>
+    ///     regardless of property setter invocation order during XML deserialization.
+    ///     <see cref="System.Xml.Serialization.XmlSerializer"/> does not guarantee property order,
+    ///     so a persisted config with Min=0.8 and Max=0.6 could produce different final values
+    ///     depending on which setter runs first. This method should be called after deserialization.
+    /// </summary>
+    public void NormalizeAlphaRange()
+    {
+        if (_ensembleAlphaMin > _ensembleAlphaMax)
+        {
+            // Swap so that min ≤ max
+            (_ensembleAlphaMin, _ensembleAlphaMax) = (_ensembleAlphaMax, _ensembleAlphaMin);
+        }
+    }
+
+    /// <summary>
     ///     Migrates legacy single-instance Radarr/Sonarr settings to the new multi-instance lists
     ///     and returns the effective list of configured Radarr instances (max 3).
     /// </summary>

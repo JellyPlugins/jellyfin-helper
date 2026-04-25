@@ -97,6 +97,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             }
 
             var config = Plugin.Instance?.Configuration;
+            // Normalize alpha range after deserialization to handle order-dependent setter issue
+            config?.NormalizeAlphaRange();
             var alphaMin = config?.EnsembleAlphaMin ?? EnsembleScoringStrategy.DefaultAlphaMin;
             var alphaMax = config?.EnsembleAlphaMax ?? EnsembleScoringStrategy.DefaultAlphaMax;
             var genrePenaltyFloor = config?.EnsembleGenrePenaltyFloor ?? EnsembleScoringStrategy.DefaultGenrePenaltyFloor;

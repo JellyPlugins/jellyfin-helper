@@ -733,14 +733,14 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void ImplementsIScoringStrategy()
     {
         var strategy = new NeuralScoringStrategy();
-        Assert.True(strategy is IScoringStrategy);
+        Assert.IsAssignableFrom<IScoringStrategy>(strategy);
     }
 
     [Fact]
     public void ImplementsITrainableStrategy()
     {
         var strategy = new NeuralScoringStrategy();
-        Assert.True(strategy is ITrainableStrategy);
+        Assert.IsAssignableFrom<ITrainableStrategy>(strategy);
     }
 
     // ============================================================

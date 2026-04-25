@@ -70,7 +70,7 @@ public class RecommendationEngineTests
     [Fact]
     public void ComputeGenreSimilarity_FullMatch_SingleGenre_ReturnsOne()
     {
-        // Single genre in both candidate and prefs â†’ cosine = 1.0
+        // Single genre in both candidate and prefs -> cosine = 1.0
         var prefs = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
             { "Action", 1.0 }
@@ -83,7 +83,7 @@ public class RecommendationEngineTests
     [Fact]
     public void ComputeGenreSimilarity_FullMatch_MultiGenre_ReturnsHighScore()
     {
-        // Candidate has one matching genre, but prefs has multiple â†’ cosine < 1.0
+        // Candidate has one matching genre, but prefs has multiple -> cosine < 1.0
         var prefs = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
         {
             { "Action", 1.0 },
@@ -91,7 +91,7 @@ public class RecommendationEngineTests
         };
 
         var score = SimilarityComputer.ComputeGenreSimilarity(new[] { "Action" }, prefs);
-        // dot=1.0, normC=1, normU=sqrt(1.64)â‰ˆ1.28 â†’ cosineâ‰ˆ0.78
+        // dot=1.0, normC=1, normU=sqrt(1.64)~=1.28 -> cosine~=0.78
         Assert.True(score > 0.7 && score < 0.85,
             $"Expected ~0.78 for single match against multi-genre prefs, got {score:F4}");
     }
@@ -104,7 +104,7 @@ public class RecommendationEngineTests
             { "Action", 1.0 }
         };
 
-        // Two genres, only one matches â†’ cosine = 1.0 / (sqrt(2) * 1.0) â‰ˆ 0.707
+        // Two genres, only one matches -> cosine = 1.0 / (sqrt(2) * 1.0) ~= 0.707
         var score = SimilarityComputer.ComputeGenreSimilarity(new[] { "Action", "Horror" }, prefs);
         Assert.True(score > 0.65 && score < 0.75,
             $"Expected ~0.707 for partial match, got {score:F4}");
@@ -238,7 +238,7 @@ public class RecommendationEngineTests
     public void ComputeRecencyScore_OneYearAgo_DecaysSignificantly()
     {
         var score = ContentScoring.ComputeRecencyScore(DateTime.UtcNow.AddDays(-365));
-        // With half-life ~365 days: e^(-0.0019*365) â‰ˆ 0.5
+        // With half-life ~365 days: e^(-0.0019*365) ~= 0.5
         Assert.True(score > 0.4 && score < 0.6, $"Expected ~0.5 but got {score}");
     }
 
@@ -264,7 +264,7 @@ public class RecommendationEngineTests
     public void ComputeYearProximity_TenYearsDiff_DecaysExpected()
     {
         var score = ContentScoring.ComputeYearProximity(2010, 2020);
-        // e^(-100/200) = e^(-0.5) â‰ˆ 0.6065
+        // e^(-100/200) = e^(-0.5) ~= 0.6065
         Assert.True(score > 0.55 && score < 0.65, $"Expected ~0.607 but got {score}");
     }
 
@@ -656,7 +656,7 @@ public class RecommendationEngineTests
         Assert.Equal(1.5, uniqueItemScore, 4);
     }
 
-    // â”€â”€ PeopleSimilarity Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- PeopleSimilarity Tests ----------------------------------------------
 
     [Fact]
     public void ComputePeopleSimilarity_EmptySets_ReturnsZero()
@@ -687,7 +687,7 @@ public class RecommendationEngineTests
     [Fact]
     public void ComputePeopleSimilarity_PartialOverlap_ReturnsOverlapCoefficient()
     {
-        // Intersection = {A}, min(|candidate|, |preferred|) = min(2, 2) = 2 â†’ Overlap = 1/2
+        // Intersection = {A}, min(|candidate|, |preferred|) = min(2, 2) = 2 -> Overlap = 1/2
         var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A", "B" };
         var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A", "C" };
         var result = SimilarityComputer.ComputePeopleSimilarity(candidate, preferred);
@@ -759,7 +759,7 @@ public class RecommendationEngineTests
         Assert.Empty(result);
     }
 
-    // â”€â”€ Edge-Case Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // -- Edge-Case Tests ----------------------------------------------
 
     [Fact]
     public void BuildGenrePreferenceVector_SingleGenre_ReturnsOne()
@@ -832,7 +832,7 @@ public class RecommendationEngineTests
     [Fact]
     public void ComputeYearProximity_NegativeYear_StillComputes()
     {
-        // Edge case: year 0 vs 2020 â€” should not throw, returns valid score
+        // Edge case: year 0 vs 2020 -- should not throw, returns valid score
         var score = ContentScoring.ComputeYearProximity(0, 2020);
         Assert.True(score >= 0.0 && score <= 1.0, $"Expected valid score, got {score}");
     }
@@ -851,7 +851,7 @@ public class RecommendationEngineTests
         var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A" };
         var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "A", "B", "C", "D", "E" };
         var result = SimilarityComputer.ComputePeopleSimilarity(candidate, preferred);
-        // Intersection = {A}, min(1, 5) = 1 â†’ Overlap = 1/1 = 1.0
+        // Intersection = {A}, min(1, 5) = 1 -> Overlap = 1/1 = 1.0
         Assert.Equal(1.0, result);
     }
 

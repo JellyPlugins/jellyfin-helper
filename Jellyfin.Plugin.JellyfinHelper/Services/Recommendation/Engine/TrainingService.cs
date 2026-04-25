@@ -621,12 +621,14 @@ internal sealed class TrainingService
             // Compute ranking metrics on the full example set to evaluate recommendation quality.
             // Unlike MSE (which measures score accuracy), these metrics measure what matters:
             // whether items the user likes land in the top K predictions.
+            // NOTE: These are training-set metrics (not held-out validation). They measure fit,
+            // not generalization. Useful for trend monitoring, but expect optimistic values.
             var (precisionAtK, recallAtK, ndcgAtK) = Scoring.RankingMetrics.ComputeAll(
                 trainingExamples, strategy, Scoring.RankingMetrics.DefaultK);
 
             _pluginLog.LogInfo(
                 "Recommendations",
-                $"Strategy '{strategy.Name}' training completed — " +
+                $"Strategy '{strategy.Name}' training completed (training-set fit) — " +
                 $"P@{Scoring.RankingMetrics.DefaultK}: {precisionAtK:F3}, " +
                 $"R@{Scoring.RankingMetrics.DefaultK}: {recallAtK:F3}, " +
                 $"NDCG@{Scoring.RankingMetrics.DefaultK}: {ndcgAtK:F3} " +

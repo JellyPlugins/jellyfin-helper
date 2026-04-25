@@ -39,9 +39,13 @@ dotnet build
 After building, copy the output DLL to your Jellyfin plugin directory:
 
 ```bash
-# Linux/macOS
+# Linux/macOS (local user install)
 cp Jellyfin.Plugin.JellyfinHelper/bin/Debug/net8.0/Jellyfin.Plugin.JellyfinHelper.dll \
    ~/.local/share/jellyfin/plugins/JellyfinHelper/
+
+# Linux (system service / package install — path may vary by distro)
+# sudo cp Jellyfin.Plugin.JellyfinHelper/bin/Debug/net8.0/Jellyfin.Plugin.JellyfinHelper.dll \
+#    /var/lib/jellyfin/plugins/JellyfinHelper/
 
 # Windows
 copy Jellyfin.Plugin.JellyfinHelper\bin\Debug\net8.0\Jellyfin.Plugin.JellyfinHelper.dll ^
