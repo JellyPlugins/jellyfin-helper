@@ -146,7 +146,7 @@ public class WatchHistoryServiceTests
 
         Assert.NotNull(capturedQuery);
         Assert.Contains(MediaType.Video, capturedQuery!.MediaTypes);
-        Assert.False(capturedQuery.IsFolder);
+        Assert.Equal(false, capturedQuery.IsFolder);
     }
 
     // --- BuildProfile Tests ---

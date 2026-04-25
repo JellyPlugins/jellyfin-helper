@@ -65,7 +65,7 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
                     $"Saved {results.Count} recommendation results to {_cacheFilePath}",
                     _logger);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
                 try
                 {

@@ -674,7 +674,7 @@ function buildRecentTree(data) {
     var grouped = groupByLibrary(data.Recent);
     var html = '<div class="insight-tree">';
 
-    // Sort: movies first, tvshows second, others last
+    // Sort library groups: movies/homevideos/musicvideos first, then tvshows, then others.
     var libKeys = Object.keys(grouped).sort(function (a, b) {
         function typeOrder(libName) {
             var items = grouped[libName];

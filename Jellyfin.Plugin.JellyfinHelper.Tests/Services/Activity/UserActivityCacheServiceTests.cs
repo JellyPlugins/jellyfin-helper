@@ -49,6 +49,8 @@ public class UserActivityCacheServiceTests : IDisposable
         {
             // best-effort cleanup
         }
+
+        GC.SuppressFinalize(this);
     }
 
     [Fact]

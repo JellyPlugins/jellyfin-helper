@@ -35,7 +35,7 @@ public sealed class RecommendationResult
     /// <summary>
     ///     Gets or sets the UTC timestamp when these recommendations were generated.
     ///     Normalized to UTC on set to ensure consistency after JSON deserialization
-    ///     (mirrors <see cref="Activity.UserActivityResult.GeneratedAt"/>).
+    ///     (mirrors <see cref="Jellyfin.Plugin.JellyfinHelper.Services.Activity.UserActivityResult.GeneratedAt"/>).
     /// </summary>
     public DateTime GeneratedAt
     {

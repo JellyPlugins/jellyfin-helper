@@ -26,7 +26,7 @@ internal static class ContentScoring
             return 0;
         }
 
-        return count / maxCoOccurrence;
+        return Math.Clamp(count / maxCoOccurrence, 0.0, 1.0);
     }
 
     /// <summary>
