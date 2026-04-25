@@ -75,12 +75,19 @@ public class RecommendationControllerTests
     [Fact]
     public void GetAllRecommendations_ClampsMaxPerUser()
     {
+        // Explicitly set the configured max so this test does not rely on the default value
+        _mockConfigService.Setup(c => c.GetConfiguration())
+            .Returns(new PluginConfiguration
+            {
+                RecommendationsTaskMode = TaskMode.Activate,
+                MaxRecommendationsPerUser = 20
+            });
         _mockCache.Setup(c => c.LoadResults()).Returns((Collection<RecommendationResult>?)null);
         _mockEngine.Setup(e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .Returns(new Collection<RecommendationResult>());
 
         // maxPerUser=200 is clamped to 100 for response trimming,
-        // but the engine receives configuredMax (20) to avoid under-filling the cache.
+        // but the engine receives the configured max (20) to avoid under-filling the cache.
         _controller.GetAllRecommendations(200);
 
         _mockEngine.Verify(e => e.GetAllRecommendations(20, It.IsAny<CancellationToken>()), Times.Once);
@@ -272,7 +279,7 @@ public class RecommendationControllerTests
         var result = _controller.GetAllWatchProfiles();
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var data = Assert.IsAssignableFrom<List<UserWatchProfile>>(ok.Value);
+        var data = Assert.IsAssignableFrom<IEnumerable<UserWatchProfile>>(ok.Value).ToList();
         Assert.Single(data);
         Assert.Empty(data[0].WatchedItems); // stripped for lean response
 

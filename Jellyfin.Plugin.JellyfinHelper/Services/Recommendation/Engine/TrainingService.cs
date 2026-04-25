@@ -96,6 +96,27 @@ internal sealed class TrainingService
             }
         }
 
+        // Pre-compute itemId → studios and itemId → tags lookups ONCE from all previous results.
+        // This avoids O(users × results × recommendations) rescanning in BuildStudioPreferenceSetFromCache
+        // and BuildTagPreferenceSetFromCache — each user's preference set is now O(watchedItems) instead.
+        var itemStudiosLookup = new Dictionary<Guid, IReadOnlyList<string>>();
+        var itemTagsLookup = new Dictionary<Guid, IReadOnlyList<string>>();
+        foreach (var prevResult in previousResults)
+        {
+            foreach (var rec in prevResult.Recommendations)
+            {
+                if (!itemStudiosLookup.ContainsKey(rec.ItemId) && rec.Studios.Count > 0)
+                {
+                    itemStudiosLookup[rec.ItemId] = rec.Studios;
+                }
+
+                if (!itemTagsLookup.ContainsKey(rec.ItemId) && rec.Tags.Count > 0)
+                {
+                    itemTagsLookup[rec.ItemId] = rec.Tags;
+                }
+            }
+        }
+
         var examples = new List<TrainingExample>();
 
         // Pre-compute per-user artifacts once and cache them. These are reused across
@@ -143,8 +164,8 @@ internal sealed class TrainingService
             // Build preferred people/studios/tags from the user's watch profile using cached data.
             // This mirrors what Engine.GenerateForUser() does with live BaseItem data.
             var preferredPeople = PreferenceBuilder.BuildPeoplePreferenceSet(userProfile, cachedPeopleLookup);
-            var preferredStudios = BuildStudioPreferenceSetFromCache(userProfile, previousResults);
-            var preferredTags = BuildTagPreferenceSetFromCache(userProfile, previousResults);
+            var preferredStudios = BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
+            var preferredTags = BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
 
             var watchedItemLookup = new Dictionary<Guid, WatchedItemInfo>(userProfile.WatchedItems.Count);
             foreach (var w in userProfile.WatchedItems)
@@ -353,8 +374,8 @@ internal sealed class TrainingService
 
             // Build per-user preference sets for organic feature computation (mirrors Phase 1).
             var preferredPeopleOrganic = PreferenceBuilder.BuildPeoplePreferenceSet(userProfile, cachedPeopleLookup);
-            var preferredStudiosOrganic = BuildStudioPreferenceSetFromCache(userProfile, previousResults);
-            var preferredTagsOrganic = BuildTagPreferenceSetFromCache(userProfile, previousResults);
+            var preferredStudiosOrganic = BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
+            var preferredTagsOrganic = BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
 
             // Build series episode lookup for series progression boost
             var seriesEpisodeLookupOrganic = new Dictionary<Guid, List<WatchedItemInfo>>();
@@ -428,33 +449,40 @@ internal sealed class TrainingService
                         ? SimilarityComputer.ComputePeopleSimilarity(seriesPeople, preferredPeopleOrganic)
                         : 0.0);
 
-                // Compute StudioMatch — look up organic item in cached results for studio data.
+                // Compute StudioMatch — look up organic item in precomputed studio/tag lookups.
                 // Try both the item's own ID and its SeriesId.
                 var studioMatch = false;
                 var tagSimilarity = 0.0;
-                var lookupIds = w.SeriesId.HasValue
-                    ? new[] { w.ItemId, w.SeriesId.Value }
-                    : new[] { w.ItemId };
 
-                foreach (var prevResult in previousResults)
+                // Check item's own ID first, then series ID for studios
+                IReadOnlyList<string>? organicStudios = null;
+                IReadOnlyList<string>? organicTags = null;
+                if (itemStudiosLookup.TryGetValue(w.ItemId, out var s1))
                 {
-                    foreach (var rec in prevResult.Recommendations)
-                    {
-                        if (!lookupIds.Contains(rec.ItemId))
-                        {
-                            continue;
-                        }
+                    organicStudios = s1;
+                }
+                else if (w.SeriesId.HasValue && itemStudiosLookup.TryGetValue(w.SeriesId.Value, out var s2))
+                {
+                    organicStudios = s2;
+                }
 
-                        studioMatch = rec.Studios.Count > 0
-                            && rec.Studios.Any(s => preferredStudiosOrganic.Contains(s));
-                        tagSimilarity = ComputeTagSimilarityFromCache(rec.Tags, preferredTagsOrganic);
-                        break;
-                    }
+                if (itemTagsLookup.TryGetValue(w.ItemId, out var t1))
+                {
+                    organicTags = t1;
+                }
+                else if (w.SeriesId.HasValue && itemTagsLookup.TryGetValue(w.SeriesId.Value, out var t2))
+                {
+                    organicTags = t2;
+                }
 
-                    if (studioMatch || tagSimilarity > 0)
-                    {
-                        break;
-                    }
+                if (organicStudios is { Count: > 0 })
+                {
+                    studioMatch = organicStudios.Any(s => preferredStudiosOrganic.Contains(s));
+                }
+
+                if (organicTags is { Count: > 0 })
+                {
+                    tagSimilarity = ComputeTagSimilarityFromCache(organicTags, preferredTagsOrganic);
                 }
 
                 // Series progression boost for organic series items.
@@ -617,32 +645,42 @@ internal sealed class TrainingService
     }
 
     /// <summary>
-    ///     Builds a set of preferred studio names from cached recommendation results for a user.
+    ///     Builds a set of preferred studio names for a user from a precomputed item-to-studios lookup.
     ///     Collects studios from items the user has watched (matched by item ID or series ID).
     ///     This mirrors <see cref="PreferenceBuilder.BuildStudioPreferenceSet"/> but uses cached data
     ///     instead of live BaseItem objects.
     /// </summary>
+    /// <param name="userProfile">The user's watch profile.</param>
+    /// <param name="itemStudiosLookup">Precomputed itemId → studios mapping built once from all previous results.</param>
     private static HashSet<string> BuildStudioPreferenceSetFromCache(
         UserWatchProfile userProfile,
-        IReadOnlyList<RecommendationResult> allResults)
+        Dictionary<Guid, IReadOnlyList<string>> itemStudiosLookup)
     {
         var studios = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var watchedItemIds = new HashSet<Guid>(
-            userProfile.WatchedItems.Where(w => w.Played || w.IsFavorite).Select(w => w.ItemId));
-        var watchedSeriesIds = new HashSet<Guid>(
-            userProfile.WatchedItems.Where(w => (w.Played || w.IsFavorite) && w.SeriesId.HasValue).Select(w => w.SeriesId!.Value));
 
-        // Collect studios from any recommendation result that references items the user watched or favorited
-        foreach (var result in allResults)
+        foreach (var w in userProfile.WatchedItems)
         {
-            foreach (var rec in result.Recommendations)
+            if (!w.Played && !w.IsFavorite)
             {
-                if (!watchedItemIds.Contains(rec.ItemId) && !watchedSeriesIds.Contains(rec.ItemId))
-                {
-                    continue;
-                }
+                continue;
+            }
 
-                foreach (var s in rec.Studios)
+            // Look up studios by the item's own ID
+            if (itemStudiosLookup.TryGetValue(w.ItemId, out var itemStudios))
+            {
+                foreach (var s in itemStudios)
+                {
+                    if (!string.IsNullOrWhiteSpace(s))
+                    {
+                        studios.Add(s);
+                    }
+                }
+            }
+
+            // Also look up studios by the item's series ID (episodes → series mapping)
+            if (w.SeriesId.HasValue && itemStudiosLookup.TryGetValue(w.SeriesId.Value, out var seriesStudios))
+            {
+                foreach (var s in seriesStudios)
                 {
                     if (!string.IsNullOrWhiteSpace(s))
                     {
@@ -656,29 +694,40 @@ internal sealed class TrainingService
     }
 
     /// <summary>
-    ///     Builds a set of preferred tag names from cached recommendation results for a user.
+    ///     Builds a set of preferred tag names for a user from a precomputed item-to-tags lookup.
     ///     This mirrors <see cref="PreferenceBuilder.BuildTagPreferenceSet"/> but uses cached data.
     /// </summary>
+    /// <param name="userProfile">The user's watch profile.</param>
+    /// <param name="itemTagsLookup">Precomputed itemId → tags mapping built once from all previous results.</param>
     private static HashSet<string> BuildTagPreferenceSetFromCache(
         UserWatchProfile userProfile,
-        IReadOnlyList<RecommendationResult> allResults)
+        Dictionary<Guid, IReadOnlyList<string>> itemTagsLookup)
     {
         var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var watchedItemIds = new HashSet<Guid>(
-            userProfile.WatchedItems.Where(w => w.Played || w.IsFavorite).Select(w => w.ItemId));
-        var watchedSeriesIds = new HashSet<Guid>(
-            userProfile.WatchedItems.Where(w => (w.Played || w.IsFavorite) && w.SeriesId.HasValue).Select(w => w.SeriesId!.Value));
 
-        foreach (var result in allResults)
+        foreach (var w in userProfile.WatchedItems)
         {
-            foreach (var rec in result.Recommendations)
+            if (!w.Played && !w.IsFavorite)
             {
-                if (!watchedItemIds.Contains(rec.ItemId) && !watchedSeriesIds.Contains(rec.ItemId))
-                {
-                    continue;
-                }
+                continue;
+            }
 
-                foreach (var t in rec.Tags)
+            // Look up tags by the item's own ID
+            if (itemTagsLookup.TryGetValue(w.ItemId, out var itemTags))
+            {
+                foreach (var t in itemTags)
+                {
+                    if (!string.IsNullOrWhiteSpace(t))
+                    {
+                        tags.Add(t);
+                    }
+                }
+            }
+
+            // Also look up tags by the item's series ID (episodes → series mapping)
+            if (w.SeriesId.HasValue && itemTagsLookup.TryGetValue(w.SeriesId.Value, out var seriesTags))
+            {
+                foreach (var t in seriesTags)
                 {
                     if (!string.IsNullOrWhiteSpace(t))
                     {

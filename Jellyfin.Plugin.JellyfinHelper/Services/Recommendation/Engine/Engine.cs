@@ -74,7 +74,7 @@ public sealed class Engine : IRecommendationEngine
         {
             // Cold-start: user exists but has no watch history — return popular/trending items
             // Reuse cached candidates from the last batch run if available to avoid redundant library queries
-            return GenerateColdStartRecommendations(userId, maxResults, userProfile.UserName, _cachedSnapshot?.Candidates, userProfile.MaxParentalRating);
+            return GenerateColdStartRecommendations(userId, maxResults, userProfile.UserName, _cachedSnapshot?.Candidates, userProfile.MaxParentalRating, userProfile);
         }
 
         // Reuse cached candidates/people from last batch run if available, otherwise load fresh
@@ -126,7 +126,7 @@ public sealed class Engine : IRecommendationEngine
                 try
                 {
                     var result = profile.WatchedItems.Count == 0
-                        ? GenerateColdStartRecommendations(profile.UserId, maxResultsPerUser, profile.UserName, candidates, profile.MaxParentalRating)
+                        ? GenerateColdStartRecommendations(profile.UserId, maxResultsPerUser, profile.UserName, candidates, profile.MaxParentalRating, profile)
                         : GenerateForUser(
                             profile,
                             allProfiles,
@@ -177,13 +177,19 @@ public sealed class Engine : IRecommendationEngine
     ///     Optional maximum parental rating for the user.
     ///     Candidates exceeding this rating are excluded from cold-start recommendations.
     /// </param>
+    /// <param name="userProfile">
+    ///     Optional user watch profile. When provided, a stripped copy is included in the result
+    ///     for consistency with <see cref="GenerateForUser"/>. Cold-start users have empty
+    ///     WatchedItems but their profile still carries UserId, UserName, MaxParentalRating etc.
+    /// </param>
     /// <returns>A recommendation result with popular/trending items.</returns>
     internal RecommendationResult GenerateColdStartRecommendations(
         Guid userId,
         int maxResults,
         string? userName = null,
         List<BaseItem>? preloadedCandidates = null,
-        int? maxParentalRating = null)
+        int? maxParentalRating = null,
+        UserWatchProfile? userProfile = null)
     {
         var candidates = preloadedCandidates ?? LoadCandidateItems();
 
@@ -230,6 +236,7 @@ public sealed class Engine : IRecommendationEngine
         {
             UserId = userId,
             UserName = userName ?? string.Empty,
+            Profile = userProfile is not null ? ReasonResolver.StripWatchedItemsForResponse(userProfile) : null,
             Recommendations = new Collection<RecommendedItem>(topItems),
             GeneratedAt = DateTime.UtcNow,
             ScoringStrategy = "Cold Start (Popular + Recent)",
@@ -288,7 +295,7 @@ public sealed class Engine : IRecommendationEngine
         });
 
         var seriesIdsWithEpisodes = allEpisodes
-            .OfType<MediaBrowser.Controller.Entities.TV.Episode>()
+            .OfType<Episode>()
             .Select(episode => episode.SeriesId)
             .Where(seriesId => seriesId != Guid.Empty)
             .ToHashSet();

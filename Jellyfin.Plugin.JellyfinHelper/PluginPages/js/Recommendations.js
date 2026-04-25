@@ -1,6 +1,7 @@
 // --- Recommendations Tab (Smart Suggestions) ---
 var _profileReqId = 0;
 var _activityReqId = 0;
+var _recsListReqId = 0;
 
 function initRecommendationsTab() { loadRecommendations(); }
 
@@ -8,9 +9,12 @@ function loadRecommendations() {
     var container = document.getElementById('recsContent');
     if (!container) return;
     container.innerHTML = '<div class="loading-overlay" style="padding:2em;"><div class="spinner"></div><p>' + T('loadingRecommendations', 'Loading recommendations…') + '</p></div>';
+    var reqId = ++_recsListReqId;
     apiGet('JellyfinHelper/Recommendations', function (data) {
+        if (reqId !== _recsListReqId) return;
         renderRecommendations(container, data);
     }, function (err) {
+        if (reqId !== _recsListReqId) return;
         container.innerHTML = '<div class="error-msg">❌ ' + T('recsError', 'Failed to load recommendations. Make sure the recommendation task has run at least once.') + '</div>';
         console.error('Jellyfin Helper: Error loading recommendations', err);
     });

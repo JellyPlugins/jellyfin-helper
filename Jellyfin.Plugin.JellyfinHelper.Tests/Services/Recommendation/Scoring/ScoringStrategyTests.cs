@@ -2165,6 +2165,11 @@ public sealed class ScoringStrategyTests : IDisposable
         original.Train(examples);
         var betaBefore = original.CurrentNeuralBeta;
 
+        // Precondition: neural beta must have actually activated for this test to be meaningful.
+        // If it stays at 0.0, the persistence assertion below would pass trivially (0.0 == 0.0).
+        Assert.True(betaBefore > 0,
+            $"Neural beta should have been activated by training with {examples.Count} examples, but was {betaBefore}");
+
         // Create a new instance that loads from persisted state
         var learned2 = new LearnedScoringStrategy(weightsPath);
         var heuristic2 = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);

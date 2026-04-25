@@ -334,9 +334,20 @@ internal static class PreferenceBuilder
         var underexposedCount = 0;
         var dominantCount = 0;
         var candidateWeightSum = 0.0;
+        var validCount = 0;
 
         foreach (var genre in candidateGenres)
         {
+            // Guard against null/whitespace entries that may come from external metadata providers.
+            // TryGetValue would throw ArgumentNullException on null keys, and empty strings
+            // would dilute the underexposure/dominance ratios.
+            if (string.IsNullOrWhiteSpace(genre))
+            {
+                continue;
+            }
+
+            validCount++;
+
             if (analysis.UnderexposedGenres.Contains(genre))
             {
                 underexposedCount++;
@@ -352,15 +363,20 @@ internal static class PreferenceBuilder
             candidateWeightSum += weight;
         }
 
+        if (validCount == 0)
+        {
+            return (0.0, 0.0, 0.0);
+        }
+
         // GenreUnderexposure: fraction of candidate genres that are underexposed
-        var underexposure = (double)underexposedCount / candidateGenres.Count;
+        var underexposure = (double)underexposedCount / validCount;
 
         // GenreDominanceRatio: fraction of candidate genres in user's top-N
-        var dominanceRatio = (double)dominantCount / candidateGenres.Count;
+        var dominanceRatio = (double)dominantCount / validCount;
 
         // GenreAffinityGap: how far below the user's average the candidate's genres are
         // Candidate average weight vs. user's overall average weight
-        var candidateAvgWeight = candidateWeightSum / candidateGenres.Count;
+        var candidateAvgWeight = candidateWeightSum / validCount;
         var affinityGap = 0.0;
         if (analysis.AveragePreferenceWeight > 0 && candidateAvgWeight < analysis.AveragePreferenceWeight)
         {
