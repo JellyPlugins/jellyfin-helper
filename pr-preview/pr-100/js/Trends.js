@@ -621,15 +621,7 @@ function buildLargestTree(data) {
     // Sort library groups: movies/homevideos/musicvideos first, then tvshows, then others.
     // This matches the "Recently" panel layout where movies appear above series.
     var libKeys = Object.keys(grouped).sort(function (a, b) {
-        function typeOrder(libName) {
-            var items = grouped[libName];
-            if (!items || items.length === 0) return 2;
-            var ct = (items[0].CollectionType || '').toLowerCase();
-            if (ct === 'movies' || ct === 'homevideos' || ct === 'musicvideos') return 0;
-            if (ct === 'tvshows') return 1;
-            return 2;
-        }
-        return typeOrder(a) - typeOrder(b);
+        return insightLibrarySortOrder(a, grouped) - insightLibrarySortOrder(b, grouped);
     });
     var html = '<div class="insight-tree">';
 
@@ -676,15 +668,7 @@ function buildRecentTree(data) {
 
     // Sort library groups: movies/homevideos/musicvideos first, then tvshows, then others.
     var libKeys = Object.keys(grouped).sort(function (a, b) {
-        function typeOrder(libName) {
-            var items = grouped[libName];
-            if (!items || items.length === 0) return 2;
-            var ct = (items[0].CollectionType || '').toLowerCase();
-            if (ct === 'movies' || ct === 'homevideos' || ct === 'musicvideos') return 0;
-            if (ct === 'tvshows') return 1;
-            return 2;
-        }
-        return typeOrder(a) - typeOrder(b);
+        return insightLibrarySortOrder(a, grouped) - insightLibrarySortOrder(b, grouped);
     });
     libKeys.forEach(function (lib) {
         var items = grouped[lib];
@@ -719,6 +703,20 @@ function buildRecentTree(data) {
 
     html += '</div>';
     return html;
+}
+
+/**
+ * Returns a sort order for a library name based on its collection type.
+ * Movies/homevideos/musicvideos first (0), tvshows second (1), others last (2).
+ * Defined once to avoid re-creating the function on every .sort() comparison.
+ */
+function insightLibrarySortOrder(libName, grouped) {
+    var items = grouped[libName];
+    if (!items || items.length === 0) return 2;
+    var ct = (items[0].CollectionType || '').toLowerCase();
+    if (ct === 'movies' || ct === 'homevideos' || ct === 'musicvideos') return 0;
+    if (ct === 'tvshows') return 1;
+    return 2;
 }
 
 function groupByLibrary(entries) {

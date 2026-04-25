@@ -82,8 +82,13 @@ function toggleActivityCollapsible() {
     var body = document.getElementById('recsActivityBody');
     var arrow = document.querySelector('.recs-collapsible-arrow');
     if (!body) return;
-    if (body.classList.contains('open')) { body.classList.remove('open'); if (arrow) arrow.textContent = '▶'; }
-    else { body.classList.add('open'); if (arrow) arrow.textContent = '▼'; }
+    if (body.classList.contains('open')) {
+        body.classList.remove('open');
+        if (arrow) arrow.textContent = '▶';
+    } else {
+        body.classList.add('open');
+        if (arrow) arrow.textContent = '▼';
+    }
 }
 
 function renderUserRecommendations(index) {
@@ -135,13 +140,20 @@ function loadUserWatchProfile(index) {
     if (!container || !window._recsResults) return;
     var result = window._recsResults[index];
     if (!result || !result.UserId) { container.innerHTML = ''; return; }
+    // Return cached profile if already fetched (avoids redundant API calls on user switch)
+    if (result._cachedProfile !== undefined) {
+        renderCompactWatchProfile(container, result._cachedProfile);
+        return;
+    }
     container.innerHTML = '<div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div>';
     var reqId = ++_profileReqId;
     apiGet('JellyfinHelper/Recommendations/WatchProfile/' + result.UserId, function (profile) {
         if (reqId !== _profileReqId) return;
+        result._cachedProfile = profile;
         renderCompactWatchProfile(container, profile);
     }, function () {
         if (reqId !== _profileReqId) return;
+        result._cachedProfile = null;
         container.innerHTML = '<div class="recs-profile-compact-empty">' + T('recsNoProfiles', 'No watch profile available.') + '</div>';
     });
 }
@@ -169,13 +181,20 @@ function loadUserActivity(index) {
     if (!container || !window._recsResults) return;
     var result = window._recsResults[index];
     if (!result || !result.UserId) { container.innerHTML = ''; return; }
+    // Return cached activity if already fetched (avoids redundant API calls on user switch)
+    if (result._cachedActivity !== undefined) {
+        renderCompactActivityTable(container, result._cachedActivity);
+        return;
+    }
     container.innerHTML = '<div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div>';
     var reqId = ++_activityReqId;
     apiGet('JellyfinHelper/UserActivity/User/' + result.UserId, function (items) {
         if (reqId !== _activityReqId) return;
+        result._cachedActivity = items;
         renderCompactActivityTable(container, items);
     }, function () {
         if (reqId !== _activityReqId) return;
+        result._cachedActivity = null;
         container.innerHTML = '<div class="recs-profile-compact-empty">' + T('activityNoData', 'No watch activity data available.') + '</div>';
     });
 }
