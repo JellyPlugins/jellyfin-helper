@@ -916,7 +916,11 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                         File.Delete(tempPath);
                     }
                 }
-                catch
+                catch (IOException)
+                {
+                    // best effort — temp file cleanup is non-critical
+                }
+                catch (UnauthorizedAccessException)
                 {
                     // best effort — temp file cleanup is non-critical
                 }

@@ -1,4 +1,6 @@
 // --- Recommendations Tab (Smart Suggestions) ---
+var MAX_ACTIVITY_ROWS = 15;
+
 var _profileReqId = 0;
 var _activityReqId = 0;
 var _recsListReqId = 0;
@@ -153,7 +155,7 @@ function loadUserWatchProfile(index) {
         renderCompactWatchProfile(container, profile);
     }, function () {
         if (reqId !== _profileReqId) return;
-        result._cachedProfile = null;
+        // Do not cache failures so a later user-switch can retry.
         container.innerHTML = '<div class="recs-profile-compact-empty">' + T('recsNoProfiles', 'No watch profile available.') + '</div>';
     });
 }
@@ -194,14 +196,14 @@ function loadUserActivity(index) {
         renderCompactActivityTable(container, items);
     }, function () {
         if (reqId !== _activityReqId) return;
-        result._cachedActivity = null;
+        // Do not cache failures so a later user-switch can retry.
         container.innerHTML = '<div class="recs-profile-compact-empty">' + T('activityNoData', 'No watch activity data available.') + '</div>';
     });
 }
 
 function renderCompactActivityTable(container, items) {
     if (!items || items.length === 0) { container.innerHTML = '<div class="recs-profile-compact-empty">' + T('activityNoData', 'No watch activity data available.') + '</div>'; return; }
-    var maxRows = Math.min(items.length, 15);
+    var maxRows = Math.min(items.length, MAX_ACTIVITY_ROWS);
     var html = '<div class="recs-activity-section-title">' + T('recsRecentActivity', 'Recent Activity') + '</div>';
     html += '<table class="activity-table"><thead><tr>';
     html += '<th>' + T('activityItemName', 'Title') + '</th>';

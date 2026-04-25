@@ -257,7 +257,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         var resolvedIds = new List<Guid>();
         var skippedCount = 0;
 
-        foreach (var rec in recommendations.OrderByDescending(r => r.Score))
+        foreach (var rec in recommendations)
         {
             if (resolvedIds.Count >= maxItems)
             {

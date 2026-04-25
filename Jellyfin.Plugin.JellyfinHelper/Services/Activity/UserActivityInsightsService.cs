@@ -137,7 +137,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
                         favoriteCount++;
                     }
 
-                    if (lastPlayedUtc.HasValue &&
+                    if (hasPlaybackActivity && lastPlayedUtc.HasValue &&
                         (!mostRecent.HasValue || lastPlayedUtc > mostRecent))
                     {
                         mostRecent = lastPlayedUtc;

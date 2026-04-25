@@ -69,10 +69,13 @@ dotnet test
 
 ### Build Output
 
-The build produces a single DLL: `Jellyfin.Plugin.JellyfinHelper.dll`
+The build produces:
 
-The configuration page (`configPage.html`) is generated at build time from template + modules.
-See [Configuration Page Build System](#configuration-page-build-system) for details.
+- `Jellyfin.Plugin.JellyfinHelper.dll` (plugin assembly with embedded resources)
+- `configPage.html` (generated configuration page, embedded in the DLL at build time)
+
+
+See [Configuration Page Build System](#configuration-page-build-system) for how the config page is composed.
 
 ## Testing
 
@@ -102,7 +105,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── TrashControllerTests.cs
 │   └── ...
 ├── Configuration/                 # Config migration tests
-│   └── ConfigMigrationTests.cs
+│   └── PluginConfigurationSerializationTests.cs
 ├── PluginPages/                   # HTML composition tests
 │   ├── ConfigPageTestBase.cs      # Shared base loading configPage.html
 │   ├── DiscoverHtmlTests.cs       # Recommendations tab HTML tests
@@ -329,7 +332,8 @@ CSS and JS files are injected in a specific order defined in `HtmlComposer.cs`:
 ### JavaScript Guidelines
 
 - All JS runs inside an IIFE (Immediately Invoked Function Expression) — no global pollution
-- Use `var` (not `let`/`const`) for Jellyfin webview compatibility
+- Prefer `var` for broader compatibility; `const`/`let` and arrow functions are acceptable
+  in utility/helper code (e.g., `Shared.js`) where Jellyfin web client supports ES6+
 - Use `T('key', 'fallback')` for all user-visible strings (i18n support)
 - Use `apiGet()` / `apiPost()` helpers for API calls (handles auth headers)
 - Use `escHtml()` for any user-provided content inserted into HTML

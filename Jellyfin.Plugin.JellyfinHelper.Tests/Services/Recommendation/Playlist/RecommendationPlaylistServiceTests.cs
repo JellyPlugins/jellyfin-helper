@@ -206,10 +206,10 @@ public class RecommendationPlaylistServiceTests
     }
 
     [Fact]
-    public async Task UpdatePlaylists_ItemsOrderedByScoreDescending()
+    public async Task UpdatePlaylists_PreservesEngineOrder()
     {
         var userId = Guid.NewGuid();
-        // Use non-descending scores to verify the service actually sorts by score
+        // Verify that the service preserves the engine's diversity-reranked order (no re-sort by score)
         var result = new RecommendationResult
         {
             UserId = userId,
@@ -235,7 +235,6 @@ public class RecommendationPlaylistServiceTests
 
         Assert.NotNull(capturedItemIds);
         var expectedIds = result.Recommendations
-            .OrderByDescending(r => r.Score)
             .Select(r => r.ItemId)
             .ToArray();
         Assert.Equal(expectedIds, capturedItemIds);
