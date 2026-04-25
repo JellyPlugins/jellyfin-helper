@@ -668,24 +668,18 @@ internal sealed class TrainingService
             // Look up studios by the item's own ID
             if (itemStudiosLookup.TryGetValue(w.ItemId, out var itemStudios))
             {
-                foreach (var s in itemStudios)
+                foreach (var s in itemStudios.Where(static s => !string.IsNullOrWhiteSpace(s)))
                 {
-                    if (!string.IsNullOrWhiteSpace(s))
-                    {
-                        studios.Add(s);
-                    }
+                    studios.Add(s);
                 }
             }
 
             // Also look up studios by the item's series ID (episodes → series mapping)
             if (w.SeriesId.HasValue && itemStudiosLookup.TryGetValue(w.SeriesId.Value, out var seriesStudios))
             {
-                foreach (var s in seriesStudios)
+                foreach (var s in seriesStudios.Where(static s => !string.IsNullOrWhiteSpace(s)))
                 {
-                    if (!string.IsNullOrWhiteSpace(s))
-                    {
-                        studios.Add(s);
-                    }
+                    studios.Add(s);
                 }
             }
         }
@@ -715,24 +709,18 @@ internal sealed class TrainingService
             // Look up tags by the item's own ID
             if (itemTagsLookup.TryGetValue(w.ItemId, out var itemTags))
             {
-                foreach (var t in itemTags)
+                foreach (var t in itemTags.Where(static t => !string.IsNullOrWhiteSpace(t)))
                 {
-                    if (!string.IsNullOrWhiteSpace(t))
-                    {
-                        tags.Add(t);
-                    }
+                    tags.Add(t);
                 }
             }
 
             // Also look up tags by the item's series ID (episodes → series mapping)
             if (w.SeriesId.HasValue && itemTagsLookup.TryGetValue(w.SeriesId.Value, out var seriesTags))
             {
-                foreach (var t in seriesTags)
+                foreach (var t in seriesTags.Where(static t => !string.IsNullOrWhiteSpace(t)))
                 {
-                    if (!string.IsNullOrWhiteSpace(t))
-                    {
-                        tags.Add(t);
-                    }
+                    tags.Add(t);
                 }
             }
         }
