@@ -90,9 +90,10 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <summary>
     ///     Minimum cumulative training examples before the neural strategy is blended in.
     ///     Below this threshold, the neural strategy is not used (beta = 0).
-    ///     Neural networks need more data than linear models to generalize well.
+    ///     Set to 75 (between linear's 5 and a full dataset) so the MLP has enough
+    ///     examples for Z-score standardization and meaningful gradient updates.
     /// </summary>
-    internal const int NeuralActivationThreshold = 50;
+    internal const int NeuralActivationThreshold = 75;
 
     /// <summary>
     ///     Maximum fraction of the learned weight (α) that can be re-allocated to the neural strategy.
@@ -421,7 +422,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
                     if (neuralQualityOk)
                     {
-                        // Linear ramp from 0 to NeuralMaxBetaFraction over 50..150 examples
+                        // Linear ramp from 0 to NeuralMaxBetaFraction over 75..175 examples
                         var progress = Math.Clamp(
                             (_trainingExampleCount - NeuralActivationThreshold) / 100.0,
                             0.0,

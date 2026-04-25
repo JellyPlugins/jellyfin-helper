@@ -99,7 +99,12 @@ internal static class DiversityReranker
             return set;
         }
 
-        while (selected.Count < count && remaining.Count > 0)
+        // Fill most slots via MMR, reserving the last ExplorationSlotCount slots
+        // for random exploration picks. This guarantees the model receives diverse
+        // feedback even when MMR converges on a narrow genre cluster.
+        var mmrSlotCount = Math.Max(0, count - EngineConstants.ExplorationSlotCount);
+
+        while (selected.Count < mmrSlotCount && remaining.Count > 0)
         {
             var bestIdx = -1;
             var bestMmrScore = double.MinValue;
@@ -144,6 +149,28 @@ internal static class DiversityReranker
             else
             {
                 break;
+            }
+        }
+
+        // Fill exploration slots with random picks from remaining candidates.
+        // These slots occupy the tail of the list (lowest-visibility positions)
+        // so high-relevance MMR picks are unaffected.
+        if (remaining.Count > 0 && selected.Count < count)
+        {
+            var rng = Random.Shared;
+            var explorationCount = Math.Min(count - selected.Count, remaining.Count);
+            for (var e = 0; e < explorationCount; e++)
+            {
+                var randIdx = rng.Next(remaining.Count);
+                selected.Add(remaining[randIdx]);
+
+                var lastIdx = remaining.Count - 1;
+                if (randIdx < lastIdx)
+                {
+                    remaining[randIdx] = remaining[lastIdx];
+                }
+
+                remaining.RemoveAt(lastIdx);
             }
         }
 

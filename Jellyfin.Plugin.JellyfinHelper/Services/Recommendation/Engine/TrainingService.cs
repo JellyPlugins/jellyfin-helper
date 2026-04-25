@@ -15,6 +15,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// </summary>
 internal sealed class TrainingService
 {
+    /// <summary>
+    ///     Non-blocking gate to prevent concurrent Train() invocations.
+    ///     The scheduled task serializes calls, but this guard ensures correctness
+    ///     if Train() is ever invoked from multiple paths simultaneously.
+    /// </summary>
+    private static readonly SemaphoreSlim TrainGate = new(1, 1);
+
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger _logger;
     private readonly IWatchHistoryService _watchHistoryService;
@@ -50,6 +57,32 @@ internal sealed class TrainingService
             return false;
         }
 
+        // Non-blocking guard: skip if another training run is already in progress.
+        if (!TrainGate.Wait(0, CancellationToken.None))
+        {
+            _pluginLog.LogInfo("Recommendations", "Training skipped — another training run is already in progress.", _logger);
+            return false;
+        }
+
+        try
+        {
+        return TrainCore(strategy, previousResults, incremental, cancellationToken);
+        }
+        finally
+        {
+            TrainGate.Release();
+        }
+    }
+
+    /// <summary>
+    ///     Core training logic, called under the <see cref="TrainGate"/> semaphore.
+    /// </summary>
+    private bool TrainCore(
+        IScoringStrategy strategy,
+        IReadOnlyList<RecommendationResult> previousResults,
+        bool incremental,
+        CancellationToken cancellationToken)
+    {
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
 
         // Include both played AND favorited items as positive interactions.
@@ -359,6 +392,11 @@ internal sealed class TrainingService
             }
         }
 
+        // Stable timestamp anchor for organic items without LastPlayedDate.
+        // Using the earliest recommendation GeneratedAt provides a deterministic value
+        // that doesn't drift across runs (unlike DateTime.UtcNow.AddDays(-90)).
+        var organicFallbackTimestamp = previousResults.Min(r => r.GeneratedAt);
+
         var organicCount = 0;
         foreach (var userProfile in allProfiles)
         {
@@ -395,22 +433,64 @@ internal sealed class TrainingService
                 epList.Add(ep);
             }
 
+            // === Series aggregation: collapse episodes into one example per series ===
+            // Without aggregation, a series with 50 episodes produces 50 training examples,
+            // massively skewing the dataset toward that series. Instead, group episodes by
+            // SeriesId and emit a single aggregated TrainingExample per series. Standalone
+            // items (movies, series-level favorites without SeriesId) are emitted 1:1 as before.
+            var aggregatedSeriesIds = new HashSet<Guid>();
+
             foreach (var w in userProfile.WatchedItems)
             {
                 // Include played OR favorited items that were NEVER recommended (organic discoveries).
-                // Favorites signal explicit interest even if not yet played — they provide
-                // positive training signal that the model should learn from.
                 if ((!w.Played && !w.IsFavorite) || recommendedItemIds.Contains(w.ItemId))
                 {
                     continue;
                 }
 
-                // Skip series IDs already covered
+                // Skip series IDs already covered by Phase 1 recommendations
                 if (w.SeriesId.HasValue && recommendedItemIds.Contains(w.SeriesId.Value))
                 {
                     continue;
                 }
 
+                // For episodes belonging to a series, aggregate at the series level.
+                // Skip if this series was already aggregated from an earlier episode row.
+                if (w.SeriesId.HasValue)
+                {
+                    if (!aggregatedSeriesIds.Add(w.SeriesId.Value))
+                    {
+                        continue; // Already emitted an aggregated example for this series
+                    }
+
+                    // Retrieve all episodes for this series from the pre-built lookup
+                    if (seriesEpisodeLookupOrganic.TryGetValue(w.SeriesId.Value, out var seriesEpisodes))
+                    {
+                        AddAggregatedSeriesExample(
+                            examples,
+                            seriesEpisodes,
+                            w.SeriesId.Value,
+                            userProfile,
+                            genrePreferences,
+                            coOccurrence,
+                            collaborativeMax,
+                            avgYear,
+                            genreExposureOrganic,
+                            cachedPeopleLookup,
+                            preferredPeopleOrganic,
+                            itemStudiosLookup,
+                            preferredStudiosOrganic,
+                            itemTagsLookup,
+                            preferredTagsOrganic,
+                            seriesEpisodeLookupOrganic,
+                            organicFallbackTimestamp);
+                        organicCount++;
+                    }
+
+                    continue;
+                }
+
+                // === Standalone items (movies, series-level favorites without episode rows) ===
                 var collabScore = ContentScoring.ComputeCollaborativeScore(w.ItemId, coOccurrence, collaborativeMax);
                 var ratingScore = ContentScoring.NormalizeRating(w.CommunityRating);
                 // Gate completion fallback on w.Played to avoid mis-labeling favorite-only items
@@ -544,10 +624,113 @@ internal sealed class TrainingService
                 {
                     Features = features,
                     Label = label,
-                    GeneratedAtUtc = w.LastPlayedDate ?? DateTime.UtcNow.AddDays(-90),
+                    GeneratedAtUtc = w.LastPlayedDate ?? organicFallbackTimestamp,
                     SampleWeight = 0.7 // Slightly lower weight than recommended items to avoid overwhelming
                 });
                 organicCount++;
+            }
+        }
+
+        // === Phase 3: Random negative sampling (cross-user items the user never interacted with) ===
+        // Phase 1 negatives are only items the system recommended to THIS user (exposure bias).
+        // Phase 2 only adds positives (organic watches). Without true negatives, the model lacks
+        // a "baseline irrelevant" class and may overfit to its own recommendation distribution.
+        // Cross-user negatives sample items recommended to OTHER users that this user never touched,
+        // providing genuine "irrelevant for this user" examples with full metadata available.
+        var randomNegativeCount = 0;
+        var allRecommendedItems = new List<RecommendedItem>();
+        foreach (var prevResult in previousResults)
+        {
+            foreach (var rec in prevResult.Recommendations)
+            {
+                allRecommendedItems.Add(rec);
+            }
+        }
+
+        if (allRecommendedItems.Count > 0)
+        {
+            var rngNeg = Random.Shared;
+            foreach (var userProfile in allProfiles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!profileLookup.TryGetValue(userProfile.UserId, out var userWatchedIds))
+                {
+                    continue;
+                }
+
+                seriesLookup.TryGetValue(userProfile.UserId, out var userWatchedSeriesIds);
+
+                if (!recommendedItemIdsByUser.TryGetValue(userProfile.UserId, out var userRecommendedIds))
+                {
+                    userRecommendedIds = new HashSet<Guid>();
+                }
+
+                var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureNeg) = perUserCache[userProfile.UserId];
+
+                // Collect candidate negatives: items recommended to others but not interacted with by this user
+                var candidateNegatives = new List<RecommendedItem>();
+                foreach (var rec in allRecommendedItems)
+                {
+                    if (userWatchedIds.Contains(rec.ItemId)
+                        || userRecommendedIds.Contains(rec.ItemId)
+                        || (userWatchedSeriesIds?.Contains(rec.ItemId) ?? false))
+                    {
+                        continue;
+                    }
+
+                    candidateNegatives.Add(rec);
+                }
+
+                // Sample up to RandomNegativeSamplesPerUser from the candidates
+                var sampleCount = Math.Min(EngineConstants.RandomNegativeSamplesPerUser, candidateNegatives.Count);
+                for (var s = 0; s < sampleCount; s++)
+                {
+                    // Fisher-Yates partial shuffle to pick without replacement
+                    var swapIdx = rngNeg.Next(s, candidateNegatives.Count);
+                    (candidateNegatives[s], candidateNegatives[swapIdx]) = (candidateNegatives[swapIdx], candidateNegatives[s]);
+
+                    var neg = candidateNegatives[s];
+                    var collabScore = ContentScoring.ComputeCollaborativeScore(neg.ItemId, coOccurrence, collaborativeMax);
+                    var ratingScore = ContentScoring.NormalizeRating(neg.CommunityRating);
+                    var isSeries = string.Equals(neg.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
+
+                    var features = new CandidateFeatures
+                    {
+                        GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(neg.Genres ?? [], genrePreferences),
+                        CollaborativeScore = collabScore,
+                        RatingScore = ratingScore,
+                        RecencyScore = neg.PremiereDate.HasValue
+                            ? ContentScoring.ComputeRecencyScore(neg.PremiereDate.Value)
+                            : 0.5,
+                        YearProximityScore = ContentScoring.ComputeYearProximity(neg.Year, avgYear),
+                        GenreCount = neg.Genres?.Count ?? 0,
+                        IsSeries = isSeries,
+                        UserRatingScore = 0.5,
+                        HasUserInteraction = false,
+                        CompletionRatio = 0.5,
+                        PopularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : ratingScore * 0.3,
+                        DayOfWeekAffinity = 0.5,
+                        HourOfDayAffinity = 0.5,
+                        IsWeekend = false
+                    };
+
+                    // Genre exposure features
+                    var (negUnderexp, negDomRatio, negAffGap) =
+                        PreferenceBuilder.ComputeGenreExposureFeatures(neg.Genres ?? [], genreExposureNeg);
+                    features.GenreUnderexposure = negUnderexp;
+                    features.GenreDominanceRatio = negDomRatio;
+                    features.GenreAffinityGap = negAffGap;
+
+                    examples.Add(new TrainingExample
+                    {
+                        Features = features,
+                        Label = 0.0,
+                        GeneratedAtUtc = organicFallbackTimestamp,
+                        SampleWeight = 0.5 // Lower weight than real interactions — we infer irrelevance, not observe it
+                    });
+                    randomNegativeCount++;
+                }
             }
         }
 
@@ -556,7 +739,7 @@ internal sealed class TrainingService
             "Recommendations",
             $"Built {examples.Count} training examples ({positiveCount} positive, " +
             $"{examples.Count - positiveCount} negative) from {previousResults.Count} users " +
-            $"({organicCount} organic watch examples added).",
+            $"({organicCount} organic, {randomNegativeCount} random negatives).",
             _logger);
 
         List<TrainingExample> trainingExamples = examples;
@@ -614,25 +797,50 @@ internal sealed class TrainingService
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var trained = (strategy is ITrainableStrategy trainable) && trainable.Train(trainingExamples);
+        // === Held-out validation split ===
+        // Reserve the most recent 10% of examples (by GeneratedAtUtc) as a held-out validation set.
+        // Train only on the remaining 90%. This provides honest generalization metrics
+        // instead of optimistic training-set fit numbers.
+        // Fallback: if <20 examples, skip the split and train on all (metrics will be training-set).
+        const int minExamplesForHeldOut = 20;
+        const double heldOutFraction = 0.10;
+
+        List<TrainingExample> trainSplit;
+        List<TrainingExample> heldOutSplit;
+
+        if (trainingExamples.Count >= minExamplesForHeldOut)
+        {
+            // Sort by GeneratedAtUtc descending to pick the most recent as held-out
+            var sorted = trainingExamples.OrderByDescending(e => e.GeneratedAtUtc).ToList();
+            var heldOutCount = Math.Max(2, (int)(sorted.Count * heldOutFraction));
+            heldOutSplit = sorted.GetRange(0, heldOutCount);
+            trainSplit = sorted.GetRange(heldOutCount, sorted.Count - heldOutCount);
+        }
+        else
+        {
+            trainSplit = trainingExamples;
+            heldOutSplit = [];
+        }
+
+        var trained = (strategy is ITrainableStrategy trainable) && trainable.Train(trainSplit);
 
         if (trained)
         {
-            // Compute ranking metrics on the full example set to evaluate recommendation quality.
-            // Unlike MSE (which measures score accuracy), these metrics measure what matters:
-            // whether items the user likes land in the top K predictions.
-            // NOTE: These are training-set metrics (not held-out validation). They measure fit,
-            // not generalization. Useful for trend monitoring, but expect optimistic values.
+            // Compute ranking metrics on the held-out set for honest generalization assessment.
+            // When no held-out split is available (small dataset), fall back to training-set metrics.
+            var metricsSource = heldOutSplit.Count >= 2 ? heldOutSplit : trainSplit;
+            var metricsLabel = heldOutSplit.Count >= 2 ? "validation-set" : "training-set fit";
+
             var (precisionAtK, recallAtK, ndcgAtK) = Scoring.RankingMetrics.ComputeAll(
-                trainingExamples, strategy, Scoring.RankingMetrics.DefaultK);
+                metricsSource, strategy, Scoring.RankingMetrics.DefaultK);
 
             _pluginLog.LogInfo(
                 "Recommendations",
-                $"Strategy '{strategy.Name}' training completed (training-set fit) — " +
+                $"Strategy '{strategy.Name}' training completed ({metricsLabel}) — " +
                 $"P@{Scoring.RankingMetrics.DefaultK}: {precisionAtK:F3}, " +
                 $"R@{Scoring.RankingMetrics.DefaultK}: {recallAtK:F3}, " +
                 $"NDCG@{Scoring.RankingMetrics.DefaultK}: {ndcgAtK:F3} " +
-                $"({trainingExamples.Count} examples).",
+                $"(trained on {trainSplit.Count}, evaluated on {metricsSource.Count} examples).",
                 _logger);
         }
         else
@@ -787,6 +995,145 @@ internal sealed class TrainingService
         }
 
         return Math.Clamp((double)matchCount / totalInBucket, 0.0, 1.0);
+    }
+
+    /// <summary>
+    ///     Builds a single aggregated TrainingExample from all episodes of a series.
+    ///     Instead of emitting one example per episode (which skews the dataset toward
+    ///     series with many episodes), this collapses all episodes into one series-level
+    ///     example with averaged/aggregated signals matching Engine.ScoreCandidate() logic.
+    /// </summary>
+    private static void AddAggregatedSeriesExample(
+        List<TrainingExample> examples,
+        List<WatchedItemInfo> episodes,
+        Guid seriesId,
+        UserWatchProfile userProfile,
+        Dictionary<string, double> genrePreferences,
+        Dictionary<Guid, double> coOccurrence,
+        double collaborativeMax,
+        double avgYear,
+        PreferenceBuilder.GenreExposureAnalysis genreExposure,
+        Dictionary<Guid, HashSet<string>> cachedPeopleLookup,
+        HashSet<string> preferredPeople,
+        Dictionary<Guid, IReadOnlyList<string>> itemStudiosLookup,
+        HashSet<string> preferredStudios,
+        Dictionary<Guid, IReadOnlyList<string>> itemTagsLookup,
+        HashSet<string> preferredTags,
+        Dictionary<Guid, List<WatchedItemInfo>> seriesEpisodeLookup,
+        DateTime organicFallbackTimestamp)
+    {
+        // Use the most-recently-watched episode for temporal features (mirrors Phase 1 series logic)
+        var mostRecent = episodes
+            .OrderByDescending(e => e.LastPlayedDate)
+            .FirstOrDefault();
+
+        // Aggregated completion: playedEps / totalEps
+        var playedEps = episodes.Count(e => e.Played);
+        var completionRatio = episodes.Count > 0
+            ? Math.Clamp((double)playedEps / episodes.Count, 0.0, 1.0)
+            : 0.0;
+
+        // Aggregated user rating: average of all rated episodes
+        var ratedEpisodes = episodes.Where(e => e.UserRating is > 0).ToList();
+        var userRatingScore = ratedEpisodes.Count > 0
+            ? Math.Clamp(ratedEpisodes.Average(e => e.UserRating!.Value) / 10.0, 0.0, 1.0)
+            : 0.5;
+
+        // Use seriesId for collaborative score (matches Phase 1 series scoring)
+        var collabScore = ContentScoring.ComputeCollaborativeScore(seriesId, coOccurrence, collaborativeMax);
+        var ratingScore = ContentScoring.NormalizeRating(mostRecent?.CommunityRating);
+
+        // Series progression boost (same formula as Phase 1 and Engine.ScoreCandidate)
+        var seriesProgressionBoost = 0.0;
+        if (episodes.Count > 0)
+        {
+            var ratio = (double)playedEps / episodes.Count;
+            seriesProgressionBoost = ratio < 0.9 ? Math.Clamp(ratio * 1.2, 0.0, 1.0) : 0.2;
+        }
+
+        // PeopleSimilarity: try seriesId first (most likely hit for series-level metadata)
+        var peopleSimilarity = cachedPeopleLookup.TryGetValue(seriesId, out var seriesPeople)
+            ? SimilarityComputer.ComputePeopleSimilarity(seriesPeople, preferredPeople)
+            : 0.0;
+
+        // StudioMatch and TagSimilarity: look up by seriesId
+        var studioMatch = false;
+        var tagSimilarity = 0.0;
+
+        if (itemStudiosLookup.TryGetValue(seriesId, out var seriesStudios) && seriesStudios.Count > 0)
+        {
+            studioMatch = seriesStudios.Any(s => preferredStudios.Contains(s));
+        }
+
+        if (itemTagsLookup.TryGetValue(seriesId, out var seriesTags) && seriesTags.Count > 0)
+        {
+            tagSimilarity = ComputeTagSimilarityFromCache(seriesTags, preferredTags);
+        }
+
+        // Collect all unique genres across episodes for genre similarity
+        var allGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int? representativeYear = null;
+        foreach (var ep in episodes)
+        {
+            if (ep.Genres is not null)
+            {
+                foreach (var g in ep.Genres)
+                {
+                    allGenres.Add(g);
+                }
+            }
+
+            // Use the first available production year as representative
+            representativeYear ??= ep.Year;
+        }
+
+        var genreList = allGenres.ToList();
+
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genreList, genrePreferences),
+            CollaborativeScore = collabScore,
+            RatingScore = ratingScore,
+            // Use production year for recency (not watch date) to match Phase 1 semantics
+            RecencyScore = representativeYear is int recY and >= 1 and <= 9999
+                ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1))
+                : 0.5,
+            YearProximityScore = ContentScoring.ComputeYearProximity(representativeYear, avgYear),
+            GenreCount = genreList.Count,
+            IsSeries = true,
+            UserRatingScore = userRatingScore,
+            HasUserInteraction = true,
+            CompletionRatio = completionRatio,
+            PeopleSimilarity = peopleSimilarity,
+            StudioMatch = studioMatch,
+            SeriesProgressionBoost = seriesProgressionBoost,
+            PopularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : ratingScore * 0.3,
+            DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: true),
+            HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: false),
+            IsWeekend = mostRecent?.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
+            TagSimilarity = tagSimilarity
+        };
+
+        // Genre exposure features
+        var (underexp, domRatio, affGap) =
+            PreferenceBuilder.ComputeGenreExposureFeatures(genreList, genreExposure);
+        features.GenreUnderexposure = underexp;
+        features.GenreDominanceRatio = domRatio;
+        features.GenreAffinityGap = affGap;
+
+        // Label based on aggregated completion. If no episodes are played (all favorite-only),
+        // use 0.65 (explicit interest without playback evidence).
+        var label = playedEps == 0
+            ? 0.65
+            : ContentScoring.ComputeEngagementLabel(completionRatio);
+
+        examples.Add(new TrainingExample
+        {
+            Features = features,
+            Label = label,
+            GeneratedAtUtc = mostRecent?.LastPlayedDate ?? organicFallbackTimestamp,
+            SampleWeight = 0.7 // Slightly lower weight than recommended items to avoid overwhelming
+        });
     }
 
     /// <summary>

@@ -497,23 +497,19 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         var referenceTime = DateTime.UtcNow;
         var inputSize = CandidateFeatures.FeatureCount;
 
-        var vectors = new double[examples.Count][];
+        // Pre-compute all feature vectors as RAW (unstandardized) source of truth.
+        // Standardization is deferred until after the train/val split so that
+        // statistics are computed from the training split only (no data leakage).
+        var rawVectors = new double[examples.Count][];
         var weights = new double[examples.Count];
 
         for (var i = 0; i < examples.Count; i++)
         {
-            vectors[i] = examples[i].Features.ToVector();
+            rawVectors[i] = examples[i].Features.ToVector();
             weights[i] = examples[i].ComputeEffectiveWeight(referenceTime);
         }
 
-        double[]? featureMeans = null;
-        double[]? featureStdDevs = null;
-
-        if (examples.Count >= MinExamplesForStandardization)
-        {
-            (featureMeans, featureStdDevs) = LearnedScoringStrategy.ComputeFeatureStatistics(vectors);
-            LearnedScoringStrategy.StandardizeVectors(vectors, featureMeans, featureStdDevs);
-        }
+        var useStandardization = examples.Count >= MinExamplesForStandardization;
 
         try
         {
@@ -552,6 +548,24 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             {
                 trainIdx = indices;
                 valIdx = [];
+            }
+
+            // Clone raw vectors into working copies so standardization doesn't mutate originals.
+            // Compute stats from TRAINING split only to prevent validation data leakage.
+            var vectors = LearnedScoringStrategy.CloneVectors(rawVectors);
+            double[]? featureMeans = null;
+            double[]? featureStdDevs = null;
+
+            if (useStandardization)
+            {
+                var trainOnly = new double[trainIdx.Length][];
+                for (var j = 0; j < trainIdx.Length; j++)
+                {
+                    trainOnly[j] = vectors[trainIdx[j]];
+                }
+
+                (featureMeans, featureStdDevs) = LearnedScoringStrategy.ComputeFeatureStatistics(trainOnly);
+                LearnedScoringStrategy.StandardizeVectors(vectors, featureMeans, featureStdDevs);
             }
 
             var bestLoss = double.MaxValue;

@@ -106,9 +106,10 @@ internal static class EngineConstants
 
     /// <summary>
     ///     Label for previously recommended but unwatched items (exposure bias mitigation —
-    ///     user saw the recommendation but didn't engage).
+    ///     user saw the recommendation but didn't engage). Kept very close to zero
+    ///     to clearly separate "ignored" from "barely started" (WatchedLabelFloor = 0.5).
     /// </summary>
-    internal const double ExposureLabel = 0.1;
+    internal const double ExposureLabel = 0.05;
 
     /// <summary>
     ///     Number of days after a recommendation within which a watch is considered
@@ -159,6 +160,21 @@ internal static class EngineConstants
     ///     taste profile is too sparse for reliable filtering.
     /// </summary>
     internal const int GenrePreFilterMinPreferences = 3;
+
+    /// <summary>
+    ///     Number of recommendation slots reserved for exploration (random picks from
+    ///     remaining candidates instead of MMR selection). Placed at the end of the
+    ///     recommendation list so high-relevance items are unaffected. Guarantees the
+    ///     model sees diverse feedback even when MMR converges on a narrow genre cluster.
+    /// </summary>
+    internal const int ExplorationSlotCount = 2;
+
+    /// <summary>
+    ///     Maximum number of random negative samples added per user during training.
+    ///     These are items recommended to OTHER users that this user never interacted with,
+    ///     providing the model with true "irrelevant" examples to sharpen the decision boundary.
+    /// </summary>
+    internal const int RandomNegativeSamplesPerUser = 5;
 
     /// <summary>
     ///     PersonKind types considered for people similarity scoring.

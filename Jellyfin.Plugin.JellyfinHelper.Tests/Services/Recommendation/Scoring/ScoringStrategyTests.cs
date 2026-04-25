@@ -2096,7 +2096,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var neural = new NeuralScoringStrategy();
         var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural);
 
-        // Train with data below NeuralActivationThreshold (50)
+        // Train with data below NeuralActivationThreshold (75)
         var examples = GenerateTrainingExamples(25);
         ensemble.Train(examples);
 

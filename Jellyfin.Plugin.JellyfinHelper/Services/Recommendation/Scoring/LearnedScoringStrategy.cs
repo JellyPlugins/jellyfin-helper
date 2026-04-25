@@ -24,6 +24,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     Training uses mean squared error (MSE) loss with L2 regularization, sample weighting
 ///     (temporal decay), Z-score feature standardization (applied both at training and scoring time),
 ///     and early stopping.
+///     K-fold cross-validation computes standardization statistics per-fold from the training
+///     fold only, avoiding data leakage from validation data into the feature normalization.
 ///     Weights are persisted to disk so they survive server restarts.
 /// </remarks>
 public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrategy
@@ -288,36 +290,24 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         // Capture a consistent reference time for temporal decay within this batch
         var referenceTime = DateTime.UtcNow;
 
-        // Pre-compute all feature vectors ONCE before training
-        // Also pre-compute effective weights for temporal decay
-        var precomputedVectors = new double[examples.Count][];
+        // Pre-compute all feature vectors ONCE before training.
+        // These are the RAW (unstandardized) vectors used as the source of truth.
+        // Standardization is applied per-fold (K-fold) and on all data (final pass)
+        // by cloning into working copies, keeping rawVectors pristine.
+        var rawVectors = new double[examples.Count][];
         var effectiveWeights = new double[examples.Count];
 
         for (var i = 0; i < examples.Count; i++)
         {
-            precomputedVectors[i] = examples[i].Features.ToVector();
+            rawVectors[i] = examples[i].Features.ToVector();
             effectiveWeights[i] = examples[i].ComputeEffectiveWeight(referenceTime);
         }
 
-        // Optional Z-score standardization.
+        // Determine whether standardization should be applied at all.
         // Thread-safety note: featureMeans/featureStdDevs are computed from local
-        // precomputedVectors (no shared state), then assigned to instance fields
-        // INSIDE the lock below. Score()/ScoreWithExplanation() read these fields
-        // under the same lock, so there is no race condition.
-        //
-        // TODO: For stricter cross-validation, standardization statistics should be computed
-        // per-fold (only from the training fold) rather than from all examples. The current
-        // approach leaks validation data into the standardization, making the loss estimate
-        // slightly optimistic. In practice, the impact is minimal for this linear model
-        // because the loss is only used for soft alpha-dampening in the ensemble layer.
-        double[]? featureMeans = null;
-        double[]? featureStdDevs = null;
-
-        if (examples.Count >= MinExamplesForStandardization)
-        {
-            (featureMeans, featureStdDevs) = ComputeFeatureStatistics(precomputedVectors);
-            StandardizeVectors(precomputedVectors, featureMeans, featureStdDevs);
-        }
+        // data (no shared state), then assigned to instance fields INSIDE the lock below.
+        // Score()/ScoreWithExplanation() read these fields under the same lock.
+        var useStandardization = examples.Count >= MinExamplesForStandardization;
 
         lock (_syncRoot)
         {
@@ -325,7 +315,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             // first time but weights were previously trained on raw (unstandardized) features,
             // reset to defaults. Without this, the old weights would produce wildly wrong
             // predictions on the now-standardized inputs until gradient descent corrects them.
-            var standardizationModeChanged = (featureMeans is null) != (_featureMeans is null);
+            var standardizationModeChanged = useStandardization != (_featureMeans is not null);
             if (standardizationModeChanged)
             {
                 _weights = DefaultWeights.CreateWeightArray();
@@ -362,6 +352,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             if (useKFold)
             {
                 // === K-fold cross-validation for reliable loss estimation ===
+                // Each fold computes standardization statistics from its TRAINING fold only,
+                // preventing validation data from leaking into the feature normalization.
+                // rawVectors is never mutated — each fold clones into working copies.
                 var foldSize = examples.Count / KFoldCount;
                 var savedWeights = (double[])_weights.Clone();
                 var savedBias = _bias;
@@ -384,6 +377,25 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                         }
                     }
 
+                    // Clone raw vectors into working copies so per-fold standardization
+                    // does not mutate the originals (needed for subsequent folds + final pass).
+                    var foldVectors = CloneVectors(rawVectors);
+
+                    // Per-fold standardization: compute statistics from TRAINING fold only,
+                    // then apply to BOTH train and validation vectors using the same stats.
+                    // This prevents validation data from influencing the normalization.
+                    if (useStandardization)
+                    {
+                        var trainOnly = new double[foldTrainIndices.Length][];
+                        for (var j = 0; j < foldTrainIndices.Length; j++)
+                        {
+                            trainOnly[j] = foldVectors[foldTrainIndices[j]];
+                        }
+
+                        var (foldMeans, foldStdDevs) = ComputeFeatureStatistics(trainOnly);
+                        StandardizeVectors(foldVectors, foldMeans, foldStdDevs);
+                    }
+
                     // Reset weights to defaults for each fold (fresh start)
                     _weights = DefaultWeights.CreateWeightArray();
                     _bias = DefaultWeights.Bias;
@@ -391,7 +403,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                     // Train on this fold's training set with early stopping
                     var foldLoss = TrainSingleSplit(
                         examples,
-                        precomputedVectors,
+                        foldVectors,
                         effectiveWeights,
                         foldTrainIndices,
                         foldValIndices,
@@ -407,13 +419,25 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             }
 
             // === Final training on ALL data (no validation holdout) ===
+            // Clone raw vectors for the final pass so standardization doesn't
+            // mutate the originals (rawVectors stays pristine for ranking metrics).
+            var finalVectors = CloneVectors(rawVectors);
+            double[]? featureMeans = null;
+            double[]? featureStdDevs = null;
+
+            if (useStandardization)
+            {
+                (featureMeans, featureStdDevs) = ComputeFeatureStatistics(finalVectors);
+                StandardizeVectors(finalVectors, featureMeans, featureStdDevs);
+            }
+
             // Reset weights to defaults for a clean final training pass
             _weights = DefaultWeights.CreateWeightArray();
             _bias = DefaultWeights.Bias;
 
             var finalLoss = TrainSingleSplit(
                 examples,
-                precomputedVectors,
+                finalVectors,
                 effectiveWeights,
                 allIndices,
                 valIndices: [],
@@ -426,7 +450,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 ? kFoldLossSum / kFoldLossCount
                 : finalLoss;
 
-            // Persist Z-score statistics so scoring uses the same standardization
+            // Persist Z-score statistics from the final (all-data) pass so scoring
+            // uses the same standardization that the final weights were trained on.
             _featureMeans = featureMeans;
             _featureStdDevs = featureStdDevs;
 
@@ -537,6 +562,25 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 vector[f] = (vector[f] - means[f]) / stdDevs[f];
             }
         }
+    }
+
+    /// <summary>
+    ///     Creates a deep clone of a jagged vector array.
+    ///     Used to create per-fold/per-split working copies so that in-place standardization
+    ///     does not mutate the raw (unstandardized) source vectors.
+    ///     Shared by both <see cref="LearnedScoringStrategy"/> and <see cref="NeuralScoringStrategy"/>.
+    /// </summary>
+    /// <param name="source">The source vectors to clone.</param>
+    /// <returns>A new array with independently cloned inner arrays.</returns>
+    internal static double[][] CloneVectors(double[][] source)
+    {
+        var clone = new double[source.Length][];
+        for (var i = 0; i < source.Length; i++)
+        {
+            clone[i] = (double[])source[i].Clone();
+        }
+
+        return clone;
     }
 
     /// <summary>
