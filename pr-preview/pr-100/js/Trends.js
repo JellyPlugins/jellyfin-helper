@@ -618,9 +618,22 @@ function buildLargestTree(data) {
     }
 
     var grouped = groupByLibrary(data.Largest);
+    // Sort library groups: movies/homevideos/musicvideos first, then tvshows, then others.
+    // This matches the "Recently" panel layout where movies appear above series.
+    var libKeys = Object.keys(grouped).sort(function (a, b) {
+        function typeOrder(libName) {
+            var items = grouped[libName];
+            if (!items || items.length === 0) return 2;
+            var ct = (items[0].CollectionType || '').toLowerCase();
+            if (ct === 'movies' || ct === 'homevideos' || ct === 'musicvideos') return 0;
+            if (ct === 'tvshows') return 1;
+            return 2;
+        }
+        return typeOrder(a) - typeOrder(b);
+    });
     var html = '<div class="insight-tree">';
 
-    Object.keys(grouped).forEach(function (lib) {
+    libKeys.forEach(function (lib) {
         var items = grouped[lib];
         var libSize = 0;
         for (var s = 0; s < items.length; s++) { var _sz = Number(items[s].Size); if (isFinite(_sz) && _sz > 0) libSize += _sz; }

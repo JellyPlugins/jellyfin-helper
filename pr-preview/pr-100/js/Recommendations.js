@@ -93,8 +93,12 @@ function renderUserRecommendations(index) {
     if (!result) return;
     var recs = result.Recommendations || [];
     if (recs.length === 0) { grid.innerHTML = '<div class="recs-empty"><p>' + T('recsNoItems', 'No recommendations for this user yet. More watch history is needed.') + '</p></div>'; return; }
+    // Sort by score descending so the UI ranking matches the match percentage.
+    // The backend uses MMR diversity-reranking which intentionally interleaves genres,
+    // but the display order should be intuitive (highest match first).
+    var sorted = recs.slice().sort(function (a, b) { return (b.Score || 0) - (a.Score || 0); });
     var html = '<div class="recs-grid">';
-    for (var i = 0; i < recs.length; i++) { html += renderRecommendationCard(recs[i], i + 1); }
+    for (var i = 0; i < sorted.length; i++) { html += renderRecommendationCard(sorted[i], i + 1); }
     html += '</div>';
     grid.innerHTML = html;
 }
