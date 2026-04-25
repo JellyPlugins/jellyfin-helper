@@ -309,6 +309,8 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     /// <summary>
     ///     Finds the first episode of a series by querying the library for episodes
     ///     belonging to the given series ID, sorted by season and episode index.
+    ///     The sort and limit are pushed down into the query to avoid loading all
+    ///     episodes into memory for long-running series.
     /// </summary>
     /// <param name="seriesId">The Jellyfin series item ID.</param>
     /// <returns>The ID of the first episode, or null if no episodes exist.</returns>

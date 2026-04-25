@@ -166,7 +166,7 @@ public class RecommendationsTask
                     _pluginLog.LogWarning("Recommendations", "Playlist sync failed — recommendations were saved but playlists could not be updated.", ex, _logger);
                 }
             }
-            else if (!config.SyncRecommendationsToPlaylist && _playlistService != null)
+            else if (_playlistService != null)
             {
                 // Playlist sync was disabled — clean up any existing playlists from previous runs
                 await CleanupOldPlaylistsAsync(cancellationToken).ConfigureAwait(false);

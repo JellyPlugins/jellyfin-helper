@@ -1,5 +1,4 @@
 ﻿using System.IO;
-using System.Security;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Xunit;
 
@@ -8,7 +7,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// <summary>
 ///     Tests for <see cref="NeuralScoringStrategy"/>: Forward-Pass, Backprop/Training,
 ///     Adam optimizer, Weight Persistence, Xavier initialization, Sigmoid.
-///     Architecture: 23 inputs → 32 hidden₁ → 16 hidden₂ → 8 hidden₃ → 1 output.
+///     Architecture: <see cref="CandidateFeatures.FeatureCount"/> inputs → 32 hidden₁ → 16 hidden₂ → 8 hidden₃ → 1 output.
 /// </summary>
 public sealed class NeuralScoringStrategyTests : IDisposable
 {

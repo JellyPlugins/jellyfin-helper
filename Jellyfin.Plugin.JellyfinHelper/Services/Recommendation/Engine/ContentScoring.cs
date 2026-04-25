@@ -167,7 +167,7 @@ internal static class ContentScoring
         long sum = 0;
         var count = 0;
 
-        foreach (var w in profile.WatchedItems.Where(w => (w.Played || w.IsFavorite) && w.Year.HasValue))
+        foreach (var w in profile.WatchedItems.Where(w => (w.Played || w.IsFavorite) && w.Year is > 0))
         {
             sum += w.Year!.Value;
             count++;

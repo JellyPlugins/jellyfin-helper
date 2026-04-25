@@ -574,9 +574,9 @@ public class RecommendationEngineTests
 
         var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile);
 
-        // Action should be boosted (temporal weight + favorite boost + PlayCount boost)
-        // Comedy comes from GenreDistribution fallback (count=5)
-        // Both should be present; Action should have a higher weight than Comedy after normalization
+        // Action should be boosted (temporal weight + favorite boost + PlayCount boost).
+        // Comedy comes from the GenreDistribution fallback only (count=3).
+        // Both should be present; Action should have a higher weight than Comedy after normalization.
         Assert.True(vector.TryGetValue("Action", out var actionWeight), "Action should be in vector");
         Assert.True(vector.TryGetValue("Comedy", out var comedyWeight), "Comedy should be in vector");
         Assert.True(actionWeight > comedyWeight,

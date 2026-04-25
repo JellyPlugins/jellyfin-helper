@@ -1790,7 +1790,7 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var score = strategy.Score(features);
 
-        // Two-hidden-layer MLP with Xavier init and sigmoid output produces baseline score
+        // Three-hidden-layer MLP with Xavier init and sigmoid output produces baseline score
         // for default features (UserRatingScore=0.5, CompletionRatio=0.5, rest=0).
         Assert.InRange(score, 0.0, 0.75);
     }

@@ -57,7 +57,7 @@ internal static class PreferenceBuilder
             var temporalWeight = Math.Exp(-GenreDecayConstant * ageDays);
 
             // PlayCount boost: re-watched items signal stronger preference
-            var playCountBoost = Math.Max(0, Math.Min(item.PlayCount, 5)) * 0.2; // max 1.0 extra from re-watches
+            var playCountBoost = Math.Clamp(item.PlayCount, 0, 5) * 0.2; // max 1.0 extra from re-watches
             var weight = temporalWeight + playCountBoost;
 
             // Favorite boost
@@ -230,13 +230,13 @@ internal static class PreferenceBuilder
             // Direct item match (movies, episodes)
             if (peopleLookup.TryGetValue(w.ItemId, out var itemPeople))
             {
-                people.UnionWith(itemPeople);
+                people.UnionWith(itemPeople.Where(static p => !string.IsNullOrWhiteSpace(p)));
             }
 
             // Series match (episodes → parent series)
             if (w.SeriesId.HasValue && peopleLookup.TryGetValue(w.SeriesId.Value, out var seriesPeople))
             {
-                people.UnionWith(seriesPeople);
+                people.UnionWith(seriesPeople.Where(static p => !string.IsNullOrWhiteSpace(p)));
             }
         }
 

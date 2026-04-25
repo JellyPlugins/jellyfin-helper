@@ -42,6 +42,8 @@ public sealed class UserActivityCacheService : IUserActivityCacheService
     /// <inheritdoc />
     public void SaveResult(UserActivityResult result)
     {
+        ArgumentNullException.ThrowIfNull(result);
+
         lock (_fileLock)
         {
             try

@@ -902,8 +902,27 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             }
 
             var tempPath = _weightsPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            File.WriteAllText(tempPath, json);
-            File.Move(tempPath, _weightsPath, overwrite: true);
+            try
+            {
+                File.WriteAllText(tempPath, json);
+                File.Move(tempPath, _weightsPath, overwrite: true);
+            }
+            catch
+            {
+                try
+                {
+                    if (File.Exists(tempPath))
+                    {
+                        File.Delete(tempPath);
+                    }
+                }
+                catch
+                {
+                    // best effort — temp file cleanup is non-critical
+                }
+
+                throw;
+            }
         }
         catch (IOException ex)
         {

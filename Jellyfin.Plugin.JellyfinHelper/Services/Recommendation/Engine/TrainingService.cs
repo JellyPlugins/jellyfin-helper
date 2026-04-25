@@ -66,7 +66,7 @@ internal sealed class TrainingService
 
         try
         {
-        return TrainCore(strategy, previousResults, incremental, cancellationToken);
+            return TrainCore(strategy, previousResults, incremental, cancellationToken);
         }
         finally
         {
@@ -634,6 +634,13 @@ internal sealed class TrainingService
 
                 var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureNeg) = perUserCache[userProfile.UserId];
 
+                // Build per-user preference sets for negative feature computation (mirrors Phase 1/2).
+                // Without these, PeopleSimilarity/StudioMatch/TagSimilarity would default to 0.0/false
+                // for all negatives, creating a systematic bias (the model learns "zero = irrelevant").
+                var preferredPeopleNeg = PreferenceBuilder.BuildPeoplePreferenceSet(userProfile, cachedPeopleLookup);
+                var preferredStudiosNeg = BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
+                var preferredTagsNeg = BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
+
                 // Collect candidate negatives: items recommended to others but not interacted with by this user
                 var candidateNegatives = new List<RecommendedItem>();
                 foreach (var rec in allRecommendedItems)
@@ -661,6 +668,16 @@ internal sealed class TrainingService
                     var ratingScore = ContentScoring.NormalizeRating(neg.CommunityRating);
                     var isSeries = string.Equals(neg.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
 
+                    // Compute PeopleSimilarity from cached data (cross-user negative may have metadata).
+                    var negPeopleSimilarity = cachedPeopleLookup.TryGetValue(neg.ItemId, out var negPeople)
+                        ? SimilarityComputer.ComputePeopleSimilarity(negPeople, preferredPeopleNeg)
+                        : 0.0;
+
+                    // Compute StudioMatch and TagSimilarity from cached data (mirrors Phase 1/2).
+                    var negStudioMatch = neg.Studios.Count > 0
+                        && neg.Studios.Any(s => preferredStudiosNeg.Contains(s));
+                    var negTagSimilarity = ComputeTagSimilarityFromCache(neg.Tags, preferredTagsNeg);
+
                     var features = new CandidateFeatures
                     {
                         GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(neg.Genres ?? [], genrePreferences),
@@ -675,10 +692,15 @@ internal sealed class TrainingService
                         UserRatingScore = 0.5,
                         HasUserInteraction = false,
                         CompletionRatio = 0.5,
+                        PeopleSimilarity = negPeopleSimilarity,
+                        StudioMatch = negStudioMatch,
+                        // SeriesProgressionBoost stays 0.0 — for cross-user negatives, the user
+                        // has no episode history for that series, so 0 is the correct value.
                         PopularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : ratingScore * 0.3,
                         DayOfWeekAffinity = 0.5,
                         HourOfDayAffinity = 0.5,
-                        IsWeekend = false
+                        IsWeekend = false,
+                        TagSimilarity = negTagSimilarity
                     };
 
                     // Genre exposure features

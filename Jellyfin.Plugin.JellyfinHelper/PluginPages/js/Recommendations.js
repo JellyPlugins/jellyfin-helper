@@ -153,7 +153,7 @@ function loadUserWatchProfile(index) {
         renderCompactWatchProfile(container, profile);
     }, function () {
         if (reqId !== _profileReqId) return;
-        result._cachedProfile = null;
+        // Do not cache failures so a later user-switch can retry.
         container.innerHTML = '<div class="recs-profile-compact-empty">' + T('recsNoProfiles', 'No watch profile available.') + '</div>';
     });
 }
@@ -194,7 +194,7 @@ function loadUserActivity(index) {
         renderCompactActivityTable(container, items);
     }, function () {
         if (reqId !== _activityReqId) return;
-        result._cachedActivity = null;
+        // Do not cache failures so a later user-switch can retry.
         container.innerHTML = '<div class="recs-profile-compact-empty">' + T('activityNoData', 'No watch activity data available.') + '</div>';
     });
 }
