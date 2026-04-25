@@ -1,6 +1,5 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using MediaBrowser.Controller.Entities;
 
@@ -57,7 +56,7 @@ internal static class TemporalFeatures
             }
 
             totalToday++;
-            if (w.Genres is not null && w.Genres.Any(g => candidateGenreSet.Contains(g)))
+            if (w.Genres is not null && candidateGenreSet.Overlaps(w.Genres))
             {
                 matchCount++;
             }
@@ -111,7 +110,7 @@ internal static class TemporalFeatures
             }
 
             totalInBucket++;
-            if (w.Genres is not null && w.Genres.Any(g => candidateGenreSet.Contains(g)))
+            if (w.Genres is not null && candidateGenreSet.Overlaps(w.Genres))
             {
                 matchCount++;
             }

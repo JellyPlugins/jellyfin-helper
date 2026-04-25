@@ -355,7 +355,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             }
 
             // Determine whether to use k-fold cross-validation or simple split
-            var useKFold = KFoldCount >= 2 && examples.Count >= KFoldCount * MinExamplesPerFold;
+            var useKFold = examples.Count >= KFoldCount * MinExamplesPerFold;
             var kFoldLossSum = 0.0;
             var kFoldLossCount = 0;
 

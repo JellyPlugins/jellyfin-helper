@@ -57,7 +57,7 @@ internal static class PreferenceBuilder
             var temporalWeight = Math.Exp(-GenreDecayConstant * ageDays);
 
             // PlayCount boost: re-watched items signal stronger preference
-            var playCountBoost = Math.Min(item.PlayCount, 5) * 0.2; // max 1.0 extra from re-watches
+            var playCountBoost = Math.Max(0, Math.Min(item.PlayCount, 5)) * 0.2; // max 1.0 extra from re-watches
             var weight = temporalWeight + playCountBoost;
 
             // Favorite boost

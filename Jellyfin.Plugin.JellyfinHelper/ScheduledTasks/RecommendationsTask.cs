@@ -145,7 +145,7 @@ public class RecommendationsTask
             {
                 try
                 {
-                    var syncResult = await _playlistService!.UpdatePlaylistsForAllUsersAsync(results, cancellationToken).ConfigureAwait(false);
+                    var syncResult = await _playlistService.UpdatePlaylistsForAllUsersAsync(results, cancellationToken).ConfigureAwait(false);
                     _pluginLog.LogInfo(
                         "Recommendations",
                         $"Playlist sync: {syncResult.PlaylistsCreated} created, {syncResult.TotalItemsAdded} items added, {syncResult.OldPlaylistsRemoved} old removed.",

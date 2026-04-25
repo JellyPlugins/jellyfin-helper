@@ -6,7 +6,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 public sealed class PlaylistSyncResult
 {
     /// <summary>
-    ///     Gets or sets the number of playlists successfully created or updated.
+    ///     Gets or sets the number of playlists successfully created.
     /// </summary>
     public int PlaylistsCreated { get; set; }
 

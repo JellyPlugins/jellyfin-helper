@@ -1,4 +1,4 @@
-﻿using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Xunit;
@@ -651,7 +651,7 @@ public class RecommendationEngineTests
         var map = CollaborativeFilter.BuildCollaborativeMap(user, [user, other1, other2]);
 
         // uniqueItem should have accumulated Jaccard weight from both other users
-        // Each user shares 3/4 items with user → Jaccard = 0.75, total = 1.5
+        // Each user shares 3/4 items with user -> Jaccard = 0.75, total = 1.5
         Assert.True(map.TryGetValue(uniqueItem, out var uniqueItemScore));
         Assert.Equal(1.5, uniqueItemScore, 4);
     }
@@ -1141,7 +1141,7 @@ public class RecommendationEngineTests
 
         Assert.Equal(0.0, underexposure); // None are underexposed
         Assert.Equal(1.0, dominance); // All 2/2 genres are in top-3
-        Assert.Equal(0.0, gap); // Candidate avg (0.9) > overall avg (0.5) → gap = 0
+        Assert.Equal(0.0, gap); // Candidate avg (0.9) > overall avg (0.5) -> gap = 0
     }
 
     [Fact]
@@ -1165,7 +1165,7 @@ public class RecommendationEngineTests
             IsValid = true
         };
 
-        // "Spider-Man: Into the Spider-Verse" — Animation + Action + Adventure
+        // "Spider-Man: Into the Spider-Verse" -- Animation + Action + Adventure
         var (underexposure, dominance, gap) =
             PreferenceBuilder.ComputeGenreExposureFeatures(new[] { "Animation", "Action", "Adventure" }, analysis);
 
@@ -1173,14 +1173,14 @@ public class RecommendationEngineTests
         Assert.Equal(1.0 / 3.0, underexposure, 4);
         // 2/3 genres (Action, Adventure) are dominant
         Assert.Equal(2.0 / 3.0, dominance, 4);
-        // Candidate avg weight = (0.02 + 1.0 + 0.5) / 3 ≈ 0.507 > avg 0.4 → gap = 0
+        // Candidate avg weight = (0.02 + 1.0 + 0.5) / 3 ~= 0.507 > avg 0.4 -> gap = 0
         Assert.Equal(0.0, gap, 4);
     }
 
     [Fact]
     public void ComputeGenreExposureFeatures_PureAnimationFilm_HighUnderexposure()
     {
-        // Pure animation film for an action user — strong underexposure signal
+        // Pure animation film for an action user -- strong underexposure signal
         var analysis = new PreferenceBuilder.GenreExposureAnalysis
         {
             UnderexposedGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Animation", "Family" },
@@ -1197,7 +1197,7 @@ public class RecommendationEngineTests
             IsValid = true
         };
 
-        // "Frozen" — Animation + Family
+        // "Frozen" -- Animation + Family
         var (underexposure, dominance, gap) =
             PreferenceBuilder.ComputeGenreExposureFeatures(new[] { "Animation", "Family" }, analysis);
 

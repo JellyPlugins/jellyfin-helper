@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -222,7 +222,7 @@ internal static class ReasonResolver
             LastActivityDate = profile.LastActivityDate,
             GenreDistribution = new Dictionary<string, int>(profile.GenreDistribution),
             FavoriteCount = profile.FavoriteCount,
-            FavoriteSeriesIds = profile.FavoriteSeriesIds,
+            FavoriteSeriesIds = new HashSet<Guid>(profile.FavoriteSeriesIds),
             AverageCommunityRating = profile.AverageCommunityRating,
             MaxParentalRating = profile.MaxParentalRating,
             WatchedItems = []

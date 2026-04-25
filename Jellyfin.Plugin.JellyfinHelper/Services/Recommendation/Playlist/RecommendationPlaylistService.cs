@@ -77,13 +77,13 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
             try
             {
-                // Remove any existing recommendation playlists for this user
-                var removed = await RemoveUserPlaylistsAsync(result.UserId, cancellationToken).ConfigureAwait(false);
-                syncResult.OldPlaylistsRemoved += removed;
-
                 // Skip playlist creation if there are no recommendations
                 if (result.Recommendations.Count == 0)
                 {
+                    // Still clean up old playlists when there are no new recommendations
+                    var removedEmpty = await RemoveUserPlaylistsAsync(result.UserId, cancellationToken).ConfigureAwait(false);
+                    syncResult.OldPlaylistsRemoved += removedEmpty;
+
                     _pluginLog.LogDebug(
                         "PlaylistSync",
                         $"No recommendations for user '{result.UserName}' — skipping playlist creation.",
@@ -118,10 +118,17 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     MediaType = MediaType.Unknown // Mixed content (movies + series)
                 };
 
+                // Create the new playlist BEFORE removing old ones so the user is never left
+                // without a recommendation playlist if creation fails.
                 var playlistResult = await _playlistManager.CreatePlaylist(request).ConfigureAwait(false);
 
                 if (!string.IsNullOrEmpty(playlistResult.Id))
                 {
+                    // New playlist created — now safe to remove old playlists.
+                    var removed = await RemoveUserPlaylistsExceptAsync(
+                        result.UserId, playlistResult.Id, cancellationToken).ConfigureAwait(false);
+                    syncResult.OldPlaylistsRemoved += removed;
+
                     syncResult.PlaylistsCreated++;
                     syncResult.TotalItemsAdded += itemIds.Length;
 
@@ -332,6 +339,15 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     /// <returns>The number of playlists removed.</returns>
     private Task<int> RemoveUserPlaylistsAsync(Guid userId, CancellationToken cancellationToken)
     {
+        return RemoveUserPlaylistsExceptAsync(userId, excludePlaylistId: null, cancellationToken);
+    }
+
+    /// <summary>
+    ///     Finds and removes recommendation playlists, optionally excluding one.
+    /// </summary>
+    private Task<int> RemoveUserPlaylistsExceptAsync(
+        Guid userId, string? excludePlaylistId, CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
 
         var user = _userManager.GetUserById(userId);
@@ -359,6 +375,13 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             // user-authored playlists that happen to start with the same emoji prefix.
             // This also catches Jellyfin's auto-deduplicated names like "...for Alice1", etc.
             if (playlist.Name == null || !playlist.Name.StartsWith(PlaylistNamePrefix + " for ", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // Skip the just-created replacement playlist
+            if (excludePlaylistId is not null
+                && string.Equals(playlist.Id.ToString("N"), excludePlaylistId, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
