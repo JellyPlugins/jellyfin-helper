@@ -269,16 +269,9 @@ internal static class ContentScoring
             return 0.0;
         }
 
-        var intersection = 0;
         // Iterate the smaller set for efficiency
         var (smaller, larger) = setA.Count <= setB.Count ? (setA, setB) : (setB, setA);
-        foreach (var item in smaller)
-        {
-            if (larger.Contains(item))
-            {
-                intersection++;
-            }
-        }
+        var intersection = smaller.Count(item => larger.Contains(item));
 
         var union = setA.Count + setB.Count - intersection;
         return union > 0 ? (double)intersection / union : 0.0;

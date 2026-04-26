@@ -707,9 +707,11 @@ function attachAutoSaveHandlers() {
                 // Update Recommendations tab visibility only after save succeeds
                 if (id === 'cfgRecommendationsMode') {
                     var isActive = el.value === 'Activate';
-                    // If deactivating/dry-running, uncheck playlist toggle BEFORE building payload
-                    // so the unchecked state is persisted to the server
-                    if (!isActive) {
+                    // Only clear the persisted playlist preference when fully Deactivating.
+                    // DryRun keeps the saved choice so it returns when re-Activating.
+                    // DryRun must not create playlists — the toggle is greyed out (below),
+                    // but the user's preference survives the mode toggle.
+                    if (el.value === 'Deactivate') {
                         var chkPre = document.getElementById('cfgSyncPlaylist');
                         if (chkPre) chkPre.checked = false;
                     }

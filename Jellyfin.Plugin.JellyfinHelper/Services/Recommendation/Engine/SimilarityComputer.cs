@@ -134,12 +134,19 @@ internal sealed class SimilarityComputer
         var unknownGenreCount = 0;
         foreach (var genre in uniqueCandidateGenres)
         {
-            if (genrePreferences.TryGetValue(genre, out var weight) && weight > 0)
+            if (genrePreferences.TryGetValue(genre, out var weight))
             {
-                dotProduct += weight; // candidate component is 1.0
+                if (weight > 0)
+                {
+                    dotProduct += weight; // candidate component is 1.0
+                }
+
+                // weight == 0: genre is known (user watched it) but normalized to zero —
+                // not counted as "unknown" since the user has been exposed to it.
             }
             else
             {
+                // Genre is truly absent from the user's preference vector — never watched.
                 unknownGenreCount++;
             }
         }

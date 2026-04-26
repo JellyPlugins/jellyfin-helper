@@ -100,6 +100,8 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.0, vector[24]); // genreDominanceRatio (default 0)
         Assert.Equal(0.0, vector[25]); // genreAffinityGap (default 0)
         Assert.Equal(0.0, vector[26]); // libraryAddedRecency (default 0)
+        Assert.Equal(0.5, vector[27]); // criticRatingScore (default 0.5)
+        Assert.Equal(0.0, vector[28]); // contentNearestNeighborScore (default 0)
     }
 
     [Fact]
@@ -1474,7 +1476,7 @@ public sealed class ScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void ScoreExplanation_WithPenalty_ClampsScoreToZeroOne()
+    public void ScoreExplanation_WithPenalty_ClampsMultiplierToAtMostOne()
     {
         var original = new ScoreExplanation
         {

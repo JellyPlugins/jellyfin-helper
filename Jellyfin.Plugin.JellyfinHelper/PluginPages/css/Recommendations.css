@@ -408,6 +408,11 @@
         border-color: rgba(0, 0, 0, 0.08);
     }
 
+    .recs-collapsible-toggle:hover {
+        background: rgba(0, 0, 0, 0.06);
+        border-color: var(--color-primary, #00a4dc);
+    }
+
     .recs-info-line {
         background: rgba(0, 0, 0, 0.03);
         border-color: rgba(0, 0, 0, 0.06);

@@ -456,6 +456,23 @@ internal sealed class TrainingService
                 epList.Add(ep);
             }
 
+            // Pre-compute which series have organic episode rows available.
+            // This prevents standalone series-type rows from winning the aggregatedSeriesIds
+            // race when they appear before episode rows in the iteration. If episode data
+            // exists, the episode-based aggregation path should always be preferred because
+            // it produces richer training signals (per-episode completion, temporal features).
+            var seriesWithOrgEpisodes = new HashSet<Guid>();
+            foreach (var candidate in userProfile.WatchedItems)
+            {
+                if (candidate.SeriesId.HasValue
+                    && (candidate.Played || candidate.IsFavorite || candidate.PlayCount > 0 || candidate.PlaybackPositionTicks > 0)
+                    && !recommendedItemIds.Contains(candidate.ItemId)
+                    && !recommendedItemIds.Contains(candidate.SeriesId.Value))
+                {
+                    seriesWithOrgEpisodes.Add(candidate.SeriesId.Value);
+                }
+            }
+
             // === Series aggregation: collapse episodes into one example per series ===
             // Without aggregation, a series with 50 episodes produces 50 training examples,
             // massively skewing the dataset toward that series. Instead, group episodes by
@@ -536,6 +553,15 @@ internal sealed class TrainingService
                 }
 
                 var isSeries = string.Equals(w.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
+
+                // If this standalone series has episode rows in the organic set, skip it —
+                // the episode-based aggregation path (above) produces richer training signals.
+                // Without this guard, iteration order could cause the standalone row to "win"
+                // the aggregatedSeriesIds race and suppress episode-level aggregation.
+                if (isSeries && seriesWithOrgEpisodes.Contains(w.ItemId))
+                {
+                    continue;
+                }
 
                 // Guard: if this standalone item is a Series object (w.SeriesId == null, w.ItemType == "Series")
                 // and the series was already emitted via the aggregation path above (episode rows with matching

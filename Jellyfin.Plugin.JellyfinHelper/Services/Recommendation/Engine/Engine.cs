@@ -474,11 +474,10 @@ public sealed class Engine : IRecommendationEngine
                 continue;
             }
 
-            // Skip series where the user has at least one Played or IsFavorite episode,
-            // or favorited the series itself. Jellyfin natively shows "Next Up" for in-progress series, so
-            // recommending them again wastes a slot. Series with only started-but-unfinished
-            // episodes (Played=false, IsFavorite=false) are NOT skipped and will reach
-            // ScoreCandidate where they receive the seriesProgressionBoost.
+            // Skip series where the user has any interaction: Played, IsFavorite,
+            // PlayCount > 0, or PlaybackPositionTicks > 0 on at least one episode,
+            // or favorited the series itself. Jellyfin natively shows "Next Up" and
+            // "Continue Watching" for these series, so recommending them wastes a slot.
             // Their signals still flow into preferences (genre, studio, people) via PreferenceBuilder.
             if (candidate is Series && watchedSeriesIds.Contains(candidate.Id))
             {
