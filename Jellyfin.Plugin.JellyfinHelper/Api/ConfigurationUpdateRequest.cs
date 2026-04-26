@@ -47,13 +47,13 @@ public class ConfigurationUpdateRequest
     /// <summary>
     ///     Gets the execution mode for the Smart Recommendations task.
     /// </summary>
-    /// Nullable so older UI clients won't silently reset it.
+    /// <remarks>Nullable so older UI clients won't silently reset it.</remarks>
     public TaskMode? RecommendationsTaskMode { get; init; }
 
     /// <summary>
     ///     Gets a value indicating whether recommendation results should be synced to Jellyfin playlists.
     /// </summary>
-    /// Nullable so older UI clients won't silently reset it.
+    /// <remarks>Nullable so older UI clients won't silently reset it.</remarks>
     public bool? SyncRecommendationsToPlaylist { get; init; }
 
     /// <summary>

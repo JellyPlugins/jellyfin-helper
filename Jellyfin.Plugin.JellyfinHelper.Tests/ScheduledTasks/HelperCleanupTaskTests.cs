@@ -315,7 +315,8 @@ public class HelperCleanupTaskTests : IDisposable
             EmptyMediaFolderTaskMode = TaskMode.Deactivate,
             OrphanedSubtitleTaskMode = TaskMode.Deactivate,
             LinkRepairTaskMode = TaskMode.Deactivate,
-            SeerrCleanupTaskMode = TaskMode.Deactivate
+            SeerrCleanupTaskMode = TaskMode.Deactivate,
+            RecommendationsTaskMode = TaskMode.Deactivate
         };
 
         var reportedValues = new List<double>();

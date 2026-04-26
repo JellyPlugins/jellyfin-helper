@@ -186,33 +186,55 @@ public static class DefaultWeights
         }
 
         var weights = new double[CandidateFeatures.FeatureCount];
-        weights[(int)FeatureIndex.GenreSimilarity] = GenreSimilarity;
-        weights[(int)FeatureIndex.CollaborativeScore] = CollaborativeScore;
-        weights[(int)FeatureIndex.RatingScore] = RatingScore;
-        weights[(int)FeatureIndex.RecencyScore] = RecencyScore;
-        weights[(int)FeatureIndex.YearProximityScore] = YearProximityScore;
-        weights[(int)FeatureIndex.GenreCountNormalized] = GenreCountNormalized;
-        weights[(int)FeatureIndex.IsSeries] = IsSeries;
-        weights[(int)FeatureIndex.GenreRatingInteraction] = GenreRatingInteraction;
-        weights[(int)FeatureIndex.GenreCollabInteraction] = GenreCollabInteraction;
-        weights[(int)FeatureIndex.UserRatingScore] = UserRatingScore;
-        weights[(int)FeatureIndex.CompletionRatio] = CompletionRatio;
-        weights[(int)FeatureIndex.IsAbandoned] = IsAbandoned;
-        weights[(int)FeatureIndex.HasInteraction] = HasInteraction;
-        weights[(int)FeatureIndex.PeopleSimilarity] = PeopleSimilarity;
-        weights[(int)FeatureIndex.StudioMatch] = StudioMatch;
-        weights[(int)FeatureIndex.SeriesProgressionBoost] = SeriesProgressionBoost;
-        weights[(int)FeatureIndex.PopularityScore] = PopularityScore;
-        weights[(int)FeatureIndex.DayOfWeekAffinity] = DayOfWeekAffinity;
-        weights[(int)FeatureIndex.HourOfDayAffinity] = HourOfDayAffinity;
-        weights[(int)FeatureIndex.IsWeekend] = IsWeekend;
-        weights[(int)FeatureIndex.TagSimilarity] = TagSimilarity;
-        weights[(int)FeatureIndex.PeopleGenreInteraction] = PeopleGenreInteraction;
-        weights[(int)FeatureIndex.RecencyRatingInteraction] = RecencyRatingInteraction;
-        weights[(int)FeatureIndex.GenreUnderexposure] = GenreUnderexposure;
-        weights[(int)FeatureIndex.GenreDominanceRatio] = GenreDominanceRatio;
-        weights[(int)FeatureIndex.GenreAffinityGap] = GenreAffinityGap;
-        weights[(int)FeatureIndex.LibraryAddedRecency] = LibraryAddedRecency;
+        var assigned = new bool[CandidateFeatures.FeatureCount];
+
+        void Set(FeatureIndex idx, double value)
+        {
+            var i = (int)idx;
+            weights[i] = value;
+            assigned[i] = true;
+        }
+
+        Set(FeatureIndex.GenreSimilarity, GenreSimilarity);
+        Set(FeatureIndex.CollaborativeScore, CollaborativeScore);
+        Set(FeatureIndex.RatingScore, RatingScore);
+        Set(FeatureIndex.RecencyScore, RecencyScore);
+        Set(FeatureIndex.YearProximityScore, YearProximityScore);
+        Set(FeatureIndex.GenreCountNormalized, GenreCountNormalized);
+        Set(FeatureIndex.IsSeries, IsSeries);
+        Set(FeatureIndex.GenreRatingInteraction, GenreRatingInteraction);
+        Set(FeatureIndex.GenreCollabInteraction, GenreCollabInteraction);
+        Set(FeatureIndex.UserRatingScore, UserRatingScore);
+        Set(FeatureIndex.CompletionRatio, CompletionRatio);
+        Set(FeatureIndex.IsAbandoned, IsAbandoned);
+        Set(FeatureIndex.HasInteraction, HasInteraction);
+        Set(FeatureIndex.PeopleSimilarity, PeopleSimilarity);
+        Set(FeatureIndex.StudioMatch, StudioMatch);
+        Set(FeatureIndex.SeriesProgressionBoost, SeriesProgressionBoost);
+        Set(FeatureIndex.PopularityScore, PopularityScore);
+        Set(FeatureIndex.DayOfWeekAffinity, DayOfWeekAffinity);
+        Set(FeatureIndex.HourOfDayAffinity, HourOfDayAffinity);
+        Set(FeatureIndex.IsWeekend, IsWeekend);
+        Set(FeatureIndex.TagSimilarity, TagSimilarity);
+        Set(FeatureIndex.PeopleGenreInteraction, PeopleGenreInteraction);
+        Set(FeatureIndex.RecencyRatingInteraction, RecencyRatingInteraction);
+        Set(FeatureIndex.GenreUnderexposure, GenreUnderexposure);
+        Set(FeatureIndex.GenreDominanceRatio, GenreDominanceRatio);
+        Set(FeatureIndex.GenreAffinityGap, GenreAffinityGap);
+        Set(FeatureIndex.LibraryAddedRecency, LibraryAddedRecency);
+
+        // Guard: detect missing per-index assignments. The count check above catches
+        // new enum values without FeatureCount bump, but this catches the more likely
+        // failure mode of adding a new enum+count without adding a Set() call.
+        for (var i = 0; i < assigned.Length; i++)
+        {
+            if (!assigned[i])
+            {
+                throw new InvalidOperationException(
+                    $"DefaultWeights.CreateWeightArray is missing an assignment for FeatureIndex slot {i} ({(FeatureIndex)i}).");
+            }
+        }
+
         return weights;
     }
 }

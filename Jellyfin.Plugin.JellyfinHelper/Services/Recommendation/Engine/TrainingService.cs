@@ -545,6 +545,13 @@ internal sealed class TrainingService
                     continue;
                 }
 
+                // Mark this standalone series as aggregated so that if episode rows for the same
+                // series appear later, the aggregation path won't emit a duplicate example.
+                if (isSeries)
+                {
+                    aggregatedSeriesIds.Add(w.ItemId);
+                }
+
                 // Compute PeopleSimilarity from cached data (organic item may have been previously recommended).
                 var peopleSimilarity = cachedPeopleLookup.TryGetValue(w.ItemId, out var organicPeople)
                     ? SimilarityComputer.ComputePeopleSimilarity(organicPeople, preferredPeopleOrganic)
@@ -1065,10 +1072,16 @@ internal sealed class TrainingService
             .OrderByDescending(e => e.LastPlayedDate)
             .FirstOrDefault();
 
-        // Aggregated completion: playedEps / totalEps
+        // Aggregated completion: average per-episode completion ratios.
+        // Using ContentScoring.ComputeCompletionRatio per episode (same as Phase 1 series scoring)
+        // instead of binary playedEps/totalEps, so partially watched episodes contribute proportionally
+        // rather than being counted as 0.
         var playedEps = episodes.Count(e => e.Played);
         var completionRatio = episodes.Count > 0
-            ? Math.Clamp((double)playedEps / episodes.Count, 0.0, 1.0)
+            ? Math.Clamp(
+                episodes.Average(e => ContentScoring.ComputeCompletionRatio(e)),
+                0.0,
+                1.0)
             : 0.0;
 
         // Aggregated user rating: average of all rated episodes

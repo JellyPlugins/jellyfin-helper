@@ -390,11 +390,18 @@ public sealed class Engine : IRecommendationEngine
             list.Add(w);
         }
 
-        // Exclude both played AND favorited items from candidates — the user already knows these items.
-        // Their genre/studio/tag/people signals still flow into preferences via PreferenceBuilder.
-        var watchedIds = new HashSet<Guid>(userProfile.WatchedItems.Where(w => w.Played || w.IsFavorite).Select(w => w.ItemId));
+        // Exclude played, favorited, AND started items from candidates — the user already knows these items.
+        // Started items (PlayCount > 0 or PlaybackPositionTicks > 0) appear in Jellyfin's "Continue Watching"
+        // and should not waste a recommendation slot. Their genre/studio/tag/people signals still flow
+        // into preferences via PreferenceBuilder.
+        var watchedIds = new HashSet<Guid>(
+            userProfile.WatchedItems
+                .Where(w => w.Played || w.IsFavorite || w.PlayCount > 0 || w.PlaybackPositionTicks > 0)
+                .Select(w => w.ItemId));
         var watchedSeriesIds = new HashSet<Guid>(
-            userProfile.WatchedItems.Where(w => (w.Played || w.IsFavorite) && w.SeriesId.HasValue).Select(w => w.SeriesId!.Value));
+            userProfile.WatchedItems
+                .Where(w => (w.Played || w.IsFavorite || w.PlayCount > 0 || w.PlaybackPositionTicks > 0) && w.SeriesId.HasValue)
+                .Select(w => w.SeriesId!.Value));
 
         // Also include series-level favorites (user favorited the series itself, not individual episodes)
         foreach (var favSeriesId in userProfile.FavoriteSeriesIds)

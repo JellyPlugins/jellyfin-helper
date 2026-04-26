@@ -93,14 +93,21 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.3, vector[17]); // dayOfWeekAffinity
         Assert.Equal(0.5, vector[18]); // hourOfDayAffinity
         Assert.Equal(1.0, vector[19]); // isWeekend (true → 1.0)
+        Assert.Equal(0.0, vector[20]); // tagSimilarity (default 0)
+        Assert.Equal(0.0, vector[21]); // peopleGenreInteraction (0 × 0.8 = 0)
+        Assert.Equal(0.3 * 0.7, vector[22], 10); // recencyRatingInteraction (0.3 × 0.7)
+        Assert.Equal(0.0, vector[23]); // genreUnderexposure (default 0)
+        Assert.Equal(0.0, vector[24]); // genreDominanceRatio (default 0)
+        Assert.Equal(0.0, vector[25]); // genreAffinityGap (default 0)
+        Assert.Equal(0.0, vector[26]); // libraryAddedRecency (default 0)
     }
 
     [Fact]
-    public void CandidateFeatures_ToVector_Returns26Elements()
+    public void CandidateFeatures_ToVector_LengthMatchesFeatureCount()
     {
         var features = new CandidateFeatures();
         var vector = features.ToVector();
-        Assert.Equal(27, vector.Length);
+        Assert.Equal(CandidateFeatures.FeatureCount, vector.Length);
     }
 
     [Fact]
@@ -499,6 +506,12 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.02, weights[18]); // hourOfDayAffinity
         Assert.Equal(0.01, weights[19]); // isWeekend
         Assert.Equal(0.02, weights[20]); // tagSimilarity
+        Assert.Equal(0.03, weights[21]); // peopleGenreInteraction
+        Assert.Equal(0.03, weights[22]); // recencyRatingInteraction
+        Assert.Equal(-0.08, weights[23]); // genreUnderexposure
+        Assert.Equal(0.10, weights[24]); // genreDominanceRatio
+        Assert.Equal(-0.05, weights[25]); // genreAffinityGap
+        Assert.Equal(0.03, weights[26]); // libraryAddedRecency
     }
 
     [Fact]
@@ -1472,9 +1485,9 @@ public sealed class ScoringStrategyTests : IDisposable
             GenreContribution = 0.90
         };
 
-        // Penalty > 1 would push score above 1.0 without clamping
+        // Penalty > 1 is clamped to 1.0 by WithPenalty, so 0.90 * 1.0 = 0.90 (no amplification)
         var penalized = original.WithPenalty(1.5);
-        Assert.True(penalized.FinalScore <= 1.0, "FinalScore should be clamped to max 1.0");
+        Assert.Equal(0.90, penalized.FinalScore, 10);
 
         // Penalty of 0 should yield 0
         var zeroed = original.WithPenalty(0.0);

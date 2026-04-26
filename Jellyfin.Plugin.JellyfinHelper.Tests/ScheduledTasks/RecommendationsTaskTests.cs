@@ -217,6 +217,32 @@ public class RecommendationsTaskTests
     }
 
     [Fact]
+    public async Task Execute_DeactivateWithPlaylistService_CleansUpOldPlaylists()
+    {
+        // Arrange
+        var config = new PluginConfiguration { RecommendationsTaskMode = TaskMode.Deactivate };
+        var progress = new Mock<IProgress<double>>();
+        var playlistMock = new Mock<IRecommendationPlaylistService>();
+        playlistMock.Setup(x => x.RemoveAllRecommendationPlaylistsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(3);
+
+        var sut = new RecommendationsTask(_recsEngineMock.Object, _recsCacheMock.Object, _pluginLogMock.Object, playlistMock.Object, _loggerMock.Object);
+
+        // Act
+        await sut.ExecuteAsync(config, progress.Object, CancellationToken.None);
+
+        // Assert — Deactivate should clean up old playlists when playlist service is available
+        playlistMock.Verify(x => x.RemoveAllRecommendationPlaylistsAsync(It.IsAny<CancellationToken>()), Times.Once);
+        // But should NOT generate or train
+        _recsEngineMock.Verify(
+            x => x.TrainStrategy(It.IsAny<IReadOnlyList<RecommendationResult>>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _recsEngineMock.Verify(
+            x => x.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task Execute_DryRun_NeverCallsPlaylistService()
     {
         // Arrange

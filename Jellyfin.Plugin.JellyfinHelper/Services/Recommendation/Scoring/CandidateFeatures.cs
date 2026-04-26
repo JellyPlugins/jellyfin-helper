@@ -41,7 +41,7 @@ public enum FeatureIndex
     /// <summary>Watch completion ratio (0–1).</summary>
     CompletionRatio = 10,
 
-    /// <summary>Abandoned flag (1 if user interacted AND CompletionRatio &lt; 25%, else 0). Penalizes items the user started but stopped watching early.</summary>
+    /// <summary>Abandoned flag (1 if user interacted AND started playback AND CompletionRatio &lt; 25%, else 0). Penalizes items the user started but stopped watching early. Favorite-only items (CompletionRatio=0, no playback) are NOT flagged.</summary>
     IsAbandoned = 11,
 
     /// <summary>Has user interaction flag (1 if user has watched/started the item, 0 for new candidates). Allows the model to distinguish unrated from disliked.</summary>
@@ -359,7 +359,7 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.GenreCollabInteraction] = GenreSimilarity * CollaborativeScore;
         buffer[(int)FeatureIndex.UserRatingScore] = UserRatingScore;
         buffer[(int)FeatureIndex.CompletionRatio] = CompletionRatio;
-        buffer[(int)FeatureIndex.IsAbandoned] = HasUserInteraction && CompletionRatio < AbandonedThreshold ? 1.0 : 0.0;
+        buffer[(int)FeatureIndex.IsAbandoned] = HasUserInteraction && CompletionRatio > 0.0 && CompletionRatio < AbandonedThreshold ? 1.0 : 0.0;
         buffer[(int)FeatureIndex.HasInteraction] = HasUserInteraction ? 1.0 : 0.0;
         buffer[(int)FeatureIndex.PeopleSimilarity] = PeopleSimilarity;
         buffer[(int)FeatureIndex.StudioMatch] = StudioMatch ? 1.0 : 0.0;

@@ -180,11 +180,11 @@ public class CollaborativeFilterTests
         var precomputed = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
         var map = CollaborativeFilter.BuildCollaborativeMap(user, allProfiles, precomputed);
 
-        Assert.True(map.ContainsKey(nicheItem));
-        Assert.True(map.ContainsKey(mainstreamItem));
-        Assert.True(map[nicheItem] > map[mainstreamItem],
+        Assert.True(map.TryGetValue(nicheItem, out var nicheScore));
+        Assert.True(map.TryGetValue(mainstreamItem, out var mainstreamScore));
+        Assert.True(nicheScore > mainstreamScore,
             $"Expected niche item to score higher than mainstream due to IDF boost, " +
-            $"but got niche={map[nicheItem]:F4}, mainstream={map[mainstreamItem]:F4}");
+            $"but got niche={nicheScore:F4}, mainstream={mainstreamScore:F4}");
     }
 
     [Fact]

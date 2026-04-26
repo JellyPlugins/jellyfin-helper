@@ -324,18 +324,17 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             IsFolder = false
         });
 
-        if (episodes.Count == 0)
-        {
-            return null;
-        }
-
-        // Sort by season index then episode index to get S01E01
+        // Filter to real Episode objects and deprioritize specials (season 0) so the playlist
+        // resolves to an actual playable pilot episode (e.g. S01E01) rather than S00E01.
+        // The query already uses IsFolder=false which excludes container items.
         var first = episodes
-            .OrderBy(e => (e as Episode)?.ParentIndexNumber ?? int.MaxValue)
+            .OfType<Episode>()
+            .OrderBy(e => e.ParentIndexNumber.GetValueOrDefault() <= 0 ? 1 : 0) // Deprioritize season 0 / specials
+            .ThenBy(e => e.ParentIndexNumber.GetValueOrDefault() <= 0 ? int.MaxValue : e.ParentIndexNumber!.Value)
             .ThenBy(e => e.IndexNumber ?? int.MaxValue)
-            .First();
+            .FirstOrDefault();
 
-        return first.Id;
+        return first?.Id;
     }
 
     /// <summary>
@@ -381,10 +380,22 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Match our managed playlists by prefix + " for " to avoid accidentally matching
-            // user-authored playlists that happen to start with the same emoji prefix.
-            // This also catches Jellyfin's auto-deduplicated names like "...for Alice1", etc.
-            if (playlist.Name == null || !playlist.Name.StartsWith(expectedName, StringComparison.Ordinal))
+            // Match our managed playlists by exact name or exact name + numeric dedupe suffix
+            // (e.g. "🎬 Recommended for Alice1"). Using StartsWith alone would match
+            // "🎬 Recommended for Al" against "🎬 Recommended for Alice", potentially
+            // deleting another user's playlist.
+            var isManagedName =
+                playlist.Name is not null
+                && (
+                    string.Equals(playlist.Name, expectedName, StringComparison.Ordinal)
+                    || (
+                        playlist.Name.StartsWith(expectedName, StringComparison.Ordinal)
+                        && playlist.Name.Length > expectedName.Length
+                        && playlist.Name[expectedName.Length..].All(char.IsDigit)
+                    )
+                );
+
+            if (!isManagedName)
             {
                 continue;
             }
