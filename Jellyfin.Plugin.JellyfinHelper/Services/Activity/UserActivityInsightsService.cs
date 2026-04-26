@@ -108,7 +108,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
                     // Normalize LastPlayedDate to UTC before assignment/comparison.
                     // Jellyfin's IUserDataManager does not guarantee DateTimeKind.Utc,
                     // which can cause mixed-kind timestamps in cached JSON.
-                    var lastPlayedUtc = NormalizeToUtc(userData.LastPlayedDate);
+                    var lastPlayedUtc = DateTimeNormalization.ToUtc(userData.LastPlayedDate);
 
                     var activity = new UserItemActivity
                     {
@@ -224,28 +224,6 @@ public class UserActivityInsightsService : IUserActivityInsightsService
             _logger);
 
         return result;
-    }
-
-    /// <summary>
-    ///     Normalizes a nullable <see cref="DateTime"/> to UTC.
-    ///     Handles <see cref="DateTimeKind.Utc"/>, <see cref="DateTimeKind.Local"/>,
-    ///     and <see cref="DateTimeKind.Unspecified"/> (treated as UTC).
-    /// </summary>
-    /// <param name="value">The nullable DateTime to normalize.</param>
-    /// <returns>The UTC-normalized DateTime, or null if input is null.</returns>
-    private static DateTime? NormalizeToUtc(DateTime? value)
-    {
-        if (!value.HasValue)
-        {
-            return null;
-        }
-
-        return value.Value.Kind switch
-        {
-            DateTimeKind.Utc => value,
-            DateTimeKind.Local => value.Value.ToUniversalTime(),
-            _ => DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)
-        };
     }
 
     /// <summary>

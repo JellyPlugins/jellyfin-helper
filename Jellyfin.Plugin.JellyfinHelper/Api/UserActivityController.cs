@@ -66,15 +66,9 @@ public class UserActivityController : ControllerBase
             return Ok(cached);
         }
 
-        // No cache yet — generate on demand
-        var config = _configService.GetConfiguration();
+        // No cache yet — generate on demand and always cache.
         var result = _insightsService.BuildActivityReport();
-
-        // Only persist to cache when TaskMode is Activate (not DryRun)
-        if (config.RecommendationsTaskMode == TaskMode.Activate)
-        {
-            _cacheService.SaveResult(result);
-        }
+        _cacheService.SaveResult(result);
 
         return Ok(result);
     }
@@ -91,7 +85,6 @@ public class UserActivityController : ControllerBase
     [HttpGet("User/{userId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public ActionResult<List<UserActivitySummary>> GetUserActivity(Guid userId, [FromQuery] int maxResults = 15)
     {
@@ -112,12 +105,8 @@ public class UserActivityController : ControllerBase
 
         if (cached is null)
         {
-            var config = _configService.GetConfiguration();
-            // Only persist to cache when TaskMode is Activate (not DryRun)
-            if (config.RecommendationsTaskMode == TaskMode.Activate)
-            {
-                _cacheService.SaveResult(source);
-            }
+            // Always cache for subsequent requests.
+            _cacheService.SaveResult(source);
         }
 
         // Filter to items where this user has activity, recalculating aggregate fields
@@ -168,11 +157,7 @@ public class UserActivityController : ControllerBase
             .Take(maxResults)
             .ToList();
 
-        if (userItems.Count == 0)
-        {
-            return NotFound();
-        }
-
+        // Return 200 OK with empty list when user has no activity.
         return Ok(userItems);
     }
 

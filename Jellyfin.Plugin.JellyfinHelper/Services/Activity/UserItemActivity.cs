@@ -31,7 +31,7 @@ public sealed class UserItemActivity
     public DateTime? LastPlayedDate
     {
         get => _lastPlayedDate;
-        set => _lastPlayedDate = value.HasValue ? NormalizeToUtc(value.Value) : null;
+        set => _lastPlayedDate = value.HasValue ? DateTimeNormalization.ToUtc(value.Value) : null;
     }
 
     /// <summary>

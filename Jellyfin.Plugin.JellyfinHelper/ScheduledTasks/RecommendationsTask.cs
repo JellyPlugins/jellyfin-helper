@@ -15,8 +15,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 /// <summary>
 ///     Scheduled sub-task that trains the scoring strategy from previous results
 ///     and generates fresh recommendations for all users.
-///     Training and incremental updates only run when TaskMode is Activate.
-///     DryRun mode generates recommendations but does NOT persist them or train models.
+///     Training, playlist sync, cache persistence, and incremental updates only run when TaskMode is Activate.
+///     DryRun mode generates recommendations but does NOT persist them to disk or train models.
+///     The UI fetches results on-demand via the API and caches them in the browser.
 ///     Deactivate mode skips the task entirely (true no-op), but cleans up any
 ///     previously created recommendation playlists as a best-effort step.
 /// </summary>
@@ -98,7 +99,7 @@ public class RecommendationsTask
         _pluginLog.LogInfo(
             "Recommendations",
             isDryRun
-                ? "Task started (Dry Run). Recommendations will be generated but NOT saved. No model training."
+                ? "Task started (Dry Run). Recommendations will be generated but NOT saved to disk. No model training."
                 : "Task started (Active). Full training + generation + persistence.",
             _logger);
         progress.Report(5);
@@ -179,10 +180,9 @@ public class RecommendationsTask
         }
         else
         {
-            // DryRun: do NOT save results to cache — no side effects
             _pluginLog.LogInfo(
                 "Recommendations",
-                $"Task finished (Dry Run). Generated {totalRecs} recommendations for {results.Count} users. NOT saved.",
+                $"Task finished (Dry Run). Generated {totalRecs} recommendations for {results.Count} users. NOT saved to disk.",
                 _logger);
         }
 

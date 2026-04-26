@@ -52,7 +52,7 @@ public sealed class TrainingExample
     public DateTime GeneratedAtUtc
     {
         get => _generatedAtUtc;
-        set => _generatedAtUtc = NormalizeToUtc(value);
+        set => _generatedAtUtc = Services.DateTimeNormalization.ToUtc(value);
     }
 
     /// <summary>
@@ -68,7 +68,7 @@ public sealed class TrainingExample
     /// <returns>A decay weight between 0 and 1.</returns>
     public double ComputeTemporalWeight(DateTime? referenceTimeUtc = null)
     {
-        var reference = NormalizeToUtc(referenceTimeUtc ?? DateTime.UtcNow);
+        var reference = Services.DateTimeNormalization.ToUtc(referenceTimeUtc ?? DateTime.UtcNow);
         var ageDays = (reference - GeneratedAtUtc).TotalDays;
         if (ageDays <= 0)
         {
@@ -91,16 +91,4 @@ public sealed class TrainingExample
     {
         return SampleWeight * ComputeTemporalWeight(referenceTimeUtc);
     }
-
-    /// <summary>
-    ///     Normalizes a <see cref="DateTime"/> value to <see cref="DateTimeKind.Utc"/>.
-    ///     Local values are converted; Unspecified values are assumed to already be UTC.
-    /// </summary>
-    private static DateTime NormalizeToUtc(DateTime value) =>
-        value.Kind switch
-        {
-            DateTimeKind.Utc => value,
-            DateTimeKind.Local => value.ToUniversalTime(),
-            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
-        };
 }

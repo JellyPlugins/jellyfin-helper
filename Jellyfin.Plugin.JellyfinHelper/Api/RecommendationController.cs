@@ -52,8 +52,10 @@ public class RecommendationController : ControllerBase
     /// <summary>
     ///     Gets cached recommendations for all users (admin overview).
     ///     Returns the latest cached results from the scheduled task.
-    ///     If no cache exists and TaskMode is Activate, generates fresh recommendations.
-    ///     DryRun mode on-demand generation does NOT persist results.
+    ///     If no cache exists, generates fresh recommendations on demand.
+    ///     In Activate mode the results are persisted to disk for subsequent requests.
+    ///     In DryRun mode the results are returned but NOT persisted — the UI caches them
+    ///     in the browser so that tab switches don't trigger re-generation.
     /// </summary>
     /// <param name="maxPerUser">Maximum recommendations per user (default: from config, max: 100).</param>
     /// <param name="cancellationToken">Token to cancel the request.</param>
@@ -86,7 +88,8 @@ public class RecommendationController : ControllerBase
         // No cache available — generate at the configured max so the cache is not under-filled
         var results = _engine.GetAllRecommendations(configuredMax, cancellationToken);
 
-        // Only persist to cache when TaskMode is Activate (not DryRun)
+        // Only persist to disk when TaskMode is Activate (not DryRun).
+        // DryRun results are cached in the browser by the UI JavaScript.
         if (config.RecommendationsTaskMode == TaskMode.Activate)
         {
             _cacheService.SaveResults(results);

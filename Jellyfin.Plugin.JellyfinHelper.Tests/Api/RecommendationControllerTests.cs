@@ -56,7 +56,7 @@ public class RecommendationControllerTests
     }
 
     [Fact]
-    public void GetAllRecommendations_CacheMiss_GeneratesOnDemand()
+    public void GetAllRecommendations_CacheMiss_GeneratesOnDemandAndPersists()
     {
         _mockCache.Setup(c => c.LoadResults()).Returns((Collection<RecommendationResult>?)null);
 
@@ -69,13 +69,13 @@ public class RecommendationControllerTests
         var result = _controller.GetAllRecommendations();
 
         Assert.IsType<OkObjectResult>(result.Result);
+        // Activate mode: persist to disk
         _mockCache.Verify(c => c.SaveResults(generated), Times.Once);
     }
 
     [Fact]
     public void GetAllRecommendations_EngineReceivesConfiguredMax_NotApiParam()
     {
-        // Explicitly set the configured max so this test does not rely on the default value
         _mockConfigService.Setup(c => c.GetConfiguration())
             .Returns(new PluginConfiguration
             {
@@ -87,8 +87,7 @@ public class RecommendationControllerTests
             .Returns(new Collection<RecommendationResult>());
 
         // The API parameter maxPerUser=200 is only used for response trimming.
-        // The engine always receives the configured MaxRecommendationsPerUser (20)
-        // to avoid under-filling the cache.
+        // The engine always receives the configured MaxRecommendationsPerUser (20).
         _controller.GetAllRecommendations(200);
 
         _mockEngine.Verify(e => e.GetAllRecommendations(20, It.IsAny<CancellationToken>()), Times.Once);
@@ -239,7 +238,7 @@ public class RecommendationControllerTests
     }
 
     [Fact]
-    public void GetAllRecommendations_DryRun_CacheMiss_DoesNotPersist()
+    public void GetAllRecommendations_DryRun_CacheMiss_GeneratesButDoesNotPersist()
     {
         _mockConfigService.Setup(c => c.GetConfiguration())
             .Returns(new PluginConfiguration { RecommendationsTaskMode = TaskMode.DryRun });
@@ -254,7 +253,7 @@ public class RecommendationControllerTests
         var result = _controller.GetAllRecommendations();
 
         Assert.IsType<OkObjectResult>(result.Result);
-        // DryRun should NOT persist to cache
+        // DryRun should NOT persist to disk — the UI caches in the browser instead
         _mockCache.Verify(c => c.SaveResults(It.IsAny<IReadOnlyList<RecommendationResult>>()), Times.Never);
     }
 

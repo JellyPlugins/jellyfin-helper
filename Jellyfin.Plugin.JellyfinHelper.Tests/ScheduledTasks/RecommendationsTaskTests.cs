@@ -38,7 +38,7 @@ public class RecommendationsTaskTests
             new() { UserId = Guid.NewGuid(), Recommendations = new Collection<RecommendedItem> { new() { ItemId = Guid.NewGuid(), Score = 0.8 } } }
         };
         _recsCacheMock.Setup(x => x.LoadResults()).Returns(cached);
-        _recsEngineMock.Setup(x => x.TrainStrategy(cached, It.IsAny<bool>(), It.IsAny<CancellationToken>())).Returns(true);
+        _recsEngineMock.Setup(x => x.TrainStrategy(cached, true, It.IsAny<CancellationToken>())).Returns(true);
 
         var results = new List<RecommendationResult>
         {
@@ -52,7 +52,7 @@ public class RecommendationsTaskTests
         await sut.ExecuteAsync(config, progress.Object, CancellationToken.None);
 
         // Assert
-        _recsEngineMock.Verify(x => x.TrainStrategy(cached, It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+        _recsEngineMock.Verify(x => x.TrainStrategy(cached, true, It.IsAny<CancellationToken>()), Times.Once);
         _recsEngineMock.Verify(x => x.GetAllRecommendations(20, It.IsAny<CancellationToken>()), Times.Once);
         _recsCacheMock.Verify(x => x.SaveResults(results), Times.Once);
     }
@@ -99,7 +99,7 @@ public class RecommendationsTaskTests
         // Act
         await sut.ExecuteAsync(config, progress.Object, CancellationToken.None);
 
-        // Assert
+        // Assert — DryRun does NOT persist to disk; the UI caches results in the browser instead
         _recsCacheMock.Verify(x => x.SaveResults(It.IsAny<IReadOnlyList<RecommendationResult>>()), Times.Never);
     }
 

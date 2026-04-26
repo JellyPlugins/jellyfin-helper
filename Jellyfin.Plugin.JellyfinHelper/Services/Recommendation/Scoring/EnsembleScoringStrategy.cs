@@ -288,9 +288,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
-        var learnedScore = _learned.Score(features);
-        var heuristicScore = _heuristic.Score(features);
-
+        // Snapshot blending factors atomically — sub-strategies handle their own thread safety.
         double alpha;
         double beta;
         lock (_syncRoot)
@@ -298,6 +296,11 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             alpha = _alpha;
             beta = _neuralBeta;
         }
+
+        // Score calls are outside the lock to avoid nested locking (each sub-strategy
+        // has its own internal lock) and to allow parallel scoring across threads.
+        var learnedScore = _learned.Score(features);
+        var heuristicScore = _heuristic.Score(features);
 
         double mlScore;
         if (_neural is not null && beta > 0)
@@ -319,9 +322,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <inheritdoc />
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
-        var learnedExplanation = _learned.ScoreWithExplanation(features);
-        var heuristicExplanation = _heuristic.ScoreWithExplanation(features);
-
+        // Snapshot blending factors atomically — sub-strategies handle their own thread safety.
         double alpha;
         double beta;
         lock (_syncRoot)
@@ -329,6 +330,10 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             alpha = _alpha;
             beta = _neuralBeta;
         }
+
+        // Score calls are outside the lock to allow parallel scoring across threads.
+        var learnedExplanation = _learned.ScoreWithExplanation(features);
+        var heuristicExplanation = _heuristic.ScoreWithExplanation(features);
 
         // When neural is active and beta > 0, blend learned + neural into an ML explanation first,
         // then blend the ML explanation with heuristic. This matches the Score() method's logic:

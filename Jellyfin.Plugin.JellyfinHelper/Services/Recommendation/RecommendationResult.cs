@@ -28,9 +28,9 @@ public sealed class RecommendationResult
     public UserWatchProfile? Profile { get; set; }
 
     /// <summary>
-    ///     Gets or sets the recommended items sorted by score descending.
+    ///     Gets the recommended items sorted by score descending.
     /// </summary>
-    public Collection<RecommendedItem> Recommendations { get; set; } = [];
+    public Collection<RecommendedItem> Recommendations { get; init; } = [];
 
     /// <summary>
     ///     Gets or sets the UTC timestamp when these recommendations were generated.
@@ -40,7 +40,7 @@ public sealed class RecommendationResult
     public DateTime GeneratedAt
     {
         get => _generatedAt;
-        set => _generatedAt = NormalizeToUtc(value);
+        set => _generatedAt = DateTimeNormalization.ToUtc(value);
     }
 
     /// <summary>
@@ -52,12 +52,4 @@ public sealed class RecommendationResult
     ///     Gets or sets the i18n key for the scoring strategy name.
     /// </summary>
     public string ScoringStrategyKey { get; set; } = string.Empty;
-
-    private static DateTime NormalizeToUtc(DateTime value) =>
-        value.Kind switch
-        {
-            DateTimeKind.Utc => value,
-            DateTimeKind.Local => value.ToUniversalTime(),
-            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
-        };
 }

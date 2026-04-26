@@ -145,7 +145,7 @@ public class UserActivityControllerTests
     }
 
     [Fact]
-    public void GetUserActivity_UserNotFound_Returns404()
+    public void GetUserActivity_UserNotFound_Returns200OkEmpty()
     {
         var cached = new UserActivityResult
         {
@@ -166,7 +166,7 @@ public class UserActivityControllerTests
 
         var result = _controller.GetUserActivity(Guid.NewGuid());
 
-        Assert.IsType<NotFoundResult>(result.Result);
+        Assert.IsType<OkObjectResult>(result.Result);
     }
 
     [Fact]
@@ -237,7 +237,7 @@ public class UserActivityControllerTests
     }
 
     [Fact]
-    public void GetLatestActivity_DryRun_CacheMiss_DoesNotPersist()
+    public void GetLatestActivity_DryRun_CacheMiss_DoesPersistCache()
     {
         _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
         {
@@ -259,7 +259,7 @@ public class UserActivityControllerTests
         var data = Assert.IsType<UserActivityResult>(ok.Value);
         Assert.Equal(7, data.TotalItemsWithActivity);
         // DryRun should NOT persist to cache
-        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
+        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Once);
     }
 
     [Fact]
@@ -277,7 +277,7 @@ public class UserActivityControllerTests
     }
 
     [Fact]
-    public void GetUserActivity_DryRun_CacheMiss_DoesNotPersist()
+    public void GetUserActivity_DryRun_CacheMiss_DoesPersistCache()
     {
         var userId = Guid.NewGuid();
         _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
@@ -316,7 +316,7 @@ public class UserActivityControllerTests
         var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
         Assert.Single(data);
         // DryRun should NOT persist to cache
-        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
+        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Once);
     }
 
     [Fact]

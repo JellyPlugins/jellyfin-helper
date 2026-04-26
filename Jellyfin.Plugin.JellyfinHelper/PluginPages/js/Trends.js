@@ -713,7 +713,11 @@ function buildRecentTree(data) {
 function insightLibrarySortOrder(libName, grouped) {
     var items = grouped[libName];
     if (!items || items.length === 0) return 2;
-    var ct = (items[0].CollectionType || '').toLowerCase();
+    // Scan until non-empty CollectionType
+    var ct = '';
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].CollectionType) { ct = items[i].CollectionType.toLowerCase(); break; }
+    }
     if (ct === 'movies' || ct === 'homevideos' || ct === 'musicvideos') return 0;
     if (ct === 'tvshows') return 1;
     return 2;

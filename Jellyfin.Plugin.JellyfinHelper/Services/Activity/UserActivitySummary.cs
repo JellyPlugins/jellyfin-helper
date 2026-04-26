@@ -77,7 +77,7 @@ public sealed class UserActivitySummary
     public DateTime? MostRecentWatch
     {
         get => _mostRecentWatch;
-        set => _mostRecentWatch = value.HasValue ? NormalizeToUtc(value.Value) : null;
+        set => _mostRecentWatch = value.HasValue ? DateTimeNormalization.ToUtc(value.Value) : null;
     }
 
     /// <summary>

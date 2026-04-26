@@ -47,12 +47,14 @@ public class ConfigurationUpdateRequest
     /// <summary>
     ///     Gets the execution mode for the Smart Recommendations task.
     /// </summary>
-    public TaskMode RecommendationsTaskMode { get; init; } = TaskMode.DryRun;
+    /// Nullable so older UI clients won't silently reset it.
+    public TaskMode? RecommendationsTaskMode { get; init; }
 
     /// <summary>
     ///     Gets a value indicating whether recommendation results should be synced to Jellyfin playlists.
     /// </summary>
-    public bool SyncRecommendationsToPlaylist { get; init; }
+    /// Nullable so older UI clients won't silently reset it.
+    public bool? SyncRecommendationsToPlaylist { get; init; }
 
     /// <summary>
     ///     Gets the execution mode for the Seerr Cleanup task.

@@ -17,7 +17,7 @@ public sealed class UserActivityResult
     public DateTime GeneratedAt
     {
         get => _generatedAt;
-        set => _generatedAt = NormalizeToUtc(value);
+        set => _generatedAt = DateTimeNormalization.ToUtc(value);
     }
 
     /// <summary>

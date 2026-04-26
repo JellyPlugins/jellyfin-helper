@@ -36,9 +36,9 @@ internal static class ContentScoring
     /// <returns>A normalized rating between 0 and 1.</returns>
     internal static double NormalizeRating(float? communityRating)
     {
-        if (!communityRating.HasValue || communityRating.Value <= 0)
+        if (!communityRating.HasValue || float.IsNaN(communityRating.Value) || communityRating.Value <= 0)
         {
-            return 0.5; // neutral default for unrated items
+            return 0.5; // neutral default for unrated or NaN items
         }
 
         return Math.Min(communityRating.Value / 10.0, 1.0);
@@ -97,9 +97,9 @@ internal static class ContentScoring
     /// <returns>A normalized user rating between 0 and 1.</returns>
     internal static double ComputeUserRatingScore(WatchedItemInfo? watchedItem)
     {
-        if (watchedItem?.UserRating is null or <= 0)
+        if (watchedItem?.UserRating is null or <= 0 || double.IsNaN(watchedItem.UserRating.Value))
         {
-            return 0.5; // neutral default — no user rating available
+            return 0.5; // neutral default — no user rating available or NaN
         }
 
         // User ratings are typically 0–10, normalize to 0–1

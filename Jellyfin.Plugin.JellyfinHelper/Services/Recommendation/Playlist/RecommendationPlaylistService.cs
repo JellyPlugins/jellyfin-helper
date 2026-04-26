@@ -11,6 +11,7 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Model.Playlists;
+using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
@@ -363,6 +364,8 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             return Task.FromResult(0);
         }
 
+        var expectedName = BuildPlaylistName(user.Username);
+
         // Load ALL playlists visible to this user without SearchTerm filtering.
         // Jellyfin's search index does not reliably match Unicode characters (emoji prefix),
         // which caused old playlists to survive deletion and accumulate with suffixed names
@@ -381,7 +384,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             // Match our managed playlists by prefix + " for " to avoid accidentally matching
             // user-authored playlists that happen to start with the same emoji prefix.
             // This also catches Jellyfin's auto-deduplicated names like "...for Alice1", etc.
-            if (playlist.Name == null || !playlist.Name.StartsWith(PlaylistNamePrefix + " for ", StringComparison.Ordinal))
+            if (playlist.Name == null || !playlist.Name.StartsWith(expectedName, StringComparison.Ordinal))
             {
                 continue;
             }

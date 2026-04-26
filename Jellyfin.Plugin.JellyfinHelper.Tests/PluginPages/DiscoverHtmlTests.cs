@@ -66,6 +66,12 @@ public class DiscoverHtmlTests : ConfigPageTestBase
         Assert.Contains("JellyfinHelper/Recommendations/WatchProfile/", HtmlContent);
     }
 
+    [Fact]
+    public void Html_ContainsUserActivityApiCall()
+    {
+        Assert.Contains("JellyfinHelper/UserActivity/User/", HtmlContent);
+    }
+
     // === UI elements ===
 
     [Fact]

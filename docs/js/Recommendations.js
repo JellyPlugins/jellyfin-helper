@@ -1,11 +1,20 @@
 // --- Recommendations Tab (Smart Suggestions) ---
-var MAX_ACTIVITY_ROWS = 15;
+const MAX_ACTIVITY_ROWS = 15;
 
-var _profileReqId = 0;
-var _activityReqId = 0;
-var _recsListReqId = 0;
+let _profileReqId = 0;
+let _activityReqId = 0;
+let _recsListReqId = 0;
 
-function initRecommendationsTab() { loadRecommendations(); }
+function initRecommendationsTab() {
+    // If browser-cache already has results (e.g. from a previous tab visit), render directly
+    // without triggering another API call. This avoids expensive on-demand generation on every tab switch.
+    if (window._recsResults && window._recsResults.length > 0) {
+        var container = document.getElementById('recsContent');
+        if (container) { renderRecommendations(container, window._recsResults); }
+        return;
+    }
+    loadRecommendations();
+}
 
 function loadRecommendations() {
     var container = document.getElementById('recsContent');

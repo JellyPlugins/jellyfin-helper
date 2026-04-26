@@ -544,8 +544,12 @@ public sealed class Engine : IRecommendationEngine
             userRatingScore = ratedEpisodes.Count > 0
                 ? Math.Clamp(ratedEpisodes.Average(e => e.UserRating!.Value) / 10.0, 0.0, 1.0)
                 : 0.5;
+            // Average per-episode completion ratios
             completionRatio = episodesForScoring.Count > 0
-                ? Math.Clamp((double)episodesForScoring.Count(e => e.Played) / episodesForScoring.Count, 0.0, 1.0)
+                ? Math.Clamp(
+                    episodesForScoring.Average(e => ContentScoring.ComputeCompletionRatio(e)),
+                    0.0,
+                    1.0)
                 : 0.5;
         }
         else

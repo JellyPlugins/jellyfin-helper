@@ -79,9 +79,10 @@ public class LinkRepairService : ILinkRepairService
             result.FileResults.Add(fileResult);
         }
 
+        var repairedLabel = dryRun ? "would repair" : "repaired";
         _pluginLog.LogInfo(
             "LinkRepair",
-            $"Link repair complete: {result.ValidCount} valid, {result.RepairedCount} repaired, {result.BrokenCount} broken, {result.AmbiguousCount} ambiguous, {result.InvalidContentCount} invalid content",
+            $"Link repair complete: {result.ValidCount} valid, {result.RepairedCount} {repairedLabel}, {result.BrokenCount} broken, {result.AmbiguousCount} ambiguous, {result.InvalidContentCount} invalid content",
             _logger);
 
         return result;
