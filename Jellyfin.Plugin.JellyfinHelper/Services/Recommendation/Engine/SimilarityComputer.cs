@@ -131,11 +131,16 @@ internal sealed class SimilarityComputer
         // Candidate vector: 1.0 for each genre present, 0.0 otherwise
         // User vector: preference weight for each genre
         var dotProduct = 0.0;
+        var unknownGenreCount = 0;
         foreach (var genre in uniqueCandidateGenres)
         {
-            if (genrePreferences.TryGetValue(genre, out var weight))
+            if (genrePreferences.TryGetValue(genre, out var weight) && weight > 0)
             {
                 dotProduct += weight; // candidate component is 1.0
+            }
+            else
+            {
+                unknownGenreCount++;
             }
         }
 
@@ -161,7 +166,23 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        return Math.Min(dotProduct / (candidateNorm * userNorm), 1.0);
+        var cosineSimilarity = Math.Min(dotProduct / (candidateNorm * userNorm), 1.0);
+
+        // Unknown-genre damping: when a candidate has genres the user has never watched,
+        // reduce the similarity proportionally. This prevents items that share some common
+        // genres (e.g. "Action") but also have unfamiliar genres (e.g. "Animation") from
+        // scoring as high as items where ALL genres are familiar.
+        // Factor 0.5 = moderate damping: "never watched" ≠ "dislikes", just less confident.
+        // Example: Anime ["Animation", "Action", "Drama"] for an Action/Drama user:
+        //   unknownFraction = 1/3, damping = 1 - 0.33 * 0.5 = 0.835 → ~17% reduction.
+        if (unknownGenreCount > 0)
+        {
+            var unknownFraction = (double)unknownGenreCount / uniqueCandidateGenres.Count;
+            const double unknownGenreDampingFactor = 0.5;
+            cosineSimilarity *= 1.0 - (unknownFraction * unknownGenreDampingFactor);
+        }
+
+        return cosineSimilarity;
     }
 
     /// <summary>

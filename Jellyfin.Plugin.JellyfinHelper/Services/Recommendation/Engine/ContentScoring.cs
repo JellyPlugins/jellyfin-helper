@@ -30,6 +30,23 @@ internal static class ContentScoring
     }
 
     /// <summary>
+    ///     Normalizes a Rotten Tomatoes critic rating (0–100%) to a 0–1 score.
+    ///     Returns 0.5 (neutral) when the value is null, zero, negative, or NaN.
+    ///     Jellyfin stores CriticRating as a float? representing the "Tomatometer" percentage.
+    /// </summary>
+    /// <param name="criticRating">The critic rating value (0–100).</param>
+    /// <returns>A normalized score between 0 and 1, or 0.5 if unavailable.</returns>
+    internal static double NormalizeCriticRating(float? criticRating)
+    {
+        if (!criticRating.HasValue || float.IsNaN(criticRating.Value) || criticRating.Value <= 0)
+        {
+            return 0.5; // Neutral fallback — does not penalize items without critic data
+        }
+
+        return Math.Clamp(criticRating.Value / 100.0, 0.0, 1.0);
+    }
+
+    /// <summary>
     ///     Normalizes a community rating (typically 0–10) to a 0–1 score.
     /// </summary>
     /// <param name="communityRating">The community rating value.</param>

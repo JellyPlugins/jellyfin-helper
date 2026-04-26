@@ -13,8 +13,8 @@ public static class DefaultWeights
     /// <summary>Weight for genre similarity signal (dominant, reduced from 0.23 to give more room to non-genre signals).</summary>
     public const double GenreSimilarity = 0.20;
 
-    /// <summary>Weight for collaborative filtering signal.</summary>
-    public const double CollaborativeScore = 0.11;
+    /// <summary>Weight for collaborative filtering signal (reduced from 0.11 to keep individual genre preference dominant).</summary>
+    public const double CollaborativeScore = 0.09;
 
     /// <summary>Weight for community rating signal.</summary>
     public const double RatingScore = 0.07;
@@ -25,16 +25,15 @@ public static class DefaultWeights
     /// <summary>Weight for year proximity signal.</summary>
     public const double YearProximityScore = 0.05;
 
-    /// <summary>Weight for normalized genre count signal.</summary>
-    public const double GenreCountNormalized = 0.02;
+    /// <summary>Weight for normalized genre count signal. Near-neutral — ML can learn if it matters.</summary>
+    public const double GenreCountNormalized = 0.01;
 
     /// <summary>
-    ///     Weight for series type signal. A positive weight provides a small boost when the
-    ///     candidate is a series and the user's history contains series watches, enabling the
-    ///     model to learn user preference for series vs. movies. The ML model can further adjust
-    ///     this weight via training.
+    ///     Weight for series type signal. Near-neutral initial weight — does not blindly prefer
+    ///     series over movies. The ML model learns whether the user prefers series based on
+    ///     their actual watch patterns.
     /// </summary>
-    public const double IsSeries = 0.04;
+    public const double IsSeries = 0.01;
 
     /// <summary>Weight for genre × rating interaction signal.</summary>
     public const double GenreRatingInteraction = 0.05;
@@ -138,10 +137,11 @@ public static class DefaultWeights
     /// <summary>
     ///     Negative weight for genre underexposure signal.
     ///     Items whose genres the user rarely watches receive a soft penalty.
-    ///     Deliberately mild (-0.08) to avoid over-penalizing genres the user
-    ///     simply hasn't explored yet — "rarely watched" ≠ "disliked".
+    ///     Moderate (-0.12) to effectively counterbalance collaborative signals from
+    ///     similar users who watch different genres. "Rarely watched" ≠ "disliked"
+    ///     but should noticeably reduce ranking vs. familiar-genre items.
     /// </summary>
-    public const double GenreUnderexposure = -0.08;
+    public const double GenreUnderexposure = -0.12;
 
     /// <summary>
     ///     Positive weight for genre dominance ratio signal.
@@ -155,10 +155,10 @@ public static class DefaultWeights
     ///     Negative weight for genre affinity gap signal.
     ///     Items whose genres are well below the user's average preference weight
     ///     receive a soft penalty. Measures "distance from comfort zone."
-    ///     Mild negative weight (-0.05) because a large gap might just mean
-    ///     the user hasn't discovered the genre yet.
+    ///     Moderate negative weight (-0.08) to meaningfully deprioritize items
+    ///     far from the user's genre comfort zone while still allowing discovery.
     /// </summary>
-    public const double GenreAffinityGap = -0.05;
+    public const double GenreAffinityGap = -0.08;
 
     /// <summary>
     ///     Weight for library-added recency signal.
@@ -166,6 +166,14 @@ public static class DefaultWeights
     ///     A small weight so it acts as a supplementary freshness signal.
     /// </summary>
     public const double LibraryAddedRecency = 0.03;
+
+    /// <summary>
+    ///     Weight for critic rating (Rotten Tomatoes Tomatometer) signal.
+    ///     Complements CommunityRating (audience score) with professional critic consensus.
+    ///     Small weight because not all items have this metadata, and audience+critic
+    ///     agreement is already partially captured by CommunityRating alone.
+    /// </summary>
+    public const double CriticRatingScore = 0.03;
 
     /// <summary>Default bias term for the learned strategy.</summary>
     public const double Bias = 0.05;
@@ -222,6 +230,7 @@ public static class DefaultWeights
         Set(FeatureIndex.GenreDominanceRatio, GenreDominanceRatio);
         Set(FeatureIndex.GenreAffinityGap, GenreAffinityGap);
         Set(FeatureIndex.LibraryAddedRecency, LibraryAddedRecency);
+        Set(FeatureIndex.CriticRatingScore, CriticRatingScore);
 
         // Guard: detect missing per-index assignments. The count check above catches
         // new enum values without FeatureCount bump, but this catches the more likely

@@ -105,9 +105,10 @@ public class RecommendationEngineTests
         };
 
         // Two genres, only one matches -> cosine = 1.0 / (sqrt(2) * 1.0) ~= 0.707
+        // With unknown-genre damping (factor 0.5): 0.707 × (1 - 0.5 × 0.5) = 0.707 × 0.75 ~= 0.530
         var score = SimilarityComputer.ComputeGenreSimilarity(new[] { "Action", "Horror" }, prefs);
-        Assert.True(score > 0.65 && score < 0.75,
-            $"Expected ~0.707 for partial match, got {score:F4}");
+        Assert.True(score > 0.48 && score < 0.58,
+            $"Expected ~0.530 for partial match with unknown-genre damping, got {score:F4}");
     }
 
     [Fact]
@@ -1276,8 +1277,8 @@ public class RecommendationEngineTests
     {
         var weights = DefaultWeights.CreateWeightArray();
 
-        Assert.Equal(-0.08, weights[(int)FeatureIndex.GenreUnderexposure], 10);
+        Assert.Equal(-0.12, weights[(int)FeatureIndex.GenreUnderexposure], 10);
         Assert.Equal(0.10, weights[(int)FeatureIndex.GenreDominanceRatio], 10);
-        Assert.Equal(-0.05, weights[(int)FeatureIndex.GenreAffinityGap], 10);
+        Assert.Equal(-0.08, weights[(int)FeatureIndex.GenreAffinityGap], 10);
     }
 }

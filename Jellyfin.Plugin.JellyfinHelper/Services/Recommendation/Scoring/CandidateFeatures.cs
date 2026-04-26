@@ -108,6 +108,13 @@ public enum FeatureIndex
     ///     which measures content release date (PremiereDate).
     /// </summary>
     LibraryAddedRecency = 26,
+
+    /// <summary>
+    ///     Normalized critic rating (0–1). Rotten Tomatoes "Tomatometer" score (0-100%)
+    ///     normalized to 0-1. Complements CommunityRating (audience score) with professional
+    ///     critic consensus. 0.5 (neutral) when not available.
+    /// </summary>
+    CriticRatingScore = 27,
 }
 
 /// <summary>
@@ -119,7 +126,7 @@ public sealed class CandidateFeatures
     /// <summary>
     ///     The number of features produced by <see cref="ToVector"/>.
     /// </summary>
-    public const int FeatureCount = 27;
+    public const int FeatureCount = 28;
 
     /// <summary>
     ///     Normalization ceiling for genre count (items with ≥ this many genres map to 1.0).
@@ -150,6 +157,7 @@ public sealed class CandidateFeatures
     private double _genreDominanceRatio;
     private double _genreAffinityGap;
     private double _libraryAddedRecency;
+    private double _criticRatingScore = 0.5;
 
     /// <summary>Gets or sets the genre similarity score (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double GenreSimilarity
@@ -308,6 +316,19 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
+    ///     Gets or sets the critic rating score (0-1).
+    ///     Rotten Tomatoes "Tomatometer" score normalized from 0-100% to 0-1.
+    ///     Complements CommunityRating (audience) with professional critic consensus.
+    ///     Defaults to 0.5 (neutral) when not available from metadata providers.
+    ///     Values are clamped to [0, 1]; NaN defaults to 0.5.
+    /// </summary>
+    public double CriticRatingScore
+    {
+        get => _criticRatingScore;
+        set => _criticRatingScore = Clamp01(value, 0.5);
+    }
+
+    /// <summary>
     ///     Clamps a value to [0, 1], returning <paramref name="defaultWhenNaN"/> if the value is NaN or Infinity.
     ///     Math.Clamp does not normalize NaN — it preserves it — so this helper prevents
     ///     NaN from flowing into interaction terms and poisoning learned/neural scoring.
@@ -375,5 +396,6 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.GenreDominanceRatio] = GenreDominanceRatio;
         buffer[(int)FeatureIndex.GenreAffinityGap] = GenreAffinityGap;
         buffer[(int)FeatureIndex.LibraryAddedRecency] = LibraryAddedRecency;
+        buffer[(int)FeatureIndex.CriticRatingScore] = CriticRatingScore;
     }
 }

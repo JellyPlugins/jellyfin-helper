@@ -625,7 +625,8 @@ public sealed class Engine : IRecommendationEngine
             // Users in distant timezones will see the weekend signal flip several hours early or late.
             IsWeekend = DateTime.UtcNow.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
             TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags),
-            LibraryAddedRecency = libraryAddedRecency
+            LibraryAddedRecency = libraryAddedRecency,
+            CriticRatingScore = ContentScoring.NormalizeCriticRating(candidate.CriticRating)
         };
 
         // Genre exposure features: soft signals for genre distribution awareness

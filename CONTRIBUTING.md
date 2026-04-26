@@ -210,7 +210,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
 │   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
 │   │   │   ├── EnsembleScoringStrategy.cs   # Blends heuristic + learned + neural
-│   │   │   ├── CandidateFeatures.cs         # 27-feature vector with FeatureIndex enum
+│   │   │   ├── CandidateFeatures.cs         # 28-feature vector with FeatureIndex enum
 │   │   │   ├── DefaultWeights.cs            # Centralized default weights
 │   │   │   ├── ScoringHelper.cs             # Shared scoring utilities
 │   │   │   ├── ScoreExplanation.cs          # Per-feature score breakdown
@@ -290,7 +290,7 @@ Each task receives its mode from `PluginConfiguration` and logs differently base
 The ML recommendation system uses a layered scoring approach:
 
 ```text
-User Watch History → Feature Extraction (27 features) → Scoring Strategy → Ranked Results
+User Watch History → Feature Extraction (28 features) → Scoring Strategy → Ranked Results
                                                               ↑
                                                     ┌─────────┴──────────┐
                                                     │  EnsembleScoringStrategy  │
