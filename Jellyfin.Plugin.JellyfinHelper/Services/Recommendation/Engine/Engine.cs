@@ -539,6 +539,7 @@ public sealed class Engine : IRecommendationEngine
         var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, coOccurrence, collaborativeMax);
         var ratingScore = ContentScoring.NormalizeRating(candidate.CommunityRating);
         var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? candidate.DateCreated);
+        var libraryAddedRecency = ContentScoring.ComputeRecencyScore(candidate.DateCreated);
         var yearScore = ContentScoring.ComputeYearProximity(candidate.ProductionYear, averageYear);
 
         // Compute user-specific signals — for series candidates, aggregate from watched episodes
@@ -616,7 +617,8 @@ public sealed class Engine : IRecommendationEngine
             // Jellyfin does not expose per-user timezone, so this is the best available approximation.
             // Users in distant timezones will see the weekend signal flip several hours early or late.
             IsWeekend = DateTime.UtcNow.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
-            TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags)
+            TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags),
+            LibraryAddedRecency = libraryAddedRecency
         };
 
         // Genre exposure features: soft signals for genre distribution awareness

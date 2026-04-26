@@ -21,7 +21,7 @@ Thank you for your interest in contributing! This guide covers everything you ne
 
 ### Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
 - [Jellyfin Server 10.11.x](https://jellyfin.org/docs/general/administration/installing) (for runtime testing)
 - Recommended: [JetBrains Rider](https://www.jetbrains.com/rider/) or [Visual Studio 2022+](https://visualstudio.microsoft.com/)
 - Recommended: [Node.js 18+](https://nodejs.org/) (for JavaScript linting)
@@ -40,15 +40,15 @@ After building, copy the output DLL to your Jellyfin plugin directory:
 
 ```bash
 # Linux/macOS (local user install)
-cp Jellyfin.Plugin.JellyfinHelper/bin/Debug/net8.0/Jellyfin.Plugin.JellyfinHelper.dll \
+cp Jellyfin.Plugin.JellyfinHelper/bin/Debug/net9.0/Jellyfin.Plugin.JellyfinHelper.dll \
    ~/.local/share/jellyfin/plugins/JellyfinHelper/
 
 # Linux (system service / package install — path may vary by distro)
-# sudo cp Jellyfin.Plugin.JellyfinHelper/bin/Debug/net8.0/Jellyfin.Plugin.JellyfinHelper.dll \
+# sudo cp Jellyfin.Plugin.JellyfinHelper/bin/Debug/net9.0/Jellyfin.Plugin.JellyfinHelper.dll \
 #    /var/lib/jellyfin/plugins/JellyfinHelper/
 
 # Windows
-copy Jellyfin.Plugin.JellyfinHelper\bin\Debug\net8.0\Jellyfin.Plugin.JellyfinHelper.dll ^
+copy Jellyfin.Plugin.JellyfinHelper\bin\Debug\net9.0\Jellyfin.Plugin.JellyfinHelper.dll ^
      %LOCALAPPDATA%\jellyfin\plugins\JellyfinHelper\
 ```
 
@@ -102,26 +102,39 @@ Tests mirror the source structure:
 ```text
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── Api/                           # Controller tests
+│   ├── RecommendationControllerTests.cs
+│   ├── UserActivityControllerTests.cs
 │   ├── TrashControllerTests.cs
 │   └── ...
-├── Configuration/                 # Config migration tests
-│   └── PluginConfigurationSerializationTests.cs
+├── Configuration/                 # Config serialization tests
+│   ├── PluginConfigurationSerializationTests.cs
+│   └── TaskModeTests.cs
 ├── PluginPages/                   # HTML composition tests
 │   ├── ConfigPageTestBase.cs      # Shared base loading configPage.html
 │   ├── DiscoverHtmlTests.cs       # Recommendations tab HTML tests
 │   └── ...
 ├── ScheduledTasks/                # Task execution tests
 │   ├── RecommendationsTaskTests.cs
+│   ├── UserActivityUpdateTaskTests.cs
 │   └── ...
 ├── Services/
 │   ├── Activity/                  # User activity service tests
 │   ├── Backup/                    # Backup/restore tests
 │   └── Recommendation/            # Recommendation engine tests
+│       ├── Engine/                # Core engine logic tests
+│       │   ├── CollaborativeFilterTests.cs
+│       │   └── PreferenceBuilderTests.cs
+│       ├── Playlist/              # Playlist sync tests
+│       │   └── RecommendationPlaylistServiceTests.cs
 │       ├── Scoring/               # Strategy-specific tests
 │       │   ├── ScoringStrategyTests.cs
 │       │   ├── NeuralScoringStrategyTests.cs
-│       │   └── ScoreExplanationTests.cs
+│       │   ├── ScoreExplanationTests.cs
+│       │   ├── TrainingExampleTests.cs
+│       │   └── RankingMetricsTests.cs
 │       ├── WatchHistory/          # Watch history service tests
+│       │   └── WatchHistoryServiceTests.cs
+│       ├── RecommendationCacheServiceTests.cs
 │       ├── RecommendationDtoTests.cs
 │       └── RecommendationEngineTests.cs
 └── TestFixtures/                  # Shared test helpers
@@ -164,13 +177,16 @@ Jellyfin.Plugin.JellyfinHelper/
 ├── Configuration/
 │   ├── PluginConfiguration.cs   # All config properties with defaults
 │   ├── TaskMode.cs              # Deactivate / DryRun / Activate enum
-│   └── ConfigMigration.cs       # Version-based config migration
+│   └── ArrInstanceConfig.cs     # Per-instance Arr configuration
 ├── Services/
 │   ├── Activity/                    # User watch activity tracking
 │   │   ├── IUserActivityInsightsService.cs
 │   │   ├── UserActivityInsightsService.cs
 │   │   ├── IUserActivityCacheService.cs
-│   │   └── UserActivityCacheService.cs
+│   │   ├── UserActivityCacheService.cs
+│   │   ├── UserActivityResult.cs
+│   │   ├── UserActivitySummary.cs
+│   │   └── UserItemActivity.cs
 │   ├── Backup/
 │   │   ├── BackupService.cs     # Create/restore backup
 │   │   ├── BackupValidator.cs   # Comprehensive input validation
@@ -179,21 +195,38 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── Engine/                  # Core recommendation logic
 │   │   │   ├── Engine.cs            # Orchestrator: profiles → candidates → scoring → results
 │   │   │   ├── TrainingService.cs   # Implicit feedback training pipeline
+│   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction
+│   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
+│   │   │   ├── TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
 │   │   │   ├── ReasonResolver.cs    # Human-readable recommendation explanations
 │   │   │   ├── SimilarityComputer.cs # Genre/people/tag similarity
-│   │   │   ├── CollaborativeFilter.cs
-│   │   │   ├── ContentScoring.cs
-│   │   │   └── EngineConstants.cs
+│   │   │   ├── CollaborativeFilter.cs # Jaccard + IDF co-occurrence
+│   │   │   ├── ContentScoring.cs    # Recency, rating, engagement scoring
+│   │   │   └── EngineConstants.cs   # Shared constants (thresholds, windows)
 │   │   ├── Scoring/                 # Pluggable scoring strategies
 │   │   │   ├── IScoringStrategy.cs
+│   │   │   ├── ITrainableStrategy.cs
 │   │   │   ├── HeuristicScoringStrategy.cs  # Fixed weights (rule-based)
 │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
 │   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
 │   │   │   ├── EnsembleScoringStrategy.cs   # Blends heuristic + learned + neural
-│   │   │   ├── CandidateFeatures.cs         # 26-feature vector
-│   │   │   └── DefaultWeights.cs
+│   │   │   ├── CandidateFeatures.cs         # 27-feature vector with FeatureIndex enum
+│   │   │   ├── DefaultWeights.cs            # Centralized default weights
+│   │   │   ├── ScoringHelper.cs             # Shared scoring utilities
+│   │   │   ├── ScoreExplanation.cs          # Per-feature score breakdown
+│   │   │   ├── TrainingExample.cs           # Training data container
+│   │   │   └── RankingMetrics.cs            # P@K, R@K, NDCG@K evaluation
 │   │   ├── WatchHistory/            # User watch profile building
+│   │   │   ├── IWatchHistoryService.cs
+│   │   │   ├── WatchHistoryService.cs
+│   │   │   ├── UserWatchProfile.cs
+│   │   │   └── WatchedItemInfo.cs
 │   │   ├── Playlist/                # Recommendation → Jellyfin playlist sync
+│   │   │   ├── IRecommendationPlaylistService.cs
+│   │   │   ├── RecommendationPlaylistService.cs
+│   │   │   └── PlaylistSyncResult.cs
+│   │   ├── IRecommendationEngine.cs
+│   │   ├── IRecommendationCacheService.cs
 │   │   ├── RecommendationCacheService.cs
 │   │   ├── RecommendedItem.cs
 │   │   └── RecommendationResult.cs
@@ -257,7 +290,7 @@ Each task receives its mode from `PluginConfiguration` and logs differently base
 The ML recommendation system uses a layered scoring approach:
 
 ```text
-User Watch History → Feature Extraction (26 features) → Scoring Strategy → Ranked Results
+User Watch History → Feature Extraction (27 features) → Scoring Strategy → Ranked Results
                                                               ↑
                                                     ┌─────────┴──────────┐
                                                     │  EnsembleScoringStrategy  │
@@ -274,7 +307,7 @@ User Watch History → Feature Extraction (26 features) → Scoring Strategy →
 - **NeuralScoringStrategy**: 3-hidden-layer MLP with Adam optimizer
 - **EnsembleScoringStrategy**: Blends all three with dynamic α/β weighting
 
-Training uses implicit feedback: previously recommended items are compared against current watch data to generate labeled training examples.
+Training uses implicit feedback: previously recommended items are compared against current watch data to generate labeled training examples. The EnsembleScoringStrategy records a rolling history of training quality metrics (validation loss, P@K, R@K, NDCG@K) that are persisted across server restarts for future trend analysis.
 
 ## Configuration Page Build System
 

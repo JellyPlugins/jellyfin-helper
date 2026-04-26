@@ -61,6 +61,12 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>Fraction of examples used for validation.</summary>
     internal const double ValidationSplitRatio = 0.2;
 
+    /// <summary>Number of folds for k-fold cross-validation loss estimation.</summary>
+    internal const int KFoldCount = 3;
+
+    /// <summary>Minimum examples per fold for k-fold cross-validation.</summary>
+    internal const int MinExamplesPerFold = 3;
+
     /// <summary>Minimum validation examples required for early stopping.</summary>
     internal const int MinValidationExamples = 2;
 
@@ -80,7 +86,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     internal const int MaxEpochsWithoutEarlyStopping = 20;
 
     /// <summary>Schema version for persisted weights. Increment on architecture changes.</summary>
-    internal const int CurrentWeightsVersion = 6;
+    internal const int CurrentWeightsVersion = 8;
 
     /// <summary>Legacy constant kept for backward compatibility with tests. Maps to <see cref="Hidden3Size"/>.</summary>
     internal const int HiddenSize = Hidden3Size;
@@ -161,7 +167,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _weightsH3O = new double[Hidden3Size];
         _biasOutput = 0.0;
 
-        InitializeXavier(inputSize);
+        InitializeWeights(inputSize);
         TryLoadWeights();
     }
 
@@ -821,9 +827,28 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _biasOutput = bestBO;
             }
 
-            _lastValidationLoss = bestLoss < double.MaxValue
-                ? bestLoss
-                : ComputeMseLoss(examples, vectors, weights, trainIdx);
+            // Use k-fold cross-validation for more robust loss estimation
+            // when sufficient data is available; fall back to simple split loss otherwise.
+            if (examples.Count >= KFoldCount * MinExamplesPerFold)
+            {
+                var foldSize = examples.Count / KFoldCount;
+                var kFoldLossSum = 0.0;
+                for (var fold = 0; fold < KFoldCount; fold++)
+                {
+                    var foldValStart = fold * foldSize;
+                    var foldValEnd = fold == KFoldCount - 1 ? examples.Count : foldValStart + foldSize;
+                    var foldValIdx = indices[foldValStart..foldValEnd];
+                    kFoldLossSum += ComputeMseLoss(examples, vectors, weights, foldValIdx);
+                }
+
+                _lastValidationLoss = kFoldLossSum / KFoldCount;
+            }
+            else
+            {
+                _lastValidationLoss = bestLoss < double.MaxValue
+                    ? bestLoss
+                    : ComputeMseLoss(examples, vectors, weights, trainIdx);
+            }
 
             _featureMeans = featureMeans;
             _featureStdDevs = featureStdDevs;
@@ -967,29 +992,30 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     }
 
     /// <summary>
-    ///     Xavier/Glorot uniform initialization for stable gradient flow.
-    ///     Each layer's weights ~ U(-limit, limit) where limit = sqrt(6 / (fan_in + fan_out)).
+    ///     Initializes weights using He/Kaiming uniform for hidden layers (ReLU)
+    ///     and Xavier/Glorot uniform for the output layer (Sigmoid). He: limit = sqrt(6/fan_in), Xavier: limit = sqrt(6/(fan_in+fan_out)).
     /// </summary>
-    private void InitializeXavier(int inputSize)
+    private void InitializeWeights(int inputSize)
     {
         var rng = new Random(42);
 
         // Input → Hidden1
-        var limitIH = Math.Sqrt(6.0 / (inputSize + Hidden1Size));
+        // He/Kaiming uniform for ReLU hidden layers: limit = sqrt(6 / fan_in)
+        var limitIH = Math.Sqrt(6.0 / inputSize);
         for (var i = 0; i < _weightsIH.Length; i++)
         {
             _weightsIH[i] = (rng.NextDouble() * 2.0 * limitIH) - limitIH;
         }
 
         // Hidden1 → Hidden2
-        var limitH1H2 = Math.Sqrt(6.0 / (Hidden1Size + Hidden2Size));
+        var limitH1H2 = Math.Sqrt(6.0 / Hidden1Size);
         for (var i = 0; i < _weightsH1H2.Length; i++)
         {
             _weightsH1H2[i] = (rng.NextDouble() * 2.0 * limitH1H2) - limitH1H2;
         }
 
         // Hidden2 → Hidden3
-        var limitH2H3 = Math.Sqrt(6.0 / (Hidden2Size + Hidden3Size));
+        var limitH2H3 = Math.Sqrt(6.0 / Hidden2Size);
         for (var i = 0; i < _weightsH2H3.Length; i++)
         {
             _weightsH2H3[i] = (rng.NextDouble() * 2.0 * limitH2H3) - limitH2H3;

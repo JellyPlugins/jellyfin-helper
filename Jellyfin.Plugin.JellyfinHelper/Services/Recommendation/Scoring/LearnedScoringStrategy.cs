@@ -76,7 +76,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     ///     Current schema version for persisted weights. Increment when the feature set or
     ///     weight semantics change so that stale weights are discarded on load.
     /// </summary>
-    internal const int CurrentWeightsVersion = 11;
+    internal const int CurrentWeightsVersion = 12;
 
     /// <summary>Cached JSON serializer options for weight persistence.</summary>
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };

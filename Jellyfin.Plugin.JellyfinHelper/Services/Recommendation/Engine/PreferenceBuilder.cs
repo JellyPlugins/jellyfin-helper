@@ -126,7 +126,104 @@ internal static class PreferenceBuilder
             vector[genre] /= maxWeight;
         }
 
+        ExpandGenreProximity(vector, profile);
+
         return vector;
+    }
+
+    /// <summary>
+    ///     Expands genre preferences with co-occurrence proximity weights.
+    ///     Genres that frequently appear together on items in watch history
+    ///     get derived weights, enabling soft matching for related genres
+    ///     the user has not directly watched (e.g. Fantasy for a SciFi fan).
+    /// </summary>
+    /// <param name="vector">The genre preference vector to expand (modified in-place).</param>
+    /// <param name="profile">The user watch profile for co-occurrence data.</param>
+    private static void ExpandGenreProximity(Dictionary<string, double> vector, UserWatchProfile profile)
+    {
+        if (profile.WatchedItems.Count < 10 || vector.Count < 2)
+        {
+            return;
+        }
+
+        var cooccurrence = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in profile.WatchedItems)
+        {
+            if (!item.Played && !item.IsFavorite)
+            {
+                continue;
+            }
+
+            if (item.Genres is not { Count: >= 2 })
+            {
+                continue;
+            }
+
+            for (var i = 0; i < item.Genres.Count; i++)
+            {
+                var g1 = item.Genres[i];
+                if (string.IsNullOrWhiteSpace(g1))
+                {
+                    continue;
+                }
+
+                if (!cooccurrence.TryGetValue(g1, out var neighbors))
+                {
+                    neighbors = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    cooccurrence[g1] = neighbors;
+                }
+
+                for (var j = i + 1; j < item.Genres.Count; j++)
+                {
+                    var g2 = item.Genres[j];
+                    if (string.IsNullOrWhiteSpace(g2))
+                    {
+                        continue;
+                    }
+
+                    neighbors.TryGetValue(g2, out var cnt);
+                    neighbors[g2] = cnt + 1;
+
+                    if (!cooccurrence.TryGetValue(g2, out var neighbors2))
+                    {
+                        neighbors2 = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                        cooccurrence[g2] = neighbors2;
+                    }
+
+                    neighbors2.TryGetValue(g1, out var cnt2);
+                    neighbors2[g1] = cnt2 + 1;
+                }
+            }
+        }
+
+        const double proximityFactor = 0.15;
+        const int minCooccurrences = 2;
+        var expansions = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (knownGenre, weight) in vector)
+        {
+            if (!cooccurrence.TryGetValue(knownGenre, out var neighbors))
+            {
+                continue;
+            }
+
+            foreach (var (neighborGenre, count) in neighbors)
+            {
+                if (count < minCooccurrences || vector.ContainsKey(neighborGenre))
+                {
+                    continue;
+                }
+
+                var derived = weight * proximityFactor * Math.Min(count / 5.0, 1.0);
+                expansions.TryGetValue(neighborGenre, out var existing);
+                expansions[neighborGenre] = Math.Max(existing, derived);
+            }
+        }
+
+        foreach (var (genre, derivedWeight) in expansions)
+        {
+            vector[genre] = derivedWeight;
+        }
     }
 
     /// <summary>

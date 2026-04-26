@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using MediaBrowser.Controller.Entities;
@@ -82,7 +82,9 @@ internal static class DiversityReranker
         }
 
         var selected = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>(count);
-        var remaining = candidates.OrderByDescending(c => c.Score).Take(count * 3).ToList();
+        // Take top count*5 candidates as the MMR selection pool. A larger pool
+        // gives MMR more diversity headroom in large libraries without a config knob.
+        var remaining = candidates.OrderByDescending(c => c.Score).Take(count * 5).ToList();
 
         var genreSetCache = new Dictionary<Guid, HashSet<string>>();
 

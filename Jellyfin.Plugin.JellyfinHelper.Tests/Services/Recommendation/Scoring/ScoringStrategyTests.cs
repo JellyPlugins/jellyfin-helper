@@ -1,4 +1,4 @@
-﻿using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
@@ -100,7 +100,7 @@ public sealed class ScoringStrategyTests : IDisposable
     {
         var features = new CandidateFeatures();
         var vector = features.ToVector();
-        Assert.Equal(26, vector.Length);
+        Assert.Equal(27, vector.Length);
     }
 
     [Fact]
@@ -2347,4 +2347,240 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.True(betaAt155 <= EnsembleScoringStrategy.NeuralMaxBetaFraction,
             $"Beta should not exceed max: {betaAt155:F4} > {EnsembleScoringStrategy.NeuralMaxBetaFraction}");
     }
+
+    // === Trend Detection Tests ===
+
+    [Fact]
+    public void AnalyzeTrend_InsufficientData_ReturnsInsufficientData()
+    {
+        var history = new List<EnsembleScoringStrategy.MetricsSnapshot>();
+        for (var i = 0; i < EnsembleScoringStrategy.TrendMinSnapshots - 1; i++)
+        {
+            history.Add(new EnsembleScoringStrategy.MetricsSnapshot
+            {
+                ValidationLoss = 0.2,
+                NdcgAtK = 0.7,
+                ExampleCount = 50
+            });
+        }
+
+        Assert.Equal(EnsembleScoringStrategy.MetricsTrend.InsufficientData,
+            EnsembleScoringStrategy.AnalyzeTrend(history));
+    }
+
+    [Fact]
+    public void AnalyzeTrend_EmptyHistory_ReturnsInsufficientData()
+    {
+        Assert.Equal(EnsembleScoringStrategy.MetricsTrend.InsufficientData,
+            EnsembleScoringStrategy.AnalyzeTrend([]));
+    }
+
+    [Fact]
+    public void AnalyzeTrend_ConstantMetrics_ReturnsStable()
+    {
+        var history = new List<EnsembleScoringStrategy.MetricsSnapshot>();
+        for (var i = 0; i < EnsembleScoringStrategy.TrendMinSnapshots; i++)
+        {
+            history.Add(new EnsembleScoringStrategy.MetricsSnapshot
+            {
+                ValidationLoss = 0.20,
+                NdcgAtK = 0.70,
+                ExampleCount = 50
+            });
+        }
+
+        Assert.Equal(EnsembleScoringStrategy.MetricsTrend.Stable,
+            EnsembleScoringStrategy.AnalyzeTrend(history));
+    }
+
+    [Fact]
+    public void AnalyzeTrend_DecreasingLoss_ReturnsImproving()
+    {
+        var history = new List<EnsembleScoringStrategy.MetricsSnapshot>();
+        for (var i = 0; i < EnsembleScoringStrategy.TrendMinSnapshots; i++)
+        {
+            history.Add(new EnsembleScoringStrategy.MetricsSnapshot
+            {
+                ValidationLoss = 0.30 - (i * 0.05),
+                NdcgAtK = 0.60 + (i * 0.02),
+                ExampleCount = 50
+            });
+        }
+
+        Assert.Equal(EnsembleScoringStrategy.MetricsTrend.Improving,
+            EnsembleScoringStrategy.AnalyzeTrend(history));
+    }
+
+    [Fact]
+    public void AnalyzeTrend_IncreasingLoss_ReturnsDegrading()
+    {
+        var history = new List<EnsembleScoringStrategy.MetricsSnapshot>();
+        for (var i = 0; i < EnsembleScoringStrategy.TrendMinSnapshots; i++)
+        {
+            history.Add(new EnsembleScoringStrategy.MetricsSnapshot
+            {
+                ValidationLoss = 0.10 + (i * 0.05),
+                NdcgAtK = 0.70 - (i * 0.02),
+                ExampleCount = 50
+            });
+        }
+
+        Assert.Equal(EnsembleScoringStrategy.MetricsTrend.Degrading,
+            EnsembleScoringStrategy.AnalyzeTrend(history));
+    }
+
+    [Fact]
+    public void AnalyzeTrend_DecreasingNdcgOnly_ReturnsDegrading()
+    {
+        var history = new List<EnsembleScoringStrategy.MetricsSnapshot>();
+        for (var i = 0; i < EnsembleScoringStrategy.TrendMinSnapshots; i++)
+        {
+            history.Add(new EnsembleScoringStrategy.MetricsSnapshot
+            {
+                ValidationLoss = 0.20,
+                NdcgAtK = 0.80 - (i * 0.04),
+                ExampleCount = 50
+            });
+        }
+
+        Assert.Equal(EnsembleScoringStrategy.MetricsTrend.Degrading,
+            EnsembleScoringStrategy.AnalyzeTrend(history));
+    }
+
+    [Fact]
+    public void AnalyzeTrend_IncreasingNdcgOnly_ReturnsImproving()
+    {
+        var history = new List<EnsembleScoringStrategy.MetricsSnapshot>();
+        for (var i = 0; i < EnsembleScoringStrategy.TrendMinSnapshots; i++)
+        {
+            history.Add(new EnsembleScoringStrategy.MetricsSnapshot
+            {
+                ValidationLoss = 0.20,
+                NdcgAtK = 0.50 + (i * 0.04),
+                ExampleCount = 50
+            });
+        }
+
+        Assert.Equal(EnsembleScoringStrategy.MetricsTrend.Improving,
+            EnsembleScoringStrategy.AnalyzeTrend(history));
+    }
+
+    [Fact]
+    public void AnalyzeTrend_UsesLastNSnapshots_IgnoresOlder()
+    {
+        var history = new List<EnsembleScoringStrategy.MetricsSnapshot>();
+        for (var i = 0; i < 3; i++)
+        {
+            history.Add(new EnsembleScoringStrategy.MetricsSnapshot
+            {
+                ValidationLoss = 0.10 + (i * 0.10),
+                NdcgAtK = 0.30,
+                ExampleCount = 50
+            });
+        }
+
+        for (var i = 0; i < EnsembleScoringStrategy.TrendMinSnapshots; i++)
+        {
+            history.Add(new EnsembleScoringStrategy.MetricsSnapshot
+            {
+                ValidationLoss = 0.30 - (i * 0.05),
+                NdcgAtK = 0.60 + (i * 0.03),
+                ExampleCount = 50
+            });
+        }
+
+        Assert.Equal(EnsembleScoringStrategy.MetricsTrend.Improving,
+            EnsembleScoringStrategy.AnalyzeTrend(history));
+    }
+
+    [Fact]
+    public void Ensemble_TrendMinSnapshots_Is5()
+    {
+        Assert.Equal(5, EnsembleScoringStrategy.TrendMinSnapshots);
+    }
+
+    [Fact]
+    public void Ensemble_TrendConstants_AreValid()
+    {
+        Assert.True(EnsembleScoringStrategy.TrendDegradationDamping > 0
+                    && EnsembleScoringStrategy.TrendDegradationDamping < 1.0,
+            "Damping factor must be in (0, 1)");
+        Assert.True(EnsembleScoringStrategy.TrendImprovementBoost > 1.0,
+            "Improvement boost must be > 1.0");
+    }
+
+    [Fact]
+    public void Ensemble_MetricsHistoryCount_TracksTrainingRuns()
+    {
+        var ensemble = new EnsembleScoringStrategy();
+
+        Assert.Equal(0, ensemble.MetricsHistoryCount);
+
+        ensemble.Train(GenerateTrainingExamples(20));
+        Assert.True(ensemble.MetricsHistoryCount >= 1,
+            "History should grow after training");
+    }
+
+    [Fact]
+    public void Ensemble_MetricsHistory_CappedAt10()
+    {
+        var ensemble = new EnsembleScoringStrategy();
+
+        for (var i = 0; i < 15; i++)
+        {
+            ensemble.Train(GenerateTrainingExamples(10));
+        }
+
+        Assert.True(ensemble.MetricsHistoryCount <= 10,
+            $"History should be capped at 10, got {ensemble.MetricsHistoryCount}");
+    }
+
+    [Fact]
+    public void Ensemble_LastTrend_InsufficientDataBeforeTraining()
+    {
+        var ensemble = new EnsembleScoringStrategy();
+        Assert.Equal(EnsembleScoringStrategy.MetricsTrend.InsufficientData, ensemble.LastTrend);
+    }
+
+    [Fact]
+    public void Ensemble_LastTrend_InsufficientDataAfterFewRuns()
+    {
+        var ensemble = new EnsembleScoringStrategy();
+
+        for (var i = 0; i < 3; i++)
+        {
+            ensemble.Train(GenerateTrainingExamples(20));
+        }
+
+        Assert.Equal(EnsembleScoringStrategy.MetricsTrend.InsufficientData, ensemble.LastTrend);
+    }
+
+    [Fact]
+    public void Ensemble_TrendPersisted_SurvivesRestart()
+    {
+        var statePath = Path.Join(_tempDir, "trend_persist_test.json");
+        var weightsPath = Path.Join(_tempDir, "trend_persist_weights.json");
+        var neuralWeightsPath = Path.Join(_tempDir, "trend_persist_neural.json");
+
+        var learned = new LearnedScoringStrategy(weightsPath);
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var neural = new NeuralScoringStrategy(neuralWeightsPath);
+        var ensemble = new EnsembleScoringStrategy(learned, heuristic, neural, statePath);
+
+        for (var i = 0; i < 7; i++)
+        {
+            ensemble.Train(GenerateTrainingExamples(20));
+        }
+
+        var countBefore = ensemble.MetricsHistoryCount;
+        Assert.True(countBefore >= 5, "Should have enough history for trend detection");
+
+        var learned2 = new LearnedScoringStrategy(weightsPath);
+        var heuristic2 = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var neural2 = new NeuralScoringStrategy(neuralWeightsPath);
+        var ensemble2 = new EnsembleScoringStrategy(learned2, heuristic2, neural2, statePath);
+
+        Assert.Equal(countBefore, ensemble2.MetricsHistoryCount);
+    }
+
 }

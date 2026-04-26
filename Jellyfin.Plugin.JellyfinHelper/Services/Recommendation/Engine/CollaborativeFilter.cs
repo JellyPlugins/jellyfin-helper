@@ -96,6 +96,25 @@ internal static class CollaborativeFilter
             return coOccurrence;
         }
 
+        // Compute item popularity (how many users watched each item) for IDF weighting.
+        // Items watched by many users contribute less to co-occurrence — a shared niche taste
+        // is a stronger signal of real similarity than both watching a mainstream blockbuster.
+        // Only computed when precomputedUserSets is available (batch mode); in single-user mode
+        // the overhead of a full scan isn't justified.
+        Dictionary<Guid, int>? itemPopularity = null;
+        if (precomputedUserSets is not null)
+        {
+            itemPopularity = new Dictionary<Guid, int>();
+            foreach (var userSet in precomputedUserSets.Values)
+            {
+                foreach (var itemId in userSet)
+                {
+                    itemPopularity.TryGetValue(itemId, out var count);
+                    itemPopularity[itemId] = count + 1;
+                }
+            }
+        }
+
         // Iterate over all other users and compute Jaccard-weighted co-occurrence
         foreach (var otherProfile in allProfiles)
         {
@@ -132,10 +151,21 @@ internal static class CollaborativeFilter
 
             // Accumulate Jaccard-weighted co-occurrence for items the other user watched but we haven't.
             // This includes both episode IDs AND series IDs, so series candidates get collaborative scores.
+            // When item popularity is available, apply IDF boost: niche items shared by few users
+            // produce stronger signals than mainstream items everyone has watched.
             foreach (var itemId in otherCombinedIds.Where(itemId => !userCombinedIds.Contains(itemId)))
             {
+                var weight = jaccardWeight;
+
+                // IDF boost: weight × (1 / log2(1 + userCount))
+                // log2(1+1)=1.0 (unique), log2(1+5)=2.58, log2(1+50)=5.67
+                if (itemPopularity is not null && itemPopularity.TryGetValue(itemId, out var userCount) && userCount > 1)
+                {
+                    weight *= 1.0 / Math.Log2(1.0 + userCount);
+                }
+
                 coOccurrence.TryGetValue(itemId, out var current);
-                coOccurrence[itemId] = current + jaccardWeight;
+                coOccurrence[itemId] = current + weight;
             }
         }
 

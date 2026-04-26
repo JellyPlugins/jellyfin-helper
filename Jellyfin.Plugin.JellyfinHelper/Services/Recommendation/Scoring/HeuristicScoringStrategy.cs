@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
@@ -48,43 +49,61 @@ public sealed class HeuristicScoringStrategy : IScoringStrategy
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
-        // Allocate a fresh vector to avoid thread-safety issues with shared buffers
-        // across async continuations on the same thread.
-        var vector = new double[CandidateFeatures.FeatureCount];
-        features.WriteToVector(vector);
-
-        // Bias is intentionally 0.0 for the heuristic strategy — hand-tuned weights
-        // already produce scores in the desired range without a bias offset.
-        var raw = ScoringHelper.ComputeRawScore(vector, WeightsArray, bias: 0.0);
-        var score = Math.Clamp(raw, 0.0, 1.0);
-
-        // Apply genre penalty when used standalone (shared formula with EnsembleScoringStrategy)
-        if (_genrePenaltyFloor < 1.0)
+        // Rent from ArrayPool to avoid per-call allocation (same pattern as LearnedScoringStrategy).
+        // The heuristic is called for every candidate in the Ensemble hot path.
+        var vector = ArrayPool<double>.Shared.Rent(CandidateFeatures.FeatureCount);
+        try
         {
-            var penalty = ScoringHelper.ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
-            score *= penalty;
-        }
+            // Clear only the portion we use (Rent may return a larger array)
+            Array.Clear(vector, 0, CandidateFeatures.FeatureCount);
+            features.WriteToVector(vector);
 
-        return score;
+            // Bias is intentionally 0.0 for the heuristic strategy — hand-tuned weights
+            // already produce scores in the desired range without a bias offset.
+            var raw = ScoringHelper.ComputeRawScore(vector, WeightsArray, bias: 0.0);
+            var score = Math.Clamp(raw, 0.0, 1.0);
+
+            // Apply genre penalty when used standalone (shared formula with EnsembleScoringStrategy)
+            if (_genrePenaltyFloor < 1.0)
+            {
+                var penalty = ScoringHelper.ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+                score *= penalty;
+            }
+
+            return score;
+        }
+        finally
+        {
+            ArrayPool<double>.Shared.Return(vector);
+        }
     }
 
     /// <inheritdoc />
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
-        var vector = new double[CandidateFeatures.FeatureCount];
-        features.WriteToVector(vector);
-
-        var explanation = ScoringHelper.BuildExplanation(vector, WeightsArray, bias: 0.0, Name);
-
-        // Apply genre penalty when used standalone (shared formula with EnsembleScoringStrategy).
-        // Uses WithPenalty() to scale both FinalScore and all contributions consistently,
-        // so that FinalScore = Σ(contributions) × GenrePenaltyMultiplier holds true.
-        if (_genrePenaltyFloor < 1.0)
+        // Rent from ArrayPool to avoid per-call allocation (same pattern as LearnedScoringStrategy).
+        var vector = ArrayPool<double>.Shared.Rent(CandidateFeatures.FeatureCount);
+        try
         {
-            var penalty = ScoringHelper.ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
-            explanation = explanation.WithPenalty(penalty);
-        }
+            Array.Clear(vector, 0, CandidateFeatures.FeatureCount);
+            features.WriteToVector(vector);
 
-        return explanation;
+            var explanation = ScoringHelper.BuildExplanation(vector, WeightsArray, bias: 0.0, Name);
+
+            // Apply genre penalty when used standalone (shared formula with EnsembleScoringStrategy).
+            // Uses WithPenalty() to scale both FinalScore and all contributions consistently,
+            // so that FinalScore = Σ(contributions) × GenrePenaltyMultiplier holds true.
+            if (_genrePenaltyFloor < 1.0)
+            {
+                var penalty = ScoringHelper.ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+                explanation = explanation.WithPenalty(penalty);
+            }
+
+            return explanation;
+        }
+        finally
+        {
+            ArrayPool<double>.Shared.Return(vector);
+        }
     }
 }

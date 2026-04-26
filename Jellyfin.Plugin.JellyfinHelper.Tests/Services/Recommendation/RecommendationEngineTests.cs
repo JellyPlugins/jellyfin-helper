@@ -864,12 +864,12 @@ public class RecommendationEngineTests
         };
 
         // Candidate with duplicate genres (edge case from malformed metadata)
-        // Cosine similarity treats duplicates as higher magnitude in that dimension,
-        // but the single matching genre still yields a valid score in [0, 1].
+        // ComputeGenreSimilarity deduplicates via HashSet before computing cosine similarity,
+        // so duplicates become a single element. The single matching genre yields cosine = 1.0.
         var score = SimilarityComputer.ComputeGenreSimilarity(
             new[] { "Action", "Action", "Action" }, prefs);
 
-        // With duplicates: dot = 3*1.0 = 3, normC = sqrt(9) = 3, normU = 1 -> cosine = 3/(3*1) = 1.0
+        // After dedup via HashSet: {Action} -> dot=1*1.0=1, normC=sqrt(1)=1, normU=1 -> cosine=1.0
         Assert.Equal(1.0, score, 4);
     }
 

@@ -106,8 +106,9 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             var learned = sp.GetRequiredService<LearnedScoringStrategy>();
             var heuristic = sp.GetRequiredService<HeuristicScoringStrategy>();
             var neural = sp.GetRequiredService<NeuralScoringStrategy>();
+            var logger = sp.GetRequiredService<ILogger<EnsembleScoringStrategy>>();
 
-            return new EnsembleScoringStrategy(learned, heuristic, neural, statePath, alphaMin, alphaMax, genrePenaltyFloor);
+            return new EnsembleScoringStrategy(learned, heuristic, neural, statePath, alphaMin, alphaMax, genrePenaltyFloor, logger);
         });
         // Always use Ensemble strategy — no user-selectable strategy choice.
         // Ensemble combines all methods (Heuristic + Learned + Neural) for best results.

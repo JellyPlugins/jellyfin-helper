@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Xunit;
 
@@ -701,12 +701,13 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void XavierInit_InputHiddenWeights_WithinExpectedBounds()
+    public void HeInit_InputHiddenWeights_WithinExpectedBounds()
     {
         var strategy = new NeuralScoringStrategy();
         var wIH = strategy.CurrentWeightsHidden;
 
-        var limit = Math.Sqrt(6.0 / (CandidateFeatures.FeatureCount + NeuralScoringStrategy.Hidden1Size));
+        // He/Kaiming uniform for ReLU: limit = sqrt(6 / fan_in)
+        var limit = Math.Sqrt(6.0 / CandidateFeatures.FeatureCount);
 
         foreach (var w in wIH)
         {
@@ -765,9 +766,9 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void CurrentWeightsVersion_Is6()
+    public void CurrentWeightsVersion_Is8()
     {
-        Assert.Equal(6, NeuralScoringStrategy.CurrentWeightsVersion);
+        Assert.Equal(8, NeuralScoringStrategy.CurrentWeightsVersion);
     }
 
     [Fact]

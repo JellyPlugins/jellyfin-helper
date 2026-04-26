@@ -160,6 +160,13 @@ public static class DefaultWeights
     /// </summary>
     public const double GenreAffinityGap = -0.05;
 
+    /// <summary>
+    ///     Weight for library-added recency signal.
+    ///     Captures new additions to the user's collection separately from content release date.
+    ///     A small weight so it acts as a supplementary freshness signal.
+    /// </summary>
+    public const double LibraryAddedRecency = 0.03;
+
     /// <summary>Default bias term for the learned strategy.</summary>
     public const double Bias = 0.05;
 
@@ -205,6 +212,7 @@ public static class DefaultWeights
         weights[(int)FeatureIndex.GenreUnderexposure] = GenreUnderexposure;
         weights[(int)FeatureIndex.GenreDominanceRatio] = GenreDominanceRatio;
         weights[(int)FeatureIndex.GenreAffinityGap] = GenreAffinityGap;
+        weights[(int)FeatureIndex.LibraryAddedRecency] = LibraryAddedRecency;
         return weights;
     }
 }

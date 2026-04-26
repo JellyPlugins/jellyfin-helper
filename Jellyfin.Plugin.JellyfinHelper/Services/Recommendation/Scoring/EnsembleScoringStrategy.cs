@@ -109,6 +109,26 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     internal const double NeuralBetaMinFloor = 0.01;
 
+    /// <summary>
+    ///     Minimum number of metrics snapshots required before trend analysis activates.
+    ///     Below this count, <see cref="AnalyzeTrend"/> returns <see cref="MetricsTrend.InsufficientData"/>.
+    /// </summary>
+    internal const int TrendMinSnapshots = 5;
+
+    /// <summary>
+    ///     Alpha damping factor applied per training round when a degrading trend is detected.
+    ///     Multiplicative: new_alpha = alphaMin + (alpha - alphaMin) * factor.
+    ///     0.90 means 10% rollback toward heuristic per degrading round.
+    /// </summary>
+    internal const double TrendDegradationDamping = 0.90;
+
+    /// <summary>
+    ///     Alpha boost factor applied when an improving trend is detected.
+    ///     The quality factor is multiplied by this value (capped at 1.0) to allow
+    ///     faster alpha progression when the model is consistently improving.
+    /// </summary>
+    internal const double TrendImprovementBoost = 1.15;
+
     /// <summary>Cached JSON serializer options for ensemble state persistence.</summary>
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
 
@@ -125,6 +145,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     private double _neuralBeta;
     private bool _qualityGateFrozen;
     private int _trainingExampleCount;
+    private List<MetricsSnapshot> _metricsHistory = [];
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="EnsembleScoringStrategy" /> class
@@ -206,6 +227,24 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     {
     }
 
+    /// <summary>
+    ///     Detected trend direction from metrics history analysis.
+    /// </summary>
+    internal enum MetricsTrend
+    {
+        /// <summary>Not enough snapshots for reliable trend detection.</summary>
+        InsufficientData,
+
+        /// <summary>Validation loss is decreasing and/or ranking metrics are improving.</summary>
+        Improving,
+
+        /// <summary>Metrics are fluctuating within a narrow band.</summary>
+        Stable,
+
+        /// <summary>Validation loss is increasing and/or ranking metrics are declining.</summary>
+        Degrading
+    }
+
     /// <inheritdoc />
     public string Name => "Ensemble (Adaptive ML + Rules)";
 
@@ -281,6 +320,35 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             lock (_syncRoot)
             {
                 return _neuralBeta;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Gets the trend detected from the current metrics history (for testing/debugging).
+    ///     Returns <see cref="MetricsTrend.InsufficientData"/> before enough training runs.
+    /// </summary>
+    internal MetricsTrend LastTrend
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return AnalyzeTrend(_metricsHistory);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Gets the current metrics history count (for testing/debugging).
+    /// </summary>
+    internal int MetricsHistoryCount
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _metricsHistory.Count;
             }
         }
     }
@@ -460,9 +528,56 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 }
             }
 
-            // Log training quality metrics for transparency using structured logging
+            // Record metrics snapshot and analyze trend BEFORE saving state,
+            // so trend-driven alpha/beta adjustments are persisted in the same write.
+            MetricsTrend trend;
+            lock (_syncRoot)
+            {
+                _metricsHistory.Add(new MetricsSnapshot
+                {
+                    Timestamp = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                    ValidationLoss = validationLoss,
+                    PrecisionAtK = _learned.LastPrecisionAtK,
+                    RecallAtK = _learned.LastRecallAtK,
+                    NdcgAtK = _learned.LastNdcgAtK,
+                    ExampleCount = examples.Count
+                });
+                const int maxHistory = 10;
+                if (_metricsHistory.Count > maxHistory)
+                {
+                    _metricsHistory.RemoveRange(0, _metricsHistory.Count - maxHistory);
+                }
+
+                // Analyze trend from the updated history
+                trend = AnalyzeTrend(_metricsHistory);
+
+                // Apply trend-driven alpha/beta adjustments
+                if (trend == MetricsTrend.Degrading)
+                {
+                    // Roll alpha back toward heuristic
+                    _alpha = _alphaMin + ((_alpha - _alphaMin) * TrendDegradationDamping);
+
+                    // Also reduce neural influence when trend is degrading
+                    if (_neuralBeta > 0)
+                    {
+                        _neuralBeta *= TrendDegradationDamping;
+                        if (_neuralBeta < NeuralBetaMinFloor)
+                        {
+                            _neuralBeta = 0.0;
+                        }
+                    }
+                }
+                else if (trend == MetricsTrend.Improving)
+                {
+                    // Allow faster alpha progression toward sigmoid target
+                    var sigmoidTarget = ComputeSigmoidAlpha(_trainingExampleCount, _alphaMin, _alphaMax);
+                    _alpha = Math.Min(sigmoidTarget, _alpha + ((_alphaMax - _alpha) * (1.0 - TrendDegradationDamping)));
+                }
+            }
+
+            // Log training quality metrics including trend
             _logger?.LogInformation(
-                "Training complete: examples={ExampleCount}, valLoss={ValidationLoss:F6}, P@{K}={PrecisionAtK:F3}, R@{K2}={RecallAtK:F3}, NDCG@{K3}={NdcgAtK:F3}, qualityGate={QualityGate}, alpha={Alpha:F4}, neuralBeta={NeuralBeta:F4}",
+                "Training complete: examples={ExampleCount}, valLoss={ValidationLoss:F6}, P@{K}={PrecisionAtK:F3}, R@{K2}={RecallAtK:F3}, NDCG@{K3}={NdcgAtK:F3}, qualityGate={QualityGate}, alpha={Alpha:F4}, neuralBeta={NeuralBeta:F4}, trend={Trend}",
                 examples.Count,
                 validationLoss,
                 RankingMetrics.DefaultK,
@@ -473,7 +588,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 _learned.LastNdcgAtK,
                 qualityGatePassed ? "passed" : "dampened",
                 _alpha,
-                _neuralBeta);
+                _neuralBeta,
+                trend);
 
             TrySaveState();
         }
@@ -601,6 +717,11 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                     {
                         _neuralBeta = data.NeuralBeta;
                     }
+
+                    if (data.MetricsHistory is { Count: > 0 })
+                    {
+                        _metricsHistory = new List<MetricsSnapshot>(data.MetricsHistory);
+                    }
                 }
             }
         }
@@ -652,6 +773,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                     Alpha = _alpha,
                     NeuralBeta = _neuralBeta,
                     QualityGateFrozen = _qualityGateFrozen,
+                    MetricsHistory = new List<MetricsSnapshot>(_metricsHistory),
                     UpdatedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture)
                 };
 
@@ -680,6 +802,72 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     }
 
     /// <summary>
+    ///     Analyzes the rolling metrics history to detect training quality trends.
+    ///     Uses linear slope over the last <see cref="TrendMinSnapshots"/> snapshots.
+    ///     Validation loss slope &gt; 0 indicates degradation (loss is rising);
+    ///     NDCG slope &lt; 0 also indicates degradation (ranking quality is falling).
+    /// </summary>
+    /// <param name="history">The metrics history snapshots (most recent last).</param>
+    /// <returns>The detected trend direction.</returns>
+    internal static MetricsTrend AnalyzeTrend(IReadOnlyList<MetricsSnapshot> history)
+    {
+        if (history.Count < TrendMinSnapshots)
+        {
+            return MetricsTrend.InsufficientData;
+        }
+
+        var startIdx = history.Count - TrendMinSnapshots;
+        var n = TrendMinSnapshots;
+        var meanI = (n - 1) / 2.0;
+
+        double sumLoss = 0, sumNdcg = 0;
+        for (var i = 0; i < n; i++)
+        {
+            sumLoss += history[startIdx + i].ValidationLoss;
+            sumNdcg += history[startIdx + i].NdcgAtK;
+        }
+
+        var meanLoss = sumLoss / n;
+        var meanNdcg = sumNdcg / n;
+
+        double numLoss = 0, numNdcg = 0, denominator = 0;
+        for (var i = 0; i < n; i++)
+        {
+            var di = i - meanI;
+            numLoss += di * (history[startIdx + i].ValidationLoss - meanLoss);
+            numNdcg += di * (history[startIdx + i].NdcgAtK - meanNdcg);
+            denominator += di * di;
+        }
+
+        if (denominator < 1e-12)
+        {
+            return MetricsTrend.Stable;
+        }
+
+        var slopeLoss = numLoss / denominator;
+        var slopeNdcg = numNdcg / denominator;
+
+        const double slopeThreshold = 0.005;
+
+        var lossDegrading = slopeLoss > slopeThreshold;
+        var ndcgDegrading = slopeNdcg < -slopeThreshold;
+        var lossImproving = slopeLoss < -slopeThreshold;
+        var ndcgImproving = slopeNdcg > slopeThreshold;
+
+        if ((lossDegrading && !ndcgImproving) || (ndcgDegrading && !lossImproving))
+        {
+            return MetricsTrend.Degrading;
+        }
+
+        if ((lossImproving && !ndcgDegrading) || (ndcgImproving && !lossDegrading))
+        {
+            return MetricsTrend.Improving;
+        }
+
+        return MetricsTrend.Stable;
+    }
+
+    /// <summary>
     ///     Serializable container for persisted ensemble state.
     /// </summary>
     internal sealed class EnsembleStateData
@@ -698,5 +886,32 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         /// <summary>Gets or sets the ISO 8601 timestamp of the last update.</summary>
         public string UpdatedAt { get; set; } = string.Empty;
+
+        /// <summary>Gets or sets the rolling history of training metrics (last 10 runs).</summary>
+        public List<MetricsSnapshot> MetricsHistory { get; set; } = [];
+    }
+
+    /// <summary>
+    ///     A single point-in-time snapshot of training quality metrics.
+    /// </summary>
+    internal sealed class MetricsSnapshot
+    {
+        /// <summary>Gets or sets the ISO 8601 timestamp.</summary>
+        public string Timestamp { get; set; } = string.Empty;
+
+        /// <summary>Gets or sets the validation loss (MSE).</summary>
+        public double ValidationLoss { get; set; }
+
+        /// <summary>Gets or sets the Precision at K.</summary>
+        public double PrecisionAtK { get; set; }
+
+        /// <summary>Gets or sets the Recall at K.</summary>
+        public double RecallAtK { get; set; }
+
+        /// <summary>Gets or sets the NDCG at K.</summary>
+        public double NdcgAtK { get; set; }
+
+        /// <summary>Gets or sets the number of training examples used.</summary>
+        public int ExampleCount { get; set; }
     }
 }

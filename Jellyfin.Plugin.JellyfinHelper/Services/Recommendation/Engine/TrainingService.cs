@@ -328,7 +328,8 @@ internal sealed class TrainingService
                     DayOfWeekAffinity = ComputeTrainingTemporalAffinity(watchedItemForRec, rec.Genres, userProfile, isDay: true),
                     HourOfDayAffinity = ComputeTrainingTemporalAffinity(watchedItemForRec, rec.Genres, userProfile, isDay: false),
                     IsWeekend = watchedItemForRec?.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
-                    TagSimilarity = tagSimilarity
+                    TagSimilarity = tagSimilarity,
+                    LibraryAddedRecency = 0.5
                 };
 
                 // Genre exposure features: compute from cached per-user analysis
@@ -341,16 +342,34 @@ internal sealed class TrainingService
                 double label;
                 if (wasWatched)
                 {
-                    // Check temporal proximity: was the item watched within the influence window
-                    // after the recommendation was generated? If so, the recommendation likely
-                    // influenced the watch — reward with a higher label.
-                    var baseLabel = watchedItemForRec is { IsFavorite: true, Played: false }
-                        ? 0.65 // Favorite-only: explicit interest signal even without playback
-                        : watchedItemForRec is null && isSeries
-                            ? 0.65 // Series-level favorite without episode data
-                            : ContentScoring.ComputeEngagementLabel(features.CompletionRatio);
-                    // Watched shortly after recommendation — boost label
-                    label = watchedItemForRec?.LastPlayedDate is not null
+                    // Determine base label based on interaction type:
+                    // 1. Favorite-only (no playback): explicit interest signal → 0.65
+                    // 2. Abandoned (started but stopped early): strong negative signal → 0.0
+                    // 3. Normal watch: engagement-proportional label (0.5–0.85)
+                    double baseLabel;
+                    if (watchedItemForRec is { IsFavorite: true, Played: false })
+                    {
+                        baseLabel = 0.65; // Favorite-only: explicit interest without playback
+                    }
+                    else if (watchedItemForRec is null && isSeries)
+                    {
+                        baseLabel = 0.65; // Series-level favorite without episode data
+                    }
+                    else if (features.CompletionRatio > 0
+                             && features.CompletionRatio < EngineConstants.AbandonedCompletionThreshold)
+                    {
+                        // User started the item but abandoned it early — this is a stronger
+                        // negative signal than "never seen" (exposure). Active rejection > passive ignore.
+                        baseLabel = EngineConstants.AbandonedLabel;
+                    }
+                    else
+                    {
+                        baseLabel = ContentScoring.ComputeEngagementLabel(features.CompletionRatio);
+                    }
+
+                    // Watched shortly after recommendation — boost label (but not abandoned items)
+                    label = baseLabel > EngineConstants.AbandonedLabel
+                        && watchedItemForRec?.LastPlayedDate is not null
                         && (watchedItemForRec.LastPlayedDate.Value - prevResult.GeneratedAt).TotalDays
                             <= EngineConstants.RecommendationInfluenceWindowDays
                         && watchedItemForRec.LastPlayedDate.Value >= prevResult.GeneratedAt
@@ -574,7 +593,8 @@ internal sealed class TrainingService
                     DayOfWeekAffinity = ComputeTrainingTemporalAffinity(w, w.Genres, userProfile, isDay: true),
                     HourOfDayAffinity = ComputeTrainingTemporalAffinity(w, w.Genres, userProfile, isDay: false),
                     IsWeekend = w.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
-                    TagSimilarity = tagSimilarity
+                    TagSimilarity = tagSimilarity,
+                    LibraryAddedRecency = 0.5
                 };
 
                 // Genre exposure features: compute from cached per-user analysis (mirrors Phase 1)
@@ -585,11 +605,23 @@ internal sealed class TrainingService
                 features.GenreAffinityGap = organicAffGap;
 
                 // Organic watches are strong positive signals — label based on completion.
-                // Favorite-only items (not played) get an explicit positive label since
-                // favoriting signals interest even without playback evidence.
-                var label = !w.Played
-                    ? 0.65
-                    : ContentScoring.ComputeEngagementLabel(completionRatio);
+                // Favorite-only items (not played, no playback progress) get an explicit positive label.
+                // Items started but abandoned (not played, but has playback progress) get a negative label.
+                double label;
+                if (!w.Played && w.PlaybackPositionTicks > 0 && completionRatio < EngineConstants.AbandonedCompletionThreshold)
+                {
+                    // Started but abandoned — active rejection signal
+                    label = EngineConstants.AbandonedLabel;
+                }
+                else if (!w.Played)
+                {
+                    // Favorite-only or other non-played interaction — explicit interest
+                    label = 0.65;
+                }
+                else
+                {
+                    label = ContentScoring.ComputeEngagementLabel(completionRatio);
+                }
 
                 examples.Add(new TrainingExample
                 {
@@ -705,7 +737,8 @@ internal sealed class TrainingService
                         DayOfWeekAffinity = 0.5,
                         HourOfDayAffinity = 0.5,
                         IsWeekend = false,
-                        TagSimilarity = negTagSimilarity
+                        TagSimilarity = negTagSimilarity,
+                        LibraryAddedRecency = 0.5
                     };
 
                     // Genre exposure features
@@ -1108,7 +1141,8 @@ internal sealed class TrainingService
             DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: true),
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: false),
             IsWeekend = mostRecent?.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
-            TagSimilarity = tagSimilarity
+            TagSimilarity = tagSimilarity,
+            LibraryAddedRecency = 0.5
         };
 
         // Genre exposure features
@@ -1118,11 +1152,26 @@ internal sealed class TrainingService
         features.GenreDominanceRatio = domRatio;
         features.GenreAffinityGap = affGap;
 
-        // Label based on aggregated completion. If no episodes are played (all favorite-only),
-        // use 0.65 (explicit interest without playback evidence).
-        var label = playedEps == 0
-            ? 0.65
-            : ContentScoring.ComputeEngagementLabel(completionRatio);
+        // Label based on aggregated completion:
+        // - No episodes played (all favorite-only): 0.65 (explicit interest)
+        // - Low completion (started but abandoned most episodes): AbandonedLabel (0.0)
+        // - Normal completion: engagement-proportional (0.5–0.85)
+        double label;
+        if (playedEps == 0 && episodes.Any(e => e.PlaybackPositionTicks > 0))
+        {
+            // Started some episodes but completed none — series-level abandonment
+            label = completionRatio < EngineConstants.AbandonedCompletionThreshold
+                ? EngineConstants.AbandonedLabel
+                : ContentScoring.ComputeEngagementLabel(completionRatio);
+        }
+        else if (playedEps == 0)
+        {
+            label = 0.65; // Favorite-only: explicit interest without playback
+        }
+        else
+        {
+            label = ContentScoring.ComputeEngagementLabel(completionRatio);
+        }
 
         examples.Add(new TrainingExample
         {

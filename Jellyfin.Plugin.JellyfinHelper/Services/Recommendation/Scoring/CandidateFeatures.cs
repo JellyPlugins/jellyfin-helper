@@ -101,6 +101,13 @@ public enum FeatureIndex
     ///     Defaults to 0 (neutral) when watch history is too small (&lt; 30 items).
     /// </summary>
     GenreAffinityGap = 25,
+
+    /// <summary>
+    ///     Library-added recency score (0-1). How recently the item was added to the
+    ///     Jellyfin library (based on DateCreated). Separate from RecencyScore
+    ///     which measures content release date (PremiereDate).
+    /// </summary>
+    LibraryAddedRecency = 26,
 }
 
 /// <summary>
@@ -112,7 +119,7 @@ public sealed class CandidateFeatures
     /// <summary>
     ///     The number of features produced by <see cref="ToVector"/>.
     /// </summary>
-    public const int FeatureCount = 26;
+    public const int FeatureCount = 27;
 
     /// <summary>
     ///     Normalization ceiling for genre count (items with ≥ this many genres map to 1.0).
@@ -142,6 +149,7 @@ public sealed class CandidateFeatures
     private double _genreUnderexposure;
     private double _genreDominanceRatio;
     private double _genreAffinityGap;
+    private double _libraryAddedRecency;
 
     /// <summary>Gets or sets the genre similarity score (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double GenreSimilarity
@@ -288,6 +296,18 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
+    ///     Gets or sets the library-added recency score (0-1).
+    ///     How recently the item was added to the Jellyfin library (DateCreated).
+    ///     Separate from RecencyScore which uses content release date (PremiereDate).
+    ///     Values are clamped to [0, 1]; NaN defaults to 0.
+    /// </summary>
+    public double LibraryAddedRecency
+    {
+        get => _libraryAddedRecency;
+        set => _libraryAddedRecency = Clamp01(value);
+    }
+
+    /// <summary>
     ///     Clamps a value to [0, 1], returning <paramref name="defaultWhenNaN"/> if the value is NaN or Infinity.
     ///     Math.Clamp does not normalize NaN — it preserves it — so this helper prevents
     ///     NaN from flowing into interaction terms and poisoning learned/neural scoring.
@@ -354,5 +374,6 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.GenreUnderexposure] = GenreUnderexposure;
         buffer[(int)FeatureIndex.GenreDominanceRatio] = GenreDominanceRatio;
         buffer[(int)FeatureIndex.GenreAffinityGap] = GenreAffinityGap;
+        buffer[(int)FeatureIndex.LibraryAddedRecency] = LibraryAddedRecency;
     }
 }

@@ -10,7 +10,7 @@
     "versions": [
       {
         "version": "2.0.0.0",
-        "changelog": "v2.0.0.0: New Discover tab with ML-powered smart recommendations per user. Four scoring strategies: heuristic (fixed weights), learned (gradient-descent with 3-fold cross-validation), neural (three-hidden-layer MLP 26→32→16→8→1, 1537 params, Adam optimizer), ensemble (adaptive 3-way blend). 26 features including tag similarity, time-of-day affinity, completion ratio labels, and genre exposure analysis (underexposure, dominance ratio, affinity gap). Incremental training (only when TaskMode=Activate). Pre-computed collaborative filtering pipeline. User activity insights with per-item play count, completion tracking, favorites. Plugin uninstall cleans up data files and recommendation playlists. 1933 tests.",
+        "changelog": "v2.0.0.0: New Discover tab with ML-powered smart recommendations per user. Four scoring strategies: heuristic (fixed weights), learned (gradient-descent with 3-fold cross-validation), neural (three-hidden-layer MLP 26→32→16→8→1, 1537 params, Adam optimizer), ensemble (adaptive 3-way blend). 26 features including tag similarity, time-of-day affinity, completion ratio labels, and genre exposure analysis (underexposure, dominance ratio, affinity gap). Incremental training (only when TaskMode=Activate). Pre-computed collaborative filtering pipeline. User activity insights with per-item play count, completion tracking, favorites. Plugin uninstall cleans up data files and recommendation playlists. 1973 tests.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.0.0.0/JellyfinHelper_2.0.0.0.zip",
         "checksum": "",
