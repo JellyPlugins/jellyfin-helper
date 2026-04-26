@@ -53,14 +53,14 @@ internal sealed class TrainingService
     {
         if (previousResults.Count == 0)
         {
-            _pluginLog.LogInfo("Recommendations", "Training skipped — no previous recommendations available.", _logger);
+            _pluginLog.LogInfo("Recommendations", "Training skipped â€” no previous recommendations available.", _logger);
             return false;
         }
 
         // Non-blocking guard: skip if another training run is already in progress.
         if (!TrainGate.Wait(0, CancellationToken.None))
         {
-            _pluginLog.LogInfo("Recommendations", "Training skipped — another training run is already in progress.", _logger);
+            _pluginLog.LogInfo("Recommendations", "Training skipped â€” another training run is already in progress.", _logger);
             return false;
         }
 
@@ -130,8 +130,8 @@ internal sealed class TrainingService
         }
 
         // Pre-compute itemId ? studios and itemId ? tags lookups ONCE from all previous results.
-        // This avoids O(users × results × recommendations) rescanning in BuildStudioPreferenceSetFromCache
-        // and BuildTagPreferenceSetFromCache — each user's preference set is now O(watchedItems) instead.
+        // This avoids O(users Ã— results Ã— recommendations) rescanning in BuildStudioPreferenceSetFromCache
+        // and BuildTagPreferenceSetFromCache â€” each user's preference set is now O(watchedItems) instead.
         var itemStudiosLookup = new Dictionary<Guid, IReadOnlyList<string>>();
         var itemTagsLookup = new Dictionary<Guid, IReadOnlyList<string>>();
         foreach (var prevResult in previousResults)
@@ -343,13 +343,13 @@ internal sealed class TrainingService
                 {
                     // Check temporal proximity: was the item watched within the influence window
                     // after the recommendation was generated? If so, the recommendation likely
-                    // influenced the watch — reward with a higher label.
+                    // influenced the watch â€” reward with a higher label.
                     var baseLabel = watchedItemForRec is { IsFavorite: true, Played: false }
                         ? 0.65 // Favorite-only: explicit interest signal even without playback
                         : watchedItemForRec is null && isSeries
                             ? 0.65 // Series-level favorite without episode data
                             : ContentScoring.ComputeEngagementLabel(features.CompletionRatio);
-                    // Watched shortly after recommendation — boost label
+                    // Watched shortly after recommendation â€” boost label
                     label = watchedItemForRec?.LastPlayedDate is not null
                         && (watchedItemForRec.LastPlayedDate.Value - prevResult.GeneratedAt).TotalDays
                             <= EngineConstants.RecommendationInfluenceWindowDays
@@ -584,7 +584,7 @@ internal sealed class TrainingService
                 features.GenreDominanceRatio = organicDomRatio;
                 features.GenreAffinityGap = organicAffGap;
 
-                // Organic watches are strong positive signals — label based on completion.
+                // Organic watches are strong positive signals â€” label based on completion.
                 // Favorite-only items (not played) get an explicit positive label since
                 // favoriting signals interest even without playback evidence.
                 var label = !w.Played
@@ -699,7 +699,7 @@ internal sealed class TrainingService
                         CompletionRatio = 0.5,
                         PeopleSimilarity = negPeopleSimilarity,
                         StudioMatch = negStudioMatch,
-                        // SeriesProgressionBoost stays 0.0 — for cross-user negatives, the user
+                        // SeriesProgressionBoost stays 0.0 â€” for cross-user negatives, the user
                         // has no episode history for that series, so 0 is the correct value.
                         PopularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : ratingScore * 0.3,
                         DayOfWeekAffinity = 0.5,
@@ -720,7 +720,7 @@ internal sealed class TrainingService
                         Features = features,
                         Label = 0.0,
                         GeneratedAtUtc = organicFallbackTimestamp,
-                        SampleWeight = 0.5 // Lower weight than real interactions — we infer irrelevance, not observe it
+                        SampleWeight = 0.5 // Lower weight than real interactions â€” we infer irrelevance, not observe it
                     });
                     randomNegativeCount++;
                 }
@@ -829,7 +829,7 @@ internal sealed class TrainingService
 
             _pluginLog.LogInfo(
                 "Recommendations",
-                $"Strategy '{strategy.Name}' training completed ({metricsLabel}) — " +
+                $"Strategy '{strategy.Name}' training completed ({metricsLabel}) â€” " +
                 $"P@{Scoring.RankingMetrics.DefaultK}: {precisionAtK:F3}, " +
                 $"R@{Scoring.RankingMetrics.DefaultK}: {recallAtK:F3}, " +
                 $"NDCG@{Scoring.RankingMetrics.DefaultK}: {ndcgAtK:F3} " +
@@ -863,7 +863,9 @@ internal sealed class TrainingService
 
         foreach (var w in userProfile.WatchedItems)
         {
-            if (!w.Played && !w.IsFavorite)
+            // Match the same interaction criteria used by profileLookup (line 95):
+            // Played, IsFavorite, PlayCount > 0, or PlaybackPositionTicks > 0.
+            if (!w.Played && !w.IsFavorite && w.PlayCount <= 0 && w.PlaybackPositionTicks <= 0)
             {
                 continue;
             }
@@ -904,7 +906,9 @@ internal sealed class TrainingService
 
         foreach (var w in userProfile.WatchedItems)
         {
-            if (!w.Played && !w.IsFavorite)
+            // Match the same interaction criteria used by profileLookup (line 95):
+            // Played, IsFavorite, PlayCount > 0, or PlaybackPositionTicks > 0.
+            if (!w.Played && !w.IsFavorite && w.PlayCount <= 0 && w.PlaybackPositionTicks <= 0)
             {
                 continue;
             }

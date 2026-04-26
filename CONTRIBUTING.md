@@ -141,6 +141,9 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 
 ```text
 Jellyfin.Plugin.JellyfinHelper/
+├── BuildTasks/
+│   └── ComposeConfigPage.cs     # MSBuild task for config page composition
+├── i18n/                        # Internationalization files (en, de, fr, es, pt, zh, tr)
 ├── Plugin.cs                    # Entry point, web page registration
 ├── PluginServiceRegistrator.cs  # DI registration for all services
 ├── MediaExtensions.cs           # Extension methods for media analysis

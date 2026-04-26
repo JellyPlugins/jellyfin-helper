@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
@@ -53,7 +54,7 @@ public class UserActivityUpdateTaskTests
         var result = new UserActivityResult();
         _insightsMock.Setup(x => x.BuildActivityReport()).Returns(result);
 
-        var reportedValues = new System.Collections.Generic.List<double>();
+        var reportedValues = new List<double>();
         var progress = new Mock<IProgress<double>>();
         progress.Setup(p => p.Report(It.IsAny<double>()))
             .Callback<double>(v => reportedValues.Add(v));

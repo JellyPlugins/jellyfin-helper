@@ -42,12 +42,4 @@ public sealed class UserActivityResult
     ///     whatever order was persisted.
     /// </summary>
     public Collection<UserActivitySummary> Items { get; init; } = [];
-
-    private static DateTime NormalizeToUtc(DateTime value) =>
-        value.Kind switch
-        {
-            DateTimeKind.Utc => value,
-            DateTimeKind.Local => value.ToUniversalTime(),
-            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
-        };
 }

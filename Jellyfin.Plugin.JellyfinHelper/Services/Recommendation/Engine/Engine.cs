@@ -74,7 +74,7 @@ public sealed class Engine : IRecommendationEngine
         {
             // Cold-start: user exists but has no watch history — return popular/trending items
             // Reuse cached candidates from the last batch run if available to avoid redundant library queries
-            return GenerateColdStartRecommendations(userId, maxResults, userProfile.UserName, _cachedSnapshot?.Candidates, userProfile.MaxParentalRating, userProfile);
+            return GenerateColdStartRecommendations(userId, maxResults, userProfile.UserName, _cachedSnapshot?.Candidates, userProfile.MaxParentalRating, userProfile, cancellationToken);
         }
 
         // Reuse cached candidates/people from last batch run if available, otherwise load fresh
@@ -126,7 +126,7 @@ public sealed class Engine : IRecommendationEngine
                 try
                 {
                     var result = profile.WatchedItems.Count == 0
-                        ? GenerateColdStartRecommendations(profile.UserId, maxResultsPerUser, profile.UserName, candidates, profile.MaxParentalRating, profile)
+                        ? GenerateColdStartRecommendations(profile.UserId, maxResultsPerUser, profile.UserName, candidates, profile.MaxParentalRating, profile, cancellationToken)
                         : GenerateForUser(
                             profile,
                             allProfiles,
@@ -182,6 +182,7 @@ public sealed class Engine : IRecommendationEngine
     ///     for consistency with <see cref="GenerateForUser"/>. Cold-start users have empty
     ///     WatchedItems but their profile still carries UserId, UserName, MaxParentalRating etc.
     /// </param>
+    /// <param name="cancellationToken">Token for cooperative cancellation during large candidate scans.</param>
     /// <returns>A recommendation result with popular/trending items.</returns>
     internal RecommendationResult GenerateColdStartRecommendations(
         Guid userId,
@@ -189,13 +190,21 @@ public sealed class Engine : IRecommendationEngine
         string? userName = null,
         List<BaseItem>? preloadedCandidates = null,
         int? maxParentalRating = null,
-        UserWatchProfile? userProfile = null)
+        UserWatchProfile? userProfile = null,
+        CancellationToken cancellationToken = default)
     {
         var candidates = preloadedCandidates ?? LoadCandidateItems();
 
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
+        var candidateIndex = 0;
         foreach (var candidate in candidates)
         {
+            // Periodically check cancellation to stay responsive for large libraries
+            if (++candidateIndex % EngineConstants.CancellationCheckBatchSize == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
             // Parental rating filter — skip items the user is not allowed to see
             if (ExceedsMaxRating(candidate, maxParentalRating))
             {
@@ -564,7 +573,12 @@ public sealed class Engine : IRecommendationEngine
         var peopleSimilarity = peopleLookup.TryGetValue(candidate.Id, out var candidatePeople)
             ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeople) : 0.0;
 
-        // Series progression boost: reward next-season recommendations
+        // Series progression boost: structurally 0 during scoring because series with any
+        // Played/IsFavorite episodes are excluded at line 446 (Jellyfin's "Next Up" handles them).
+        // Series that reach this point only have started-but-unfinished episodes (Played=false),
+        // so playedEps is always 0 → ratio=0 → boost=0. The code is intentionally kept to
+        // maintain feature vector parity with TrainingService (which computes real progression
+        // values from cached recommendation data where the series IS known to be watched).
         var seriesProgressionBoost = 0.0;
         if (candidate is Series candidateSeries && seriesEpisodeLookup.TryGetValue(candidateSeries.Id, out var progressionEps))
         {

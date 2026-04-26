@@ -830,9 +830,9 @@ public class RecommendationEngineTests
     }
 
     [Fact]
-    public void ComputeYearProximity_NegativeYear_StillComputes()
+    public void ComputeYearProximity_ZeroYear_StillComputes()
     {
-        // Edge case: year 0 vs 2020 -- should not throw, returns valid score
+        // Edge case: year 0 vs 2020 — should not throw, returns valid score
         var score = ContentScoring.ComputeYearProximity(0, 2020);
         Assert.True(score >= 0.0 && score <= 1.0, $"Expected valid score, got {score}");
     }

@@ -258,7 +258,8 @@ public class UserActivityControllerTests
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<UserActivityResult>(ok.Value);
         Assert.Equal(7, data.TotalItemsWithActivity);
-        // DryRun should NOT persist to cache
+        // UserActivityController always caches on cache-miss to avoid expensive rebuilds,
+        // independent of TaskMode (see UserActivityController.GetLatestActivity).
         _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Once);
     }
 
@@ -315,7 +316,8 @@ public class UserActivityControllerTests
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
         Assert.Single(data);
-        // DryRun should NOT persist to cache
+        // UserActivityController always caches on cache-miss to avoid expensive rebuilds,
+        // independent of TaskMode (see UserActivityController.GetUserActivity).
         _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Once);
     }
 

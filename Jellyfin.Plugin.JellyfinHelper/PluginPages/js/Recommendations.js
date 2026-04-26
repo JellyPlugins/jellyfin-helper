@@ -8,7 +8,8 @@ let _recsListReqId = 0;
 function initRecommendationsTab() {
     // If browser-cache already has results (e.g. from a previous tab visit), render directly
     // without triggering another API call. This avoids expensive on-demand generation on every tab switch.
-    if (window._recsResults && window._recsResults.length > 0) {
+    // Also caches empty results (length === 0) so empty-state responses don't re-trigger the API.
+    if (window._recsResults !== undefined) {
         var container = document.getElementById('recsContent');
         if (container) { renderRecommendations(container, window._recsResults); }
         return;
@@ -32,6 +33,8 @@ function loadRecommendations() {
 }
 
 function renderRecommendations(container, results) {
+    // Cache results (including empty) so tab re-visits don't re-trigger API calls
+    window._recsResults = results || [];
     if (!results || results.length === 0) {
         container.innerHTML = '<div class="recs-empty"><div class="recs-empty-icon">🤖</div><p>' + T('recsEmpty', 'No recommendations available yet. Run the "Helper Cleanup" scheduled task first.') + '</p></div>';
         return;
@@ -52,7 +55,6 @@ function renderRecommendations(container, results) {
     html += '<div id="recsUserActivity"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '</div></div>';
     container.innerHTML = html;
-    window._recsResults = results;
     var recsSelect = document.getElementById('recsUserSelect');
     if (recsSelect) {
         recsSelect.addEventListener('change', function () {

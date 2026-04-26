@@ -50,11 +50,25 @@ internal static class PreferenceBuilder
                 continue;
             }
 
-            // Compute temporal weight: exponential decay with ~180-day half-life
-            var ageDays = item.LastPlayedDate.HasValue
-                ? Math.Max(0, (now - item.LastPlayedDate.Value).TotalDays)
-                : 365.0; // Default to ~1 year for items without timestamp
-            var temporalWeight = Math.Exp(-GenreDecayConstant * ageDays);
+            // Compute temporal weight: exponential decay with ~180-day half-life.
+            // Unplayed favorites (IsFavorite && !Played) represent current intent — the user
+            // explicitly flagged interest without having watched yet, so they should not be
+            // age-penalized. Played items without a timestamp are rare edge cases and default
+            // to ~1 year as a conservative fallback.
+            double temporalWeight;
+            if (item.LastPlayedDate.HasValue)
+            {
+                var ageDays = Math.Max(0, (now - item.LastPlayedDate.Value).TotalDays);
+                temporalWeight = Math.Exp(-GenreDecayConstant * ageDays);
+            }
+            else if (item.IsFavorite)
+            {
+                temporalWeight = 1.0;
+            }
+            else
+            {
+                temporalWeight = Math.Exp(-GenreDecayConstant * 365.0);
+            }
 
             // PlayCount boost: re-watched items signal stronger preference
             var playCountBoost = Math.Clamp(item.PlayCount, 0, 5) * 0.2; // max 1.0 extra from re-watches

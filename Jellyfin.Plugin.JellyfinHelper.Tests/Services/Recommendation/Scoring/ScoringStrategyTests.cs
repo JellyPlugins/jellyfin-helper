@@ -2181,12 +2181,12 @@ public sealed class ScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void Neural_AdamTimestep_ResetOnRestore()
+    public void Neural_WeightsPersistAndTrainAfterRestore()
     {
         var weightsPath = Path.Join(_tempDir, "neural_adam_reset.json");
         var strategy = new NeuralScoringStrategy(weightsPath);
 
-        // Train to advance Adam timestep
+        // Train to persist weights (Adam optimizer state is not persisted — only network weights are)
         var examples = new List<TrainingExample>();
         for (var i = 0; i < 20; i++)
         {

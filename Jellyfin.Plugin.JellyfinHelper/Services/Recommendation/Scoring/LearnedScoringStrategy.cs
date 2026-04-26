@@ -658,7 +658,13 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 var predicted = Math.Clamp(z, 0.0, 1.0);
                 var error = (predicted - examples[idx].Label) * sampleWeight;
 
-                if ((z <= 0 && error < 0) || (z >= 1 && error > 0))
+                // Saturation guard: skip gradient update when the raw score is already
+                // clamped AND the gradient would push it further into saturation.
+                // z <= 0 with error > 0 means predicted < label but score is floored — no escape possible.
+                // z >= 1 with error < 0 means predicted > label but score is ceilinged — no escape possible.
+                // The opposite combinations (z <= 0 && error < 0, z >= 1 && error > 0) ARE correctable
+                // because the gradient pulls the raw score back into the [0, 1] range.
+                if ((z <= 0 && error > 0) || (z >= 1 && error < 0))
                 {
                     continue;
                 }

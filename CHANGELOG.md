@@ -38,7 +38,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ### Fixed
 - **Trends Tab** — "Largest" and "Recent" sections in the Trends tab were displaying the total size of the library in the tree view instead of the sum of the displayed objects.
 - **Trends Tab** — The "Largest" section in the Trends tab was showing first shows instead of movies - now correctly shows movies first.
-- **Plugin Log** — More precise logs if trash is activated.
+- **Plugin Log** — More precise logs when trash is enabled.
 - **Plugin Uninstall** — Uninstalling the plugin did not remove the plugin's data files, which could lead to stale data if the plugin was reinstalled later. Now all plugin-related data files and recommendation playlists are cleaned up on uninstallation.
 ---
 

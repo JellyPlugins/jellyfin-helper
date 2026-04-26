@@ -58,17 +58,4 @@ public sealed class UserItemActivity
     ///     Gets or sets the user's personal rating (if any).
     /// </summary>
     public double? UserRating { get; set; }
-
-    /// <summary>
-    ///     Normalizes a <see cref="DateTime"/> to UTC.
-    ///     <see cref="DateTimeKind.Unspecified"/> values are treated as UTC (not local) because
-    ///     Jellyfin's user-data timestamps from SQLite often arrive with <see cref="DateTimeKind.Unspecified"/>.
-    /// </summary>
-    private static DateTime NormalizeToUtc(DateTime value) =>
-        value.Kind switch
-        {
-            DateTimeKind.Utc => value,
-            DateTimeKind.Local => value.ToUniversalTime(),
-            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
-        };
 }
