@@ -146,6 +146,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 }
                 else if (config.UseTrash)
                 {
+                    PluginLog.LogInfo(TaskName, $"Moving orphaned trickplay folder to trash: {dir.FullName}", Logger);
                     var trashPath = ConfigHelper.GetTrashPath(libraryPath);
                     var size = TrashService.MoveToTrash(dir.FullName, trashPath, Logger);
                     if (size <= 0)

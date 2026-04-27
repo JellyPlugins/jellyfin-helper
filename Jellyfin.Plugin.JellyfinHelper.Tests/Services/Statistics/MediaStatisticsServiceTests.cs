@@ -697,7 +697,7 @@ public class MediaStatisticsServiceTests
         Assert.Equal(2, result.Libraries[0].RootPaths.Count);
         Assert.Contains(libraryPath1, result.Libraries[0].RootPaths);
         Assert.Contains(libraryPath2, result.Libraries[0].RootPaths);
-        
+
         Assert.Contains(libraryPath1, result.MovieRootPaths);
         Assert.Contains(libraryPath2, result.MovieRootPaths);
     }

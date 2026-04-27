@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
 
+## [2.0.0.0] — 2026-04-27
+
+### Added
+- **Discover Tab** — New 8th dashboard tab "Discover" combining ML-powered smart recommendations and user activity insights in a single view. Includes `Recommendations.js`, `Recommendations.css` frontend modules with user selector, recommendation cards, activity summaries, and genre distribution charts.
+- **Smart Recommendation Engine** — ML-based per-user recommendation system (`Services/Recommendation/`) with four-tier scoring architecture:
+  - `HeuristicScoringStrategy` — rule-based weighted scoring.
+  - `LearnedScoringStrategy` — gradient-descent ML with Z-score standardization.
+  - `NeuralScoringStrategy` — three-hidden-layer MLP (29→32→16→8→1, 1633 params).
+  - `EnsembleScoringStrategy` — adaptive 3-way blend (Heuristic + Learned + Neural).
+- **Playlist Sync** — Optional feature to sync recommendations to Jellyfin playlists (`IRecommendationPlaylistService`) with intelligent naming, creation, updating, and cleanup of recommendation playlists. Sync can be triggered automatically after generation or manually via API.
+- **User Watch Profiles** — `WatchHistoryService` analyzes user watch history to build detailed watch profiles (`UserWatchProfile`) with genre/studio/people affinity scores, completion ratio distributions, time-based activity patterns, and favorites detection. These profiles feed into the recommendation engine for personalized scoring and are displayed as insights in the Discover tab.
+- **Tests** — New test classes: `RecommendationControllerTests`, `UserActivityControllerTests`, `RecommendationEngineTests`, `WatchHistoryServiceTests`, `ScoringStrategyTests`, `NeuralScoringStrategyTests`, `ScoreExplanationTests`, `TrainingExampleTests`, `RankingMetricsTests`, `RecommendationCacheServiceTests`, `RecommendationDtoTests`, `UserActivityCacheServiceTests`, `UserActivityInsightsServiceTests`. `RecommendationPlaylistServiceTests` (8 tests), `RecommendationsTaskTests` (3 playlist-sync tests). Includes concurrency tests (parallel `Score()` + `Train()`), three-hidden-layer architecture tests, k-fold constant verification, ranking evaluation metric tests (Precision@K, Recall@K, NDCG@K), and genre exposure feature tests (underexposure, dominance, affinity gap, edge cases). Total: **2093 tests**.
+
+### Changed
+- **8-Tab Dashboard** — Dashboard expanded from 7 to up to 8 tabs: Overview, Codecs, Health, Trends, **Discover**, Settings, Arr, Logs (Discover tab is only visible when Recommendations is set to Dry Run or Activate).
+- **HelperCleanupTask** — Extended to run recommendation generation and user activity aggregation alongside existing cleanup tasks.
+- **Documentation** — Updated README.md, CONTRIBUTING.md, manifest.json, build.yaml, and CHANGELOG.md for the new Discover tab and all associated features.
+
+### Fixed
+- **Trends Tab** — "Largest" and "Recent" sections in the Trends tab were displaying the total size of the library in the tree view instead of the sum of the displayed objects.
+- **Trends Tab** — The "Largest" section in the Trends tab was showing first shows instead of movies - now correctly shows movies first.
+- **Plugin Log** — More precise logs when trash is enabled.
+- **Plugin Uninstall** — Uninstalling the plugin did not remove the plugin's data files, which could lead to stale data if the plugin was reinstalled later. Now all plugin-related data files and recommendation playlists are cleaned up on uninstallation.
+---
+
 ## [1.2.1.0] — 2026-04-20
 
 ### Added

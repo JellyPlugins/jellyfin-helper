@@ -2,7 +2,7 @@
 
 ![Jellyfin Helper Logo](media/logo.png)
 
-A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks, media library statistics, health checks, and Arr stack integration — all from a single, multi-tab dashboard.
+A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks, media library statistics, ML-powered smart recommendations, user activity insights, health checks, and Arr stack integration — all from a single, multi-tab dashboard.
 
 [![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square)](https://github.com/JellyPlugins/jellyfin-helper/releases)
 [![Tests](https://img.shields.io/badge/tests-comprehensive%20suite-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
@@ -12,33 +12,35 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 
 **[Try the interactive demo →](https://jellyplugins.github.io/jellyfin-helper/)**
 
-Explore the full 7-tab dashboard with realistic sample data — no Jellyfin server required.
+Explore the full 8-tab dashboard with realistic sample data — no Jellyfin server required.
 
 ---
 
 ## ✨ Features
 
-| Feature | Description                                                                                                                                                                                 |
-|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **📊 7-Tab Dashboard** | Overview, Codecs, Health, Trends, Settings, Arr, Logs — all accessible directly from the Jellyfin sidebar as a single plugin page                                                           |
-| **🧹 Trickplay Cleaner** | Automatically finds and removes orphaned `.trickplay` folders whose corresponding media file no longer exists. Frees disk space from stale image extraction data                            |
-| **📁 Empty Folder Cleaner** | Deletes now-empty media folders that no longer contain video files (e.g. after manual cleanup). Skips known placeholder folders (Radarr/Sonarr), metadata-only folders, and music libraries |
-| **🧹 Subtitle Cleaner** | Detects and removes orphaned `.srt`/`.ass`/`.vtt` subtitle files that no longer have a matching video. Uses ISO 639 language-code detection to avoid false positives                        |
-| **🔧 Link Repair** | Scans for broken `.strm` files and broken symlinks, then automatically repairs them by locating the renamed or moved target media file in the parent directory of the original target |
-| **🧹 Seerr Cleanup** | Connects to your Overseerr/Jellyseerr/Seerr instance and removes media requests whose underlying files are no longer available. Keeps your request list clean and in sync with actual media |
-| **📈 Statistics & Trends** | Per-library disk usage, video codec, audio codec, resolution, dynamic range, and container format analysis — extracted from Jellyfin MediaStream metadata.                                  |
-| **📈 Growth Timeline** | Cumulative media growth visualization with daily/weekly/monthly/quarterly/yearly bucketing. Hover any point to see the exact file count and size delta since that date                      |
-| **🔍 Library Insights** | Top-10 largest media directories and recently added/changed items (last 30 days) per library, with per-library size breakdown. Displayed in the Trends tab with 15-min in-memory cache     |
-| **🩺 Health Checks** | Detects videos without subtitles (including embedded streams), missing artwork, missing NFO files, and orphaned metadata directories                                                        |
-| **🔗 Arr Integration** | Compare your Jellyfin library with up to 3 Radarr + 3 Sonarr instances to find items only in Arr, only in Jellyfin, or in both                                                              |
-| **💾 Backup & Restore** | Export/import the full plugin state (configuration, growth timeline, baseline data, Arr instances) as a validated JSON file with XSS/injection protection                                   |
-| **📋 Log Viewer** | Plugin-specific logs with level/source filtering, auto-refresh (10s), and download as `.log` file. Isolated from Jellyfin's main log to reduce noise                                        |
-| **🗑️ Trash / Recycle Bin** | Cleanup tasks move files to a timestamped trash folder instead of permanently deleting them. Configurable retention period auto-purges expired items                                        |
-| **🌐 7 Languages** | Full UI translations: English, German, French, Spanish, Portuguese, Chinese, Turkish                                                                                                        |
-| **🔐 Security** | 5-min statistics cache, 30s rate limiting, path traversal protection, XSS escaping, backup payload validation with size limits and injection detection                                      |
-| **🛡️ Unsaved Settings Alert** | Warns before navigating away when the settings form has unsaved changes (dirty-tracking via snapshot comparison), with Discard / Save & Continue / Cancel options                           |
+| Feature                        | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+|--------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **📊 8-Tab Dashboard**         | Overview, Codecs, Health, Trends, Discover, Settings, Arr, Logs — all accessible directly from the Jellyfin sidebar as a single plugin page                                                                                                                                                                                                                                                                                                                                                                                   |
+| **🧹 Trickplay Cleaner**       | Automatically finds and removes orphaned `.trickplay` folders whose corresponding media file no longer exists. Frees disk space from stale image extraction data                                                                                                                                                                                                                                                                                                                                                              |
+| **📁 Empty Folder Cleaner**    | Deletes now-empty media folders that no longer contain video files (e.g. after manual cleanup). Skips known placeholder folders (Radarr/Sonarr), metadata-only folders, and music libraries                                                                                                                                                                                                                                                                                                                                   |
+| **🧹 Subtitle Cleaner**        | Detects and removes orphaned `.srt`/`.ass`/`.vtt` subtitle files that no longer have a matching video. Uses ISO 639 language-code detection to avoid false positives                                                                                                                                                                                                                                                                                                                                                          |
+| **🔧 Link Repair**             | Scans for broken `.strm` files and broken symlinks, then automatically repairs them by locating the renamed or moved target media file in the parent directory of the original target                                                                                                                                                                                                                                                                                                                                         |
+| **🧹 Seerr Cleanup**           | Connects to your Overseerr/Jellyseerr/Seerr instance and removes media requests whose underlying files are no longer available. Keeps your request list clean and in sync with actual media                                                                                                                                                                                                                                                                                                                                   |
+| **📈 Statistics & Trends**     | Per-library disk usage, video codec, audio codec, resolution, dynamic range, and container format analysis — extracted from Jellyfin MediaStream metadata.                                                                                                                                                                                                                                                                                                                                                                    |
+| **📈 Growth Timeline**         | Cumulative media growth visualization with daily/weekly/monthly/quarterly/yearly bucketing. Hover any point to see the exact file count and size delta since that date                                                                                                                                                                                                                                                                                                                                                        |
+| **🔍 Library Insights**        | Top-10 largest media directories and recently added/changed items (last 30 days) per library, with per-library size breakdown. Displayed in the Trends tab with 15-min in-memory cache                                                                                                                                                                                                                                                                                                                                        |
+| **🩺 Health Checks**           | Detects videos without subtitles (including embedded streams), missing artwork, missing NFO files, and orphaned metadata directories                                                                                                                                                                                                                                                                                                                                                                                          |
+| **🔗 Arr Integration**         | Compare your Jellyfin library with up to 3 Radarr + 3 Sonarr instances to find items only in Arr, only in Jellyfin, or in both                                                                                                                                                                                                                                                                                                                                                                                                |
+| **💾 Backup & Restore**        | Export/import the full plugin state (configuration, growth timeline, baseline data, Arr instances) as a validated JSON file with XSS/injection protection                                                                                                                                                                                                                                                                                                                                                                     |
+| **📋 Log Viewer**              | Plugin-specific logs with level/source filtering, auto-refresh (10s), and download as `.log` file. Isolated from Jellyfin's main log to reduce noise                                                                                                                                                                                                                                                                                                                                                                          |
+| **🗑️ Trash / Recycle Bin**    | Cleanup tasks move files to a timestamped trash folder instead of permanently deleting them. Configurable retention period auto-purges expired items                                                                                                                                                                                                                                                                                                                                                                          |
+| **🌐 7 Languages**             | Full UI translations: English, German, French, Spanish, Portuguese, Chinese, Turkish                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **🤖 Smart Recommendations**   | ML-powered per-user recommendations using ensemble scoring (heuristic + learned + neural MLP blend). Analyses watch history to build genre, actor, director and studio affinity profiles, then scores unwatched candidates using 28 features — children with restricted profiles only see age-appropriate recommendations. Incremental training runs only when TaskMode=Activate, with ranking-based evaluation and pre-computed collaborative filtering pipeline — pure C# implementation with zero external ML dependencies |
+| **👥 User Activity**           | Per-item and per-user watch activity tracking with play count, completion percentage, favorites detection, and genre distribution — displayed in the new Discover tab                                                                                                                                                                                                                                                                                                                                                         |
+| **🔐 Security**                | 5-min statistics cache, 30s rate limiting, path traversal protection, XSS escaping, backup payload validation with size limits and injection detection, parental rating enforcement in recommendations                                                                                                                                                                                                                                                                                                                        |
+| **🛡️ Unsaved Settings Alert** | Warns before navigating away when the settings form has unsaved changes (dirty-tracking via snapshot comparison), with Discard / Save & Continue / Cancel options                                                                                                                                                                                                                                                                                                                                                             |
 
-All cleanup tasks default to **Dry Run** mode — nothing is deleted until you explicitly activate them.
+All tasks default to **Dry Run** mode — nothing is deleted until you explicitly activate them.
 
 **Compatibility:** Jellyfin **10.11.0+** · .NET **9.0**
 
@@ -76,11 +78,11 @@ All cleanup tasks default to **Dry Run** mode — nothing is deleted until you e
 
 ## 📖 Documentation
 
-| Resource | Description |
-|----------|-------------|
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Architecture, design patterns, build system, API reference, configuration, testing |
-| [CHANGELOG.md](CHANGELOG.md) | Detailed version history |
-| [Live Demo](https://jellyplugins.github.io/jellyfin-helper/) | Interactive dashboard demo |
+| Resource                                                     | Description                                                                        |
+|--------------------------------------------------------------|------------------------------------------------------------------------------------|
+| [CONTRIBUTING.md](CONTRIBUTING.md)                           | Architecture, design patterns, build system, API reference, configuration, testing |
+| [CHANGELOG.md](CHANGELOG.md)                                 | Detailed version history                                                           |
+| [Live Demo](https://jellyplugins.github.io/jellyfin-helper/) | Interactive dashboard demo                                                         |
 
 ---
 
@@ -94,7 +96,7 @@ GNU General Public License v3.0 — see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-| Who | Contribution |
-|-----|-------------|
+| Who                                      | Contribution           |
+|------------------------------------------|------------------------|
 | [@Noir1992](https://github.com/Noir1992) | Original plugin author |
-| [@K-Money](https://github.com/K-Money) | Initial testing |
+| [@K-Money](https://github.com/K-Money)   | Initial testing        |

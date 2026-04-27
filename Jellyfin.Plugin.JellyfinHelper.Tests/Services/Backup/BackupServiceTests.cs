@@ -32,14 +32,15 @@ public class BackupServiceTests
             OrphanedSubtitleTaskMode = "Deactivate",
             LinkRepairTaskMode = "DryRun",
             SeerrCleanupTaskMode = "DryRun",
+            RecommendationsTaskMode = "DryRun",
             UseTrash = true,
             TrashFolderPath = ".jellyfin-trash",
             TrashRetentionDays = 30
         };
         backup.RadarrInstances.Add(new BackupArrInstance
-            { Name = "Radarr", Url = "http://localhost:7878", ApiKey = "abc123" });
+        { Name = "Radarr", Url = "http://localhost:7878", ApiKey = "abc123" });
         backup.SonarrInstances.Add(new BackupArrInstance
-            { Name = "Sonarr", Url = "http://localhost:8989", ApiKey = "def456" });
+        { Name = "Sonarr", Url = "http://localhost:8989", ApiKey = "def456" });
         return backup;
     }
 
@@ -171,6 +172,7 @@ public class BackupServiceTests
         backup.OrphanedSubtitleTaskMode = mode;
         backup.LinkRepairTaskMode = mode;
         backup.SeerrCleanupTaskMode = mode;
+        backup.RecommendationsTaskMode = mode;
         var result = BackupValidator.Validate(backup);
 
         Assert.True(result.IsValid);
@@ -360,7 +362,7 @@ public class BackupServiceTests
         var backup = CreateValidBackup();
         backup.RadarrInstances.Clear();
         backup.RadarrInstances.Add(new BackupArrInstance
-            { Name = "<script>alert(1)</script>", Url = "http://localhost:7878", ApiKey = "key" });
+        { Name = "<script>alert(1)</script>", Url = "http://localhost:7878", ApiKey = "key" });
         var result = BackupValidator.Validate(backup);
 
         Assert.False(result.IsValid);
@@ -662,7 +664,7 @@ public class BackupServiceTests
             TrashRetentionDays = -50
         };
         backup.RadarrInstances.Add(new BackupArrInstance
-            { Name = "<script>", Url = "ftp://evil.com", ApiKey = "key\0evil" });
+        { Name = "<script>", Url = "ftp://evil.com", ApiKey = "key\0evil" });
         backup.RadarrInstances.Add(new BackupArrInstance { Name = "R2", Url = "http://ok.com", ApiKey = "ok" });
         backup.RadarrInstances.Add(new BackupArrInstance { Name = "R3", Url = "http://ok.com", ApiKey = "ok" });
         backup.RadarrInstances.Add(new BackupArrInstance { Name = "R4", Url = "http://ok.com", ApiKey = "ok" });
@@ -835,5 +837,40 @@ public class BackupServiceTests
         {
             Directory.Delete(tempDir, true);
         }
+    }
+
+    [Fact]
+    public void BackupData_RecommendationsTaskMode_SurvivesJsonRoundTrip()
+    {
+        var backup = CreateValidBackup();
+        backup.RecommendationsTaskMode = "Activate";
+        backup.SyncRecommendationsToPlaylist = true;
+
+        var json = JsonSerializer.Serialize(backup);
+        var deserialized = JsonSerializer.Deserialize<BackupData>(json);
+
+        Assert.NotNull(deserialized);
+        Assert.Equal("Activate", deserialized!.RecommendationsTaskMode);
+        Assert.True(deserialized.SyncRecommendationsToPlaylist);
+    }
+
+    [Fact]
+    public void Sanitize_InvalidSeerrCleanupTaskMode_DefaultsToDeactivate()
+    {
+        var backup = CreateValidBackup();
+        backup.SeerrCleanupTaskMode = "InvalidMode";
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Equal("Deactivate", backup.SeerrCleanupTaskMode);
+    }
+
+    [Fact]
+    public void Sanitize_InvalidRecommendationsTaskMode_DefaultsToDryRun()
+    {
+        var backup = CreateValidBackup();
+        backup.RecommendationsTaskMode = "InvalidMode";
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Equal("DryRun", backup.RecommendationsTaskMode);
     }
 }

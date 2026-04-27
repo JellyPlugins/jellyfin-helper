@@ -308,6 +308,16 @@ public class ConfigurationController : ControllerBase
         config.EmptyMediaFolderTaskMode = request.EmptyMediaFolderTaskMode;
         config.OrphanedSubtitleTaskMode = request.OrphanedSubtitleTaskMode;
         config.LinkRepairTaskMode = request.LinkRepairTaskMode;
+        if (request.RecommendationsTaskMode.HasValue)
+        {
+            config.RecommendationsTaskMode = request.RecommendationsTaskMode.Value;
+        }
+
+        if (request.SyncRecommendationsToPlaylist.HasValue)
+        {
+            config.SyncRecommendationsToPlaylist = request.SyncRecommendationsToPlaylist.Value;
+        }
+
         config.SeerrCleanupTaskMode = request.SeerrCleanupTaskMode;
 
         config.UseTrash = request.UseTrash;

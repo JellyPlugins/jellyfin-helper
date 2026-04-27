@@ -1,16 +1,16 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "1.2.1.0"
+version: "2.0.0.0"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
-overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 7-tab dashboard."
+overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis, ML-powered smart recommendations per user, user activity insights, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 8-tab dashboard."
 description: >
-  A Jellyfin plugin providing automated cleanup tasks (trickplay, empty folders, subtitles, link repair for .strm files and symlinks), media library statistics with codec/resolution/dynamic-range/health analysis via MediaStream metadata, library insights (largest directories & recent changes), historical trends, trash/recycle bin, multi-instance Arr stack integration (Radarr/Sonarr), plugin-specific log viewer with download and filtering, backup/restore data, and a multi-language 7-tab dashboard.
+  A Jellyfin plugin providing automated cleanup tasks (trickplay, empty folders, subtitles, link repair for .strm files and symlinks), media library statistics with codec/resolution/dynamic-range/health analysis via MediaStream metadata, ML-powered smart recommendations with ensemble scoring strategy (heuristic + learned + neural MLP blend) and per-user watch profiles, user activity insights with play count and completion tracking, library insights (largest directories & recent changes), historical trends, trash/recycle bin, multi-instance Arr stack integration (Radarr/Sonarr), plugin-specific log viewer with download and filtering, backup/restore data, and a multi-language 8-tab dashboard.
 
 category: "General"
 owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  v1.2.1.0: Statistics refactored to use Jellyfin MediaStream metadata (replaces filename parsing). Dynamic range detection (HDR10, HDR10+, Dolby Vision, HLG, SDR). Extended resolution classification (8K, 1440p, SD). Differentiated audio codecs (TrueHD Atmos, DTS-X, DTS-HD MA, EAC3 Atmos). Donut chart enhancements with dynamic range visualization. Library Insights in Trends tab (top-10 largest directories, recently added/changed items, per-library size breakdown with 15-min cache). Performance improvement via per-item video stream caching. Documentation updated.
+  v2.0.0.0: New Discover tab with ML-powered smart recommendations per user (ensemble scoring with heuristic + learned + neural MLP blend, genre/actor/director/studio affinity, watch profile analysis) and user activity insights (per-item play count, completion tracking, favorites). New services: Recommendation Engine, Watch History, Scoring Strategies, User Activity Insights. New API endpoints for recommendations and user activity. Dashboard expanded from 7 to 8 tabs. Documentation updated.

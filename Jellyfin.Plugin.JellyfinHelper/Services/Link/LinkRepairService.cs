@@ -79,9 +79,10 @@ public class LinkRepairService : ILinkRepairService
             result.FileResults.Add(fileResult);
         }
 
+        var repairedLabel = dryRun ? "would repair" : "repaired";
         _pluginLog.LogInfo(
             "LinkRepair",
-            $"Link repair complete: {result.ValidCount} valid, {result.RepairedCount} repaired, {result.BrokenCount} broken, {result.AmbiguousCount} ambiguous, {result.InvalidContentCount} invalid content",
+            $"Link repair complete: {result.ValidCount} valid, {result.RepairedCount} {repairedLabel}, {result.BrokenCount} broken, {result.AmbiguousCount} ambiguous, {result.InvalidContentCount} invalid content",
             _logger);
 
         return result;
@@ -330,45 +331,49 @@ public class LinkRepairService : ILinkRepairService
                 fileResult.Status = LinkFileStatus.Broken;
                 return fileResult;
             case 1:
-            {
-                // Exactly one media file found - this is our match
-                var newTargetPath = mediaFiles[0];
-                fileResult.NewTargetPath = newTargetPath;
-                fileResult.Status = LinkFileStatus.Repaired;
-
-                if (dryRun)
                 {
-                    _pluginLog.LogInfo(
-                        "LinkRepair",
-                        $"[Dry Run] Would repair link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
-                        _logger);
-                }
-                else
-                {
-                    _pluginLog.LogInfo(
-                        "LinkRepair",
-                        $"Repairing link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
-                        _logger);
+                    // Exactly one media file found - this is our match
+                    var newTargetPath = mediaFiles[0];
+                    fileResult.NewTargetPath = newTargetPath;
 
-                    try
+                    if (dryRun)
                     {
-                        handler.WriteTarget(fileResult.LinkFilePath, newTargetPath);
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
-                    {
-                        _pluginLog.LogError(
+                        _pluginLog.LogInfo(
                             "LinkRepair",
-                            $"Failed to write repaired link file {fileResult.LinkFilePath}: {ex.Message}",
-                            ex,
+                            $"[Dry Run] Would repair link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
                             _logger);
-                        fileResult.Status = LinkFileStatus.Broken;
-                        fileResult.NewTargetPath = null;
-                        return fileResult;
+                        // Mark as Repaired (not Broken) so dry-run summary correctly reports
+                        // "Would repair: N" instead of inflating the Broken count.
+                        // LinkFileStatus.Repaired covers both actual repairs and dry-run candidates.
+                        fileResult.Status = LinkFileStatus.Repaired;
                     }
-                }
+                    else
+                    {
+                        _pluginLog.LogInfo(
+                            "LinkRepair",
+                            $"Repairing link file: {fileResult.LinkFilePath} | {fileResult.OriginalTargetPath} -> {newTargetPath}",
+                            _logger);
 
-                return fileResult;
-            }
+                        try
+                        {
+                            handler.WriteTarget(fileResult.LinkFilePath, newTargetPath);
+                            fileResult.Status = LinkFileStatus.Repaired;
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+                        {
+                            _pluginLog.LogError(
+                                "LinkRepair",
+                                $"Failed to write repaired link file {fileResult.LinkFilePath}: {ex.Message}",
+                                ex,
+                                _logger);
+                            fileResult.Status = LinkFileStatus.Broken;
+                            fileResult.NewTargetPath = null;
+                            return fileResult;
+                        }
+                    }
+
+                    return fileResult;
+                }
         }
 
         // Multiple media files found - ambiguous

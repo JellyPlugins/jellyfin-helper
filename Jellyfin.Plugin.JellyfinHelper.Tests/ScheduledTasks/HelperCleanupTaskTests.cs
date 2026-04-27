@@ -1,9 +1,13 @@
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using System.Collections.ObjectModel;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
@@ -91,6 +95,18 @@ public class HelperCleanupTaskTests : IDisposable
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SeerrCleanupResult());
 
+        var userActivityInsightsMock = new Mock<IUserActivityInsightsService>();
+        userActivityInsightsMock
+            .Setup(s => s.BuildActivityReport())
+            .Returns(new UserActivityResult());
+        var userActivityCacheMock = new Mock<IUserActivityCacheService>();
+        var recsEngineMock = new Mock<IRecommendationEngine>();
+        recsEngineMock
+            .Setup(e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Returns(new Collection<RecommendationResult>());
+        var recsCacheMock = new Mock<IRecommendationCacheService>();
+        var playlistServiceMock = new Mock<IRecommendationPlaylistService>();
+
         _task = new HelperCleanupTask(
             libraryManagerMock.Object,
             fileSystemMock.Object,
@@ -103,7 +119,12 @@ public class HelperCleanupTaskTests : IDisposable
             trackingServiceMock.Object,
             trashServiceMock.Object,
             linkRepairServiceMock.Object,
-            _seerrServiceMock.Object);
+            _seerrServiceMock.Object,
+            userActivityInsightsMock.Object,
+            userActivityCacheMock.Object,
+            recsEngineMock.Object,
+            recsCacheMock.Object,
+            playlistServiceMock.Object);
     }
 
     public void Dispose()
@@ -169,7 +190,8 @@ public class HelperCleanupTaskTests : IDisposable
             EmptyMediaFolderTaskMode = TaskMode.Deactivate,
             OrphanedSubtitleTaskMode = TaskMode.Deactivate,
             LinkRepairTaskMode = TaskMode.Deactivate,
-            SeerrCleanupTaskMode = TaskMode.Deactivate
+            SeerrCleanupTaskMode = TaskMode.Deactivate,
+            RecommendationsTaskMode = TaskMode.Deactivate
         };
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
@@ -179,6 +201,8 @@ public class HelperCleanupTaskTests : IDisposable
         VerifyLogContains("Skipping Orphaned Subtitle Cleanup (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Link Repair (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Seerr Cleanup (deactivated in settings)", LogLevel.Information);
+        VerifyLogContains("Skipping User Watch Activity (deactivated in settings)", LogLevel.Information);
+        VerifyLogContains("Skipping Smart Recommendations (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Helper Cleanup finished", LogLevel.Information);
     }
 
@@ -193,7 +217,8 @@ public class HelperCleanupTaskTests : IDisposable
             LinkRepairTaskMode = TaskMode.Activate,
             SeerrCleanupTaskMode = TaskMode.Activate,
             SeerrUrl = "http://localhost:5055",
-            SeerrApiKey = "test-key"
+            SeerrApiKey = "test-key",
+            RecommendationsTaskMode = TaskMode.Activate
         };
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
@@ -203,6 +228,8 @@ public class HelperCleanupTaskTests : IDisposable
         VerifyLogContains("Starting Orphaned Subtitle Cleanup (Active)", LogLevel.Information);
         VerifyLogContains("Starting Link Repair (Active)", LogLevel.Information);
         VerifyLogContains("Starting Seerr Cleanup (Active)", LogLevel.Information);
+        VerifyLogContains("Starting User Watch Activity (Active)", LogLevel.Information);
+        VerifyLogContains("Starting Smart Recommendations (Active)", LogLevel.Information);
         VerifyLogContains("Helper Cleanup finished", LogLevel.Information);
     }
 
@@ -217,7 +244,8 @@ public class HelperCleanupTaskTests : IDisposable
             LinkRepairTaskMode = TaskMode.DryRun,
             SeerrCleanupTaskMode = TaskMode.DryRun,
             SeerrUrl = "http://localhost:5055",
-            SeerrApiKey = "test-key"
+            SeerrApiKey = "test-key",
+            RecommendationsTaskMode = TaskMode.DryRun
         };
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
@@ -288,7 +316,8 @@ public class HelperCleanupTaskTests : IDisposable
             EmptyMediaFolderTaskMode = TaskMode.Deactivate,
             OrphanedSubtitleTaskMode = TaskMode.Deactivate,
             LinkRepairTaskMode = TaskMode.Deactivate,
-            SeerrCleanupTaskMode = TaskMode.Deactivate
+            SeerrCleanupTaskMode = TaskMode.Deactivate,
+            RecommendationsTaskMode = TaskMode.Deactivate
         };
 
         var reportedValues = new List<double>();
@@ -296,13 +325,17 @@ public class HelperCleanupTaskTests : IDisposable
 
         await _task.ExecuteAsync(progress, CancellationToken.None);
 
-        // 5 sub-tasks → progress at 20, 40, 60, 80, 100
-        Assert.Equal(5, reportedValues.Count);
-        Assert.Equal(20.0, reportedValues[0]);
-        Assert.Equal(40.0, reportedValues[1]);
-        Assert.Equal(60.0, reportedValues[2]);
-        Assert.Equal(80.0, reportedValues[3]);
-        Assert.Equal(100.0, reportedValues[4]);
+        // At least 7 reports (one per sub-task boundary, plus internal sub-progress)
+        Assert.True(reportedValues.Count >= 7,
+            $"Expected at least 7 progress reports, got {reportedValues.Count}");
+        // All values should be non-decreasing and end at ~100
+        for (var i = 1; i < reportedValues.Count; i++)
+        {
+            Assert.True(reportedValues[i] >= reportedValues[i - 1],
+                $"Progress should be non-decreasing: [{i - 1}]={reportedValues[i - 1]}, [{i}]={reportedValues[i]}");
+        }
+
+        Assert.InRange(reportedValues[^1], 100.0 - 0.01, 100.0 + 0.01);
     }
 
     [Fact]

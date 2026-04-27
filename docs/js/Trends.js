@@ -618,11 +618,20 @@ function buildLargestTree(data) {
     }
 
     var grouped = groupByLibrary(data.Largest);
+    // Sort library groups: movies/homevideos/musicvideos first, then tvshows, then others.
+    // This matches the "Recently" panel layout where movies appear above series.
+    var libKeys = Object.keys(grouped).sort(function (a, b) {
+        return insightLibrarySortOrder(a, grouped) - insightLibrarySortOrder(b, grouped);
+    });
     var html = '<div class="insight-tree">';
 
-    Object.keys(grouped).forEach(function (lib) {
+    libKeys.forEach(function (lib) {
         var items = grouped[lib];
-        var libSize = data.LibrarySizes && data.LibrarySizes[lib] ? data.LibrarySizes[lib] : 0;
+        var libSize = 0;
+        for (var s = 0; s < items.length; s++) {
+            var _sz = Number(items[s].Size);
+            if (isFinite(_sz) && _sz > 0) libSize += _sz;
+        }
 
         html += '<div class="insight-tree-lib">';
         html += '<div class="insight-tree-lib-header">';
@@ -635,7 +644,9 @@ function buildLargestTree(data) {
             var badge = getInsightTypeBadge(e.CollectionType);
             html += '<div class="insight-tree-item">';
             html += '<span class="insight-tree-name">' + badge + ' ' + escHtml(e.Name) + '</span>';
-            html += '<span class="insight-tree-size">' + formatBytes(e.Size) + '</span>';
+            var _itemSize = Number(e.Size);
+            var safeSize = (isFinite(_itemSize) && _itemSize > 0) ? _itemSize : 0;
+            html += '<span class="insight-tree-size">' + formatBytes(safeSize) + '</span>';
             html += '</div>';
         }
 
@@ -658,9 +669,17 @@ function buildRecentTree(data) {
     var grouped = groupByLibrary(data.Recent);
     var html = '<div class="insight-tree">';
 
-    Object.keys(grouped).forEach(function (lib) {
+    // Sort library groups: movies/homevideos/musicvideos first, then tvshows, then others.
+    var libKeys = Object.keys(grouped).sort(function (a, b) {
+        return insightLibrarySortOrder(a, grouped) - insightLibrarySortOrder(b, grouped);
+    });
+    libKeys.forEach(function (lib) {
         var items = grouped[lib];
-        var libSize = data.LibrarySizes && data.LibrarySizes[lib] ? data.LibrarySizes[lib] : 0;
+        var libSize = 0;
+        for (var s = 0; s < items.length; s++) {
+            var _sz = Number(items[s].Size);
+            if (isFinite(_sz) && _sz > 0) libSize += _sz;
+        }
 
         html += '<div class="insight-tree-lib">';
         html += '<div class="insight-tree-lib-header">';
@@ -679,7 +698,9 @@ function buildRecentTree(data) {
 
             html += '<div class="insight-tree-item">';
             html += '<span class="insight-tree-name">' + changeBadge + ' ' + escHtml(e.Name) + '</span>';
-            html += '<span class="insight-tree-meta">' + formatBytes(e.Size) + ' · ' + dateStr + '</span>';
+            var _itemSize2 = Number(e.Size);
+            var safeSize = (isFinite(_itemSize2) && _itemSize2 > 0) ? _itemSize2 : 0;
+            html += '<span class="insight-tree-meta">' + formatBytes(safeSize) + ' · ' + dateStr + '</span>';
             html += '</div>';
         }
 
@@ -688,6 +709,24 @@ function buildRecentTree(data) {
 
     html += '</div>';
     return html;
+}
+
+/**
+ * Returns a sort order for a library name based on its collection type.
+ * Movies/homevideos/musicvideos first (0), tvshows second (1), others last (2).
+ * Defined once to avoid re-creating the function on every .sort() comparison.
+ */
+function insightLibrarySortOrder(libName, grouped) {
+    var items = grouped[libName];
+    if (!items || items.length === 0) return 2;
+    // Scan until non-empty CollectionType
+    var ct = '';
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].CollectionType) { ct = items[i].CollectionType.toLowerCase(); break; }
+    }
+    if (ct === 'movies' || ct === 'homevideos' || ct === 'musicvideos') return 0;
+    if (ct === 'tvshows') return 1;
+    return 2;
 }
 
 function groupByLibrary(entries) {

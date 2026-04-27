@@ -30,13 +30,28 @@ public class TrashControllerTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_tempPath)) Directory.Delete(_tempPath, true);
+        try
+        {
+            Directory.Delete(_tempPath, true);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // best-effort cleanup
+        }
+        catch (IOException)
+        {
+            // best-effort cleanup
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // best-effort cleanup
+        }
     }
 
     private void SetupLibraries(params string[] paths)
     {
         var folders = paths.Select(path => new VirtualFolderInfo
-                { Name = Path.GetFileName(path), Locations = [path], CollectionType = CollectionTypeOptions.movies })
+        { Name = Path.GetFileName(path), Locations = [path], CollectionType = CollectionTypeOptions.movies })
             .ToList();
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns(folders);
         _configHelperMock.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))

@@ -45,6 +45,18 @@ public class ConfigurationUpdateRequest
     public TaskMode LinkRepairTaskMode { get; init; } = TaskMode.DryRun;
 
     /// <summary>
+    ///     Gets the execution mode for the Smart Recommendations task.
+    /// </summary>
+    /// <remarks>Nullable so older UI clients won't silently reset it.</remarks>
+    public TaskMode? RecommendationsTaskMode { get; init; }
+
+    /// <summary>
+    ///     Gets a value indicating whether recommendation results should be synced to Jellyfin playlists.
+    /// </summary>
+    /// <remarks>Nullable so older UI clients won't silently reset it.</remarks>
+    public bool? SyncRecommendationsToPlaylist { get; init; }
+
+    /// <summary>
     ///     Gets the execution mode for the Seerr Cleanup task.
     /// </summary>
     public TaskMode SeerrCleanupTaskMode { get; init; } = TaskMode.Deactivate;

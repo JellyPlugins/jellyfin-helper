@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
@@ -11,6 +11,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
+    // ===== Backing fields for clamped properties =====
+    private int _maxRecommendationsPerUser = 20;
+    private double _ensembleAlphaMin = 0.3;
+    private double _ensembleAlphaMax = 0.75;
+    private double _ensembleGenrePenaltyFloor = 0.10;
+
     /// <summary>
     ///     Gets or sets the library names to include (allow list). Empty means all libraries are included.
     ///     Comma-separated list of library names.
@@ -134,6 +140,73 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public string Language { get; set; } = "en";
 
+    // ===== Smart Recommendations =====
+
+    /// <summary>
+    ///     Gets or sets the execution mode for the Smart Recommendations task.
+    ///     Default is <see cref="TaskMode.DryRun" /> (safe mode — generates but does not persist).
+    /// </summary>
+    public TaskMode RecommendationsTaskMode { get; set; } = TaskMode.DryRun;
+
+    /// <summary>
+    ///     Gets or sets the maximum number of recommendations to generate per user.
+    ///     Default is 20. Valid range: 1–100. Out-of-range values are clamped.
+    /// </summary>
+    public int MaxRecommendationsPerUser
+    {
+        get => _maxRecommendationsPerUser;
+        set => _maxRecommendationsPerUser = Math.Clamp(value, 1, 100);
+    }
+
+    /// <summary>
+    ///     Gets or sets a value indicating whether recommendation results should be synced
+    ///     to per-user Jellyfin playlists visible in the native UI.
+    ///     Only effective when <see cref="RecommendationsTaskMode"/> is <see cref="TaskMode.Activate"/>.
+    ///     Default is false (opt-in feature).
+    /// </summary>
+    public bool SyncRecommendationsToPlaylist { get; set; }
+
+    // RecommendationStrategy removed — Ensemble is always used (combines all methods).
+    // XmlSerializer silently ignores unknown XML elements during deserialization,
+    // so previously saved "RecommendationStrategy" values are harmlessly discarded.
+
+    /// <summary>
+    ///     Gets or sets the minimum alpha value for the ensemble scoring strategy.
+    ///     Controls the lower bound of learned model blending (0–1). Default is 0.3.
+    ///     Out-of-range values are clamped to [0, 1].
+    ///     The min ≤ max invariant is enforced by <see cref="NormalizeAlphaRange"/>
+    ///     after deserialization, not by the setter, to avoid XML element-order dependency.
+    /// </summary>
+    public double EnsembleAlphaMin
+    {
+        get => _ensembleAlphaMin;
+        set => _ensembleAlphaMin = Math.Clamp(value, 0.0, 1.0);
+    }
+
+    /// <summary>
+    ///     Gets or sets the maximum alpha value for the ensemble scoring strategy.
+    ///     Controls the upper bound of learned model blending (0–1). Default is 0.75.
+    ///     Out-of-range values are clamped to [0, 1].
+    ///     The min ≤ max invariant is enforced by <see cref="NormalizeAlphaRange"/>
+    ///     after deserialization, not by the setter, to avoid XML element-order dependency.
+    /// </summary>
+    public double EnsembleAlphaMax
+    {
+        get => _ensembleAlphaMax;
+        set => _ensembleAlphaMax = Math.Clamp(value, 0.0, 1.0);
+    }
+
+    /// <summary>
+    ///     Gets or sets the genre penalty floor for the ensemble scoring strategy.
+    ///     Items with zero genre overlap are penalized down to this floor value. Default is 0.10.
+    ///     Out-of-range values are clamped to [0, 1].
+    /// </summary>
+    public double EnsembleGenrePenaltyFloor
+    {
+        get => _ensembleGenrePenaltyFloor;
+        set => _ensembleGenrePenaltyFloor = Math.Clamp(value, 0.0, 1.0);
+    }
+
     /// <summary>
     ///     Gets or sets the minimum log level for the plugin's in-memory log buffer.
     ///     Supported values: DEBUG, INFO, WARN, ERROR. Default is "INFO".
@@ -155,6 +228,22 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Gets or sets the timestamp of the last cleanup run.
     /// </summary>
     public DateTime LastCleanupTimestamp { get; set; } = DateTime.MinValue;
+
+    /// <summary>
+    ///     Normalizes the alpha range to ensure <see cref="EnsembleAlphaMin"/> ≤ <see cref="EnsembleAlphaMax"/>
+    ///     regardless of property setter invocation order during XML deserialization.
+    ///     <see cref="System.Xml.Serialization.XmlSerializer"/> does not guarantee property order,
+    ///     so a persisted config with Min=0.8 and Max=0.6 could produce different final values
+    ///     depending on which setter runs first. This method should be called after deserialization.
+    /// </summary>
+    public void NormalizeAlphaRange()
+    {
+        if (_ensembleAlphaMin > _ensembleAlphaMax)
+        {
+            // Swap so that min ≤ max
+            (_ensembleAlphaMin, _ensembleAlphaMax) = (_ensembleAlphaMax, _ensembleAlphaMin);
+        }
+    }
 
     /// <summary>
     ///     Migrates legacy single-instance Radarr/Sonarr settings to the new multi-instance lists

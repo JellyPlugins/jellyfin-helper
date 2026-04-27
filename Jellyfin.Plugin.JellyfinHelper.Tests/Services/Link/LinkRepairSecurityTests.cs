@@ -331,7 +331,7 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
-        Assert.Equal(LinkFileStatus.Repaired, result.Status);
+        Assert.Equal(LinkFileStatus.Repaired, result.Status); // Dry-run: Repaired signals "would repair"
         Assert.Equal(originalTarget, _fileSystem.File.ReadAllText(linkFile));
     }
 
@@ -352,7 +352,7 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true);
 
-        Assert.Equal(LinkFileStatus.Repaired, result.Status);
+        Assert.Equal(LinkFileStatus.Repaired, result.Status); // Dry-run: Repaired signals "would repair"
         _symlinkHelper.Verify(h => h.DeleteSymlink(It.IsAny<string>()), Times.Never);
         _symlinkHelper.Verify(h => h.CreateSymlink(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
     }

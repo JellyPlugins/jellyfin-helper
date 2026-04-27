@@ -1,0 +1,500 @@
+/* Recommendations tab styles */
+
+/* Compact info line (replaces summary cards) */
+.recs-info-line {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    font-size: 0.9em;
+    opacity: 0.7;
+    margin: 0.75em 0 0.5em 0;
+    padding: 0.5em 0.8em;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-md, 8px);
+}
+
+.recs-info-sep {
+    opacity: 0.4;
+}
+
+/* User selector */
+.recs-user-selector {
+    margin: 1em 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75em;
+}
+
+.recs-user-selector label {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.recs-select {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-sm, 4px);
+    color: inherit;
+    padding: 0.5em 1em;
+    font-size: 0.95em;
+    min-width: 200px;
+}
+
+.recs-select:focus-visible {
+    outline: 2px solid var(--color-primary, #00a4dc);
+    outline-offset: 2px;
+}
+
+.recs-select option {
+    background: #2b2b2b;
+    color: #e0e0e0;
+}
+
+/* Recommendations grid */
+.recs-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75em;
+    margin: 0.5em 0 1.5em 0;
+}
+
+.recs-item {
+    display: flex;
+    gap: 1em;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md, 8px);
+    padding: 0.85em 1em;
+    transition: border-color 0.2s;
+}
+
+.recs-item:hover {
+    border-color: var(--color-primary, #00a4dc);
+}
+
+.recs-item-rank {
+    font-size: 1.3em;
+    font-weight: 700;
+    color: var(--color-primary, #00a4dc);
+    min-width: 2.5em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+}
+
+.recs-item-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.recs-item-title {
+    font-size: 1.05em;
+    font-weight: 600;
+    margin-bottom: 0.3em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.recs-item-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4em;
+    margin-bottom: 0.4em;
+}
+
+.recs-tag {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    padding: 0.15em 0.5em;
+    font-size: 0.78em;
+    opacity: 0.85;
+}
+
+/* noinspection CssUnusedSymbol */
+.recs-tag-type {
+    background: rgba(0, 164, 220, 0.2);
+    color: var(--color-primary, #00a4dc);
+    font-weight: 600;
+}
+
+/* noinspection CssUnusedSymbol */
+.recs-tag-year {
+    background: rgba(255, 255, 255, 0.05);
+    opacity: 0.65;
+}
+
+.recs-item-reason {
+    font-size: 0.85em;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 0.4em;
+}
+
+.recs-reason-label {
+    font-weight: 600;
+    color: inherit;
+    opacity: 1;
+}
+
+/* Score bar */
+.recs-item-score {
+    position: relative;
+    height: 1.4em;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+}
+
+.recs-score-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s ease;
+}
+
+/* noinspection CssUnusedSymbol */
+.recs-score-high .recs-score-bar {
+    background: var(--color-success, #2ecc71);
+}
+
+/* noinspection CssUnusedSymbol */
+.recs-score-mid .recs-score-bar {
+    background: var(--color-warning, #e67e22);
+}
+
+/* noinspection CssUnusedSymbol */
+.recs-score-low .recs-score-bar {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.recs-score-text {
+    position: absolute;
+    top: 0;
+    left: 0.5em;
+    right: 0;
+    font-size: 0.78em;
+    line-height: 1.4em;
+    font-weight: 600;
+}
+
+/* ========== Collapsible Activity Section ========== */
+
+.recs-collapsible {
+    margin-top: 1.5em;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 0.5em;
+}
+
+.recs-collapsible-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    width: 100%;
+    padding: 0.7em 0.8em;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md, 8px);
+    color: inherit;
+    font-size: 0.95em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    text-align: left;
+}
+
+.recs-collapsible-toggle:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--color-primary, #00a4dc);
+}
+
+.recs-collapsible-toggle:focus-visible {
+    outline: 2px solid var(--color-primary, #00a4dc);
+    outline-offset: 2px;
+}
+
+.recs-collapsible-arrow {
+    display: inline-block;
+    width: 1em;
+    text-align: center;
+    transition: transform 0.2s;
+    font-size: 0.85em;
+}
+
+.recs-collapsible-body {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+        opacity 0.3s ease,
+        padding 0.3s ease;
+    padding: 0 0.5em;
+}
+
+.recs-collapsible-body.open {
+    max-height: 800px;
+    opacity: 1;
+    padding: 0.8em 0.5em;
+    overflow: auto;
+}
+
+/* Compact watch profile (inside collapsible) */
+.recs-profile-compact {
+    margin-bottom: 1em;
+    padding: 0.6em 0.8em;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-md, 8px);
+}
+
+.recs-profile-compact-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.2em;
+    margin-bottom: 0.3em;
+}
+
+.recs-profile-compact-stat {
+    font-size: 0.9em;
+    font-weight: 600;
+}
+
+.recs-profile-compact-genres {
+    font-size: 0.85em;
+    opacity: 0.75;
+    margin-top: 0.3em;
+}
+
+.recs-profile-compact-genres-label {
+    font-weight: 600;
+}
+
+.recs-profile-compact-empty {
+    font-size: 0.85em;
+    opacity: 0.5;
+    text-align: center;
+    padding: 0.5em;
+}
+
+/* Activity section title inside collapsible */
+.recs-activity-section-title {
+    font-size: 0.9em;
+    font-weight: 700;
+    margin-bottom: 0.5em;
+    opacity: 0.8;
+}
+
+/* ========== Activity Table ========== */
+
+.activity-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+    margin: 0.5em 0;
+}
+
+.activity-table th {
+    text-align: left;
+    padding: 0.6em 0.75em;
+    font-weight: 600;
+    font-size: 0.82em;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.7;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    white-space: nowrap;
+}
+
+.activity-table td {
+    padding: 0.55em 0.75em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    vertical-align: middle;
+}
+
+.activity-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.activity-cell-title {
+    font-weight: 600;
+    max-width: 250px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.activity-table th.activity-cell-num,
+.activity-cell-num {
+    text-align: center;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Completion bar (compact inline) */
+.activity-completion-bar {
+    position: relative;
+    height: 1.3em;
+    min-width: 80px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+}
+
+.activity-completion-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+
+/* noinspection CssUnusedSymbol */
+.activity-status-done {
+    background: var(--color-success, #2ecc71);
+}
+
+/* noinspection CssUnusedSymbol */
+.activity-status-progress {
+    background: var(--color-warning, #e67e22);
+}
+
+/* noinspection CssUnusedSymbol */
+.activity-status-new {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.activity-completion-text {
+    position: absolute;
+    top: 0;
+    left: 0.5em;
+    right: 0;
+    font-size: 0.75em;
+    line-height: 1.3em;
+    font-weight: 600;
+}
+
+.activity-more {
+    text-align: center;
+    padding: 0.75em;
+    opacity: 0.6;
+    font-size: 0.85em;
+}
+
+/* Empty state */
+.recs-empty {
+    text-align: center;
+    padding: 2em;
+    opacity: 0.6;
+}
+
+.recs-empty-icon {
+    font-size: 3em;
+    margin-bottom: 0.3em;
+}
+
+/* Light mode overrides */
+@media (prefers-color-scheme: light) {
+    .recs-select {
+        background: rgba(0, 0, 0, 0.05);
+        border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    .recs-select option {
+        background: #ffffff;
+        color: #333333;
+    }
+
+    .recs-collapsible-toggle {
+        background: rgba(0, 0, 0, 0.03);
+        border-color: rgba(0, 0, 0, 0.08);
+    }
+
+    .recs-collapsible-toggle:hover {
+        background: rgba(0, 0, 0, 0.06);
+        border-color: var(--color-primary, #00a4dc);
+    }
+
+    .recs-info-line {
+        background: rgba(0, 0, 0, 0.03);
+        border-color: rgba(0, 0, 0, 0.06);
+    }
+
+    .recs-item {
+        background: rgba(0, 0, 0, 0.02);
+        border-color: rgba(0, 0, 0, 0.08);
+    }
+
+    .recs-tag {
+        background: rgba(0, 0, 0, 0.06);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .recs-tag-year {
+        background: rgba(0, 0, 0, 0.04);
+    }
+
+    .recs-item-score {
+        background: rgba(0, 0, 0, 0.06);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .recs-score-low .recs-score-bar {
+        background: rgba(0, 0, 0, 0.12);
+    }
+
+    .recs-collapsible {
+        border-top-color: rgba(0, 0, 0, 0.08);
+    }
+
+    .recs-profile-compact {
+        background: rgba(0, 0, 0, 0.02);
+        border-color: rgba(0, 0, 0, 0.06);
+    }
+
+    .activity-table th {
+        border-bottom-color: rgba(0, 0, 0, 0.12);
+    }
+
+    .activity-table td {
+        border-bottom-color: rgba(0, 0, 0, 0.06);
+    }
+
+    .activity-table tbody tr:hover {
+        background: rgba(0, 0, 0, 0.03);
+    }
+
+    .activity-completion-bar {
+        background: rgba(0, 0, 0, 0.06);
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .activity-status-new {
+        background: rgba(0, 0, 0, 0.10);
+    }
+}
+
+/* Responsive: hide some columns on small screens */
+@media (max-width: 768px) {
+    .activity-table th:nth-child(n+4),
+    .activity-table td:nth-child(n+4) {
+        display: none;
+    }
+
+    .activity-cell-title {
+        max-width: 140px;
+    }
+
+    .recs-profile-compact-stats {
+        gap: 0.6em;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .recs-collapsible-body,
+    .recs-collapsible-arrow,
+    .recs-score-bar,
+    .activity-completion-fill,
+    .recs-item,
+    .recs-collapsible-toggle {
+        transition: none;
+    }
+}

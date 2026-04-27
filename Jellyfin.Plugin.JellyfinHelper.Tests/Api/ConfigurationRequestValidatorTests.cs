@@ -91,8 +91,11 @@ public class ConfigurationRequestValidatorTests
     {
         var req = new ConfigurationUpdateRequest
         {
-            OrphanMinAgeDays = 7, TrashRetentionDays = 30,
-            SeerrUrl = "http://seerr.local", SeerrApiKey = "key", SeerrCleanupAgeDays = 0
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SeerrUrl = "http://seerr.local",
+            SeerrApiKey = "key",
+            SeerrCleanupAgeDays = 0
         };
         Assert.Contains("SeerrCleanupAgeDays", ConfigurationRequestValidator.Validate(req)!);
     }
@@ -102,8 +105,11 @@ public class ConfigurationRequestValidatorTests
     {
         var req = new ConfigurationUpdateRequest
         {
-            OrphanMinAgeDays = 7, TrashRetentionDays = 30,
-            SeerrUrl = "http://seerr.local", SeerrApiKey = "key", SeerrCleanupAgeDays = 5000
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SeerrUrl = "http://seerr.local",
+            SeerrApiKey = "key",
+            SeerrCleanupAgeDays = 5000
         };
         Assert.NotNull(ConfigurationRequestValidator.Validate(req));
     }
@@ -113,8 +119,10 @@ public class ConfigurationRequestValidatorTests
     {
         var req = new ConfigurationUpdateRequest
         {
-            OrphanMinAgeDays = 7, TrashRetentionDays = 30,
-            SeerrUrl = "ftp://invalid", SeerrApiKey = "key"
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SeerrUrl = "ftp://invalid",
+            SeerrApiKey = "key"
         };
         Assert.Contains("Seerr URL", ConfigurationRequestValidator.Validate(req)!);
     }
@@ -124,8 +132,10 @@ public class ConfigurationRequestValidatorTests
     {
         var req = new ConfigurationUpdateRequest
         {
-            OrphanMinAgeDays = 7, TrashRetentionDays = 30,
-            SeerrUrl = "http://seerr.local", SeerrApiKey = ""
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SeerrUrl = "http://seerr.local",
+            SeerrApiKey = ""
         };
         Assert.Contains("API key", ConfigurationRequestValidator.Validate(req)!);
     }
@@ -135,8 +145,10 @@ public class ConfigurationRequestValidatorTests
     {
         var req = new ConfigurationUpdateRequest
         {
-            OrphanMinAgeDays = 7, TrashRetentionDays = 30,
-            SeerrUrl = "", SeerrCleanupAgeDays = 0
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            SeerrUrl = "",
+            SeerrCleanupAgeDays = 0
         };
         Assert.Null(ConfigurationRequestValidator.Validate(req));
     }

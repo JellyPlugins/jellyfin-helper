@@ -10,6 +10,20 @@ var _wasTrashEnabled = false;
 var _currentLogLevel = 'INFO';
 var _logLevelLoaded = false;
 
+// Show/hide the Recommendations tab button+content based on TaskMode
+function updateRecsTabVisibility(taskMode) {
+    var show = taskMode !== 'Deactivate';
+    var btn = document.querySelector('.tab-btn[data-tab="recommendations"]');
+    var panel = document.getElementById('tab-recommendations');
+    if (btn) btn.style.display = show ? '' : 'none';
+    if (panel) panel.style.display = show ? '' : 'none';
+    // If the hidden tab was active, switch to overview
+    if (!show && btn && btn.classList.contains('active')) {
+        var overviewBtn = document.querySelector('.tab-btn[data-tab="overview"]');
+        if (overviewBtn) overviewBtn.click();
+    }
+}
+
 // Update Seerr greyed-out UI state based on whether URL+Key are configured
 function updateSeerrUIState(isConfigured) {
     var taskW = document.querySelector('.seerr-task-mode-wrapper');
@@ -163,6 +177,15 @@ function loadSettings() {
         h += renderTaskModeSelect('cfgEmptyFolderMode', T('emptyMediaFolderCleaner', 'Empty Media Folder Cleaner'), cfg.EmptyMediaFolderTaskMode || 'DryRun');
         h += renderTaskModeSelect('cfgSubtitleMode', T('orphanedSubtitleCleaner', 'Orphaned Subtitle Cleaner'), cfg.OrphanedSubtitleTaskMode || 'DryRun');
         h += renderTaskModeSelect('cfgLinkMode', T('linkRepair', 'Link Repair'), cfg.LinkRepairTaskMode || 'DryRun');
+        h += renderTaskModeSelect('cfgRecommendationsMode', T('recommendations', 'Recommendations'), cfg.RecommendationsTaskMode || 'DryRun');
+
+        // Playlist sync toggle - greyed out if Recommendations is not Activate
+        var recsActive = (cfg.RecommendationsTaskMode || 'DryRun') === 'Activate';
+        h += '<div class="playlist-sync-wrapper" id="playlistSyncWrapper" style="margin:0.3em 0 0.8em 0;' + (!recsActive ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="checkbox-row"><input type="checkbox" id="cfgSyncPlaylist"' + (cfg.SyncRecommendationsToPlaylist ? ' checked' : '') + (!recsActive ? ' disabled' : '') + '><label for="cfgSyncPlaylist">' + T('syncPlaylistToggle', 'Sync recommendations to Jellyfin playlist') + '</label></div>';
+        h += '<div class="help-text">' + T('syncPlaylistHelp', 'Creates a per-user playlist visible in the Jellyfin UI. Updated on each scheduled run.') + '</div>';
+        h += '<div class="help-text playlist-sync-disabled-hint" style="' + (recsActive ? 'display:none;' : '') + '">' + T('syncPlaylistDisabledHint', 'Set Recommendations to Activate to enable this option.') + '</div>';
+        h += '</div>';
 
         // Seerr Cleanup task mode - greyed out if not configured
         var seerrConfigured = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
@@ -251,6 +274,9 @@ function loadSettings() {
 
         initArrButtons(cfg);
 
+        // Show/hide Recommendations tab based on task mode
+        updateRecsTabVisibility(cfg.RecommendationsTaskMode || 'DryRun');
+
         // Take snapshot after settings are fully rendered
         setTimeout(takeSettingsSnapshot, 0);
     }, function () {
@@ -272,6 +298,8 @@ function buildSettingsPayload() {
         EmptyMediaFolderTaskMode: document.getElementById('cfgEmptyFolderMode').value,
         OrphanedSubtitleTaskMode: document.getElementById('cfgSubtitleMode').value,
         LinkRepairTaskMode: document.getElementById('cfgLinkMode').value,
+        RecommendationsTaskMode: document.getElementById('cfgRecommendationsMode').value,
+        SyncRecommendationsToPlaylist: document.getElementById('cfgSyncPlaylist') ? document.getElementById('cfgSyncPlaylist').checked : false,
         SeerrUrl: (document.getElementById('cfgSeerrUrl') || {}).value || '',
         SeerrApiKey: (document.getElementById('cfgSeerrApiKey') || {}).value || '',
         SeerrCleanupTaskMode: (function () {
@@ -670,15 +698,52 @@ function attachSeerrHandlers() {
  */
 function attachAutoSaveHandlers() {
     // Task mode dropdowns — auto-save on change
-    var taskModeIds = ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgSeerrMode'];
+    var taskModeIds = ['cfgTrickplayMode', 'cfgEmptyFolderMode', 'cfgSubtitleMode', 'cfgLinkMode', 'cfgRecommendationsMode', 'cfgSeerrMode'];
     for (var i = 0; i < taskModeIds.length; i++) {
         (function (id) {
             var el = document.getElementById(id);
             if (!el) return;
             el.addEventListener('change', function () {
+                // Update Recommendations tab visibility only after save succeeds
+                if (id === 'cfgRecommendationsMode') {
+                    var isActive = el.value === 'Activate';
+                    doSaveSettings(buildSettingsPayload(), {
+                        quiet: true,
+                        element: el,
+                        onSuccess: function () {
+                            updateRecsTabVisibility(el.value);
+                            // Clear the persisted playlist preference only on Deactivate.
+                            // Performed inside onSuccess so the DOM stays in sync with the server
+                            // even if the save request fails.
+                            if (el.value === 'Deactivate') {
+                                var chkPost = document.getElementById('cfgSyncPlaylist');
+                                if (chkPost) chkPost.checked = false;
+                            }
+                            // Update playlist sync toggle greyed-out state
+                            var wrapper = document.getElementById('playlistSyncWrapper');
+                            if (wrapper) {
+                                wrapper.style.opacity = isActive ? '' : '0.5';
+                                wrapper.style.pointerEvents = isActive ? '' : 'none';
+                            }
+                            var chk = document.getElementById('cfgSyncPlaylist');
+                            if (chk) chk.disabled = !isActive;
+                            var hint = document.querySelector('.playlist-sync-disabled-hint');
+                            if (hint) hint.style.display = isActive ? 'none' : '';
+                        }
+                    });
+                    return;
+                }
                 doSaveSettings(buildSettingsPayload(), {quiet: true, element: el});
             });
         })(taskModeIds[i]);
+    }
+
+    // Playlist sync toggle - auto-save on change
+    var syncEl = document.getElementById('cfgSyncPlaylist');
+    if (syncEl) {
+        syncEl.addEventListener('change', function () {
+            doSaveSettings(buildSettingsPayload(), {quiet: true, element: syncEl});
+        });
     }
 
     // Language dropdown — auto-save + UI rebuild with scroll restore

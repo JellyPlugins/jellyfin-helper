@@ -43,7 +43,7 @@ public static class ControllerTestFactory
             new Mock<ILogger<BackupController>>().Object);
         return controller;
     }
-    
+
     /// <summary>
     /// Creates a <see cref="TrashController"/> with all dependencies mocked.
     /// </summary>
@@ -51,10 +51,10 @@ public static class ControllerTestFactory
     public static (TrashController controller, Mock<ILibraryManager> libraryManagerMock, Mock<ICleanupConfigHelper> configHelperMock, Mock<ITrashService> trashServiceMock) CreateTrashController()
     {
         var libraryManagerMock = TestMockFactory.CreateLibraryManager();
-        
+
         var configHelperMock = new Mock<ICleanupConfigHelper>();
         var trashServiceMock = new Mock<ITrashService>();
-        
+
         var controller = new TrashController(
             libraryManagerMock.Object,
             TestMockFactory.CreatePluginLogService(),
@@ -77,7 +77,7 @@ public static class ControllerTestFactory
         var arrService = new ArrIntegrationService(httpClientFactoryMock.Object, pluginLog, new Mock<ILogger<ArrIntegrationService>>().Object);
 
         var configHelperMock = new Mock<ICleanupConfigHelper>();
-        
+
         var controller = new ArrIntegrationController(
             libraryManagerMock.Object,
             fileSystemMock.Object,
@@ -107,7 +107,7 @@ public static class ControllerTestFactory
 
         // Constructor of Plugin sets Plugin.Instance
         var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object);
-        
+
         // BasePlugin<T> holds configuration in a protected field or similar. 
         // We can set the Configuration property directly if it has a setter 
         // or use reflection to set the backing field.
@@ -157,7 +157,7 @@ public static class ControllerTestFactory
         {
             HttpContext = httpContext,
         };
-        
+
         return controller;
     }
 }

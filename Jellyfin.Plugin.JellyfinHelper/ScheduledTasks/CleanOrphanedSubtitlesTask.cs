@@ -99,16 +99,16 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
             var normalizedTrash = trashFullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
             foreach (var dirPath in from dirPath in allDirs.TakeWhile(_ => !cancellationToken.IsCancellationRequested)
-                     where !Path.GetFileName(dirPath).EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase)
-                     let normalizedDir = dirPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                     where !normalizedDir.Equals(normalizedTrash, StringComparison.OrdinalIgnoreCase)
-                           && !normalizedDir.StartsWith(
-                               normalizedTrash + Path.DirectorySeparatorChar,
-                               StringComparison.OrdinalIgnoreCase)
-                           && !normalizedDir.StartsWith(
-                               normalizedTrash + Path.AltDirectorySeparatorChar,
-                               StringComparison.OrdinalIgnoreCase)
-                     select dirPath)
+                                    where !Path.GetFileName(dirPath).EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase)
+                                    let normalizedDir = dirPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                    where !normalizedDir.Equals(normalizedTrash, StringComparison.OrdinalIgnoreCase)
+                                          && !normalizedDir.StartsWith(
+                                              normalizedTrash + Path.DirectorySeparatorChar,
+                                              StringComparison.OrdinalIgnoreCase)
+                                          && !normalizedDir.StartsWith(
+                                              normalizedTrash + Path.AltDirectorySeparatorChar,
+                                              StringComparison.OrdinalIgnoreCase)
+                                    select dirPath)
             {
                 if (!fileCache.TryGetValue(dirPath, out var files))
                 {
@@ -184,6 +184,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                     }
                     else if (config.UseTrash)
                     {
+                        PluginLog.LogInfo(TaskName, $"Moving orphaned subtitle to trash: {file.FullName}", Logger);
                         var size = TrashService.MoveFileToTrash(file.FullName, trashFullPath, Logger);
                         if (size <= 0)
                         {

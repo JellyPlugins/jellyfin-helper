@@ -52,6 +52,9 @@ function doTabSwitch(clickedBtn, tabId) {
     }
 
     // Initialize tab-specific logic
+    if (tabId === 'recommendations' && typeof initRecommendationsTab === 'function') {
+        initRecommendationsTab();
+    }
     if (tabId === 'logs' && typeof initLogsTab === 'function') {
         initLogsTab();
     }
@@ -106,6 +109,8 @@ function renderShell() {
         'Settings') + '</button>';
     html += '<button class="tab-btn" data-tab="arr">🔗 ' + T('tabArr', 'Arr')
         + '</button>';
+    html += '<button class="tab-btn" data-tab="recommendations" style="display:none;">🤖 ' + T('tabRecommendations',
+        'Smart Recs') + '</button>';
     html += '<button class="tab-btn" data-tab="logs">📋 ' + T('tabLogs', 'Logs')
         + '</button>';
     html += '</div>';
@@ -153,6 +158,15 @@ function renderShell() {
     html += '<div id="arrButtons"><div class="loading-overlay" style="padding:1em;"><div class="spinner"></div></div></div>';
     html += '<div id="arrResult"></div>';
     html += '</div>';
+    html += '</div>';
+
+    // === RECOMMENDATIONS TAB ===
+    html += '<div class="tab-content" id="tab-recommendations">';
+    html += '<div class="section-title">🤖 ' + T('recsTitle',
+        'Smart Recommendations') + '</div>';
+    html += '<div id="recsContent"><div class="loading-overlay" style="padding:2em;">'
+        + '<div class="spinner"></div>'
+        + '<p>' + T('loadingRecommendations', 'Loading recommendations…') + '</p></div></div>';
     html += '</div>';
 
     // === LOGS TAB ===

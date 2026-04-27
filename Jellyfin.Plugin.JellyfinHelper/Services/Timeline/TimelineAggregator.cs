@@ -70,8 +70,8 @@ public static class TimelineAggregator
         DateTime now)
     {
         var entries = (from kvp in baseline.Directories
-                let count = kvp.Value.Count > 0 ? kvp.Value.Count : 1
-                select new GrowthTimelineService.FileEntry { CreatedUtc = kvp.Value.CreatedUtc, Size = kvp.Value.Size, CountDelta = count })
+                       let count = kvp.Value.Count > 0 ? kvp.Value.Count : 1
+                       select new GrowthTimelineService.FileEntry { CreatedUtc = kvp.Value.CreatedUtc, Size = kvp.Value.Size, CountDelta = count })
             .ToList();
 
         // 1. Add all baseline entries at their original creation date with their original size
@@ -350,11 +350,11 @@ public static class TimelineAggregator
             case 0:
                 return points;
             default:
-            {
-                // Keep one zero point before the first non-zero as the visual "start from zero" baseline
-                var startIndex = firstNonZero - 1;
-                return points.GetRange(startIndex, points.Count - startIndex);
-            }
+                {
+                    // Keep one zero point before the first non-zero as the visual "start from zero" baseline
+                    var startIndex = firstNonZero - 1;
+                    return points.GetRange(startIndex, points.Count - startIndex);
+                }
         }
     }
 

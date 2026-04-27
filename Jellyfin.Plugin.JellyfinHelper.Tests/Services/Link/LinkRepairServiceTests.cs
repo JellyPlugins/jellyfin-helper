@@ -204,7 +204,7 @@ public class LinkRepairServiceTests
 
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
-        Assert.Equal(LinkFileStatus.Repaired, result.Status);
+        Assert.Equal(LinkFileStatus.Repaired, result.Status); // Dry-run: Repaired signals "would repair"
         Assert.Equal(brokenTarget, result.OriginalTargetPath);
         Assert.Equal(newFile, result.NewTargetPath);
         // Dry run: file should NOT be modified
@@ -273,7 +273,7 @@ public class LinkRepairServiceTests
 
         var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true);
 
-        Assert.Equal(LinkFileStatus.Repaired, result.Status);
+        Assert.Equal(LinkFileStatus.Repaired, result.Status); // Dry-run: Repaired signals "would repair"
         Assert.Equal(brokenTarget, result.OriginalTargetPath);
         Assert.Equal(newFile, result.NewTargetPath);
         // Dry run: WriteTarget should NOT be called
@@ -487,7 +487,8 @@ public class LinkRepairServiceTests
         var result = _service.RepairLinks([seriesDir], true);
 
         Assert.Equal(1, result.ValidCount);
-        Assert.Equal(1, result.RepairedCount);
+        Assert.Equal(1, result.RepairedCount); // Dry-run: Repaired signals "would repair" (matches summary label)
+        Assert.Equal(0, result.BrokenCount); // Only truly unrepairable links are Broken
         Assert.Equal(brokenTarget, _fileSystem.File.ReadAllText(linkFile1));
     }
 
@@ -552,7 +553,8 @@ public class LinkRepairServiceTests
 
         Assert.Equal(2, result.FileResults.Count);
         Assert.Equal(1, result.ValidCount);
-        Assert.Equal(1, result.RepairedCount);
+        Assert.Equal(1, result.RepairedCount); // Dry-run: Repaired signals "would repair" (matches summary label)
+        Assert.Equal(0, result.BrokenCount); // Only truly unrepairable links are Broken
     }
 
     [Fact]

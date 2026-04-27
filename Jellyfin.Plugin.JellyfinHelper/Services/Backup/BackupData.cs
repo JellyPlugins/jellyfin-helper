@@ -157,6 +157,21 @@ public class BackupData
         Justification = "Required for JSON deserialization")]
     public List<BackupArrInstance> SonarrInstances { get; init; } = [];
 
+    // === Smart Recommendations ===
+
+    /// <summary>
+    ///     Gets or sets the Recommendations task mode.
+    /// </summary>
+    [JsonPropertyName("recommendationsTaskMode")]
+    public string RecommendationsTaskMode { get; set; } = "DryRun";
+
+    /// <summary>
+    ///     Gets or sets a value indicating whether recommendation results are synced
+    ///     to per-user Jellyfin playlists visible in the native UI.
+    /// </summary>
+    [JsonPropertyName("syncRecommendationsToPlaylist")]
+    public bool SyncRecommendationsToPlaylist { get; set; }
+
     // === Historical Data ===
 
     /// <summary>

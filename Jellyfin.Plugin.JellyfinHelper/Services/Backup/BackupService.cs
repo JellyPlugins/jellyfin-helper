@@ -113,7 +113,11 @@ public class BackupService : IBackupService
             // Trash settings
             UseTrash = config.UseTrash,
             TrashFolderPath = config.TrashFolderPath,
-            TrashRetentionDays = config.TrashRetentionDays
+            TrashRetentionDays = config.TrashRetentionDays,
+
+            // Smart Recommendations (only task mode — count and strategy use sensible defaults)
+            RecommendationsTaskMode = config.RecommendationsTaskMode.ToString(),
+            SyncRecommendationsToPlaylist = config.SyncRecommendationsToPlaylist
         };
 
         // Arr instances
@@ -216,7 +220,7 @@ public class BackupService : IBackupService
     }
 
     /// <summary>
-    ///     Deserializes a JSON string to back up data.
+    ///     Deserializes a JSON string to backup data.
     ///     Returns null if the JSON is invalid.
     /// </summary>
     /// <param name="json">The JSON string.</param>
@@ -282,6 +286,13 @@ public class BackupService : IBackupService
             ? ".jellyfin-trash"
             : backup.TrashFolderPath;
         config.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
+
+        // Smart Recommendations (only task mode — count and strategy use sensible defaults).
+        // Default to DryRun so importing an older backup enables the Discover UI in read-only mode.
+        config.RecommendationsTaskMode = ParseTaskMode(backup.RecommendationsTaskMode, TaskMode.DryRun);
+
+        // Playlist sync toggle — defaults to false for older backups without this field
+        config.SyncRecommendationsToPlaylist = backup.SyncRecommendationsToPlaylist;
 
         // Arr instances
         config.RadarrInstances.Clear();
