@@ -211,10 +211,10 @@ public sealed class Engine : IRecommendationEngine
                 continue;
             }
 
-            var ratingScore = ContentScoring.NormalizeRating(candidate.CommunityRating);
+            var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(candidate.CommunityRating, candidate.CriticRating);
             var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? candidate.DateCreated);
             // Cold-start formula: 60% rating, 40% recency — prioritize quality + freshness
-            var score = (0.6 * ratingScore) + (0.4 * recencyScore);
+            var score = (0.6 * combinedCriticScore) + (0.4 * recencyScore);
             scored.Add((candidate, score, "Popular and highly rated", "reasonPopular", null));
         }
 
@@ -230,6 +230,7 @@ public sealed class Engine : IRecommendationEngine
                 Genres = s.Item.Genres ?? [],
                 Year = s.Item.ProductionYear,
                 CommunityRating = s.Item.CommunityRating,
+                CriticRating = s.Item.CriticRating,
                 OfficialRating = s.Item.OfficialRating,
                 PremiereDate = s.Item.PremiereDate,
                 PrimaryImageTag = s.Item.HasImage(ImageType.Primary) ? s.Item.Id.ToString("N") : null,
@@ -520,6 +521,7 @@ public sealed class Engine : IRecommendationEngine
                 Genres = s.Item.Genres ?? [],
                 Year = s.Item.ProductionYear,
                 CommunityRating = s.Item.CommunityRating,
+                CriticRating = s.Item.CriticRating,
                 OfficialRating = s.Item.OfficialRating,
                 PremiereDate = s.Item.PremiereDate,
                 PrimaryImageTag = s.Item.HasImage(ImageType.Primary) ? s.Item.Id.ToString("N") : null,
@@ -571,7 +573,7 @@ public sealed class Engine : IRecommendationEngine
     {
         var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences);
         var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, coOccurrence, collaborativeMax);
-        var ratingScore = ContentScoring.NormalizeRating(candidate.CommunityRating);
+        var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(candidate.CommunityRating, candidate.CriticRating);
         var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? candidate.DateCreated);
         var libraryAddedRecency = ContentScoring.ComputeRecencyScore(candidate.DateCreated);
         var yearScore = ContentScoring.ComputeYearProximity(candidate.ProductionYear, averageYear);
@@ -626,14 +628,14 @@ public sealed class Engine : IRecommendationEngine
         }
 
         // Popularity proxy from collaborative scores
-        var popularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : ratingScore * 0.3;
+        var popularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : combinedCriticScore * 0.3;
 
         // Build feature vector and delegate scoring to strategy
         var features = new CandidateFeatures
         {
             GenreSimilarity = genreScore,
             CollaborativeScore = collabScore,
-            RatingScore = ratingScore,
+            CombinedCriticScore = combinedCriticScore,
             RecencyScore = recencyScore,
             YearProximityScore = yearScore,
             GenreCount = candidate.Genres?.Length ?? 0,
@@ -653,7 +655,6 @@ public sealed class Engine : IRecommendationEngine
             IsWeekend = DateTime.UtcNow.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
             TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags),
             LibraryAddedRecency = libraryAddedRecency,
-            CriticRatingScore = ContentScoring.NormalizeCriticRating(candidate.CriticRating),
             // Content-based nearest-neighbor: composite item-to-item similarity (genre 50%, people 30%, studio 20%)
             // against the user's most similar watched item. Captures item-level affinity as a fine-tuning signal.
             ContentNearestNeighborScore = ContentScoring.ComputeContentNearestNeighborScore(

@@ -59,6 +59,13 @@ public sealed class RecommendedItem
     public float? CommunityRating { get; set; }
 
     /// <summary>
+    ///     Gets or sets the Rotten Tomatoes critic rating (Tomatometer, 0-100%).
+    ///     Stored for training feature parity: allows TrainingService to compute
+    ///     CombinedCriticScore from cached recommendations without re-querying the library.
+    /// </summary>
+    public float? CriticRating { get; set; }
+
+    /// <summary>
     ///     Gets or sets the primary image tag for poster display.
     /// </summary>
     public string? PrimaryImageTag { get; set; }

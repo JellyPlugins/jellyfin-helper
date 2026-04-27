@@ -116,7 +116,7 @@ internal static class ScoringHelper
     {
         var genreContrib = GetContribution(vector, weights, FeatureIndex.GenreSimilarity);
         var collabContrib = GetContribution(vector, weights, FeatureIndex.CollaborativeScore);
-        var ratingContrib = GetContribution(vector, weights, FeatureIndex.RatingScore);
+        var ratingContrib = GetContribution(vector, weights, FeatureIndex.CombinedCriticScore);
         var recencyContrib = GetContribution(vector, weights, FeatureIndex.RecencyScore);
         var yearProxContrib = GetContribution(vector, weights, FeatureIndex.YearProximityScore);
         var userRatingContrib = GetContribution(vector, weights, FeatureIndex.UserRatingScore);
@@ -132,7 +132,7 @@ internal static class ScoringHelper
         var interactionSum =
             GetContribution(vector, weights, FeatureIndex.GenreCountNormalized) +
             GetContribution(vector, weights, FeatureIndex.IsSeries) +
-            GetContribution(vector, weights, FeatureIndex.GenreRatingInteraction) +
+            GetContribution(vector, weights, FeatureIndex.GenreCriticInteraction) +
             GetContribution(vector, weights, FeatureIndex.GenreCollabInteraction) +
             GetContribution(vector, weights, FeatureIndex.CompletionRatio) +
             GetContribution(vector, weights, FeatureIndex.IsAbandoned) +
@@ -144,9 +144,8 @@ internal static class ScoringHelper
             GetContribution(vector, weights, FeatureIndex.IsWeekend) +
             GetContribution(vector, weights, FeatureIndex.TagSimilarity) +
             GetContribution(vector, weights, FeatureIndex.PeopleGenreInteraction) +
-            GetContribution(vector, weights, FeatureIndex.RecencyRatingInteraction) +
-            GetContribution(vector, weights, FeatureIndex.CriticRatingScore) +
-            GetContribution(vector, weights, FeatureIndex.ContentNearestNeighborScore);
+            GetContribution(vector, weights, FeatureIndex.RecencyCriticInteraction) +
+                        GetContribution(vector, weights, FeatureIndex.ContentNearestNeighborScore);
         var interactionContrib = double.IsFinite(interactionSum) ? interactionSum : 0.0;
 
         // Compute FinalScore from the sum of contributions + bias instead of re-calling

@@ -14,8 +14,8 @@ public enum FeatureIndex
     /// <summary>Collaborative filtering score (0–1).</summary>
     CollaborativeScore = 1,
 
-    /// <summary>Normalized community rating (0–1).</summary>
-    RatingScore = 2,
+    /// <summary>Combined critic score (0–1). Blends TMDb community rating (55%) and Rotten Tomatoes Tomatometer (45%).</summary>
+    CombinedCriticScore = 2,
 
     /// <summary>Recency score (0–1).</summary>
     RecencyScore = 3,
@@ -29,8 +29,8 @@ public enum FeatureIndex
     /// <summary>Is series flag (0 or 1).</summary>
     IsSeries = 6,
 
-    /// <summary>Genre × Rating interaction term.</summary>
-    GenreRatingInteraction = 7,
+    /// <summary>Genre × CombinedCritic interaction term.</summary>
+    GenreCriticInteraction = 7,
 
     /// <summary>Genre × Collaborative interaction term.</summary>
     GenreCollabInteraction = 8,
@@ -74,8 +74,8 @@ public enum FeatureIndex
     /// <summary>People × Genre interaction: actors/directors you like in genres you prefer.</summary>
     PeopleGenreInteraction = 21,
 
-    /// <summary>Recency × Rating interaction: new + highly rated = trending content.</summary>
-    RecencyRatingInteraction = 22,
+    /// <summary>Recency × CombinedCritic interaction: new + highly rated = trending content.</summary>
+    RecencyCriticInteraction = 22,
 
     /// <summary>
     ///     Genre underexposure ratio (0–1). Fraction of the candidate's genres that fall
@@ -110,13 +110,6 @@ public enum FeatureIndex
     LibraryAddedRecency = 26,
 
     /// <summary>
-    ///     Normalized critic rating (0–1). Rotten Tomatoes "Tomatometer" score (0-100%)
-    ///     normalized to 0-1. Complements CommunityRating (audience score) with professional
-    ///     critic consensus. 0.5 (neutral) when not available.
-    /// </summary>
-    CriticRatingScore = 27,
-
-    /// <summary>
     ///     Content-based nearest-neighbor score (0–1). Measures how similar this candidate
     ///     is to the user's most similar watched item using a composite of genre Jaccard (50%),
     ///     people/cast Jaccard (30%), and studio overlap (20%). Unlike GenreSimilarity which
@@ -124,7 +117,7 @@ public enum FeatureIndex
     ///     "Is there a specific item the user watched that is very similar to this candidate?"
     ///     0 = no watched item shares genres, people, or studios with this candidate.
     /// </summary>
-    ContentNearestNeighborScore = 28,
+    ContentNearestNeighborScore = 27,
 }
 
 /// <summary>
@@ -136,7 +129,7 @@ public sealed class CandidateFeatures
     /// <summary>
     ///     The number of features produced by <see cref="ToVector"/>.
     /// </summary>
-    public const int FeatureCount = 29;
+    public const int FeatureCount = 28;
 
     /// <summary>
     ///     Normalization ceiling for genre count (items with ≥ this many genres map to 1.0).
@@ -167,7 +160,6 @@ public sealed class CandidateFeatures
     private double _genreDominanceRatio;
     private double _genreAffinityGap;
     private double _libraryAddedRecency;
-    private double _criticRatingScore = 0.5;
     private double _contentNearestNeighborScore;
 
     /// <summary>Gets or sets the genre similarity score (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
@@ -184,8 +176,8 @@ public sealed class CandidateFeatures
         set => _collaborativeScore = Clamp01(value);
     }
 
-    /// <summary>Gets or sets the normalized community rating (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
-    public double RatingScore
+    /// <summary>Gets or sets the combined critic score (0–1). Blends TMDb community rating (55%) and Rotten Tomatoes Tomatometer (45%). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
+    public double CombinedCriticScore
     {
         get => _ratingScore;
         set => _ratingScore = Clamp01(value);
@@ -327,19 +319,6 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
-    ///     Gets or sets the critic rating score (0-1).
-    ///     Rotten Tomatoes "Tomatometer" score normalized from 0-100% to 0-1.
-    ///     Complements CommunityRating (audience) with professional critic consensus.
-    ///     Defaults to 0.5 (neutral) when not available from metadata providers.
-    ///     Values are clamped to [0, 1]; NaN defaults to 0.5.
-    /// </summary>
-    public double CriticRatingScore
-    {
-        get => _criticRatingScore;
-        set => _criticRatingScore = Clamp01(value, 0.5);
-    }
-
-    /// <summary>
     ///     Gets or sets the content-based nearest-neighbor score (0–1).
     ///     Composite similarity between this candidate and the user's most similar watched item,
     ///     combining genre Jaccard (50%), people/cast Jaccard (30%), and studio overlap (20%).
@@ -395,12 +374,12 @@ public sealed class CandidateFeatures
 
         buffer[(int)FeatureIndex.GenreSimilarity] = GenreSimilarity;
         buffer[(int)FeatureIndex.CollaborativeScore] = CollaborativeScore;
-        buffer[(int)FeatureIndex.RatingScore] = RatingScore;
+        buffer[(int)FeatureIndex.CombinedCriticScore] = CombinedCriticScore;
         buffer[(int)FeatureIndex.RecencyScore] = RecencyScore;
         buffer[(int)FeatureIndex.YearProximityScore] = YearProximityScore;
         buffer[(int)FeatureIndex.GenreCountNormalized] = normalizedGenreCount;
         buffer[(int)FeatureIndex.IsSeries] = IsSeries ? 1.0 : 0.0;
-        buffer[(int)FeatureIndex.GenreRatingInteraction] = GenreSimilarity * RatingScore;
+        buffer[(int)FeatureIndex.GenreCriticInteraction] = GenreSimilarity * CombinedCriticScore;
         buffer[(int)FeatureIndex.GenreCollabInteraction] = GenreSimilarity * CollaborativeScore;
         buffer[(int)FeatureIndex.UserRatingScore] = UserRatingScore;
         buffer[(int)FeatureIndex.CompletionRatio] = CompletionRatio;
@@ -415,12 +394,11 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.IsWeekend] = IsWeekend ? 1.0 : 0.0;
         buffer[(int)FeatureIndex.TagSimilarity] = TagSimilarity;
         buffer[(int)FeatureIndex.PeopleGenreInteraction] = PeopleSimilarity * GenreSimilarity;
-        buffer[(int)FeatureIndex.RecencyRatingInteraction] = RecencyScore * RatingScore;
+        buffer[(int)FeatureIndex.RecencyCriticInteraction] = RecencyScore * CombinedCriticScore;
         buffer[(int)FeatureIndex.GenreUnderexposure] = GenreUnderexposure;
         buffer[(int)FeatureIndex.GenreDominanceRatio] = GenreDominanceRatio;
         buffer[(int)FeatureIndex.GenreAffinityGap] = GenreAffinityGap;
         buffer[(int)FeatureIndex.LibraryAddedRecency] = LibraryAddedRecency;
-        buffer[(int)FeatureIndex.CriticRatingScore] = CriticRatingScore;
         buffer[(int)FeatureIndex.ContentNearestNeighborScore] = ContentNearestNeighborScore;
     }
 }

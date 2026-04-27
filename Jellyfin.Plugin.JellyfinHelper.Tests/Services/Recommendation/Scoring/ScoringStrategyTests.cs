@@ -56,7 +56,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.8,
             CollaborativeScore = 0.5,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.3,
             YearProximityScore = 0.9,
             GenreCount = 3,
@@ -100,8 +100,8 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.0, vector[24]); // genreDominanceRatio (default 0)
         Assert.Equal(0.0, vector[25]); // genreAffinityGap (default 0)
         Assert.Equal(0.0, vector[26]); // libraryAddedRecency (default 0)
-        Assert.Equal(0.5, vector[27]); // criticRatingScore (default 0.5)
-        Assert.Equal(0.0, vector[28]); // contentNearestNeighborScore (default 0)
+        Assert.Equal(0.0, vector[27]); // contentNearestNeighborScore (default 0)
+        // vector[28] no longer exists (FeatureCount=28)
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public sealed class ScoringStrategyTests : IDisposable
         // IsAbandoned = 0.0 because HasUserInteraction defaults to false
         for (var i = 0; i < vector.Length; i++)
         {
-            if (i == 9 || i == 10 || i == 27) // UserRatingScore, CompletionRatio, CriticRatingScore default to 0.5
+            if (i == 9 || i == 10) // UserRatingScore, CompletionRatio, CombinedCriticScore default to 0.5
             {
                 Assert.Equal(0.5, vector[i]);
             }
@@ -179,7 +179,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 1.0,
             CollaborativeScore = 1.0,
-            RatingScore = 1.0,
+            CombinedCriticScore = 1.0,
             RecencyScore = 1.0,
             YearProximityScore = 1.0,
             GenreCount = 5, // normalizes to 1.0
@@ -192,7 +192,7 @@ public sealed class ScoringStrategyTests : IDisposable
 
         // With all basic features = 1.0 but new features (PeopleSimilarity, StudioMatch,
         // HasInteraction, SeriesProgressionBoost, PopularityScore, DayOfWeekAffinity) at defaults (0),
-        // the weighted sum varies with CriticRatingScore default (0.5) and reduced GenreCount/IsSeries weights.
+        // the weighted sum varies with CombinedCriticScore default (0.5) and reduced GenreCount/IsSeries weights.
         Assert.InRange(score, 0.75, 1.00);
     }
 
@@ -204,10 +204,10 @@ public sealed class ScoringStrategyTests : IDisposable
         var features = new CandidateFeatures { UserRatingScore = 0.0 };
 
         var score = strategy.Score(features);
-        // With all features at 0 except CompletionRatio default=0.5 and CriticRatingScore default=0.5:
-        // raw = 0.5 * CompletionRatio_weight (0.07) + 0.5 * CriticRatingScore_weight (0.03) = 0.035 + 0.015 = 0.050
+        // With all features at 0 except CompletionRatio default=0.5 and CombinedCriticScore default=0.5:
+        // raw = 0.5 * CompletionRatio_weight (0.07) + 0.5 * CombinedCriticScore_weight (0.03) = 0.035 + 0.015 = 0.050
         // genre penalty floor = 0.10 → 0.10 * 0.050 = 0.005
-        Assert.Equal(0.005, score, 4);
+        Assert.Equal(0.0035, score, 4);
     }
 
     [Fact]
@@ -219,10 +219,9 @@ public sealed class ScoringStrategyTests : IDisposable
 
         var score = strategy.Score(features);
 
-        // Default CompletionRatio=0.5, CriticRatingScore=0.5, HasUserInteraction=false → IsAbandoned=0
+        // Default CompletionRatio=0.5, CombinedCriticScore=0.5, HasUserInteraction=false → IsAbandoned=0
         var expected = (0.5 * DefaultWeights.GenreSimilarity)
-            + (0.5 * DefaultWeights.CompletionRatio)
-            + (0.5 * DefaultWeights.CriticRatingScore);
+            + (0.5 * DefaultWeights.CompletionRatio);
         Assert.Equal(expected, score, 4);
     }
 
@@ -235,24 +234,23 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.8,
             CollaborativeScore = 0.6,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.5,
             YearProximityScore = 0.9,
             UserRatingScore = 0.0,
             CompletionRatio = 0.0
         };
 
-        // CompletionRatio=0.0, CriticRatingScore defaults to 0.5 → adds 0.5 * CriticRatingScore weight
+        // CompletionRatio=0.0, CombinedCriticScore defaults to 0.5 → adds 0.5 * CombinedCriticScore weight
         var expected =
             (0.8 * DefaultWeights.GenreSimilarity) +
             (0.6 * DefaultWeights.CollaborativeScore) +
-            (0.7 * DefaultWeights.RatingScore) +
+            (0.7 * DefaultWeights.CombinedCriticScore) +
             (0.5 * DefaultWeights.RecencyScore) +
             (0.9 * DefaultWeights.YearProximityScore) +
-            (0.8 * 0.7 * DefaultWeights.GenreRatingInteraction) +
+            (0.8 * 0.7 * DefaultWeights.GenreCriticInteraction) +
             (0.8 * 0.6 * DefaultWeights.GenreCollabInteraction) +
-            (0.5 * 0.7 * DefaultWeights.RecencyRatingInteraction) +
-            (0.5 * DefaultWeights.CriticRatingScore); // CriticRating default 0.5
+            (0.5 * 0.7 * DefaultWeights.RecencyCriticInteraction);
 
         Assert.Equal(expected, strategy.Score(features), 4);
     }
@@ -265,22 +263,21 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.0, // no genre match → penalty floor = 0.10
             CollaborativeScore = 0.5,
-            RatingScore = 0.8,
+            CombinedCriticScore = 0.8,
             RecencyScore = 0.7,
             YearProximityScore = 0.9,
             UserRatingScore = 0.0,
             CompletionRatio = 0.0
         };
 
-        // CompletionRatio=0.0, CriticRatingScore defaults to 0.5
+        // CompletionRatio=0.0, CombinedCriticScore defaults to 0.5
         var rawExpected =
             (0.0 * DefaultWeights.GenreSimilarity) +
             (0.5 * DefaultWeights.CollaborativeScore) +
-            (0.8 * DefaultWeights.RatingScore) +
+            (0.8 * DefaultWeights.CombinedCriticScore) +
             (0.7 * DefaultWeights.RecencyScore) +
             (0.9 * DefaultWeights.YearProximityScore) +
-            (0.7 * 0.8 * DefaultWeights.RecencyRatingInteraction) +
-            (0.5 * DefaultWeights.CriticRatingScore);
+            (0.7 * 0.8 * DefaultWeights.RecencyCriticInteraction);
 
         // With genrePenaltyFloor=0.10 and GenreSimilarity=0.0, penalty = 0.10
         var expected = rawExpected * 0.10;
@@ -295,22 +292,21 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.0, // no genre match, but penalty disabled
             CollaborativeScore = 0.5,
-            RatingScore = 0.8,
+            CombinedCriticScore = 0.8,
             RecencyScore = 0.7,
             YearProximityScore = 0.9,
             UserRatingScore = 0.0,
             CompletionRatio = 0.0
         };
 
-        // CompletionRatio=0.0, CriticRatingScore defaults to 0.5
+        // CompletionRatio=0.0, CombinedCriticScore defaults to 0.5
         var expected =
             (0.0 * DefaultWeights.GenreSimilarity) +
             (0.5 * DefaultWeights.CollaborativeScore) +
-            (0.8 * DefaultWeights.RatingScore) +
+            (0.8 * DefaultWeights.CombinedCriticScore) +
             (0.7 * DefaultWeights.RecencyScore) +
             (0.9 * DefaultWeights.YearProximityScore) +
-            (0.7 * 0.8 * DefaultWeights.RecencyRatingInteraction) +
-            (0.5 * DefaultWeights.CriticRatingScore);
+            (0.7 * 0.8 * DefaultWeights.RecencyCriticInteraction);
 
         Assert.Equal(expected, strategy.Score(features), 4);
     }
@@ -324,7 +320,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var goodFeatures = new CandidateFeatures
         {
             GenreSimilarity = 0.8,
-            RatingScore = 0.6,
+            CombinedCriticScore = 0.6,
             RecencyScore = 0.5,
             UserRatingScore = 0.0,
             CompletionRatio = 0.0
@@ -334,7 +330,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var badFeatures = new CandidateFeatures
         {
             GenreSimilarity = 0.0,
-            RatingScore = 0.6,
+            CombinedCriticScore = 0.6,
             RecencyScore = 0.5,
             UserRatingScore = 0.0,
             CompletionRatio = 0.0
@@ -402,7 +398,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.8,
             CollaborativeScore = 0.5,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.3,
             YearProximityScore = 0.9,
             GenreCount = 3,
@@ -434,7 +430,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.9,
             CollaborativeScore = 0.5,
-            RatingScore = 0.8,
+            CombinedCriticScore = 0.8,
             RecencyScore = 0.5,
             YearProximityScore = 0.7,
             GenreCount = 3,
@@ -459,7 +455,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var goodFeatures = new CandidateFeatures
         {
             GenreSimilarity = 0.8,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.5,
             UserRatingScore = 0.0,
             CompletionRatio = 0.0
@@ -468,7 +464,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var badFeatures = new CandidateFeatures
         {
             GenreSimilarity = 0.0,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.5,
             UserRatingScore = 0.0,
             CompletionRatio = 0.0
@@ -543,7 +539,7 @@ public sealed class ScoringStrategyTests : IDisposable
                 {
                     GenreSimilarity = 0.9,
                     CollaborativeScore = 0.1,
-                    RatingScore = 0.8,
+                    CombinedCriticScore = 0.8,
                     RecencyScore = 0.5,
                     YearProximityScore = 0.7,
                     GenreCount = 3,
@@ -557,7 +553,7 @@ public sealed class ScoringStrategyTests : IDisposable
                 {
                     GenreSimilarity = 0.1,
                     CollaborativeScore = 0.9,
-                    RatingScore = 0.2,
+                    CombinedCriticScore = 0.2,
                     RecencyScore = 0.8,
                     YearProximityScore = 0.3,
                     GenreCount = 1,
@@ -597,7 +593,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var positiveFeatures = new CandidateFeatures
         {
             GenreSimilarity = 0.9,
-            RatingScore = 0.8,
+            CombinedCriticScore = 0.8,
             RecencyScore = 0.7,
             YearProximityScore = 0.8,
             GenreCount = 4
@@ -611,7 +607,7 @@ public sealed class ScoringStrategyTests : IDisposable
             examples.Add(new TrainingExample { Features = positiveFeatures, Label = 1.0 });
             examples.Add(new TrainingExample
             {
-                Features = new CandidateFeatures { GenreSimilarity = 0.1, RatingScore = 0.2 },
+                Features = new CandidateFeatures { GenreSimilarity = 0.1, CombinedCriticScore = 0.2 },
                 Label = 0.0
             });
         }
@@ -639,7 +635,7 @@ public sealed class ScoringStrategyTests : IDisposable
                 {
                     GenreSimilarity = 1.0,
                     CollaborativeScore = 1.0,
-                    RatingScore = 1.0,
+                    CombinedCriticScore = 1.0,
                     RecencyScore = 1.0,
                     YearProximityScore = 1.0,
                     GenreCount = 5,
@@ -680,7 +676,7 @@ public sealed class ScoringStrategyTests : IDisposable
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = 0.9,
-                    RatingScore = 0.8,
+                    CombinedCriticScore = 0.8,
                     GenreCount = 3
                 },
                 Label = 1.0
@@ -713,7 +709,7 @@ public sealed class ScoringStrategyTests : IDisposable
                 {
                     GenreSimilarity = 0.9,
                     CollaborativeScore = 0.8,
-                    RatingScore = 0.7,
+                    CombinedCriticScore = 0.7,
                     GenreCount = 2
                 },
                 Label = 1.0
@@ -801,7 +797,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.85, // Action + SciFi + Adventure overlap
             CollaborativeScore = 0.3,
-            RatingScore = 0.75,
+            CombinedCriticScore = 0.75,
             RecencyScore = 0.6,
             YearProximityScore = 0.8,
             GenreCount = 4
@@ -811,7 +807,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.0, // Horror — no overlap with Action/SciFi profile
             CollaborativeScore = 0.1,
-            RatingScore = 0.5,
+            CombinedCriticScore = 0.5,
             RecencyScore = 0.4,
             YearProximityScore = 0.7,
             GenreCount = 2
@@ -838,7 +834,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.85,
             CollaborativeScore = 0.3,
-            RatingScore = 0.75,
+            CombinedCriticScore = 0.75,
             RecencyScore = 0.6,
             YearProximityScore = 0.8,
             GenreCount = 4
@@ -848,7 +844,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.0,
             CollaborativeScore = 0.1,
-            RatingScore = 0.5,
+            CombinedCriticScore = 0.5,
             RecencyScore = 0.4,
             YearProximityScore = 0.7,
             GenreCount = 2
@@ -888,7 +884,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.7,
             CollaborativeScore = 0.4,
-            RatingScore = 0.6,
+            CombinedCriticScore = 0.6,
             RecencyScore = 0.5,
             YearProximityScore = 0.8,
             GenreCount = 3,
@@ -1009,7 +1005,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.0,
             CollaborativeScore = 0.0,
-            RatingScore = 0.0,
+            CombinedCriticScore = 0.0,
             RecencyScore = 0.0,
             YearProximityScore = 0.0,
             GenreCount = 0,
@@ -1023,7 +1019,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 1.0,
             CollaborativeScore = 1.0,
-            RatingScore = 1.0,
+            CombinedCriticScore = 1.0,
             RecencyScore = 1.0,
             YearProximityScore = 1.0,
             GenreCount = 5,
@@ -1043,7 +1039,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.85,
             CollaborativeScore = 0.3,
-            RatingScore = 0.75,
+            CombinedCriticScore = 0.75,
             RecencyScore = 0.6,
             YearProximityScore = 0.8,
             GenreCount = 4
@@ -1053,7 +1049,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.0,
             CollaborativeScore = 0.1,
-            RatingScore = 0.5,
+            CombinedCriticScore = 0.5,
             RecencyScore = 0.4,
             YearProximityScore = 0.7,
             GenreCount = 2
@@ -1094,7 +1090,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.6,
             CollaborativeScore = 0.3,
-            RatingScore = 0.8,
+            CombinedCriticScore = 0.8,
             RecencyScore = 0.4,
             YearProximityScore = 0.7,
             GenreCount = 2,
@@ -1129,7 +1125,7 @@ public sealed class ScoringStrategyTests : IDisposable
                 {
                     GenreSimilarity = isPositive ? 0.5 + (rng.NextDouble() * 0.5) : rng.NextDouble() * 0.3,
                     CollaborativeScore = rng.NextDouble(),
-                    RatingScore = 0.3 + (rng.NextDouble() * 0.7),
+                    CombinedCriticScore = 0.3 + (rng.NextDouble() * 0.7),
                     RecencyScore = rng.NextDouble(),
                     YearProximityScore = rng.NextDouble(),
                     GenreCount = rng.Next(1, 6),
@@ -1153,7 +1149,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = -0.5,
             CollaborativeScore = -1.0,
-            RatingScore = -0.3,
+            CombinedCriticScore = -0.3,
             RecencyScore = -2.0,
             YearProximityScore = -0.1,
             UserRatingScore = -0.5,
@@ -1162,7 +1158,7 @@ public sealed class ScoringStrategyTests : IDisposable
 
         Assert.Equal(0.0, features.GenreSimilarity);
         Assert.Equal(0.0, features.CollaborativeScore);
-        Assert.Equal(0.0, features.RatingScore);
+        Assert.Equal(0.0, features.CombinedCriticScore);
         Assert.Equal(0.0, features.RecencyScore);
         Assert.Equal(0.0, features.YearProximityScore);
         Assert.Equal(0.0, features.UserRatingScore);
@@ -1176,7 +1172,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 1.5,
             CollaborativeScore = 2.0,
-            RatingScore = 10.0,
+            CombinedCriticScore = 10.0,
             RecencyScore = 3.0,
             YearProximityScore = 1.1,
             UserRatingScore = 5.0,
@@ -1185,7 +1181,7 @@ public sealed class ScoringStrategyTests : IDisposable
 
         Assert.Equal(1.0, features.GenreSimilarity);
         Assert.Equal(1.0, features.CollaborativeScore);
-        Assert.Equal(1.0, features.RatingScore);
+        Assert.Equal(1.0, features.CombinedCriticScore);
         Assert.Equal(1.0, features.RecencyScore);
         Assert.Equal(1.0, features.YearProximityScore);
         Assert.Equal(1.0, features.UserRatingScore);
@@ -1200,7 +1196,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.8,
             CollaborativeScore = 0.5,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.3,
             YearProximityScore = 0.9,
             GenreCount = 3,
@@ -1226,7 +1222,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.7,
             CollaborativeScore = 0.4,
-            RatingScore = 0.6,
+            CombinedCriticScore = 0.6,
             RecencyScore = 0.5,
             YearProximityScore = 0.8,
             GenreCount = 2,
@@ -1248,7 +1244,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.0,
             CollaborativeScore = 0.5,
-            RatingScore = 0.8,
+            CombinedCriticScore = 0.8,
             UserRatingScore = 0.0,
             CompletionRatio = 0.0
         };
@@ -1264,7 +1260,7 @@ public sealed class ScoringStrategyTests : IDisposable
     public void Ensemble_ScoreWithExplanation_NoPenaltyForHighGenreSimilarity()
     {
         var strategy = new EnsembleScoringStrategy();
-        var features = new CandidateFeatures { GenreSimilarity = 0.8, RatingScore = 0.7 };
+        var features = new CandidateFeatures { GenreSimilarity = 0.8, CombinedCriticScore = 0.7 };
 
         var explanation = strategy.ScoreWithExplanation(features);
         Assert.Equal(1.0, explanation.GenrePenaltyMultiplier, 4);
@@ -1283,7 +1279,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.6,
             CollaborativeScore = 0.5,
-            RatingScore = 0.7
+            CombinedCriticScore = 0.7
         };
 
         Assert.InRange(lowAlpha.Score(features), 0.0, 1.0);
@@ -1300,7 +1296,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.0,
             CollaborativeScore = 0.8,
-            RatingScore = 0.9,
+            CombinedCriticScore = 0.9,
             UserRatingScore = 0.0,
             CompletionRatio = 0.0
         };
@@ -1336,7 +1332,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.5,
             CollaborativeScore = 0.3,
-            RatingScore = 0.6
+            CombinedCriticScore = 0.6
         };
 
         Assert.Equal(strategy.Score(features), strategy.Score(features), 15);
@@ -1512,12 +1508,12 @@ public sealed class ScoringStrategyTests : IDisposable
 
         Assert.Equal(DefaultWeights.GenreSimilarity, weights[(int)FeatureIndex.GenreSimilarity], 15);
         Assert.Equal(DefaultWeights.CollaborativeScore, weights[(int)FeatureIndex.CollaborativeScore], 15);
-        Assert.Equal(DefaultWeights.RatingScore, weights[(int)FeatureIndex.RatingScore], 15);
+        Assert.Equal(DefaultWeights.CombinedCriticScore, weights[(int)FeatureIndex.CombinedCriticScore], 15);
         Assert.Equal(DefaultWeights.RecencyScore, weights[(int)FeatureIndex.RecencyScore], 15);
         Assert.Equal(DefaultWeights.YearProximityScore, weights[(int)FeatureIndex.YearProximityScore], 15);
         Assert.Equal(DefaultWeights.GenreCountNormalized, weights[(int)FeatureIndex.GenreCountNormalized], 15);
         Assert.Equal(DefaultWeights.IsSeries, weights[(int)FeatureIndex.IsSeries], 15);
-        Assert.Equal(DefaultWeights.GenreRatingInteraction, weights[(int)FeatureIndex.GenreRatingInteraction], 15);
+        Assert.Equal(DefaultWeights.GenreCriticInteraction, weights[(int)FeatureIndex.GenreCriticInteraction], 15);
         Assert.Equal(DefaultWeights.GenreCollabInteraction, weights[(int)FeatureIndex.GenreCollabInteraction], 15);
         Assert.Equal(DefaultWeights.UserRatingScore, weights[(int)FeatureIndex.UserRatingScore], 15);
         Assert.Equal(DefaultWeights.CompletionRatio, weights[(int)FeatureIndex.CompletionRatio], 15);
@@ -1638,7 +1634,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.8,
             CollaborativeScore = 0.5,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.3,
             YearProximityScore = 0.4,
             GenreCount = 3,
@@ -1670,7 +1666,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.6,
             CollaborativeScore = 0.4,
-            RatingScore = 0.8,
+            CombinedCriticScore = 0.8,
             RecencyScore = 0.2,
             YearProximityScore = 0.5,
             GenreCount = 2,
@@ -1698,7 +1694,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.5,
             CollaborativeScore = 0.3,
-            RatingScore = 0.6,
+            CombinedCriticScore = 0.6,
             RecencyScore = 0.4,
             YearProximityScore = 0.5,
             GenreCount = 2,
@@ -1783,7 +1779,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.8,
             CollaborativeScore = 0.5,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.3,
             YearProximityScore = 0.9,
             GenreCount = 3,
@@ -1815,7 +1811,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.9,
             CollaborativeScore = 0.5,
-            RatingScore = 0.8,
+            CombinedCriticScore = 0.8,
             RecencyScore = 0.5,
             YearProximityScore = 0.7,
             GenreCount = 3,
@@ -1844,7 +1840,7 @@ public sealed class ScoringStrategyTests : IDisposable
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = 0.9,
-                    RatingScore = 0.7,
+                    CombinedCriticScore = 0.7,
                     RecencyScore = 0.5,
                     CollaborativeScore = 0.3
                 },
@@ -1855,7 +1851,7 @@ public sealed class ScoringStrategyTests : IDisposable
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = 0.0,
-                    RatingScore = 0.7,
+                    CombinedCriticScore = 0.7,
                     RecencyScore = 0.5,
                     CollaborativeScore = 0.3
                 },
@@ -1868,14 +1864,14 @@ public sealed class ScoringStrategyTests : IDisposable
         var goodFeatures = new CandidateFeatures
         {
             GenreSimilarity = 0.8,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.5
         };
 
         var badFeatures = new CandidateFeatures
         {
             GenreSimilarity = 0.0,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.5
         };
 
@@ -1913,7 +1909,7 @@ public sealed class ScoringStrategyTests : IDisposable
                 {
                     GenreSimilarity = 0.9,
                     CollaborativeScore = 0.1,
-                    RatingScore = 0.8,
+                    CombinedCriticScore = 0.8,
                     RecencyScore = 0.5,
                     YearProximityScore = 0.7,
                     GenreCount = 3,
@@ -1927,7 +1923,7 @@ public sealed class ScoringStrategyTests : IDisposable
                 {
                     GenreSimilarity = 0.1,
                     CollaborativeScore = 0.9,
-                    RatingScore = 0.2,
+                    CombinedCriticScore = 0.2,
                     RecencyScore = 0.8,
                     YearProximityScore = 0.3,
                     GenreCount = 1,
@@ -1949,7 +1945,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var positiveFeatures = new CandidateFeatures
         {
             GenreSimilarity = 0.9,
-            RatingScore = 0.8,
+            CombinedCriticScore = 0.8,
             RecencyScore = 0.7,
             YearProximityScore = 0.8,
             GenreCount = 4
@@ -1963,7 +1959,7 @@ public sealed class ScoringStrategyTests : IDisposable
             examples.Add(new TrainingExample { Features = positiveFeatures, Label = 1.0 });
             examples.Add(new TrainingExample
             {
-                Features = new CandidateFeatures { GenreSimilarity = 0.1, RatingScore = 0.2 },
+                Features = new CandidateFeatures { GenreSimilarity = 0.1, CombinedCriticScore = 0.2 },
                 Label = 0.0
             });
         }
@@ -1983,7 +1979,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.7,
             CollaborativeScore = 0.4,
-            RatingScore = 0.6,
+            CombinedCriticScore = 0.6,
             RecencyScore = 0.3,
             YearProximityScore = 0.5,
             GenreCount = 2,
@@ -2010,7 +2006,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.9,
-            RatingScore = 0.8,
+            CombinedCriticScore = 0.8,
             RecencyScore = 0.5
         };
 
@@ -2045,7 +2041,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 1.0,
             CollaborativeScore = 1.0,
-            RatingScore = 1.0,
+            CombinedCriticScore = 1.0,
             RecencyScore = 1.0,
             YearProximityScore = 1.0,
             GenreCount = 5,
@@ -2092,7 +2088,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.8,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.5,
             CollaborativeScore = 0.6
         };
@@ -2146,7 +2142,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.8,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.5,
             CollaborativeScore = 0.6,
             YearProximityScore = 0.4
@@ -2204,12 +2200,12 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             examples.Add(new TrainingExample
             {
-                Features = new CandidateFeatures { GenreSimilarity = 0.9, RatingScore = 0.8 },
+                Features = new CandidateFeatures { GenreSimilarity = 0.9, CombinedCriticScore = 0.8 },
                 Label = 1.0
             });
             examples.Add(new TrainingExample
             {
-                Features = new CandidateFeatures { GenreSimilarity = 0.1, RatingScore = 0.2 },
+                Features = new CandidateFeatures { GenreSimilarity = 0.1, CombinedCriticScore = 0.2 },
                 Label = 0.0
             });
         }
@@ -2223,7 +2219,7 @@ public sealed class ScoringStrategyTests : IDisposable
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.7,
-            RatingScore = 0.6,
+            CombinedCriticScore = 0.6,
             RecencyScore = 0.5
         };
 
@@ -2243,7 +2239,7 @@ public sealed class ScoringStrategyTests : IDisposable
         {
             fewExamples.Add(new TrainingExample
             {
-                Features = new CandidateFeatures { GenreSimilarity = 0.9, RatingScore = 0.8 },
+                Features = new CandidateFeatures { GenreSimilarity = 0.9, CombinedCriticScore = 0.8 },
                 Label = 1.0
             });
         }

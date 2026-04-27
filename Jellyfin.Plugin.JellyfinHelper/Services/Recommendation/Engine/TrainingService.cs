@@ -282,8 +282,8 @@ internal sealed class TrainingService
                 var collabScore = ContentScoring.ComputeCollaborativeScore(rec.ItemId, coOccurrence, collaborativeMax);
 
                 // Popularity proxy matching Engine.ScoreCandidate() logic
-                var ratingScore = ContentScoring.NormalizeRating(rec.CommunityRating);
-                var popularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : ratingScore * 0.3;
+                var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(rec.CommunityRating, rec.CriticRating);
+                var popularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : combinedCriticScore * 0.3;
 
                 // Series progression boost
                 var seriesProgressionBoost = 0.0;
@@ -314,7 +314,7 @@ internal sealed class TrainingService
                 {
                     GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(rec.Genres ?? [], genrePreferences),
                     CollaborativeScore = collabScore,
-                    RatingScore = ratingScore,
+                    CombinedCriticScore = combinedCriticScore,
                     RecencyScore = rec.PremiereDate.HasValue
                         ? ContentScoring.ComputeRecencyScore(rec.PremiereDate.Value)
                         : 0.5,
@@ -536,7 +536,7 @@ internal sealed class TrainingService
                 // Note: w.SeriesId is guaranteed null here because the if (w.SeriesId.HasValue)
                 // block above always exits with `continue`. Only non-series items reach this point.
                 var collabScore = ContentScoring.ComputeCollaborativeScore(w.ItemId, coOccurrence, collaborativeMax);
-                var ratingScore = ContentScoring.NormalizeRating(w.CommunityRating);
+                var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(w.CommunityRating, null); // CriticRating not available on WatchedItemInfo
                 // Gate completion fallback on w.Played to avoid mis-labeling favorite-only items
                 // as fully watched. Favorites without playback evidence get 0.0 completion.
                 double completionRatio;
@@ -615,7 +615,7 @@ internal sealed class TrainingService
                 {
                     GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(w.Genres ?? [], genrePreferences),
                     CollaborativeScore = collabScore,
-                    RatingScore = ratingScore,
+                    CombinedCriticScore = combinedCriticScore,
                     // Use content release year for recency (not watch date) to match Phase 1 semantics.
                     // Phase 1 uses rec.PremiereDate; organic items lack premiere metadata so
                     // approximate via ProductionYear, falling back to neutral 0.5.
@@ -631,7 +631,7 @@ internal sealed class TrainingService
                     PeopleSimilarity = peopleSimilarity,
                     StudioMatch = studioMatch,
                     SeriesProgressionBoost = seriesProgressionBoost,
-                    PopularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : ratingScore * 0.3,
+                    PopularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : combinedCriticScore * 0.3,
                     DayOfWeekAffinity = ComputeTrainingTemporalAffinity(w, w.Genres, userProfile, isDay: true),
                     HourOfDayAffinity = ComputeTrainingTemporalAffinity(w, w.Genres, userProfile, isDay: false),
                     IsWeekend = w.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
@@ -751,7 +751,7 @@ internal sealed class TrainingService
 
                     var neg = candidateNegatives[s];
                     var collabScore = ContentScoring.ComputeCollaborativeScore(neg.ItemId, coOccurrence, collaborativeMax);
-                    var ratingScore = ContentScoring.NormalizeRating(neg.CommunityRating);
+                    var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(neg.CommunityRating, neg.CriticRating);
                     var isSeries = string.Equals(neg.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
 
                     // Compute PeopleSimilarity from cached data (cross-user negative may have metadata).
@@ -768,7 +768,7 @@ internal sealed class TrainingService
                     {
                         GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(neg.Genres ?? [], genrePreferences),
                         CollaborativeScore = collabScore,
-                        RatingScore = ratingScore,
+                        CombinedCriticScore = combinedCriticScore,
                         RecencyScore = neg.PremiereDate.HasValue
                             ? ContentScoring.ComputeRecencyScore(neg.PremiereDate.Value)
                             : 0.5,
@@ -782,7 +782,7 @@ internal sealed class TrainingService
                         StudioMatch = negStudioMatch,
                         // SeriesProgressionBoost stays 0.0 — for cross-user negatives, the user
                         // has no episode history for that series, so 0 is the correct value.
-                        PopularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : ratingScore * 0.3,
+                        PopularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : combinedCriticScore * 0.3,
                         DayOfWeekAffinity = 0.5,
                         HourOfDayAffinity = 0.5,
                         IsWeekend = false,
@@ -1126,7 +1126,7 @@ internal sealed class TrainingService
 
         // Use seriesId for collaborative score (matches Phase 1 series scoring)
         var collabScore = ContentScoring.ComputeCollaborativeScore(seriesId, coOccurrence, collaborativeMax);
-        var ratingScore = ContentScoring.NormalizeRating(mostRecent?.CommunityRating);
+        var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(mostRecent?.CommunityRating, null);
 
         // Series progression boost (same formula as Phase 1 and Engine.ScoreCandidate)
         var seriesProgressionBoost = 0.0;
@@ -1178,7 +1178,7 @@ internal sealed class TrainingService
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genreList, genrePreferences),
             CollaborativeScore = collabScore,
-            RatingScore = ratingScore,
+            CombinedCriticScore = combinedCriticScore,
             // Use production year for recency (not watch date) to match Phase 1 semantics
             RecencyScore = representativeYear is int recY and >= 1 and <= 9999
                 ? ContentScoring.ComputeRecencyScore(new DateTime(recY, 7, 1))
@@ -1192,7 +1192,7 @@ internal sealed class TrainingService
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
             SeriesProgressionBoost = seriesProgressionBoost,
-            PopularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : ratingScore * 0.3,
+            PopularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : combinedCriticScore * 0.3,
             DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: true),
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: false),
             IsWeekend = mostRecent?.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,

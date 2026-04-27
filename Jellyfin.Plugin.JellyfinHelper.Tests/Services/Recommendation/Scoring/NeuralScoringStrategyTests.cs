@@ -258,7 +258,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.8,
             CollaborativeScore = 0.5,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.3,
             YearProximityScore = 0.9,
             GenreCount = 3,
@@ -286,7 +286,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.6,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             CollaborativeScore = 0.4
         };
 
@@ -308,7 +308,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.7,
             CollaborativeScore = 0.4,
-            RatingScore = 0.6,
+            CombinedCriticScore = 0.6,
             RecencyScore = 0.5,
             YearProximityScore = 0.8,
             GenreCount = 3,
@@ -330,7 +330,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.5,
-            RatingScore = 0.6,
+            CombinedCriticScore = 0.6,
             CollaborativeScore = 0.3
         };
 
@@ -448,7 +448,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
                 {
                     GenreSimilarity = 1.0,
                     CollaborativeScore = 1.0,
-                    RatingScore = 1.0,
+                    CombinedCriticScore = 1.0,
                     RecencyScore = 1.0,
                     YearProximityScore = 1.0,
                     GenreCount = 5,
@@ -567,7 +567,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         {
             GenreSimilarity = 0.7,
             CollaborativeScore = 0.4,
-            RatingScore = 0.6,
+            CombinedCriticScore = 0.6,
             RecencyScore = 0.5,
             YearProximityScore = 0.8
         };
@@ -812,7 +812,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.7,
-            RatingScore = 0.6,
+            CombinedCriticScore = 0.6,
             CollaborativeScore = 0.4
         };
 
@@ -828,7 +828,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     {
         var strategy = new NeuralScoringStrategy();
         var examples = GenerateExamples(20);
-        var features = new CandidateFeatures { GenreSimilarity = 0.5, RatingScore = 0.6 };
+        var features = new CandidateFeatures { GenreSimilarity = 0.5, CombinedCriticScore = 0.6 };
 
         var trainTask = Task.Run(() => strategy.Train(examples));
         var scoreTask = Task.Run(() =>
@@ -860,7 +860,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
                 {
                     GenreSimilarity = genreSim,
                     CollaborativeScore = rng.NextDouble(),
-                    RatingScore = rng.NextDouble(),
+                    CombinedCriticScore = rng.NextDouble(),
                     RecencyScore = rng.NextDouble(),
                     YearProximityScore = rng.NextDouble(),
                     GenreCount = rng.Next(0, 6),

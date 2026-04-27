@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 /// <summary>
 ///     Neural network scoring strategy using a three-hidden-layer MLP (Multi-Layer Perceptron).
 ///     Learns non-linear feature interactions from user watch history via backpropagation.
-///     Architecture: 29 inputs → 32 hidden₁ (ReLU) → 16 hidden₂ (ReLU) → 8 hidden₃ (ReLU) → 1 output (Sigmoid) = 1,633 parameters.
+///     Architecture: 28 inputs → 32 hidden₁ (ReLU) → 16 hidden₂ (ReLU) → 8 hidden₃ (ReLU) → 1 output (Sigmoid) = 1,633 parameters.
 ///     Optimized for NAS/Docker with limited hardware: zero-allocation scoring path,
 ///     pre-allocated training buffers, ~1,560 FP multiplications per score.
 ///     No external ML dependencies — pure C# implementation.
@@ -444,7 +444,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var interactionContrib =
                 attr[(int)FeatureIndex.GenreCountNormalized] +
                 attr[(int)FeatureIndex.IsSeries] +
-                attr[(int)FeatureIndex.GenreRatingInteraction] +
+                attr[(int)FeatureIndex.GenreCriticInteraction] +
                 attr[(int)FeatureIndex.GenreCollabInteraction] +
                 attr[(int)FeatureIndex.CompletionRatio] +
                 attr[(int)FeatureIndex.IsAbandoned] +
@@ -458,7 +458,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 FinalScore = score,
                 GenreContribution = attr[(int)FeatureIndex.GenreSimilarity],
                 CollaborativeContribution = attr[(int)FeatureIndex.CollaborativeScore],
-                RatingContribution = attr[(int)FeatureIndex.RatingScore],
+                RatingContribution = attr[(int)FeatureIndex.CombinedCriticScore],
                 RecencyContribution = attr[(int)FeatureIndex.RecencyScore],
                 YearProximityContribution = attr[(int)FeatureIndex.YearProximityScore],
                 UserRatingContribution = attr[(int)FeatureIndex.UserRatingScore],
@@ -469,7 +469,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 DominantSignal = ScoreExplanation.DetermineDominantSignal(
                     attr[(int)FeatureIndex.GenreSimilarity],
                     attr[(int)FeatureIndex.CollaborativeScore],
-                    attr[(int)FeatureIndex.RatingScore],
+                    attr[(int)FeatureIndex.CombinedCriticScore],
                     attr[(int)FeatureIndex.UserRatingScore],
                     attr[(int)FeatureIndex.RecencyScore],
                     attr[(int)FeatureIndex.YearProximityScore],

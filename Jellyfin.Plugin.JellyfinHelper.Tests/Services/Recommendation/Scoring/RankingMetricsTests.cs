@@ -211,7 +211,7 @@ public sealed class RankingMetricsTests
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = genreSim,
-                    RatingScore = rng.NextDouble(),
+                    CombinedCriticScore = rng.NextDouble(),
                     CollaborativeScore = rng.NextDouble()
                 },
                 Label = genreSim > 0.5 ? 0.85 : 0.1
@@ -337,7 +337,7 @@ public sealed class RankingMetricsTests
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = genreSim,
-                    RatingScore = rng.NextDouble(),
+                    CombinedCriticScore = rng.NextDouble(),
                     CollaborativeScore = rng.NextDouble()
                 },
                 Label = genreSim > 0.5 ? 0.9 : 0.05
@@ -435,7 +435,7 @@ public sealed class RankingMetricsTests
                 Features = new CandidateFeatures
                 {
                     GenreSimilarity = rng.NextDouble(),
-                    RatingScore = rng.NextDouble(),
+                    CombinedCriticScore = rng.NextDouble(),
                     CollaborativeScore = rng.NextDouble()
                 },
                 Label = rng.NextDouble()

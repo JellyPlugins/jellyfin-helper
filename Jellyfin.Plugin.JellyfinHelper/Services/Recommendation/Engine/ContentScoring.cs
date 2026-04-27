@@ -47,6 +47,48 @@ internal static class ContentScoring
     }
 
     /// <summary>
+    ///     Computes a combined critic score from TMDb community rating and Rotten Tomatoes
+    ///     Tomatometer. When both are available, TMDb is weighted 55% and Tomatometer 45%
+    ///     (TMDb slightly stronger because it reflects a broader audience perspective).
+    ///     When only one source is available, that source is used exclusively.
+    ///     Returns 0.5 (neutral) when neither source has data.
+    /// </summary>
+    /// <param name="communityRating">TMDb community rating (0–10), or null if unavailable.</param>
+    /// <param name="criticRating">Rotten Tomatoes Tomatometer (0–100%), or null if unavailable.</param>
+    /// <returns>A combined score between 0 and 1, or 0.5 if no data is available.</returns>
+    internal static double ComputeCombinedCriticScore(float? communityRating, float? criticRating)
+    {
+        var hasCommunity = communityRating.HasValue
+            && float.IsFinite(communityRating.Value)
+            && communityRating.Value > 0;
+        var hasCritic = criticRating.HasValue
+            && float.IsFinite(criticRating.Value)
+            && criticRating.Value > 0;
+
+        if (hasCommunity && hasCritic)
+        {
+            // Both available: 55% TMDb + 45% Tomatometer
+            var tmdb = Math.Clamp(communityRating!.Value / 10.0, 0.0, 1.0);
+            var tomatometer = Math.Clamp(criticRating!.Value / 100.0, 0.0, 1.0);
+            return Math.Clamp((0.55 * tmdb) + (0.45 * tomatometer), 0.0, 1.0);
+        }
+
+        if (hasCommunity)
+        {
+            // Only TMDb available
+            return Math.Clamp(communityRating!.Value / 10.0, 0.0, 1.0);
+        }
+
+        if (hasCritic)
+        {
+            // Only Tomatometer available
+            return Math.Clamp(criticRating!.Value / 100.0, 0.0, 1.0);
+        }
+
+        return 0.5; // Neither available — neutral fallback
+    }
+
+    /// <summary>
     ///     Normalizes a community rating (typically 0–10) to a 0–1 score.
     /// </summary>
     /// <param name="communityRating">The community rating value.</param>

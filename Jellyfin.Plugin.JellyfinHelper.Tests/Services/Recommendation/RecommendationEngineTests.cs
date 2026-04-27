@@ -976,7 +976,7 @@ public class RecommendationEngineTests
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.8,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.5
         };
 
@@ -992,7 +992,7 @@ public class RecommendationEngineTests
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.8,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.5
         };
 
@@ -1010,7 +1010,7 @@ public class RecommendationEngineTests
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.8,
-            RatingScore = 0.7,
+            CombinedCriticScore = 0.7,
             RecencyScore = 0.5
         };
 

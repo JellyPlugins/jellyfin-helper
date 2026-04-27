@@ -16,8 +16,8 @@ public static class DefaultWeights
     /// <summary>Weight for collaborative filtering signal (reduced from 0.11 to keep individual genre preference dominant).</summary>
     public const double CollaborativeScore = 0.09;
 
-    /// <summary>Weight for community rating signal.</summary>
-    public const double RatingScore = 0.07;
+    /// <summary>Weight for combined critic score signal (TMDb 55% + Tomatometer 45%).</summary>
+    public const double CombinedCriticScore = 0.07;
 
     /// <summary>Weight for recency signal (increased from 0.05 during genre rebalance).</summary>
     public const double RecencyScore = 0.06;
@@ -35,8 +35,8 @@ public static class DefaultWeights
     /// </summary>
     public const double IsSeries = 0.01;
 
-    /// <summary>Weight for genre × rating interaction signal.</summary>
-    public const double GenreRatingInteraction = 0.05;
+    /// <summary>Weight for genre × combined critic interaction signal.</summary>
+    public const double GenreCriticInteraction = 0.05;
 
     /// <summary>Weight for genre × collaborative interaction signal.</summary>
     public const double GenreCollabInteraction = 0.05;
@@ -130,9 +130,9 @@ public static class DefaultWeights
     public const double PeopleGenreInteraction = 0.03;
 
     /// <summary>
-    ///     Weight for recency × rating interaction (trending: new + highly rated).
+    ///     Weight for recency × combined critic interaction (trending: new + highly rated).
     /// </summary>
-    public const double RecencyRatingInteraction = 0.03;
+    public const double RecencyCriticInteraction = 0.03;
 
     /// <summary>
     ///     Negative weight for genre underexposure signal.
@@ -166,14 +166,6 @@ public static class DefaultWeights
     ///     A small weight so it acts as a supplementary freshness signal.
     /// </summary>
     public const double LibraryAddedRecency = 0.03;
-
-    /// <summary>
-    ///     Weight for critic rating (Rotten Tomatoes Tomatometer) signal.
-    ///     Complements CommunityRating (audience score) with professional critic consensus.
-    ///     Small weight because not all items have this metadata, and audience+critic
-    ///     agreement is already partially captured by CommunityRating alone.
-    /// </summary>
-    public const double CriticRatingScore = 0.03;
 
     /// <summary>
     ///     Weight for content-based nearest-neighbor signal.
@@ -215,12 +207,12 @@ public static class DefaultWeights
 
         Set(FeatureIndex.GenreSimilarity, GenreSimilarity);
         Set(FeatureIndex.CollaborativeScore, CollaborativeScore);
-        Set(FeatureIndex.RatingScore, RatingScore);
+        Set(FeatureIndex.CombinedCriticScore, CombinedCriticScore);
         Set(FeatureIndex.RecencyScore, RecencyScore);
         Set(FeatureIndex.YearProximityScore, YearProximityScore);
         Set(FeatureIndex.GenreCountNormalized, GenreCountNormalized);
         Set(FeatureIndex.IsSeries, IsSeries);
-        Set(FeatureIndex.GenreRatingInteraction, GenreRatingInteraction);
+        Set(FeatureIndex.GenreCriticInteraction, GenreCriticInteraction);
         Set(FeatureIndex.GenreCollabInteraction, GenreCollabInteraction);
         Set(FeatureIndex.UserRatingScore, UserRatingScore);
         Set(FeatureIndex.CompletionRatio, CompletionRatio);
@@ -235,12 +227,11 @@ public static class DefaultWeights
         Set(FeatureIndex.IsWeekend, IsWeekend);
         Set(FeatureIndex.TagSimilarity, TagSimilarity);
         Set(FeatureIndex.PeopleGenreInteraction, PeopleGenreInteraction);
-        Set(FeatureIndex.RecencyRatingInteraction, RecencyRatingInteraction);
+        Set(FeatureIndex.RecencyCriticInteraction, RecencyCriticInteraction);
         Set(FeatureIndex.GenreUnderexposure, GenreUnderexposure);
         Set(FeatureIndex.GenreDominanceRatio, GenreDominanceRatio);
         Set(FeatureIndex.GenreAffinityGap, GenreAffinityGap);
         Set(FeatureIndex.LibraryAddedRecency, LibraryAddedRecency);
-        Set(FeatureIndex.CriticRatingScore, CriticRatingScore);
         Set(FeatureIndex.ContentNearestNeighborScore, ContentNearestNeighborScore);
 
         // Guard: detect missing per-index assignments. The count check above catches
