@@ -134,6 +134,12 @@ public class CollaborativeFilterTests
     [Fact]
     public void BuildCollaborativeMap_IdfBoost_NicheItemsScoreHigher()
     {
+        // Setup: both nicheItem and mainstreamItem are recommended via the SAME single
+        // similar user (otherUser), so they receive identical Jaccard base weights.
+        // The only difference is item popularity:
+        //   - nicheItem is watched by 1 user (otherUser) -> IDF not applied (userCount=1)
+        //   - mainstreamItem is watched by 3 users -> IDF = 1/log2(1+3) = 0.5
+        // Therefore nicheItem should score higher than mainstreamItem.
         var shared1 = Guid.NewGuid();
         var shared2 = Guid.NewGuid();
         var shared3 = Guid.NewGuid();
@@ -151,7 +157,8 @@ public class CollaborativeFilterTests
             ]
         };
 
-        var nicheUser = new UserWatchProfile
+        // otherUser shares overlap with user and has BOTH items
+        var otherUser = new UserWatchProfile
         {
             UserId = Guid.NewGuid(),
             WatchedItems =
@@ -159,24 +166,35 @@ public class CollaborativeFilterTests
                 new WatchedItemInfo { ItemId = shared1, Played = true },
                 new WatchedItemInfo { ItemId = shared2, Played = true },
                 new WatchedItemInfo { ItemId = shared3, Played = true },
-                new WatchedItemInfo { ItemId = nicheItem, Played = true }
+                new WatchedItemInfo { ItemId = nicheItem, Played = true },
+                new WatchedItemInfo { ItemId = mainstreamItem, Played = true }
             ]
         };
 
-        var mainstreamUser = new UserWatchProfile
+        // popularUser1 and popularUser2 also watched mainstreamItem (inflating its popularity)
+        // but do NOT share enough overlap with user to contribute Jaccard scores.
+        // They only affect the itemPopularity count used by IDF.
+        var popularUser1 = new UserWatchProfile
         {
             UserId = Guid.NewGuid(),
             WatchedItems =
             [
-                new WatchedItemInfo { ItemId = shared1, Played = true },
-                new WatchedItemInfo { ItemId = shared2, Played = true },
-                new WatchedItemInfo { ItemId = shared3, Played = true },
                 new WatchedItemInfo { ItemId = mainstreamItem, Played = true },
-                new WatchedItemInfo { ItemId = nicheItem, Played = true }
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true }
             ]
         };
 
-        var allProfiles = new Collection<UserWatchProfile> { user, nicheUser, mainstreamUser };
+        var popularUser2 = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = mainstreamItem, Played = true },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true }
+            ]
+        };
+
+        var allProfiles = new Collection<UserWatchProfile> { user, otherUser, popularUser1, popularUser2 };
         var precomputed = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
         var map = CollaborativeFilter.BuildCollaborativeMap(user, allProfiles, precomputed);
 

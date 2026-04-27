@@ -101,7 +101,7 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.0, vector[25]); // genreAffinityGap (default 0)
         Assert.Equal(0.0, vector[26]); // libraryAddedRecency (default 0)
         Assert.Equal(0.0, vector[27]); // contentNearestNeighborScore (default 0)
-        // vector[28] no longer exists (FeatureCount=28)
+        Assert.Equal(0.5, vector[28]); // languageAffinity (default 0.5, not explicitly set)
     }
 
     [Fact]
@@ -511,6 +511,8 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(0.10, weights[24]); // genreDominanceRatio
         Assert.Equal(-0.08, weights[25]); // genreAffinityGap
         Assert.Equal(0.03, weights[26]); // libraryAddedRecency
+        Assert.Equal(0.02, weights[27]); // contentNearestNeighborScore
+        Assert.Equal(0.03, weights[28]); // languageAffinity
     }
 
     [Fact]

@@ -197,6 +197,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── UserActivitySummary.cs
 │   │   └── UserItemActivity.cs
 │   ├── Backup/
+│   │   ├── BackupData.cs        # Backup data model
 │   │   ├── BackupService.cs     # Create/restore backup
 │   │   ├── BackupValidator.cs   # Comprehensive input validation
 │   │   └── BackupSanitizer.cs   # Clamp/normalize values

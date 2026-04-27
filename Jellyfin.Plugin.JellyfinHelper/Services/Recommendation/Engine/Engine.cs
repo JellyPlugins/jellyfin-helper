@@ -144,7 +144,7 @@ public sealed class Engine : IRecommendationEngine
                 {
                     throw;
                 }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
+                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
                 {
                     _pluginLog.LogWarning(
                         "Recommendations",
