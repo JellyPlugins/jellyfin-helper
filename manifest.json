@@ -13,8 +13,8 @@
         "changelog": "v2.0.0.0: New Discover tab using an ensemble ML model to provide tailored content recommendations. This update also introduces granular activity tracking and improved system cleanup for uninstallation of this plugin. 2032 tests.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.0.0.0/JellyfinHelper_2.0.0.0.zip",
-        "checksum": "",
-        "timestamp": "2026-04-27T09:00:00Z"
+        "checksum": "5a8d6b807d5bef56236a09ff54f35613",
+        "timestamp": "2026-04-27T21:30:41Z"
       },
       {
         "version": "1.2.1.0",

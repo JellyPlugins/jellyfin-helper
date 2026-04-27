@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  v2.0.0.0: New Discover tab with ML-powered smart recommendations per user (ensemble scoring with heuristic + learned + neural MLP blend, genre/actor/director/studio affinity, watch profile analysis) and user activity insights (per-item play count, completion tracking, favorites). New services: Recommendation Engine, Watch History, Scoring Strategies, User Activity Insights. New API endpoints for recommendations and user activity. Dashboard expanded from 7 to 8 tabs. Documentation updated.
+  v2.0.0.0: New Discover tab using an ensemble ML model to provide tailored content recommendations. This update also introduces granular activity tracking and improved system cleanup for uninstallation of this plugin. 2032 tests.
