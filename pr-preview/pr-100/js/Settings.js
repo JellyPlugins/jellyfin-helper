@@ -707,19 +707,18 @@ function attachAutoSaveHandlers() {
                 // Update Recommendations tab visibility only after save succeeds
                 if (id === 'cfgRecommendationsMode') {
                     var isActive = el.value === 'Activate';
-                    // Only clear the persisted playlist preference when fully Deactivating.
-                    // DryRun keeps the saved choice so it returns when re-Activating.
-                    // DryRun must not create playlists — the toggle is greyed out (below),
-                    // but the user's preference survives the mode toggle.
-                    if (el.value === 'Deactivate') {
-                        var chkPre = document.getElementById('cfgSyncPlaylist');
-                        if (chkPre) chkPre.checked = false;
-                    }
                     doSaveSettings(buildSettingsPayload(), {
                         quiet: true,
                         element: el,
                         onSuccess: function () {
                             updateRecsTabVisibility(el.value);
+                            // Clear the persisted playlist preference only on Deactivate.
+                            // Performed inside onSuccess so the DOM stays in sync with the server
+                            // even if the save request fails.
+                            if (el.value === 'Deactivate') {
+                                var chkPost = document.getElementById('cfgSyncPlaylist');
+                                if (chkPost) chkPost.checked = false;
+                            }
                             // Update playlist sync toggle greyed-out state
                             var wrapper = document.getElementById('playlistSyncWrapper');
                             if (wrapper) {
