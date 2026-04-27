@@ -244,7 +244,8 @@ public class HelperCleanupTaskTests : IDisposable
             LinkRepairTaskMode = TaskMode.DryRun,
             SeerrCleanupTaskMode = TaskMode.DryRun,
             SeerrUrl = "http://localhost:5055",
-            SeerrApiKey = "test-key"
+            SeerrApiKey = "test-key",
+            RecommendationsTaskMode = TaskMode.DryRun
         };
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);

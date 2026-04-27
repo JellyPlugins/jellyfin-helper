@@ -57,7 +57,7 @@ public class UserActivityController : ControllerBase
     {
         if (!IsFeatureEnabled())
         {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, "User Activity insights are disabled in plugin configuration.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
 
         var cached = _cacheService.LoadResult();
@@ -90,7 +90,7 @@ public class UserActivityController : ControllerBase
     {
         if (!IsFeatureEnabled())
         {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, "User Activity insights are disabled in plugin configuration.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
 
         if (userId == Guid.Empty)

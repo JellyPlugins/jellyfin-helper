@@ -106,7 +106,9 @@ public sealed class UserActivityCacheServiceTests : IDisposable
         var loaded = _cacheService.LoadResult();
 
         Assert.NotNull(loaded);
-        Assert.Equal(original.TotalItemsWithActivity, loaded!.TotalItemsWithActivity);
+        Assert.Equal(original.GeneratedAt, loaded!.GeneratedAt);
+        Assert.Equal(DateTimeKind.Utc, loaded.GeneratedAt.Kind);
+        Assert.Equal(original.TotalItemsWithActivity, loaded.TotalItemsWithActivity);
         Assert.Equal(original.TotalUsersAnalyzed, loaded.TotalUsersAnalyzed);
         Assert.Equal(original.TotalPlayCount, loaded.TotalPlayCount);
         Assert.Single(loaded.Items);

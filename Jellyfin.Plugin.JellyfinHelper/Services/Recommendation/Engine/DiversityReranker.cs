@@ -97,7 +97,9 @@ internal static class DiversityReranker
         // Fill most slots via MMR, reserving the last ExplorationSlotCount slots
         // for random exploration picks. This guarantees the model receives diverse
         // feedback even when MMR converges on a narrow genre cluster.
-        var mmrSlotCount = Math.Max(0, count - EngineConstants.ExplorationSlotCount);
+        // Cap exploration at count-1 so small lists still get at least one relevance-driven pick.
+        var explorationSlots = Math.Min(EngineConstants.ExplorationSlotCount, Math.Max(0, count - 1));
+        var mmrSlotCount = count - explorationSlots;
 
         while (selected.Count < mmrSlotCount && remaining.Count > 0)
         {

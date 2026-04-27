@@ -11,7 +11,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.WatchHistory;
 
-public class WatchHistoryServiceTests
+public sealed class WatchHistoryServiceTests
 {
     private readonly Mock<ILibraryManager> _mockLibraryManager;
     private readonly Mock<IUserManager> _mockUserManager;

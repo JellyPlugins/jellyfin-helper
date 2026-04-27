@@ -350,7 +350,9 @@ internal sealed class TrainingService
                     // 2. Abandoned (started but stopped early): strong negative signal → 0.0
                     // 3. Normal watch: engagement-proportional label (0.5–0.85)
                     double baseLabel;
-                    if (watchedItemForRec is { IsFavorite: true, Played: false })
+                    if (watchedItemForRec is { IsFavorite: true, Played: false }
+                        && watchedItemForRec.PlaybackPositionTicks <= 0
+                        && watchedItemForRec.PlayCount <= 0)
                     {
                         baseLabel = 0.65; // Favorite-only: explicit interest without playback
                     }

@@ -80,10 +80,10 @@ public class RecommendationPlaylistServiceTests
                     var seriesId = query.AncestorIds[0];
                     if (seriesEpisodeMap != null && seriesEpisodeMap.TryGetValue(seriesId, out var episodeId))
                     {
-                        return new List<BaseItem> { new MediaBrowser.Controller.Entities.TV.Episode { Id = episodeId } };
+                        return new List<BaseItem> { new MediaBrowser.Controller.Entities.TV.Episode { Id = episodeId, Path = "/media/ep.mkv" } };
                     }
 
-                    return new List<BaseItem> { new MediaBrowser.Controller.Entities.TV.Episode { Id = Guid.NewGuid() } };
+                    return new List<BaseItem> { new MediaBrowser.Controller.Entities.TV.Episode { Id = Guid.NewGuid(), Path = "/media/ep.mkv" } };
                 }
 
                 return new List<BaseItem>();

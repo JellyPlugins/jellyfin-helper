@@ -1808,7 +1808,7 @@ public sealed class ScoringStrategyTests : IDisposable
     }
 
     [Fact]
-    public void Neural_Score_HighGenreMatch_ReturnsHighScore()
+    public void Neural_Score_HighGenreMatch_ReturnsScoreInValidRange()
     {
         var strategy = new NeuralScoringStrategy();
         var features = new CandidateFeatures

@@ -329,6 +329,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         // The query already uses IsFolder=false which excludes container items.
         var first = episodes
             .OfType<Episode>()
+            .Where(e => !string.IsNullOrEmpty(e.Path))
             .OrderBy(e => e.ParentIndexNumber.GetValueOrDefault() <= 0 ? 1 : 0) // Deprioritize season 0 / specials
             .ThenBy(e => e.ParentIndexNumber.GetValueOrDefault() <= 0 ? int.MaxValue : e.ParentIndexNumber!.Value)
             .ThenBy(e => e.IndexNumber ?? int.MaxValue)

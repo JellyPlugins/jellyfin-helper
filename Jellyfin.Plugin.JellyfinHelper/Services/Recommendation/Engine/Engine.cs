@@ -62,8 +62,8 @@ public sealed class Engine : IRecommendationEngine
     {
         cancellationToken.ThrowIfCancellationRequested();
         maxResults = Math.Clamp(maxResults, 1, EngineConstants.MaxRecommendationsPerUserLimit);
-        var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
-        var userProfile = allProfiles.FirstOrDefault(p => p.UserId == userId);
+
+        var userProfile = _watchHistoryService.GetUserWatchProfile(userId);
         if (userProfile is null)
         {
             // User not found in any watch profile — return null so the controller can 404.
@@ -76,6 +76,8 @@ public sealed class Engine : IRecommendationEngine
             // Reuse cached candidates from the last batch run if available to avoid redundant library queries
             return GenerateColdStartRecommendations(userId, maxResults, userProfile.UserName, _cachedSnapshot?.Candidates, userProfile.MaxParentalRating, userProfile, cancellationToken);
         }
+
+        var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
 
         // Reuse cached candidates/people from last batch run if available, otherwise load fresh
         var snapshot = _cachedSnapshot;

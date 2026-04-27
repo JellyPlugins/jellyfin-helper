@@ -234,7 +234,7 @@ public class UserActivityControllerTests
 
         var result = _controller.GetLatestActivity();
 
-        var statusResult = Assert.IsType<ObjectResult>(result.Result);
+        var statusResult = Assert.IsType<StatusCodeResult>(result.Result);
         Assert.Equal(503, statusResult.StatusCode);
     }
 
@@ -275,7 +275,7 @@ public class UserActivityControllerTests
 
         var result = _controller.GetUserActivity(Guid.NewGuid());
 
-        var statusResult = Assert.IsType<ObjectResult>(result.Result);
+        var statusResult = Assert.IsType<StatusCodeResult>(result.Result);
         Assert.Equal(503, statusResult.StatusCode);
     }
 

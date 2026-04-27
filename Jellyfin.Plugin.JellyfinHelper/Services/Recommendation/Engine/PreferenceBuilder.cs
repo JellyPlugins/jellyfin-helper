@@ -154,18 +154,21 @@ internal static class PreferenceBuilder
                 continue;
             }
 
-            if (item.Genres is not { Count: >= 2 })
+            // De-duplicate genres to prevent malformed metadata like ["Action", "Action", "Comedy"]
+            // from inflating co-occurrence counts (Action↔Comedy would be counted twice otherwise).
+            var distinctGenres = item.Genres
+                .Where(static g => !string.IsNullOrWhiteSpace(g))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            if (distinctGenres.Length < 2)
             {
                 continue;
             }
 
-            for (var i = 0; i < item.Genres.Count; i++)
+            for (var i = 0; i < distinctGenres.Length; i++)
             {
-                var g1 = item.Genres[i];
-                if (string.IsNullOrWhiteSpace(g1))
-                {
-                    continue;
-                }
+                var g1 = distinctGenres[i];
 
                 if (!cooccurrence.TryGetValue(g1, out var neighbors))
                 {
@@ -173,13 +176,9 @@ internal static class PreferenceBuilder
                     cooccurrence[g1] = neighbors;
                 }
 
-                for (var j = i + 1; j < item.Genres.Count; j++)
+                for (var j = i + 1; j < distinctGenres.Length; j++)
                 {
-                    var g2 = item.Genres[j];
-                    if (string.IsNullOrWhiteSpace(g2))
-                    {
-                        continue;
-                    }
+                    var g2 = distinctGenres[j];
 
                     neighbors.TryGetValue(g2, out var cnt);
                     neighbors[g2] = cnt + 1;
