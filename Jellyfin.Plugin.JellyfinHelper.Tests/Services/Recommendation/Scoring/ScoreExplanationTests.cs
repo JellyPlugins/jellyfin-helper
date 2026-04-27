@@ -331,6 +331,7 @@ public sealed class ScoreExplanationTests
 
         // Penalty is clamped to [0, 1], so 1.5 becomes 1.0 — FinalScore stays 0.9
         Assert.Equal(0.9, result.FinalScore, 10);
+        Assert.Equal(1.0, result.GenrePenaltyMultiplier, 10);
     }
 
     [Fact]

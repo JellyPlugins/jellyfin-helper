@@ -119,7 +119,15 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   └── ...
 ├── Services/
 │   ├── Activity/                  # User activity service tests
+│   ├── Arr/                       # Arr integration tests
 │   ├── Backup/                    # Backup/restore tests
+│   ├── Cleanup/                   # Cleanup task tests
+│   ├── ConfigAccess/              # Configuration access tests
+│   ├── Link/                      # Link repair tests
+│   ├── PluginLog/                 # Plugin log tests
+│   ├── Seerr/                     # Seerr integration tests
+│   ├── Statistics/                # Statistics service tests
+│   ├── Timeline/                  # Growth timeline tests
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
@@ -230,10 +238,14 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── RecommendationCacheService.cs
 │   │   ├── RecommendedItem.cs
 │   │   └── RecommendationResult.cs
+│   ├── Arr/                     # Radarr/Sonarr integration
 │   ├── Cleanup/                 # File cleanup services
+│   ├── ConfigAccess/            # Plugin configuration access
+│   ├── Link/                    # .strm/symlink repair
+│   ├── PluginLog/               # Structured plugin logging
+│   ├── Seerr/                   # Jellyseerr/Overseerr integration
 │   ├── Statistics/              # Media statistics
-│   ├── Timeline/                # Library growth tracking
-│   └── PluginLog/               # Structured plugin logging
+│   └── Timeline/                # Library growth tracking
 ├── ScheduledTasks/
 │   ├── HelperCleanupTask.cs         # Main orchestrator task
 │   ├── CleanTrickplayTask.cs

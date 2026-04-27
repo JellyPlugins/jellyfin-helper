@@ -37,9 +37,9 @@ internal static class EngineConstants
     internal const double FavoriteGenreBoostFactor = 3.0;
 
     /// <summary>
-    ///     Exponential decay constant for recency scoring (~365 day half-life).
+    ///     Half-life (in days) for recency scoring exponential decay.
     /// </summary>
-    internal const double RecencyDecayConstant = 0.0019;
+    internal const double RecencyHalfLifeDays = 365.0;
 
     /// <summary>
     ///     Gaussian denominator for year proximity (σ² × 2 = 200, so σ ≈ 10 years).
@@ -175,6 +175,12 @@ internal static class EngineConstants
     ///     providing the model with true "irrelevant" examples to sharpen the decision boundary.
     /// </summary>
     internal const int RandomNegativeSamplesPerUser = 5;
+
+    /// <summary>
+    ///     Exponential decay constant for recency scoring, derived from <see cref="RecencyHalfLifeDays"/>.
+    ///     Computed as ln(2) / halfLife so that exp(-λ × halfLife) = 0.5 exactly.
+    /// </summary>
+    internal static readonly double RecencyDecayConstant = Math.Log(2.0) / RecencyHalfLifeDays;
 
     /// <summary>
     ///     PersonKind types considered for people similarity scoring.

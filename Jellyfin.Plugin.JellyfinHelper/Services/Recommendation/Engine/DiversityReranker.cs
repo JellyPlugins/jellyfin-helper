@@ -59,13 +59,6 @@ internal static class DiversityReranker
         return result;
     }
 
-    /// <summary>
-    ///     Applies MMR (Maximal Marginal Relevance) re-ranking to balance relevance with diversity.
-    ///     Greedily selects items maximizing: λ × relevance - (1 - λ) × max_similarity_to_selected.
-    /// </summary>
-    /// <param name="candidates">All scored candidates.</param>
-    /// <param name="count">Number of items to select.</param>
-    /// <returns>The diversity-reranked top items.</returns>
     internal static List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>
         ApplyDiversityReranking(
             List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> candidates,

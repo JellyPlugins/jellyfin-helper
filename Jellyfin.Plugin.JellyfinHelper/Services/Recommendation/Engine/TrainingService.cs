@@ -462,15 +462,13 @@ internal sealed class TrainingService
             // exists, the episode-based aggregation path should always be preferred because
             // it produces richer training signals (per-episode completion, temporal features).
             var seriesWithOrgEpisodes = new HashSet<Guid>();
-            foreach (var candidate in userProfile.WatchedItems)
+            foreach (var candidate in userProfile.WatchedItems.Where(candidate =>
+                         candidate.SeriesId.HasValue
+                         && (candidate.Played || candidate.IsFavorite || candidate.PlayCount > 0 || candidate.PlaybackPositionTicks > 0)
+                         && !recommendedItemIds.Contains(candidate.ItemId)
+                         && !recommendedItemIds.Contains(candidate.SeriesId.Value)))
             {
-                if (candidate.SeriesId.HasValue
-                    && (candidate.Played || candidate.IsFavorite || candidate.PlayCount > 0 || candidate.PlaybackPositionTicks > 0)
-                    && !recommendedItemIds.Contains(candidate.ItemId)
-                    && !recommendedItemIds.Contains(candidate.SeriesId.Value))
-                {
-                    seriesWithOrgEpisodes.Add(candidate.SeriesId.Value);
-                }
+                seriesWithOrgEpisodes.Add(candidate.SeriesId!.Value);
             }
 
             // === Series aggregation: collapse episodes into one example per series ===
@@ -654,9 +652,9 @@ internal sealed class TrainingService
                     // Started but abandoned — active rejection signal
                     label = EngineConstants.AbandonedLabel;
                 }
-                else if (!w.Played)
+                else if (!w.Played && w.PlaybackPositionTicks <= 0)
                 {
-                    // Favorite-only or other non-played interaction — explicit interest
+                    // Favorite-only: explicit interest without playback
                     label = 0.65;
                 }
                 else

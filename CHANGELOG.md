@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
 
-## [Unreleased] — 2.0.0.0
+## [2.0.0.0] — YYYY-MM-DD
 
 ### Added
 - **Discover Tab** — New 8th dashboard tab "Discover" combining ML-powered smart recommendations and user activity insights in a single view. Includes `Recommendations.js`, `Recommendations.css` frontend modules with user selector, recommendation cards, activity summaries, and genre distribution charts.

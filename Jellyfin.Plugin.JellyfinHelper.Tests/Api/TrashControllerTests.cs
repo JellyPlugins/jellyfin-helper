@@ -32,14 +32,11 @@ public class TrashControllerTests : IDisposable
     {
         try
         {
-            if (Directory.Exists(_tempPath))
-            {
-                Directory.Delete(_tempPath, true);
-            }
+            Directory.Delete(_tempPath, true);
         }
         catch (DirectoryNotFoundException)
         {
-            // best-effort cleanup — directory may have been removed between Exists and Delete
+            // best-effort cleanup
         }
         catch (IOException)
         {

@@ -45,7 +45,15 @@ internal static class TemporalFeatures
 
         foreach (var w in userProfile.WatchedItems)
         {
-            if (!w.Played || !w.LastPlayedDate.HasValue)
+            if (!w.LastPlayedDate.HasValue)
+            {
+                continue;
+            }
+
+            // Include all items with real playback interaction (not just Played=true).
+            // This aligns with the broader interaction predicate used by TrainingService
+            // and Engine (Played || PlayCount > 0 || PlaybackPositionTicks > 0).
+            if (!w.Played && w.PlayCount <= 0 && w.PlaybackPositionTicks <= 0)
             {
                 continue;
             }
@@ -99,7 +107,15 @@ internal static class TemporalFeatures
 
         foreach (var w in userProfile.WatchedItems)
         {
-            if (!w.Played || !w.LastPlayedDate.HasValue)
+            if (!w.LastPlayedDate.HasValue)
+            {
+                continue;
+            }
+
+            // Include all items with real playback interaction (not just Played=true).
+            // This aligns with the broader interaction predicate used by TrainingService
+            // and Engine (Played || PlayCount > 0 || PlaybackPositionTicks > 0).
+            if (!w.Played && w.PlayCount <= 0 && w.PlaybackPositionTicks <= 0)
             {
                 continue;
             }

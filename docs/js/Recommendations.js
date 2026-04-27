@@ -9,7 +9,9 @@ function initRecommendationsTab() {
     // If browser-cache already has results (e.g. from a previous tab visit), render directly
     // without triggering another API call. This avoids expensive on-demand generation on every tab switch.
     // Also caches empty results (length === 0) so empty-state responses don't re-trigger the API.
-    if (window._recsResults !== undefined) {
+    // TTL: invalidate after 5 minutes so the UI picks up fresh results after the scheduled task runs.
+    var ttlMs = 5 * 60 * 1000; // 5 minutes
+    if (window._recsResults !== undefined && window._recsTimestamp && (Date.now() - window._recsTimestamp) < ttlMs) {
         var container = document.getElementById('recsContent');
         if (container) { renderRecommendations(container, window._recsResults); }
         return;
@@ -24,6 +26,7 @@ function loadRecommendations() {
     var reqId = ++_recsListReqId;
     apiGet('JellyfinHelper/Recommendations', function (data) {
         if (reqId !== _recsListReqId) return;
+        window._recsTimestamp = Date.now();
         renderRecommendations(container, data);
     }, function (err) {
         if (reqId !== _recsListReqId) return;
@@ -33,8 +36,10 @@ function loadRecommendations() {
 }
 
 function renderRecommendations(container, results) {
-    // Cache results (including empty) so tab re-visits don't re-trigger API calls
+    // Cache results (including empty) so tab re-visits don't re-trigger API calls.
+    // Timestamp tracks when the cache was populated for TTL-based invalidation.
     window._recsResults = results || [];
+    window._recsTimestamp = window._recsTimestamp || Date.now();
     if (!results || results.length === 0) {
         container.innerHTML = '<div class="recs-empty"><div class="recs-empty-icon">🤖</div><p>' + T('recsEmpty', 'No recommendations available yet. Run the "Helper Cleanup" scheduled task first.') + '</p></div>';
         return;
