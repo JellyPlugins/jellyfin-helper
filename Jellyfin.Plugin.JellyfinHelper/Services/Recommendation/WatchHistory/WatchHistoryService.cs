@@ -242,8 +242,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
             }
         }
 
-        // Check series-level favorites: users can favorite an entire series in Jellyfin.
-        // This UserData lives on the Series item itself, not on individual episodes.
+        // Check series-level favorites: users can favorite an entire series in Jellyfin
+        // (the heart button on the series page). This UserData lives on the Series item
+        // itself, not on individual episodes.
         allSeries ??= LoadAllSeriesItems();
 
         foreach (var series in allSeries)
@@ -252,10 +253,48 @@ public sealed class WatchHistoryService : IWatchHistoryService
             if (seriesUserData is not null && seriesUserData.IsFavorite)
             {
                 profile.FavoriteSeriesIds.Add(series.Id);
+                profile.FavoriteCount++;
+
+                // Create a synthetic WatchedItemInfo so that the series' genres, year,
+                // and community rating flow into PreferenceBuilder.BuildGenrePreferenceVector()
+                // with the FavoriteGenreBoostFactor (3×). Without this, favoriting a series
+                // only populates FavoriteSeriesIds (used for candidate exclusion) but does NOT
+                // influence genre preferences, studio preferences, or training labels.
+                profile.WatchedItems.Add(new WatchedItemInfo
+                {
+                    ItemId = series.Id,
+                    Name = series.Name ?? string.Empty,
+                    ItemType = nameof(Series),
+                    PlayCount = 0,
+                    LastPlayedDate = null,
+                    PlaybackPositionTicks = 0,
+                    RuntimeTicks = 0,
+                    Played = false,
+                    IsFavorite = true,
+                    UserRating = seriesUserData.Rating,
+                    CommunityRating = series.CommunityRating,
+                    Genres = series.Genres ?? [],
+                    Year = series.ProductionYear,
+                    SeriesId = null, // This IS the series itself, not an episode
+                    PrimaryImageTag = null
+                });
+
+                // Also accumulate genre distribution for series-level favorites
+                if (series.Genres is not null)
+                {
+                    foreach (var genre in series.Genres)
+                    {
+                        if (!string.IsNullOrWhiteSpace(genre))
+                        {
+                            profile.GenreDistribution.TryGetValue(genre, out var count);
+                            profile.GenreDistribution[genre] = count + 1;
+                        }
+                    }
+                }
             }
         }
 
-        // Build audio language profile from media stream selections
+        // Build audio language profile from media stream selections (video items only)
         BuildLanguageProfile(profile, user, allItems);
 
         profile.WatchedSeriesCount = watchedSeriesIds.Count;
