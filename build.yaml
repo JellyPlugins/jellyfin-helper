@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  v2.0.0.1: UI improvement — Recommendations and Watch Activity sections in the Discover tab are now collapsible. Collapsible state is preserved on user switch. Fixed flaky cache service test with unique temp file names for atomic writes. 2032 tests.
+  v2.0.0.1: UI improvement — Recommendations and Watch Activity sections in the Discover tab are now collapsible. Collapsible state is preserved on user switch. 2032 tests.
