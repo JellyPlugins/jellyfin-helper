@@ -13,8 +13,8 @@
         "changelog": "v2.0.0.1: UI improvement — Recommendations and Watch Activity sections in the Discover tab are now collapsible. Collapsible state is preserved on user switch. 2032 tests.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.0.0.1/JellyfinHelper_2.0.0.1.zip",
-        "checksum": "f57660445b03be1562014774f9e9899b",
-        "timestamp": "2026-04-28T10:27:55Z"
+        "checksum": "b7a1f2ddbd15f16528a8300dd9586024",
+        "timestamp": "2026-04-28T10:45:51Z"
       },
       {
         "version": "2.0.0.0",
