@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
 
+## [2.0.0.3] - 2026-07-05
+
+### Refactored
+- **Arr Settings** - Settings now use instance-based Radarr/Sonarr configuration; legacy single-instance fields removed. Language and plugin log level persist across saves. ARR instance resolution returns explicit instance lists only.
+
+### Added
+- **Recommendation Metadata** - Recommendations include audio language metadata and item creation dates; watched/exclusion now uses "meaningful interaction" predicates.
+
+### Improved
+- **Scoring & Training** - Centralized popularity scoring, richer training feature construction, series aggregation, and weight schema version bumped.
+
+### Tests
+- Unit tests updated for new defaults and weight-version expectations.
+
+---
+
 ## [2.0.0.2] - 2026-05-02
 
 ### Changed
