@@ -572,7 +572,9 @@ public sealed class Engine : IRecommendationEngine
                 PrimaryImageTag = s.Item.HasImage(ImageType.Primary) ? s.Item.Id.ToString("N") : null,
                 PeopleNames = peopleLookup.TryGetValue(s.Item.Id, out var people) ? [.. people] : [],
                 Studios = s.Item.Studios ?? [],
-                Tags = s.Item.Tags ?? []
+                Tags = s.Item.Tags ?? [],
+                AudioLanguages = ResolveAudioLanguages(s.Item),
+                DateCreated = s.Item.DateCreated
             })
             .ToList();
 
@@ -827,6 +829,48 @@ public sealed class Engine : IRecommendationEngine
         }
 
         return bestAffinity;
+    }
+
+    /// <summary>
+    ///     Resolves the normalized audio language codes available for a candidate item.
+    ///     Used to persist language data in <see cref="RecommendedItem"/> for training feature parity.
+    ///     Returns an empty list if no audio stream data is available (graceful fallback).
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>A list of distinct, normalized ISO 639 language codes.</returns>
+    private static List<string> ResolveAudioLanguages(BaseItem candidate)
+    {
+        try
+        {
+            var streams = candidate.GetMediaStreams();
+            if (streams is null)
+            {
+                return [];
+            }
+
+            var languages = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var s in streams)
+            {
+                if (s.Type != MediaStreamType.Audio)
+                {
+                    continue;
+                }
+
+                var normalized = WatchHistoryService.NormalizeLanguage(s.Language);
+                if (!string.IsNullOrEmpty(normalized) && seen.Add(normalized))
+                {
+                    languages.Add(normalized);
+                }
+            }
+
+            return languages;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return []; // Graceful: no stream data available
+        }
     }
 
     /// <summary>

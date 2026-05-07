@@ -235,6 +235,35 @@ internal sealed class TrainingService
                 list.Add(w);
             }
 
+            // Build watched genre/people/studio sets for ContentNearestNeighborScore computation.
+            // Mirrors Engine.GenerateForUser() logic: parallel lists indexed by watched item.
+            var watchedGenreSets = new List<HashSet<string>>();
+            var watchedPeopleSets = new List<HashSet<string>>();
+            var watchedStudioSets = new List<HashSet<string>>();
+            foreach (var w in userProfile.WatchedItems.Where(w => w.Played || w.IsFavorite))
+            {
+                watchedGenreSets.Add(
+                    w.Genres is { Count: > 0 }
+                        ? new HashSet<string>(w.Genres, StringComparer.OrdinalIgnoreCase)
+                        : []);
+
+                watchedPeopleSets.Add(
+                    cachedPeopleLookup.TryGetValue(w.ItemId, out var wp) ? wp : []);
+
+                HashSet<string> studioSet = [];
+                if (itemStudiosLookup.TryGetValue(w.ItemId, out var ws) && ws.Count > 0)
+                {
+                    studioSet = new HashSet<string>(ws, StringComparer.OrdinalIgnoreCase);
+                }
+                else if (w.SeriesId.HasValue
+                         && itemStudiosLookup.TryGetValue(w.SeriesId.Value, out var ss) && ss.Count > 0)
+                {
+                    studioSet = new HashSet<string>(ss, StringComparer.OrdinalIgnoreCase);
+                }
+
+                watchedStudioSets.Add(studioSet);
+            }
+
             foreach (var rec in prevResult.Recommendations)
             {
                 var wasWatched = watchedIds.Contains(rec.ItemId)
@@ -354,7 +383,17 @@ internal sealed class TrainingService
                         isDay: false),
                     IsWeekend = watchedItemForRec?.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
                     TagSimilarity = tagSimilarity,
-                    LibraryAddedRecency = 0.5
+                    LibraryAddedRecency = rec.DateCreated.HasValue
+                        ? ContentScoring.ComputeRecencyScore(rec.DateCreated.Value)
+                        : 0.5,
+                    ContentNearestNeighborScore = ComputeContentNearestNeighborFromCache(
+                        rec.Genres,
+                        rec.PeopleNames,
+                        rec.Studios,
+                        watchedGenreSets,
+                        watchedPeopleSets,
+                        watchedStudioSets),
+                    LanguageAffinity = ComputeLanguageAffinityFromCache(rec.AudioLanguages, userProfile)
                 };
 
                 // Genre exposure features: compute from cached per-user analysis
@@ -819,7 +858,10 @@ internal sealed class TrainingService
                         HourOfDayAffinity = 0.5,
                         IsWeekend = false,
                         TagSimilarity = negTagSimilarity,
-                        LibraryAddedRecency = 0.5
+                        LibraryAddedRecency = neg.DateCreated.HasValue
+                            ? ContentScoring.ComputeRecencyScore(neg.DateCreated.Value)
+                            : 0.5,
+                        LanguageAffinity = ComputeLanguageAffinityFromCache(neg.AudioLanguages, userProfile)
                     };
 
                     // Genre exposure features
@@ -1287,5 +1329,101 @@ internal sealed class TrainingService
 
         var candidateSet = new HashSet<string>(candidateTags, StringComparer.OrdinalIgnoreCase);
         return SimilarityComputer.ComputeJaccardFromSets(candidateSet, preferredTags);
+    }
+
+    /// <summary>
+    ///     Computes ContentNearestNeighborScore from cached recommendation data.
+    ///     Mirrors <see cref="ContentScoring.ComputeContentNearestNeighborScore"/> but works with
+    ///     <see cref="IReadOnlyList{T}"/> from cached <see cref="RecommendedItem"/> data.
+    ///     Returns 0.0 when no watched items or candidate metadata is available.
+    /// </summary>
+    private static double ComputeContentNearestNeighborFromCache(
+        IReadOnlyList<string> candidateGenres,
+        IReadOnlyList<string> candidatePeople,
+        IReadOnlyList<string> candidateStudios,
+        List<HashSet<string>> watchedGenreSets,
+        List<HashSet<string>> watchedPeopleSets,
+        List<HashSet<string>> watchedStudioSets)
+    {
+        if (watchedGenreSets.Count == 0 || candidateGenres.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var candidateGenreSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        HashSet<string>? candidatePeopleSet = candidatePeople.Count > 0
+            ? new HashSet<string>(candidatePeople, StringComparer.OrdinalIgnoreCase)
+            : null;
+        HashSet<string>? candidateStudioSet = candidateStudios.Count > 0
+            ? new HashSet<string>(candidateStudios, StringComparer.OrdinalIgnoreCase)
+            : null;
+
+        return ContentScoring.ComputeContentNearestNeighborScore(
+            candidateGenreSet,
+            candidatePeopleSet,
+            candidateStudioSet,
+            watchedGenreSets,
+            watchedPeopleSets,
+            watchedStudioSets);
+    }
+
+    /// <summary>
+    ///     Computes LanguageAffinity from cached audio language data stored on <see cref="RecommendedItem"/>.
+    ///     Mirrors <see cref="Engine.ComputeLanguageAffinity"/> but works with pre-resolved language lists
+    ///     instead of live <c>BaseItem.GetMediaStreams()</c> calls.
+    ///     Returns 0.5 (neutral) when no language data is available on either side.
+    /// </summary>
+    private static double ComputeLanguageAffinityFromCache(
+        IReadOnlyList<string> candidateAudioLanguages,
+        UserWatchProfile userProfile)
+    {
+        if (candidateAudioLanguages.Count == 0 || userProfile.LanguageProfile.Count == 0)
+        {
+            return 0.5;
+        }
+
+        var primaryLang = userProfile.PrimaryLanguage;
+        var preferredLangs = userProfile.PreferredLanguages;
+        var toleratedLangs = userProfile.ToleratedLanguages;
+
+        var bestAffinity = 0.1;
+
+        foreach (var lang in candidateAudioLanguages)
+        {
+            double affinity;
+
+            if (string.Equals(lang, primaryLang, StringComparison.OrdinalIgnoreCase))
+            {
+                affinity = 1.0;
+            }
+            else if (preferredLangs.Contains(lang))
+            {
+                affinity = 0.85;
+            }
+            else if (toleratedLangs.Contains(lang))
+            {
+                affinity = 0.5;
+            }
+            else if (userProfile.LanguageProfile.ContainsKey(lang))
+            {
+                affinity = 0.3;
+            }
+            else
+            {
+                affinity = 0.1;
+            }
+
+            if (affinity > bestAffinity)
+            {
+                bestAffinity = affinity;
+            }
+
+            if (bestAffinity >= 1.0)
+            {
+                break;
+            }
+        }
+
+        return bestAffinity;
     }
 }

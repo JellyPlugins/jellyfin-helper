@@ -8,6 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 /// </summary>
 public sealed class RecommendedItem
 {
+    private IReadOnlyList<string> _audioLanguages = [];
     private IReadOnlyList<string> _genres = [];
     private IReadOnlyList<string> _peopleNames = [];
     private IReadOnlyList<string> _studios = [];
@@ -125,4 +126,23 @@ public sealed class RecommendedItem
         get => _tags;
         set => _tags = value ?? [];
     }
+
+    /// <summary>
+    ///     Gets or sets the normalized audio language codes available for this item.
+    ///     Stored for training feature parity: allows TrainingService to compute
+    ///     LanguageAffinity from cached recommendations without re-querying media streams.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<string> AudioLanguages
+    {
+        get => _audioLanguages;
+        set => _audioLanguages = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the date the item was added to the Jellyfin library.
+    ///     Stored for training feature parity: allows TrainingService to compute
+    ///     LibraryAddedRecency from cached recommendations without re-querying the library.
+    /// </summary>
+    public DateTime? DateCreated { get; set; }
 }
