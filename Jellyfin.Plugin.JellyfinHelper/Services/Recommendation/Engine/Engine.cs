@@ -440,12 +440,11 @@ public sealed class Engine : IRecommendationEngine
         // into preferences via PreferenceBuilder.
         var watchedIds = new HashSet<Guid>(
             userProfile.WatchedItems
-                .Where(w => w.Played || w.IsFavorite || w.PlayCount > 0 || w.PlaybackPositionTicks > 0)
+                .Where(w => w.HasMeaningfulInteraction())
                 .Select(w => w.ItemId));
         var watchedSeriesIds = new HashSet<Guid>(
             userProfile.WatchedItems
-                .Where(w => (w.Played || w.IsFavorite || w.PlayCount > 0 || w.PlaybackPositionTicks > 0) &&
-                            w.SeriesId.HasValue)
+                .Where(w => w.HasMeaningfulInteraction() && w.SeriesId.HasValue)
                 .Select(w => w.SeriesId!.Value));
 
         // Also include series-level favorites (user favorited the series itself, not individual episodes)
@@ -677,8 +676,8 @@ public sealed class Engine : IRecommendationEngine
             }
         }
 
-        // Popularity proxy from collaborative scores
-        var popularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : combinedCriticScore * 0.3;
+        // Popularity proxy from collaborative scores (centralized formula)
+        var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);
 
         // Build feature vector and delegate scoring to strategy
         var features = new CandidateFeatures

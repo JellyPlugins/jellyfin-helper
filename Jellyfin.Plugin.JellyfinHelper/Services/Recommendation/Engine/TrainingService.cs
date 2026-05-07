@@ -97,7 +97,7 @@ internal sealed class TrainingService
         {
             profileLookup[profile.UserId] = new HashSet<Guid>(
                 profile.WatchedItems
-                    .Where(w => w.Played || w.IsFavorite || w.PlayCount > 0 || w.PlaybackPositionTicks > 0)
+                    .Where(w => w.HasMeaningfulInteraction())
                     .Select(w => w.ItemId));
         }
 
@@ -108,8 +108,7 @@ internal sealed class TrainingService
         {
             var seriesIds = new HashSet<Guid>(
                 profile.WatchedItems
-                    .Where(w => (w.Played || w.IsFavorite || w.PlayCount > 0 || w.PlaybackPositionTicks > 0) &&
-                                w.SeriesId.HasValue)
+                    .Where(w => w.HasMeaningfulInteraction() && w.SeriesId.HasValue)
                     .Select(w => w.SeriesId!.Value));
 
             // Also include series-level favorites (user favorited the series itself, not individual episodes)
@@ -492,8 +491,7 @@ internal sealed class TrainingService
             var seriesWithOrgEpisodes = new HashSet<Guid>();
             foreach (var candidate in userProfile.WatchedItems.Where(candidate =>
                          candidate.SeriesId.HasValue
-                         && (candidate.Played || candidate.IsFavorite || candidate.PlayCount > 0 ||
-                             candidate.PlaybackPositionTicks > 0)
+                         && candidate.HasMeaningfulInteraction()
                          && !recommendedItemIds.Contains(candidate.ItemId)
                          && !recommendedItemIds.Contains(candidate.SeriesId.Value)))
             {
@@ -510,8 +508,7 @@ internal sealed class TrainingService
             foreach (var w in userProfile.WatchedItems)
             {
                 // Include played OR favorited items that were NEVER recommended (organic discoveries).
-                var hasAnyInteraction = w.Played || w.IsFavorite || w.PlayCount > 0 || w.PlaybackPositionTicks > 0;
-                if (!hasAnyInteraction || recommendedItemIds.Contains(w.ItemId))
+                if (!w.HasMeaningfulInteraction() || recommendedItemIds.Contains(w.ItemId))
                 {
                     continue;
                 }
@@ -988,9 +985,7 @@ internal sealed class TrainingService
 
         foreach (var w in userProfile.WatchedItems)
         {
-            // Match the same interaction criteria used by profileLookup (line 95):
-            // Played, IsFavorite, PlayCount > 0, or PlaybackPositionTicks > 0.
-            if (w is { Played: false, IsFavorite: false, PlayCount: <= 0, PlaybackPositionTicks: <= 0 })
+            if (!w.HasMeaningfulInteraction())
             {
                 continue;
             }
@@ -1034,9 +1029,7 @@ internal sealed class TrainingService
 
         foreach (var w in userProfile.WatchedItems)
         {
-            // Match the same interaction criteria used by profileLookup (line 95):
-            // Played, IsFavorite, PlayCount > 0, or PlaybackPositionTicks > 0.
-            if (w is { Played: false, IsFavorite: false, PlayCount: <= 0, PlaybackPositionTicks: <= 0 })
+            if (!w.HasMeaningfulInteraction())
             {
                 continue;
             }

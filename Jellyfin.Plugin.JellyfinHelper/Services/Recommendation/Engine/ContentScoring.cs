@@ -323,6 +323,23 @@ internal static class ContentScoring
     }
 
     /// <summary>
+    ///     Computes a popularity proxy score from collaborative and critic signals.
+    ///     When collaborative data is available, uses a scaled collaborative score.
+    ///     Otherwise falls back to a fraction of the combined critic score.
+    ///     Centralized here to ensure consistent computation across Engine.ScoreCandidate()
+    ///     and TrainingService (all training phases).
+    /// </summary>
+    /// <param name="collaborativeScore">The normalized collaborative score (0–1).</param>
+    /// <param name="combinedCriticScore">The combined critic score (0–1).</param>
+    /// <returns>A popularity score between 0 and 1.</returns>
+    internal static double ComputePopularityScore(double collaborativeScore, double combinedCriticScore)
+    {
+        return collaborativeScore > 0
+            ? Math.Clamp(collaborativeScore * 0.8, 0.0, 1.0)
+            : combinedCriticScore * 0.3;
+    }
+
+    /// <summary>
     ///     Computes the Jaccard similarity coefficient between two string sets.
     ///     Jaccard = |intersection| / |union|. Returns 0 when both sets are empty.
     /// </summary>

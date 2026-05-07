@@ -89,4 +89,24 @@ public sealed class WatchedItemInfo
     ///     Gets or sets the primary image tag for poster display.
     /// </summary>
     public string? PrimaryImageTag { get; set; }
+
+    /// <summary>
+    ///     Determines whether this item represents a meaningful user interaction.
+    ///     Centralized predicate used across the recommendation engine to ensure consistent
+    ///     filtering logic (TrainingService, Engine, PreferenceBuilder).
+    ///     An item has meaningful interaction if: Played, IsFavorite, PlayCount &gt; 0,
+    ///     or PlaybackPositionTicks &gt; 0.
+    /// </summary>
+    /// <returns>True if the user has meaningfully interacted with this item.</returns>
+    public bool HasMeaningfulInteraction()
+        => Played || IsFavorite || PlayCount > 0 || PlaybackPositionTicks > 0;
+
+    /// <summary>
+    ///     Determines whether this item has real playback activity (excluding favorite-only items).
+    ///     Used for temporal affinity calculations where actual viewing timestamps matter.
+    ///     An item has playback activity if: Played, PlayCount &gt; 0, or PlaybackPositionTicks &gt; 0.
+    /// </summary>
+    /// <returns>True if the user has actually started playing this item.</returns>
+    public bool HasPlaybackActivity()
+        => Played || PlayCount > 0 || PlaybackPositionTicks > 0;
 }
