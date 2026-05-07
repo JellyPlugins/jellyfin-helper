@@ -702,7 +702,9 @@ internal sealed class TrainingService
                     HourOfDayAffinity = ComputeTrainingTemporalAffinity(w, wGenres, userProfile, isDay: false),
                     IsWeekend = w.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
                     TagSimilarity = tagSimilarity,
-                    LibraryAddedRecency = 0.5
+                    LibraryAddedRecency = w.DateCreated.HasValue
+                        ? ContentScoring.ComputeRecencyScore(w.DateCreated.Value)
+                        : 0.5
                 };
 
                 // Genre exposure features: compute from cached per-user analysis (mirrors Phase 1)
@@ -788,6 +790,32 @@ internal sealed class TrainingService
                 var preferredStudiosNeg = BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
                 var preferredTagsNeg = BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
 
+                // Build watched genre/people/studio sets for ContentNearestNeighborScore (mirrors Phase 1).
+                var watchedGenreSetsNeg = new List<HashSet<string>>();
+                var watchedPeopleSetsNeg = new List<HashSet<string>>();
+                var watchedStudioSetsNeg = new List<HashSet<string>>();
+                foreach (var w in userProfile.WatchedItems.Where(w => w.Played || w.IsFavorite))
+                {
+                    watchedGenreSetsNeg.Add(
+                        w.Genres is { Count: > 0 }
+                            ? new HashSet<string>(w.Genres, StringComparer.OrdinalIgnoreCase)
+                            : []);
+                    watchedPeopleSetsNeg.Add(
+                        cachedPeopleLookup.TryGetValue(w.ItemId, out var wpn) ? wpn : []);
+                    HashSet<string> studioSetN = [];
+                    if (itemStudiosLookup.TryGetValue(w.ItemId, out var wsn) && wsn.Count > 0)
+                    {
+                        studioSetN = new HashSet<string>(wsn, StringComparer.OrdinalIgnoreCase);
+                    }
+                    else if (w.SeriesId.HasValue
+                             && itemStudiosLookup.TryGetValue(w.SeriesId.Value, out var ssn) && ssn.Count > 0)
+                    {
+                        studioSetN = new HashSet<string>(ssn, StringComparer.OrdinalIgnoreCase);
+                    }
+
+                    watchedStudioSetsNeg.Add(studioSetN);
+                }
+
                 // Collect candidate negatives: items recommended to others but not interacted with by this user
                 var candidateNegatives = new List<RecommendedItem>();
                 foreach (var rec in allRecommendedItems)
@@ -861,6 +889,13 @@ internal sealed class TrainingService
                         LibraryAddedRecency = neg.DateCreated.HasValue
                             ? ContentScoring.ComputeRecencyScore(neg.DateCreated.Value)
                             : 0.5,
+                        ContentNearestNeighborScore = ComputeContentNearestNeighborFromCache(
+                            negGenres,
+                            neg.PeopleNames,
+                            negStudios,
+                            watchedGenreSetsNeg,
+                            watchedPeopleSetsNeg,
+                            watchedStudioSetsNeg),
                         LanguageAffinity = ComputeLanguageAffinityFromCache(neg.AudioLanguages, userProfile)
                     };
 
@@ -1278,7 +1313,12 @@ internal sealed class TrainingService
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: false),
             IsWeekend = mostRecent?.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
             TagSimilarity = tagSimilarity,
-            LibraryAddedRecency = 0.5
+            LibraryAddedRecency = episodes.Where(e => e.DateCreated.HasValue)
+                .Select(e => e.DateCreated!.Value)
+                .DefaultIfEmpty()
+                .Min() is var minDate && minDate != default
+                ? ContentScoring.ComputeRecencyScore(minDate)
+                : 0.5
         };
 
         // Genre exposure features

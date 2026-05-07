@@ -272,7 +272,9 @@ public sealed class Engine : IRecommendationEngine
                 PrimaryImageTag = s.Item.HasImage(ImageType.Primary) ? s.Item.Id.ToString("N") : null,
                 PeopleNames = [],
                 Studios = s.Item.Studios ?? [],
-                Tags = s.Item.Tags ?? []
+                Tags = s.Item.Tags ?? [],
+                AudioLanguages = ResolveAudioLanguages(s.Item),
+                DateCreated = s.Item.DateCreated
             })
             .ToList();
 

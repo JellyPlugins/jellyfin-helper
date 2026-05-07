@@ -180,6 +180,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 Genres = item.Genres ?? [],
                 Year = item.ProductionYear,
                 SeriesId = item is Episode ep ? (ep.SeriesId != Guid.Empty ? ep.SeriesId : null) : null,
+                DateCreated = item.DateCreated,
                 PrimaryImageTag = null
             };
 

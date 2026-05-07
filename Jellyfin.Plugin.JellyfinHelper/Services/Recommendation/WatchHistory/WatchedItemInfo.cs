@@ -86,6 +86,12 @@ public sealed class WatchedItemInfo
     public Guid? SeriesId { get; set; }
 
     /// <summary>
+    ///     Gets or sets the date the item was added to the Jellyfin library.
+    ///     Used for LibraryAddedRecency feature computation in training (Phase 2 organic items).
+    /// </summary>
+    public DateTime? DateCreated { get; set; }
+
+    /// <summary>
     ///     Gets or sets the primary image tag for poster display.
     /// </summary>
     public string? PrimaryImageTag { get; set; }
