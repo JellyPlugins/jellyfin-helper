@@ -297,8 +297,7 @@ internal sealed class TrainingService
                 // Popularity proxy matching Engine.ScoreCandidate() logic
                 var combinedCriticScore =
                     ContentScoring.ComputeCombinedCriticScore(rec.CommunityRating, rec.CriticRating);
-                var popularityScore =
-                    collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : combinedCriticScore * 0.3;
+                var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);
 
                 // Series progression boost
                 var seriesProgressionBoost = 0.0;
@@ -659,9 +658,7 @@ internal sealed class TrainingService
                     PeopleSimilarity = peopleSimilarity,
                     StudioMatch = studioMatch,
                     SeriesProgressionBoost = seriesProgressionBoost,
-                    PopularityScore = collabScore > 0
-                        ? Math.Clamp(collabScore * 0.8, 0.0, 1.0)
-                        : combinedCriticScore * 0.3,
+                    PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
                     DayOfWeekAffinity = ComputeTrainingTemporalAffinity(w, wGenres, userProfile, isDay: true),
                     HourOfDayAffinity = ComputeTrainingTemporalAffinity(w, wGenres, userProfile, isDay: false),
                     IsWeekend = w.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
@@ -817,9 +814,7 @@ internal sealed class TrainingService
                         StudioMatch = negStudioMatch,
                         // SeriesProgressionBoost stays 0.0 - for cross-user negatives, the user
                         // has no episode history for that series, so 0 is the correct value.
-                        PopularityScore = collabScore > 0
-                            ? Math.Clamp(collabScore * 0.8, 0.0, 1.0)
-                            : combinedCriticScore * 0.3,
+                        PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
                         DayOfWeekAffinity = 0.5,
                         HourOfDayAffinity = 0.5,
                         IsWeekend = false,
@@ -1087,7 +1082,11 @@ internal sealed class TrainingService
 
         foreach (var w in userProfile.WatchedItems)
         {
-            if (!w.Played || !w.LastPlayedDate.HasValue)
+            // Use HasPlaybackActivity() to match TemporalFeatures.ComputeDayOfWeekAffinity/
+            // ComputeHourOfDayAffinity scoring logic (includes PlayCount > 0 and
+            // PlaybackPositionTicks > 0, not just Played). Ensures consistent temporal
+            // bucket populations between training and scoring.
+            if (!w.HasPlaybackActivity() || !w.LastPlayedDate.HasValue)
             {
                 continue;
             }
@@ -1232,7 +1231,7 @@ internal sealed class TrainingService
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
             SeriesProgressionBoost = seriesProgressionBoost,
-            PopularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : combinedCriticScore * 0.3,
+            PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
             DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: true),
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: false),
             IsWeekend = mostRecent?.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
