@@ -286,10 +286,10 @@ internal static class TrainingFeatureComputer
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: false),
             IsWeekend = mostRecent?.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
             TagSimilarity = tagSimilarity,
-            LibraryAddedRecency = episodes.Where(e => e.DateCreated.HasValue)
-                .Select(e => e.DateCreated!.Value)
-                .DefaultIfEmpty()
-                .Min() is var minDate && minDate != default
+            LibraryAddedRecency = episodes
+                .Select(e => e.DateCreated)
+                .Where(d => d.HasValue)
+                .Min() is { } minDate
                 ? ContentScoring.ComputeRecencyScore(minDate)
                 : 0.5
         };
@@ -305,6 +305,9 @@ internal static class TrainingFeatureComputer
         // - No episodes played (all favorite-only): 0.65 (explicit interest)
         // - Low completion (started but abandoned most episodes): AbandonedLabel (0.0)
         // - Normal completion: engagement-proportional (0.5–0.85)
+        // When playedEps == 0 and no episode has playback progress or favorites,
+        // completionRatio is 0.0 → ComputeEngagementLabel yields WatchedLabelFloor (0.5).
+        // This case implies PlayCount > 0 only items from HasMeaningfulInteraction() filtering.
         var label = playedEps switch
         {
             0 when episodes.Any(e => e.PlaybackPositionTicks > 0) => completionRatio <
@@ -312,7 +315,6 @@ internal static class TrainingFeatureComputer
                 ? EngineConstants.AbandonedLabel
                 : ContentScoring.ComputeEngagementLabel(completionRatio),
             0 when episodes.Any(e => e.IsFavorite) => 0.65,
-            0 => ContentScoring.ComputeEngagementLabel(completionRatio),
             _ => ContentScoring.ComputeEngagementLabel(completionRatio)
         };
 

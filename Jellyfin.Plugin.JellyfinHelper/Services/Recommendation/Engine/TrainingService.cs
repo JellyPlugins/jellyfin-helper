@@ -92,9 +92,8 @@ internal sealed class TrainingService
         cancellationToken.ThrowIfCancellationRequested();
 
         // Delegate example building to the TrainingDataBuilder
-        var dataBuilder = new TrainingDataBuilder();
         var (examples, organicCount, randomNegativeCount) =
-            dataBuilder.BuildExamples(previousResults, allProfiles, cancellationToken);
+            TrainingDataBuilder.BuildExamples(previousResults, allProfiles, cancellationToken);
 
         var positiveCount = examples.Count(e => e.Label > 0.5);
         _pluginLog.LogInfo(

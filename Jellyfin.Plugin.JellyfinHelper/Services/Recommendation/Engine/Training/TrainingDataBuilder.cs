@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training
 /// <summary>
 ///     Builds labelled training examples from previous recommendation results and user watch data.
 /// </summary>
-internal sealed class TrainingDataBuilder
+internal static class TrainingDataBuilder
 {
     /// <summary>
     ///     Builds all training examples from previous results and user profiles.
@@ -20,7 +20,7 @@ internal sealed class TrainingDataBuilder
     /// <param name="allProfiles">All user watch profiles.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>A tuple of training examples, organic count, and random negative count.</returns>
-    internal (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount) BuildExamples(
+    internal static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount) BuildExamples(
         IReadOnlyList<RecommendationResult> previousResults,
         Collection<UserWatchProfile> allProfiles,
         CancellationToken cancellationToken)
@@ -538,19 +538,7 @@ internal sealed class TrainingDataBuilder
                         null); // CriticRating not available on WatchedItemInfo
                 // Gate completion fallback on w.Played to avoid mis-labeling favorite-only items
                 // as fully watched. Favorites without playback evidence get 0.0 completion.
-                double completionRatio;
-                if (w.Played)
-                {
-                    completionRatio = 1.0;
-                }
-                else if (w.RuntimeTicks > 0)
-                {
-                    completionRatio = Math.Clamp((double)w.PlaybackPositionTicks / w.RuntimeTicks, 0.0, 1.0);
-                }
-                else
-                {
-                    completionRatio = 0.0;
-                }
+                var completionRatio = ContentScoring.ComputeCompletionRatio(w);
 
                 var isSeries = string.Equals(w.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
 

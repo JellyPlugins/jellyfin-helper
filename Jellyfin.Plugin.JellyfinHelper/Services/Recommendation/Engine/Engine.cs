@@ -767,23 +767,9 @@ public sealed class Engine : IRecommendationEngine
             return 0.5;
         }
 
-        // Get candidate's available audio languages
-        List<string>? candidateLanguages;
-        try
-        {
-            candidateLanguages = candidate.GetMediaStreams()?
-                .Where(s => s.Type == MediaStreamType.Audio)
-                .Select(s => WatchHistoryService.NormalizeLanguage(s.Language))
-                .Where(l => !string.IsNullOrEmpty(l))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList()!;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-        {
-            return 0.5; // Graceful: no stream data available
-        }
-
-        if (candidateLanguages is null || candidateLanguages.Count == 0)
+        // Reuse the same stream-resolution logic as ResolveAudioLanguages (returns empty on error/null)
+        var candidateLanguages = ResolveAudioLanguages(candidate);
+        if (candidateLanguages.Count == 0)
         {
             return 0.5; // No audio stream info → neutral
         }

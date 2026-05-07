@@ -790,6 +790,7 @@ function attachTogglePanelHandlers(opts) {
 
 // --- Resolve Arr instances from configuration ---
 function resolveArrInstances(cfg, type) {
+    if (!cfg) return [];
     var key = type + 'Instances';     // e.g. RadarrInstances
     if (cfg[key] && cfg[key].length > 0) return cfg[key];
     return [];
