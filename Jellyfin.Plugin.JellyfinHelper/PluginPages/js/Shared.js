@@ -596,13 +596,6 @@ function formatTimeAgo(utcTimestamp) {
 }
 
 // ============================================================
-// Shared scan data - single source of truth for last scan result
-// ============================================================
-
-// noinspection JSUnusedGlobalSymbols
-var _lastScanResult = null;
-
-// ============================================================
 // Collect paths from a list of libraries for a given property.
 // Works for both flat arrays (Health) and keyed dictionaries (Codecs).
 // ============================================================
@@ -795,12 +788,9 @@ function attachTogglePanelHandlers(opts) {
     }
 }
 
-// --- Finding 3: Resolve Arr instances with legacy single-instance fallback ---
+// --- Resolve Arr instances from configuration ---
 function resolveArrInstances(cfg, type) {
     var key = type + 'Instances';     // e.g. RadarrInstances
-    var urlKey = type + 'Url';        // e.g. RadarrUrl
-    var apiKeyKey = type + 'ApiKey';  // e.g. RadarrApiKey
     if (cfg[key] && cfg[key].length > 0) return cfg[key];
-    if (cfg[urlKey]) return [{Name: type, Url: cfg[urlKey], ApiKey: cfg[apiKeyKey]}];
     return [];
 }
