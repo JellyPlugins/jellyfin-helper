@@ -382,8 +382,7 @@ internal static class TrainingFeatureComputer
 
     /// <summary>
     ///     Computes LanguageAffinity from cached audio language data stored on <see cref="RecommendedItem"/>.
-    ///     Mirrors <see cref="Engine.ComputeLanguageAffinity"/> but works with pre-resolved language lists
-    ///     instead of live <c>BaseItem.GetMediaStreams()</c> calls.
+    ///     Delegates to <see cref="ComputeBestLanguageAffinity"/> for the core scoring logic.
     ///     Returns 0.5 (neutral) when no language data is available on either side.
     /// </summary>
     internal static double ComputeLanguageAffinityFromCache(
@@ -395,13 +394,37 @@ internal static class TrainingFeatureComputer
             return 0.5;
         }
 
-        var primaryLang = userProfile.PrimaryLanguage;
-        var preferredLangs = userProfile.PreferredLanguages;
-        var toleratedLangs = userProfile.ToleratedLanguages;
+        return ComputeBestLanguageAffinity(
+            candidateAudioLanguages,
+            userProfile.PrimaryLanguage,
+            userProfile.PreferredLanguages,
+            userProfile.ToleratedLanguages,
+            userProfile.LanguageProfile);
+    }
 
+    /// <summary>
+    ///     Core language affinity scoring logic shared between live scoring (<see cref="Engine.ComputeLanguageAffinity"/>)
+    ///     and training (<see cref="ComputeLanguageAffinityFromCache"/>).
+    ///     Scores how well the candidate's audio languages match the user's language profile.
+    ///     Uses the chosen-vs-forced distinction: primary = 1.0, preferred = 0.85, tolerated = 0.5,
+    ///     known = 0.3, unknown = 0.1.
+    /// </summary>
+    /// <param name="candidateLanguages">The candidate's available audio language codes.</param>
+    /// <param name="primaryLang">The user's primary (most-watched) language.</param>
+    /// <param name="preferredLangs">Languages the user actively chooses.</param>
+    /// <param name="toleratedLangs">Languages the user watches only when forced.</param>
+    /// <param name="languageProfile">The full language profile (language → watch data).</param>
+    /// <returns>A language affinity score between 0.1 and 1.0.</returns>
+    internal static double ComputeBestLanguageAffinity(
+        IEnumerable<string> candidateLanguages,
+        string? primaryLang,
+        IReadOnlySet<string> preferredLangs,
+        IReadOnlySet<string> toleratedLangs,
+        IDictionary<string, LanguageProfileEntry> languageProfile)
+    {
         var bestAffinity = 0.1;
 
-        foreach (var lang in candidateAudioLanguages)
+        foreach (var lang in candidateLanguages)
         {
             double affinity;
 
@@ -417,7 +440,7 @@ internal static class TrainingFeatureComputer
             {
                 affinity = 0.5;
             }
-            else if (userProfile.LanguageProfile.ContainsKey(lang))
+            else if (languageProfile.ContainsKey(lang))
             {
                 affinity = 0.3;
             }

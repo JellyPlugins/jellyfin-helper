@@ -66,14 +66,12 @@ internal sealed class TrainingDataBuilder
         var cachedPeopleLookup = new Dictionary<Guid, HashSet<string>>();
         foreach (var prevResult in previousResults)
         {
-            foreach (var rec in prevResult.Recommendations)
+            foreach (var rec in prevResult.Recommendations.Where(
+                         r => r.PeopleNames.Count > 0 && !cachedPeopleLookup.ContainsKey(r.ItemId)))
             {
-                if (rec.PeopleNames.Count > 0 && !cachedPeopleLookup.ContainsKey(rec.ItemId))
-                {
-                    cachedPeopleLookup[rec.ItemId] = new HashSet<string>(
-                        rec.PeopleNames,
-                        StringComparer.OrdinalIgnoreCase);
-                }
+                cachedPeopleLookup[rec.ItemId] = new HashSet<string>(
+                    rec.PeopleNames,
+                    StringComparer.OrdinalIgnoreCase);
             }
         }
 

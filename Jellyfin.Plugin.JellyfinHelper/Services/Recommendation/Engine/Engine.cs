@@ -788,49 +788,12 @@ public sealed class Engine : IRecommendationEngine
             return 0.5; // No audio stream info → neutral
         }
 
-        var primaryLang = userProfile.PrimaryLanguage;
-        var preferredLangs = userProfile.PreferredLanguages;
-        var toleratedLangs = userProfile.ToleratedLanguages;
-
-        var bestAffinity = 0.1; // Default: only unknown languages
-
-        foreach (var lang in candidateLanguages)
-        {
-            double affinity;
-
-            if (string.Equals(lang, primaryLang, StringComparison.OrdinalIgnoreCase))
-            {
-                affinity = 1.0; // Primary preference available
-            }
-            else if (preferredLangs.Contains(lang))
-            {
-                affinity = 0.85; // Other actively chosen language
-            }
-            else if (toleratedLangs.Contains(lang))
-            {
-                affinity = 0.5; // Tolerated (only used when forced)
-            }
-            else if (userProfile.LanguageProfile.ContainsKey(lang))
-            {
-                affinity = 0.3; // Somehow known
-            }
-            else
-            {
-                affinity = 0.1; // Completely unknown language
-            }
-
-            if (affinity > bestAffinity)
-            {
-                bestAffinity = affinity;
-            }
-
-            if (bestAffinity >= 1.0)
-            {
-                break; // Can't do better than primary
-            }
-        }
-
-        return bestAffinity;
+        return Training.TrainingFeatureComputer.ComputeBestLanguageAffinity(
+            candidateLanguages,
+            userProfile.PrimaryLanguage,
+            userProfile.PreferredLanguages,
+            userProfile.ToleratedLanguages,
+            userProfile.LanguageProfile);
     }
 
     /// <summary>

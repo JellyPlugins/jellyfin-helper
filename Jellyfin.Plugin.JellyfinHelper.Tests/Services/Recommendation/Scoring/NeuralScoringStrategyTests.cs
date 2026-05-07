@@ -877,7 +877,9 @@ public sealed class NeuralScoringStrategyTests : IDisposable
                     PeopleSimilarity = rng.NextDouble(),
                     StudioMatch = rng.NextDouble() > 0.5,
                     PopularityScore = rng.NextDouble(),
-                    DayOfWeekAffinity = rng.NextDouble()
+                    DayOfWeekAffinity = rng.NextDouble(),
+                    LibraryAddedRecency = rng.NextDouble(),
+                    LanguageAffinity = rng.NextDouble()
                 },
                 Label = genreSim > 0.5 ? 1.0 : 0.0
             });
