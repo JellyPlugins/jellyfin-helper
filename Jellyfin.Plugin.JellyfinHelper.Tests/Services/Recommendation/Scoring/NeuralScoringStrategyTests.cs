@@ -560,16 +560,37 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         strategy1.Train(examples);
 
         var savedWH = strategy1.CurrentWeightsHidden;
+        var savedWH1H2 = strategy1.CurrentWeightsH1H2;
+        var savedWH2H3 = strategy1.CurrentWeightsH2H3;
+        var savedWH3H4 = strategy1.CurrentWeightsH3H4;
         var savedWO = strategy1.CurrentWeightsOutput;
         var savedGen = strategy1.TrainingGeneration;
 
         var strategy2 = new NeuralScoringStrategy(weightsPath);
         var loadedWH = strategy2.CurrentWeightsHidden;
+        var loadedWH1H2 = strategy2.CurrentWeightsH1H2;
+        var loadedWH2H3 = strategy2.CurrentWeightsH2H3;
+        var loadedWH3H4 = strategy2.CurrentWeightsH3H4;
         var loadedWO = strategy2.CurrentWeightsOutput;
 
         for (var i = 0; i < savedWH.Length; i++)
         {
             Assert.Equal(savedWH[i], loadedWH[i], 10);
+        }
+
+        for (var i = 0; i < savedWH1H2.Length; i++)
+        {
+            Assert.Equal(savedWH1H2[i], loadedWH1H2[i], 10);
+        }
+
+        for (var i = 0; i < savedWH2H3.Length; i++)
+        {
+            Assert.Equal(savedWH2H3[i], loadedWH2H3[i], 10);
+        }
+
+        for (var i = 0; i < savedWH3H4.Length; i++)
+        {
+            Assert.Equal(savedWH3H4[i], loadedWH3H4[i], 10);
         }
 
         for (var i = 0; i < savedWO.Length; i++)

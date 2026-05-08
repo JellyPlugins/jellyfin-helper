@@ -380,6 +380,21 @@ public sealed class CandidateFeatures
     ///     0 = not in any collection or no watched collection members.
     ///     Values are clamped to [0, 1]; NaN defaults to 0.
     /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         <strong>Intentional train/inference asymmetry:</strong> During live scoring
+    ///         (Engine.ScoreCandidate), this feature is structurally 0.0 because candidates
+    ///         in partially-completed collections are rare — most such items are already excluded
+    ///         by the watchedIds filter upstream. Training (TrainingDataBuilder) computes real
+    ///         values (0.15–0.5) from cached BoxSetIds to teach the model the signal's importance.
+    ///     </para>
+    ///     <para>
+    ///         This asymmetry is benign: a feature that is always zero at inference contributes
+    ///         zero to the final score regardless of its learned weight. The non-zero training
+    ///         values ensure the model correctly learns that collection membership is a positive
+    ///         signal for the rare cases where such candidates do appear in the scoring path.
+    ///     </para>
+    /// </remarks>
     public double CollectionProgressionBoost
     {
         get => _collectionProgressionBoost;

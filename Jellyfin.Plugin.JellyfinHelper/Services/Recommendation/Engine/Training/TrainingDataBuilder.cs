@@ -294,6 +294,10 @@ internal static class TrainingDataBuilder
                     GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(rec.Genres, genrePreferences),
                     CollaborativeScore = collabScore,
                     CombinedCriticScore = combinedCriticScore,
+                    // TODO: Engine.ScoreCandidate uses PremiereDate ?? DateCreated for recency.
+                    // Once all cached RecommendedItems reliably have DateCreated populated
+                    // (after one full recommendation cycle on 2.0.0.3+), align this fallback
+                    // to use rec.DateCreated as the fallback instead of 0.5 for better train/serve parity.
                     RecencyScore = rec.PremiereDate.HasValue
                         ? ContentScoring.ComputeRecencyScore(rec.PremiereDate.Value)
                         : 0.5,
