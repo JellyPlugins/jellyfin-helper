@@ -883,10 +883,10 @@ internal static class TrainingDataBuilder
     /// <param name="watchedIds">Set of item IDs the user has watched.</param>
     /// <returns>A collection progression boost between 0.0 and 0.5.</returns>
     private static double ComputeCollectionProgressionBoostFromCache(
-        IReadOnlyList<Guid> boxSetIds,
+        IReadOnlyList<Guid>? boxSetIds,
         HashSet<Guid> watchedIds)
     {
-        if (boxSetIds.Count == 0)
+        if (boxSetIds is null || boxSetIds.Count == 0)
         {
             return 0.0;
         }
