@@ -661,7 +661,13 @@ internal static class TrainingDataBuilder
                     TagSimilarity = tagSimilarity,
                     LibraryAddedRecency = w.DateCreated.HasValue
                         ? ContentScoring.ComputeRecencyScore(w.DateCreated.Value)
-                        : 0.5
+                        : 0.5,
+                    // Organic standalone items lack per-item stream metadata (AudioLanguages/SubtitleLanguages
+                    // are only cached on RecommendedItem from Phase 1). Use neutral 0.5 to match the live
+                    // scoring path which also returns 0.5 when stream data is unavailable, preventing
+                    // train/serve skew on these two dimensions.
+                    LanguageAffinity = 0.5,
+                    SubtitleLanguageAffinity = 0.5
                 };
 
                 // Genre exposure features: compute from cached per-user analysis (mirrors Phase 1)

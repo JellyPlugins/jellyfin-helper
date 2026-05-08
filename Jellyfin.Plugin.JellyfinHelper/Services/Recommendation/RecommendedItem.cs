@@ -131,7 +131,7 @@ public sealed class RecommendedItem
 
     /// <summary>
     ///     Gets or sets the normalized audio language codes available for this item.
-    ///     Stored for training feature parity: allows TrainingService to compute
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
     ///     LanguageAffinity from cached recommendations without re-querying media streams.
     ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
     /// </summary>
@@ -143,7 +143,7 @@ public sealed class RecommendedItem
 
     /// <summary>
     ///     Gets or sets the normalized subtitle language codes available for this item.
-    ///     Stored for training feature parity: allows TrainingService to compute
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
     ///     SubtitleLanguageAffinity from cached recommendations without re-querying media streams.
     ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
     /// </summary>
@@ -155,7 +155,7 @@ public sealed class RecommendedItem
 
     /// <summary>
     ///     Gets or sets the BoxSet (collection) IDs this item belongs to.
-    ///     Stored for training feature parity: allows TrainingService to compute
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
     ///     CollectionProgressionBoost from cached recommendations without re-querying the library.
     ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
     /// </summary>
@@ -167,7 +167,7 @@ public sealed class RecommendedItem
 
     /// <summary>
     ///     Gets or sets the date the item was added to the Jellyfin library.
-    ///     Stored for training feature parity: allows TrainingService to compute
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
     ///     LibraryAddedRecency from cached recommendations without re-querying the library.
     /// </summary>
     public DateTime? DateCreated { get; set; }

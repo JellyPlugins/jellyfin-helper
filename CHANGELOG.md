@@ -13,6 +13,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Added
 - **Recommendation Metadata** - Recommendations include audio language metadata and item creation dates; watched/exclusion now uses "meaningful interaction" predicates.
+- **New Scoring Signals** - `SubtitleLanguageAffinity` and `CollectionProgressionBoost` added to the 31-feature candidate vector, boosting recommendations where subtitle language preferences and box-set progression are strong signals.
 
 ### Improved
 - **Scoring & Training** - Centralized popularity scoring, richer training feature construction, series aggregation, and weight schema version bumped. A/B testing cohort infrastructure with deterministic user bucketing and adaptive sigmoid midpoint calibration via cohort watch-rate feedback.

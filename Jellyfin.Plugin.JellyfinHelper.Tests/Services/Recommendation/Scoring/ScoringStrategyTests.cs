@@ -1554,26 +1554,9 @@ public sealed class ScoringStrategyTests : IDisposable
             sum += weights[i];
         }
 
-        // Compute the exact expected sum from all DefaultWeights constants.
-        // This catches any future weight change that accidentally breaks the total balance.
-        var expectedSum =
-            DefaultWeights.GenreSimilarity + DefaultWeights.CollaborativeScore +
-            DefaultWeights.CombinedCriticScore + DefaultWeights.RecencyScore +
-            DefaultWeights.YearProximityScore + DefaultWeights.GenreCountNormalized +
-            DefaultWeights.IsSeries + DefaultWeights.GenreCriticInteraction +
-            DefaultWeights.GenreCollabInteraction + DefaultWeights.UserRatingScore +
-            DefaultWeights.CompletionRatio + DefaultWeights.IsAbandoned +
-            DefaultWeights.HasInteraction + DefaultWeights.PeopleSimilarity +
-            DefaultWeights.StudioMatch + DefaultWeights.SeriesProgressionBoost +
-            DefaultWeights.PopularityScore + DefaultWeights.DayOfWeekAffinity +
-            DefaultWeights.HourOfDayAffinity + DefaultWeights.IsWeekend +
-            DefaultWeights.TagSimilarity + DefaultWeights.PeopleGenreInteraction +
-            DefaultWeights.RecencyCriticInteraction + DefaultWeights.GenreUnderexposure +
-            DefaultWeights.GenreDominanceRatio + DefaultWeights.GenreAffinityGap +
-            DefaultWeights.LibraryAddedRecency + DefaultWeights.ContentNearestNeighborScore +
-            DefaultWeights.LanguageAffinity + DefaultWeights.CollectionProgressionBoost +
-            DefaultWeights.SubtitleLanguageAffinity;
-        Assert.Equal(expectedSum, sum, 10);
+        // All weights (excluding bias) must sum to exactly 1.0.
+        // This directly validates the invariant rather than comparing against the same constants.
+        Assert.Equal(1.0, sum, 10);
     }
 
     // ============================================================
