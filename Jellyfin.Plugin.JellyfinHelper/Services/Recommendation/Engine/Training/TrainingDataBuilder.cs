@@ -420,7 +420,12 @@ internal static class TrainingDataBuilder
         // Stable timestamp anchor for organic items without LastPlayedDate.
         // Using the earliest recommendation GeneratedAt provides a deterministic value
         // that doesn't drift across runs (unlike DateTime.UtcNow.AddDays(-90)).
-        var organicFallbackTimestamp = previousResults.Min(r => r.GeneratedAt);
+        // Guard: if previousResults is empty (no prior recommendation runs), use a
+        // conservative fallback 90 days ago. This path is defensive only - BuildExamples()
+        // callers always pass non-empty results from the recommendation store.
+        var organicFallbackTimestamp = previousResults.Count > 0
+            ? previousResults.Min(r => r.GeneratedAt)
+            : DateTime.UtcNow.AddDays(-90);
 
         var organicCount = 0;
         foreach (var userProfile in allProfiles)

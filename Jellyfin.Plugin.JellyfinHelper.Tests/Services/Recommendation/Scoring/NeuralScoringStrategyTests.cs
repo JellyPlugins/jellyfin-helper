@@ -772,7 +772,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 
     // ============================================================
-    // Three-Hidden-Layer Architecture Tests
+    // Four-Hidden-Layer Architecture Tests
     // ============================================================
 
     [Fact]
@@ -900,7 +900,9 @@ public sealed class NeuralScoringStrategyTests : IDisposable
                     PopularityScore = rng.NextDouble(),
                     DayOfWeekAffinity = rng.NextDouble(),
                     LibraryAddedRecency = rng.NextDouble(),
-                    LanguageAffinity = rng.NextDouble()
+                    LanguageAffinity = rng.NextDouble(),
+                    CollectionProgressionBoost = rng.NextDouble(),
+                    SubtitleLanguageAffinity = rng.NextDouble()
                 },
                 Label = genreSim > 0.5 ? 1.0 : 0.0
             });

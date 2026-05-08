@@ -723,16 +723,16 @@ public sealed class Engine : IRecommendationEngine
                 watchedGenreSets,
                 watchedPeopleSets,
                 watchedStudioSets),
-            // Audio language affinity: how well the candidate's audio tracks match the user's
-            // language preferences. Uses chosen-vs-forced distinction from the user's profile.
-            LanguageAffinity = ComputeLanguageAffinity(userProfile, candidate),
+            // Language affinity features: resolve media streams ONCE per candidate to avoid
+            // calling GetMediaStreams() twice (audio + subtitle). Single-pass via ResolveMediaLanguages().
+            LanguageAffinity = ComputeLanguageAffinityFromStreams(userProfile, candidate, out var candidateMediaLanguages),
             // Collection/BoxSet progression: structurally 0 during live scoring.
             // Candidates in BoxSets with watched siblings are rare in the live scoring path
             // because most such items are excluded by watchedIds. Training uses cached BoxSetIds instead.
             CollectionProgressionBoost = 0.0,
-            // Subtitle language affinity: how well the candidate's subtitle tracks match the user's
-            // subtitle language preferences. Uses chosen-vs-forced distinction.
-            SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinity(userProfile, candidate)
+            // Subtitle language affinity: reuses the already-resolved subtitle languages
+            // from the single ResolveMediaLanguages() call above (no second stream scan).
+            SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromStreams(userProfile, candidateMediaLanguages.Subtitles)
         };
 
         // Genre exposure features: soft signals for genre distribution awareness
@@ -929,6 +929,65 @@ public sealed class Engine : IRecommendationEngine
 
         return Training.TrainingFeatureComputer.ComputeBestLanguageAffinity(
             candidateLanguages,
+            userProfile.PrimarySubtitleLanguage,
+            userProfile.PreferredSubtitleLanguages,
+            userProfile.ToleratedSubtitleLanguages,
+            userProfile.SubtitleLanguageProfile);
+    }
+
+    /// <summary>
+    ///     Computes audio language affinity with a single-pass stream resolution.
+    ///     Resolves both audio and subtitle streams in one call to <see cref="ResolveMediaLanguages"/>,
+    ///     outputs the full result so the caller can reuse the subtitle portion without a second scan.
+    ///     Used by <see cref="ScoreCandidate"/> to avoid double GetMediaStreams() calls per candidate.
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile with language preferences.</param>
+    /// <param name="candidate">The candidate item to evaluate.</param>
+    /// <param name="mediaLanguages">
+    ///     Outputs the resolved media languages tuple so subtitle affinity can be computed
+    ///     from the same data without a second stream scan.
+    /// </param>
+    /// <returns>A language affinity score between 0.1 and 1.0, or 0.5 if no data available.</returns>
+    private static double ComputeLanguageAffinityFromStreams(
+        UserWatchProfile userProfile,
+        BaseItem candidate,
+        out (List<string> Audio, List<string> Subtitles) mediaLanguages)
+    {
+        mediaLanguages = ResolveMediaLanguages(candidate);
+
+        // No language profile → neutral (monolingual library or new user)
+        if (userProfile.LanguageProfile.Count == 0 || mediaLanguages.Audio.Count == 0)
+        {
+            return 0.5;
+        }
+
+        return Training.TrainingFeatureComputer.ComputeBestLanguageAffinity(
+            mediaLanguages.Audio,
+            userProfile.PrimaryLanguage,
+            userProfile.PreferredLanguages,
+            userProfile.ToleratedLanguages,
+            userProfile.LanguageProfile);
+    }
+
+    /// <summary>
+    ///     Computes subtitle language affinity from pre-resolved subtitle language codes.
+    ///     Companion to <see cref="ComputeLanguageAffinityFromStreams"/> - reuses the subtitle
+    ///     portion of the already-resolved media streams to avoid a second GetMediaStreams() call.
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile with subtitle language preferences.</param>
+    /// <param name="subtitleLanguages">Pre-resolved subtitle language codes from ResolveMediaLanguages().</param>
+    /// <returns>A subtitle language affinity score between 0.1 and 1.0, or 0.5 if no data available.</returns>
+    private static double ComputeSubtitleLanguageAffinityFromStreams(
+        UserWatchProfile userProfile,
+        List<string> subtitleLanguages)
+    {
+        if (userProfile.SubtitleLanguageProfile.Count == 0 || subtitleLanguages.Count == 0)
+        {
+            return 0.5;
+        }
+
+        return Training.TrainingFeatureComputer.ComputeBestLanguageAffinity(
+            subtitleLanguages,
             userProfile.PrimarySubtitleLanguage,
             userProfile.PreferredSubtitleLanguages,
             userProfile.ToleratedSubtitleLanguages,

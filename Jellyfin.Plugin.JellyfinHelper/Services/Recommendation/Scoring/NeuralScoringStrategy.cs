@@ -12,9 +12,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 /// <summary>
 ///     Neural network scoring strategy using a four-hidden-layer MLP (Multi-Layer Perceptron).
 ///     Learns non-linear feature interactions from user watch history via backpropagation.
-///     Architecture: 31 inputs → 48 hidden₁ (ReLU) → 24 hidden₂ (ReLU) → 12 hidden₃ (ReLU) → 6 hidden₄ (ReLU) → 1 output (Sigmoid) = 2,635 parameters.
+///     Architecture: 31 inputs → 48 hidden₁ (ReLU) → 24 hidden₂ (ReLU) → 12 hidden₃ (ReLU) → 6 hidden₄ (ReLU) → 1 output (Sigmoid) ≈ 3,097 parameters.
 ///     Optimized for NAS/Docker with limited hardware: zero-allocation scoring path,
-///     pre-allocated training buffers, ~2,400 FP multiplications per score.
+///     pre-allocated training buffers, ~3,000 FP multiplications per score.
 ///     No external ML dependencies - pure C# implementation.
 /// </summary>
 /// <remarks>
@@ -384,6 +384,12 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    ///     This method performs full input-gradient attribution through all four hidden layers,
+    ///     with O(H4·H3·H2·H1·InputSize) computational complexity. It is designed for single-item
+    ///     explanation only (e.g., inspecting why a specific recommendation was made) and should
+    ///     NOT be called in batch over all candidates. Use <see cref="Score"/> for batch scoring.
+    /// </remarks>
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
         if (_disposed)

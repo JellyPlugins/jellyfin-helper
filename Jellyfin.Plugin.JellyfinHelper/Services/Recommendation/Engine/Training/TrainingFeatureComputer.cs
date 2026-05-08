@@ -291,7 +291,13 @@ internal static class TrainingFeatureComputer
                 .Where(d => d.HasValue)
                 .Min() is { } minDate
                 ? ContentScoring.ComputeRecencyScore(minDate)
-                : 0.5
+                : 0.5,
+            // Language affinity features: neutral (0.5) for aggregated series because
+            // WatchedItemInfo does not carry per-episode stream metadata. The live scoring
+            // path also returns neutral for Series candidates (GetMediaStreams() is empty
+            // on folder-type items), maintaining train/serve parity.
+            LanguageAffinity = 0.5,
+            SubtitleLanguageAffinity = 0.5
         };
 
         // Genre exposure features
