@@ -323,10 +323,6 @@ function buildSettingsPayload() {
         })(),
         Language: document.getElementById('cfgLang').value,
         PluginLogLevel: _currentLogLevel,
-        RadarrUrl: radarrInstances.length > 0 ? radarrInstances[0].Url : '',
-        RadarrApiKey: radarrInstances.length > 0 ? radarrInstances[0].ApiKey : '',
-        SonarrUrl: sonarrInstances.length > 0 ? sonarrInstances[0].Url : '',
-        SonarrApiKey: sonarrInstances.length > 0 ? sonarrInstances[0].ApiKey : '',
         RadarrInstances: radarrInstances,
         SonarrInstances: sonarrInstances
     };
