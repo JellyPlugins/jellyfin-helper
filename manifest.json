@@ -13,8 +13,8 @@
         "changelog": "v2.0.0.3: Instance-based Arr config (legacy removed), persistent language/log-level. Recommendations add audio language & creation date, subtitle language affinity, collection progression boost; meaningful-interaction watched predicates. Centralized popularity scoring, richer training features (31-feature vector), series aggregation, weight schema bump. Neural MLP upgraded to 4-hidden-layer architecture (31→48→24→12→6→1, ~3097 params). Training refactored into TrainingDataBuilder + TrainingFeatureComputer. A/B testing cohort infrastructure with deterministic user bucketing and adaptive sigmoid midpoint. 2124 tests.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.0.0.3/JellyfinHelper_2.0.0.3.zip",
-        "checksum": "",
-        "timestamp": "2026-05-09T11:00:00Z"
+        "checksum": "79a52c37d75a44ce5fc6ecb824558f68",
+        "timestamp": "2026-05-08T22:57:43Z"
       },
       {
         "version": "2.0.0.2",
