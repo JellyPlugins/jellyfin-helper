@@ -9,9 +9,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 public sealed class RecommendedItem
 {
     private IReadOnlyList<string> _audioLanguages = [];
+    private IReadOnlyList<Guid> _boxSetIds = [];
     private IReadOnlyList<string> _genres = [];
     private IReadOnlyList<string> _peopleNames = [];
     private IReadOnlyList<string> _studios = [];
+    private IReadOnlyList<string> _subtitleLanguages = [];
     private IReadOnlyList<string> _tags = [];
 
     /// <summary>
@@ -137,6 +139,30 @@ public sealed class RecommendedItem
     {
         get => _audioLanguages;
         set => _audioLanguages = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the normalized subtitle language codes available for this item.
+    ///     Stored for training feature parity: allows TrainingService to compute
+    ///     SubtitleLanguageAffinity from cached recommendations without re-querying media streams.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<string> SubtitleLanguages
+    {
+        get => _subtitleLanguages;
+        set => _subtitleLanguages = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the BoxSet (collection) IDs this item belongs to.
+    ///     Stored for training feature parity: allows TrainingService to compute
+    ///     CollectionProgressionBoost from cached recommendations without re-querying the library.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<Guid> BoxSetIds
+    {
+        get => _boxSetIds;
+        set => _boxSetIds = value ?? [];
     }
 
     /// <summary>

@@ -13,6 +13,7 @@ public sealed class UserWatchProfile
 {
     private Dictionary<string, int> _genreDistribution = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, LanguageProfileEntry> _languageProfile = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, LanguageProfileEntry> _subtitleLanguageProfile = new(StringComparer.OrdinalIgnoreCase);
     private Collection<WatchedItemInfo> _watchedItems = [];
 
     /// <summary>
@@ -145,5 +146,48 @@ public sealed class UserWatchProfile
     [JsonIgnore]
     public HashSet<string> ToleratedLanguages => new(
         LanguageProfile.Where(kv => kv.Value is { ForcedCount: > 0, ChosenCount: 0 }).Select(kv => kv.Key),
+        StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Gets or sets the subtitle language preference profile.
+    ///     Maps normalized ISO 639-1 language codes to chosen/forced counts for subtitle tracks.
+    ///     Built by analyzing which subtitle tracks the user selected vs. which were available.
+    ///     Setter preserves <see cref="StringComparer.OrdinalIgnoreCase"/> and coalesces null.
+    /// </summary>
+    public Dictionary<string, LanguageProfileEntry> SubtitleLanguageProfile
+    {
+        get => _subtitleLanguageProfile;
+        set => _subtitleLanguageProfile = value is null
+            ? new Dictionary<string, LanguageProfileEntry>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, LanguageProfileEntry>(value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    ///     Gets the user's primary subtitle language (highest weighted score), or null if no data.
+    ///     Excluded from JSON serialization to avoid redundant data in API responses.
+    /// </summary>
+    [JsonIgnore]
+    public string? PrimarySubtitleLanguage => SubtitleLanguageProfile.Count > 0
+        ? SubtitleLanguageProfile.MaxBy(kv => kv.Value.WeightedScore).Key
+        : null;
+
+    /// <summary>
+    ///     Gets the set of subtitle languages the user has actively chosen (ChosenCount &gt; 0).
+    ///     These represent true preferences - the user had alternatives and picked this subtitle language.
+    ///     Excluded from JSON serialization to avoid redundant data in API responses.
+    /// </summary>
+    [JsonIgnore]
+    public HashSet<string> PreferredSubtitleLanguages => new(
+        SubtitleLanguageProfile.Where(kv => kv.Value is { ChosenCount: > 0 }).Select(kv => kv.Key),
+        StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Gets the set of subtitle languages the user has only used when forced (no alternatives).
+    ///     These represent tolerance, not preference.
+    ///     Excluded from JSON serialization to avoid redundant data in API responses.
+    /// </summary>
+    [JsonIgnore]
+    public HashSet<string> ToleratedSubtitleLanguages => new(
+        SubtitleLanguageProfile.Where(kv => kv.Value is { ForcedCount: > 0, ChosenCount: 0 }).Select(kv => kv.Key),
         StringComparer.OrdinalIgnoreCase);
 }

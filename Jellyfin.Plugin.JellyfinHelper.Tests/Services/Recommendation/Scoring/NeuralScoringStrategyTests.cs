@@ -117,7 +117,9 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var bH2 = new double[NeuralScoringStrategy.Hidden2Size];
         var wH2H3 = new double[NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size];
         var bH3 = new double[NeuralScoringStrategy.Hidden3Size];
-        var wH3O = new double[NeuralScoringStrategy.Hidden3Size];
+        var wH3H4 = new double[NeuralScoringStrategy.Hidden4Size * NeuralScoringStrategy.Hidden3Size];
+        var bH4 = new double[NeuralScoringStrategy.Hidden4Size];
+        var wH4O = new double[NeuralScoringStrategy.Hidden4Size];
         var bO = 0.0;
         var h1Pre = new double[NeuralScoringStrategy.Hidden1Size];
         var h1Act = new double[NeuralScoringStrategy.Hidden1Size];
@@ -125,10 +127,12 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var h2Act = new double[NeuralScoringStrategy.Hidden2Size];
         var h3Pre = new double[NeuralScoringStrategy.Hidden3Size];
         var h3Act = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4Pre = new double[NeuralScoringStrategy.Hidden4Size];
+        var h4Act = new double[NeuralScoringStrategy.Hidden4Size];
 
         var result = NeuralScoringStrategy.ForwardPass(
-            input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3O, bO,
-            h1Pre, h1Act, h2Pre, h2Act, h3Pre, h3Act);
+            input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3H4, bH4, wH4O, bO,
+            h1Pre, h1Act, h2Pre, h2Act, h3Pre, h3Act, h4Pre, h4Act);
 
         // All zeros → hidden pre-activation = 0 → ReLU(0) = 0 → output = sigmoid(0) = 0.5
         Assert.Equal(0.5, result, 10);
@@ -145,7 +149,9 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var bH2 = new double[NeuralScoringStrategy.Hidden2Size];
         var wH2H3 = new double[NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size];
         var bH3 = new double[NeuralScoringStrategy.Hidden3Size];
-        var wH3O = new double[NeuralScoringStrategy.Hidden3Size];
+        var wH3H4 = new double[NeuralScoringStrategy.Hidden4Size * NeuralScoringStrategy.Hidden3Size];
+        var bH4 = new double[NeuralScoringStrategy.Hidden4Size];
+        var wH4O = new double[NeuralScoringStrategy.Hidden4Size];
         var bO = 2.0; // positive output bias
         var h1Pre = new double[NeuralScoringStrategy.Hidden1Size];
         var h1Act = new double[NeuralScoringStrategy.Hidden1Size];
@@ -153,10 +159,12 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var h2Act = new double[NeuralScoringStrategy.Hidden2Size];
         var h3Pre = new double[NeuralScoringStrategy.Hidden3Size];
         var h3Act = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4Pre = new double[NeuralScoringStrategy.Hidden4Size];
+        var h4Act = new double[NeuralScoringStrategy.Hidden4Size];
 
         var result = NeuralScoringStrategy.ForwardPass(
-            input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3O, bO,
-            h1Pre, h1Act, h2Pre, h2Act, h3Pre, h3Act);
+            input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3H4, bH4, wH4O, bO,
+            h1Pre, h1Act, h2Pre, h2Act, h3Pre, h3Act, h4Pre, h4Act);
 
         // sigmoid(2.0) ≈ 0.88
         Assert.True(result > 0.5, $"Positive bias should increase output, got {result}");
@@ -184,13 +192,17 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var bH2 = new double[NeuralScoringStrategy.Hidden2Size];
         var wH2H3 = new double[NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size];
         var bH3 = new double[NeuralScoringStrategy.Hidden3Size];
-        var wH3O = new double[NeuralScoringStrategy.Hidden3Size];
+        var wH3H4 = new double[NeuralScoringStrategy.Hidden4Size * NeuralScoringStrategy.Hidden3Size];
+        var bH4 = new double[NeuralScoringStrategy.Hidden4Size];
+        var wH4O = new double[NeuralScoringStrategy.Hidden4Size];
         var h1Pre = new double[NeuralScoringStrategy.Hidden1Size];
         var h1Act = new double[NeuralScoringStrategy.Hidden1Size];
         var h2Pre = new double[NeuralScoringStrategy.Hidden2Size];
         var h2Act = new double[NeuralScoringStrategy.Hidden2Size];
         var h3Pre = new double[NeuralScoringStrategy.Hidden3Size];
         var h3Act = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4Pre = new double[NeuralScoringStrategy.Hidden4Size];
+        var h4Act = new double[NeuralScoringStrategy.Hidden4Size];
 
         for (var i = 0; i < input.Length; i++)
         {
@@ -212,14 +224,19 @@ public sealed class NeuralScoringStrategyTests : IDisposable
             wH2H3[i] = (rng.NextDouble() - 0.5) * 2;
         }
 
-        for (var i = 0; i < wH3O.Length; i++)
+        for (var i = 0; i < wH3H4.Length; i++)
         {
-            wH3O[i] = (rng.NextDouble() - 0.5) * 2;
+            wH3H4[i] = (rng.NextDouble() - 0.5) * 2;
+        }
+
+        for (var i = 0; i < wH4O.Length; i++)
+        {
+            wH4O[i] = (rng.NextDouble() - 0.5) * 2;
         }
 
         var result = NeuralScoringStrategy.ForwardPass(
-            input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3O, 0.0,
-            h1Pre, h1Act, h2Pre, h2Act, h3Pre, h3Act);
+            input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3H4, bH4, wH4O, 0.0,
+            h1Pre, h1Act, h2Pre, h2Act, h3Pre, h3Act, h4Pre, h4Act);
         Assert.InRange(result, 0.0, 1.0);
     }
 
@@ -623,7 +640,9 @@ public sealed class NeuralScoringStrategyTests : IDisposable
             BiasH2 = new double[NeuralScoringStrategy.Hidden2Size],
             WeightsH2H3 = new double[NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size],
             BiasH3 = new double[NeuralScoringStrategy.Hidden3Size],
-            WeightsH3O = new double[NeuralScoringStrategy.Hidden3Size],
+            WeightsH3H4 = new double[NeuralScoringStrategy.Hidden4Size * NeuralScoringStrategy.Hidden3Size],
+            BiasH4 = new double[NeuralScoringStrategy.Hidden4Size],
+            WeightsH4O = new double[NeuralScoringStrategy.Hidden4Size],
             BiasOutput = 999.0,
             Version = NeuralScoringStrategy.CurrentWeightsVersion - 1
         };

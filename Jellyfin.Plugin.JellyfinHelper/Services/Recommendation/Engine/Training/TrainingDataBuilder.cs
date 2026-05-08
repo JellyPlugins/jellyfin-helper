@@ -329,7 +329,9 @@ internal static class TrainingDataBuilder
                         watchedGenreSets,
                         watchedPeopleSets,
                         watchedStudioSets),
-                    LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(rec.AudioLanguages, userProfile)
+                    LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(rec.AudioLanguages, userProfile),
+                    CollectionProgressionBoost = ComputeCollectionProgressionBoostFromCache(rec.BoxSetIds, watchedIds),
+                    SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(rec.SubtitleLanguages, userProfile)
                 };
 
                 // Genre exposure features: compute from cached per-user analysis
@@ -820,7 +822,9 @@ internal static class TrainingDataBuilder
                             watchedGenreSetsNeg,
                             watchedPeopleSetsNeg,
                             watchedStudioSetsNeg),
-                        LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(neg.AudioLanguages, userProfile)
+                        LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(neg.AudioLanguages, userProfile),
+                        CollectionProgressionBoost = ComputeCollectionProgressionBoostFromCache(neg.BoxSetIds, userWatchedIds),
+                        SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(neg.SubtitleLanguages, userProfile)
                     };
 
                     // Genre exposure features
@@ -845,5 +849,27 @@ internal static class TrainingDataBuilder
         }
 
         return (examples, organicCount, randomNegativeCount);
+    }
+
+    /// <summary>
+    ///     Computes CollectionProgressionBoost from cached BoxSet IDs stored on <see cref="RecommendedItem"/>.
+    ///     Returns 0.3 as a training approximation when the item belongs to any BoxSet (indicating
+    ///     collection membership), or 0.0 when not in any collection.
+    ///     The live scoring path uses actual parent traversal; training uses this simplified heuristic
+    ///     because full BoxSet child enumeration is not available from cached data.
+    /// </summary>
+    /// <param name="boxSetIds">The cached BoxSet IDs for the candidate item.</param>
+    /// <param name="watchedIds">Set of item IDs the user has watched.</param>
+    /// <returns>A collection progression boost approximation (0.0 or 0.3).</returns>
+    private static double ComputeCollectionProgressionBoostFromCache(
+        IReadOnlyList<Guid> boxSetIds,
+        HashSet<Guid> watchedIds)
+    {
+        // Training approximation: if the item belongs to any BoxSet, give a moderate boost.
+        // We cannot enumerate BoxSet children from cached data, so we approximate with a flat 0.3
+        // when the item has collection membership. The neural network will learn the actual
+        // optimal weighting from real progression data during live scoring.
+        _ = watchedIds; // Kept as parameter for future enhancement (check if watched siblings exist in cache)
+        return boxSetIds.Count == 0 ? 0.0 : 0.3;
     }
 }

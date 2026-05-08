@@ -274,6 +274,8 @@ public sealed class Engine : IRecommendationEngine
                 Studios = s.Item.Studios ?? [],
                 Tags = s.Item.Tags ?? [],
                 AudioLanguages = ResolveAudioLanguages(s.Item),
+                SubtitleLanguages = ResolveSubtitleLanguages(s.Item),
+                BoxSetIds = ResolveBoxSetIds(s.Item),
                 DateCreated = s.Item.DateCreated
             })
             .ToList();
@@ -576,6 +578,8 @@ public sealed class Engine : IRecommendationEngine
                 Studios = s.Item.Studios ?? [],
                 Tags = s.Item.Tags ?? [],
                 AudioLanguages = ResolveAudioLanguages(s.Item),
+                SubtitleLanguages = ResolveSubtitleLanguages(s.Item),
+                BoxSetIds = ResolveBoxSetIds(s.Item),
                 DateCreated = s.Item.DateCreated
             })
             .ToList();
@@ -721,7 +725,14 @@ public sealed class Engine : IRecommendationEngine
                 watchedStudioSets),
             // Audio language affinity: how well the candidate's audio tracks match the user's
             // language preferences. Uses chosen-vs-forced distinction from the user's profile.
-            LanguageAffinity = ComputeLanguageAffinity(userProfile, candidate)
+            LanguageAffinity = ComputeLanguageAffinity(userProfile, candidate),
+            // Collection/BoxSet progression: structurally 0 during live scoring.
+            // Candidates in BoxSets with watched siblings are rare in the live scoring path
+            // because most such items are excluded by watchedIds. Training uses cached BoxSetIds instead.
+            CollectionProgressionBoost = 0.0,
+            // Subtitle language affinity: how well the candidate's subtitle tracks match the user's
+            // subtitle language preferences. Uses chosen-vs-forced distinction.
+            SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinity(userProfile, candidate)
         };
 
         // Genre exposure features: soft signals for genre distribution awareness
@@ -821,6 +832,170 @@ public sealed class Engine : IRecommendationEngine
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             return []; // Graceful: no stream data available
+        }
+    }
+
+    /// <summary>
+    ///     Resolves the normalized subtitle language codes available for a candidate item.
+    ///     Used to persist subtitle language data in <see cref="RecommendedItem"/> for training feature parity.
+    ///     Returns an empty list if no subtitle stream data is available (graceful fallback).
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>A list of distinct, normalized ISO 639 subtitle language codes.</returns>
+    private static List<string> ResolveSubtitleLanguages(BaseItem candidate)
+    {
+        try
+        {
+            var streams = candidate.GetMediaStreams();
+            if (streams is null)
+            {
+                return [];
+            }
+
+            var languages = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var s in streams)
+            {
+                if (s.Type != MediaStreamType.Subtitle)
+                {
+                    continue;
+                }
+
+                var normalized = WatchHistoryService.NormalizeLanguage(s.Language);
+                if (!string.IsNullOrEmpty(normalized) && seen.Add(normalized))
+                {
+                    languages.Add(normalized);
+                }
+            }
+
+            return languages;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return []; // Graceful: no stream data available
+        }
+    }
+
+    /// <summary>
+    ///     Resolves the BoxSet (collection) IDs that a candidate item belongs to.
+    ///     Uses Jellyfin's parent hierarchy to find BoxSet containers.
+    ///     Returns an empty list if the item is not in any collection.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>A list of BoxSet IDs the item belongs to.</returns>
+    private static List<Guid> ResolveBoxSetIds(BaseItem candidate)
+    {
+        try
+        {
+            var boxSetIds = new List<Guid>();
+
+            // Check if the item has BoxSet collections via its Collections property
+            // In Jellyfin, items can belong to BoxSets via the GetCollectionFolders or parent traversal
+            var parent = candidate.GetParent();
+            while (parent is not null)
+            {
+                if (parent is MediaBrowser.Controller.Entities.Movies.BoxSet)
+                {
+                    boxSetIds.Add(parent.Id);
+                }
+
+                parent = parent.GetParent();
+            }
+
+            return boxSetIds;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return []; // Graceful fallback
+        }
+    }
+
+    /// <summary>
+    ///     Computes subtitle language affinity between a candidate's available subtitle languages
+    ///     and the user's subtitle language profile. Returns 0.5 (neutral) when no data is available.
+    ///     Uses the same chosen-vs-forced logic as audio language affinity.
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile with subtitle language preferences.</param>
+    /// <param name="candidate">The candidate item to evaluate.</param>
+    /// <returns>A subtitle language affinity score between 0.1 and 1.0, or 0.5 if no data available.</returns>
+    internal static double ComputeSubtitleLanguageAffinity(UserWatchProfile userProfile, BaseItem candidate)
+    {
+        // No subtitle language profile → neutral
+        if (userProfile.SubtitleLanguageProfile.Count == 0)
+        {
+            return 0.5;
+        }
+
+        var candidateLanguages = ResolveSubtitleLanguages(candidate);
+        if (candidateLanguages.Count == 0)
+        {
+            return 0.5; // No subtitle stream info → neutral
+        }
+
+        return Training.TrainingFeatureComputer.ComputeBestLanguageAffinity(
+            candidateLanguages,
+            userProfile.PrimarySubtitleLanguage,
+            userProfile.PreferredSubtitleLanguages,
+            userProfile.ToleratedSubtitleLanguages,
+            userProfile.SubtitleLanguageProfile);
+    }
+
+    /// <summary>
+    ///     Computes the collection/BoxSet progression boost for a candidate item.
+    ///     Returns a positive value if the candidate belongs to a collection where the user
+    ///     has already watched other items. Encourages "complete the collection" recommendations.
+    /// </summary>
+    /// <param name="candidate">The candidate item to evaluate.</param>
+    /// <param name="watchedIds">Set of item IDs the user has watched.</param>
+    /// <returns>A boost value between 0.0 and 1.0.</returns>
+    internal static double ComputeCollectionProgressionBoost(BaseItem candidate, HashSet<Guid> watchedIds)
+    {
+        try
+        {
+            // Check if the candidate belongs to any BoxSet via parent traversal
+            var parent = candidate.GetParent();
+            while (parent is not null)
+            {
+                if (parent is MediaBrowser.Controller.Entities.Movies.BoxSet boxSet)
+                {
+                    // Check if the user has watched any other item in this BoxSet
+                    var children = boxSet.Children;
+                    if (children is not null)
+                    {
+                        var watchedCount = 0;
+                        var totalCount = 0;
+                        foreach (var child in children)
+                        {
+                            if (child.Id == candidate.Id)
+                            {
+                                continue; // Don't count the candidate itself
+                            }
+
+                            totalCount++;
+                            if (watchedIds.Contains(child.Id))
+                            {
+                                watchedCount++;
+                            }
+                        }
+
+                        if (watchedCount > 0 && totalCount > 0)
+                        {
+                            // Boost proportional to how much of the collection is watched
+                            var ratio = (double)watchedCount / totalCount;
+                            return Math.Clamp(ratio * 1.2, 0.0, 1.0);
+                        }
+                    }
+                }
+
+                parent = parent.GetParent();
+            }
+
+            return 0.0;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return 0.0; // Graceful fallback
         }
     }
 

@@ -11,19 +11,19 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 public static class DefaultWeights
 {
     /// <summary>Weight for genre similarity signal.</summary>
-    public const double GenreSimilarity = 0.20;
+    public const double GenreSimilarity = 0.155;
 
     /// <summary>Weight for collaborative filtering signal.</summary>
-    public const double CollaborativeScore = 0.09;
+    public const double CollaborativeScore = 0.070;
 
     /// <summary>Weight for combined critic score signal (TMDb 55% + Tomatometer 45%).</summary>
-    public const double CombinedCriticScore = 0.07;
+    public const double CombinedCriticScore = 0.050;
 
     /// <summary>Weight for recency signal.</summary>
-    public const double RecencyScore = 0.06;
+    public const double RecencyScore = 0.045;
 
     /// <summary>Weight for year proximity signal.</summary>
-    public const double YearProximityScore = 0.05;
+    public const double YearProximityScore = 0.040;
 
     /// <summary>Weight for normalized genre count signal. Near-neutral - ML can learn if it matters.</summary>
     public const double GenreCountNormalized = 0.005;
@@ -33,23 +33,23 @@ public static class DefaultWeights
     ///     series over movies. The ML model learns whether the user prefers series based on
     ///     their actual watch patterns.
     /// </summary>
-    public const double IsSeries = 0.01;
+    public const double IsSeries = 0.010;
 
     /// <summary>Weight for genre × combined critic interaction signal.</summary>
-    public const double GenreCriticInteraction = 0.05;
+    public const double GenreCriticInteraction = 0.035;
 
     /// <summary>Weight for genre × collaborative interaction signal.</summary>
-    public const double GenreCollabInteraction = 0.05;
+    public const double GenreCollabInteraction = 0.035;
 
     /// <summary>Weight for user personal rating signal (stronger than community rating).</summary>
-    public const double UserRatingScore = 0.09;
+    public const double UserRatingScore = 0.070;
 
     /// <summary>
     ///     Weight for watch completion ratio (positive signal - rewards fully watched items).
     ///     Works together with the companion <see cref="IsAbandoned"/> feature which penalizes
     ///     abandoned ones.
     /// </summary>
-    public const double CompletionRatio = 0.07;
+    public const double CompletionRatio = 0.050;
 
     /// <summary>
     ///     Negative weight for abandoned items (CompletionRatio &lt; 25%).
@@ -67,24 +67,24 @@ public static class DefaultWeights
     public const double HasInteraction = 0.005;
 
     /// <summary>
-    ///     Weight for people (cast/director) similarity signal (increased from 0.05 during genre rebalance).
+    ///     Weight for people (cast/director) similarity signal.
     ///     Items featuring actors or directors from the user's watched content get a boost.
     ///     Cast/director overlap is a strong content-based signal for user preference.
     /// </summary>
-    public const double PeopleSimilarity = 0.06;
+    public const double PeopleSimilarity = 0.050;
 
     /// <summary>
     ///     Weight for studio match signal.
     ///     Items from studios the user has watched before get a small positive boost.
     /// </summary>
-    public const double StudioMatch = 0.02;
+    public const double StudioMatch = 0.020;
 
     /// <summary>
     ///     Weight for series progression boost signal.
     ///     Rewards follow-up seasons when the user has watched earlier seasons of the same series,
     ///     encouraging "continue watching" style recommendations.
     /// </summary>
-    public const double SeriesProgressionBoost = 0.06;
+    public const double SeriesProgressionBoost = 0.045;
 
     /// <summary>
     ///     Weight for popularity score signal.
@@ -128,12 +128,12 @@ public static class DefaultWeights
     /// <summary>
     ///     Weight for people × genre interaction (actors you like in genres you prefer).
     /// </summary>
-    public const double PeopleGenreInteraction = 0.03;
+    public const double PeopleGenreInteraction = 0.025;
 
     /// <summary>
     ///     Weight for recency × combined critic interaction (trending: new + highly rated).
     /// </summary>
-    public const double RecencyCriticInteraction = 0.03;
+    public const double RecencyCriticInteraction = 0.025;
 
     /// <summary>
     ///     Negative weight for genre underexposure signal.
@@ -150,7 +150,7 @@ public static class DefaultWeights
     ///     Complements GenreSimilarity with a "strength of preference" signal
     ///     rather than just "breadth of match".
     /// </summary>
-    public const double GenreDominanceRatio = 0.10;
+    public const double GenreDominanceRatio = 0.070;
 
     /// <summary>
     ///     Negative weight for genre affinity gap signal.
@@ -166,28 +166,39 @@ public static class DefaultWeights
     ///     Captures new additions to the user's collection separately from content release date.
     ///     A small weight so it acts as a supplementary freshness signal.
     /// </summary>
-    public const double LibraryAddedRecency = 0.03;
+    public const double LibraryAddedRecency = 0.025;
 
     /// <summary>
     ///     Weight for content-based nearest-neighbor signal.
     ///     Composite item-to-item similarity (genre 50%, people 30%, studio 20%) between
     ///     the candidate and the user's most similar watched item. Near-neutral initial
-    ///     weight (0.02) because it partially overlaps with GenreSimilarity and PeopleSimilarity
+    ///     weight because it partially overlaps with GenreSimilarity and PeopleSimilarity
     ///     at the profile level - this feature adds the item-to-item perspective. The ML model
     ///     can learn the optimal weight through training.
     /// </summary>
-    public const double ContentNearestNeighborScore = 0.02;
+    public const double ContentNearestNeighborScore = 0.020;
 
     /// <summary>
     ///     Weight for audio language affinity signal.
     ///     Items available in the user's preferred audio language get a moderate boost.
     ///     For monolingual libraries (all items same language), this feature is constant
     ///     and the weight effectively becomes zero (no ranking impact).
-    ///     Budget sourced via proportional micro-trim from 6 near-neutral features
-    ///     (GenreCountNormalized, HasInteraction, PopularityScore, IsWeekend,
-    ///     DayOfWeekAffinity, TagSimilarity) - each trimmed by 0.005, totaling 0.03.
     /// </summary>
-    public const double LanguageAffinity = 0.03;
+    public const double LanguageAffinity = 0.025;
+
+    /// <summary>
+    ///     Weight for collection/BoxSet progression boost signal.
+    ///     Rewards items belonging to a collection where the user has already watched
+    ///     other entries, encouraging "complete the collection" recommendations.
+    /// </summary>
+    public const double CollectionProgressionBoost = 0.045;
+
+    /// <summary>
+    ///     Weight for subtitle language affinity signal.
+    ///     Items available in the user's preferred subtitle language get a small boost.
+    ///     Complements audio language affinity for users who rely on subtitles.
+    /// </summary>
+    public const double SubtitleLanguageAffinity = 0.020;
 
     /// <summary>Default bias term for the learned strategy.</summary>
     public const double Bias = 0.05;
@@ -246,6 +257,8 @@ public static class DefaultWeights
         Set(FeatureIndex.LibraryAddedRecency, LibraryAddedRecency);
         Set(FeatureIndex.ContentNearestNeighborScore, ContentNearestNeighborScore);
         Set(FeatureIndex.LanguageAffinity, LanguageAffinity);
+        Set(FeatureIndex.CollectionProgressionBoost, CollectionProgressionBoost);
+        Set(FeatureIndex.SubtitleLanguageAffinity, SubtitleLanguageAffinity);
 
         // Guard: detect missing per-index assignments. The count check above catches
         // new enum values without FeatureCount bump, but this catches the more likely

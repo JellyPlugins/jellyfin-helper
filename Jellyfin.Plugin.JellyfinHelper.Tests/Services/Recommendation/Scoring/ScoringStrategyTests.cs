@@ -2301,7 +2301,9 @@ public sealed class ScoringStrategyTests : IDisposable
         var bH2 = new double[NeuralScoringStrategy.Hidden2Size];
         var wH2H3 = new double[NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size];
         var bH3 = new double[NeuralScoringStrategy.Hidden3Size];
-        var wH3O = new double[NeuralScoringStrategy.Hidden3Size];
+        var wH3H4 = new double[NeuralScoringStrategy.Hidden4Size * NeuralScoringStrategy.Hidden3Size];
+        var bH4 = new double[NeuralScoringStrategy.Hidden4Size];
+        var wH4O = new double[NeuralScoringStrategy.Hidden4Size];
         var bO = 0.0;
         var input = new double[inputSize];
         var h1Pre = new double[NeuralScoringStrategy.Hidden1Size];
@@ -2310,6 +2312,8 @@ public sealed class ScoringStrategyTests : IDisposable
         var h2Act = new double[NeuralScoringStrategy.Hidden2Size];
         var h3Pre = new double[NeuralScoringStrategy.Hidden3Size];
         var h3Act = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4Pre = new double[NeuralScoringStrategy.Hidden4Size];
+        var h4Act = new double[NeuralScoringStrategy.Hidden4Size];
 
         var result = NeuralScoringStrategy.ForwardPass(
             input,
@@ -2319,14 +2323,18 @@ public sealed class ScoringStrategyTests : IDisposable
             bH2,
             wH2H3,
             bH3,
-            wH3O,
+            wH3H4,
+            bH4,
+            wH4O,
             bO,
             h1Pre,
             h1Act,
             h2Pre,
             h2Act,
             h3Pre,
-            h3Act);
+            h3Act,
+            h4Pre,
+            h4Act);
 
         // With all zero weights, biases, and inputs: sigmoid(0) = 0.5
         Assert.Equal(0.5, result, 10);

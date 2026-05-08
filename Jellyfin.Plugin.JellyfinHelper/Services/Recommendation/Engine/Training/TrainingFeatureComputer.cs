@@ -383,6 +383,28 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
+    ///     Computes SubtitleLanguageAffinity from cached subtitle language data stored on <see cref="RecommendedItem"/>.
+    ///     Delegates to <see cref="ComputeBestLanguageAffinity"/> for the core scoring logic.
+    ///     Returns 0.5 (neutral) when no subtitle language data is available on either side.
+    /// </summary>
+    internal static double ComputeSubtitleLanguageAffinityFromCache(
+        IReadOnlyList<string> candidateSubtitleLanguages,
+        UserWatchProfile userProfile)
+    {
+        if (candidateSubtitleLanguages.Count == 0 || userProfile.SubtitleLanguageProfile.Count == 0)
+        {
+            return 0.5;
+        }
+
+        return ComputeBestLanguageAffinity(
+            candidateSubtitleLanguages,
+            userProfile.PrimarySubtitleLanguage,
+            userProfile.PreferredSubtitleLanguages,
+            userProfile.ToleratedSubtitleLanguages,
+            userProfile.SubtitleLanguageProfile);
+    }
+
+    /// <summary>
     ///     Computes LanguageAffinity from cached audio language data stored on <see cref="RecommendedItem"/>.
     ///     Delegates to <see cref="ComputeBestLanguageAffinity"/> for the core scoring logic.
     ///     Returns 0.5 (neutral) when no language data is available on either side.
