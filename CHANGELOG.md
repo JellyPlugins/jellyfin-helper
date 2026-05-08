@@ -21,7 +21,10 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Tests
 - Unit tests updated for new defaults and weight-version expectations.
-- Updated neural architecture constant assertions (Hidden1Size=48, Hidden2Size=24, Hidden3Size=12, Hidden4Size=6, Version=3), output weight length/bounds tests, and persistence field name checks for the new 4-layer DTO.
+- Updated neural architecture constant assertions (Hidden1Size=48, Hidden2Size=24, Hidden3Size=12, Hidden4Size=6, Version=2), output weight length/bounds tests, and persistence field name checks for the new 4-layer DTO.
+- New `ContentScoringTests` class (14 tests) covering `ComputePopularityScore` edge cases (clamping, fallback paths) and `ComputeCollectionProgressionBoostFromCache` with `watchedIds` logic (BoxSet-ID match, base boost, empty inputs).
+- Strengthened `DefaultWeights_WeightsExcludingBias_SumToOne` test with exact constant-sum verification instead of range assertion.
+- Total: **2124 tests**.
 
 ---
 

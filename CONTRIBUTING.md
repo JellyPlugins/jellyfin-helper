@@ -131,6 +131,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
+│       │   ├── ContentScoringTests.cs
 │       │   └── PreferenceBuilderTests.cs
 │       ├── Playlist/              # Playlist sync tests
 │       │   └── RecommendationPlaylistServiceTests.cs

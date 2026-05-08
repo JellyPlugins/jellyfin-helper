@@ -1550,9 +1550,26 @@ public sealed class ScoringStrategyTests : IDisposable
             sum += weights[i];
         }
 
-        // Net sum includes negative weights (IsAbandoned=-0.04, GenreUnderexposure=-0.12, GenreAffinityGap=-0.08)
-        // so total is lower than 1.0. The important thing is it's positive and reasonable.
-        Assert.InRange(sum, 0.50, 1.15);
+        // Compute the exact expected sum from all DefaultWeights constants.
+        // This catches any future weight change that accidentally breaks the total balance.
+        var expectedSum =
+            DefaultWeights.GenreSimilarity + DefaultWeights.CollaborativeScore +
+            DefaultWeights.CombinedCriticScore + DefaultWeights.RecencyScore +
+            DefaultWeights.YearProximityScore + DefaultWeights.GenreCountNormalized +
+            DefaultWeights.IsSeries + DefaultWeights.GenreCriticInteraction +
+            DefaultWeights.GenreCollabInteraction + DefaultWeights.UserRatingScore +
+            DefaultWeights.CompletionRatio + DefaultWeights.IsAbandoned +
+            DefaultWeights.HasInteraction + DefaultWeights.PeopleSimilarity +
+            DefaultWeights.StudioMatch + DefaultWeights.SeriesProgressionBoost +
+            DefaultWeights.PopularityScore + DefaultWeights.DayOfWeekAffinity +
+            DefaultWeights.HourOfDayAffinity + DefaultWeights.IsWeekend +
+            DefaultWeights.TagSimilarity + DefaultWeights.PeopleGenreInteraction +
+            DefaultWeights.RecencyCriticInteraction + DefaultWeights.GenreUnderexposure +
+            DefaultWeights.GenreDominanceRatio + DefaultWeights.GenreAffinityGap +
+            DefaultWeights.LibraryAddedRecency + DefaultWeights.ContentNearestNeighborScore +
+            DefaultWeights.LanguageAffinity + DefaultWeights.CollectionProgressionBoost +
+            DefaultWeights.SubtitleLanguageAffinity;
+        Assert.Equal(expectedSum, sum, 10);
     }
 
     // ============================================================

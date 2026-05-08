@@ -795,85 +795,75 @@ public sealed class Engine : IRecommendationEngine
 
     /// <summary>
     ///     Resolves the normalized audio language codes available for a candidate item.
-    ///     Used to persist language data in <see cref="RecommendedItem"/> for training feature parity.
+    ///     Delegates to <see cref="ResolveMediaLanguages"/> for a single-pass stream scan.
     ///     Returns an empty list if no audio stream data is available (graceful fallback).
     /// </summary>
     /// <param name="candidate">The candidate item.</param>
     /// <returns>A list of distinct, normalized ISO 639 language codes.</returns>
     private static List<string> ResolveAudioLanguages(BaseItem candidate)
     {
-        try
-        {
-            var streams = candidate.GetMediaStreams();
-            if (streams is null)
-            {
-                return [];
-            }
-
-            var languages = new List<string>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var s in streams)
-            {
-                if (s.Type != MediaStreamType.Audio)
-                {
-                    continue;
-                }
-
-                var normalized = WatchHistoryService.NormalizeLanguage(s.Language);
-                if (!string.IsNullOrEmpty(normalized) && seen.Add(normalized))
-                {
-                    languages.Add(normalized);
-                }
-            }
-
-            return languages;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-        {
-            return []; // Graceful: no stream data available
-        }
+        return ResolveMediaLanguages(candidate).Audio;
     }
 
     /// <summary>
     ///     Resolves the normalized subtitle language codes available for a candidate item.
-    ///     Used to persist subtitle language data in <see cref="RecommendedItem"/> for training feature parity.
+    ///     Delegates to <see cref="ResolveMediaLanguages"/> for a single-pass stream scan.
     ///     Returns an empty list if no subtitle stream data is available (graceful fallback).
     /// </summary>
     /// <param name="candidate">The candidate item.</param>
     /// <returns>A list of distinct, normalized ISO 639 subtitle language codes.</returns>
     private static List<string> ResolveSubtitleLanguages(BaseItem candidate)
     {
+        return ResolveMediaLanguages(candidate).Subtitles;
+    }
+
+    /// <summary>
+    ///     Resolves both audio and subtitle language codes from a candidate item's media streams
+    ///     in a single pass. Avoids calling <see cref="BaseItem.GetMediaStreams"/> twice per item
+    ///     in the scoring hot path (1000+ candidates per user).
+    ///     Returns empty lists if no stream data is available (graceful fallback).
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>A tuple of (Audio languages, Subtitle languages) as distinct, normalized ISO 639 codes.</returns>
+    private static (List<string> Audio, List<string> Subtitles) ResolveMediaLanguages(BaseItem candidate)
+    {
         try
         {
             var streams = candidate.GetMediaStreams();
             if (streams is null)
             {
-                return [];
+                return ([], []);
             }
 
-            var languages = new List<string>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var audioLanguages = new List<string>();
+            var audioSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var subtitleLanguages = new List<string>();
+            var subtitleSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var s in streams)
             {
-                if (s.Type != MediaStreamType.Subtitle)
+                var normalized = WatchHistoryService.NormalizeLanguage(s.Language);
+                if (string.IsNullOrEmpty(normalized))
                 {
                     continue;
                 }
 
-                var normalized = WatchHistoryService.NormalizeLanguage(s.Language);
-                if (!string.IsNullOrEmpty(normalized) && seen.Add(normalized))
+                switch (s.Type)
                 {
-                    languages.Add(normalized);
+                    case MediaStreamType.Audio when audioSeen.Add(normalized):
+                        audioLanguages.Add(normalized);
+                        break;
+                    case MediaStreamType.Subtitle when subtitleSeen.Add(normalized):
+                        subtitleLanguages.Add(normalized);
+                        break;
                 }
             }
 
-            return languages;
+            return (audioLanguages, subtitleLanguages);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            return []; // Graceful: no stream data available
+            return ([], []); // Graceful: no stream data available
         }
     }
 
@@ -886,14 +876,17 @@ public sealed class Engine : IRecommendationEngine
     /// <returns>A list of BoxSet IDs the item belongs to.</returns>
     private static List<Guid> ResolveBoxSetIds(BaseItem candidate)
     {
+        const int maxTraversalDepth = 20;
+
         try
         {
             var boxSetIds = new List<Guid>();
 
-            // Check if the item has BoxSet collections via its Collections property
-            // In Jellyfin, items can belong to BoxSets via the GetCollectionFolders or parent traversal
+            // Traverse the parent hierarchy to find BoxSet containers.
+            // Depth limit guards against corrupted metadata with circular parent references.
             var parent = candidate.GetParent();
-            while (parent is not null)
+            var depth = 0;
+            while (parent is not null && depth < maxTraversalDepth)
             {
                 if (parent is MediaBrowser.Controller.Entities.Movies.BoxSet)
                 {
@@ -901,6 +894,7 @@ public sealed class Engine : IRecommendationEngine
                 }
 
                 parent = parent.GetParent();
+                depth++;
             }
 
             return boxSetIds;

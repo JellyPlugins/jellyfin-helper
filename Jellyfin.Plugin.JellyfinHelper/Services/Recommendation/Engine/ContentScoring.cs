@@ -336,7 +336,7 @@ internal static class ContentScoring
     {
         return collaborativeScore > 0
             ? Math.Clamp(collaborativeScore * 0.8, 0.0, 1.0)
-            : combinedCriticScore * 0.3;
+            : Math.Clamp(combinedCriticScore * 0.3, 0.0, 1.0);
     }
 
     /// <summary>
