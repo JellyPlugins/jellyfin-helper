@@ -16,7 +16,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Improved
 - **Scoring & Training** - Centralized popularity scoring, richer training feature construction, series aggregation, and weight schema version bumped.
-- **NeuralScoringStrategy** – Upgraded MLP architecture from 3 to 4 hidden layers (31→48→24→12→6→1, ~2,635 parameters). Deeper representation captures more complex feature interactions while keeping inference lightweight.
+- **NeuralScoringStrategy** – Upgraded MLP architecture from 3 to 4 hidden layers (31→48→24→12→6→1, ~3,097 parameters). Deeper representation captures more complex feature interactions while keeping inference lightweight.
 
 
 ### Tests

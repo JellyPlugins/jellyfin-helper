@@ -127,8 +127,8 @@ internal static class ScoringHelper
 
         // Interaction + minor features (genreCount, isSeries, genre×rating, genre×collab, completionRatio,
         // isAbandoned, hasInteraction, seriesProgression, popularity, dayOfWeek, hourOfDay, isWeekend,
-        // tagSimilarity, genreExposure features, libraryAddedRecency, contentNearestNeighbor,
-        // languageAffinity, collectionProgressionBoost, subtitleLanguageAffinity)
+        // tagSimilarity, people×genre, recency×critic, genreExposure features, libraryAddedRecency,
+        // contentNearestNeighbor, languageAffinity, collectionProgressionBoost, subtitleLanguageAffinity)
         // Each GetContribution already returns 0.0 for non-finite products, so the sum should
         // always be finite. Use 0.0 (not NaNFallbackScore) as defensive fallback to avoid
         // injecting a neutral-looking 0.5 into an additive contribution term.
