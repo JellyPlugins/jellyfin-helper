@@ -595,8 +595,10 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 // Always track cumulative examples
                 _trainingExampleCount += examples.Count;
 
-                // Compute the target alpha from the sigmoid curve
-                var sigmoidAlpha = ComputeSigmoidAlpha(_trainingExampleCount, _alphaMin, _alphaMax);
+                // Compute the target alpha from the sigmoid curve using the adaptive midpoint.
+                // The midpoint offset is adjusted by ApplyCohortFeedback based on cohort watch-rates.
+                var effectiveMidpoint = DefaultSigmoidMidpoint + _sigmoidMidpointOffset;
+                var sigmoidAlpha = ComputeSigmoidAlpha(_trainingExampleCount, effectiveMidpoint, _alphaMin, _alphaMax);
 
                 if (qualityGatePassed)
                 {
