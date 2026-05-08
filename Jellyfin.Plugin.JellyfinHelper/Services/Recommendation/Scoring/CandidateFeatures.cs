@@ -381,19 +381,12 @@ public sealed class CandidateFeatures
     ///     Values are clamped to [0, 1]; NaN defaults to 0.
     /// </summary>
     /// <remarks>
-    ///     <para>
-    ///         <strong>Intentional train/inference asymmetry:</strong> During live scoring
-    ///         (Engine.ScoreCandidate), this feature is structurally 0.0 because candidates
-    ///         in partially-completed collections are rare — most such items are already excluded
-    ///         by the watchedIds filter upstream. Training (TrainingDataBuilder) computes real
-    ///         values (0.15–0.5) from cached BoxSetIds to teach the model the signal's importance.
-    ///     </para>
-    ///     <para>
-    ///         This asymmetry is benign: a feature that is always zero at inference contributes
-    ///         zero to the final score regardless of its learned weight. The non-zero training
-    ///         values ensure the model correctly learns that collection membership is a positive
-    ///         signal for the rare cases where such candidates do appear in the scoring path.
-    ///     </para>
+    ///     Live scoring (Engine.ScoreCandidate) pre-computes BoxSet membership counts for
+    ///     all watched items once per user, then performs an O(1) lookup per candidate via
+    ///     the candidate's resolved BoxSet IDs. Training (TrainingDataBuilder) uses a
+    ///     sibling-matching heuristic from cached BoxSetIds stored on RecommendedItem.
+    ///     Both paths produce real progression values (0.0–1.0) when the candidate belongs
+    ///     to a collection with watched siblings.
     /// </remarks>
     public double CollectionProgressionBoost
     {

@@ -475,6 +475,11 @@ public sealed class Engine : IRecommendationEngine
         var preferredTags = PreferenceBuilder.BuildTagPreferenceSet(userProfile, candidateLookup);
         var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile);
 
+        // Pre-compute BoxSet membership for watched items to enable CollectionProgressionBoost
+        // at inference time. Maps BoxSet ID → count of watched items in that BoxSet.
+        // Built once per user, O(1) per-candidate lookup via ResolveBoxSetIds().
+        var watchedBoxSetCounts = BuildWatchedBoxSetCounts(watchedIds, candidateLookup);
+
         // Pre-compute per-item genre, people, and studio sets for watched items.
         // Used by ContentNearestNeighborScore to find the most similar watched item for each candidate.
         // Built once per user, O(1) per-candidate lookup via parallel list indices.
@@ -552,7 +557,8 @@ public sealed class Engine : IRecommendationEngine
                     genreExposure,
                     watchedGenreSets,
                     watchedPeopleSets,
-                    watchedStudioSets));
+                    watchedStudioSets,
+                    watchedBoxSetCounts));
         }
 
         scored = DiversityReranker.DeduplicateSeries(scored);
@@ -622,7 +628,8 @@ public sealed class Engine : IRecommendationEngine
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
         List<HashSet<string>> watchedGenreSets,
         List<HashSet<string>> watchedPeopleSets,
-        List<HashSet<string>> watchedStudioSets)
+        List<HashSet<string>> watchedStudioSets,
+        Dictionary<Guid, int> watchedBoxSetCounts)
     {
         var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences);
         var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, coOccurrence, collaborativeMax);
@@ -726,10 +733,10 @@ public sealed class Engine : IRecommendationEngine
             // Language affinity features: resolve media streams ONCE per candidate to avoid
             // calling GetMediaStreams() twice (audio + subtitle). Single-pass via ResolveMediaLanguages().
             LanguageAffinity = ComputeLanguageAffinityFromStreams(userProfile, candidate, out var candidateMediaLanguages),
-            // Collection/BoxSet progression: structurally 0 during live scoring.
-            // Candidates in BoxSets with watched siblings are rare in the live scoring path
-            // because most such items are excluded by watchedIds. Training uses cached BoxSetIds instead.
-            CollectionProgressionBoost = 0.0,
+            // Collection/BoxSet progression: computed from pre-built BoxSet membership counts.
+            // Uses the same ResolveBoxSetIds() as the output (line 582) but computes the progression
+            // ratio from the user's watched items in each collection.
+            CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(candidate, watchedBoxSetCounts),
             // Subtitle language affinity: reuses the already-resolved subtitle languages
             // from the single ResolveMediaLanguages() call above (no second stream scan).
             SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromStreams(userProfile, candidateMediaLanguages.Subtitles)
@@ -992,6 +999,82 @@ public sealed class Engine : IRecommendationEngine
             userProfile.PreferredSubtitleLanguages,
             userProfile.ToleratedSubtitleLanguages,
             userProfile.SubtitleLanguageProfile);
+    }
+
+    /// <summary>
+    ///     Pre-computes BoxSet membership counts for the user's watched items.
+    ///     For each BoxSet that contains at least one watched item, stores the count
+    ///     of watched members. This enables O(1) per-candidate lookup during scoring
+    ///     instead of O(BoxSetChildren) per candidate.
+    ///     Built once per user in <see cref="GenerateForUser"/>.
+    /// </summary>
+    /// <param name="watchedIds">Set of item IDs the user has meaningfully interacted with.</param>
+    /// <param name="candidateLookup">Pre-built candidate lookup for resolving BoxSet membership.</param>
+    /// <returns>A dictionary mapping BoxSet ID → number of watched items in that BoxSet.</returns>
+    private static Dictionary<Guid, int> BuildWatchedBoxSetCounts(
+        HashSet<Guid> watchedIds,
+        Dictionary<Guid, BaseItem> candidateLookup)
+    {
+        var boxSetCounts = new Dictionary<Guid, int>();
+
+        foreach (var watchedId in watchedIds)
+        {
+            if (!candidateLookup.TryGetValue(watchedId, out var watchedItem))
+            {
+                continue;
+            }
+
+            // Resolve BoxSet IDs for this watched item
+            var boxSetIds = ResolveBoxSetIds(watchedItem);
+            foreach (var boxSetId in boxSetIds)
+            {
+                boxSetCounts.TryGetValue(boxSetId, out var count);
+                boxSetCounts[boxSetId] = count + 1;
+            }
+        }
+
+        return boxSetCounts;
+    }
+
+    /// <summary>
+    ///     Computes the CollectionProgressionBoost for a candidate during live inference scoring.
+    ///     Uses the pre-computed <paramref name="watchedBoxSetCounts"/> dictionary for O(1) lookup
+    ///     instead of per-candidate parent traversal + child enumeration.
+    ///     Returns a progression ratio proportional to how many collection siblings are already watched.
+    /// </summary>
+    /// <param name="candidate">The candidate item to evaluate.</param>
+    /// <param name="watchedBoxSetCounts">Pre-computed BoxSet ID → watched member count mapping.</param>
+    /// <returns>A boost value between 0.0 and 1.0, or 0.0 if not in any collection.</returns>
+    private static double ComputeCollectionProgressionBoostLive(
+        BaseItem candidate,
+        Dictionary<Guid, int> watchedBoxSetCounts)
+    {
+        if (watchedBoxSetCounts.Count == 0)
+        {
+            return 0.0;
+        }
+
+        // Resolve which BoxSets this candidate belongs to
+        var candidateBoxSetIds = ResolveBoxSetIds(candidate);
+        if (candidateBoxSetIds.Count == 0)
+        {
+            return 0.0;
+        }
+
+        // Find the best progression signal across all BoxSets the candidate belongs to
+        var bestBoost = 0.0;
+        foreach (var boxSetId in candidateBoxSetIds)
+        {
+            if (watchedBoxSetCounts.TryGetValue(boxSetId, out var watchedCount) && watchedCount > 0)
+            {
+                // Scale: 1 watched sibling = 0.3, 2 = 0.5, 3+ = 0.7+
+                // Uses diminishing returns formula to avoid over-boosting large collections
+                var boost = Math.Clamp(0.3 + ((watchedCount - 1) * 0.2), 0.0, 1.0);
+                bestBoost = Math.Max(bestBoost, boost);
+            }
+        }
+
+        return bestBoost;
     }
 
     /// <summary>
