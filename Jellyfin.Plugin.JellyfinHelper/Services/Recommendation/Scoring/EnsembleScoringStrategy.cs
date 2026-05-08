@@ -434,7 +434,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal double ScoreWithOffset(CandidateFeatures features, double alphaOffset)
     {
         // Fast path: no offset means standard scoring
-        if (alphaOffset == 0.0)
+        if (Math.Abs(alphaOffset) < 1e-10)
         {
             return Score(features);
         }
@@ -475,7 +475,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal ScoreExplanation ScoreWithExplanationAndOffset(CandidateFeatures features, double alphaOffset)
     {
         // Fast path: no offset means standard scoring
-        if (alphaOffset == 0.0)
+        if (Math.Abs(alphaOffset) < 1e-10)
         {
             return ScoreWithExplanation(features);
         }

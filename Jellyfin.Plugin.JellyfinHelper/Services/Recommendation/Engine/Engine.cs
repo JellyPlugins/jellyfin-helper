@@ -809,8 +809,8 @@ public sealed class Engine : IRecommendationEngine
         features.GenreAffinityGap = affinityGap;
 
         // Apply alpha offset for cohort exploration when the strategy supports it.
-        // For control cohort (offset=0), this is a zero-cost fast path via the standard method.
-        var explanation = alphaOffset != 0.0 && strategy is EnsembleScoringStrategy ensemble
+        // For control cohort (offset≈0), this is a zero-cost fast path via the standard method.
+        var explanation = Math.Abs(alphaOffset) > 1e-10 && strategy is EnsembleScoringStrategy ensemble
             ? ensemble.ScoreWithExplanationAndOffset(features, alphaOffset)
             : strategy.ScoreWithExplanation(features);
 
