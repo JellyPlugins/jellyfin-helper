@@ -294,13 +294,14 @@ internal static class TrainingDataBuilder
                     GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(rec.Genres, genrePreferences),
                     CollaborativeScore = collabScore,
                     CombinedCriticScore = combinedCriticScore,
-                    // TODO: Engine.ScoreCandidate uses PremiereDate ?? DateCreated for recency.
-                    // Once all cached RecommendedItems reliably have DateCreated populated
-                    // (after one full recommendation cycle on 2.0.0.3+), align this fallback
-                    // to use rec.DateCreated as the fallback instead of 0.5 for better train/serve parity.
+                    // Matches Engine.ScoreCandidate: PremiereDate ?? DateCreated ?? neutral 0.5.
+                    // The third fallback covers legacy cache entries from before 2.0.0.3 where
+                    // DateCreated was not yet persisted on RecommendedItem.
                     RecencyScore = rec.PremiereDate.HasValue
                         ? ContentScoring.ComputeRecencyScore(rec.PremiereDate.Value)
-                        : 0.5,
+                        : rec.DateCreated.HasValue
+                            ? ContentScoring.ComputeRecencyScore(rec.DateCreated.Value)
+                            : 0.5,
                     YearProximityScore = ContentScoring.ComputeYearProximity(rec.Year, avgYear),
                     GenreCount = rec.Genres.Count,
                     IsSeries = isSeries,
@@ -805,7 +806,9 @@ internal static class TrainingDataBuilder
                         CombinedCriticScore = combinedCriticScore,
                         RecencyScore = neg.PremiereDate.HasValue
                             ? ContentScoring.ComputeRecencyScore(neg.PremiereDate.Value)
-                            : 0.5,
+                            : neg.DateCreated.HasValue
+                                ? ContentScoring.ComputeRecencyScore(neg.DateCreated.Value)
+                                : 0.5,
                         YearProximityScore = ContentScoring.ComputeYearProximity(neg.Year, avgYear),
                         GenreCount = negGenres.Count,
                         IsSeries = isSeries,
