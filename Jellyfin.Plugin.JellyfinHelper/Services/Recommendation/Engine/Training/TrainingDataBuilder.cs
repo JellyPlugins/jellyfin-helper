@@ -866,11 +866,18 @@ internal static class TrainingDataBuilder
     /// <summary>
     ///     Computes CollectionProgressionBoost from cached BoxSet IDs stored on <see cref="RecommendedItem"/>.
     ///     Checks whether the user has watched any other items that share the same BoxSet membership.
-    ///     Returns a proportional boost (0.3–0.5) when watched siblings exist in the same collection,
-    ///     a base boost (0.15) when the item belongs to a BoxSet but no siblings are watched,
+    ///     Returns 0.5 when a BoxSet ID itself appears in the user's watched set (strong progression),
+    ///     0.3 when the item belongs to a BoxSet but no direct sibling match is found (membership signal),
     ///     or 0.0 when the item is not in any collection.
-    ///     The live scoring path uses actual parent traversal with full child enumeration;
-    ///     training uses this sibling-matching heuristic from cached BoxSet IDs.
+    ///     <para>
+    ///         <b>Training vs Inference parity note:</b> The live scoring path
+    ///         (<see cref="Engine.ComputeCollectionProgressionBoostLive"/>) has access to the full
+    ///         pre-computed watchedBoxSetCounts dictionary and uses a diminishing-returns formula
+    ///         (0.3 + (watchedCount-1) × 0.2, clamped to [0,1]). Training cannot replicate this
+    ///         because cached BoxSetIds only store which BoxSets a candidate belongs to, not the
+    ///         sibling item IDs within each BoxSet. This flat heuristic (0.0 / 0.3 / 0.5) is the
+    ///         best approximation available from cached data and intentionally differs from inference.
+    ///     </para>
     /// </summary>
     /// <param name="boxSetIds">The cached BoxSet IDs for the candidate item.</param>
     /// <param name="watchedIds">Set of item IDs the user has watched.</param>

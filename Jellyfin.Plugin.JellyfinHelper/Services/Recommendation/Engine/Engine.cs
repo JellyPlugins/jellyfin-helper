@@ -124,8 +124,20 @@ public sealed class Engine : IRecommendationEngine
         var candidates = LoadCandidateItems();
         var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
 
+        // Pre-compute BoxSet membership for all candidates once (shared across all users).
+        // Avoids redundant parent-hierarchy traversals in ScoreCandidate / BuildWatchedBoxSetCounts.
+        var candidateBoxSetLookup = new Dictionary<Guid, List<Guid>>();
+        foreach (var c in candidates)
+        {
+            var boxSets = ResolveBoxSetIds(c);
+            if (boxSets.Count > 0)
+            {
+                candidateBoxSetLookup[c.Id] = boxSets;
+            }
+        }
+
         // Cache for on-demand single-user calls that may follow
-        _cachedSnapshot = new CandidateSnapshot(candidates, peopleLookup);
+        _cachedSnapshot = new CandidateSnapshot(candidates, peopleLookup, candidateBoxSetLookup);
 
         // Pre-compute all user watched-item sets ONCE for collaborative filtering.
         // Reduces O(U²×M) to O(U×M) by sharing sets across BuildCollaborativeMap calls.
@@ -478,6 +490,8 @@ public sealed class Engine : IRecommendationEngine
         // Pre-compute BoxSet membership for watched items to enable CollectionProgressionBoost
         // at inference time. Maps BoxSet ID → count of watched items in that BoxSet.
         // Built once per user, O(1) per-candidate lookup via ResolveBoxSetIds().
+        // Note: candidateLookup contains ALL candidates (including items the user has watched),
+        // which is required for BuildWatchedBoxSetCounts to find watched items' BoxSet memberships.
         var watchedBoxSetCounts = BuildWatchedBoxSetCounts(watchedIds, candidateLookup);
 
         // Pre-compute per-item genre, people, and studio sets for watched items.
@@ -734,9 +748,9 @@ public sealed class Engine : IRecommendationEngine
             // calling GetMediaStreams() twice (audio + subtitle). Single-pass via ResolveMediaLanguages().
             LanguageAffinity = ComputeLanguageAffinityFromStreams(userProfile, candidate, out var candidateMediaLanguages),
             // Collection/BoxSet progression: computed from pre-built BoxSet membership counts.
-            // Uses the same ResolveBoxSetIds() as the output (line 582) but computes the progression
-            // ratio from the user's watched items in each collection.
-            CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(candidate, watchedBoxSetCounts),
+            // Resolve BoxSet IDs once and reuse for both the progression boost computation
+            // and the output RecommendedItem (avoids redundant parent traversal for top-N items).
+            CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(ResolveBoxSetIds(candidate), watchedBoxSetCounts),
             // Subtitle language affinity: reuses the already-resolved subtitle languages
             // from the single ResolveMediaLanguages() call above (no second stream scan).
             SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromStreams(userProfile, candidateMediaLanguages.Subtitles)
@@ -837,6 +851,21 @@ public sealed class Engine : IRecommendationEngine
         try
         {
             var streams = candidate.GetMediaStreams();
+
+            // Series items have no direct media streams — resolve from first child episode as fallback.
+            // This enables LanguageAffinity and SubtitleLanguageAffinity to produce real signals
+            // for series candidates instead of defaulting to 0.5 (neutral).
+            if ((streams is null || streams.Count == 0) && candidate is Series series)
+            {
+                var firstEpisode = series.Children?
+                    .OfType<Episode>()
+                    .FirstOrDefault(e => !string.IsNullOrEmpty(e.Path));
+                if (firstEpisode is not null)
+                {
+                    streams = firstEpisode.GetMediaStreams();
+                }
+            }
+
             if (streams is null)
             {
                 return ([], []);
@@ -1042,11 +1071,11 @@ public sealed class Engine : IRecommendationEngine
     ///     instead of per-candidate parent traversal + child enumeration.
     ///     Returns a progression ratio proportional to how many collection siblings are already watched.
     /// </summary>
-    /// <param name="candidate">The candidate item to evaluate.</param>
+    /// <param name="candidateBoxSetIds">Pre-resolved BoxSet IDs for the candidate (from ResolveBoxSetIds).</param>
     /// <param name="watchedBoxSetCounts">Pre-computed BoxSet ID → watched member count mapping.</param>
     /// <returns>A boost value between 0.0 and 1.0, or 0.0 if not in any collection.</returns>
     private static double ComputeCollectionProgressionBoostLive(
-        BaseItem candidate,
+        List<Guid> candidateBoxSetIds,
         Dictionary<Guid, int> watchedBoxSetCounts)
     {
         if (watchedBoxSetCounts.Count == 0)
@@ -1054,8 +1083,6 @@ public sealed class Engine : IRecommendationEngine
             return 0.0;
         }
 
-        // Resolve which BoxSets this candidate belongs to
-        var candidateBoxSetIds = ResolveBoxSetIds(candidate);
         if (candidateBoxSetIds.Count == 0)
         {
             return 0.0;
@@ -1156,7 +1183,15 @@ public sealed class Engine : IRecommendationEngine
     ///     Published/read as a single reference so concurrent readers always see
     ///     a consistent pair (candidates from the same batch as the people lookup).
     /// </summary>
+    /// <param name="Candidates">All candidate items from the library.</param>
+    /// <param name="PeopleLookup">Item ID → person name set mapping.</param>
+    /// <param name="CandidateBoxSetLookup">
+    ///     Pre-resolved BoxSet IDs per candidate. Built once during batch generation
+    ///     to avoid redundant parent-hierarchy traversals across multiple users.
+    ///     Only candidates that belong to at least one BoxSet are stored (sparse).
+    /// </param>
     private sealed record CandidateSnapshot(
         List<BaseItem> Candidates,
-        Dictionary<Guid, HashSet<string>> PeopleLookup);
+        Dictionary<Guid, HashSet<string>> PeopleLookup,
+        Dictionary<Guid, List<Guid>> CandidateBoxSetLookup);
 }
