@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  v2.0.0.3: Instance-based Arr config (legacy removed), persistent language/log-level. Recommendations add audio language & creation date, subtitle language affinity, collection progression boost; meaningful-interaction watched predicates. Centralized popularity scoring, richer training features (31-feature vector), series aggregation, weight schema bump. Neural MLP upgraded to 4-hidden-layer architecture (31→48→24→12→6→1, ~2635 params). Training refactored into TrainingDataBuilder + TrainingFeatureComputer. 2124 tests.
+  v2.0.0.3: Instance-based Arr config (legacy removed), persistent language/log-level. Recommendations add audio language & creation date, subtitle language affinity, collection progression boost; meaningful-interaction watched predicates. Centralized popularity scoring, richer training features (31-feature vector), series aggregation, weight schema bump. Neural MLP upgraded to 4-hidden-layer architecture (31→48→24→12→6→1, ~3097 params). Training refactored into TrainingDataBuilder + TrainingFeatureComputer. 2124 tests.
