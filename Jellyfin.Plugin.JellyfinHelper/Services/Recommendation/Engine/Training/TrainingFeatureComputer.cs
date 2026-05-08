@@ -141,6 +141,14 @@ internal static class TrainingFeatureComputer
                 continue;
             }
 
+            // Exclude the target item itself to prevent label leakage: during live scoring,
+            // the candidate is never in the user's watch history, so including it here would
+            // inflate the temporal affinity signal with its own watch event during training.
+            if (w.ItemId == watchedItem.ItemId)
+            {
+                continue;
+            }
+
             var inBucket = isDay
                 ? w.LastPlayedDate.Value.DayOfWeek == watchDate.DayOfWeek
                 : TemporalFeatures.GetTimeBucket(w.LastPlayedDate.Value.Hour)

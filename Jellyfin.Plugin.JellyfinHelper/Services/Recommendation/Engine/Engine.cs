@@ -129,14 +129,33 @@ public sealed class Engine : IRecommendationEngine
 
             // Build per-user watched-item lookup from current watch profiles.
             // This captures which previously-recommended items users have since watched.
+            // Includes series-level IDs (from episode SeriesId and FavoriteSeriesIds) so that
+            // series-type recommendations are correctly counted as "watched" when the user
+            // watched episodes of that series.
             var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
             var watchedItemLookup = new Dictionary<Guid, HashSet<Guid>>(allProfiles.Count);
             foreach (var profile in allProfiles)
             {
-                watchedItemLookup[profile.UserId] = new HashSet<Guid>(
+                var watched = new HashSet<Guid>(
                     profile.WatchedItems
                         .Where(w => w.Played || w.IsFavorite)
                         .Select(w => w.ItemId));
+
+                // Add series-level IDs so series recommendations match episode watches
+                foreach (var w in profile.WatchedItems)
+                {
+                    if (w.SeriesId.HasValue && (w.Played || w.IsFavorite))
+                    {
+                        watched.Add(w.SeriesId.Value);
+                    }
+                }
+
+                foreach (var favSeriesId in profile.FavoriteSeriesIds)
+                {
+                    watched.Add(favSeriesId);
+                }
+
+                watchedItemLookup[profile.UserId] = watched;
             }
 
             ensemble.ApplyCohortFeedback(previousResults, watchedItemLookup);

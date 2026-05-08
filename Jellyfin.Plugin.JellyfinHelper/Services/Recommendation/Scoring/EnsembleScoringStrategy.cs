@@ -370,8 +370,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
     /// <summary>
     ///     Gets the current adaptive sigmoid midpoint offset (for testing/debugging).
-    ///     Positive values shift the midpoint earlier (ML trusted sooner),
-    ///     negative values shift it later (more conservative).
+    ///     Negative values shift the midpoint earlier (ML trusted sooner),
+    ///     positive values shift it later (more conservative).
     /// </summary>
     internal double SigmoidMidpointOffset
     {
@@ -706,8 +706,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 }
                 else if (trend == MetricsTrend.Improving)
                 {
-                    // Allow faster alpha progression toward sigmoid target
-                    var sigmoidTarget = ComputeSigmoidAlpha(_trainingExampleCount, _alphaMin, _alphaMax);
+                    // Allow faster alpha progression toward sigmoid target (using adaptive midpoint)
+                    var sigmoidTarget = ComputeSigmoidAlpha(
+                        _trainingExampleCount,
+                        DefaultSigmoidMidpoint + _sigmoidMidpointOffset,
+                        _alphaMin,
+                        _alphaMax);
                     _alpha = Math.Min(sigmoidTarget, _alpha + ((_alphaMax - _alpha) * (1.0 - TrendDegradationDamping)));
                 }
             }

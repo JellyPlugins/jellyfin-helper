@@ -277,6 +277,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                     Genres = series.Genres ?? [],
                     Year = series.ProductionYear,
                     SeriesId = null, // This IS the series itself, not an episode
+                    DateCreated = series.DateCreated,
                     PrimaryImageTag = null
                 });
 
