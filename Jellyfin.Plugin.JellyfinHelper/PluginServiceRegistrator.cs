@@ -111,10 +111,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IScoringStrategy>(sp => sp.GetRequiredService<EnsembleScoringStrategy>());
         serviceCollection.AddSingleton<IStrategySelector>(sp =>
         {
-            var experimentPercentage = Plugin.Instance?.Configuration?.ExperimentStrategyPercentage ?? 0;
             var ensemble = sp.GetRequiredService<EnsembleScoringStrategy>();
-            var neural = sp.GetRequiredService<NeuralScoringStrategy>();
-            return new StrategySelector(ensemble, neural, experimentPercentage);
+            return new StrategySelector(ensemble);
         });
         serviceCollection.AddSingleton<IRecommendationEngine, Engine>();
         serviceCollection.AddSingleton<IRecommendationCacheService, RecommendationCacheService>();

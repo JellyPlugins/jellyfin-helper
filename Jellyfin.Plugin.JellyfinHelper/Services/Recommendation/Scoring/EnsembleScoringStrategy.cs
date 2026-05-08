@@ -48,10 +48,24 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal const double AlphaSigmoidK = 0.05;
 
     /// <summary>
-    ///     Sigmoid midpoint (number of examples where alpha = (αMin + αMax) / 2).
+    ///     Default sigmoid midpoint (number of examples where alpha = (αMin + αMax) / 2).
     ///     50 examples is a reasonable threshold for a typical user's first few weeks of activity.
+    ///     This value is adapted automatically via cohort-based exploration feedback.
     /// </summary>
-    internal const double AlphaSigmoidMidpoint = 50.0;
+    internal const double DefaultSigmoidMidpoint = 50.0;
+
+    /// <summary>
+    ///     Maximum absolute shift allowed for the adaptive sigmoid midpoint.
+    ///     Prevents runaway adaptation from driving the midpoint to extreme values.
+    ///     ±20 means the midpoint can range from 30 to 70 training examples.
+    /// </summary>
+    internal const double MaxMidpointShift = 20.0;
+
+    /// <summary>
+    ///     Step size for sigmoid midpoint adaptation per training run with cohort signal.
+    ///     Small steps ensure gradual convergence without oscillation.
+    /// </summary>
+    internal const double MidpointAdaptationStep = 3.0;
 
     /// <summary>
     ///     Genre similarity threshold below which the soft penalty ramps down.
@@ -143,6 +157,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     private readonly string? _statePath;
     private double _alpha;
     private double _neuralBeta;
+    private double _sigmoidMidpointOffset;
     private bool _qualityGateFrozen;
     private int _trainingExampleCount;
     private List<MetricsSnapshot> _metricsHistory = [];
@@ -353,6 +368,27 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
     }
 
+    /// <summary>
+    ///     Gets the current adaptive sigmoid midpoint offset (for testing/debugging).
+    ///     Positive values shift the midpoint earlier (ML trusted sooner),
+    ///     negative values shift it later (more conservative).
+    /// </summary>
+    internal double SigmoidMidpointOffset
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _sigmoidMidpointOffset;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Gets the effective sigmoid midpoint (default + adaptive offset) for testing/debugging.
+    /// </summary>
+    internal double EffectiveSigmoidMidpoint => DefaultSigmoidMidpoint + SigmoidMidpointOffset;
+
     /// <inheritdoc />
     public double Score(CandidateFeatures features)
     {
@@ -385,6 +421,104 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         var blendedScore = (alpha * mlScore) + ((1.0 - alpha) * heuristicScore);
         var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
         return blendedScore * penalty;
+    }
+
+    /// <summary>
+    ///     Scores a candidate with an alpha offset applied for cohort-based exploration.
+    ///     The offset is added to the current alpha and clamped to [αMin, αMax].
+    ///     Used by the engine when a user belongs to an exploration cohort.
+    /// </summary>
+    /// <param name="features">The pre-computed feature signals for the candidate.</param>
+    /// <param name="alphaOffset">The alpha offset from the strategy selector (can be positive or negative).</param>
+    /// <returns>A score between 0.0 and 1.0, where higher means more recommended.</returns>
+    internal double ScoreWithOffset(CandidateFeatures features, double alphaOffset)
+    {
+        // Fast path: no offset means standard scoring
+        if (alphaOffset == 0.0)
+        {
+            return Score(features);
+        }
+
+        double alpha;
+        double beta;
+        lock (_syncRoot)
+        {
+            alpha = Math.Clamp(_alpha + alphaOffset, _alphaMin, _alphaMax);
+            beta = _neuralBeta;
+        }
+
+        var learnedScore = _learned.Score(features);
+        var heuristicScore = _heuristic.Score(features);
+
+        double mlScore;
+        if (_neural is not null && beta > 0)
+        {
+            var neuralScore = _neural.Score(features);
+            mlScore = ((1.0 - beta) * learnedScore) + (beta * neuralScore);
+        }
+        else
+        {
+            mlScore = learnedScore;
+        }
+
+        var blendedScore = (alpha * mlScore) + ((1.0 - alpha) * heuristicScore);
+        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+        return blendedScore * penalty;
+    }
+
+    /// <summary>
+    ///     Scores a candidate with explanation and an alpha offset for cohort-based exploration.
+    /// </summary>
+    /// <param name="features">The pre-computed feature signals for the candidate.</param>
+    /// <param name="alphaOffset">The alpha offset from the strategy selector.</param>
+    /// <returns>A detailed score explanation including per-feature contributions.</returns>
+    internal ScoreExplanation ScoreWithExplanationAndOffset(CandidateFeatures features, double alphaOffset)
+    {
+        // Fast path: no offset means standard scoring
+        if (alphaOffset == 0.0)
+        {
+            return ScoreWithExplanation(features);
+        }
+
+        double alpha;
+        double beta;
+        lock (_syncRoot)
+        {
+            alpha = Math.Clamp(_alpha + alphaOffset, _alphaMin, _alphaMax);
+            beta = _neuralBeta;
+        }
+
+        var learnedExplanation = _learned.ScoreWithExplanation(features);
+        var heuristicExplanation = _heuristic.ScoreWithExplanation(features);
+
+        ScoreExplanation mlExplanation;
+        if (_neural is not null && beta > 0)
+        {
+            var neuralExplanation = _neural.ScoreWithExplanation(features);
+            mlExplanation = learnedExplanation.Blend(neuralExplanation, beta);
+        }
+        else
+        {
+            mlExplanation = learnedExplanation;
+        }
+
+        var blended = heuristicExplanation.Blend(mlExplanation, alpha);
+        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+        var result = blended.WithPenalty(penalty);
+
+        result.StrategyName = Name;
+        result.DominantSignal = ScoreExplanation.DetermineDominantSignal(
+            result.GenreContribution,
+            result.CollaborativeContribution,
+            result.RatingContribution,
+            result.UserRatingContribution,
+            result.RecencyContribution,
+            result.YearProximityContribution,
+            result.InteractionContribution,
+            result.PeopleContribution,
+            result.StudioContribution);
+
+        return result;
     }
 
     /// <inheritdoc />
@@ -625,6 +759,137 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     }
 
     /// <summary>
+    ///     Applies cohort-based feedback to adapt the sigmoid midpoint.
+    ///     Compares watch-rates across exploration cohorts: if explore-high users
+    ///     watch more recommended items than control, the midpoint shifts down
+    ///     (ML trusted sooner). If explore-low users do better, it shifts up (more conservative).
+    ///     Only adapts when there are meaningful samples in at least one exploration cohort.
+    /// </summary>
+    /// <param name="previousResults">The recommendation results from the previous run (with Cohort tags).</param>
+    /// <param name="watchedItemLookup">
+    ///     Per-user lookup of item IDs that were watched since the recommendations were generated.
+    ///     Key = userId, Value = set of watched item IDs.
+    /// </param>
+    internal void ApplyCohortFeedback(
+        IReadOnlyList<RecommendationResult> previousResults,
+        Dictionary<Guid, HashSet<Guid>> watchedItemLookup)
+    {
+        // Minimum recommendations per cohort to consider the signal statistically meaningful
+        const int minRecsPerCohort = 5;
+
+        int controlWatched = 0, controlTotal = 0;
+        int highWatched = 0, highTotal = 0;
+        int lowWatched = 0, lowTotal = 0;
+
+        foreach (var result in previousResults)
+        {
+            if (result.Recommendations.Count == 0)
+            {
+                continue;
+            }
+
+            var cohort = result.Cohort ?? "control";
+            watchedItemLookup.TryGetValue(result.UserId, out var userWatched);
+
+            foreach (var rec in result.Recommendations)
+            {
+                var wasWatched = userWatched is not null && userWatched.Contains(rec.ItemId);
+
+                switch (cohort)
+                {
+                    case "explore-high":
+                        highTotal++;
+                        if (wasWatched)
+                        {
+                            highWatched++;
+                        }
+
+                        break;
+                    case "explore-low":
+                        lowTotal++;
+                        if (wasWatched)
+                        {
+                            lowWatched++;
+                        }
+
+                        break;
+                    default:
+                        controlTotal++;
+                        if (wasWatched)
+                        {
+                            controlWatched++;
+                        }
+
+                        break;
+                }
+            }
+        }
+
+        // Need sufficient data in control AND at least one exploration cohort
+        if (controlTotal < minRecsPerCohort)
+        {
+            return;
+        }
+
+        var controlRate = (double)controlWatched / controlTotal;
+
+        // Check explore-high: if it outperforms control, shift midpoint down (trust ML sooner)
+        if (highTotal >= minRecsPerCohort)
+        {
+            var highRate = (double)highWatched / highTotal;
+            if (highRate > controlRate)
+            {
+                lock (_syncRoot)
+                {
+                    _sigmoidMidpointOffset = Math.Clamp(
+                        _sigmoidMidpointOffset - MidpointAdaptationStep,
+                        -MaxMidpointShift,
+                        MaxMidpointShift);
+                }
+
+                _logger?.LogInformation(
+                    "Cohort feedback: explore-high ({HighRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
+                    highRate,
+                    controlRate,
+                    _sigmoidMidpointOffset);
+
+                TrySaveState();
+                return;
+            }
+        }
+
+        // Check explore-low: if it outperforms control, shift midpoint up (more conservative)
+        if (lowTotal >= minRecsPerCohort)
+        {
+            var lowRate = (double)lowWatched / lowTotal;
+            if (lowRate > controlRate)
+            {
+                lock (_syncRoot)
+                {
+                    _sigmoidMidpointOffset = Math.Clamp(
+                        _sigmoidMidpointOffset + MidpointAdaptationStep,
+                        -MaxMidpointShift,
+                        MaxMidpointShift);
+                }
+
+                _logger?.LogInformation(
+                    "Cohort feedback: explore-low ({LowRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
+                    lowRate,
+                    controlRate,
+                    _sigmoidMidpointOffset);
+
+                TrySaveState();
+                return;
+            }
+        }
+
+        // Control is optimal - no adaptation needed
+        _logger?.LogDebug(
+            "Cohort feedback: control ({ControlRate:P1}) is optimal, no midpoint adaptation",
+            controlRate);
+    }
+
+    /// <summary>
     ///     Computes a soft genre-mismatch penalty that ramps linearly from
     ///     <paramref name="penaltyFloor"/> (at GenreSimilarity = 0) to 1.0
     ///     (at GenreSimilarity ≥ <see cref="GenrePenaltyThreshold"/>).
@@ -646,6 +911,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <summary>
     ///     Computes the blending factor α using a sigmoid function for smooth transitions.
     ///     Formula: α = αMin + (αMax - αMin) / (1 + e^(-k × (n - midpoint))).
+    ///     Uses <see cref="DefaultSigmoidMidpoint"/> as the midpoint.
     /// </summary>
     /// <param name="trainingExampleCount">The cumulative number of training examples.</param>
     /// <param name="alphaMin">
@@ -660,7 +926,25 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         double alphaMin = DefaultAlphaMin,
         double alphaMax = DefaultAlphaMax)
     {
-        var exponent = -AlphaSigmoidK * (trainingExampleCount - AlphaSigmoidMidpoint);
+        return ComputeSigmoidAlpha(trainingExampleCount, DefaultSigmoidMidpoint, alphaMin, alphaMax);
+    }
+
+    /// <summary>
+    ///     Computes the blending factor α using a sigmoid function with an explicit midpoint.
+    ///     Used internally when the adaptive midpoint offset is applied.
+    /// </summary>
+    /// <param name="trainingExampleCount">The cumulative number of training examples.</param>
+    /// <param name="midpoint">The sigmoid midpoint (number of examples for α = midpoint value).</param>
+    /// <param name="alphaMin">Minimum alpha value.</param>
+    /// <param name="alphaMax">Maximum alpha value.</param>
+    /// <returns>A blending factor between <paramref name="alphaMin"/> and <paramref name="alphaMax"/>.</returns>
+    internal static double ComputeSigmoidAlpha(
+        int trainingExampleCount,
+        double midpoint,
+        double alphaMin,
+        double alphaMax)
+    {
+        var exponent = -AlphaSigmoidK * (trainingExampleCount - midpoint);
         return alphaMin + ((alphaMax - alphaMin) / (1.0 + Math.Exp(exponent)));
     }
 
@@ -724,6 +1008,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                     _neuralBeta = data.NeuralBeta;
                 }
 
+                // Restore adaptive sigmoid midpoint offset (clamped to valid range).
+                if (Math.Abs(data.SigmoidMidpointOffset) <= MaxMidpointShift)
+                {
+                    _sigmoidMidpointOffset = data.SigmoidMidpointOffset;
+                }
+
                 if (data.MetricsHistory is { Count: > 0 })
                 {
                     _metricsHistory = new List<MetricsSnapshot>(data.MetricsHistory);
@@ -778,6 +1068,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                     Alpha = _alpha,
                     NeuralBeta = _neuralBeta,
                     QualityGateFrozen = _qualityGateFrozen,
+                    SigmoidMidpointOffset = _sigmoidMidpointOffset,
                     MetricsHistory = [.._metricsHistory],
                     UpdatedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture)
                 };
@@ -890,6 +1181,10 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         /// <summary>Gets or sets a value indicating whether the quality gate has frozen alpha progression.</summary>
         public bool QualityGateFrozen { get; set; }
+
+        /// <summary>Gets or sets the adaptive sigmoid midpoint offset.
+        /// Positive = ML trusted sooner, negative = more conservative.</summary>
+        public double SigmoidMidpointOffset { get; set; }
 
         /// <summary>Gets or sets the ISO 8601 timestamp of the last update.</summary>
         public string UpdatedAt { get; set; } = string.Empty;

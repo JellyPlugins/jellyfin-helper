@@ -98,7 +98,7 @@ public sealed class Engine : IRecommendationEngine
         var candidates = snapshot?.Candidates ?? LoadCandidateItems();
         var peopleLookup = snapshot?.PeopleLookup ?? _similarityComputer.BuildCandidatePeopleLookup(candidates);
         var boxSetLookup = snapshot?.CandidateBoxSetLookup ?? BuildCandidateBoxSetLookupFresh(candidates);
-        var selectedStrategy = _strategySelector.SelectForUser(userProfile.UserId);
+        var alphaOffset = _strategySelector.GetAlphaOffset(userProfile.UserId);
         return GenerateForUser(
             userProfile,
             allProfiles,
@@ -106,8 +106,9 @@ public sealed class Engine : IRecommendationEngine
             peopleLookup,
             boxSetLookup,
             maxResults,
-            selectedStrategy,
+            _strategy,
             null,
+            alphaOffset,
             cancellationToken);
     }
 
@@ -117,7 +118,31 @@ public sealed class Engine : IRecommendationEngine
         bool incremental = false,
         CancellationToken cancellationToken = default)
     {
-        return _trainingService.Train(_strategy, previousResults, incremental, cancellationToken);
+        var trained = _trainingService.Train(_strategy, previousResults, incremental, cancellationToken);
+
+        // After training, apply cohort-based feedback to adapt the sigmoid midpoint.
+        // This compares watch-rates across exploration cohorts and shifts the midpoint
+        // to calibrate how quickly the system trusts the ML model.
+        if (trained && _strategy is EnsembleScoringStrategy ensemble && previousResults.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Build per-user watched-item lookup from current watch profiles.
+            // This captures which previously-recommended items users have since watched.
+            var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+            var watchedItemLookup = new Dictionary<Guid, HashSet<Guid>>(allProfiles.Count);
+            foreach (var profile in allProfiles)
+            {
+                watchedItemLookup[profile.UserId] = new HashSet<Guid>(
+                    profile.WatchedItems
+                        .Where(w => w.Played || w.IsFavorite)
+                        .Select(w => w.ItemId));
+            }
+
+            ensemble.ApplyCohortFeedback(previousResults, watchedItemLookup);
+        }
+
+        return trained;
     }
 
     /// <inheritdoc />
@@ -187,8 +212,9 @@ public sealed class Engine : IRecommendationEngine
                             peopleLookup,
                             candidateBoxSetLookup,
                             maxResultsPerUser,
-                            _strategySelector.SelectForUser(profile.UserId),
+                            _strategy,
                             precomputedUserSets,
+                            _strategySelector.GetAlphaOffset(profile.UserId),
                             cancellationToken);
                     concurrentResults.Add(result);
                 }
@@ -422,6 +448,7 @@ public sealed class Engine : IRecommendationEngine
     ///     Optional pre-computed user watch sets for collaborative filtering performance.
     ///     Pass null for single-user mode (sets will be built on-the-fly).
     /// </param>
+    /// <param name="alphaOffset">Alpha offset for cohort-based exploration (0.0 = control group).</param>
     /// <param name="ct">Cancellation token for cooperative cancellation.</param>
     /// <returns>A recommendation result for the user.</returns>
     private RecommendationResult GenerateForUser(
@@ -432,7 +459,8 @@ public sealed class Engine : IRecommendationEngine
         Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
         int maxResults,
         IScoringStrategy strategy,
-        Dictionary<Guid, HashSet<Guid>>? precomputedUserSets = null,
+        Dictionary<Guid, HashSet<Guid>>? precomputedUserSets,
+        double alphaOffset = 0.0,
         CancellationToken ct = default)
     {
         // Build a lookup of watched items by ID for O(1) access in scoring methods
@@ -581,7 +609,8 @@ public sealed class Engine : IRecommendationEngine
                     watchedPeopleSets,
                     watchedStudioSets,
                     watchedBoxSetCounts,
-                    candidateBoxSetLookup));
+                    candidateBoxSetLookup,
+                    alphaOffset));
         }
 
         scored = DiversityReranker.DeduplicateSeries(scored);
@@ -634,6 +663,8 @@ public sealed class Engine : IRecommendationEngine
     /// <summary>
     ///     Scores a single candidate item against the user's preferences.
     ///     Computes all feature signals and delegates to the scoring strategy.
+    ///     When <paramref name="alphaOffset"/> is non-zero and the strategy is an
+    ///     <see cref="EnsembleScoringStrategy"/>, the offset is applied for cohort exploration.
     /// </summary>
     private (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) ScoreCandidate(
         BaseItem candidate,
@@ -654,7 +685,8 @@ public sealed class Engine : IRecommendationEngine
         List<HashSet<string>> watchedPeopleSets,
         List<HashSet<string>> watchedStudioSets,
         Dictionary<Guid, int> watchedBoxSetCounts,
-        Dictionary<Guid, List<Guid>> candidateBoxSetLookup)
+        Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
+        double alphaOffset = 0.0)
     {
         var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences);
         var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, coOccurrence, collaborativeMax);
@@ -776,7 +808,11 @@ public sealed class Engine : IRecommendationEngine
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
 
-        var explanation = strategy.ScoreWithExplanation(features);
+        // Apply alpha offset for cohort exploration when the strategy supports it.
+        // For control cohort (offset=0), this is a zero-cost fast path via the standard method.
+        var explanation = alphaOffset != 0.0 && strategy is EnsembleScoringStrategy ensemble
+            ? ensemble.ScoreWithExplanationAndOffset(features, alphaOffset)
+            : strategy.ScoreWithExplanation(features);
 
         if (_logger.IsEnabled(LogLevel.Debug))
         {

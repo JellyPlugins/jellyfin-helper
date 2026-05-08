@@ -5,98 +5,150 @@ using System;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Selects a scoring strategy for a given user, enabling A/B testing between strategies.
+///     Selects alpha-exploration offsets for users, enabling automatic calibration of the
+///     ensemble's sigmoid midpoint via cohort-based A/B testing.
 ///     Users are deterministically assigned to cohorts based on their user ID hash,
-///     ensuring stable cohort membership across requests (same user always gets same strategy).
+///     ensuring stable cohort membership across requests (same user always gets same cohort).
 /// </summary>
 public interface IStrategySelector
 {
     /// <summary>
-    ///     Selects the appropriate scoring strategy for the given user.
+    ///     Gets the alpha offset for the given user's exploration cohort.
+    ///     Returns 0.0 for the control group (80%), +0.12 for explore-high (10%),
+    ///     and -0.12 for explore-low (10%). Returns 0.0 for all users when exploration
+    ///     is not yet activated (insufficient training data).
     /// </summary>
     /// <param name="userId">The Jellyfin user ID.</param>
-    /// <returns>The strategy to use for scoring this user's recommendations.</returns>
-    IScoringStrategy SelectForUser(Guid userId);
+    /// <returns>The alpha offset to apply during scoring.</returns>
+    double GetAlphaOffset(Guid userId);
 
     /// <summary>
     ///     Gets the cohort name for the given user (for logging and result tagging).
     /// </summary>
     /// <param name="userId">The Jellyfin user ID.</param>
-    /// <returns>"control" or "experiment" (or "control" when experiment is disabled).</returns>
+    /// <returns>"control", "explore-high", or "explore-low".</returns>
     string GetCohortName(Guid userId);
 }
 
 /// <summary>
 ///     Default implementation of <see cref="IStrategySelector"/> that splits users into
-///     control (ensemble) and experiment (neural-only) cohorts based on a configurable percentage.
-///     When <see cref="_experimentPercentage"/> is 0, all users get the ensemble strategy (no A/B test).
+///     alpha-exploration cohorts for automatic sigmoid midpoint calibration.
+///     When exploration is inactive (insufficient training data), all users receive offset 0.0.
 /// </summary>
 /// <remarks>
 ///     Bucketing uses a deterministic hash of the user ID so that:
 ///     1. The same user always lands in the same cohort (no flickering between requests).
 ///     2. No persistent state is needed (stateless computation).
 ///     3. Cohort assignment survives server restarts.
+///
+///     Exploration activates only when the ensemble has accumulated sufficient training data
+///     (≥ 50 examples AND ≥ 2 metrics history snapshots), ensuring the system is past the
+///     initial cold-start phase before diversifying alpha values.
 /// </remarks>
 internal sealed class StrategySelector : IStrategySelector
 {
+    /// <summary>
+    ///     Alpha offset applied to the explore-high cohort.
+    ///     Positive offset shifts toward more ML weight.
+    /// </summary>
+    internal const double ExploreHighOffset = 0.12;
+
+    /// <summary>
+    ///     Alpha offset applied to the explore-low cohort.
+    ///     Negative offset shifts toward more heuristic weight.
+    /// </summary>
+    internal const double ExploreLowOffset = -0.12;
+
+    /// <summary>
+    ///     Minimum cumulative training examples before exploration activates.
+    ///     Below this threshold, the sigmoid curve is in its early flat region
+    ///     and exploration would not yield meaningful signal.
+    /// </summary>
+    internal const int MinExamplesForExploration = 50;
+
+    /// <summary>
+    ///     Minimum metrics history snapshots (completed training runs) before exploration activates.
+    ///     Ensures at least 2 full train cycles have completed so the system has baseline stability.
+    /// </summary>
+    internal const int MinMetricsHistoryForExploration = 2;
+
+    /// <summary>
+    ///     Bucket threshold for explore-high cohort (0–9 = 10%).
+    /// </summary>
+    private const int ExploreHighThreshold = 10;
+
+    /// <summary>
+    ///     Bucket threshold for explore-low cohort (10–19 = 10%).
+    /// </summary>
+    private const int ExploreLowThreshold = 20;
+
     private readonly EnsembleScoringStrategy _ensemble;
-    private readonly NeuralScoringStrategy _neural;
-    private readonly int _experimentPercentage;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="StrategySelector"/> class.
     /// </summary>
-    /// <param name="ensemble">The ensemble strategy (control group).</param>
-    /// <param name="neural">The neural-only strategy (experiment group).</param>
-    /// <param name="experimentPercentage">
-    ///     Percentage of users (0-100) to route to the neural-only experiment cohort.
-    ///     0 = disabled (all users get ensemble). 100 = all users get neural-only.
-    /// </param>
-    public StrategySelector(
-        EnsembleScoringStrategy ensemble,
-        NeuralScoringStrategy neural,
-        int experimentPercentage)
+    /// <param name="ensemble">The ensemble strategy used to check activation conditions.</param>
+    public StrategySelector(EnsembleScoringStrategy ensemble)
     {
         ArgumentNullException.ThrowIfNull(ensemble);
-        ArgumentNullException.ThrowIfNull(neural);
-
         _ensemble = ensemble;
-        _neural = neural;
-        _experimentPercentage = Math.Clamp(experimentPercentage, 0, 100);
     }
 
     /// <inheritdoc />
-    public IScoringStrategy SelectForUser(Guid userId)
+    public double GetAlphaOffset(Guid userId)
     {
-        if (_experimentPercentage <= 0)
+        if (!IsExplorationActive())
         {
-            return _ensemble;
-        }
-
-        if (_experimentPercentage >= 100)
-        {
-            return _neural;
+            return 0.0;
         }
 
         var bucket = ComputeBucket(userId);
-        return bucket < _experimentPercentage ? _neural : _ensemble;
+
+        if (bucket < ExploreHighThreshold)
+        {
+            return ExploreHighOffset;
+        }
+
+        if (bucket < ExploreLowThreshold)
+        {
+            return ExploreLowOffset;
+        }
+
+        return 0.0;
     }
 
     /// <inheritdoc />
     public string GetCohortName(Guid userId)
     {
-        if (_experimentPercentage <= 0)
+        if (!IsExplorationActive())
         {
             return "control";
         }
 
-        if (_experimentPercentage >= 100)
+        var bucket = ComputeBucket(userId);
+
+        if (bucket < ExploreHighThreshold)
         {
-            return "experiment";
+            return "explore-high";
         }
 
-        var bucket = ComputeBucket(userId);
-        return bucket < _experimentPercentage ? "experiment" : "control";
+        if (bucket < ExploreLowThreshold)
+        {
+            return "explore-low";
+        }
+
+        return "control";
+    }
+
+    /// <summary>
+    ///     Determines whether exploration is active based on the ensemble's training maturity.
+    ///     Exploration only activates after sufficient training data has accumulated,
+    ///     ensuring the base alpha is meaningful before testing variations.
+    /// </summary>
+    private bool IsExplorationActive()
+    {
+        return _ensemble.TrainingExampleCount >= MinExamplesForExploration
+               && _ensemble.MetricsHistoryCount >= MinMetricsHistoryForExploration;
     }
 
     /// <summary>
