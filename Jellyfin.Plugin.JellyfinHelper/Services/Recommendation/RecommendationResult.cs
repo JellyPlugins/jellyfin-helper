@@ -52,4 +52,11 @@ public sealed class RecommendationResult
     ///     Gets or sets the i18n key for the scoring strategy name.
     /// </summary>
     public string ScoringStrategyKey { get; set; } = string.Empty;
+
+    /// <summary>
+    ///     Gets or sets the A/B test cohort name for this user's recommendations.
+    ///     "control" = ensemble strategy, "experiment" = neural-only strategy.
+    ///     Null when A/B testing is disabled (ExperimentStrategyPercentage = 0).
+    /// </summary>
+    public string? Cohort { get; set; }
 }

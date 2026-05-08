@@ -109,6 +109,13 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // Always use Ensemble strategy - no user-selectable strategy choice.
         // Ensemble combines all methods (Heuristic + Learned + Neural) for best results.
         serviceCollection.AddSingleton<IScoringStrategy>(sp => sp.GetRequiredService<EnsembleScoringStrategy>());
+        serviceCollection.AddSingleton<IStrategySelector>(sp =>
+        {
+            var config = Plugin.Instance!.Configuration;
+            var ensemble = sp.GetRequiredService<EnsembleScoringStrategy>();
+            var neural = sp.GetRequiredService<NeuralScoringStrategy>();
+            return new StrategySelector(ensemble, neural, config.ExperimentStrategyPercentage);
+        });
         serviceCollection.AddSingleton<IRecommendationEngine, Engine>();
         serviceCollection.AddSingleton<IRecommendationCacheService, RecommendationCacheService>();
         serviceCollection.AddSingleton<IUserActivityInsightsService, UserActivityInsightsService>();

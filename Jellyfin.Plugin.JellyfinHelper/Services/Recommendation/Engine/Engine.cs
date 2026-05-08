@@ -27,6 +27,7 @@ public sealed class Engine : IRecommendationEngine
     private readonly IPluginLogService _pluginLog;
     private readonly SimilarityComputer _similarityComputer;
     private readonly IScoringStrategy _strategy;
+    private readonly IStrategySelector _strategySelector;
     private readonly TrainingService _trainingService;
     private readonly IWatchHistoryService _watchHistoryService;
 
@@ -41,18 +42,21 @@ public sealed class Engine : IRecommendationEngine
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
     /// <param name="strategy">The scoring strategy resolved via DI.</param>
+    /// <param name="strategySelector">The strategy selector for A/B testing.</param>
     public Engine(
         IWatchHistoryService watchHistoryService,
         ILibraryManager libraryManager,
         IPluginLogService pluginLog,
         ILogger<Engine> logger,
-        IScoringStrategy strategy)
+        IScoringStrategy strategy,
+        IStrategySelector strategySelector)
     {
         _watchHistoryService = watchHistoryService;
         _libraryManager = libraryManager;
         _pluginLog = pluginLog;
         _logger = logger;
         _strategy = strategy;
+        _strategySelector = strategySelector;
         _similarityComputer = new SimilarityComputer(libraryManager, pluginLog, logger);
         _trainingService = new TrainingService(watchHistoryService, pluginLog, logger);
     }
@@ -93,13 +97,14 @@ public sealed class Engine : IRecommendationEngine
         var snapshot = _cachedSnapshot;
         var candidates = snapshot?.Candidates ?? LoadCandidateItems();
         var peopleLookup = snapshot?.PeopleLookup ?? _similarityComputer.BuildCandidatePeopleLookup(candidates);
+        var selectedStrategy = _strategySelector.SelectForUser(userProfile.UserId);
         return GenerateForUser(
             userProfile,
             allProfiles,
             candidates,
             peopleLookup,
             maxResults,
-            _strategy,
+            selectedStrategy,
             null,
             cancellationToken);
     }
@@ -179,7 +184,7 @@ public sealed class Engine : IRecommendationEngine
                             candidates,
                             peopleLookup,
                             maxResultsPerUser,
-                            _strategy,
+                            _strategySelector.SelectForUser(profile.UserId),
                             precomputedUserSets,
                             cancellationToken);
                     concurrentResults.Add(result);
@@ -617,7 +622,8 @@ public sealed class Engine : IRecommendationEngine
             Recommendations = new Collection<RecommendedItem>(topItems),
             GeneratedAt = DateTime.UtcNow,
             ScoringStrategy = strategy.Name,
-            ScoringStrategyKey = strategy.NameKey
+            ScoringStrategyKey = strategy.NameKey,
+            Cohort = _strategySelector.GetCohortName(userProfile.UserId)
         };
     }
 

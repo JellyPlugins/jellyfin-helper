@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using Microsoft.Extensions.Logging;
@@ -325,6 +326,82 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         var vector = new double[CandidateFeatures.FeatureCount];
         features.WriteToVector(vector);
+
+        _tlsH1Pre ??= new double[Hidden1Size];
+        _tlsH1Act ??= new double[Hidden1Size];
+        _tlsH2Pre ??= new double[Hidden2Size];
+        _tlsH2Act ??= new double[Hidden2Size];
+        _tlsH3Pre ??= new double[Hidden3Size];
+        _tlsH3Act ??= new double[Hidden3Size];
+        _tlsH4Pre ??= new double[Hidden4Size];
+        _tlsH4Act ??= new double[Hidden4Size];
+
+        try
+        {
+            try
+            {
+                _rwLock.EnterReadLock();
+            }
+            catch (ObjectDisposedException)
+            {
+                return 0.5;
+            }
+
+            if (_featureMeans is not null && _featureStdDevs is not null)
+            {
+                LearnedScoringStrategy.StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
+            }
+
+            var result = ForwardPass(
+                vector,
+                _weightsIH,
+                _biasH1,
+                _weightsH1H2,
+                _biasH2,
+                _weightsH2H3,
+                _biasH3,
+                _weightsH3H4,
+                _biasH4,
+                _weightsH4O,
+                _biasOutput,
+                _tlsH1Pre,
+                _tlsH1Act,
+                _tlsH2Pre,
+                _tlsH2Act,
+                _tlsH3Pre,
+                _tlsH3Act,
+                _tlsH4Pre,
+                _tlsH4Act);
+
+            return ScoringHelper.GuardScore(result);
+        }
+        finally
+        {
+            if (_rwLock.IsReadLockHeld)
+            {
+                _rwLock.ExitReadLock();
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Scores a raw feature vector directly without CandidateFeatures allocation.
+    ///     Used internally by <see cref="NeuralFeatureImportance"/> for permutation importance
+    ///     computation where features are manipulated as raw arrays.
+    ///     Applies Z-score standardization and full forward pass identically to <see cref="Score"/>.
+    /// </summary>
+    /// <param name="vector">
+    ///     A pre-computed feature vector of length <see cref="CandidateFeatures.FeatureCount"/>.
+    ///     WARNING: This array is mutated in-place when standardization is active.
+    ///     Callers must pass a disposable copy if the original must be preserved.
+    /// </param>
+    /// <returns>A score between 0.0 and 1.0.</returns>
+    internal double ScoreVector(double[] vector)
+    {
+        if (_disposed)
+        {
+            return 0.5;
+        }
 
         _tlsH1Pre ??= new double[Hidden1Size];
         _tlsH1Act ??= new double[Hidden1Size];
@@ -1000,6 +1077,16 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             _lastPrecisionAtK = pAtK;
             _lastRecallAtK = rAtK;
             _lastNdcgAtK = nAtK;
+        }
+
+        // Permutation importance (debug-only, expensive: O(features x sampleSize) forward passes)
+        if (_logger?.IsEnabled(LogLevel.Debug) == true)
+        {
+            var importance = NeuralFeatureImportance.ComputePermutationImportance(this, examples);
+            var sorted = importance.OrderByDescending(kv => Math.Abs(kv.Value));
+            _logger.LogDebug(
+                "NeuralScoringStrategy permutation importance: {Importance}",
+                string.Join(", ", sorted.Select(kv => $"{kv.Key}={kv.Value:F4}")));
         }
 
         return true;

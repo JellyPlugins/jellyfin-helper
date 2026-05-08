@@ -208,6 +208,14 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
+    ///     Gets or sets the percentage of users routed to the neural-only experiment cohort
+    ///     for A/B testing purposes. 0 = disabled (all users get ensemble strategy).
+    ///     1-100 = percentage of users that receive neural-only recommendations.
+    ///     Out-of-range values are clamped to [0, 100].
+    /// </summary>
+    public int ExperimentStrategyPercentage { get; set; }
+
+    /// <summary>
     ///     Gets or sets the minimum log level for the plugin's in-memory log buffer.
     ///     Supported values: DEBUG, INFO, WARN, ERROR. Default is "INFO".
     /// </summary>
