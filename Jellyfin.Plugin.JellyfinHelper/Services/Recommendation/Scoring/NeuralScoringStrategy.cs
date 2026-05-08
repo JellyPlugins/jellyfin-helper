@@ -89,7 +89,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     internal const int MaxEpochsWithoutEarlyStopping = 20;
 
     /// <summary>Schema version for persisted weights. Increment on architecture changes.</summary>
-    internal const int CurrentWeightsVersion = 3;
+    internal const int CurrentWeightsVersion = 2;
 
     /// <summary>Legacy constant kept for backward compatibility with tests. Maps to <see cref="Hidden4Size"/>.</summary>
     internal const int HiddenSize = Hidden4Size;
@@ -462,16 +462,16 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
                     var h3h4W = _weightsH3H4[(m * Hidden3Size) + l];
                     var combinedH4H3 = outW * h3h4W;
-                for (var k = 0; k < Hidden2Size; k++)
-                {
-                    if (h2Pre[k] <= 0)
+                    for (var k = 0; k < Hidden2Size; k++)
                     {
-                        continue;
-                    }
+                        if (h2Pre[k] <= 0)
+                        {
+                            continue;
+                        }
 
-                    var h2h3W = _weightsH2H3[(l * Hidden2Size) + k];
+                        var h2h3W = _weightsH2H3[(l * Hidden2Size) + k];
                         var combinedOuter = combinedH4H3 * h2h3W;
-                    for (var j = 0; j < Hidden1Size; j++)
+                        for (var j = 0; j < Hidden1Size; j++)
                         {
                             if (h1Pre[j] <= 0)
                             {

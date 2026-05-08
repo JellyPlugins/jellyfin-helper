@@ -7,7 +7,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// <summary>
 ///     Tests for <see cref="NeuralScoringStrategy"/>: Forward-Pass, Backprop/Training,
 ///     Adam optimizer, Weight Persistence, Xavier initialization, Sigmoid.
-///     Architecture: <see cref="CandidateFeatures.FeatureCount"/> inputs → 32 hidden₁ → 16 hidden₂ → 8 hidden₃ → 1 output.
+///     Architecture: <see cref="CandidateFeatures.FeatureCount"/> inputs → 48 hidden₁ → 24 hidden₂ → 12 hidden₃ → 6 hidden₄ → 1 output.
 /// </summary>
 public sealed class NeuralScoringStrategyTests : IDisposable
 {
@@ -542,7 +542,9 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         Assert.Contains("BiasH2", json);
         Assert.Contains("WeightsH2H3", json);
         Assert.Contains("BiasH3", json);
-        Assert.Contains("WeightsH3O", json);
+        Assert.Contains("WeightsH3H4", json);
+        Assert.Contains("BiasH4", json);
+        Assert.Contains("WeightsH4O", json);
         Assert.Contains("BiasOutput", json);
         Assert.Contains("Version", json);
         Assert.Contains("TrainingGeneration", json);
@@ -664,9 +666,9 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     // ============================================================
 
     [Fact]
-    public void HiddenSize_Is8()
+    public void HiddenSize_Is6()
     {
-        Assert.Equal(8, NeuralScoringStrategy.HiddenSize);
+        Assert.Equal(6, NeuralScoringStrategy.HiddenSize);
     }
 
     [Fact]
@@ -723,7 +725,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var strategy = new NeuralScoringStrategy();
         var wO = strategy.CurrentWeightsOutput;
 
-        Assert.Equal(NeuralScoringStrategy.Hidden3Size, wO.Length);
+        Assert.Equal(NeuralScoringStrategy.Hidden4Size, wO.Length);
     }
 
     [Fact]
@@ -747,7 +749,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var strategy = new NeuralScoringStrategy();
         var wO = strategy.CurrentWeightsOutput;
 
-        var limit = Math.Sqrt(6.0 / (NeuralScoringStrategy.Hidden3Size + 1));
+        var limit = Math.Sqrt(6.0 / (NeuralScoringStrategy.Hidden4Size + 1));
 
         foreach (var w in wO)
         {
@@ -774,27 +776,27 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     // ============================================================
 
     [Fact]
-    public void Hidden1Size_Is32()
+    public void Hidden1Size_Is48()
     {
-        Assert.Equal(32, NeuralScoringStrategy.Hidden1Size);
+        Assert.Equal(48, NeuralScoringStrategy.Hidden1Size);
     }
 
     [Fact]
-    public void Hidden2Size_Is16()
+    public void Hidden2Size_Is24()
     {
-        Assert.Equal(16, NeuralScoringStrategy.Hidden2Size);
+        Assert.Equal(24, NeuralScoringStrategy.Hidden2Size);
     }
 
     [Fact]
-    public void Hidden3Size_Is8()
+    public void Hidden3Size_Is12()
     {
-        Assert.Equal(8, NeuralScoringStrategy.Hidden3Size);
+        Assert.Equal(12, NeuralScoringStrategy.Hidden3Size);
     }
 
     [Fact]
-    public void CurrentWeightsVersion_Is2()
+    public void CurrentWeightsVersion_Is3()
     {
-        Assert.Equal(2, NeuralScoringStrategy.CurrentWeightsVersion);
+        Assert.Equal(3, NeuralScoringStrategy.CurrentWeightsVersion);
     }
 
     [Fact]

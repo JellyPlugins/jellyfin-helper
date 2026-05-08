@@ -205,6 +205,9 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── Engine/                  # Core recommendation logic
 │   │   │   ├── Engine.cs            # Orchestrator: profiles → candidates → scoring → results
 │   │   │   ├── TrainingService.cs   # Implicit feedback training pipeline
+│   │   │   ├── Training/            # Training sub-components (refactored from TrainingService)
+│   │   │   │   ├── TrainingDataBuilder.cs      # Builds labeled training examples from watch history
+│   │   │   │   └── TrainingFeatureComputer.cs  # Computes feature vectors for training candidates
 │   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction
 │   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
 │   │   │   ├── TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
@@ -220,7 +223,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
 │   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
 │   │   │   ├── EnsembleScoringStrategy.cs   # Blends heuristic + learned + neural
-│   │   │   ├── CandidateFeatures.cs         # 29-feature vector with FeatureIndex enum
+│   │   │   ├── CandidateFeatures.cs         # 31-feature vector with FeatureIndex enum
 │   │   │   ├── DefaultWeights.cs            # Centralized default weights
 │   │   │   ├── ScoringHelper.cs             # Shared scoring utilities
 │   │   │   ├── ScoreExplanation.cs          # Per-feature score breakdown
@@ -305,7 +308,7 @@ Each task receives its mode from `PluginConfiguration` and logs differently base
 The ML recommendation system uses a layered scoring approach:
 
 ```text
-User Watch History → Feature Extraction (29 features) → Scoring Strategy → Ranked Results
+User Watch History → Feature Extraction (31 features) → Scoring Strategy → Ranked Results
                                                               ↑
                                                     ┌─────────┴──────────┐
                                                     │  EnsembleScoringStrategy  │
@@ -319,7 +322,7 @@ User Watch History → Feature Extraction (29 features) → Scoring Strategy →
 
 - **HeuristicScoringStrategy**: Fixed hand-tuned weights, always available
 - **LearnedScoringStrategy**: Linear model trained via SGD on implicit feedback
-- **NeuralScoringStrategy**: 3-hidden-layer MLP with Adam optimizer
+- **NeuralScoringStrategy**: 4-hidden-layer MLP (31→48→24→12→6→1) with Adam optimizer
 - **EnsembleScoringStrategy**: Blends all three with dynamic α/β weighting
 
 Training uses implicit feedback: previously recommended items are compared against current watch data to generate labeled training examples. The EnsembleScoringStrategy records a rolling history of training quality metrics (validation loss, P@K, R@K, NDCG@K) that are persisted across server restarts for future trend analysis.
