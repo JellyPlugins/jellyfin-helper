@@ -875,13 +875,10 @@ internal static class TrainingDataBuilder
         // Check if any of the BoxSet IDs themselves are in the user's watched set.
         // This can happen when the user has watched the BoxSet "container" or when
         // the BoxSet ID was stored as a watched item ID by the system.
-        foreach (var boxSetId in boxSetIds)
+        if (boxSetIds.Any(watchedIds.Contains))
         {
-            if (watchedIds.Contains(boxSetId))
-            {
-                // User has interacted with the collection itself - strong progression signal
-                return 0.5;
-            }
+            // User has interacted with the collection itself - strong progression signal
+            return 0.5;
         }
 
         // The item belongs to at least one BoxSet. Give a moderate base boost (0.3)
