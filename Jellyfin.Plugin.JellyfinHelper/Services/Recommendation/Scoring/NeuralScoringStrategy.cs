@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using Microsoft.Extensions.Logging;
@@ -10,29 +11,32 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Neural network scoring strategy using a three-hidden-layer MLP (Multi-Layer Perceptron).
+///     Neural network scoring strategy using a four-hidden-layer MLP (Multi-Layer Perceptron).
 ///     Learns non-linear feature interactions from user watch history via backpropagation.
-///     Architecture: 29 inputs → 32 hidden₁ (ReLU) → 16 hidden₂ (ReLU) → 8 hidden₃ (ReLU) → 1 output (Sigmoid) = 1,633 parameters.
+///     Architecture: 31 inputs → 48 hidden₁ (ReLU) → 24 hidden₂ (ReLU) → 12 hidden₃ (ReLU) → 6 hidden₄ (ReLU) → 1 output (Sigmoid) ≈ 3,097 parameters.
 ///     Optimized for NAS/Docker with limited hardware: zero-allocation scoring path,
-///     pre-allocated training buffers, ~1,560 FP multiplications per score.
+///     pre-allocated training buffers, ~3,000 FP multiplications per score.
 ///     No external ML dependencies - pure C# implementation.
 /// </summary>
 /// <remarks>
 ///     Training uses Adam optimizer with L2 regularization, Z-score feature standardization,
-///     Xavier weight initialization, temporal sample weighting, and early stopping.
+///     He/Xavier weight initialization, temporal sample weighting, and early stopping.
 ///     Genre-mismatch penalties are NOT applied here - handled centrally by the ensemble layer.
 ///     Weights are persisted to disk so they survive server restarts.
 /// </remarks>
 public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy, IDisposable
 {
     /// <summary>Number of neurons in the first hidden layer.</summary>
-    internal const int Hidden1Size = 32;
+    internal const int Hidden1Size = 48;
 
     /// <summary>Number of neurons in the second hidden layer.</summary>
-    internal const int Hidden2Size = 16;
+    internal const int Hidden2Size = 24;
 
     /// <summary>Number of neurons in the third hidden layer.</summary>
-    internal const int Hidden3Size = 8;
+    internal const int Hidden3Size = 12;
+
+    /// <summary>Number of neurons in the fourth hidden layer.</summary>
+    internal const int Hidden4Size = 6;
 
     /// <summary>Default learning rate for Adam optimizer.</summary>
     internal const double DefaultLearningRate = 0.005;
@@ -86,10 +90,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     internal const int MaxEpochsWithoutEarlyStopping = 20;
 
     /// <summary>Schema version for persisted weights. Increment on architecture changes.</summary>
-    internal const int CurrentWeightsVersion = 1;
+    internal const int CurrentWeightsVersion = 2;
 
-    /// <summary>Legacy constant kept for backward compatibility with tests. Maps to <see cref="Hidden3Size"/>.</summary>
-    internal const int HiddenSize = Hidden3Size;
+    /// <summary>Legacy constant kept for backward compatibility with tests. Maps to <see cref="Hidden4Size"/>.</summary>
+    internal const int HiddenSize = Hidden4Size;
 
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
 
@@ -111,11 +115,16 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     private static double[]? _tlsH3Pre;
     [ThreadStatic]
     private static double[]? _tlsH3Act;
+    [ThreadStatic]
+    private static double[]? _tlsH4Pre;
+    [ThreadStatic]
+    private static double[]? _tlsH4Act;
 
     private int _adamTimestep;
     private double[] _biasH1;
     private double[] _biasH2;
     private double[] _biasH3;
+    private double[] _biasH4;
     private double _biasOutput;
     private volatile bool _disposed;
     private double[]? _featureMeans;
@@ -127,23 +136,28 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     private double[]? _mBH1;
     private double[]? _mBH2;
     private double[]? _mBH3;
+    private double[]? _mBH4;
     private double _mBO;
     private double[]? _mWH1H2;
     private double[]? _mWH2H3;
-    private double[]? _mWH3O;
+    private double[]? _mWH3H4;
+    private double[]? _mWH4O;
     private double[]? _mWIH;
     private int _trainingGeneration;
     private double[]? _vBH1;
     private double[]? _vBH2;
     private double[]? _vBH3;
+    private double[]? _vBH4;
     private double _vBO;
     private double[]? _vWH1H2;
     private double[]? _vWH2H3;
-    private double[]? _vWH3O;
+    private double[]? _vWH3H4;
+    private double[]? _vWH4O;
     private double[]? _vWIH;
     private double[] _weightsH1H2;
     private double[] _weightsH2H3;
-    private double[] _weightsH3O;
+    private double[] _weightsH3H4;
+    private double[] _weightsH4O;
     private double[] _weightsIH;
 
     /// <summary>
@@ -164,7 +178,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _biasH2 = new double[Hidden2Size];
         _weightsH2H3 = new double[Hidden3Size * Hidden2Size];
         _biasH3 = new double[Hidden3Size];
-        _weightsH3O = new double[Hidden3Size];
+        _weightsH3H4 = new double[Hidden4Size * Hidden3Size];
+        _biasH4 = new double[Hidden4Size];
+        _weightsH4O = new double[Hidden4Size];
         _biasOutput = 0.0;
 
         InitializeWeights(inputSize);
@@ -240,14 +256,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
     }
 
-    /// <summary>Gets a copy of the hidden3→output layer weights (for testing).</summary>
+    /// <summary>Gets a copy of the hidden4→output layer weights (for testing).</summary>
     internal double[] CurrentWeightsOutput
     {
         get
         {
             lock (_syncRoot)
             {
-                return (double[])_weightsH3O.Clone();
+                return (double[])_weightsH4O.Clone();
             }
         }
     }
@@ -272,6 +288,18 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             lock (_syncRoot)
             {
                 return (double[])_weightsH2H3.Clone();
+            }
+        }
+    }
+
+    /// <summary>Gets a copy of the hidden3→hidden4 layer weights (for testing).</summary>
+    internal double[] CurrentWeightsH3H4
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return (double[])_weightsH3H4.Clone();
             }
         }
     }
@@ -305,6 +333,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _tlsH2Act ??= new double[Hidden2Size];
         _tlsH3Pre ??= new double[Hidden3Size];
         _tlsH3Act ??= new double[Hidden3Size];
+        _tlsH4Pre ??= new double[Hidden4Size];
+        _tlsH4Act ??= new double[Hidden4Size];
 
         try
         {
@@ -330,14 +360,94 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _biasH2,
                 _weightsH2H3,
                 _biasH3,
-                _weightsH3O,
+                _weightsH3H4,
+                _biasH4,
+                _weightsH4O,
                 _biasOutput,
                 _tlsH1Pre,
                 _tlsH1Act,
                 _tlsH2Pre,
                 _tlsH2Act,
                 _tlsH3Pre,
-                _tlsH3Act);
+                _tlsH3Act,
+                _tlsH4Pre,
+                _tlsH4Act);
+
+            return ScoringHelper.GuardScore(result);
+        }
+        finally
+        {
+            if (_rwLock.IsReadLockHeld)
+            {
+                _rwLock.ExitReadLock();
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Scores a raw feature vector directly without CandidateFeatures allocation.
+    ///     Used internally by <see cref="NeuralFeatureImportance"/> for permutation importance
+    ///     computation where features are manipulated as raw arrays.
+    ///     Applies Z-score standardization and full forward pass identically to <see cref="Score"/>.
+    /// </summary>
+    /// <param name="vector">
+    ///     A pre-computed feature vector of length <see cref="CandidateFeatures.FeatureCount"/>.
+    ///     WARNING: This array is mutated in-place when standardization is active.
+    ///     Callers must pass a disposable copy if the original must be preserved.
+    /// </param>
+    /// <returns>A score between 0.0 and 1.0.</returns>
+    internal double ScoreVector(double[] vector)
+    {
+        if (_disposed)
+        {
+            return 0.5;
+        }
+
+        _tlsH1Pre ??= new double[Hidden1Size];
+        _tlsH1Act ??= new double[Hidden1Size];
+        _tlsH2Pre ??= new double[Hidden2Size];
+        _tlsH2Act ??= new double[Hidden2Size];
+        _tlsH3Pre ??= new double[Hidden3Size];
+        _tlsH3Act ??= new double[Hidden3Size];
+        _tlsH4Pre ??= new double[Hidden4Size];
+        _tlsH4Act ??= new double[Hidden4Size];
+
+        try
+        {
+            try
+            {
+                _rwLock.EnterReadLock();
+            }
+            catch (ObjectDisposedException)
+            {
+                return 0.5;
+            }
+
+            if (_featureMeans is not null && _featureStdDevs is not null)
+            {
+                LearnedScoringStrategy.StandardizeSingleVector(vector, _featureMeans, _featureStdDevs);
+            }
+
+            var result = ForwardPass(
+                vector,
+                _weightsIH,
+                _biasH1,
+                _weightsH1H2,
+                _biasH2,
+                _weightsH2H3,
+                _biasH3,
+                _weightsH3H4,
+                _biasH4,
+                _weightsH4O,
+                _biasOutput,
+                _tlsH1Pre,
+                _tlsH1Act,
+                _tlsH2Pre,
+                _tlsH2Act,
+                _tlsH3Pre,
+                _tlsH3Act,
+                _tlsH4Pre,
+                _tlsH4Act);
 
             return ScoringHelper.GuardScore(result);
         }
@@ -351,6 +461,12 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    ///     This method performs full input-gradient attribution through all four hidden layers,
+    ///     with O(H4·H3·H2·H1·InputSize) computational complexity. It is designed for single-item
+    ///     explanation only (e.g., inspecting why a specific recommendation was made) and should
+    ///     NOT be called in batch over all candidates. Use <see cref="Score"/> for batch scoring.
+    /// </remarks>
     public ScoreExplanation ScoreWithExplanation(CandidateFeatures features)
     {
         if (_disposed)
@@ -383,6 +499,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var h2Act = new double[Hidden2Size];
             var h3Pre = new double[Hidden3Size];
             var h3Act = new double[Hidden3Size];
+            var h4Pre = new double[Hidden4Size];
+            var h4Act = new double[Hidden4Size];
             var rawScore = ForwardPass(
                 vector,
                 _weightsIH,
@@ -391,51 +509,65 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _biasH2,
                 _weightsH2H3,
                 _biasH3,
-                _weightsH3O,
+                _weightsH3H4,
+                _biasH4,
+                _weightsH4O,
                 _biasOutput,
                 h1Pre,
                 h1Act,
                 h2Pre,
                 h2Act,
                 h3Pre,
-                h3Act);
+                h3Act,
+                h4Pre,
+                h4Act);
 
             var score = ScoringHelper.GuardScore(rawScore);
 
-            // Input-gradient attribution through all three hidden layers
+            // Input-gradient attribution through all four hidden layers
             var inputSize = CandidateFeatures.FeatureCount;
             var attr = new double[inputSize];
 
-            for (var l = 0; l < Hidden3Size; l++)
+            for (var m = 0; m < Hidden4Size; m++)
             {
-                if (h3Pre[l] <= 0)
+                if (h4Pre[m] <= 0)
                 {
                     continue;
                 }
 
-                var outW = _weightsH3O[l];
-                for (var k = 0; k < Hidden2Size; k++)
+                var outW = _weightsH4O[m];
+                for (var l = 0; l < Hidden3Size; l++)
                 {
-                    if (h2Pre[k] <= 0)
+                    if (h3Pre[l] <= 0)
                     {
                         continue;
                     }
 
-                    var h2h3W = _weightsH2H3[(l * Hidden2Size) + k];
-                    var combinedOuter = outW * h2h3W;
-                    for (var j = 0; j < Hidden1Size; j++)
+                    var h3h4W = _weightsH3H4[(m * Hidden3Size) + l];
+                    var combinedH4H3 = outW * h3h4W;
+                    for (var k = 0; k < Hidden2Size; k++)
                     {
-                        if (h1Pre[j] <= 0)
+                        if (h2Pre[k] <= 0)
                         {
                             continue;
                         }
 
-                        var h1h2W = _weightsH1H2[(k * Hidden1Size) + j];
-                        var combined = combinedOuter * h1h2W;
-                        var baseIdx = j * inputSize;
-                        for (var i = 0; i < inputSize; i++)
+                        var h2h3W = _weightsH2H3[(l * Hidden2Size) + k];
+                        var combinedOuter = combinedH4H3 * h2h3W;
+                        for (var j = 0; j < Hidden1Size; j++)
                         {
-                            attr[i] += combined * _weightsIH[baseIdx + i] * vector[i];
+                            if (h1Pre[j] <= 0)
+                            {
+                                continue;
+                            }
+
+                            var h1h2W = _weightsH1H2[(k * Hidden1Size) + j];
+                            var combined = combinedOuter * h1h2W;
+                            var baseIdx = j * inputSize;
+                            for (var i = 0; i < inputSize; i++)
+                            {
+                                attr[i] += combined * _weightsIH[baseIdx + i] * vector[i];
+                            }
                         }
                     }
                 }
@@ -452,7 +584,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 attr[(int)FeatureIndex.SeriesProgressionBoost] +
                 attr[(int)FeatureIndex.PopularityScore] +
                 attr[(int)FeatureIndex.DayOfWeekAffinity] +
-                attr[(int)FeatureIndex.LanguageAffinity];
+                attr[(int)FeatureIndex.LanguageAffinity] +
+                attr[(int)FeatureIndex.CollectionProgressionBoost] +
+                attr[(int)FeatureIndex.SubtitleLanguageAffinity];
 
             return new ScoreExplanation
             {
@@ -584,7 +718,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var bestBH2 = (double[])_biasH2.Clone();
             var bestWH2H3 = (double[])_weightsH2H3.Clone();
             var bestBH3 = (double[])_biasH3.Clone();
-            var bestWH3O = (double[])_weightsH3O.Clone();
+            var bestWH3H4 = (double[])_weightsH3H4.Clone();
+            var bestBH4 = (double[])_biasH4.Clone();
+            var bestWH4O = (double[])_weightsH4O.Clone();
             var bestBO = _biasOutput;
 
             var h1Pre = new double[Hidden1Size];
@@ -593,9 +729,12 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var h2Act = new double[Hidden2Size];
             var h3Pre = new double[Hidden3Size];
             var h3Act = new double[Hidden3Size];
+            var h4Pre = new double[Hidden4Size];
+            var h4Act = new double[Hidden4Size];
             var h1Err = new double[Hidden1Size];
             var h2Err = new double[Hidden2Size];
             var h3Err = new double[Hidden3Size];
+            var h4Err = new double[Hidden4Size];
 
             var maxEpochs = useEarlyStopping
                 ? MaxTrainingEpochs
@@ -627,14 +766,18 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                         _biasH2,
                         _weightsH2H3,
                         _biasH3,
-                        _weightsH3O,
+                        _weightsH3H4,
+                        _biasH4,
+                        _weightsH4O,
                         _biasOutput,
                         h1Pre,
                         h1Act,
                         h2Pre,
                         h2Act,
                         h3Pre,
-                        h3Act);
+                        h3Act,
+                        h4Pre,
+                        h4Act);
 
                     var outErr = (pred - examples[idx].Label) * pred * (1.0 - pred) * sw;
 
@@ -646,10 +789,28 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     // Correct backpropagation requires using the forward-pass weights
                     // for error computation. Updating weights first would skew gradients.
 
-                    // Hidden3 layer error (backprop through ReLU from output)
+                    // Hidden4 layer error (backprop through ReLU from output)
+                    for (var k = 0; k < Hidden4Size; k++)
+                    {
+                        h4Err[k] = h4Pre[k] > 0 ? outErr * _weightsH4O[k] : 0.0;
+                    }
+
+                    // Hidden3 layer error (backprop through ReLU from hidden4)
                     for (var k = 0; k < Hidden3Size; k++)
                     {
-                        h3Err[k] = h3Pre[k] > 0 ? outErr * _weightsH3O[k] : 0.0;
+                        if (h3Pre[k] <= 0)
+                        {
+                            h3Err[k] = 0.0;
+                            continue;
+                        }
+
+                        var sum = 0.0;
+                        for (var m = 0; m < Hidden4Size; m++)
+                        {
+                            sum += h4Err[m] * _weightsH3H4[(m * Hidden3Size) + k];
+                        }
+
+                        h3Err[k] = sum;
                     }
 
                     // Hidden2 layer error (backprop through ReLU from hidden3)
@@ -690,15 +851,15 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
                     // === Now update all weights using the pre-computed error signals ===
 
-                    // Output layer Adam update (hidden3 → output)
-                    for (var k = 0; k < Hidden3Size; k++)
+                    // Output layer Adam update (hidden4 → output)
+                    for (var k = 0; k < Hidden4Size; k++)
                     {
-                        var g = (outErr * h3Act[k]) + (L2Lambda * _weightsH3O[k]);
-                        _mWH3O![k] = (AdamBeta1 * _mWH3O[k]) + ((1 - AdamBeta1) * g);
-                        _vWH3O![k] = (AdamBeta2 * _vWH3O[k]) + ((1 - AdamBeta2) * g * g);
-                        _weightsH3O[k] -= DefaultLearningRate * (_mWH3O[k] / bc1) /
-                                          (Math.Sqrt(_vWH3O[k] / bc2) + AdamEpsilon);
-                        _weightsH3O[k] = Math.Clamp(_weightsH3O[k], -WeightClamp, WeightClamp);
+                        var g = (outErr * h4Act[k]) + (L2Lambda * _weightsH4O[k]);
+                        _mWH4O![k] = (AdamBeta1 * _mWH4O[k]) + ((1 - AdamBeta1) * g);
+                        _vWH4O![k] = (AdamBeta2 * _vWH4O[k]) + ((1 - AdamBeta2) * g * g);
+                        _weightsH4O[k] -= DefaultLearningRate * (_mWH4O[k] / bc1) /
+                                          (Math.Sqrt(_vWH4O[k] / bc2) + AdamEpsilon);
+                        _weightsH4O[k] = Math.Clamp(_weightsH4O[k], -WeightClamp, WeightClamp);
                     }
 
                     {
@@ -707,6 +868,31 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                         _vBO = (AdamBeta2 * _vBO) + ((1 - AdamBeta2) * g * g);
                         _biasOutput -= DefaultLearningRate * (_mBO / bc1) / (Math.Sqrt(_vBO / bc2) + AdamEpsilon);
                         _biasOutput = Math.Clamp(_biasOutput, -WeightClamp, WeightClamp);
+                    }
+
+                    // Hidden3→Hidden4 layer Adam update
+                    for (var k = 0; k < Hidden4Size; k++)
+                    {
+                        var bIdx = k * Hidden3Size;
+                        for (var j = 0; j < Hidden3Size; j++)
+                        {
+                            var p = bIdx + j;
+                            var g = (h4Err[k] * h3Act[j]) + (L2Lambda * _weightsH3H4[p]);
+                            _mWH3H4![p] = (AdamBeta1 * _mWH3H4[p]) + ((1 - AdamBeta1) * g);
+                            _vWH3H4![p] = (AdamBeta2 * _vWH3H4[p]) + ((1 - AdamBeta2) * g * g);
+                            _weightsH3H4[p] -= DefaultLearningRate * (_mWH3H4[p] / bc1) /
+                                               (Math.Sqrt(_vWH3H4[p] / bc2) + AdamEpsilon);
+                            _weightsH3H4[p] = Math.Clamp(_weightsH3H4[p], -WeightClamp, WeightClamp);
+                        }
+
+                        {
+                            var g = h4Err[k];
+                            _mBH4![k] = (AdamBeta1 * _mBH4[k]) + ((1 - AdamBeta1) * g);
+                            _vBH4![k] = (AdamBeta2 * _vBH4[k]) + ((1 - AdamBeta2) * g * g);
+                            _biasH4[k] -= DefaultLearningRate * (_mBH4[k] / bc1) /
+                                          (Math.Sqrt(_vBH4[k] / bc2) + AdamEpsilon);
+                            _biasH4[k] = Math.Clamp(_biasH4[k], -WeightClamp, WeightClamp);
+                        }
                     }
 
                     // Hidden2→Hidden3 layer Adam update
@@ -798,7 +984,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                         Array.Copy(_biasH2, bestBH2, _biasH2.Length);
                         Array.Copy(_weightsH2H3, bestWH2H3, _weightsH2H3.Length);
                         Array.Copy(_biasH3, bestBH3, _biasH3.Length);
-                        Array.Copy(_weightsH3O, bestWH3O, _weightsH3O.Length);
+                        Array.Copy(_weightsH3H4, bestWH3H4, _weightsH3H4.Length);
+                        Array.Copy(_biasH4, bestBH4, _biasH4.Length);
+                        Array.Copy(_weightsH4O, bestWH4O, _weightsH4O.Length);
                         bestBO = _biasOutput;
                     }
                     else
@@ -812,7 +1000,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                             Array.Copy(bestBH2, _biasH2, _biasH2.Length);
                             Array.Copy(bestWH2H3, _weightsH2H3, _weightsH2H3.Length);
                             Array.Copy(bestBH3, _biasH3, _biasH3.Length);
-                            Array.Copy(bestWH3O, _weightsH3O, _weightsH3O.Length);
+                            Array.Copy(bestWH3H4, _weightsH3H4, _weightsH3H4.Length);
+                            Array.Copy(bestBH4, _biasH4, _biasH4.Length);
+                            Array.Copy(bestWH4O, _weightsH4O, _weightsH4O.Length);
                             _biasOutput = bestBO;
                             break;
                         }
@@ -833,7 +1023,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 Array.Copy(bestBH2, _biasH2, _biasH2.Length);
                 Array.Copy(bestWH2H3, _weightsH2H3, _weightsH2H3.Length);
                 Array.Copy(bestBH3, _biasH3, _biasH3.Length);
-                Array.Copy(bestWH3O, _weightsH3O, _weightsH3O.Length);
+                Array.Copy(bestWH3H4, _weightsH3H4, _weightsH3H4.Length);
+                Array.Copy(bestBH4, _biasH4, _biasH4.Length);
+                Array.Copy(bestWH4O, _weightsH4O, _weightsH4O.Length);
                 _biasOutput = bestBO;
             }
 
@@ -887,11 +1079,21 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             _lastNdcgAtK = nAtK;
         }
 
+        // Permutation importance (debug-only, expensive: O(features x sampleSize) forward passes)
+        if (_logger?.IsEnabled(LogLevel.Debug) == true)
+        {
+            var importance = NeuralFeatureImportance.ComputePermutationImportance(this, examples);
+            var sorted = importance.OrderByDescending(kv => Math.Abs(kv.Value));
+            _logger.LogDebug(
+                "NeuralScoringStrategy permutation importance: {Importance}",
+                string.Join(", ", sorted.Select(kv => $"{kv.Key}={kv.Value:F4}")));
+        }
+
         return true;
     }
 
     /// <summary>
-    ///     MLP forward pass: input → hidden₁ (ReLU) → hidden₂ (ReLU) → hidden₃ (ReLU) → output (Sigmoid).
+    ///     MLP forward pass: input → hidden₁ (ReLU) → hidden₂ (ReLU) → hidden₃ (ReLU) → hidden₄ (ReLU) → output (Sigmoid).
     ///     Uses pre-allocated buffers for hidden activations to avoid allocation.
     /// </summary>
     /// <param name="input">Input feature vector [InputSize].</param>
@@ -901,7 +1103,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <param name="bH2">Hidden2 biases [Hidden2Size].</param>
     /// <param name="wH2H3">Hidden2→Hidden3 weights [Hidden3Size × Hidden2Size] row-major.</param>
     /// <param name="bH3">Hidden3 biases [Hidden3Size].</param>
-    /// <param name="wH3O">Hidden3→Output weights [Hidden3Size].</param>
+    /// <param name="wH3H4">Hidden3→Hidden4 weights [Hidden4Size × Hidden3Size] row-major.</param>
+    /// <param name="bH4">Hidden4 biases [Hidden4Size].</param>
+    /// <param name="wH4O">Hidden4→Output weights [Hidden4Size].</param>
     /// <param name="bO">Output bias scalar.</param>
     /// <param name="h1Pre">Pre-allocated buffer for hidden1 pre-activation values [Hidden1Size].</param>
     /// <param name="h1Act">Pre-allocated buffer for hidden1 post-activation values [Hidden1Size].</param>
@@ -909,6 +1113,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <param name="h2Act">Pre-allocated buffer for hidden2 post-activation values [Hidden2Size].</param>
     /// <param name="h3Pre">Pre-allocated buffer for hidden3 pre-activation values [Hidden3Size].</param>
     /// <param name="h3Act">Pre-allocated buffer for hidden3 post-activation values [Hidden3Size].</param>
+    /// <param name="h4Pre">Pre-allocated buffer for hidden4 pre-activation values [Hidden4Size].</param>
+    /// <param name="h4Act">Pre-allocated buffer for hidden4 post-activation values [Hidden4Size].</param>
     /// <returns>Output score in [0, 1] via sigmoid.</returns>
     internal static double ForwardPass(
         double[] input,
@@ -918,14 +1124,18 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         double[] bH2,
         double[] wH2H3,
         double[] bH3,
-        double[] wH3O,
+        double[] wH3H4,
+        double[] bH4,
+        double[] wH4O,
         double bO,
         double[] h1Pre,
         double[] h1Act,
         double[] h2Pre,
         double[] h2Act,
         double[] h3Pre,
-        double[] h3Act)
+        double[] h3Act,
+        double[] h4Pre,
+        double[] h4Act)
     {
         var inputSize = input.Length;
 
@@ -971,11 +1181,25 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             h3Act[l] = sum > 0 ? sum : 0.0;
         }
 
-        // Output layer: hidden3 → output (Sigmoid)
-        var outputZ = bO;
-        for (var l = 0; l < Hidden3Size; l++)
+        // Hidden layer 4: hidden3 → hidden4 (ReLU)
+        for (var m = 0; m < Hidden4Size; m++)
         {
-            outputZ += wH3O[l] * h3Act[l];
+            var sum = bH4[m];
+            var baseIdx = m * Hidden3Size;
+            for (var l = 0; l < Hidden3Size; l++)
+            {
+                sum += wH3H4[baseIdx + l] * h3Act[l];
+            }
+
+            h4Pre[m] = sum;
+            h4Act[m] = sum > 0 ? sum : 0.0;
+        }
+
+        // Output layer: hidden4 → output (Sigmoid)
+        var outputZ = bO;
+        for (var m = 0; m < Hidden4Size; m++)
+        {
+            outputZ += wH4O[m] * h4Act[m];
         }
 
         return Sigmoid(outputZ);
@@ -1031,16 +1255,24 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             _weightsH2H3[i] = (rng.NextDouble() * 2.0 * limitH2H3) - limitH2H3;
         }
 
-        // Hidden3 → Output
-        var limitH3O = Math.Sqrt(6.0 / (Hidden3Size + 1));
-        for (var i = 0; i < _weightsH3O.Length; i++)
+        // Hidden3 → Hidden4 (He/Kaiming for ReLU)
+        var limitH3H4 = Math.Sqrt(6.0 / Hidden3Size);
+        for (var i = 0; i < _weightsH3H4.Length; i++)
         {
-            _weightsH3O[i] = (rng.NextDouble() * 2.0 * limitH3O) - limitH3O;
+            _weightsH3H4[i] = (rng.NextDouble() * 2.0 * limitH3H4) - limitH3H4;
+        }
+
+        // Hidden4 → Output (Xavier/Glorot for Sigmoid)
+        var limitH4O = Math.Sqrt(6.0 / (Hidden4Size + 1));
+        for (var i = 0; i < _weightsH4O.Length; i++)
+        {
+            _weightsH4O[i] = (rng.NextDouble() * 2.0 * limitH4O) - limitH4O;
         }
 
         Array.Clear(_biasH1);
         Array.Clear(_biasH2);
         Array.Clear(_biasH3);
+        Array.Clear(_biasH4);
     }
 
     /// <summary>
@@ -1071,8 +1303,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _mBH3 = new double[Hidden3Size];
         _vBH3 = new double[Hidden3Size];
 
-        _mWH3O = new double[Hidden3Size];
-        _vWH3O = new double[Hidden3Size];
+        var wh3h4Len = Hidden4Size * Hidden3Size;
+        _mWH3H4 = new double[wh3h4Len];
+        _vWH3H4 = new double[wh3h4Len];
+        _mBH4 = new double[Hidden4Size];
+        _vBH4 = new double[Hidden4Size];
+
+        _mWH4O = new double[Hidden4Size];
+        _vWH4O = new double[Hidden4Size];
         _mBO = 0;
         _vBO = 0;
 
@@ -1096,6 +1334,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         var h2Act = new double[Hidden2Size];
         var h3Pre = new double[Hidden3Size];
         var h3Act = new double[Hidden3Size];
+        var h4Pre = new double[Hidden4Size];
+        var h4Act = new double[Hidden4Size];
 
         foreach (var idx in indices)
         {
@@ -1107,14 +1347,18 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _biasH2,
                 _weightsH2H3,
                 _biasH3,
-                _weightsH3O,
+                _weightsH3H4,
+                _biasH4,
+                _weightsH4O,
                 _biasOutput,
                 h1Pre,
                 h1Act,
                 h2Pre,
                 h2Act,
                 h3Pre,
-                h3Act);
+                h3Act,
+                h4Pre,
+                h4Act);
             var error = pred - examples[idx].Label;
             var w = effectiveWeights[idx];
             totalLoss += w * error * error;
@@ -1153,14 +1397,16 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     Version: CurrentWeightsVersion, WeightsIH.Length: Hidden1Size * CandidateFeatures.FeatureCount,
                     BiasH1.Length: Hidden1Size, WeightsH1H2.Length: Hidden2Size * Hidden1Size,
                     BiasH2.Length: Hidden2Size, WeightsH2H3.Length: Hidden3Size * Hidden2Size,
-                    BiasH3.Length: Hidden3Size, WeightsH3O.Length: Hidden3Size
+                    BiasH3.Length: Hidden3Size, WeightsH3H4.Length: Hidden4Size * Hidden3Size,
+                    BiasH4.Length: Hidden4Size, WeightsH4O.Length: Hidden4Size
                 })
             {
                 // Reject persisted weights containing NaN/Infinity values that would poison scoring.
                 if (!AllFinite(data.WeightsIH) || !AllFinite(data.BiasH1)
                     || !AllFinite(data.WeightsH1H2) || !AllFinite(data.BiasH2)
                     || !AllFinite(data.WeightsH2H3) || !AllFinite(data.BiasH3)
-                    || !AllFinite(data.WeightsH3O) || !double.IsFinite(data.BiasOutput)
+                    || !AllFinite(data.WeightsH3H4) || !AllFinite(data.BiasH4)
+                    || !AllFinite(data.WeightsH4O) || !double.IsFinite(data.BiasOutput)
                     || (data.FeatureMeans is not null && !AllFinite(data.FeatureMeans))
                     || (data.FeatureStdDevs is not null && !AllFinite(data.FeatureStdDevs)))
                 {
@@ -1175,7 +1421,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     _biasH2 = data.BiasH2;
                     _weightsH2H3 = data.WeightsH2H3;
                     _biasH3 = data.BiasH3;
-                    _weightsH3O = data.WeightsH3O;
+                    _weightsH3H4 = data.WeightsH3H4;
+                    _biasH4 = data.BiasH4;
+                    _weightsH4O = data.WeightsH4O;
                     _biasOutput = data.BiasOutput;
                     _featureMeans = data.FeatureMeans;
                     _featureStdDevs = data.FeatureStdDevs;
@@ -1229,7 +1477,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 BiasH2 = (double[])_biasH2.Clone(),
                 WeightsH2H3 = (double[])_weightsH2H3.Clone(),
                 BiasH3 = (double[])_biasH3.Clone(),
-                WeightsH3O = (double[])_weightsH3O.Clone(),
+                WeightsH3H4 = (double[])_weightsH3H4.Clone(),
+                BiasH4 = (double[])_biasH4.Clone(),
+                WeightsH4O = (double[])_weightsH4O.Clone(),
                 BiasOutput = _biasOutput,
                 FeatureMeans = _featureMeans is not null ? (double[])_featureMeans.Clone() : null,
                 FeatureStdDevs = _featureStdDevs is not null ? (double[])_featureStdDevs.Clone() : null,
@@ -1346,8 +1596,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         /// <summary>Gets or sets the hidden3 biases [Hidden3Size].</summary>
         public double[] BiasH3 { get; set; } = [];
 
-        /// <summary>Gets or sets the hidden3→output weights [Hidden3Size].</summary>
-        public double[] WeightsH3O { get; set; } = [];
+        /// <summary>Gets or sets the hidden3→hidden4 weights [Hidden4Size × Hidden3Size].</summary>
+        public double[] WeightsH3H4 { get; set; } = [];
+
+        /// <summary>Gets or sets the hidden4 biases [Hidden4Size].</summary>
+        public double[] BiasH4 { get; set; } = [];
+
+        /// <summary>Gets or sets the hidden4→output weights [Hidden4Size].</summary>
+        public double[] WeightsH4O { get; set; } = [];
 
         /// <summary>Gets or sets the output bias.</summary>
         public double BiasOutput { get; set; }

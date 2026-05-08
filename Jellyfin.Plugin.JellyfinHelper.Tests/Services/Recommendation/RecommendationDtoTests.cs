@@ -59,6 +59,10 @@ public class RecommendationDtoTests
         Assert.Empty(item.PeopleNames);
         Assert.Empty(item.Studios);
         Assert.Empty(item.Tags);
+        Assert.Empty(item.AudioLanguages);
+        Assert.Empty(item.SubtitleLanguages);
+        Assert.Empty(item.BoxSetIds);
+        Assert.Null(item.DateCreated);
     }
 
     [Fact]

@@ -27,6 +27,7 @@ public sealed class Engine : IRecommendationEngine
     private readonly IPluginLogService _pluginLog;
     private readonly SimilarityComputer _similarityComputer;
     private readonly IScoringStrategy _strategy;
+    private readonly IStrategySelector _strategySelector;
     private readonly TrainingService _trainingService;
     private readonly IWatchHistoryService _watchHistoryService;
 
@@ -41,18 +42,21 @@ public sealed class Engine : IRecommendationEngine
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
     /// <param name="strategy">The scoring strategy resolved via DI.</param>
+    /// <param name="strategySelector">The strategy selector for A/B testing.</param>
     public Engine(
         IWatchHistoryService watchHistoryService,
         ILibraryManager libraryManager,
         IPluginLogService pluginLog,
         ILogger<Engine> logger,
-        IScoringStrategy strategy)
+        IScoringStrategy strategy,
+        IStrategySelector strategySelector)
     {
         _watchHistoryService = watchHistoryService;
         _libraryManager = libraryManager;
         _pluginLog = pluginLog;
         _logger = logger;
         _strategy = strategy;
+        _strategySelector = strategySelector;
         _similarityComputer = new SimilarityComputer(libraryManager, pluginLog, logger);
         _trainingService = new TrainingService(watchHistoryService, pluginLog, logger);
     }
@@ -89,18 +93,22 @@ public sealed class Engine : IRecommendationEngine
 
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
 
-        // Reuse cached candidates/people from last batch run if available, otherwise load fresh
+        // Reuse cached candidates/people/boxSets from last batch run if available, otherwise load fresh
         var snapshot = _cachedSnapshot;
         var candidates = snapshot?.Candidates ?? LoadCandidateItems();
         var peopleLookup = snapshot?.PeopleLookup ?? _similarityComputer.BuildCandidatePeopleLookup(candidates);
+        var boxSetLookup = snapshot?.CandidateBoxSetLookup ?? BuildCandidateBoxSetLookupFresh(candidates);
+        var alphaOffset = _strategySelector.GetAlphaOffset(userProfile.UserId);
         return GenerateForUser(
             userProfile,
             allProfiles,
             candidates,
             peopleLookup,
+            boxSetLookup,
             maxResults,
             _strategy,
             null,
+            alphaOffset,
             cancellationToken);
     }
 
@@ -110,7 +118,50 @@ public sealed class Engine : IRecommendationEngine
         bool incremental = false,
         CancellationToken cancellationToken = default)
     {
-        return _trainingService.Train(_strategy, previousResults, incremental, cancellationToken);
+        var trained = _trainingService.Train(_strategy, previousResults, incremental, cancellationToken);
+
+        // After training, apply cohort-based feedback to adapt the sigmoid midpoint.
+        // This compares watch-rates across exploration cohorts and shifts the midpoint
+        // to calibrate how quickly the system trusts the ML model.
+        if (trained && _strategy is EnsembleScoringStrategy ensemble && previousResults.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Build per-user watched-item lookup from current watch profiles.
+            // This captures which previously-recommended items users have since watched.
+            // Includes series-level IDs (from episode SeriesId and FavoriteSeriesIds) so that
+            // series-type recommendations are correctly counted as "watched" when the user
+            // watched episodes of that series.
+            var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+            var watchedItemLookup = new Dictionary<Guid, HashSet<Guid>>(allProfiles.Count);
+            foreach (var profile in allProfiles)
+            {
+                var watched = new HashSet<Guid>(
+                    profile.WatchedItems
+                        .Where(w => w.Played || w.IsFavorite)
+                        .Select(w => w.ItemId));
+
+                // Add series-level IDs so series recommendations match episode watches
+                foreach (var w in profile.WatchedItems)
+                {
+                    if (w.SeriesId.HasValue && (w.Played || w.IsFavorite))
+                    {
+                        watched.Add(w.SeriesId.Value);
+                    }
+                }
+
+                foreach (var favSeriesId in profile.FavoriteSeriesIds)
+                {
+                    watched.Add(favSeriesId);
+                }
+
+                watchedItemLookup[profile.UserId] = watched;
+            }
+
+            ensemble.ApplyCohortFeedback(previousResults, watchedItemLookup);
+        }
+
+        return trained;
     }
 
     /// <inheritdoc />
@@ -124,8 +175,20 @@ public sealed class Engine : IRecommendationEngine
         var candidates = LoadCandidateItems();
         var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
 
+        // Pre-compute BoxSet membership for all candidates once (shared across all users).
+        // Avoids redundant parent-hierarchy traversals in ScoreCandidate / BuildWatchedBoxSetCounts.
+        var candidateBoxSetLookup = new Dictionary<Guid, List<Guid>>();
+        foreach (var c in candidates)
+        {
+            var boxSets = ResolveBoxSetIds(c);
+            if (boxSets.Count > 0)
+            {
+                candidateBoxSetLookup[c.Id] = boxSets;
+            }
+        }
+
         // Cache for on-demand single-user calls that may follow
-        _cachedSnapshot = new CandidateSnapshot(candidates, peopleLookup);
+        _cachedSnapshot = new CandidateSnapshot(candidates, peopleLookup, candidateBoxSetLookup);
 
         // Pre-compute all user watched-item sets ONCE for collaborative filtering.
         // Reduces O(U²×M) to O(U×M) by sharing sets across BuildCollaborativeMap calls.
@@ -166,9 +229,11 @@ public sealed class Engine : IRecommendationEngine
                             allProfiles,
                             candidates,
                             peopleLookup,
+                            candidateBoxSetLookup,
                             maxResultsPerUser,
                             _strategy,
                             precomputedUserSets,
+                            _strategySelector.GetAlphaOffset(profile.UserId),
                             cancellationToken);
                     concurrentResults.Add(result);
                 }
@@ -272,7 +337,11 @@ public sealed class Engine : IRecommendationEngine
                 PrimaryImageTag = s.Item.HasImage(ImageType.Primary) ? s.Item.Id.ToString("N") : null,
                 PeopleNames = [],
                 Studios = s.Item.Studios ?? [],
-                Tags = s.Item.Tags ?? []
+                Tags = s.Item.Tags ?? [],
+                AudioLanguages = ResolveAudioLanguages(s.Item),
+                SubtitleLanguages = ResolveSubtitleLanguages(s.Item),
+                BoxSetIds = ResolveBoxSetIds(s.Item),
+                DateCreated = s.Item.DateCreated
             })
             .ToList();
 
@@ -391,12 +460,14 @@ public sealed class Engine : IRecommendationEngine
     /// <param name="allProfiles">All user watch profiles for collaborative filtering.</param>
     /// <param name="allCandidates">Pre-loaded candidate items from the library.</param>
     /// <param name="peopleLookup">Pre-built people lookup (item ID → person names).</param>
+    /// <param name="candidateBoxSetLookup">Pre-resolved BoxSet IDs per candidate (sparse: only items in BoxSets).</param>
     /// <param name="maxResults">Maximum number of recommendations to return.</param>
     /// <param name="strategy">The scoring strategy to use.</param>
     /// <param name="precomputedUserSets">
     ///     Optional pre-computed user watch sets for collaborative filtering performance.
     ///     Pass null for single-user mode (sets will be built on-the-fly).
     /// </param>
+    /// <param name="alphaOffset">Alpha offset for cohort-based exploration (0.0 = control group).</param>
     /// <param name="ct">Cancellation token for cooperative cancellation.</param>
     /// <returns>A recommendation result for the user.</returns>
     private RecommendationResult GenerateForUser(
@@ -404,9 +475,11 @@ public sealed class Engine : IRecommendationEngine
         Collection<UserWatchProfile> allProfiles,
         List<BaseItem> allCandidates,
         Dictionary<Guid, HashSet<string>> peopleLookup,
+        Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
         int maxResults,
         IScoringStrategy strategy,
-        Dictionary<Guid, HashSet<Guid>>? precomputedUserSets = null,
+        Dictionary<Guid, HashSet<Guid>>? precomputedUserSets,
+        double alphaOffset = 0.0,
         CancellationToken ct = default)
     {
         // Build a lookup of watched items by ID for O(1) access in scoring methods
@@ -440,12 +513,11 @@ public sealed class Engine : IRecommendationEngine
         // into preferences via PreferenceBuilder.
         var watchedIds = new HashSet<Guid>(
             userProfile.WatchedItems
-                .Where(w => w.Played || w.IsFavorite || w.PlayCount > 0 || w.PlaybackPositionTicks > 0)
+                .Where(w => w.HasMeaningfulInteraction())
                 .Select(w => w.ItemId));
         var watchedSeriesIds = new HashSet<Guid>(
             userProfile.WatchedItems
-                .Where(w => (w.Played || w.IsFavorite || w.PlayCount > 0 || w.PlaybackPositionTicks > 0) &&
-                            w.SeriesId.HasValue)
+                .Where(w => w.HasMeaningfulInteraction() && w.SeriesId.HasValue)
                 .Select(w => w.SeriesId!.Value));
 
         // Also include series-level favorites (user favorited the series itself, not individual episodes)
@@ -471,6 +543,15 @@ public sealed class Engine : IRecommendationEngine
         var preferredPeople = PreferenceBuilder.BuildPeoplePreferenceSet(userProfile, peopleLookup);
         var preferredTags = PreferenceBuilder.BuildTagPreferenceSet(userProfile, candidateLookup);
         var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile);
+
+        // Pre-compute BoxSet membership for watched items to enable CollectionProgressionBoost
+        // at inference time. Maps BoxSet ID → count of watched items in that BoxSet.
+        // Uses the pre-resolved candidateBoxSetLookup for O(1) lookups (no parent traversal).
+        // Includes series-level IDs (from watched episodes' SeriesId and FavoriteSeriesIds)
+        // so TV-collection BoxSets contribute progression signals alongside movie BoxSets.
+        var watchedForBoxSets = new HashSet<Guid>(watchedIds);
+        watchedForBoxSets.UnionWith(watchedSeriesIds);
+        var watchedBoxSetCounts = BuildWatchedBoxSetCounts(watchedForBoxSets, candidateBoxSetLookup);
 
         // Pre-compute per-item genre, people, and studio sets for watched items.
         // Used by ContentNearestNeighborScore to find the most similar watched item for each candidate.
@@ -549,7 +630,10 @@ public sealed class Engine : IRecommendationEngine
                     genreExposure,
                     watchedGenreSets,
                     watchedPeopleSets,
-                    watchedStudioSets));
+                    watchedStudioSets,
+                    watchedBoxSetCounts,
+                    candidateBoxSetLookup,
+                    alphaOffset));
         }
 
         scored = DiversityReranker.DeduplicateSeries(scored);
@@ -573,7 +657,11 @@ public sealed class Engine : IRecommendationEngine
                 PrimaryImageTag = s.Item.HasImage(ImageType.Primary) ? s.Item.Id.ToString("N") : null,
                 PeopleNames = peopleLookup.TryGetValue(s.Item.Id, out var people) ? [.. people] : [],
                 Studios = s.Item.Studios ?? [],
-                Tags = s.Item.Tags ?? []
+                Tags = s.Item.Tags ?? [],
+                AudioLanguages = ResolveAudioLanguages(s.Item),
+                SubtitleLanguages = ResolveSubtitleLanguages(s.Item),
+                BoxSetIds = ResolveBoxSetIds(s.Item),
+                DateCreated = s.Item.DateCreated
             })
             .ToList();
 
@@ -590,13 +678,16 @@ public sealed class Engine : IRecommendationEngine
             Recommendations = new Collection<RecommendedItem>(topItems),
             GeneratedAt = DateTime.UtcNow,
             ScoringStrategy = strategy.Name,
-            ScoringStrategyKey = strategy.NameKey
+            ScoringStrategyKey = strategy.NameKey,
+            Cohort = _strategySelector.GetCohortName(userProfile.UserId)
         };
     }
 
     /// <summary>
     ///     Scores a single candidate item against the user's preferences.
     ///     Computes all feature signals and delegates to the scoring strategy.
+    ///     When <paramref name="alphaOffset"/> is non-zero and the strategy is an
+    ///     <see cref="EnsembleScoringStrategy"/>, the offset is applied for cohort exploration.
     /// </summary>
     private (BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem) ScoreCandidate(
         BaseItem candidate,
@@ -615,7 +706,10 @@ public sealed class Engine : IRecommendationEngine
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
         List<HashSet<string>> watchedGenreSets,
         List<HashSet<string>> watchedPeopleSets,
-        List<HashSet<string>> watchedStudioSets)
+        List<HashSet<string>> watchedStudioSets,
+        Dictionary<Guid, int> watchedBoxSetCounts,
+        Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
+        double alphaOffset = 0.0)
     {
         var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences);
         var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, coOccurrence, collaborativeMax);
@@ -677,8 +771,8 @@ public sealed class Engine : IRecommendationEngine
             }
         }
 
-        // Popularity proxy from collaborative scores
-        var popularityScore = collabScore > 0 ? Math.Clamp(collabScore * 0.8, 0.0, 1.0) : combinedCriticScore * 0.3;
+        // Popularity proxy from collaborative scores (centralized formula)
+        var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);
 
         // Build feature vector and delegate scoring to strategy
         var features = new CandidateFeatures
@@ -716,9 +810,17 @@ public sealed class Engine : IRecommendationEngine
                 watchedGenreSets,
                 watchedPeopleSets,
                 watchedStudioSets),
-            // Audio language affinity: how well the candidate's audio tracks match the user's
-            // language preferences. Uses chosen-vs-forced distinction from the user's profile.
-            LanguageAffinity = ComputeLanguageAffinity(userProfile, candidate)
+            // Language affinity features: resolve media streams ONCE per candidate to avoid
+            // calling GetMediaStreams() twice (audio + subtitle). Single-pass via ResolveMediaLanguages().
+            LanguageAffinity = ComputeLanguageAffinityFromStreams(userProfile, candidate, out var candidateMediaLanguages),
+            // Collection/BoxSet progression: uses pre-resolved BoxSet IDs from candidateBoxSetLookup.
+            // No per-candidate parent traversal needed — all BoxSet memberships resolved once during batch init.
+            CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(
+                candidateBoxSetLookup.TryGetValue(candidate.Id, out var candidateBoxSets) ? candidateBoxSets : [],
+                watchedBoxSetCounts),
+            // Subtitle language affinity: reuses the already-resolved subtitle languages
+            // from the single ResolveMediaLanguages() call above (no second stream scan).
+            SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromStreams(userProfile, candidateMediaLanguages.Subtitles)
         };
 
         // Genre exposure features: soft signals for genre distribution awareness
@@ -729,7 +831,11 @@ public sealed class Engine : IRecommendationEngine
         features.GenreDominanceRatio = dominanceRatio;
         features.GenreAffinityGap = affinityGap;
 
-        var explanation = strategy.ScoreWithExplanation(features);
+        // Apply alpha offset for cohort exploration when the strategy supports it.
+        // For control cohort (offset≈0), this is a zero-cost fast path via the standard method.
+        var explanation = Math.Abs(alphaOffset) > 1e-10 && strategy is EnsembleScoringStrategy ensemble
+            ? ensemble.ScoreWithExplanationAndOffset(features, alphaOffset)
+            : strategy.ScoreWithExplanation(features);
 
         if (_logger.IsEnabled(LogLevel.Debug))
         {
@@ -764,70 +870,387 @@ public sealed class Engine : IRecommendationEngine
             return 0.5;
         }
 
-        // Get candidate's available audio languages
-        List<string>? candidateLanguages;
-        try
-        {
-            candidateLanguages = candidate.GetMediaStreams()?
-                .Where(s => s.Type == MediaStreamType.Audio)
-                .Select(s => WatchHistoryService.NormalizeLanguage(s.Language))
-                .Where(l => !string.IsNullOrEmpty(l))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList()!;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-        {
-            return 0.5; // Graceful: no stream data available
-        }
-
-        if (candidateLanguages is null || candidateLanguages.Count == 0)
+        // Reuse the same stream-resolution logic as ResolveAudioLanguages (returns empty on error/null)
+        var candidateLanguages = ResolveAudioLanguages(candidate);
+        if (candidateLanguages.Count == 0)
         {
             return 0.5; // No audio stream info → neutral
         }
 
-        var primaryLang = userProfile.PrimaryLanguage;
-        var preferredLangs = userProfile.PreferredLanguages;
-        var toleratedLangs = userProfile.ToleratedLanguages;
+        return Training.TrainingFeatureComputer.ComputeBestLanguageAffinity(
+            candidateLanguages,
+            userProfile.PrimaryLanguage,
+            userProfile.PreferredLanguages,
+            userProfile.ToleratedLanguages,
+            userProfile.LanguageProfile);
+    }
 
-        var bestAffinity = 0.1; // Default: only unknown languages
+    /// <summary>
+    ///     Resolves the normalized audio language codes available for a candidate item.
+    ///     Delegates to <see cref="ResolveMediaLanguages"/> for a single-pass stream scan.
+    ///     Returns an empty list if no audio stream data is available (graceful fallback).
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>A list of distinct, normalized ISO 639 language codes.</returns>
+    private static List<string> ResolveAudioLanguages(BaseItem candidate)
+    {
+        return ResolveMediaLanguages(candidate).Audio;
+    }
 
-        foreach (var lang in candidateLanguages)
+    /// <summary>
+    ///     Resolves the normalized subtitle language codes available for a candidate item.
+    ///     Delegates to <see cref="ResolveMediaLanguages"/> for a single-pass stream scan.
+    ///     Returns an empty list if no subtitle stream data is available (graceful fallback).
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>A list of distinct, normalized ISO 639 subtitle language codes.</returns>
+    private static List<string> ResolveSubtitleLanguages(BaseItem candidate)
+    {
+        return ResolveMediaLanguages(candidate).Subtitles;
+    }
+
+    /// <summary>
+    ///     Resolves both audio and subtitle language codes from a candidate item's media streams
+    ///     in a single pass. Avoids calling <see cref="BaseItem.GetMediaStreams"/> twice per item
+    ///     in the scoring hot path (1000+ candidates per user).
+    ///     Returns empty lists if no stream data is available (graceful fallback).
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>A tuple of (Audio languages, Subtitle languages) as distinct, normalized ISO 639 codes.</returns>
+    private static (List<string> Audio, List<string> Subtitles) ResolveMediaLanguages(BaseItem candidate)
+    {
+        try
         {
-            double affinity;
+            var streams = candidate.GetMediaStreams();
 
-            if (string.Equals(lang, primaryLang, StringComparison.OrdinalIgnoreCase))
+            // Series items have no direct media streams — resolve from first child episode as fallback.
+            // This enables LanguageAffinity and SubtitleLanguageAffinity to produce real signals
+            // for series candidates instead of defaulting to 0.5 (neutral).
+            // Series.Children returns Season objects in Jellyfin 10.11+.
+            // Navigate Series → first Season → first Episode with a valid file path
+            // to extract representative audio/subtitle language metadata.
+            if ((streams is null || streams.Count == 0) && candidate is Series series)
             {
-                affinity = 1.0; // Primary preference available
-            }
-            else if (preferredLangs.Contains(lang))
-            {
-                affinity = 0.85; // Other actively chosen language
-            }
-            else if (toleratedLangs.Contains(lang))
-            {
-                affinity = 0.5; // Tolerated (only used when forced)
-            }
-            else if (userProfile.LanguageProfile.ContainsKey(lang))
-            {
-                affinity = 0.3; // Somehow known
-            }
-            else
-            {
-                affinity = 0.1; // Completely unknown language
+                var firstEpisode = series.Children?
+                    .OfType<Season>()
+                    .SelectMany(season => season.Children?.OfType<Episode>() ?? [])
+                    .FirstOrDefault(e => !string.IsNullOrEmpty(e.Path));
+                if (firstEpisode is not null)
+                {
+                    streams = firstEpisode.GetMediaStreams();
+                }
             }
 
-            if (affinity > bestAffinity)
+            if (streams is null)
             {
-                bestAffinity = affinity;
+                return ([], []);
             }
 
-            if (bestAffinity >= 1.0)
+            var audioLanguages = new List<string>();
+            var audioSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var subtitleLanguages = new List<string>();
+            var subtitleSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var s in streams)
             {
-                break; // Can't do better than primary
+                var normalized = WatchHistoryService.NormalizeLanguage(s.Language);
+                if (string.IsNullOrEmpty(normalized))
+                {
+                    continue;
+                }
+
+                switch (s.Type)
+                {
+                    case MediaStreamType.Audio when audioSeen.Add(normalized):
+                        audioLanguages.Add(normalized);
+                        break;
+                    case MediaStreamType.Subtitle when subtitleSeen.Add(normalized):
+                        subtitleLanguages.Add(normalized);
+                        break;
+                }
+            }
+
+            return (audioLanguages, subtitleLanguages);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return ([], []); // Graceful: no stream data available
+        }
+    }
+
+    /// <summary>
+    ///     Resolves the BoxSet (collection) IDs that a candidate item belongs to.
+    ///     Uses Jellyfin's parent hierarchy to find BoxSet containers.
+    ///     Returns an empty list if the item is not in any collection.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>A list of BoxSet IDs the item belongs to.</returns>
+    private static List<Guid> ResolveBoxSetIds(BaseItem candidate)
+    {
+        const int maxTraversalDepth = 20;
+
+        try
+        {
+            var boxSetIds = new List<Guid>();
+
+            // Traverse the parent hierarchy to find BoxSet containers.
+            // Depth limit guards against corrupted metadata with circular parent references.
+            var parent = candidate.GetParent();
+            var depth = 0;
+            while (parent is not null && depth < maxTraversalDepth)
+            {
+                if (parent is MediaBrowser.Controller.Entities.Movies.BoxSet)
+                {
+                    boxSetIds.Add(parent.Id);
+                }
+
+                parent = parent.GetParent();
+                depth++;
+            }
+
+            return boxSetIds;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return []; // Graceful fallback
+        }
+    }
+
+    /// <summary>
+    ///     Computes subtitle language affinity between a candidate's available subtitle languages
+    ///     and the user's subtitle language profile. Returns 0.5 (neutral) when no data is available.
+    ///     Uses the same chosen-vs-forced logic as audio language affinity.
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile with subtitle language preferences.</param>
+    /// <param name="candidate">The candidate item to evaluate.</param>
+    /// <returns>A subtitle language affinity score between 0.1 and 1.0, or 0.5 if no data available.</returns>
+    internal static double ComputeSubtitleLanguageAffinity(UserWatchProfile userProfile, BaseItem candidate)
+    {
+        // No subtitle language profile → neutral
+        if (userProfile.SubtitleLanguageProfile.Count == 0)
+        {
+            return 0.5;
+        }
+
+        var candidateLanguages = ResolveSubtitleLanguages(candidate);
+        if (candidateLanguages.Count == 0)
+        {
+            return 0.5; // No subtitle stream info → neutral
+        }
+
+        return Training.TrainingFeatureComputer.ComputeBestLanguageAffinity(
+            candidateLanguages,
+            userProfile.PrimarySubtitleLanguage,
+            userProfile.PreferredSubtitleLanguages,
+            userProfile.ToleratedSubtitleLanguages,
+            userProfile.SubtitleLanguageProfile);
+    }
+
+    /// <summary>
+    ///     Computes audio language affinity with a single-pass stream resolution.
+    ///     Resolves both audio and subtitle streams in one call to <see cref="ResolveMediaLanguages"/>,
+    ///     outputs the full result so the caller can reuse the subtitle portion without a second scan.
+    ///     Used by <see cref="ScoreCandidate"/> to avoid double GetMediaStreams() calls per candidate.
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile with language preferences.</param>
+    /// <param name="candidate">The candidate item to evaluate.</param>
+    /// <param name="mediaLanguages">
+    ///     Outputs the resolved media languages tuple so subtitle affinity can be computed
+    ///     from the same data without a second stream scan.
+    /// </param>
+    /// <returns>A language affinity score between 0.1 and 1.0, or 0.5 if no data available.</returns>
+    private static double ComputeLanguageAffinityFromStreams(
+        UserWatchProfile userProfile,
+        BaseItem candidate,
+        out (List<string> Audio, List<string> Subtitles) mediaLanguages)
+    {
+        mediaLanguages = ResolveMediaLanguages(candidate);
+
+        // No language profile → neutral (monolingual library or new user)
+        if (userProfile.LanguageProfile.Count == 0 || mediaLanguages.Audio.Count == 0)
+        {
+            return 0.5;
+        }
+
+        return Training.TrainingFeatureComputer.ComputeBestLanguageAffinity(
+            mediaLanguages.Audio,
+            userProfile.PrimaryLanguage,
+            userProfile.PreferredLanguages,
+            userProfile.ToleratedLanguages,
+            userProfile.LanguageProfile);
+    }
+
+    /// <summary>
+    ///     Computes subtitle language affinity from pre-resolved subtitle language codes.
+    ///     Companion to <see cref="ComputeLanguageAffinityFromStreams"/> - reuses the subtitle
+    ///     portion of the already-resolved media streams to avoid a second GetMediaStreams() call.
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile with subtitle language preferences.</param>
+    /// <param name="subtitleLanguages">Pre-resolved subtitle language codes from ResolveMediaLanguages().</param>
+    /// <returns>A subtitle language affinity score between 0.1 and 1.0, or 0.5 if no data available.</returns>
+    private static double ComputeSubtitleLanguageAffinityFromStreams(
+        UserWatchProfile userProfile,
+        List<string> subtitleLanguages)
+    {
+        if (userProfile.SubtitleLanguageProfile.Count == 0 || subtitleLanguages.Count == 0)
+        {
+            return 0.5;
+        }
+
+        return Training.TrainingFeatureComputer.ComputeBestLanguageAffinity(
+            subtitleLanguages,
+            userProfile.PrimarySubtitleLanguage,
+            userProfile.PreferredSubtitleLanguages,
+            userProfile.ToleratedSubtitleLanguages,
+            userProfile.SubtitleLanguageProfile);
+    }
+
+    /// <summary>
+    ///     Pre-computes BoxSet membership counts for the user's watched items using the
+    ///     pre-resolved candidateBoxSetLookup. For each BoxSet that contains at least one
+    ///     watched item, stores the count of watched members.
+    ///     Built once per user in <see cref="GenerateForUser"/>.
+    /// </summary>
+    /// <param name="watchedIds">Set of item IDs the user has meaningfully interacted with.</param>
+    /// <param name="candidateBoxSetLookup">Pre-resolved BoxSet IDs per candidate (sparse).</param>
+    /// <returns>A dictionary mapping BoxSet ID → number of watched items in that BoxSet.</returns>
+    private static Dictionary<Guid, int> BuildWatchedBoxSetCounts(
+        HashSet<Guid> watchedIds,
+        Dictionary<Guid, List<Guid>> candidateBoxSetLookup)
+    {
+        var boxSetCounts = new Dictionary<Guid, int>();
+
+        foreach (var watchedId in watchedIds)
+        {
+            if (!candidateBoxSetLookup.TryGetValue(watchedId, out var boxSetIds))
+            {
+                continue;
+            }
+
+            foreach (var boxSetId in boxSetIds)
+            {
+                boxSetCounts.TryGetValue(boxSetId, out var count);
+                boxSetCounts[boxSetId] = count + 1;
             }
         }
 
-        return bestAffinity;
+        return boxSetCounts;
+    }
+
+    /// <summary>
+    ///     Builds the candidateBoxSetLookup on-demand (for the single-user path when no cached snapshot exists).
+    ///     Equivalent to the inline loop in <see cref="GetAllRecommendations"/> but extracted as a helper.
+    /// </summary>
+    private static Dictionary<Guid, List<Guid>> BuildCandidateBoxSetLookupFresh(List<BaseItem> candidates)
+    {
+        var lookup = new Dictionary<Guid, List<Guid>>();
+        foreach (var c in candidates)
+        {
+            var boxSets = ResolveBoxSetIds(c);
+            if (boxSets.Count > 0)
+            {
+                lookup[c.Id] = boxSets;
+            }
+        }
+
+        return lookup;
+    }
+
+    /// <summary>
+    ///     Computes the CollectionProgressionBoost for a candidate during live inference scoring.
+    ///     Uses the pre-computed <paramref name="watchedBoxSetCounts"/> dictionary for O(1) lookup
+    ///     instead of per-candidate parent traversal + child enumeration.
+    ///     Returns a progression ratio proportional to how many collection siblings are already watched.
+    /// </summary>
+    /// <param name="candidateBoxSetIds">Pre-resolved BoxSet IDs for the candidate (from ResolveBoxSetIds).</param>
+    /// <param name="watchedBoxSetCounts">Pre-computed BoxSet ID → watched member count mapping.</param>
+    /// <returns>A boost value between 0.0 and 1.0, or 0.0 if not in any collection.</returns>
+    private static double ComputeCollectionProgressionBoostLive(
+        List<Guid> candidateBoxSetIds,
+        Dictionary<Guid, int> watchedBoxSetCounts)
+    {
+        if (watchedBoxSetCounts.Count == 0)
+        {
+            return 0.0;
+        }
+
+        if (candidateBoxSetIds.Count == 0)
+        {
+            return 0.0;
+        }
+
+        // Find the best progression signal across all BoxSets the candidate belongs to
+        var bestBoost = 0.0;
+        foreach (var boxSetId in candidateBoxSetIds)
+        {
+            if (watchedBoxSetCounts.TryGetValue(boxSetId, out var watchedCount) && watchedCount > 0)
+            {
+                // Scale: 1 watched sibling = 0.3, 2 = 0.5, 3+ = 0.7+
+                // Uses diminishing returns formula to avoid over-boosting large collections
+                var boost = Math.Clamp(0.3 + ((watchedCount - 1) * 0.2), 0.0, 1.0);
+                bestBoost = Math.Max(bestBoost, boost);
+            }
+        }
+
+        return bestBoost;
+    }
+
+    /// <summary>
+    ///     Computes the collection/BoxSet progression boost for a candidate item.
+    ///     Returns a positive value if the candidate belongs to a collection where the user
+    ///     has already watched other items. Encourages "complete the collection" recommendations.
+    /// </summary>
+    /// <param name="candidate">The candidate item to evaluate.</param>
+    /// <param name="watchedIds">Set of item IDs the user has watched.</param>
+    /// <returns>A boost value between 0.0 and 1.0.</returns>
+    internal static double ComputeCollectionProgressionBoost(BaseItem candidate, HashSet<Guid> watchedIds)
+    {
+        try
+        {
+            // Check if the candidate belongs to any BoxSet via parent traversal
+            var parent = candidate.GetParent();
+            while (parent is not null)
+            {
+                if (parent is MediaBrowser.Controller.Entities.Movies.BoxSet boxSet)
+                {
+                    // Check if the user has watched any other item in this BoxSet
+                    var children = boxSet.Children;
+                    if (children is not null)
+                    {
+                        var watchedCount = 0;
+                        var totalCount = 0;
+                        foreach (var child in children)
+                        {
+                            if (child.Id == candidate.Id)
+                            {
+                                continue; // Don't count the candidate itself
+                            }
+
+                            totalCount++;
+                            if (watchedIds.Contains(child.Id))
+                            {
+                                watchedCount++;
+                            }
+                        }
+
+                        if (watchedCount > 0 && totalCount > 0)
+                        {
+                            // Boost proportional to how much of the collection is watched
+                            var ratio = (double)watchedCount / totalCount;
+                            return Math.Clamp(ratio * 1.2, 0.0, 1.0);
+                        }
+                    }
+                }
+
+                parent = parent.GetParent();
+            }
+
+            return 0.0;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            return 0.0; // Graceful fallback
+        }
     }
 
     /// <summary>
@@ -851,7 +1274,15 @@ public sealed class Engine : IRecommendationEngine
     ///     Published/read as a single reference so concurrent readers always see
     ///     a consistent pair (candidates from the same batch as the people lookup).
     /// </summary>
+    /// <param name="Candidates">All candidate items from the library.</param>
+    /// <param name="PeopleLookup">Item ID → person name set mapping.</param>
+    /// <param name="CandidateBoxSetLookup">
+    ///     Pre-resolved BoxSet IDs per candidate. Built once during batch generation
+    ///     to avoid redundant parent-hierarchy traversals across multiple users.
+    ///     Only candidates that belong to at least one BoxSet are stored (sparse).
+    /// </param>
     private sealed record CandidateSnapshot(
         List<BaseItem> Candidates,
-        Dictionary<Guid, HashSet<string>> PeopleLookup);
+        Dictionary<Guid, HashSet<string>> PeopleLookup,
+        Dictionary<Guid, List<Guid>> CandidateBoxSetLookup);
 }

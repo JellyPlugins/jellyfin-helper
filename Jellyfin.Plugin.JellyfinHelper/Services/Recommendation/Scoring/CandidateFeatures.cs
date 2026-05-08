@@ -127,6 +127,23 @@ public enum FeatureIndex
     ///     than languages the user was forced to use because no alternative was available.
     /// </summary>
     LanguageAffinity = 28,
+
+    /// <summary>
+    ///     Collection/BoxSet progression boost (0–1). Rewards items that belong to a
+    ///     collection (BoxSet) where the user has already watched other entries.
+    ///     Encourages "complete the collection" recommendations (e.g., watch all MCU films).
+    ///     0 = item is not in any collection or user has not watched any collection members.
+    /// </summary>
+    CollectionProgressionBoost = 29,
+
+    /// <summary>
+    ///     Subtitle language affinity (0–1). How well the candidate's available subtitle
+    ///     languages match the user's subtitle language preferences.
+    ///     1.0 = primary subtitle language available, 0.5 = neutral (no data),
+    ///     0.1 = only unknown subtitle languages.
+    ///     Based on chosen-vs-forced distinction analogous to audio language affinity.
+    /// </summary>
+    SubtitleLanguageAffinity = 30,
 }
 
 /// <summary>
@@ -138,7 +155,7 @@ public sealed class CandidateFeatures
     /// <summary>
     ///     The number of features produced by <see cref="ToVector"/>.
     /// </summary>
-    public const int FeatureCount = 29;
+    public const int FeatureCount = 31;
 
     /// <summary>
     ///     Normalization ceiling for genre count (items with ≥ this many genres map to 1.0).
@@ -171,6 +188,8 @@ public sealed class CandidateFeatures
     private double _libraryAddedRecency;
     private double _contentNearestNeighborScore;
     private double _languageAffinity = 0.5;
+    private double _collectionProgressionBoost;
+    private double _subtitleLanguageAffinity = 0.5;
 
     /// <summary>Gets or sets the genre similarity score (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double GenreSimilarity
@@ -355,6 +374,40 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
+    ///     Gets or sets the collection/BoxSet progression boost (0–1).
+    ///     Rewards items belonging to a collection where the user has watched other entries.
+    ///     Encourages "complete the collection" recommendations.
+    ///     0 = not in any collection or no watched collection members.
+    ///     Values are clamped to [0, 1]; NaN defaults to 0.
+    /// </summary>
+    /// <remarks>
+    ///     Live scoring (Engine.ScoreCandidate) pre-computes BoxSet membership counts for
+    ///     all watched items once per user, then performs an O(1) lookup per candidate via
+    ///     the candidate's resolved BoxSet IDs. Training (TrainingDataBuilder) uses a
+    ///     sibling-matching heuristic from cached BoxSetIds stored on RecommendedItem.
+    ///     Both paths produce real progression values (0.0–1.0) when the candidate belongs
+    ///     to a collection with watched siblings.
+    /// </remarks>
+    public double CollectionProgressionBoost
+    {
+        get => _collectionProgressionBoost;
+        set => _collectionProgressionBoost = Clamp01(value);
+    }
+
+    /// <summary>
+    ///     Gets or sets the subtitle language affinity (0–1).
+    ///     How well the candidate's available subtitle languages match the user's preferences.
+    ///     1.0 = primary subtitle language available, 0.5 = neutral (no data),
+    ///     0.1 = only unknown subtitle languages.
+    ///     Values are clamped to [0, 1]; NaN defaults to 0.5 (neutral).
+    /// </summary>
+    public double SubtitleLanguageAffinity
+    {
+        get => _subtitleLanguageAffinity;
+        set => _subtitleLanguageAffinity = Clamp01(value, 0.5);
+    }
+
+    /// <summary>
     ///     Clamps a value to [0, 1], returning <paramref name="defaultWhenNaN"/> if the value is NaN or Infinity.
     ///     Math.Clamp does not normalize NaN - it preserves it - so this helper prevents
     ///     NaN from flowing into interaction terms and poisoning learned/neural scoring.
@@ -424,5 +477,7 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.LibraryAddedRecency] = LibraryAddedRecency;
         buffer[(int)FeatureIndex.ContentNearestNeighborScore] = ContentNearestNeighborScore;
         buffer[(int)FeatureIndex.LanguageAffinity] = LanguageAffinity;
+        buffer[(int)FeatureIndex.CollectionProgressionBoost] = CollectionProgressionBoost;
+        buffer[(int)FeatureIndex.SubtitleLanguageAffinity] = SubtitleLanguageAffinity;
     }
 }

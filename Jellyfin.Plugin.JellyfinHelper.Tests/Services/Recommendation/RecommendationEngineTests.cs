@@ -1278,7 +1278,7 @@ public class RecommendationEngineTests
         var weights = DefaultWeights.CreateWeightArray();
 
         Assert.Equal(-0.12, weights[(int)FeatureIndex.GenreUnderexposure], 10);
-        Assert.Equal(0.10, weights[(int)FeatureIndex.GenreDominanceRatio], 10);
+        Assert.Equal(0.070, weights[(int)FeatureIndex.GenreDominanceRatio], 10);
         Assert.Equal(-0.08, weights[(int)FeatureIndex.GenreAffinityGap], 10);
     }
 }

@@ -125,7 +125,10 @@ internal static class ScoringHelper
         var peopleContrib = GetContribution(vector, weights, FeatureIndex.PeopleSimilarity);
         var studioContrib = GetContribution(vector, weights, FeatureIndex.StudioMatch);
 
-        // Interaction + minor features (genreCount, isSeries, genre×rating, genre×collab, completionRatio, isAbandoned, hasInteraction, seriesProgression, popularity, dayOfWeek, hourOfDay, isWeekend, tagSimilarity)
+        // Interaction + minor features (genreCount, isSeries, genre×rating, genre×collab, completionRatio,
+        // isAbandoned, hasInteraction, seriesProgression, popularity, dayOfWeek, hourOfDay, isWeekend,
+        // tagSimilarity, people×genre, recency×critic, genreExposure features, libraryAddedRecency,
+        // contentNearestNeighbor, languageAffinity, collectionProgressionBoost, subtitleLanguageAffinity)
         // Each GetContribution already returns 0.0 for non-finite products, so the sum should
         // always be finite. Use 0.0 (not NaNFallbackScore) as defensive fallback to avoid
         // injecting a neutral-looking 0.5 into an additive contribution term.
@@ -145,8 +148,14 @@ internal static class ScoringHelper
             GetContribution(vector, weights, FeatureIndex.TagSimilarity) +
             GetContribution(vector, weights, FeatureIndex.PeopleGenreInteraction) +
             GetContribution(vector, weights, FeatureIndex.RecencyCriticInteraction) +
+            GetContribution(vector, weights, FeatureIndex.GenreUnderexposure) +
+            GetContribution(vector, weights, FeatureIndex.GenreDominanceRatio) +
+            GetContribution(vector, weights, FeatureIndex.GenreAffinityGap) +
+            GetContribution(vector, weights, FeatureIndex.LibraryAddedRecency) +
             GetContribution(vector, weights, FeatureIndex.ContentNearestNeighborScore) +
-            GetContribution(vector, weights, FeatureIndex.LanguageAffinity);
+            GetContribution(vector, weights, FeatureIndex.LanguageAffinity) +
+            GetContribution(vector, weights, FeatureIndex.CollectionProgressionBoost) +
+            GetContribution(vector, weights, FeatureIndex.SubtitleLanguageAffinity);
         var interactionContrib = double.IsFinite(interactionSum) ? interactionSum : 0.0;
 
         // Compute FinalScore from the sum of contributions + bias instead of re-calling

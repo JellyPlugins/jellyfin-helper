@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
 
+## [2.0.0.3] - 2026-05-08
+
+### Refactored
+- **Arr Settings** - Settings now use instance-based Radarr/Sonarr configuration; legacy single-instance fields removed. Language and plugin log level persist across saves. ARR instance resolution returns explicit instance lists only.
+
+### Added
+- **Recommendation Metadata** - Recommendations include audio language metadata and item creation dates; watched/exclusion now uses "meaningful interaction" predicates.
+- **New Scoring Signals** - `SubtitleLanguageAffinity` and `CollectionProgressionBoost` added to the 31-feature candidate vector, boosting recommendations where subtitle language preferences and box-set progression are strong signals.
+
+### Improved
+- **Scoring & Training** - Centralized popularity scoring, richer training feature construction, series aggregation, and weight schema version bumped. A/B testing cohort infrastructure with deterministic user bucketing and adaptive sigmoid midpoint calibration via cohort watch-rate feedback.
+- **NeuralScoringStrategy** – Upgraded MLP architecture from 3 to 4 hidden layers (31→48→24→12→6→1, ~3,097 parameters). Deeper representation captures more complex feature interactions while keeping inference lightweight.
+
+
+### Tests
+- Unit tests updated for new defaults and weight-version expectations.
+- Updated neural architecture constant assertions (Hidden1Size=48, Hidden2Size=24, Hidden3Size=12, Hidden4Size=6, Version=2), output weight length/bounds tests, and persistence field name checks for the new 4-layer DTO.
+- New `ContentScoringTests` class (14 tests) covering `ComputePopularityScore` edge cases (clamping, fallback paths) and `ComputeCollectionProgressionBoostFromCache` with `watchedIds` logic (BoxSet-ID match, base boost, empty inputs).
+- Strengthened `DefaultWeights_WeightsExcludingBias_SumToOne` test with exact constant-sum verification instead of range assertion.
+- Total: **2124 tests**.
+
+---
+
 ## [2.0.0.2] - 2026-05-02
 
 ### Changed

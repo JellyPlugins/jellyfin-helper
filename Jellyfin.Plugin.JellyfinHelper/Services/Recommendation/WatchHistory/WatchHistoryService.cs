@@ -180,6 +180,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 Genres = item.Genres ?? [],
                 Year = item.ProductionYear,
                 SeriesId = item is Episode ep ? (ep.SeriesId != Guid.Empty ? ep.SeriesId : null) : null,
+                DateCreated = item.DateCreated,
                 PrimaryImageTag = null
             };
 
@@ -276,6 +277,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                     Genres = series.Genres ?? [],
                     Year = series.ProductionYear,
                     SeriesId = null, // This IS the series itself, not an episode
+                    DateCreated = series.DateCreated,
                     PrimaryImageTag = null
                 });
 
@@ -296,6 +298,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         // Build audio language profile from media stream selections (video items only)
         BuildLanguageProfile(profile, user, allItems);
+
+        // Build subtitle language profile from media stream selections (video items only)
+        BuildSubtitleLanguageProfile(profile, user, allItems);
 
         profile.WatchedSeriesCount = watchedSeriesIds.Count;
         profile.AverageCommunityRating = ratingCount > 0 ? Math.Round(ratingSum / ratingCount, 1) : 0;
@@ -392,6 +397,94 @@ public sealed class WatchHistoryService : IWatchHistoryService
             {
                 entry = new LanguageProfileEntry();
                 profile.LanguageProfile[usedLanguage] = entry;
+            }
+
+            if (availableLanguages.Count > 1)
+            {
+                entry.ChosenCount++;
+            }
+            else
+            {
+                entry.ForcedCount++;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Builds the user's subtitle language preference profile by analyzing which subtitle tracks
+    ///     were selected vs. which were available on each watched item.
+    ///     Analogous to <see cref="BuildLanguageProfile"/> but for <see cref="MediaStreamType.Subtitle"/>.
+    ///     Distinguishes "chosen" (user had alternatives and picked this subtitle) from
+    ///     "forced" (this was the only subtitle language available).
+    /// </summary>
+    /// <param name="profile">The user profile to populate with subtitle language data.</param>
+    /// <param name="user">The Jellyfin user entity.</param>
+    /// <param name="allItems">Pre-loaded video items from the library.</param>
+    private void BuildSubtitleLanguageProfile(
+        UserWatchProfile profile,
+        Jellyfin.Database.Implementations.Entities.User user,
+        IReadOnlyList<BaseItem> allItems)
+    {
+        foreach (var item in allItems)
+        {
+            var userData = _userDataManager.GetUserData(user, item);
+            if (userData is null || (!userData.Played && userData.PlaybackPositionTicks <= 0))
+            {
+                continue;
+            }
+
+            // Only process items where the user selected a subtitle track
+            if (!userData.SubtitleStreamIndex.HasValue || userData.SubtitleStreamIndex.Value < 0)
+            {
+                continue;
+            }
+
+            // Get all subtitle streams for this item
+            List<MediaStream>? subtitleStreams;
+            try
+            {
+                subtitleStreams = item.GetMediaStreams()?
+                    .Where(s => s.Type == MediaStreamType.Subtitle)
+                    .ToList();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                // Graceful: skip items where stream lookup fails (e.g. corrupted metadata)
+                continue;
+            }
+
+            if (subtitleStreams is null || subtitleStreams.Count == 0)
+            {
+                continue;
+            }
+
+            // Determine which subtitle language was used
+            var chosenStream = subtitleStreams
+                .FirstOrDefault(s => s.Index == userData.SubtitleStreamIndex.Value);
+            var usedLanguage = NormalizeLanguage(chosenStream?.Language);
+
+            if (string.IsNullOrEmpty(usedLanguage))
+            {
+                continue;
+            }
+
+            // Count distinct available subtitle languages for this item
+            var availableLanguages = subtitleStreams
+                .Select(s => NormalizeLanguage(s.Language))
+                .Where(l => !string.IsNullOrEmpty(l))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (availableLanguages.Count == 0)
+            {
+                continue;
+            }
+
+            // Classify: chosen (user had alternatives) vs forced (only option)
+            if (!profile.SubtitleLanguageProfile.TryGetValue(usedLanguage, out var entry))
+            {
+                entry = new LanguageProfileEntry();
+                profile.SubtitleLanguageProfile[usedLanguage] = entry;
             }
 
             if (availableLanguages.Count > 1)

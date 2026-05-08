@@ -8,9 +8,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 /// </summary>
 public sealed class RecommendedItem
 {
+    private IReadOnlyList<string> _audioLanguages = [];
+    private IReadOnlyList<Guid> _boxSetIds = [];
     private IReadOnlyList<string> _genres = [];
     private IReadOnlyList<string> _peopleNames = [];
     private IReadOnlyList<string> _studios = [];
+    private IReadOnlyList<string> _subtitleLanguages = [];
     private IReadOnlyList<string> _tags = [];
 
     /// <summary>
@@ -125,4 +128,47 @@ public sealed class RecommendedItem
         get => _tags;
         set => _tags = value ?? [];
     }
+
+    /// <summary>
+    ///     Gets or sets the normalized audio language codes available for this item.
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
+    ///     LanguageAffinity from cached recommendations without re-querying media streams.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<string> AudioLanguages
+    {
+        get => _audioLanguages;
+        set => _audioLanguages = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the normalized subtitle language codes available for this item.
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
+    ///     SubtitleLanguageAffinity from cached recommendations without re-querying media streams.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<string> SubtitleLanguages
+    {
+        get => _subtitleLanguages;
+        set => _subtitleLanguages = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the BoxSet (collection) IDs this item belongs to.
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
+    ///     CollectionProgressionBoost from cached recommendations without re-querying the library.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<Guid> BoxSetIds
+    {
+        get => _boxSetIds;
+        set => _boxSetIds = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the date the item was added to the Jellyfin library.
+    ///     Stored for training feature parity: allows <see cref="Engine.Training.TrainingDataBuilder"/> to compute
+    ///     LibraryAddedRecency from cached recommendations without re-querying the library.
+    /// </summary>
+    public DateTime? DateCreated { get; set; }
 }

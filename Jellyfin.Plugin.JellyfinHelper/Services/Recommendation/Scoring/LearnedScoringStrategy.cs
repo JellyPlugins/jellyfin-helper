@@ -17,14 +17,15 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     No external ML dependencies required - pure C# implementation.
 /// </summary>
 /// <remarks>
-///     Architecture: 29 input features → 29 weights + 1 bias → clamp(0,1) → score (0–1).
+///     Architecture: 31 input features → 31 weights + 1 bias → clamp(0,1) → score (0–1).
 ///     Features include genre similarity, collaborative score, combined critic score, recency,
 ///     year proximity, genre count, series flag, 2 interaction terms (genre×critic, genre×collab),
 ///     user rating, completion ratio, abandoned flag, has-interaction flag, people similarity,
 ///     studio match, series progression boost, popularity, temporal features (day-of-week,
 ///     hour-of-day, weekend), tag similarity, 2 cross-feature interaction terms (people×genre,
 ///     recency×critic), 3 genre exposure features (underexposure, dominance ratio, affinity gap),
-///     library-added recency, content nearest-neighbor score, and language affinity.
+///     library-added recency, content nearest-neighbor score, language affinity,
+///     collection progression boost, and subtitle language affinity.
 ///     Training uses mean squared error (MSE) loss with L2 regularization, sample weighting
 ///     (temporal decay), Z-score feature standardization (applied both at training and scoring time),
 ///     and early stopping.
@@ -80,7 +81,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     ///     Current schema version for persisted weights. Increment when the feature set or
     ///     weight semantics change so that stale weights are discarded on load.
     /// </summary>
-    internal const int CurrentWeightsVersion = 1;
+    internal const int CurrentWeightsVersion = 2;
 
     /// <summary>Cached JSON serializer options for weight persistence.</summary>
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
