@@ -200,6 +200,27 @@ internal static class TrainingDataBuilder
                 watchedStudioSets.Add(studioSet);
             }
 
+            // Build per-user watchedBoxSetCounts from cached recommendations (mirrors Engine.BuildWatchedBoxSetCounts).
+            // For each recommendation that the user actually watched, accumulate its BoxSet membership counts.
+            // This enables ComputeCollectionProgressionBoostFromCache to use the same diminishing-returns
+            // formula as ComputeCollectionProgressionBoostLive, achieving training/inference parity.
+            var watchedBoxSetCounts = new Dictionary<Guid, int>();
+            foreach (var rec in prevResult.Recommendations)
+            {
+                var isWatched = watchedIds.Contains(rec.ItemId)
+                                || (watchedSeriesIds?.Contains(rec.ItemId) ?? false);
+                if (!isWatched || rec.BoxSetIds.Count == 0)
+                {
+                    continue;
+                }
+
+                foreach (var boxSetId in rec.BoxSetIds)
+                {
+                    watchedBoxSetCounts.TryGetValue(boxSetId, out var count);
+                    watchedBoxSetCounts[boxSetId] = count + 1;
+                }
+            }
+
             foreach (var rec in prevResult.Recommendations)
             {
                 var wasWatched = watchedIds.Contains(rec.ItemId)
@@ -335,7 +356,7 @@ internal static class TrainingDataBuilder
                         watchedPeopleSets,
                         watchedStudioSets),
                     LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(rec.AudioLanguages, userProfile),
-                    CollectionProgressionBoost = ComputeCollectionProgressionBoostFromCache(rec.BoxSetIds, watchedIds),
+                    CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(rec.BoxSetIds, watchedBoxSetCounts),
                     SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(rec.SubtitleLanguages, userProfile)
                 };
 
@@ -864,7 +885,49 @@ internal static class TrainingDataBuilder
     }
 
     /// <summary>
+    ///     Computes CollectionProgressionBoost using the same diminishing-returns formula as
+    ///     <see cref="Engine.ComputeCollectionProgressionBoostLive"/>. Uses a pre-built
+    ///     <paramref name="watchedBoxSetCounts"/> dictionary (built once per user from cached
+    ///     recommendations) to achieve training/inference parity.
+    /// </summary>
+    /// <param name="boxSetIds">The cached BoxSet IDs for the candidate item.</param>
+    /// <param name="watchedBoxSetCounts">Pre-computed BoxSet ID → watched member count mapping.</param>
+    /// <returns>A collection progression boost between 0.0 and 1.0, matching the inference formula.</returns>
+    private static double ComputeCollectionProgressionBoostWithCounts(
+        IReadOnlyList<Guid>? boxSetIds,
+        Dictionary<Guid, int> watchedBoxSetCounts)
+    {
+        if (boxSetIds is null || boxSetIds.Count == 0)
+        {
+            return 0.0;
+        }
+
+        if (watchedBoxSetCounts.Count == 0)
+        {
+            return 0.0;
+        }
+
+        // Find the best progression signal across all BoxSets the candidate belongs to.
+        // Formula matches Engine.ComputeCollectionProgressionBoostLive exactly:
+        // Scale: 1 watched sibling = 0.3, 2 = 0.5, 3+ = 0.7+
+        var bestBoost = 0.0;
+        foreach (var boxSetId in boxSetIds)
+        {
+            if (watchedBoxSetCounts.TryGetValue(boxSetId, out var watchedCount) && watchedCount > 0)
+            {
+                var boost = Math.Clamp(0.3 + ((watchedCount - 1) * 0.2), 0.0, 1.0);
+                bestBoost = Math.Max(bestBoost, boost);
+            }
+        }
+
+        return bestBoost;
+    }
+
+    /// <summary>
     ///     Computes CollectionProgressionBoost from cached BoxSet IDs stored on <see cref="RecommendedItem"/>.
+    ///     Used by Phase 3 (cross-user random negatives) where per-BoxSet sibling counts are not
+    ///     available. For items the user has never interacted with, collection membership alone
+    ///     provides a baseline signal.
     ///     Checks whether the user has watched any other items that share the same BoxSet membership.
     ///     Returns 0.5 when a BoxSet ID itself appears in the user's watched set (strong progression),
     ///     0.3 when the item belongs to a BoxSet but no direct sibling match is found (membership signal),

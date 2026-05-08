@@ -501,6 +501,10 @@ public sealed class ScoringStrategyTests : IDisposable
         Assert.Equal(DefaultWeights.GenreSimilarity, weights[(int)FeatureIndex.GenreSimilarity], 15);
         Assert.Equal(DefaultWeights.CollaborativeScore, weights[(int)FeatureIndex.CollaborativeScore], 15);
         Assert.Equal(DefaultWeights.CombinedCriticScore, weights[(int)FeatureIndex.CombinedCriticScore], 15);
+        Assert.Equal(DefaultWeights.RecencyScore, weights[(int)FeatureIndex.RecencyScore], 15);
+        Assert.Equal(DefaultWeights.YearProximityScore, weights[(int)FeatureIndex.YearProximityScore], 15);
+        Assert.Equal(DefaultWeights.GenreCountNormalized, weights[(int)FeatureIndex.GenreCountNormalized], 15);
+        Assert.Equal(DefaultWeights.IsSeries, weights[(int)FeatureIndex.IsSeries], 15);
         Assert.Equal(DefaultWeights.GenreCriticInteraction, weights[(int)FeatureIndex.GenreCriticInteraction], 15);
         Assert.Equal(DefaultWeights.GenreCollabInteraction, weights[(int)FeatureIndex.GenreCollabInteraction], 15);
         Assert.Equal(DefaultWeights.UserRatingScore, weights[(int)FeatureIndex.UserRatingScore], 15);

@@ -528,7 +528,11 @@ public sealed class Engine : IRecommendationEngine
         // Pre-compute BoxSet membership for watched items to enable CollectionProgressionBoost
         // at inference time. Maps BoxSet ID → count of watched items in that BoxSet.
         // Uses the pre-resolved candidateBoxSetLookup for O(1) lookups (no parent traversal).
-        var watchedBoxSetCounts = BuildWatchedBoxSetCounts(watchedIds, candidateBoxSetLookup);
+        // Includes series-level IDs (from watched episodes' SeriesId and FavoriteSeriesIds)
+        // so TV-collection BoxSets contribute progression signals alongside movie BoxSets.
+        var watchedForBoxSets = new HashSet<Guid>(watchedIds);
+        watchedForBoxSets.UnionWith(watchedSeriesIds);
+        var watchedBoxSetCounts = BuildWatchedBoxSetCounts(watchedForBoxSets, candidateBoxSetLookup);
 
         // Pre-compute per-item genre, people, and studio sets for watched items.
         // Used by ContentNearestNeighborScore to find the most similar watched item for each candidate.
@@ -903,10 +907,14 @@ public sealed class Engine : IRecommendationEngine
             // Series items have no direct media streams — resolve from first child episode as fallback.
             // This enables LanguageAffinity and SubtitleLanguageAffinity to produce real signals
             // for series candidates instead of defaulting to 0.5 (neutral).
+            // Series.Children returns Season objects in Jellyfin 10.11+.
+            // Navigate Series → first Season → first Episode with a valid file path
+            // to extract representative audio/subtitle language metadata.
             if ((streams is null || streams.Count == 0) && candidate is Series series)
             {
                 var firstEpisode = series.Children?
-                    .OfType<Episode>()
+                    .OfType<Season>()
+                    .SelectMany(season => season.Children?.OfType<Episode>() ?? [])
                     .FirstOrDefault(e => !string.IsNullOrEmpty(e.Path));
                 if (firstEpisode is not null)
                 {
