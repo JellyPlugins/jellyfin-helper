@@ -93,16 +93,18 @@ public sealed class Engine : IRecommendationEngine
 
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
 
-        // Reuse cached candidates/people from last batch run if available, otherwise load fresh
+        // Reuse cached candidates/people/boxSets from last batch run if available, otherwise load fresh
         var snapshot = _cachedSnapshot;
         var candidates = snapshot?.Candidates ?? LoadCandidateItems();
         var peopleLookup = snapshot?.PeopleLookup ?? _similarityComputer.BuildCandidatePeopleLookup(candidates);
+        var boxSetLookup = snapshot?.CandidateBoxSetLookup ?? BuildCandidateBoxSetLookupFresh(candidates);
         var selectedStrategy = _strategySelector.SelectForUser(userProfile.UserId);
         return GenerateForUser(
             userProfile,
             allProfiles,
             candidates,
             peopleLookup,
+            boxSetLookup,
             maxResults,
             selectedStrategy,
             null,
@@ -183,6 +185,7 @@ public sealed class Engine : IRecommendationEngine
                             allProfiles,
                             candidates,
                             peopleLookup,
+                            candidateBoxSetLookup,
                             maxResultsPerUser,
                             _strategySelector.SelectForUser(profile.UserId),
                             precomputedUserSets,
@@ -412,6 +415,7 @@ public sealed class Engine : IRecommendationEngine
     /// <param name="allProfiles">All user watch profiles for collaborative filtering.</param>
     /// <param name="allCandidates">Pre-loaded candidate items from the library.</param>
     /// <param name="peopleLookup">Pre-built people lookup (item ID → person names).</param>
+    /// <param name="candidateBoxSetLookup">Pre-resolved BoxSet IDs per candidate (sparse: only items in BoxSets).</param>
     /// <param name="maxResults">Maximum number of recommendations to return.</param>
     /// <param name="strategy">The scoring strategy to use.</param>
     /// <param name="precomputedUserSets">
@@ -425,6 +429,7 @@ public sealed class Engine : IRecommendationEngine
         Collection<UserWatchProfile> allProfiles,
         List<BaseItem> allCandidates,
         Dictionary<Guid, HashSet<string>> peopleLookup,
+        Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
         int maxResults,
         IScoringStrategy strategy,
         Dictionary<Guid, HashSet<Guid>>? precomputedUserSets = null,
@@ -494,10 +499,8 @@ public sealed class Engine : IRecommendationEngine
 
         // Pre-compute BoxSet membership for watched items to enable CollectionProgressionBoost
         // at inference time. Maps BoxSet ID → count of watched items in that BoxSet.
-        // Built once per user, O(1) per-candidate lookup via ResolveBoxSetIds().
-        // Note: candidateLookup contains ALL candidates (including items the user has watched),
-        // which is required for BuildWatchedBoxSetCounts to find watched items' BoxSet memberships.
-        var watchedBoxSetCounts = BuildWatchedBoxSetCounts(watchedIds, candidateLookup);
+        // Uses the pre-resolved candidateBoxSetLookup for O(1) lookups (no parent traversal).
+        var watchedBoxSetCounts = BuildWatchedBoxSetCounts(watchedIds, candidateBoxSetLookup);
 
         // Pre-compute per-item genre, people, and studio sets for watched items.
         // Used by ContentNearestNeighborScore to find the most similar watched item for each candidate.
@@ -577,7 +580,8 @@ public sealed class Engine : IRecommendationEngine
                     watchedGenreSets,
                     watchedPeopleSets,
                     watchedStudioSets,
-                    watchedBoxSetCounts));
+                    watchedBoxSetCounts,
+                    candidateBoxSetLookup));
         }
 
         scored = DiversityReranker.DeduplicateSeries(scored);
@@ -649,7 +653,8 @@ public sealed class Engine : IRecommendationEngine
         List<HashSet<string>> watchedGenreSets,
         List<HashSet<string>> watchedPeopleSets,
         List<HashSet<string>> watchedStudioSets,
-        Dictionary<Guid, int> watchedBoxSetCounts)
+        Dictionary<Guid, int> watchedBoxSetCounts,
+        Dictionary<Guid, List<Guid>> candidateBoxSetLookup)
     {
         var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences);
         var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, coOccurrence, collaborativeMax);
@@ -753,10 +758,11 @@ public sealed class Engine : IRecommendationEngine
             // Language affinity features: resolve media streams ONCE per candidate to avoid
             // calling GetMediaStreams() twice (audio + subtitle). Single-pass via ResolveMediaLanguages().
             LanguageAffinity = ComputeLanguageAffinityFromStreams(userProfile, candidate, out var candidateMediaLanguages),
-            // Collection/BoxSet progression: computed from pre-built BoxSet membership counts.
-            // Resolve BoxSet IDs once and reuse for both the progression boost computation
-            // and the output RecommendedItem (avoids redundant parent traversal for top-N items).
-            CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(ResolveBoxSetIds(candidate), watchedBoxSetCounts),
+            // Collection/BoxSet progression: uses pre-resolved BoxSet IDs from candidateBoxSetLookup.
+            // No per-candidate parent traversal needed — all BoxSet memberships resolved once during batch init.
+            CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(
+                candidateBoxSetLookup.TryGetValue(candidate.Id, out var candidateBoxSets) ? candidateBoxSets : [],
+                watchedBoxSetCounts),
             // Subtitle language affinity: reuses the already-resolved subtitle languages
             // from the single ResolveMediaLanguages() call above (no second stream scan).
             SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromStreams(userProfile, candidateMediaLanguages.Subtitles)
@@ -1037,30 +1043,27 @@ public sealed class Engine : IRecommendationEngine
     }
 
     /// <summary>
-    ///     Pre-computes BoxSet membership counts for the user's watched items.
-    ///     For each BoxSet that contains at least one watched item, stores the count
-    ///     of watched members. This enables O(1) per-candidate lookup during scoring
-    ///     instead of O(BoxSetChildren) per candidate.
+    ///     Pre-computes BoxSet membership counts for the user's watched items using the
+    ///     pre-resolved candidateBoxSetLookup. For each BoxSet that contains at least one
+    ///     watched item, stores the count of watched members.
     ///     Built once per user in <see cref="GenerateForUser"/>.
     /// </summary>
     /// <param name="watchedIds">Set of item IDs the user has meaningfully interacted with.</param>
-    /// <param name="candidateLookup">Pre-built candidate lookup for resolving BoxSet membership.</param>
+    /// <param name="candidateBoxSetLookup">Pre-resolved BoxSet IDs per candidate (sparse).</param>
     /// <returns>A dictionary mapping BoxSet ID → number of watched items in that BoxSet.</returns>
     private static Dictionary<Guid, int> BuildWatchedBoxSetCounts(
         HashSet<Guid> watchedIds,
-        Dictionary<Guid, BaseItem> candidateLookup)
+        Dictionary<Guid, List<Guid>> candidateBoxSetLookup)
     {
         var boxSetCounts = new Dictionary<Guid, int>();
 
         foreach (var watchedId in watchedIds)
         {
-            if (!candidateLookup.TryGetValue(watchedId, out var watchedItem))
+            if (!candidateBoxSetLookup.TryGetValue(watchedId, out var boxSetIds))
             {
                 continue;
             }
 
-            // Resolve BoxSet IDs for this watched item
-            var boxSetIds = ResolveBoxSetIds(watchedItem);
             foreach (var boxSetId in boxSetIds)
             {
                 boxSetCounts.TryGetValue(boxSetId, out var count);
@@ -1069,6 +1072,25 @@ public sealed class Engine : IRecommendationEngine
         }
 
         return boxSetCounts;
+    }
+
+    /// <summary>
+    ///     Builds the candidateBoxSetLookup on-demand (for the single-user path when no cached snapshot exists).
+    ///     Equivalent to the inline loop in <see cref="GetAllRecommendations"/> but extracted as a helper.
+    /// </summary>
+    private static Dictionary<Guid, List<Guid>> BuildCandidateBoxSetLookupFresh(List<BaseItem> candidates)
+    {
+        var lookup = new Dictionary<Guid, List<Guid>>();
+        foreach (var c in candidates)
+        {
+            var boxSets = ResolveBoxSetIds(c);
+            if (boxSets.Count > 0)
+            {
+                lookup[c.Id] = boxSets;
+            }
+        }
+
+        return lookup;
     }
 
     /// <summary>
