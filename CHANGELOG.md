@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
 
-## [2.0.0.3] - 2026-05-07
+## [2.0.0.3] - 2026-05-08
 
 ### Refactored
 - **Arr Settings** - Settings now use instance-based Radarr/Sonarr configuration; legacy single-instance fields removed. Language and plugin log level persist across saves. ARR instance resolution returns explicit instance lists only.
@@ -15,7 +15,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Recommendation Metadata** - Recommendations include audio language metadata and item creation dates; watched/exclusion now uses "meaningful interaction" predicates.
 
 ### Improved
-- **Scoring & Training** - Centralized popularity scoring, richer training feature construction, series aggregation, and weight schema version bumped.
+- **Scoring & Training** - Centralized popularity scoring, richer training feature construction, series aggregation, per user alpha curve and weight schema version bumped.
 - **NeuralScoringStrategy** – Upgraded MLP architecture from 3 to 4 hidden layers (31→48→24→12→6→1, ~3,097 parameters). Deeper representation captures more complex feature interactions while keeping inference lightweight.
 
 
