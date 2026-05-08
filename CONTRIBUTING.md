@@ -217,19 +217,21 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── CollaborativeFilter.cs # Jaccard + IDF co-occurrence
 │   │   │   ├── ContentScoring.cs    # Recency, rating, engagement scoring
 │   │   │   └── EngineConstants.cs   # Shared constants (thresholds, windows)
-│   │   ├── Scoring/                 # Pluggable scoring strategies
-│   │   │   ├── IScoringStrategy.cs
-│   │   │   ├── ITrainableStrategy.cs
-│   │   │   ├── HeuristicScoringStrategy.cs  # Fixed weights (rule-based)
-│   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
-│   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
-│   │   │   ├── EnsembleScoringStrategy.cs   # Blends heuristic + learned + neural
-│   │   │   ├── CandidateFeatures.cs         # 31-feature vector with FeatureIndex enum
-│   │   │   ├── DefaultWeights.cs            # Centralized default weights
-│   │   │   ├── ScoringHelper.cs             # Shared scoring utilities
-│   │   │   ├── ScoreExplanation.cs          # Per-feature score breakdown
-│   │   │   ├── TrainingExample.cs           # Training data container
-│   │   │   └── RankingMetrics.cs            # P@K, R@K, NDCG@K evaluation
+    │   │   ├── Scoring/                 # Pluggable scoring strategies
+    │   │   │   ├── IScoringStrategy.cs
+    │   │   │   ├── ITrainableStrategy.cs
+    │   │   │   ├── HeuristicScoringStrategy.cs  # Fixed weights (rule-based)
+    │   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
+    │   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
+    │   │   │   ├── EnsembleScoringStrategy.cs   # Blends heuristic + learned + neural
+    │   │   │   ├── StrategySelector.cs          # A/B testing: deterministic user→strategy routing
+    │   │   │   ├── NeuralFeatureImportance.cs   # Permutation-based feature importance for MLP
+    │   │   │   ├── CandidateFeatures.cs         # 31-feature vector with FeatureIndex enum
+    │   │   │   ├── DefaultWeights.cs            # Centralized default weights
+    │   │   │   ├── ScoringHelper.cs             # Shared scoring utilities
+    │   │   │   ├── ScoreExplanation.cs          # Per-feature score breakdown
+    │   │   │   ├── TrainingExample.cs           # Training data container
+    │   │   │   └── RankingMetrics.cs            # P@K, R@K, NDCG@K evaluation
 │   │   ├── WatchHistory/            # User watch profile building
 │   │   │   ├── IWatchHistoryService.cs
 │   │   │   ├── WatchHistoryService.cs
