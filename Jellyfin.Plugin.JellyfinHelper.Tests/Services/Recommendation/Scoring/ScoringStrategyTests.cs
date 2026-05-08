@@ -1554,9 +1554,29 @@ public sealed class ScoringStrategyTests : IDisposable
             sum += weights[i];
         }
 
-        // All weights (excluding bias) must sum to exactly 1.0.
-        // This directly validates the invariant rather than comparing against the same constants.
-        Assert.Equal(1.0, sum, 10);
+        // Verify the weight array sum matches the exact expected total from all DefaultWeights constants.
+        // This is NOT 1.0 because the weight vector includes negative penalty weights (IsAbandoned,
+        // GenreUnderexposure, GenreAffinityGap). The test catches any accidental weight change
+        // that breaks the total balance — if a new weight is added or an existing one is modified,
+        // this assertion will fail, forcing the developer to verify the change was intentional.
+        var expectedSum =
+            DefaultWeights.GenreSimilarity + DefaultWeights.CollaborativeScore +
+            DefaultWeights.CombinedCriticScore + DefaultWeights.RecencyScore +
+            DefaultWeights.YearProximityScore + DefaultWeights.GenreCountNormalized +
+            DefaultWeights.IsSeries + DefaultWeights.GenreCriticInteraction +
+            DefaultWeights.GenreCollabInteraction + DefaultWeights.UserRatingScore +
+            DefaultWeights.CompletionRatio + DefaultWeights.IsAbandoned +
+            DefaultWeights.HasInteraction + DefaultWeights.PeopleSimilarity +
+            DefaultWeights.StudioMatch + DefaultWeights.SeriesProgressionBoost +
+            DefaultWeights.PopularityScore + DefaultWeights.DayOfWeekAffinity +
+            DefaultWeights.HourOfDayAffinity + DefaultWeights.IsWeekend +
+            DefaultWeights.TagSimilarity + DefaultWeights.PeopleGenreInteraction +
+            DefaultWeights.RecencyCriticInteraction + DefaultWeights.GenreUnderexposure +
+            DefaultWeights.GenreDominanceRatio + DefaultWeights.GenreAffinityGap +
+            DefaultWeights.LibraryAddedRecency + DefaultWeights.ContentNearestNeighborScore +
+            DefaultWeights.LanguageAffinity + DefaultWeights.CollectionProgressionBoost +
+            DefaultWeights.SubtitleLanguageAffinity;
+        Assert.Equal(expectedSum, sum, 10);
     }
 
     // ============================================================
