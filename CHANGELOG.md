@@ -15,7 +15,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Recommendation Metadata** - Recommendations include audio language metadata and item creation dates; watched/exclusion now uses "meaningful interaction" predicates.
 
 ### Improved
-- **Scoring & Training** - Centralized popularity scoring, richer training feature construction, series aggregation, per user alpha curve and weight schema version bumped.
+- **Scoring & Training** - Centralized popularity scoring, richer training feature construction, series aggregation, and weight schema version bumped. A/B testing cohort infrastructure with deterministic user bucketing and adaptive sigmoid midpoint calibration via cohort watch-rate feedback.
 - **NeuralScoringStrategy** – Upgraded MLP architecture from 3 to 4 hidden layers (31→48→24→12→6→1, ~3,097 parameters). Deeper representation captures more complex feature interactions while keeping inference lightweight.
 
 
