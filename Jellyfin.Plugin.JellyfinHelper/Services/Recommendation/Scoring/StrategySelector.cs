@@ -101,14 +101,22 @@ internal sealed class StrategySelector : IStrategySelector
 
     /// <summary>
     ///     Computes a deterministic bucket (0-99) for a user ID.
-    ///     Uses Guid.GetHashCode which is deterministic within a process lifetime
-    ///     and across .NET versions for the same GUID value.
-    ///     Uses unsigned cast to handle int.MinValue edge case without Math.Abs overflow.
+    ///     Uses XOR-fold over the raw 16 Guid bytes to produce a stable hash that
+    ///     is independent of the .NET runtime's Guid.GetHashCode implementation
+    ///     (which has changed historically between .NET versions).
+    ///     This ensures cohort assignments remain consistent across server upgrades.
     /// </summary>
     private static int ComputeBucket(Guid userId)
     {
-        // Use unsigned cast to avoid Math.Abs(int.MinValue) overflow
-        var hash = (uint)userId.GetHashCode();
+        Span<byte> bytes = stackalloc byte[16];
+        userId.TryWriteBytes(bytes);
+
+        // XOR-fold 16 bytes into a single uint (4 chunks of 4 bytes)
+        var hash = BitConverter.ToUInt32(bytes[..4])
+                   ^ BitConverter.ToUInt32(bytes[4..8])
+                   ^ BitConverter.ToUInt32(bytes[8..12])
+                   ^ BitConverter.ToUInt32(bytes[12..16]);
+
         return (int)(hash % 100);
     }
 }

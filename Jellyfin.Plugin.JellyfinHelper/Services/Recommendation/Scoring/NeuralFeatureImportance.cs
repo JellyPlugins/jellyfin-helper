@@ -38,6 +38,7 @@ internal static class NeuralFeatureImportance
     {
         ArgumentNullException.ThrowIfNull(strategy);
         ArgumentNullException.ThrowIfNull(examples);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleSize);
 
         var featureCount = CandidateFeatures.FeatureCount;
         var featureNames = Enum.GetNames<FeatureIndex>();

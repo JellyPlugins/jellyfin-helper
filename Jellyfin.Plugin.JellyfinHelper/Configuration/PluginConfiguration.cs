@@ -16,6 +16,7 @@ public class PluginConfiguration : BasePluginConfiguration
     private double _ensembleAlphaMin = 0.3;
     private double _ensembleAlphaMax = 0.75;
     private double _ensembleGenrePenaltyFloor = 0.10;
+    private int _experimentStrategyPercentage;
 
     /// <summary>
     ///     Gets or sets the library names to include (allow list). Empty means all libraries are included.
@@ -213,7 +214,11 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     1-100 = percentage of users that receive neural-only recommendations.
     ///     Out-of-range values are clamped to [0, 100].
     /// </summary>
-    public int ExperimentStrategyPercentage { get; set; }
+    public int ExperimentStrategyPercentage
+    {
+        get => _experimentStrategyPercentage;
+        set => _experimentStrategyPercentage = Math.Clamp(value, 0, 100);
+    }
 
     /// <summary>
     ///     Gets or sets the minimum log level for the plugin's in-memory log buffer.
