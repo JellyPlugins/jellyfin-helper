@@ -13,6 +13,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Controller.Library;
@@ -46,6 +47,7 @@ public class HelperCleanupTask : IScheduledTask
     private readonly ICleanupTrackingService _trackingService;
     private readonly ITrashService _trashService;
     private readonly IUserActivityCacheService _userActivityCacheService;
+    private readonly ISeerrDiscoveryService _seerrDiscoveryService;
     private readonly IUserActivityInsightsService _userActivityInsightsService;
 
     /// <summary>
@@ -68,6 +70,7 @@ public class HelperCleanupTask : IScheduledTask
     /// <param name="recsEngine">The recommendation engine.</param>
     /// <param name="recsCacheService">The recommendation cache service.</param>
     /// <param name="playlistService">The recommendation playlist service.</param>
+    /// <param name="seerrDiscoveryService">The Seerr discovery service.</param>
     public HelperCleanupTask(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
@@ -85,7 +88,8 @@ public class HelperCleanupTask : IScheduledTask
         IUserActivityCacheService userActivityCacheService,
         IRecommendationEngine recsEngine,
         IRecommendationCacheService recsCacheService,
-        IRecommendationPlaylistService playlistService)
+        IRecommendationPlaylistService playlistService,
+        ISeerrDiscoveryService seerrDiscoveryService)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
@@ -105,6 +109,7 @@ public class HelperCleanupTask : IScheduledTask
         _recsEngine = recsEngine;
         _recsCacheService = recsCacheService;
         _playlistService = playlistService;
+        _seerrDiscoveryService = seerrDiscoveryService;
     }
 
     /// <inheritdoc />
@@ -133,7 +138,8 @@ public class HelperCleanupTask : IScheduledTask
             ("Link Repair", config.LinkRepairTaskMode, RunLinkRepair),
             ("Seerr Cleanup", config.SeerrCleanupTaskMode, (p, ct) => RunSeerrCleanup(config, p, ct)),
             ("User Watch Activity", config.RecommendationsTaskMode, (p, ct) => RunUserActivityUpdate(config, p, ct)),
-            ("Smart Recommendations", config.RecommendationsTaskMode, (p, ct) => RunRecommendationsUpdate(config, p, ct))
+            ("Smart Recommendations", config.RecommendationsTaskMode, (p, ct) => RunRecommendationsUpdate(config, p, ct)),
+            ("Seerr Discovery", config.SeerrDiscoveryTaskMode, (p, ct) => RunSeerrDiscovery(p, ct))
         };
 
         var totalTasks = subTasks.Length;

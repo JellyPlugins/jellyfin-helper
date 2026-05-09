@@ -289,5 +289,17 @@
   "syncPlaylistToggle": "Onerileri Jellyfin oynatma listesine senkronize et",
   "syncPlaylistHelp": "Her kullanici icin Jellyfin arayuzunde gorunen bir oynatma listesi olusturur.",
   "syncPlaylistDisabledHint": "Bu secenegi etkinlestirmek icin Onerileri Aktif olarak ayarlayin.",
-  "recsAndMore": "ve {0} daha…"
+  "recsAndMore": "ve {0} daha…",
+  "discoveryTitle": "Discover New Content",
+  "discoveryConfigureSeerr": "Configure Seerr in the Settings tab to see personalized download suggestions.",
+  "discoveryDisabled": "Enable Seerr Discovery in Settings to generate suggestions.",
+  "discoveryNoResults": "No suggestions available yet. Results will appear after the next scheduled task run.",
+  "discoveryLoadError": "Could not load discovery suggestions.",
+  "discoveryGeneratedAt": "Last updated",
+  "discoveryRequest": "Request",
+  "discoveryRequesting": "Requesting…",
+  "discoveryRequested": "Requested",
+  "discoveryRequestFailed": "Failed",
+  "seerrDiscoveryMode": "Seerr Discovery",
+  "seerrDiscoveryModeDesc": "Generate personalized download suggestions from Seerr/TMDb"
 }

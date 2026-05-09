@@ -289,5 +289,17 @@
   "syncPlaylistToggle": "Sincronizar recomendacoes com playlist do Jellyfin",
   "syncPlaylistHelp": "Cria uma playlist por utilizador visivel no Jellyfin. Atualizada em cada execucao agendada.",
   "syncPlaylistDisabledHint": "Ative as recomendacoes para habilitar esta opcao.",
-  "recsAndMore": "e mais {0}…"
+  "recsAndMore": "e mais {0}…",
+  "discoveryTitle": "Discover New Content",
+  "discoveryConfigureSeerr": "Configure Seerr in the Settings tab to see personalized download suggestions.",
+  "discoveryDisabled": "Enable Seerr Discovery in Settings to generate suggestions.",
+  "discoveryNoResults": "No suggestions available yet. Results will appear after the next scheduled task run.",
+  "discoveryLoadError": "Could not load discovery suggestions.",
+  "discoveryGeneratedAt": "Last updated",
+  "discoveryRequest": "Request",
+  "discoveryRequesting": "Requesting…",
+  "discoveryRequested": "Requested",
+  "discoveryRequestFailed": "Failed",
+  "seerrDiscoveryMode": "Seerr Discovery",
+  "seerrDiscoveryModeDesc": "Generate personalized download suggestions from Seerr/TMDb"
 }
