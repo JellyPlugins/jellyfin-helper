@@ -88,6 +88,13 @@ internal sealed class TmdbDiscoverItem
     public string? Overview { get; set; }
 
     /// <summary>
+    ///     Gets or sets a value indicating whether this is adult content.
+    ///     TMDb marks explicit adult content with this flag.
+    /// </summary>
+    [JsonPropertyName("adult")]
+    public bool Adult { get; set; }
+
+    /// <summary>
     ///     Gets or sets known people names (populated from search results where cast data is embedded).
     ///     Not available from /discover endpoints — only from /search or /movie/{id}/credits.
     /// </summary>

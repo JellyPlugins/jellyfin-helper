@@ -648,6 +648,19 @@
     opacity: 0.7;
 }
 
+/* noinspection CssUnusedSymbol */
+.discovery-card-removing {
+    opacity: 0;
+    transform: translateX(20px);
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    overflow: hidden;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
 @media (prefers-color-scheme: light) {
     .discovery-card { background: rgba(0, 0, 0, 0.02); border-color: rgba(0, 0, 0, 0.08); }
     .discovery-card-poster { background: rgba(0, 0, 0, 0.04); }
@@ -662,5 +675,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .discovery-card, .discovery-request-btn { transition: none; }
+    .discovery-card, .discovery-request-btn, .discovery-card-removing { transition: none; }
 }

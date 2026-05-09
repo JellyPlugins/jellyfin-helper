@@ -450,6 +450,26 @@ function handleDiscoveryRequest(e) {
         if (res && res.success) {
             btn.classList.add('discovery-request-done');
             btn.innerHTML = mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
+
+            // Mark as requested in cached discovery data so it doesn't reappear on user switch
+            markDiscoveryItemRequested(tmdbId);
+
+            // Fade out and remove the card after brief success display
+            var card = btn.closest('.discovery-card');
+            if (card) {
+                setTimeout(function () {
+                    card.classList.add('discovery-card-removing');
+                    setTimeout(function () {
+                        card.remove();
+                        // Update the item count in the collapsible header
+                        var countSpan = document.getElementById('discoveryCount');
+                        if (countSpan) {
+                            var current = parseInt(countSpan.textContent, 10) || 0;
+                            countSpan.textContent = '' + Math.max(0, current - 1);
+                        }
+                    }, 300); // match CSS transition duration
+                }, 800); // show green success briefly before removing
+            }
         } else {
             btn.disabled = false;
             btn.innerHTML = mi('error') + ' ' + T('discoveryRequestFailed', 'Failed');
@@ -464,4 +484,20 @@ function handleDiscoveryRequest(e) {
             btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         }, 3000);
     });
+}
+
+function markDiscoveryItemRequested(tmdbId) {
+    // Update the cached discovery data so the item is marked as already requested
+    // and won't reappear when switching between users and back.
+    var results = window._recsResults;
+    if (!results) return;
+    for (var i = 0; i < results.length; i++) {
+        var cached = results[i]._cachedDiscovery;
+        if (!cached || !cached.Recommendations) continue;
+        for (var r = 0; r < cached.Recommendations.length; r++) {
+            if (cached.Recommendations[r].TmdbId === tmdbId) {
+                cached.Recommendations[r].AlreadyRequested = true;
+            }
+        }
+    }
 }

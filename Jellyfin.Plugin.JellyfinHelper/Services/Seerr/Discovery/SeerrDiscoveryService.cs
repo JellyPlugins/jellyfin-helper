@@ -296,6 +296,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var avgYear = ContentScoring.ComputeAverageYear(profile);
         var preferredPeople = BuildPreferredPeopleSet(profile);
 
+        // Build certification query parameter based on user's parental rating
+        var certParam = ParentalRatingHelper.GetCertificationQueryParam(profile.MaxParentalRating);
+
         HttpClient client;
         try
         {
@@ -315,26 +318,33 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             var allCandidates = new List<TmdbDiscoverItem>();
 
-            // Query A: Top genre combo (movies + TV)
-            if (topGenres.Count >= 2)
+            // Query A: Top genres (one query per genre for movies + TV)
+            if (topGenres.Count >= 1)
             {
                 var movieGenreIds = BuildGenreIdList(topGenres.Take(2), TmdbGenreMap.ToMovieTmdbId);
-                if (movieGenreIds.Count > 0)
+                foreach (var genreId in movieGenreIds)
                 {
+                    var queryPath = $"api/v1/discover/movies?genre={genreId}&page=1";
+                    if (certParam != null)
+                    {
+                        queryPath += certParam;
+                    }
+
                     var items = await ExecuteDiscoverQueryAsync(
-                        client,
-                        $"api/v1/discover/movies?genre={string.Join(",", movieGenreIds)}&page=1",
-                        cancellationToken).ConfigureAwait(false);
+                        client, queryPath, cancellationToken).ConfigureAwait(false);
                     allCandidates.AddRange(items);
                 }
 
                 var tvGenreIds = BuildGenreIdList(topGenres.Take(2), TmdbGenreMap.ToTvTmdbId);
-                if (tvGenreIds.Count > 0)
+                foreach (var genreId in tvGenreIds)
                 {
+                    var queryPath = $"api/v1/discover/tv?genre={genreId}&page=1";
+                    // Note: certification_lte works primarily for movies on TMDb;
+                    // TV uses content_ratings which requires different parameters.
+                    // We rely on genre-based filtering for TV series parental control.
+
                     var items = await ExecuteDiscoverQueryAsync(
-                        client,
-                        $"api/v1/discover/tv?genre={string.Join(",", tvGenreIds)}&page=1",
-                        cancellationToken).ConfigureAwait(false);
+                        client, queryPath, cancellationToken).ConfigureAwait(false);
                     allCandidates.AddRange(items);
                 }
             }
@@ -346,16 +356,20 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 if (topGenreId.HasValue)
                 {
                     var minRating = ComputeMinRating(profile);
+                    var queryPath = $"api/v1/discover/movies?genre={topGenreId.Value}&voteAverageGte={minRating:F1}&page=1";
+                    if (certParam != null)
+                    {
+                        queryPath += certParam;
+                    }
+
                     var items = await ExecuteDiscoverQueryAsync(
-                        client,
-                        $"api/v1/discover/movies?genre={topGenreId.Value}&voteAverageGte={minRating:F1}&page=1",
-                        cancellationToken).ConfigureAwait(false);
+                        client, queryPath, cancellationToken).ConfigureAwait(false);
                     allCandidates.AddRange(items);
                 }
             }
 
-            // Deduplicate and filter
-            var uniqueCandidates = DeduplicateAndFilter(allCandidates, excludedTmdbIds);
+            // Deduplicate and filter (now includes parental rating filtering)
+            var uniqueCandidates = DeduplicateAndFilter(allCandidates, excludedTmdbIds, profile.MaxParentalRating);
 
             if (uniqueCandidates.Count == 0)
             {
@@ -487,9 +501,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         return excluded;
     }
 
+    /// <summary>
+    ///     Deduplicates candidates against the exclusion set, removes low-rated items,
+    ///     and applies parental rating filtering (adult flag + genre blacklist for children).
+    /// </summary>
+    /// <param name="candidates">The raw candidate list from all queries.</param>
+    /// <param name="excludedTmdbIds">TMDb IDs already in library or requested.</param>
+    /// <param name="maxParentalRating">The user's max parental rating (null = unrestricted).</param>
+    /// <returns>Filtered and deduplicated candidate list.</returns>
     private static List<TmdbDiscoverItem> DeduplicateAndFilter(
         List<TmdbDiscoverItem> candidates,
-        HashSet<int> excludedTmdbIds)
+        HashSet<int> excludedTmdbIds,
+        int? maxParentalRating)
     {
         var seen = new HashSet<int>();
         var result = new List<TmdbDiscoverItem>();
@@ -512,6 +535,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
 
             if (!seen.Add(candidate.Id))
+            {
+                continue;
+            }
+
+            // Parental rating filter: exclude adult content and restricted genres
+            if (ParentalRatingHelper.ShouldExclude(candidate, maxParentalRating))
             {
                 continue;
             }
