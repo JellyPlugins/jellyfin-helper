@@ -172,6 +172,14 @@ public class BackupData
     [JsonPropertyName("syncRecommendationsToPlaylist")]
     public bool SyncRecommendationsToPlaylist { get; set; }
 
+    /// <summary>
+    ///     Gets or sets a value indicating whether non-admin users can access
+    ///     the Seerr Discovery page and submit media requests.
+    ///     Default is false. When absent in older backups, deserialization yields false (safe default).
+    /// </summary>
+    [JsonPropertyName("discoveryUserAccessEnabled")]
+    public bool DiscoveryUserAccessEnabled { get; set; }
+
     // === Historical Data ===
 
     /// <summary>
