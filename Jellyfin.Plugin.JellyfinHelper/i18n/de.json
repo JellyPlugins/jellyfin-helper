@@ -300,8 +300,6 @@
   "discoveryRequesting": "Wird angefragt…",
   "discoveryRequested": "Angefragt",
   "discoveryRequestFailed": "Fehlgeschlagen",
-  "seerrDiscoveryMode": "Seerr Discovery",
-  "seerrDiscoveryModeDesc": "Personalisierte Download-Vorschläge aus Seerr/TMDb generieren",
   "discoverySelectUser": "Qualitätsprofil auswählen",
   "discoverySelectUserDesc": "Wähle das Qualitätsprofil für den Download:",
   "discoveryCancel": "Abbrechen"

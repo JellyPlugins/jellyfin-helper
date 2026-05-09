@@ -267,10 +267,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     payloadDict["rootFolder"] = rootFolder;
                 }
 
-                object payload = payloadDict;
-
                 var content = new StringContent(
-                    JsonSerializer.Serialize(payload, JsonOptions),
+                    JsonSerializer.Serialize(payloadDict, JsonOptions),
                     Encoding.UTF8,
                     "application/json");
 
@@ -762,6 +760,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         var excluded = new HashSet<int>();
 
+        // Exclude movies already in Radarr
         foreach (var instance in config.GetEffectiveRadarrInstances())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -772,6 +771,21 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 foreach (var movie in movies.Where(m => m.TmdbId > 0))
                 {
                     excluded.Add(movie.TmdbId);
+                }
+            }
+        }
+
+        // Exclude TV series already in Sonarr (Sonarr v3+ provides tmdbId)
+        foreach (var instance in config.GetEffectiveSonarrInstances())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var series = await _arrIntegration.GetSonarrSeriesAsync(
+                instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
+            if (series != null)
+            {
+                foreach (var show in series.Where(s => s.TmdbId > 0))
+                {
+                    excluded.Add(show.TmdbId);
                 }
             }
         }
@@ -895,10 +909,23 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <summary>
     ///     Builds the set of preferred people (actors/directors) from the user's watch history.
-    ///     Currently returns empty because TMDb discover responses don't include cast data.
+    ///     <para>
+    ///     Currently returns empty. To fully implement this feature, two prerequisites are needed:
+    ///     <list type="number">
+    ///         <item>UserWatchProfile must collect People data (actors/directors) from Jellyfin's
+    ///               BaseItem.People during watch history analysis.</item>
+    ///         <item>TMDb discover candidates must be enriched with cast data via
+    ///               /movie/{id}/credits or /tv/{id}/credits calls (not available from /discover).</item>
+    ///     </list>
+    ///     Once both are in place, this method should return the user's top-N most-watched
+    ///     actors/directors, and ComputePeopleSimilarity in ExternalCandidateFeatureBuilder
+    ///     will produce meaningful scores.
+    ///     </para>
     /// </summary>
     private static HashSet<string> BuildPreferredPeopleSet(UserWatchProfile profile)
     {
+        // TODO: Implement once UserWatchProfile includes People data collection.
+        // See: WatchHistoryService → needs to read BaseItem.People and aggregate into profile.
         _ = profile;
         return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     }

@@ -77,7 +77,10 @@ public sealed class DiscoveryCacheService
                     $"Could not load discovery results from {_filePath}: {ex.Message}",
                     ex,
                     _logger);
-                return [];
+                // Cache empty result to prevent repeated failed disk reads on every API call.
+                // Next Save() will repopulate the cache with fresh data.
+                _memoryCache = [];
+                return _memoryCache;
             }
         }
     }

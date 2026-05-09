@@ -17,6 +17,9 @@ public class ArrSeries
     /// <summary>Gets or sets the TVDB ID.</summary>
     public int TvdbId { get; set; }
 
+    /// <summary>Gets or sets the TMDb ID (provided by Sonarr v3+ API).</summary>
+    public int TmdbId { get; set; }
+
     /// <summary>Gets or sets the file path.</summary>
     public string Path { get; set; } = string.Empty;
 

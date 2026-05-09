@@ -308,6 +308,9 @@ function renderDiscoverySection(container, results) {
     }
 }
 
+// Global cache for the full /Discovery API response (all users in one call)
+var _discoveryAllUsersCache = undefined;
+
 function loadDiscoveryForUser(index) {
     var grid = document.getElementById('discoveryGrid');
     var countSpan = document.getElementById('discoveryCount');
@@ -317,7 +320,15 @@ function loadDiscoveryForUser(index) {
     if (!results || !results[index]) return;
     var result = results[index];
 
+    // If we already have a per-user cache entry, render immediately
     if (result._cachedDiscovery !== undefined) {
+        renderDiscoveryCards(grid, countSpan, result._cachedDiscovery);
+        return;
+    }
+
+    // If we have the global response cached, extract user data without another API call
+    if (_discoveryAllUsersCache !== undefined) {
+        result._cachedDiscovery = findUserDiscovery(_discoveryAllUsersCache, result.UserId);
         renderDiscoveryCards(grid, countSpan, result._cachedDiscovery);
         return;
     }
@@ -327,22 +338,26 @@ function loadDiscoveryForUser(index) {
 
     apiGet('JellyfinHelper/Discovery', function (data) {
         if (reqId !== _discoveryReqId) return;
-        var userDiscovery = null;
-        if (data && data.length > 0) {
-            for (var d = 0; d < data.length; d++) {
-                if ((data[d].UserId || data[d].userId || '').toLowerCase() === (result.UserId || '').toLowerCase()) {
-                    userDiscovery = data[d];
-                    break;
-                }
-            }
-        }
-        result._cachedDiscovery = userDiscovery;
-        renderDiscoveryCards(grid, countSpan, userDiscovery);
+        // Cache the full API response globally so subsequent user switches don't re-fetch
+        _discoveryAllUsersCache = data || [];
+        result._cachedDiscovery = findUserDiscovery(_discoveryAllUsersCache, result.UserId);
+        renderDiscoveryCards(grid, countSpan, result._cachedDiscovery);
     }, function () {
         if (reqId !== _discoveryReqId) return;
         grid.innerHTML = '<div class="recs-profile-compact-empty">' +
             T('discoveryLoadError', 'Could not load discovery suggestions.') + '</div>';
     });
+}
+
+function findUserDiscovery(allData, userId) {
+    if (!allData || allData.length === 0 || !userId) return null;
+    var targetId = userId.toLowerCase();
+    for (var d = 0; d < allData.length; d++) {
+        if ((allData[d].UserId || allData[d].userId || '').toLowerCase() === targetId) {
+            return allData[d];
+        }
+    }
+    return null;
 }
 
 function renderDiscoveryCards(grid, countSpan, userDiscovery) {

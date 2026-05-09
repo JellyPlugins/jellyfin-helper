@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
@@ -99,6 +100,14 @@ public sealed class DiscoveryController : ControllerBase
         if (dto.MediaType is not ("movie" or "tv"))
         {
             return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
+        }
+
+        // Block path traversal attempts in rootFolder
+        if (!string.IsNullOrWhiteSpace(dto.RootFolder) &&
+            (dto.RootFolder.Contains("..", StringComparison.Ordinal) ||
+             dto.RootFolder.Contains('~', StringComparison.Ordinal)))
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
         }
 
         var (success, message) = await _discovery.SubmitRequestAsync(
