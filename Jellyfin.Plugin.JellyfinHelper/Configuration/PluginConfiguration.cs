@@ -73,7 +73,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public int SeerrCleanupAgeDays { get; set; } = 365;
 
-
     /// <summary>
     ///     Gets or sets the base URL of the Jellyseerr/Overseerr/Seerr instance.
     /// </summary>
