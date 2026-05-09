@@ -23,6 +23,12 @@ public sealed class DiscoveryCacheService
     private readonly ILogger<DiscoveryCacheService> _logger;
 
     /// <summary>
+    ///     In-memory cache of discovery results. Avoids reading from disk on every API call.
+    ///     Invalidated on <see cref="Save"/> and <see cref="MarkAsRequested"/>.
+    /// </summary>
+    private IReadOnlyList<DiscoveryResult>? _memoryCache;
+
+    /// <summary>
     ///     Initializes a new instance of the <see cref="DiscoveryCacheService"/> class.
     /// </summary>
     /// <param name="pluginLog">The plugin log service.</param>
@@ -39,22 +45,30 @@ public sealed class DiscoveryCacheService
     }
 
     /// <summary>
-    ///     Loads cached discovery results from disk.
+    ///     Loads cached discovery results. Returns the in-memory cache if available,
+    ///     otherwise reads from disk and populates the cache.
     /// </summary>
     /// <returns>The deserialized results, or an empty list if the file does not exist or is invalid.</returns>
     public IReadOnlyList<DiscoveryResult> Load()
     {
         lock (_fileLock)
         {
+            if (_memoryCache != null)
+            {
+                return _memoryCache;
+            }
+
             try
             {
                 if (!File.Exists(_filePath))
                 {
-                    return [];
+                    _memoryCache = [];
+                    return _memoryCache;
                 }
 
                 var json = File.ReadAllText(_filePath);
-                return JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions) ?? [];
+                _memoryCache = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions) ?? [];
+                return _memoryCache;
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
@@ -70,7 +84,7 @@ public sealed class DiscoveryCacheService
 
     /// <summary>
     ///     Marks a specific TMDb item as already requested in the cached results.
-    ///     This ensures the item shows as "Requested" after a page refresh.
+    ///     Updates both the in-memory cache and the on-disk file.
     /// </summary>
     /// <param name="tmdbId">The TMDb ID of the requested item.</param>
     public void MarkAsRequested(int tmdbId)
@@ -79,20 +93,25 @@ public sealed class DiscoveryCacheService
         {
             try
             {
-                if (!File.Exists(_filePath))
+                // Ensure in-memory cache is populated
+                if (_memoryCache == null)
                 {
-                    return;
+                    if (!File.Exists(_filePath))
+                    {
+                        return;
+                    }
+
+                    var json = File.ReadAllText(_filePath);
+                    _memoryCache = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions) ?? [];
                 }
 
-                var json = File.ReadAllText(_filePath);
-                var results = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions);
-                if (results == null || results.Count == 0)
+                if (_memoryCache.Count == 0)
                 {
                     return;
                 }
 
                 var modified = false;
-                foreach (var userResult in results)
+                foreach (var userResult in _memoryCache)
                 {
                     foreach (var rec in userResult.Recommendations)
                     {
@@ -106,7 +125,7 @@ public sealed class DiscoveryCacheService
 
                 if (modified)
                 {
-                    var updatedJson = JsonSerializer.Serialize(results, JsonOptions);
+                    var updatedJson = JsonSerializer.Serialize(_memoryCache, JsonOptions);
                     File.WriteAllText(_filePath, updatedJson);
                 }
             }
@@ -143,6 +162,9 @@ public sealed class DiscoveryCacheService
                 var json = JsonSerializer.Serialize(results, JsonOptions);
                 File.WriteAllText(tempFilePath, json);
                 File.Move(tempFilePath, _filePath, overwrite: true);
+
+                // Update in-memory cache to match persisted state
+                _memoryCache = results;
 
                 _pluginLog.LogDebug(
                     "DiscoveryCache",

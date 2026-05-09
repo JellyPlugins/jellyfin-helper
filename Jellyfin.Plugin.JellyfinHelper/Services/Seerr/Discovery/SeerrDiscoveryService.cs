@@ -240,9 +240,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 {
                     ["mediaType"] = mediaType,
                     ["mediaId"] = tmdbId,
-                    ["is4k"] = false,
-                    ["seasons"] = "all"
+                    ["is4k"] = false
                 };
+
+                // For TV requests, omit "seasons" entirely. Overseerr/Jellyseerr
+                // auto-requests all available seasons when the key is absent.
+                // Sending "all" as a string is not a valid API format.
 
                 if (seerrUserId is > 0)
                 {
@@ -289,8 +292,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 _pluginLog.LogWarning(
                     "SeerrDiscovery",
-                    $"Request failed for TMDb#{tmdbId}: HTTP {(int)response.StatusCode}",
-                    logger: _logger);
+                    $"Request failed for TMDb#{tmdbId}: HTTP {(int)response.StatusCode} - {body}",
+                    null,
+                    _logger);
                 return (false, $"Seerr returned HTTP {(int)response.StatusCode}: {body}");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -348,18 +352,44 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             try
             {
-                using var response = await client.GetAsync(
-                    new Uri("api/v1/user?take=50&skip=0&sort=displayname", UriKind.Relative),
-                    cancellationToken).ConfigureAwait(false);
+                var allUsers = new List<SeerrUser>();
+                var skip = 0;
+                const int take = 50;
 
-                if (!response.IsSuccessStatusCode)
+                while (true)
                 {
-                    return [];
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    using var response = await client.GetAsync(
+                        new Uri($"api/v1/user?take={take}&skip={skip}&sort=displayname", UriKind.Relative),
+                        cancellationToken).ConfigureAwait(false);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        break;
+                    }
+
+                    var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    var page = JsonSerializer.Deserialize<SeerrUserPage>(json, JsonOptions);
+                    if (page?.Results == null || page.Results.Count == 0)
+                    {
+                        break;
+                    }
+
+                    allUsers.AddRange(page.Results);
+
+                    // Stop if we've fetched all pages or no more results
+                    var totalPages = page.PageInfo?.Pages ?? 1;
+                    var currentPage = (skip / take) + 1;
+                    if (currentPage >= totalPages || page.Results.Count < take)
+                    {
+                        break;
+                    }
+
+                    skip += take;
                 }
 
-                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var page = JsonSerializer.Deserialize<SeerrUserPage>(json, JsonOptions);
-                return page?.Results ?? [];
+                return allUsers;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -720,7 +750,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         finally
         {
-            await Task.Delay(InterQueryDelay, cancellationToken).ConfigureAwait(false);
+            // Use CancellationToken.None to avoid throwing OperationCanceledException
+            // from the finally block, which would mask the original exception.
+            await Task.Delay(InterQueryDelay, CancellationToken.None).ConfigureAwait(false);
         }
     }
 
@@ -871,15 +903,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    ///     Determines the primary recommendation reason based on the candidate's feature scores.
+    /// </summary>
     private static (string ReasonKey, string? RelatedInfo) DetermineReason(
         CandidateFeatures features,
         TmdbDiscoverItem candidate,
         List<string> topGenres)
     {
-        if (features.PeopleSimilarity > 0.5 && candidate.KnownPeople is { Count: > 0 })
-        {
-            return ("reasonPersonNamed", candidate.KnownPeople[0]);
-        }
+        // Note: PeopleSimilarity is currently always 0.0 because TMDb /discover
+        // endpoints do not return cast data. The "reasonPersonNamed" path will
+        // become reachable once a credits-enrichment step is added.
+        _ = candidate;
 
         if (features.GenreSimilarity > 0.7 && topGenres.Count > 0)
         {

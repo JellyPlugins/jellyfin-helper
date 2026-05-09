@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
@@ -67,8 +68,9 @@ public sealed class DiscoveryController : ControllerBase
     /// <returns>A list of configured services with profiles.</returns>
     [HttpGet("Services/{serviceType}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IReadOnlyList<SeerrServiceInfo>>> GetServiceInfo(
-        string serviceType,
+        [RegularExpression("^(radarr|sonarr)$")] string serviceType,
         CancellationToken cancellationToken)
     {
         var services = await _discovery.GetServiceInfoAsync(serviceType, cancellationToken).ConfigureAwait(false);

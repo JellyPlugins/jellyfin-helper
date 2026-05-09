@@ -87,7 +87,7 @@ function renderRecommendations(container, results) {
     if (toggleBtn) { toggleBtn.addEventListener('click', function () { toggleCollapsible('recsActivityBody', 'recsActivityToggle'); }); }
 
     var discoveryContainer = document.getElementById('discoverySection');
-    if (discoveryContainer) { renderDiscoverySection(discoveryContainer, results, window._pluginConfig || {}); }
+    if (discoveryContainer) { renderDiscoverySection(discoveryContainer, results); }
 
     // Restore previously selected user from browser storage (fallback: first user)
     var initialIdx = 0;
@@ -285,7 +285,7 @@ function getTopGenresFromDistribution(genreDistribution, maxGenres) {
 // === Discovery New Content Section ===
 var _discoveryReqId = 0;
 
-function renderDiscoverySection(container, results, config) {
+function renderDiscoverySection(container, results) {
     var html = '<div class="recs-collapsible">';
     html += '<button class="recs-collapsible-toggle" id="discoveryToggle" ';
     html += 'aria-expanded="false" aria-controls="discoveryBody">';
@@ -348,9 +348,13 @@ function loadDiscoveryForUser(index) {
 function renderDiscoveryCards(grid, countSpan, userDiscovery) {
     if (!userDiscovery || !userDiscovery.Recommendations || userDiscovery.Recommendations.length === 0) {
         if (countSpan) countSpan.textContent = '0';
-        grid.innerHTML = '<div class="recs-profile-compact-empty">' +
-            T('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.') +
-            '</div>';
+        // Show configuration hint if discovery data is completely absent (Seerr likely not configured)
+        var config = window._pluginConfig || {};
+        var seerrConfigured = config.SeerrUrl && config.SeerrApiKey;
+        var message = seerrConfigured
+            ? T('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.')
+            : T('discoveryConfigureSeerr', 'Configure Seerr in the Settings tab to see personalized download suggestions.');
+        grid.innerHTML = '<div class="recs-profile-compact-empty">' + message + '</div>';
         return;
     }
 
@@ -577,6 +581,48 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
     }
 }
 
+/**
+ * Shared handler for discovery request API responses.
+ * Manages button state, card removal animation, and counter updates.
+ */
+function handleDiscoveryRequestResponse(res, btn, tmdbId) {
+    if (res && res.Success) {
+        btn.classList.add('discovery-request-done');
+        btn.innerHTML = mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
+        markDiscoveryItemRequested(tmdbId);
+
+        // Fade out and remove the card after brief success display
+        var card = btn.closest('.discovery-card');
+        if (card) {
+            setTimeout(function () {
+                card.classList.add('discovery-card-removing');
+                setTimeout(function () {
+                    card.remove();
+                    var countSpan = document.getElementById('discoveryCount');
+                    if (countSpan) {
+                        var current = parseInt(countSpan.textContent, 10) || 0;
+                        countSpan.textContent = '' + Math.max(0, current - 1);
+                    }
+                }, 300);
+            }, 800);
+        }
+    } else {
+        handleDiscoveryRequestError(btn);
+    }
+}
+
+/**
+ * Shared error handler for discovery request failures.
+ * Resets button state with a brief error display.
+ */
+function handleDiscoveryRequestError(btn) {
+    btn.disabled = false;
+    btn.innerHTML = mi('error') + ' ' + T('discoveryRequestFailed', 'Failed');
+    setTimeout(function () {
+        btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
+    }, 3000);
+}
+
 function submitDiscoveryRequestWithProfile(tmdbId, mediaType, serverId, profileId, rootFolder, btn) {
     btn.disabled = true;
     btn.innerHTML = '<div class="spinner" style="width:1em;height:1em;"></div> ' + T('discoveryRequesting', 'Requesting\u2026');
@@ -584,33 +630,9 @@ function submitDiscoveryRequestWithProfile(tmdbId, mediaType, serverId, profileI
     var payload = { TmdbId: tmdbId, MediaType: mediaType, ServerId: serverId, ProfileId: profileId, RootFolder: rootFolder };
 
     apiPost('JellyfinHelper/Discovery/Request', payload, function (res) {
-        if (res && res.Success) {
-            btn.classList.add('discovery-request-done');
-            btn.innerHTML = mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
-            markDiscoveryItemRequested(tmdbId);
-            var card = btn.closest('.discovery-card');
-            if (card) {
-                setTimeout(function () {
-                    card.classList.add('discovery-card-removing');
-                    setTimeout(function () {
-                        card.remove();
-                        var countSpan = document.getElementById('discoveryCount');
-                        if (countSpan) {
-                            var current = parseInt(countSpan.textContent, 10) || 0;
-                            countSpan.textContent = '' + Math.max(0, current - 1);
-                        }
-                    }, 300);
-                }, 800);
-            }
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = mi('error') + ' ' + T('discoveryRequestFailed', 'Failed');
-            setTimeout(function () { btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request'); }, 3000);
-        }
+        handleDiscoveryRequestResponse(res, btn, tmdbId);
     }, function () {
-        btn.disabled = false;
-        btn.innerHTML = mi('error') + ' ' + T('discoveryRequestFailed', 'Failed');
-        setTimeout(function () { btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request'); }, 3000);
+        handleDiscoveryRequestError(btn);
     });
 }
 
@@ -622,42 +644,9 @@ function submitDiscoveryRequest(tmdbId, mediaType, seerrUserId, btn) {
     if (seerrUserId) payload.SeerrUserId = seerrUserId;
 
     apiPost('JellyfinHelper/Discovery/Request', payload, function (res) {
-        if (res && res.Success) {
-            btn.classList.add('discovery-request-done');
-            btn.innerHTML = mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
-
-            // Mark as requested in cached discovery data so it doesn't reappear on user switch
-            markDiscoveryItemRequested(tmdbId);
-
-            // Fade out and remove the card after brief success display
-            var card = btn.closest('.discovery-card');
-            if (card) {
-                setTimeout(function () {
-                    card.classList.add('discovery-card-removing');
-                    setTimeout(function () {
-                        card.remove();
-                        // Update the item count in the collapsible header
-                        var countSpan = document.getElementById('discoveryCount');
-                        if (countSpan) {
-                            var current = parseInt(countSpan.textContent, 10) || 0;
-                            countSpan.textContent = '' + Math.max(0, current - 1);
-                        }
-                    }, 300);
-                }, 800);
-            }
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = mi('error') + ' ' + T('discoveryRequestFailed', 'Failed');
-            setTimeout(function () {
-                btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
-            }, 3000);
-        }
+        handleDiscoveryRequestResponse(res, btn, tmdbId);
     }, function () {
-        btn.disabled = false;
-        btn.innerHTML = mi('error') + ' ' + T('discoveryRequestFailed', 'Failed');
-        setTimeout(function () {
-            btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
-        }, 3000);
+        handleDiscoveryRequestError(btn);
     });
 }
 
