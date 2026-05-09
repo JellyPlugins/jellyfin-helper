@@ -16,6 +16,15 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 internal static class ExternalCandidateFeatureBuilder
 {
     /// <summary>
+    ///     Minimum number of preferred people required for full similarity score (1.0).
+    ///     With fewer than this many matching people, a single match yields a proportionally
+    ///     higher score (e.g. 1/3 = 0.33 if user only has 3 preferred people).
+    ///     Set to 5 because a typical engaged user accumulates 5-20 preferred people,
+    ///     and we want 1 match out of 5+ to yield ~0.2 (a meaningful but not dominant signal).
+    /// </summary>
+    private const int MinPeopleForFullScore = 5;
+
+    /// <summary>
     ///     Builds a feature vector from a TMDb discover item and user preferences.
     /// </summary>
     /// <param name="candidate">The TMDb discover item to score.</param>
@@ -85,6 +94,6 @@ internal static class ExternalCandidateFeatureBuilder
 
         var overlap = candidate.KnownPeople.Count(p =>
             preferredPeople.Contains(p));
-        return Math.Clamp((double)overlap / Math.Min(preferredPeople.Count, 5), 0.0, 1.0);
+        return Math.Clamp((double)overlap / Math.Min(preferredPeople.Count, MinPeopleForFullScore), 0.0, 1.0);
     }
 }

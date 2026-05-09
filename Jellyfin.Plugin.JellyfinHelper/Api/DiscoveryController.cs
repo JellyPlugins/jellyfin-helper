@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
@@ -47,7 +48,7 @@ public sealed class DiscoveryController : ControllerBase
     }
 
     /// <summary>
-    ///     Returns the list of Seerr users for the profile selection popup.
+    ///     Returns the list of Seerr users for the admin profile selection popup.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A list of Seerr users.</returns>
@@ -58,6 +59,90 @@ public sealed class DiscoveryController : ControllerBase
     {
         var users = await _discovery.GetSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
         return Ok(users);
+    }
+
+    /// <summary>
+    ///     Returns the cached discovery recommendations for the currently authenticated user.
+    ///     Available to any authenticated user (no admin required).
+    /// </summary>
+    /// <returns>The discovery result for the current user, or null if not available.</returns>
+    [HttpGet("My")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<DiscoveryResult?> GetMyDiscoveryResults()
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null)
+        {
+            return Unauthorized();
+        }
+
+        var results = _cache.Load();
+        var userResult = results.FirstOrDefault(r =>
+            r.UserId.Equals(userId.Value));
+        return Ok(userResult);
+    }
+
+    /// <summary>
+    ///     Submits a media request to the configured Seerr instance on behalf of the current user.
+    ///     Available to any authenticated user (no admin required).
+    /// </summary>
+    /// <param name="dto">The request data.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A result indicating success or failure.</returns>
+    [HttpPost("My/Request")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    public async Task<ActionResult<RequestResult>> SubmitMyRequest(
+        [FromBody] DiscoveryRequestDto dto,
+        CancellationToken cancellationToken)
+    {
+        if (dto == null || dto.TmdbId <= 0)
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "Invalid TMDb ID." });
+        }
+
+        if (dto.MediaType is not ("movie" or "tv"))
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
+        }
+
+        // Block path traversal attempts and excessive length in rootFolder
+        if (!string.IsNullOrWhiteSpace(dto.RootFolder))
+        {
+            if (dto.RootFolder.Length > 512)
+            {
+                return BadRequest(new RequestResult { Success = false, Message = "Root folder path exceeds maximum length." });
+            }
+
+            if (dto.RootFolder.Contains("..", StringComparison.Ordinal) ||
+                dto.RootFolder.Contains('~', StringComparison.Ordinal))
+            {
+                return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
+            }
+        }
+
+        // Users cannot override the Seerr user ID — it's determined by the system
+        var (success, message) = await _discovery.SubmitRequestAsync(
+            dto.TmdbId,
+            dto.MediaType,
+            dto.SeerrUserId,
+            dto.ServerId,
+            dto.ProfileId,
+            dto.RootFolder,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!success)
+        {
+            return StatusCode(502, new RequestResult { Success = false, Message = message });
+        }
+
+        // Mark item as requested in cache so it doesn't reappear on page refresh
+        _cache.MarkAsRequested(dto.TmdbId);
+
+        return Ok(new RequestResult { Success = true, Message = message });
     }
 
     /// <summary>
@@ -79,7 +164,7 @@ public sealed class DiscoveryController : ControllerBase
     }
 
     /// <summary>
-    ///     Submits a media request to the configured Seerr instance.
+    ///     Submits a media request to the configured Seerr instance (Admin endpoint).
     /// </summary>
     /// <param name="dto">The request data.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -102,12 +187,19 @@ public sealed class DiscoveryController : ControllerBase
             return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
         }
 
-        // Block path traversal attempts in rootFolder
-        if (!string.IsNullOrWhiteSpace(dto.RootFolder) &&
-            (dto.RootFolder.Contains("..", StringComparison.Ordinal) ||
-             dto.RootFolder.Contains('~', StringComparison.Ordinal)))
+        // Block path traversal attempts and excessive length in rootFolder
+        if (!string.IsNullOrWhiteSpace(dto.RootFolder))
         {
-            return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
+            if (dto.RootFolder.Length > 512)
+            {
+                return BadRequest(new RequestResult { Success = false, Message = "Root folder path exceeds maximum length." });
+            }
+
+            if (dto.RootFolder.Contains("..", StringComparison.Ordinal) ||
+                dto.RootFolder.Contains('~', StringComparison.Ordinal))
+            {
+                return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
+            }
         }
 
         var (success, message) = await _discovery.SubmitRequestAsync(
@@ -128,5 +220,20 @@ public sealed class DiscoveryController : ControllerBase
         _cache.MarkAsRequested(dto.TmdbId);
 
         return Ok(new RequestResult { Success = true, Message = message });
+    }
+
+    /// <summary>
+    ///     Extracts the current user's Jellyfin ID from the authentication claims.
+    /// </summary>
+    private Guid? GetCurrentUserId()
+    {
+        var claim = User?.FindFirst("Jellyfin-UserId")
+            ?? User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+        if (claim != null && Guid.TryParse(claim.Value, out var userId))
+        {
+            return userId;
+        }
+
+        return null;
     }
 }

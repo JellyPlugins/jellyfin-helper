@@ -16,6 +16,13 @@ public sealed class UserWatchProfile
     private Dictionary<string, LanguageProfileEntry> _subtitleLanguageProfile = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, int> _peopleProfile = new(StringComparer.OrdinalIgnoreCase);
     private Collection<WatchedItemInfo> _watchedItems = [];
+    private string? _primaryLanguage;
+    private HashSet<string>? _preferredLanguages;
+    private HashSet<string>? _toleratedLanguages;
+    private string? _primarySubtitleLanguage;
+    private HashSet<string>? _preferredSubtitleLanguages;
+    private HashSet<string>? _toleratedSubtitleLanguages;
+    private IReadOnlyList<string>? _topPeople;
 
     /// <summary>
     ///     Gets or sets the Jellyfin user ID.
@@ -123,9 +130,10 @@ public sealed class UserWatchProfile
     /// <summary>
     ///     Gets the user's primary audio language (highest weighted score), or null if no data.
     ///     Excluded from JSON serialization to avoid redundant data in API responses.
+    ///     Computed lazily and cached to avoid repeated LINQ evaluation.
     /// </summary>
     [JsonIgnore]
-    public string? PrimaryLanguage => LanguageProfile.Count > 0
+    public string? PrimaryLanguage => _primaryLanguage ??= LanguageProfile.Count > 0
         ? LanguageProfile.MaxBy(kv => kv.Value.WeightedScore).Key
         : null;
 
@@ -133,9 +141,10 @@ public sealed class UserWatchProfile
     ///     Gets the set of languages the user has actively chosen (ChosenCount &gt; 0).
     ///     These represent true preferences - the user had alternatives and picked this language.
     ///     Excluded from JSON serialization to avoid redundant data in API responses.
+    ///     Computed lazily and cached to avoid repeated collection allocation.
     /// </summary>
     [JsonIgnore]
-    public HashSet<string> PreferredLanguages => new(
+    public HashSet<string> PreferredLanguages => _preferredLanguages ??= new(
         LanguageProfile.Where(kv => kv.Value is { ChosenCount: > 0 }).Select(kv => kv.Key),
         StringComparer.OrdinalIgnoreCase);
 
@@ -143,9 +152,10 @@ public sealed class UserWatchProfile
     ///     Gets the set of languages the user has only used when forced (no alternatives).
     ///     These represent tolerance, not preference.
     ///     Excluded from JSON serialization to avoid redundant data in API responses.
+    ///     Computed lazily and cached to avoid repeated collection allocation.
     /// </summary>
     [JsonIgnore]
-    public HashSet<string> ToleratedLanguages => new(
+    public HashSet<string> ToleratedLanguages => _toleratedLanguages ??= new(
         LanguageProfile.Where(kv => kv.Value is { ForcedCount: > 0, ChosenCount: 0 }).Select(kv => kv.Key),
         StringComparer.OrdinalIgnoreCase);
 
@@ -166,9 +176,10 @@ public sealed class UserWatchProfile
     /// <summary>
     ///     Gets the user's primary subtitle language (highest weighted score), or null if no data.
     ///     Excluded from JSON serialization to avoid redundant data in API responses.
+    ///     Computed lazily and cached to avoid repeated LINQ evaluation.
     /// </summary>
     [JsonIgnore]
-    public string? PrimarySubtitleLanguage => SubtitleLanguageProfile.Count > 0
+    public string? PrimarySubtitleLanguage => _primarySubtitleLanguage ??= SubtitleLanguageProfile.Count > 0
         ? SubtitleLanguageProfile.MaxBy(kv => kv.Value.WeightedScore).Key
         : null;
 
@@ -176,9 +187,10 @@ public sealed class UserWatchProfile
     ///     Gets the set of subtitle languages the user has actively chosen (ChosenCount &gt; 0).
     ///     These represent true preferences - the user had alternatives and picked this subtitle language.
     ///     Excluded from JSON serialization to avoid redundant data in API responses.
+    ///     Computed lazily and cached to avoid repeated collection allocation.
     /// </summary>
     [JsonIgnore]
-    public HashSet<string> PreferredSubtitleLanguages => new(
+    public HashSet<string> PreferredSubtitleLanguages => _preferredSubtitleLanguages ??= new(
         SubtitleLanguageProfile.Where(kv => kv.Value is { ChosenCount: > 0 }).Select(kv => kv.Key),
         StringComparer.OrdinalIgnoreCase);
 
@@ -186,9 +198,10 @@ public sealed class UserWatchProfile
     ///     Gets the set of subtitle languages the user has only used when forced (no alternatives).
     ///     These represent tolerance, not preference.
     ///     Excluded from JSON serialization to avoid redundant data in API responses.
+    ///     Computed lazily and cached to avoid repeated collection allocation.
     /// </summary>
     [JsonIgnore]
-    public HashSet<string> ToleratedSubtitleLanguages => new(
+    public HashSet<string> ToleratedSubtitleLanguages => _toleratedSubtitleLanguages ??= new(
         SubtitleLanguageProfile.Where(kv => kv.Value is { ForcedCount: > 0, ChosenCount: 0 }).Select(kv => kv.Key),
         StringComparer.OrdinalIgnoreCase);
 
@@ -214,9 +227,10 @@ public sealed class UserWatchProfile
     ///     watched and favorited items. Limited to those appearing in at least 2 items
     ///     to filter out noise from single-watch appearances.
     ///     Excluded from JSON serialization to avoid redundant data in API responses.
+    ///     Computed lazily and cached to avoid repeated collection allocation.
     /// </summary>
     [JsonIgnore]
-    public IReadOnlyList<string> TopPeople => PeopleProfile.Count > 0
+    public IReadOnlyList<string> TopPeople => _topPeople ??= PeopleProfile.Count > 0
         ? PeopleProfile
             .Where(kv => kv.Value >= 2)
             .OrderByDescending(kv => kv.Value)

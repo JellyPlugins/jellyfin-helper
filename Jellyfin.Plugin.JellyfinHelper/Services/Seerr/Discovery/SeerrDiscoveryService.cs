@@ -366,8 +366,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 var allUsers = new List<SeerrUser>();
                 var skip = 0;
                 const int take = 50;
+                const int maxPages = 20; // Safety limit to prevent infinite loops
 
-                while (true)
+                for (var page = 0; page < maxPages; page++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
@@ -381,18 +382,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     }
 
                     var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                    var page = JsonSerializer.Deserialize<SeerrUserPage>(json, JsonOptions);
-                    if (page?.Results == null || page.Results.Count == 0)
+                    var pageResult = JsonSerializer.Deserialize<SeerrUserPage>(json, JsonOptions);
+                    if (pageResult?.Results == null || pageResult.Results.Count == 0)
                     {
                         break;
                     }
 
-                    allUsers.AddRange(page.Results);
+                    allUsers.AddRange(pageResult.Results);
 
                     // Stop if we've fetched all pages or no more results
-                    var totalPages = page.PageInfo?.Pages ?? 1;
+                    var totalPages = pageResult.PageInfo?.Pages ?? 1;
                     var currentPage = (skip / take) + 1;
-                    if (currentPage >= totalPages || page.Results.Count < take)
+                    if (currentPage >= totalPages || pageResult.Results.Count < take)
                     {
                         break;
                     }
@@ -470,8 +471,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
                 // Step 2: For each server, fetch quality profiles and root folders
                 // Seerr API: GET /service/radarr/{radarrId} → { profiles: [...], rootFolders: [...] }
+                // Safety limit: no realistic setup has >10 Radarr/Sonarr servers
+                const int maxServerIterations = 10;
                 var enrichedServers = new List<SeerrServiceInfo>();
-                foreach (var server in servers)
+                foreach (var server in servers.Take(maxServerIterations))
                 {
                     try
                     {
@@ -721,7 +724,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             foreach (var (item, features, score) in topN)
             {
                 var genres = TmdbGenreMap.ToJellyfinGenres(item.GenreIds);
-                var (reasonKey, relatedInfo) = DetermineReason(features, item, topGenres);
+                var (reasonKey, relatedInfo) = DetermineReason(features, item, topGenres, preferredPeople);
 
                 recommendations.Add(new DiscoveryRecommendation
                 {
@@ -1067,13 +1070,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private static (string ReasonKey, string? RelatedInfo) DetermineReason(
         CandidateFeatures features,
         TmdbDiscoverItem candidate,
-        List<string> topGenres)
+        List<string> topGenres,
+        HashSet<string> preferredPeople)
     {
         // Person-based reason: when a known actor/director matches the user's preferences
         if (features.PeopleSimilarity > 0.3 && candidate.KnownPeople is { Count: > 0 })
         {
-            // Return the first matched person name as related info for the UI
-            return ("reasonPerson", candidate.KnownPeople[0]);
+            // Return the actually matched person name (not just the first in the list)
+            var matchedPerson = candidate.KnownPeople.FirstOrDefault(p => preferredPeople.Contains(p));
+            return ("reasonPerson", matchedPerson ?? candidate.KnownPeople[0]);
         }
 
         if (features.GenreSimilarity > 0.7 && topGenres.Count > 0)

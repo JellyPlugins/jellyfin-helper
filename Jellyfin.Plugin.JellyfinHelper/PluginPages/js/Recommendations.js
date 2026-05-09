@@ -310,6 +310,9 @@ function renderDiscoverySection(container, results) {
 
 // Global cache for the full /Discovery API response (all users in one call)
 var _discoveryAllUsersCache = undefined;
+var _discoveryAllUsersCacheTimestamp = 0;
+// Discovery cache TTL: 5 minutes (same as recommendations results cache)
+var _discoveryCacheTtlMs = 5 * 60 * 1000;
 
 function loadDiscoveryForUser(index) {
     var grid = document.getElementById('discoveryGrid');
@@ -326,11 +329,18 @@ function loadDiscoveryForUser(index) {
         return;
     }
 
-    // If we have the global response cached, extract user data without another API call
-    if (_discoveryAllUsersCache !== undefined) {
+    // If we have the global response cached and it's still fresh, extract user data without another API call
+    var cacheAge = Date.now() - _discoveryAllUsersCacheTimestamp;
+    if (_discoveryAllUsersCache !== undefined && cacheAge < _discoveryCacheTtlMs) {
         result._cachedDiscovery = findUserDiscovery(_discoveryAllUsersCache, result.UserId);
         renderDiscoveryCards(grid, countSpan, result._cachedDiscovery);
         return;
+    }
+
+    // Cache expired — invalidate per-user caches so fresh data is fetched
+    if (_discoveryAllUsersCache !== undefined && cacheAge >= _discoveryCacheTtlMs) {
+        _discoveryAllUsersCache = undefined;
+        result._cachedDiscovery = undefined;
     }
 
     grid.innerHTML = '<div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div>';
@@ -340,6 +350,7 @@ function loadDiscoveryForUser(index) {
         if (reqId !== _discoveryReqId) return;
         // Cache the full API response globally so subsequent user switches don't re-fetch
         _discoveryAllUsersCache = data || [];
+        _discoveryAllUsersCacheTimestamp = Date.now();
         result._cachedDiscovery = findUserDiscovery(_discoveryAllUsersCache, result.UserId);
         renderDiscoveryCards(grid, countSpan, result._cachedDiscovery);
     }, function () {

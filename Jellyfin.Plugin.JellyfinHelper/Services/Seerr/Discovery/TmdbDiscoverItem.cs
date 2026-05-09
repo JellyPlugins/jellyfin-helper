@@ -9,6 +9,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// </summary>
 internal sealed class TmdbDiscoverItem
 {
+    private List<int> _genreIds = [];
+
     /// <summary>
     ///     Gets or sets the TMDb ID.
     /// </summary>
@@ -41,9 +43,15 @@ internal sealed class TmdbDiscoverItem
 
     /// <summary>
     ///     Gets or sets the TMDb genre IDs.
+    ///     Setter null-coalesces to empty list to prevent NullReferenceException
+    ///     when JSON deserialization yields a null value for this field.
     /// </summary>
     [JsonPropertyName("genreIds")]
-    public List<int> GenreIds { get; set; } = [];
+    public List<int> GenreIds
+    {
+        get => _genreIds;
+        set => _genreIds = value ?? [];
+    }
 
     /// <summary>
     ///     Gets or sets the average vote score (0-10).

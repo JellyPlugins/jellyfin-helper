@@ -16,6 +16,12 @@ public sealed class DiscoveryCacheService
 {
     private const string FileName = "jellyfin-helper-discovery-results.json";
 
+    /// <summary>
+    ///     Maximum allowed file size for the discovery cache file (50 MB).
+    ///     Files exceeding this size are treated as corrupted and deleted.
+    /// </summary>
+    private const long MaxFileSizeBytes = 50 * 1024 * 1024;
+
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
     private readonly string _filePath;
     private readonly Lock _fileLock = new();
@@ -25,8 +31,10 @@ public sealed class DiscoveryCacheService
     /// <summary>
     ///     In-memory cache of discovery results. Avoids reading from disk on every API call.
     ///     Invalidated on <see cref="Save"/> and <see cref="MarkAsRequested"/>.
+    ///     Typed as <c>List</c> (not <c>IReadOnlyList</c>) because <see cref="MarkAsRequested"/>
+    ///     mutates individual recommendation items in-place.
     /// </summary>
-    private IReadOnlyList<DiscoveryResult>? _memoryCache;
+    private List<DiscoveryResult>? _memoryCache;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="DiscoveryCacheService"/> class.
@@ -62,6 +70,28 @@ public sealed class DiscoveryCacheService
             {
                 if (!File.Exists(_filePath))
                 {
+                    _memoryCache = [];
+                    return _memoryCache;
+                }
+
+                // Hardening: reject oversized files (likely corrupted or tampered)
+                var fileInfo = new FileInfo(_filePath);
+                if (fileInfo.Length > MaxFileSizeBytes)
+                {
+                    _pluginLog.LogWarning(
+                        "DiscoveryCache",
+                        $"Discovery cache file exceeds {MaxFileSizeBytes / (1024 * 1024)}MB ({fileInfo.Length} bytes). Deleting and returning empty.",
+                        null,
+                        _logger);
+                    try
+                    {
+                        File.Delete(_filePath);
+                    }
+                    catch (Exception deleteEx) when (deleteEx is IOException or UnauthorizedAccessException)
+                    {
+                        // Best effort
+                    }
+
                     _memoryCache = [];
                     return _memoryCache;
                 }
@@ -166,8 +196,9 @@ public sealed class DiscoveryCacheService
                 File.WriteAllText(tempFilePath, json);
                 File.Move(tempFilePath, _filePath, overwrite: true);
 
-                // Update in-memory cache to match persisted state
-                _memoryCache = results;
+                // Update in-memory cache to match persisted state.
+                // Materialize to List to ensure mutability for MarkAsRequested.
+                _memoryCache = results as List<DiscoveryResult> ?? new List<DiscoveryResult>(results);
 
                 _pluginLog.LogDebug(
                     "DiscoveryCache",
