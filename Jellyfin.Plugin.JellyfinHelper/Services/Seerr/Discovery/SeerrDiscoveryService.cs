@@ -658,7 +658,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     Year = item.EffectiveReleaseDate?.Year,
                     Score = score,
                     ReasonKey = reasonKey,
-                    Reason = reasonKey,
+                    Reason = relatedInfo != null ? $"{reasonKey}: {relatedInfo}" : reasonKey,
                     RelatedInfo = relatedInfo,
                     Genres = genres,
                     TmdbRating = item.VoteAverage,
@@ -720,7 +720,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         finally
         {
-            await Task.Delay(InterQueryDelay, CancellationToken.None).ConfigureAwait(false);
+            await Task.Delay(InterQueryDelay, cancellationToken).ConfigureAwait(false);
         }
     }
 
