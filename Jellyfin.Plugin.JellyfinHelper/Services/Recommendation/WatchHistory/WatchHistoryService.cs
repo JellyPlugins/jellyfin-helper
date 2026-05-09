@@ -302,6 +302,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // Build subtitle language profile from media stream selections (video items only)
         BuildSubtitleLanguageProfile(profile, user, allItems);
 
+        // Build people (actors/directors) profile from BaseItem.People metadata
+        BuildPeopleProfile(profile, user, allItems, allSeries);
+
         profile.WatchedSeriesCount = watchedSeriesIds.Count;
         profile.AverageCommunityRating = ratingCount > 0 ? Math.Round(ratingSum / ratingCount, 1) : 0;
 
@@ -494,6 +497,144 @@ public sealed class WatchHistoryService : IWatchHistoryService
             else
             {
                 entry.ForcedCount++;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Builds the user's people (actors/directors) preference profile by analyzing
+    ///     <c>BaseItem.People</c> metadata for each watched or favorited item.
+    ///     Only Actors and Directors are included. Each person is counted once per distinct item
+    ///     (not per play count) to reflect breadth of exposure rather than re-watch frequency.
+    ///     For episodes, the parent series' people are used (via SeriesId lookup) to avoid
+    ///     counting per-episode guest actors disproportionately.
+    /// </summary>
+    /// <param name="profile">The user profile to populate with people data.</param>
+    /// <param name="user">The Jellyfin user entity.</param>
+    /// <param name="allItems">Pre-loaded video items from the library.</param>
+    /// <param name="allSeries">Pre-loaded series items from the library.</param>
+    private void BuildPeopleProfile(
+        UserWatchProfile profile,
+        Jellyfin.Database.Implementations.Entities.User user,
+        IReadOnlyList<BaseItem> allItems,
+        IReadOnlyList<BaseItem>? allSeries)
+    {
+        // Track which items we've already processed people for (avoid double-counting)
+        var processedItemIds = new HashSet<Guid>();
+
+        // For episodes, we want to count people at the series level to avoid
+        // over-counting actors who appear in every episode. Track processed series.
+        var processedSeriesIds = new HashSet<Guid>();
+
+        // Build a series lookup for efficient access
+        Dictionary<Guid, BaseItem>? seriesLookup = null;
+        if (allSeries is { Count: > 0 })
+        {
+            seriesLookup = new Dictionary<Guid, BaseItem>(allSeries.Count);
+            foreach (var s in allSeries)
+            {
+                seriesLookup.TryAdd(s.Id, s);
+            }
+        }
+
+        // Maximum number of actors to consider per item (top-billed only)
+        const int maxActorsPerItem = 5;
+
+        foreach (var watchedItem in profile.WatchedItems)
+        {
+            // Only include items with meaningful interaction
+            if (watchedItem is { Played: false, IsFavorite: false })
+            {
+                continue;
+            }
+
+            // For episodes: aggregate at series level to avoid per-episode noise
+            if (watchedItem.SeriesId.HasValue && watchedItem.SeriesId.Value != Guid.Empty)
+            {
+                var seriesId = watchedItem.SeriesId.Value;
+                if (!processedSeriesIds.Add(seriesId))
+                {
+                    continue; // Already counted people for this series
+                }
+
+                // Try to get series people
+                if (seriesLookup != null && seriesLookup.TryGetValue(seriesId, out var seriesItem))
+                {
+                    AggregatePeopleFromItem(profile, seriesItem, maxActorsPerItem);
+                }
+
+                continue;
+            }
+
+            // For movies and other items: aggregate directly
+            if (!processedItemIds.Add(watchedItem.ItemId))
+            {
+                continue; // Already processed
+            }
+
+            // Look up the actual BaseItem to access People metadata
+            var items = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                ItemIds = [watchedItem.ItemId],
+                Limit = 1
+            });
+
+            if (items is { Count: > 0 })
+            {
+                AggregatePeopleFromItem(profile, items[0], maxActorsPerItem);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Aggregates people (actors/directors) from a single BaseItem into the profile's PeopleProfile.
+    ///     Only includes persons with PersonKind.Actor (top-billed, limited count) and PersonKind.Director.
+    /// </summary>
+    /// <param name="profile">The user profile to populate.</param>
+    /// <param name="item">The library item to extract people from.</param>
+    /// <param name="maxActors">Maximum number of actors to include (top-billed by sort order).</param>
+    private void AggregatePeopleFromItem(UserWatchProfile profile, BaseItem item, int maxActors)
+    {
+        IReadOnlyList<PersonInfo>? people;
+        try
+        {
+            people = _libraryManager.GetPeople(item);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Graceful: skip items where people lookup fails
+            return;
+        }
+
+        if (people is null || people.Count == 0)
+        {
+            return;
+        }
+
+        var actorCount = 0;
+        foreach (var person in people)
+        {
+            if (string.IsNullOrWhiteSpace(person.Name))
+            {
+                continue;
+            }
+
+            // Only include Actors and Directors
+            if (person.Type == PersonKind.Director)
+            {
+                profile.PeopleProfile.TryGetValue(person.Name, out var dirCount);
+                profile.PeopleProfile[person.Name] = dirCount + 1;
+            }
+            else if (person.Type == PersonKind.Actor)
+            {
+                if (actorCount >= maxActors)
+                {
+                    continue; // Only top-billed actors
+                }
+
+                actorCount++;
+                profile.PeopleProfile.TryGetValue(person.Name, out var actCount);
+                profile.PeopleProfile[person.Name] = actCount + 1;
             }
         }
     }

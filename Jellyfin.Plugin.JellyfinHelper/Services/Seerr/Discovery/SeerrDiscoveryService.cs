@@ -40,6 +40,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private const int MaxDiscoveryPerUser = 10;
 
+    /// <summary>
+    ///     Number of top candidates (by pre-score) to enrich with credits data.
+    ///     Credits calls are expensive (1 API call per item × 500ms delay), so we only
+    ///     enrich the most promising candidates after an initial genre/rating-based pre-score.
+    /// </summary>
+    private const int CreditsEnrichmentBudget = 20;
+
+    /// <summary>
+    ///     Maximum number of cast members to extract per candidate during credits enrichment.
+    ///     Only top-billed actors (by order) and directors are included.
+    /// </summary>
+    private const int MaxCastPerCandidate = 10;
+
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
 
     /// <summary>
@@ -657,9 +670,41 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 $"User {profile.UserName}: {allCandidates.Count} raw candidates → {uniqueCandidates.Count} after filtering.",
                 _logger);
 
-            // Score candidates using ensemble strategy (heuristic + learned + neural combined)
-            var scored = new List<(TmdbDiscoverItem Item, CandidateFeatures Features, double Score)>(uniqueCandidates.Count);
+            // Phase 1: PRE-SCORE all candidates (without credits/people data from TMDb)
+            // This uses genre similarity, rating, recency, year proximity, and popularity
+            // but PeopleSimilarity will be 0 since candidates don't have KnownPeople yet.
+            var preScored = new List<(TmdbDiscoverItem Item, double Score)>(uniqueCandidates.Count);
             foreach (var candidate in uniqueCandidates)
+            {
+                var features = ExternalCandidateFeatureBuilder.Build(
+                    candidate, genrePreferences, preferredPeople, avgYear);
+                var score = _ensemble.Score(features);
+                preScored.Add((candidate, score));
+            }
+
+            // Sort by pre-score and take top-N for credits enrichment
+            preScored.Sort((a, b) => b.Score.CompareTo(a.Score));
+            var enrichmentCandidates = preScored
+                .Take(CreditsEnrichmentBudget)
+                .Select(s => s.Item)
+                .ToList();
+
+            // Phase 2: ENRICH top candidates with credits data (actors/directors)
+            // Only performed when the user has people preferences to match against.
+            if (preferredPeople.Count > 0 && enrichmentCandidates.Count > 0)
+            {
+                await EnrichTopCandidatesWithCreditsAsync(
+                    client, enrichmentCandidates, cancellationToken).ConfigureAwait(false);
+
+                _pluginLog.LogDebug(
+                    "SeerrDiscovery",
+                    $"User {profile.UserName}: Enriched {enrichmentCandidates.Count(c => c.KnownPeople != null)}/{enrichmentCandidates.Count} candidates with credits data.",
+                    _logger);
+            }
+
+            // Phase 3: FINAL SCORE the enriched candidates (now with PeopleSimilarity)
+            var scored = new List<(TmdbDiscoverItem Item, CandidateFeatures Features, double Score)>(enrichmentCandidates.Count);
+            foreach (var candidate in enrichmentCandidates)
             {
                 var features = ExternalCandidateFeatureBuilder.Build(
                     candidate, genrePreferences, preferredPeople, avgYear);
@@ -667,7 +712,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 scored.Add((candidate, features, score));
             }
 
-            // Rank and select top-N
+            // Rank and select top-N from enriched candidates
             scored.Sort((a, b) => b.Score.CompareTo(a.Score));
             var topN = scored.Take(MaxDiscoveryPerUser).ToList();
 
@@ -909,39 +954,127 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <summary>
     ///     Builds the set of preferred people (actors/directors) from the user's watch history.
-    ///     <para>
-    ///     Currently returns empty. To fully implement this feature, two prerequisites are needed:
-    ///     <list type="number">
-    ///         <item>UserWatchProfile must collect People data (actors/directors) from Jellyfin's
-    ///               BaseItem.People during watch history analysis.</item>
-    ///         <item>TMDb discover candidates must be enriched with cast data via
-    ///               /movie/{id}/credits or /tv/{id}/credits calls (not available from /discover).</item>
-    ///     </list>
-    ///     Once both are in place, this method should return the user's top-N most-watched
-    ///     actors/directors, and ComputePeopleSimilarity in ExternalCandidateFeatureBuilder
-    ///     will produce meaningful scores.
-    ///     </para>
+    ///     Uses the PeopleProfile aggregated by WatchHistoryService from BaseItem.People metadata.
+    ///     Returns the top-20 most-watched people (appearing in at least 2 distinct items)
+    ///     to filter out noise from single-watch appearances.
     /// </summary>
     private static HashSet<string> BuildPreferredPeopleSet(UserWatchProfile profile)
     {
-        // TODO: Implement once UserWatchProfile includes People data collection.
-        // See: WatchHistoryService → needs to read BaseItem.People and aggregate into profile.
-        _ = profile;
-        return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (profile.PeopleProfile.Count == 0)
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var topPeople = profile.TopPeople;
+        return new HashSet<string>(topPeople, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    ///     Enriches the top candidates with credits (cast/director) data from Seerr.
+    ///     Fetches /api/v1/movie/{id} or /api/v1/tv/{id} for each candidate and populates
+    ///     the <see cref="TmdbDiscoverItem.KnownPeople"/> list with top-billed actors and directors.
+    ///     Respects rate limiting with inter-query delay.
+    /// </summary>
+    private async Task EnrichTopCandidatesWithCreditsAsync(
+        HttpClient client,
+        List<TmdbDiscoverItem> candidates,
+        CancellationToken cancellationToken)
+    {
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var mediaPath = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
+                ? $"api/v1/tv/{candidate.Id}"
+                : $"api/v1/movie/{candidate.Id}";
+
+            try
+            {
+                using var response = await client.GetAsync(
+                    new Uri(mediaPath, UriKind.Relative),
+                    cancellationToken).ConfigureAwait(false);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    continue;
+                }
+
+                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>(json, JsonOptions);
+
+                if (detail?.Credits == null)
+                {
+                    continue;
+                }
+
+                var people = new List<string>(MaxCastPerCandidate);
+
+                // Add directors first (high signal value)
+                if (detail.Credits.Crew is { Count: > 0 })
+                {
+                    foreach (var crew in detail.Credits.Crew)
+                    {
+                        if (string.Equals(crew.Job, "Director", StringComparison.OrdinalIgnoreCase)
+                            && !string.IsNullOrWhiteSpace(crew.Name))
+                        {
+                            people.Add(crew.Name);
+                        }
+                    }
+                }
+
+                // Add top-billed actors (sorted by order)
+                if (detail.Credits.Cast is { Count: > 0 })
+                {
+                    var actorsToTake = MaxCastPerCandidate - people.Count;
+                    if (actorsToTake > 0)
+                    {
+                        var topActors = detail.Credits.Cast
+                            .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+                            .OrderBy(c => c.Order)
+                            .Take(actorsToTake)
+                            .Select(c => c.Name);
+                        people.AddRange(topActors);
+                    }
+                }
+
+                if (people.Count > 0)
+                {
+                    candidate.KnownPeople = people;
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
+            {
+                _pluginLog.LogDebug(
+                    "SeerrDiscovery",
+                    $"Credits enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
+                    _logger);
+            }
+            finally
+            {
+                await Task.Delay(InterQueryDelay, CancellationToken.None).ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>
     ///     Determines the primary recommendation reason based on the candidate's feature scores.
+    ///     Priority: Person match > Genre match > Trending > Popular.
     /// </summary>
     private static (string ReasonKey, string? RelatedInfo) DetermineReason(
         CandidateFeatures features,
         TmdbDiscoverItem candidate,
         List<string> topGenres)
     {
-        // Note: PeopleSimilarity is currently always 0.0 because TMDb /discover
-        // endpoints do not return cast data. The "reasonPersonNamed" path will
-        // become reachable once a credits-enrichment step is added.
-        _ = candidate;
+        // Person-based reason: when a known actor/director matches the user's preferences
+        if (features.PeopleSimilarity > 0.3 && candidate.KnownPeople is { Count: > 0 })
+        {
+            // Return the first matched person name as related info for the UI
+            return ("reasonPerson", candidate.KnownPeople[0]);
+        }
 
         if (features.GenreSimilarity > 0.7 && topGenres.Count > 0)
         {

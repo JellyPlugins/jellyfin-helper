@@ -14,6 +14,7 @@ public sealed class UserWatchProfile
     private Dictionary<string, int> _genreDistribution = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, LanguageProfileEntry> _languageProfile = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, LanguageProfileEntry> _subtitleLanguageProfile = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, int> _peopleProfile = new(StringComparer.OrdinalIgnoreCase);
     private Collection<WatchedItemInfo> _watchedItems = [];
 
     /// <summary>
@@ -190,4 +191,37 @@ public sealed class UserWatchProfile
     public HashSet<string> ToleratedSubtitleLanguages => new(
         SubtitleLanguageProfile.Where(kv => kv.Value is { ForcedCount: > 0, ChosenCount: 0 }).Select(kv => kv.Key),
         StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Gets or sets the people (actors/directors) preference profile.
+    ///     Maps person names to the number of distinct items featuring that person
+    ///     that the user has watched or favorited.
+    ///     Built by analyzing <c>BaseItem.People</c> metadata for each watched item.
+    ///     Only includes persons with role type "Actor" or "Director".
+    ///     Setter preserves <see cref="StringComparer.OrdinalIgnoreCase"/> and coalesces null.
+    /// </summary>
+    public Dictionary<string, int> PeopleProfile
+    {
+        get => _peopleProfile;
+        set => _peopleProfile = value is null
+            ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, int>(value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    ///     Gets the user's top preferred people (actors/directors) ordered by frequency.
+    ///     Returns the names of people who appear most frequently across the user's
+    ///     watched and favorited items. Limited to those appearing in at least 2 items
+    ///     to filter out noise from single-watch appearances.
+    ///     Excluded from JSON serialization to avoid redundant data in API responses.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> TopPeople => PeopleProfile.Count > 0
+        ? PeopleProfile
+            .Where(kv => kv.Value >= 2)
+            .OrderByDescending(kv => kv.Value)
+            .Take(20)
+            .Select(kv => kv.Key)
+            .ToList()
+        : [];
 }
