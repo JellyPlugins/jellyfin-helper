@@ -388,6 +388,13 @@ public class HelperCleanupTask : IScheduledTask
         return task.ExecuteAsync(progress, cancellationToken);
     }
 
+    private async Task RunSeerrDiscovery(IProgress<double> progress, CancellationToken cancellationToken)
+    {
+        await _seerrDiscoveryService.GenerateDiscoveryRecommendationsAsync(cancellationToken)
+            .ConfigureAwait(false);
+        progress.Report(100);
+    }
+
     private sealed class SubProgress(IProgress<double> parent, double start, double end) : IProgress<double>
     {
         public void Report(double value)

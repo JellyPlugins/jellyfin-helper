@@ -6,6 +6,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using System.Collections.ObjectModel;
 using MediaBrowser.Controller.Library;
@@ -124,7 +125,8 @@ public class HelperCleanupTaskTests : IDisposable
             userActivityCacheMock.Object,
             recsEngineMock.Object,
             recsCacheMock.Object,
-            playlistServiceMock.Object);
+            playlistServiceMock.Object,
+            new Mock<ISeerrDiscoveryService>().Object);
     }
 
     public void Dispose()

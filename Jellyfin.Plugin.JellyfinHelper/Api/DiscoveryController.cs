@@ -79,35 +79,3 @@ public sealed class DiscoveryController : ControllerBase
         return Ok(new RequestResult { Success = true, Message = message });
     }
 }
-
-/// <summary>
-///     DTO for submitting a discovery media request.
-/// </summary>
-public sealed class DiscoveryRequestDto
-{
-    /// <summary>
-    ///     Gets or sets the TMDb ID.
-    /// </summary>
-    public int TmdbId { get; set; }
-
-    /// <summary>
-    ///     Gets or sets the media type ("movie" or "tv").
-    /// </summary>
-    public string MediaType { get; set; } = "movie";
-}
-
-/// <summary>
-///     Result of a discovery request submission.
-/// </summary>
-public sealed class RequestResult
-{
-    /// <summary>
-    ///     Gets or sets a value indicating whether the request was successful.
-    /// </summary>
-    public bool Success { get; set; }
-
-    /// <summary>
-    ///     Gets or sets the result message.
-    /// </summary>
-    public string Message { get; set; } = string.Empty;
-}
