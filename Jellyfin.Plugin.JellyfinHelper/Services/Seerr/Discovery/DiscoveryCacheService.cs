@@ -69,6 +69,59 @@ public sealed class DiscoveryCacheService
     }
 
     /// <summary>
+    ///     Marks a specific TMDb item as already requested in the cached results.
+    ///     This ensures the item shows as "Requested" after a page refresh.
+    /// </summary>
+    /// <param name="tmdbId">The TMDb ID of the requested item.</param>
+    public void MarkAsRequested(int tmdbId)
+    {
+        lock (_fileLock)
+        {
+            try
+            {
+                if (!File.Exists(_filePath))
+                {
+                    return;
+                }
+
+                var json = File.ReadAllText(_filePath);
+                var results = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions);
+                if (results == null || results.Count == 0)
+                {
+                    return;
+                }
+
+                var modified = false;
+                foreach (var userResult in results)
+                {
+                    foreach (var rec in userResult.Recommendations)
+                    {
+                        if (rec.TmdbId == tmdbId && !rec.AlreadyRequested)
+                        {
+                            rec.AlreadyRequested = true;
+                            modified = true;
+                        }
+                    }
+                }
+
+                if (modified)
+                {
+                    var updatedJson = JsonSerializer.Serialize(results, JsonOptions);
+                    File.WriteAllText(_filePath, updatedJson);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            {
+                _pluginLog.LogWarning(
+                    "DiscoveryCache",
+                    $"Could not mark TMDb#{tmdbId} as requested in cache: {ex.Message}",
+                    ex,
+                    _logger);
+            }
+        }
+    }
+
+    /// <summary>
     ///     Saves discovery results to disk using atomic write (temp file + move).
     /// </summary>
     /// <param name="results">The results to persist.</param>
