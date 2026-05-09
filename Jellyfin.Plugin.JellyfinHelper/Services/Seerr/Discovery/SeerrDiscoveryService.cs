@@ -183,6 +183,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     public async Task<(bool Success, string Message)> SubmitRequestAsync(
         int tmdbId,
         string mediaType,
+        int? seerrUserId,
         CancellationToken cancellationToken)
     {
         if (tmdbId <= 0)
@@ -222,7 +223,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             try
             {
-                var payload = new { mediaType, mediaId = tmdbId, is4k = false, seasons = "all" };
+                // Build request payload - include userId if specified to attribute the request
+                object payload = seerrUserId is > 0
+                    ? new { mediaType, mediaId = tmdbId, is4k = false, seasons = "all", userId = seerrUserId.Value }
+                    : new { mediaType, mediaId = tmdbId, is4k = false, seasons = "all" };
+
                 var content = new StringContent(
                     JsonSerializer.Serialize(payload, JsonOptions),
                     Encoding.UTF8,
@@ -235,9 +240,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
                 if (response.IsSuccessStatusCode)
                 {
+                    var userInfo = seerrUserId is > 0 ? $" (as user #{seerrUserId})" : string.Empty;
                     _pluginLog.LogInfo(
                         "SeerrDiscovery",
-                        $"Request submitted: {mediaType} TMDb#{tmdbId}",
+                        $"Request submitted: {mediaType} TMDb#{tmdbId}{userInfo}",
                         _logger);
                     return (true, "Request submitted successfully.");
                 }
@@ -270,6 +276,65 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     ex,
                     _logger);
                 return (false, $"Request failed: {ex.Message}");
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SeerrUser>> GetSeerrUsersAsync(CancellationToken cancellationToken)
+    {
+        var config = Plugin.Instance?.Configuration;
+        if (config == null
+            || string.IsNullOrWhiteSpace(config.SeerrUrl)
+            || string.IsNullOrWhiteSpace(config.SeerrApiKey))
+        {
+            return [];
+        }
+
+        HttpClient client;
+        try
+        {
+            client = CreateClient(config.SeerrUrl, config.SeerrApiKey);
+        }
+        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
+        {
+            _pluginLog.LogWarning(
+                "SeerrDiscovery",
+                $"Invalid Seerr configuration for user fetch: {ex.Message}",
+                ex,
+                _logger);
+            return [];
+        }
+
+        using (client)
+        {
+            try
+            {
+                using var response = await client.GetAsync(
+                    new Uri("api/v1/user?take=50&skip=0&sort=displayname", UriKind.Relative),
+                    cancellationToken).ConfigureAwait(false);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    return [];
+                }
+
+                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var page = JsonSerializer.Deserialize<SeerrUserPage>(json, JsonOptions);
+                return page?.Results ?? [];
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+            {
+                _pluginLog.LogWarning(
+                    "SeerrDiscovery",
+                    $"Failed to fetch Seerr users: {ex.Message}",
+                    ex,
+                    _logger);
+                return [];
             }
         }
     }

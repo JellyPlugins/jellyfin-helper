@@ -32,7 +32,7 @@ public class SeerrDiscoveryServiceTests
     public async Task SubmitRequestAsync_InvalidTmdbId_ReturnsFalse()
     {
         var service = CreateService();
-        var (success, _) = await service.SubmitRequestAsync(0, "movie", CancellationToken.None);
+        var (success, _) = await service.SubmitRequestAsync(0, "movie", null, CancellationToken.None);
         Assert.False(success);
     }
 
@@ -40,7 +40,7 @@ public class SeerrDiscoveryServiceTests
     public async Task SubmitRequestAsync_InvalidMediaType_ReturnsFalse()
     {
         var service = CreateService();
-        var (success, _) = await service.SubmitRequestAsync(123, "invalid", CancellationToken.None);
+        var (success, _) = await service.SubmitRequestAsync(123, "invalid", null, CancellationToken.None);
         Assert.False(success);
     }
 
@@ -48,7 +48,7 @@ public class SeerrDiscoveryServiceTests
     public async Task SubmitRequestAsync_SeerrNotConfigured_ReturnsFalse()
     {
         var service = CreateService();
-        var (success, message) = await service.SubmitRequestAsync(123, "movie", CancellationToken.None);
+        var (success, message) = await service.SubmitRequestAsync(123, "movie", null, CancellationToken.None);
         Assert.False(success);
         Assert.Contains("not configured", message);
     }

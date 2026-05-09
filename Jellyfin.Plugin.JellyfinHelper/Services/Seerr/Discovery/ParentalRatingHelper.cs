@@ -25,17 +25,34 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 internal static class ParentalRatingHelper
 {
     /// <summary>
-    ///     TMDb genre IDs that are inappropriate for child accounts (MaxParentalRating ≤ 100).
+    ///     TMDb genre IDs that are inappropriate for young teen accounts (MaxParentalRating 61-100 / FSK-12).
     ///     These genres are excluded from discovery queries for restricted users even when
     ///     the TMDb certification filter might not catch all edge cases.
     /// </summary>
-    private static readonly HashSet<int> ChildRestrictedGenreIds = new()
+    private static readonly HashSet<int> TeenRestrictedGenreIds = new()
     {
         27, // Horror
         80, // Crime
         53, // Thriller
         10752, // War (movies)
         10768 // War & Politics (TV)
+    };
+
+    /// <summary>
+    ///     TMDb genre IDs that are explicitly allowed for strict child accounts (MaxParentalRating ≤ 60 / FSK-6).
+    ///     Only items containing at least one of these genres will be shown to young children.
+    ///     This whitelist approach is more restrictive than the blacklist and ensures that
+    ///     only genuinely child-appropriate content is recommended.
+    /// </summary>
+    private static readonly HashSet<int> ChildAllowedGenreIds = new()
+    {
+        16, // Animation
+        10751, // Family
+        35, // Comedy
+        10402, // Music
+        10762, // Kids (TV)
+        12, // Adventure
+        14 // Fantasy
     };
 
     /// <summary>
@@ -86,12 +103,44 @@ internal static class ParentalRatingHelper
             return true;
         }
 
-        // For child accounts (roughly FSK-12 and below), also filter by genre
+        // For strict child accounts (FSK-6 and below): WHITELIST approach
+        // Only allow content that has at least one child-friendly genre
+        if (maxParentalRating.Value <= 60)
+        {
+            var hasAllowedGenre = false;
+            foreach (var genreId in candidate.GenreIds)
+            {
+                if (ChildAllowedGenreIds.Contains(genreId))
+                {
+                    hasAllowedGenre = true;
+                    break;
+                }
+            }
+
+            if (!hasAllowedGenre)
+            {
+                return true;
+            }
+
+            // Even with an allowed genre, still exclude if a restricted genre is present
+            foreach (var genreId in candidate.GenreIds)
+            {
+                if (TeenRestrictedGenreIds.Contains(genreId))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // For young teen accounts (FSK-12): BLACKLIST approach
+        // Exclude specific inappropriate genres
         if (maxParentalRating.Value <= 100)
         {
             foreach (var genreId in candidate.GenreIds)
             {
-                if (ChildRestrictedGenreIds.Contains(genreId))
+                if (TeenRestrictedGenreIds.Contains(genreId))
                 {
                     return true;
                 }

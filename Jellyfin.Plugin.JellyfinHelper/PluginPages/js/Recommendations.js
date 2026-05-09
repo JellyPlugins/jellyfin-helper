@@ -443,11 +443,121 @@ function handleDiscoveryRequest(e) {
     var mediaType = btn.getAttribute('data-media-type');
     if (!tmdbId || !mediaType) return;
 
+    // Show profile selection popup before submitting
+    showSeerrUserPopup(tmdbId, mediaType, btn);
+}
+
+function showSeerrUserPopup(tmdbId, mediaType, btn) {
+    // Check if we have cached users
+    if (window._seerrUsers !== undefined) {
+        renderSeerrUserPopup(tmdbId, mediaType, btn, window._seerrUsers);
+        return;
+    }
+
+    // Fetch users from Seerr
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner" style="width:1em;height:1em;"></div>';
+
+    apiGet('JellyfinHelper/Discovery/Users', function (users) {
+        window._seerrUsers = users || [];
+        btn.disabled = false;
+        btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
+        renderSeerrUserPopup(tmdbId, mediaType, btn, window._seerrUsers);
+    }, function () {
+        // If user fetch fails, submit without user selection
+        window._seerrUsers = [];
+        btn.disabled = false;
+        btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
+        submitDiscoveryRequest(tmdbId, mediaType, null, btn);
+    });
+}
+
+function renderSeerrUserPopup(tmdbId, mediaType, btn, users) {
+    // Remove any existing popup
+    var existing = document.getElementById('seerrUserPopup');
+    if (existing) existing.remove();
+
+    // If no users available, submit directly as admin
+    if (!users || users.length === 0) {
+        submitDiscoveryRequest(tmdbId, mediaType, null, btn);
+        return;
+    }
+
+    // Create popup overlay
+    var overlay = document.createElement('div');
+    overlay.id = 'seerrUserPopup';
+    overlay.className = 'discovery-popup-overlay';
+
+    var popup = document.createElement('div');
+    popup.className = 'discovery-popup';
+
+    var title = document.createElement('div');
+    title.className = 'discovery-popup-title';
+    title.textContent = T('discoverySelectUser', 'Select Seerr Profile');
+    popup.appendChild(title);
+
+    var subtitle = document.createElement('div');
+    subtitle.className = 'discovery-popup-subtitle';
+    subtitle.textContent = T('discoverySelectUserDesc', 'Choose which user the request should be attributed to:');
+    popup.appendChild(subtitle);
+
+    var list = document.createElement('div');
+    list.className = 'discovery-popup-list';
+
+    for (var i = 0; i < users.length; i++) {
+        var user = users[i];
+        var item = document.createElement('button');
+        item.className = 'discovery-popup-user';
+        item.setAttribute('data-user-id', user.Id || user.id);
+        var displayName = user.DisplayName || user.displayName || user.Email || user.email || ('User #' + (user.Id || user.id));
+        item.innerHTML = mi('person') + ' ' + escHtml(displayName);
+        item.addEventListener('click', (function (userId) {
+            return function () {
+                closePopup();
+                submitDiscoveryRequest(tmdbId, mediaType, userId, btn);
+            };
+        })(user.Id || user.id));
+        list.appendChild(item);
+    }
+    popup.appendChild(list);
+
+    // Cancel button
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'discovery-popup-cancel';
+    cancelBtn.textContent = T('discoveryCancel', 'Cancel');
+    cancelBtn.addEventListener('click', closePopup);
+    popup.appendChild(cancelBtn);
+
+    overlay.appendChild(popup);
+    document.body.appendChild(overlay);
+
+    // Close on overlay click (outside popup)
+    overlay.addEventListener('click', function (ev) {
+        if (ev.target === overlay) closePopup();
+    });
+
+    // Close on Escape key
+    function onEscape(ev) {
+        if (ev.key === 'Escape') closePopup();
+    }
+    document.addEventListener('keydown', onEscape);
+
+    function closePopup() {
+        document.removeEventListener('keydown', onEscape);
+        var el = document.getElementById('seerrUserPopup');
+        if (el) el.remove();
+    }
+}
+
+function submitDiscoveryRequest(tmdbId, mediaType, seerrUserId, btn) {
     btn.disabled = true;
     btn.innerHTML = '<div class="spinner" style="width:1em;height:1em;"></div> ' + T('discoveryRequesting', 'Requesting\u2026');
 
-    apiPost('JellyfinHelper/Discovery/Request', { TmdbId: tmdbId, MediaType: mediaType }, function (res) {
-        if (res && res.success) {
+    var payload = { TmdbId: tmdbId, MediaType: mediaType };
+    if (seerrUserId) payload.SeerrUserId = seerrUserId;
+
+    apiPost('JellyfinHelper/Discovery/Request', payload, function (res) {
+        if (res && res.Success) {
             btn.classList.add('discovery-request-done');
             btn.innerHTML = mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
 
@@ -467,8 +577,8 @@ function handleDiscoveryRequest(e) {
                             var current = parseInt(countSpan.textContent, 10) || 0;
                             countSpan.textContent = '' + Math.max(0, current - 1);
                         }
-                    }, 300); // match CSS transition duration
-                }, 800); // show green success briefly before removing
+                    }, 300);
+                }, 800);
             }
         } else {
             btn.disabled = false;

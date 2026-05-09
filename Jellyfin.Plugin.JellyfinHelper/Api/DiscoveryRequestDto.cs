@@ -14,4 +14,10 @@ public sealed class DiscoveryRequestDto
     ///     Gets or sets the media type ("movie" or "tv").
     /// </summary>
     public string MediaType { get; set; } = "movie";
+
+    /// <summary>
+    ///     Gets or sets the Seerr user ID to submit the request as.
+    ///     When null or 0, the request is submitted as the API key owner (admin).
+    /// </summary>
+    public int? SeerrUserId { get; set; }
 }

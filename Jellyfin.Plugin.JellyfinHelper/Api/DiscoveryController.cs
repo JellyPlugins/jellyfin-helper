@@ -45,6 +45,20 @@ public sealed class DiscoveryController : ControllerBase
     }
 
     /// <summary>
+    ///     Returns the list of Seerr users for the profile selection popup.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of Seerr users.</returns>
+    [HttpGet("Users")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<SeerrUser>>> GetSeerrUsers(
+        CancellationToken cancellationToken)
+    {
+        var users = await _discovery.GetSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(users);
+    }
+
+    /// <summary>
     ///     Submits a media request to the configured Seerr instance.
     /// </summary>
     /// <param name="dto">The request data.</param>
@@ -69,7 +83,7 @@ public sealed class DiscoveryController : ControllerBase
         }
 
         var (success, message) = await _discovery.SubmitRequestAsync(
-            dto.TmdbId, dto.MediaType, cancellationToken).ConfigureAwait(false);
+            dto.TmdbId, dto.MediaType, dto.SeerrUserId, cancellationToken).ConfigureAwait(false);
 
         if (!success)
         {
