@@ -290,13 +290,12 @@
   "syncPlaylistHelp": "Cria uma playlist por utilizador visivel no Jellyfin. Atualizada em cada execucao agendada.",
   "syncPlaylistDisabledHint": "Ative as recomendacoes para habilitar esta opcao.",
   "recsAndMore": "e mais {0}…",
-  "discoveryTitle": "Discover New Content",
-  "discoveryConfigureSeerr": "Configure Seerr in the Settings tab to see personalized download suggestions.",
-  "discoveryNoResults": "No suggestions available yet. Results will appear after the next scheduled task run.",
-  "discoveryLoadError": "Could not load discovery suggestions.",
-  "discoveryGeneratedAt": "Last updated",
-  "discoveryRequest": "Request",
-  "discoveryRequesting": "Requesting…",
-  "discoveryRequested": "Requested",
-  "discoveryRequestFailed": "Failed"
+  "discoveryTitle": "Descobrir novo conteudo",
+  "discoveryNoResults": "Ainda sem sugestoes. Os resultados aparecerao apos a proxima execucao.",
+  "discoveryLoadError": "Nao foi possivel carregar sugestoes.",
+  "discoveryGeneratedAt": "Ultima atualizacao",
+  "discoveryRequest": "Solicitar",
+  "discoveryRequesting": "Solicitando…",
+  "discoveryRequested": "Solicitado",
+  "discoveryRequestFailed": "Falhou"
 }

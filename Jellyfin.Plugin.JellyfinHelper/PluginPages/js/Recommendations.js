@@ -286,19 +286,11 @@ function getTopGenresFromDistribution(genreDistribution, maxGenres) {
 var _discoveryReqId = 0;
 
 function renderDiscoverySection(container, results, config) {
-    if (!config.SeerrUrl || !config.SeerrApiKey) {
-        container.innerHTML = '<div class="discovery-hint">' +
-            mi('link') + ' ' +
-            T('discoveryConfigureSeerr', 'Configure Seerr in the Settings tab to see personalized download suggestions.') +
-            '</div>';
-        return;
-    }
-
     var html = '<div class="recs-collapsible">';
     html += '<button class="recs-collapsible-toggle" id="discoveryToggle" ';
     html += 'aria-expanded="false" aria-controls="discoveryBody">';
     html += '<span class="recs-collapsible-arrow">\u25B6</span> ';
-    html += mi('cloud_download') + ' ';
+    html += mi('explore') + ' ';
     html += T('discoveryTitle', 'Discover New Content');
     html += ' <span>(<span id="discoveryCount">0</span> ';
     html += T('recsItems', 'items') + ')</span>';
@@ -338,7 +330,7 @@ function loadDiscoveryForUser(index) {
         var userDiscovery = null;
         if (data && data.length > 0) {
             for (var d = 0; d < data.length; d++) {
-                if ((data[d].userId || data[d].UserId || '').toLowerCase() === (result.UserId || '').toLowerCase()) {
+                if ((data[d].UserId || data[d].userId || '').toLowerCase() === (result.UserId || '').toLowerCase()) {
                     userDiscovery = data[d];
                     break;
                 }
@@ -354,7 +346,7 @@ function loadDiscoveryForUser(index) {
 }
 
 function renderDiscoveryCards(grid, countSpan, userDiscovery) {
-    if (!userDiscovery || !userDiscovery.recommendations || userDiscovery.recommendations.length === 0) {
+    if (!userDiscovery || !userDiscovery.Recommendations || userDiscovery.Recommendations.length === 0) {
         if (countSpan) countSpan.textContent = '0';
         grid.innerHTML = '<div class="recs-profile-compact-empty">' +
             T('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.') +
@@ -362,7 +354,7 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
         return;
     }
 
-    var recs = userDiscovery.recommendations;
+    var recs = userDiscovery.Recommendations;
     if (countSpan) countSpan.textContent = '' + recs.length;
 
     var html = '<div class="discovery-grid">';
@@ -370,8 +362,8 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
         html += renderDiscoveryCard(recs[i], i);
     }
     html += '</div>';
-    if (userDiscovery.generatedAt) {
-        var genDate = new Date(userDiscovery.generatedAt);
+    if (userDiscovery.GeneratedAt) {
+        var genDate = new Date(userDiscovery.GeneratedAt);
         html += '<div class="discovery-footer">' +
             T('discoveryGeneratedAt', 'Last updated') + ': ' +
             genDate.toLocaleDateString() + ' ' + genDate.toLocaleTimeString() +
@@ -386,10 +378,10 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
 }
 
 function renderDiscoveryCard(rec, index) {
-    var scorePercent = Math.max(0, Math.min(100, Math.round((Number(rec.score) || 0) * 100)));
+    var scorePercent = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
     var scoreClass = scorePercent >= 80 ? 'recs-score-high' : scorePercent >= 50 ? 'recs-score-mid' : 'recs-score-low';
-    var posterUrl = rec.posterPath
-        ? 'https://image.tmdb.org/t/p/w185' + escHtml(rec.posterPath)
+    var posterUrl = rec.PosterPath
+        ? 'https://image.tmdb.org/t/p/w185' + escHtml(rec.PosterPath)
         : '';
 
     var html = '<div class="discovery-card" data-index="' + index + '">';
@@ -401,18 +393,18 @@ function renderDiscoveryCard(rec, index) {
     }
 
     html += '<div class="discovery-card-body">';
-    html += '<div class="discovery-card-title">' + escHtml(rec.title) + '</div>';
+    html += '<div class="discovery-card-title">' + escHtml(rec.Title) + '</div>';
     html += '<div class="discovery-card-meta">';
-    if (rec.mediaType) {
-        html += '<span class="recs-tag recs-tag-type">' + escHtml(rec.mediaType === 'tv' ? 'Series' : 'Movie') + '</span>';
+    if (rec.MediaType) {
+        html += '<span class="recs-tag recs-tag-type">' + escHtml(rec.MediaType === 'tv' ? 'Series' : 'Movie') + '</span>';
     }
-    if (rec.genres && rec.genres.length > 0) {
-        for (var g = 0; g < Math.min(rec.genres.length, 3); g++) {
-            html += '<span class="recs-tag">' + escHtml(rec.genres[g]) + '</span>';
+    if (rec.Genres && rec.Genres.length > 0) {
+        for (var g = 0; g < Math.min(rec.Genres.length, 3); g++) {
+            html += '<span class="recs-tag">' + escHtml(rec.Genres[g]) + '</span>';
         }
     }
-    if (rec.year) { html += '<span class="recs-tag recs-tag-year">' + rec.year + '</span>'; }
-    if (rec.tmdbRating) { html += '<span class="recs-tag recs-tag-rating">' + rec.tmdbRating.toFixed(1) + '</span>'; }
+    if (rec.Year) { html += '<span class="recs-tag recs-tag-year">' + rec.Year + '</span>'; }
+    if (rec.TmdbRating) { html += '<span class="recs-tag recs-tag-rating">' + rec.TmdbRating.toFixed(1) + '</span>'; }
     html += '</div>';
 
     html += '<div class="recs-item-score ' + scoreClass + '">';
@@ -420,21 +412,21 @@ function renderDiscoveryCard(rec, index) {
     html += '<span class="recs-score-text">' + scorePercent + '% ' + T('recsMatch', 'match') + '</span>';
     html += '</div>';
 
-    var reasonText = rec.reasonKey ? T(rec.reasonKey, rec.reason || '') : (rec.reason || '');
-    if (rec.relatedInfo) {
-        reasonText = reasonText.replace(/\{0\}/g, rec.relatedInfo);
+    var reasonText = rec.ReasonKey ? T(rec.ReasonKey, rec.Reason || '') : (rec.Reason || '');
+    if (rec.RelatedInfo) {
+        reasonText = reasonText.replace(/\{0\}/g, rec.RelatedInfo);
     }
     if (reasonText) {
         html += '<div class="discovery-card-reason">' + escHtml(reasonText) + '</div>';
     }
 
-    if (rec.alreadyRequested) {
+    if (rec.AlreadyRequested) {
         html += '<button class="discovery-request-btn discovery-request-done" disabled>';
         html += mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
         html += '</button>';
     } else {
         html += '<button class="discovery-request-btn" ';
-        html += 'data-tmdb-id="' + rec.tmdbId + '" data-media-type="' + escHtml(rec.mediaType) + '">';
+        html += 'data-tmdb-id="' + rec.TmdbId + '" data-media-type="' + escHtml(rec.MediaType) + '">';
         html += mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         html += '</button>';
     }
