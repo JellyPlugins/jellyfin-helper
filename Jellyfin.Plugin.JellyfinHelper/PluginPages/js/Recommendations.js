@@ -66,6 +66,7 @@ function renderRecommendations(container, results) {
     html += '<div id="recsUserProfile"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '<div id="recsUserActivity"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '</div></div>';
+    html += '<div id="discoverySection"></div>';
     container.innerHTML = html;
     var recsSelect = document.getElementById('recsUserSelect');
     if (recsSelect) {
@@ -84,6 +85,9 @@ function renderRecommendations(container, results) {
     // Toggle for Watch Activity collapsible
     var toggleBtn = document.getElementById('recsActivityToggle');
     if (toggleBtn) { toggleBtn.addEventListener('click', function () { toggleCollapsible('recsActivityBody', 'recsActivityToggle'); }); }
+
+    var discoveryContainer = document.getElementById('discoverySection');
+    if (discoveryContainer) { renderDiscoverySection(discoveryContainer, results, window._pluginConfig || {}); }
 
     // Restore previously selected user from browser storage (fallback: first user)
     var initialIdx = 0;
@@ -104,6 +108,7 @@ function onUserChanged(index) {
     // Keep collapsible states as-is on user change - content updates in place
     loadUserWatchProfile(index);
     loadUserActivity(index);
+    loadDiscoveryForUser(index);
 }
 
 function toggleCollapsible(bodyId, toggleId) {
@@ -276,4 +281,195 @@ function getTopGenresFromDistribution(genreDistribution, maxGenres) {
     var result = [];
     for (var i = 0; i < Math.min(entries.length, maxGenres); i++) { result.push(entries[i].name); }
     return result;
+}
+// === Discovery New Content Section ===
+var _discoveryReqId = 0;
+
+function renderDiscoverySection(container, results, config) {
+    if (!config.SeerrUrl || !config.SeerrApiKey) {
+        container.innerHTML = '<div class="discovery-hint">' +
+            mi('link') + ' ' +
+            T('discoveryConfigureSeerr', 'Configure Seerr in the Settings tab to see personalized download suggestions.') +
+            '</div>';
+        return;
+    }
+
+    var html = '<div class="recs-collapsible">';
+    html += '<button class="recs-collapsible-toggle" id="discoveryToggle" ';
+    html += 'aria-expanded="false" aria-controls="discoveryBody">';
+    html += '<span class="recs-collapsible-arrow">\u25B6</span> ';
+    html += mi('cloud_download') + ' ';
+    html += T('discoveryTitle', 'Discover New Content');
+    html += ' <span>(<span id="discoveryCount">0</span> ';
+    html += T('recsItems', 'items') + ')</span>';
+    html += '</button>';
+    html += '<div class="recs-collapsible-body" id="discoveryBody">';
+    html += '<div id="discoveryGrid"></div>';
+    html += '</div></div>';
+    container.innerHTML = html;
+
+    var toggleBtn = document.getElementById('discoveryToggle');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+            toggleCollapsible('discoveryBody', 'discoveryToggle');
+        });
+    }
+}
+
+function loadDiscoveryForUser(index) {
+    var grid = document.getElementById('discoveryGrid');
+    var countSpan = document.getElementById('discoveryCount');
+    if (!grid) return;
+
+    var results = window._recsResults;
+    if (!results || !results[index]) return;
+    var result = results[index];
+
+    if (result._cachedDiscovery !== undefined) {
+        renderDiscoveryCards(grid, countSpan, result._cachedDiscovery);
+        return;
+    }
+
+    grid.innerHTML = '<div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div>';
+    var reqId = ++_discoveryReqId;
+
+    apiGet('JellyfinHelper/Discovery', function (data) {
+        if (reqId !== _discoveryReqId) return;
+        var userDiscovery = null;
+        if (data && data.length > 0) {
+            for (var d = 0; d < data.length; d++) {
+                if ((data[d].userId || data[d].UserId || '').toLowerCase() === (result.UserId || '').toLowerCase()) {
+                    userDiscovery = data[d];
+                    break;
+                }
+            }
+        }
+        result._cachedDiscovery = userDiscovery;
+        renderDiscoveryCards(grid, countSpan, userDiscovery);
+    }, function () {
+        if (reqId !== _discoveryReqId) return;
+        grid.innerHTML = '<div class="recs-profile-compact-empty">' +
+            T('discoveryLoadError', 'Could not load discovery suggestions.') + '</div>';
+    });
+}
+
+function renderDiscoveryCards(grid, countSpan, userDiscovery) {
+    if (!userDiscovery || !userDiscovery.recommendations || userDiscovery.recommendations.length === 0) {
+        if (countSpan) countSpan.textContent = '0';
+        grid.innerHTML = '<div class="recs-profile-compact-empty">' +
+            T('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.') +
+            '</div>';
+        return;
+    }
+
+    var recs = userDiscovery.recommendations;
+    if (countSpan) countSpan.textContent = '' + recs.length;
+
+    var html = '<div class="discovery-grid">';
+    for (var i = 0; i < recs.length; i++) {
+        html += renderDiscoveryCard(recs[i], i);
+    }
+    html += '</div>';
+    if (userDiscovery.generatedAt) {
+        var genDate = new Date(userDiscovery.generatedAt);
+        html += '<div class="discovery-footer">' +
+            T('discoveryGeneratedAt', 'Last updated') + ': ' +
+            genDate.toLocaleDateString() + ' ' + genDate.toLocaleTimeString() +
+            '</div>';
+    }
+    grid.innerHTML = html;
+
+    var buttons = grid.querySelectorAll('.discovery-request-btn');
+    for (var b = 0; b < buttons.length; b++) {
+        buttons[b].addEventListener('click', handleDiscoveryRequest);
+    }
+}
+
+function renderDiscoveryCard(rec, index) {
+    var scorePercent = Math.max(0, Math.min(100, Math.round((Number(rec.score) || 0) * 100)));
+    var scoreClass = scorePercent >= 80 ? 'recs-score-high' : scorePercent >= 50 ? 'recs-score-mid' : 'recs-score-low';
+    var posterUrl = rec.posterPath
+        ? 'https://image.tmdb.org/t/p/w185' + escHtml(rec.posterPath)
+        : '';
+
+    var html = '<div class="discovery-card" data-index="' + index + '">';
+
+    if (posterUrl) {
+        html += '<div class="discovery-card-poster"><img src="' + posterUrl + '" alt="" loading="lazy"></div>';
+    } else {
+        html += '<div class="discovery-card-poster discovery-card-poster-empty">' + mi('image') + '</div>';
+    }
+
+    html += '<div class="discovery-card-body">';
+    html += '<div class="discovery-card-title">' + escHtml(rec.title) + '</div>';
+    html += '<div class="discovery-card-meta">';
+    if (rec.mediaType) {
+        html += '<span class="recs-tag recs-tag-type">' + escHtml(rec.mediaType === 'tv' ? 'Series' : 'Movie') + '</span>';
+    }
+    if (rec.genres && rec.genres.length > 0) {
+        for (var g = 0; g < Math.min(rec.genres.length, 3); g++) {
+            html += '<span class="recs-tag">' + escHtml(rec.genres[g]) + '</span>';
+        }
+    }
+    if (rec.year) { html += '<span class="recs-tag recs-tag-year">' + rec.year + '</span>'; }
+    if (rec.tmdbRating) { html += '<span class="recs-tag recs-tag-rating">' + rec.tmdbRating.toFixed(1) + '</span>'; }
+    html += '</div>';
+
+    html += '<div class="recs-item-score ' + scoreClass + '">';
+    html += '<div class="recs-score-bar" style="width:' + scorePercent + '%"></div>';
+    html += '<span class="recs-score-text">' + scorePercent + '% ' + T('recsMatch', 'match') + '</span>';
+    html += '</div>';
+
+    var reasonText = rec.reasonKey ? T(rec.reasonKey, rec.reason || '') : (rec.reason || '');
+    if (rec.relatedInfo) {
+        reasonText = reasonText.replace(/\{0\}/g, rec.relatedInfo);
+    }
+    if (reasonText) {
+        html += '<div class="discovery-card-reason">' + escHtml(reasonText) + '</div>';
+    }
+
+    if (rec.alreadyRequested) {
+        html += '<button class="discovery-request-btn discovery-request-done" disabled>';
+        html += mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
+        html += '</button>';
+    } else {
+        html += '<button class="discovery-request-btn" ';
+        html += 'data-tmdb-id="' + rec.tmdbId + '" data-media-type="' + escHtml(rec.mediaType) + '">';
+        html += mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
+        html += '</button>';
+    }
+
+    html += '</div></div>';
+    return html;
+}
+
+function handleDiscoveryRequest(e) {
+    var btn = e.currentTarget;
+    if (btn.disabled) return;
+
+    var tmdbId = parseInt(btn.getAttribute('data-tmdb-id'), 10);
+    var mediaType = btn.getAttribute('data-media-type');
+    if (!tmdbId || !mediaType) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner" style="width:1em;height:1em;"></div> ' + T('discoveryRequesting', 'Requesting\u2026');
+
+    apiPost('JellyfinHelper/Discovery/Request', { TmdbId: tmdbId, MediaType: mediaType }, function (res) {
+        if (res && res.success) {
+            btn.classList.add('discovery-request-done');
+            btn.innerHTML = mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = mi('error') + ' ' + T('discoveryRequestFailed', 'Failed');
+            setTimeout(function () {
+                btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
+            }, 3000);
+        }
+    }, function () {
+        btn.disabled = false;
+        btn.innerHTML = mi('error') + ' ' + T('discoveryRequestFailed', 'Failed');
+        setTimeout(function () {
+            btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
+        }, 3000);
+    });
 }

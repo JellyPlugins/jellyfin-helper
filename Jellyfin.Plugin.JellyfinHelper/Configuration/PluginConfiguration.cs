@@ -13,6 +13,7 @@ public class PluginConfiguration : BasePluginConfiguration
 {
     // ===== Backing fields for clamped properties =====
     private int _maxRecommendationsPerUser = 20;
+    private int _seerrDiscoveryMaxPerUser = 5;
     private double _ensembleAlphaMin = 0.3;
     private double _ensembleAlphaMax = 0.75;
     private double _ensembleGenrePenaltyFloor = 0.10;
@@ -72,6 +73,22 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Default is 365 days (1 year).
     /// </summary>
     public int SeerrCleanupAgeDays { get; set; } = 365;
+
+    /// <summary>
+    ///     Gets or sets the execution mode for the Seerr Discovery task.
+    ///     Default is <see cref="TaskMode.Deactivate"/> — opt-in feature.
+    /// </summary>
+    public TaskMode SeerrDiscoveryTaskMode { get; set; } = TaskMode.Deactivate;
+
+    /// <summary>
+    ///     Gets or sets the maximum discovery recommendations per user.
+    ///     Clamped to [1, 10]. Default is 5.
+    /// </summary>
+    public int SeerrDiscoveryMaxPerUser
+    {
+        get => _seerrDiscoveryMaxPerUser;
+        set => _seerrDiscoveryMaxPerUser = Math.Clamp(value, 1, 10);
+    }
 
     /// <summary>
     ///     Gets or sets the base URL of the Jellyseerr/Overseerr/Seerr instance.
@@ -150,7 +167,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the maximum number of recommendations to generate per user.
-    ///     Default is 20. Valid range: 1–100. Out-of-range values are clamped.
+    ///     Default is 20. Valid range: 1-100. Out-of-range values are clamped.
     /// </summary>
     public int MaxRecommendationsPerUser
     {
@@ -172,9 +189,9 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the minimum alpha value for the ensemble scoring strategy.
-    ///     Controls the lower bound of learned model blending (0–1). Default is 0.3.
+    ///     Controls the lower bound of learned model blending (0-1). Default is 0.3.
     ///     Out-of-range values are clamped to [0, 1].
-    ///     The min ≤ max invariant is enforced by <see cref="NormalizeAlphaRange"/>
+    ///     The min le max invariant is enforced by <see cref="NormalizeAlphaRange"/>
     ///     after deserialization, not by the setter, to avoid XML element-order dependency.
     /// </summary>
     public double EnsembleAlphaMin
@@ -185,9 +202,9 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the maximum alpha value for the ensemble scoring strategy.
-    ///     Controls the upper bound of learned model blending (0–1). Default is 0.75.
+    ///     Controls the upper bound of learned model blending (0-1). Default is 0.75.
     ///     Out-of-range values are clamped to [0, 1].
-    ///     The min ≤ max invariant is enforced by <see cref="NormalizeAlphaRange"/>
+    ///     The min le max invariant is enforced by <see cref="NormalizeAlphaRange"/>
     ///     after deserialization, not by the setter, to avoid XML element-order dependency.
     /// </summary>
     public double EnsembleAlphaMax
@@ -230,7 +247,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public DateTime LastCleanupTimestamp { get; set; } = DateTime.MinValue;
 
     /// <summary>
-    ///     Normalizes the alpha range to ensure <see cref="EnsembleAlphaMin"/> ≤ <see cref="EnsembleAlphaMax"/>
+    ///     Normalizes the alpha range to ensure <see cref="EnsembleAlphaMin"/> le <see cref="EnsembleAlphaMax"/>
     ///     regardless of property setter invocation order during XML deserialization.
     ///     <see cref="System.Xml.Serialization.XmlSerializer"/> does not guarantee property order,
     ///     so a persisted config with Min=0.8 and Max=0.6 could produce different final values
@@ -240,7 +257,7 @@ public class PluginConfiguration : BasePluginConfiguration
     {
         if (_ensembleAlphaMin > _ensembleAlphaMax)
         {
-            // Swap so that min ≤ max
+            // Swap so that min le max
             (_ensembleAlphaMin, _ensembleAlphaMax) = (_ensembleAlphaMax, _ensembleAlphaMin);
         }
     }

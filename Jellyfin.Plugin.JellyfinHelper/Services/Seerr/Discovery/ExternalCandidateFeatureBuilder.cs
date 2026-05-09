@@ -1,0 +1,90 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+
+namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
+
+/// <summary>
+///     Builds a <see cref="CandidateFeatures"/> vector from external TMDb metadata.
+///     Features that require library-side data (collaborative filtering, content nearest
+///     neighbor, user interaction history) are set to neutral values (0.5 or 0.0) to avoid
+///     biasing the score. The dominant signals are GenreSimilarity, PeopleSimilarity,
+///     RecencyScore, CombinedCriticScore, and YearProximityScore.
+/// </summary>
+internal static class ExternalCandidateFeatureBuilder
+{
+    /// <summary>
+    ///     Builds a feature vector from a TMDb discover item and user preferences.
+    /// </summary>
+    /// <param name="candidate">The TMDb discover item to score.</param>
+    /// <param name="genrePreferences">The user's genre preference vector (genre name to weight).</param>
+    /// <param name="preferredPeople">The user's preferred people set (actors/directors).</param>
+    /// <param name="avgYear">The user's average watched production year.</param>
+    /// <returns>A populated <see cref="CandidateFeatures"/> instance.</returns>
+    internal static CandidateFeatures Build(
+        TmdbDiscoverItem candidate,
+        Dictionary<string, double> genrePreferences,
+        HashSet<string> preferredPeople,
+        double avgYear)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(genrePreferences);
+        ArgumentNullException.ThrowIfNull(preferredPeople);
+
+        var genres = TmdbGenreMap.ToJellyfinGenres(candidate.GenreIds);
+
+        return new CandidateFeatures
+        {
+            // Strong signals (derivable from TMDb)
+            GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genres, genrePreferences),
+            CombinedCriticScore = Math.Clamp(candidate.VoteAverage / 10.0, 0.0, 1.0),
+            RecencyScore = candidate.EffectiveReleaseDate.HasValue
+                ? ContentScoring.ComputeRecencyScore(candidate.EffectiveReleaseDate.Value)
+                : 0.5,
+            YearProximityScore = ContentScoring.ComputeYearProximity(
+                candidate.EffectiveReleaseDate?.Year, avgYear),
+            GenreCount = genres.Count,
+            IsSeries = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase),
+            PopularityScore = Math.Clamp(candidate.Popularity / 200.0, 0.0, 1.0),
+            PeopleSimilarity = ComputePeopleSimilarity(candidate, preferredPeople),
+
+            // Neutral signals (no library data available)
+            CollaborativeScore = 0.5,
+            UserRatingScore = 0.5,
+            HasUserInteraction = false,
+            CompletionRatio = 0.5,
+            StudioMatch = false,
+            SeriesProgressionBoost = 0.0,
+            DayOfWeekAffinity = 0.5,
+            HourOfDayAffinity = 0.5,
+            IsWeekend = false,
+            TagSimilarity = 0.0,
+            LibraryAddedRecency = 0.5,
+            ContentNearestNeighborScore = 0.0,
+            LanguageAffinity = 0.5,
+            SubtitleLanguageAffinity = 0.5,
+            CollectionProgressionBoost = 0.0
+        };
+    }
+
+    /// <summary>
+    ///     Computes people similarity from limited TMDb data.
+    ///     TMDb discover responses include limited cast data; full cast requires
+    ///     a separate /movie/{id}/credits call which is too expensive for bulk queries.
+    /// </summary>
+    private static double ComputePeopleSimilarity(
+        TmdbDiscoverItem candidate,
+        HashSet<string> preferredPeople)
+    {
+        if (preferredPeople.Count == 0 || candidate.KnownPeople is not { Count: > 0 })
+        {
+            return 0.0;
+        }
+
+        var overlap = candidate.KnownPeople.Count(p =>
+            preferredPeople.Contains(p));
+        return Math.Clamp((double)overlap / Math.Min(preferredPeople.Count, 5), 0.0, 1.0);
+    }
+}
