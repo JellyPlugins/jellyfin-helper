@@ -102,6 +102,7 @@ Tests mirror the source structure:
 ```text
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── Api/                           # Controller tests
+│   ├── DiscoveryControllerTests.cs
 │   ├── RecommendationControllerTests.cs
 │   ├── UserActivityControllerTests.cs
 │   ├── TrashControllerTests.cs
@@ -126,6 +127,11 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Link/                      # Link repair tests
 │   ├── PluginLog/                 # Plugin log tests
 │   ├── Seerr/                     # Seerr integration tests
+│   │   ├── SeerrIntegrationServiceTests.cs
+│   │   ├── SeerrMediaDetailsTests.cs
+│   │   └── Discovery/            # Seerr Discovery tests
+│   │       ├── SeerrDiscoveryServiceTests.cs
+│   │       └── ParentalRatingHelperTests.cs
 │   ├── Statistics/                # Statistics service tests
 │   ├── Timeline/                  # Growth timeline tests
 │   └── Recommendation/            # Recommendation engine tests
@@ -180,6 +186,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── LogsController.cs               # Plugin logs API
 │   ├── MediaStatisticsController.cs     # Media statistics API
 │   ├── RecommendationController.cs      # ML recommendations API
+│   ├── DiscoveryController.cs           # Seerr Discovery API (external recommendations + requests)
 │   ├── SeerrController.cs              # Jellyseerr/Overseerr integration API
 │   ├── TranslationsController.cs        # i18n translations API
 │   ├── TrashController.cs               # Trash bin API
@@ -253,6 +260,19 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── Link/                    # .strm/symlink repair
 │   ├── PluginLog/               # Structured plugin logging
 │   ├── Seerr/                   # Jellyseerr/Overseerr integration
+│   │   ├── ISeerrIntegrationService.cs   # Seerr cleanup (request removal)
+│   │   ├── SeerrIntegrationService.cs
+│   │   └── Discovery/               # Seerr Discovery (external recommendations)
+│   │       ├── ISeerrDiscoveryService.cs
+│   │       ├── SeerrDiscoveryService.cs  # Orchestrator: profiles → TMDb query → scoring → results
+│   │       ├── DiscoveryCacheService.cs  # Disk + memory persistence
+│   │       ├── ExternalCandidateFeatureBuilder.cs  # Builds 31-feature vector for TMDb items
+│   │       ├── ParentalRatingHelper.cs   # Child-safe content filtering
+│   │       ├── TmdbGenreMap.cs           # Jellyfin ↔ TMDb genre ID mapping
+│   │       ├── TmdbDiscoverItem.cs       # TMDb candidate DTO
+│   │       ├── DiscoveryResult.cs        # Per-user result container
+│   │       ├── DiscoveryRecommendation.cs # Single recommendation DTO
+│   │       └── Seerr*DTOs.cs            # API response models (credits, users, services)
 │   ├── Statistics/              # Media statistics
 │   └── Timeline/                # Library growth tracking
 ├── ScheduledTasks/
@@ -329,6 +349,32 @@ User Watch History → Feature Extraction (31 features) → Scoring Strategy →
 - **EnsembleScoringStrategy**: Blends all three with dynamic α/β weighting
 
 Training uses implicit feedback: previously recommended items are compared against current watch data to generate labeled training examples. The EnsembleScoringStrategy records a rolling history of training quality metrics (validation loss, P@K, R@K, NDCG@K) that are persisted across server restarts for future trend analysis.
+
+### Seerr Discovery Architecture
+
+Seerr Discovery extends the recommendation system to suggest external (not-yet-in-library) content by querying the configured Overseerr/Jellyseerr instance:
+
+```text
+UserWatchProfiles → Genre/People/Language preferences
+                         ↓
+         TMDb Discovery via Seerr API (genre + language endpoints)
+                         ↓
+         Deduplication + Parental Rating Filter + Arr Exclusion
+                         ↓
+         Phase 1: Pre-score all candidates (genre/rating/recency only)
+                         ↓
+         Phase 2: Enrich top-20 with credits (actors/directors via Seerr)
+                         ↓
+         Phase 3: Final score with EnsembleScoringStrategy (full 31 features)
+                         ↓
+         Top-10 per user → DiscoveryCacheService → Frontend
+```
+
+- Coupled to **Seerr configuration** (URL + API Key) - independent of Seerr Cleanup task mode
+- Runs as part of `HelperCleanupTask` when `RecommendationsTaskMode != Deactivate`
+- Uses `ExternalCandidateFeatureBuilder` to construct the same 31-feature vector used for internal recommendations
+- Results persisted to `jellyfin-helper-discovery-results.json` with in-memory cache
+- Request submission via `POST /JellyfinHelper/Discovery/Request` with optional Seerr user/server/profile mapping
 
 ## Configuration Page Build System
 

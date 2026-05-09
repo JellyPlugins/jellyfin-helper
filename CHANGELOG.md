@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
 
+## [2.1.0.0] - 2026-05-09
+
+### Added
+- **Seerr Discovery** - Personalized content discovery via the configured Overseerr/Jellyseerr instance. 
+- Uses the existing ensemble scoring strategy to rank TMDb candidates per user and suggest not-yet-in-library media for download. Includes one-click request submission, parental rating enforcement, language-based discovery, and automatic exclusion of items already in Radarr/Sonarr. Displayed as a new collapsible section in the Discover tab, coupled to Seerr configuration (URL + API Key) and Recommendations task mode.
+
+### Tests
+- Total: **2159 tests**.
+
+---
+
 ## [2.0.0.3] - 2026-05-08
 
 ### Refactored
