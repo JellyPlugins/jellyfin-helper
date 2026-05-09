@@ -448,37 +448,64 @@ function handleDiscoveryRequest(e) {
 }
 
 function showSeerrUserPopup(tmdbId, mediaType, btn) {
-    // Check if we have cached users
-    if (window._seerrUsers !== undefined) {
-        renderSeerrUserPopup(tmdbId, mediaType, btn, window._seerrUsers);
+    // Determine which service to query based on media type
+    var serviceType = (mediaType === 'tv') ? 'sonarr' : 'radarr';
+    var cacheKey = '_seerrServices_' + serviceType;
+
+    // Check if we have cached service info
+    if (window[cacheKey] !== undefined) {
+        renderQualityProfilePopup(tmdbId, mediaType, btn, window[cacheKey]);
         return;
     }
 
-    // Fetch users from Seerr
+    // Fetch service info from Seerr
     btn.disabled = true;
     btn.innerHTML = '<div class="spinner" style="width:1em;height:1em;"></div>';
 
-    apiGet('JellyfinHelper/Discovery/Users', function (users) {
-        window._seerrUsers = users || [];
+    apiGet('JellyfinHelper/Discovery/Services/' + serviceType, function (services) {
+        window[cacheKey] = services || [];
         btn.disabled = false;
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
-        renderSeerrUserPopup(tmdbId, mediaType, btn, window._seerrUsers);
+        renderQualityProfilePopup(tmdbId, mediaType, btn, window[cacheKey]);
     }, function () {
-        // If user fetch fails, submit without user selection
-        window._seerrUsers = [];
+        // If service fetch fails, submit without profile selection
+        window[cacheKey] = [];
         btn.disabled = false;
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         submitDiscoveryRequest(tmdbId, mediaType, null, btn);
     });
 }
 
-function renderSeerrUserPopup(tmdbId, mediaType, btn, users) {
+function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
     // Remove any existing popup
     var existing = document.getElementById('seerrUserPopup');
     if (existing) existing.remove();
 
-    // If no users available, submit directly as admin
-    if (!users || users.length === 0) {
+    // If no services or no profiles available, submit directly with defaults
+    if (!services || services.length === 0) {
+        submitDiscoveryRequest(tmdbId, mediaType, null, btn);
+        return;
+    }
+
+    // Collect all profiles across all servers
+    var allProfiles = [];
+    for (var s = 0; s < services.length; s++) {
+        var svc = services[s];
+        var profiles = svc.Profiles || svc.profiles || [];
+        for (var p = 0; p < profiles.length; p++) {
+            allProfiles.push({
+                serverId: svc.Id || svc.id,
+                serverName: svc.Name || svc.name || ('Server #' + (svc.Id || svc.id)),
+                profileId: profiles[p].Id || profiles[p].id,
+                profileName: profiles[p].Name || profiles[p].name,
+                isDefault: (profiles[p].Id || profiles[p].id) === (svc.ActiveProfileId || svc.activeProfileId),
+                rootFolder: svc.ActiveDirectory || svc.activeDirectory || ''
+            });
+        }
+    }
+
+    // If no profiles found, submit with defaults
+    if (allProfiles.length === 0) {
         submitDiscoveryRequest(tmdbId, mediaType, null, btn);
         return;
     }
@@ -493,30 +520,31 @@ function renderSeerrUserPopup(tmdbId, mediaType, btn, users) {
 
     var title = document.createElement('div');
     title.className = 'discovery-popup-title';
-    title.textContent = T('discoverySelectUser', 'Select Seerr Profile');
+    title.textContent = T('discoverySelectUser', 'Select Quality Profile');
     popup.appendChild(title);
 
     var subtitle = document.createElement('div');
     subtitle.className = 'discovery-popup-subtitle';
-    subtitle.textContent = T('discoverySelectUserDesc', 'Choose which user the request should be attributed to:');
+    subtitle.textContent = T('discoverySelectUserDesc', 'Choose which quality profile to use for the download:');
     popup.appendChild(subtitle);
 
     var list = document.createElement('div');
     list.className = 'discovery-popup-list';
 
-    for (var i = 0; i < users.length; i++) {
-        var user = users[i];
+    for (var i = 0; i < allProfiles.length; i++) {
+        var prof = allProfiles[i];
         var item = document.createElement('button');
-        item.className = 'discovery-popup-user';
-        item.setAttribute('data-user-id', user.Id || user.id);
-        var displayName = user.DisplayName || user.displayName || user.Email || user.email || ('User #' + (user.Id || user.id));
-        item.innerHTML = mi('person') + ' ' + escHtml(displayName);
-        item.addEventListener('click', (function (userId) {
+        item.className = 'discovery-popup-user' + (prof.isDefault ? ' discovery-popup-user-default' : '');
+        var label = escHtml(prof.profileName);
+        if (services.length > 1) { label += ' <span style="opacity:0.6">(' + escHtml(prof.serverName) + ')</span>'; }
+        if (prof.isDefault) { label += ' <span style="opacity:0.5; font-size:0.8em">\u2605 default</span>'; }
+        item.innerHTML = mi('high_quality') + ' ' + label;
+        item.addEventListener('click', (function (serverId, profileId, rootFolder) {
             return function () {
                 closePopup();
-                submitDiscoveryRequest(tmdbId, mediaType, userId, btn);
+                submitDiscoveryRequestWithProfile(tmdbId, mediaType, serverId, profileId, rootFolder, btn);
             };
-        })(user.Id || user.id));
+        })(prof.serverId, prof.profileId, prof.rootFolder));
         list.appendChild(item);
     }
     popup.appendChild(list);
@@ -547,6 +575,43 @@ function renderSeerrUserPopup(tmdbId, mediaType, btn, users) {
         var el = document.getElementById('seerrUserPopup');
         if (el) el.remove();
     }
+}
+
+function submitDiscoveryRequestWithProfile(tmdbId, mediaType, serverId, profileId, rootFolder, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner" style="width:1em;height:1em;"></div> ' + T('discoveryRequesting', 'Requesting\u2026');
+
+    var payload = { TmdbId: tmdbId, MediaType: mediaType, ServerId: serverId, ProfileId: profileId, RootFolder: rootFolder };
+
+    apiPost('JellyfinHelper/Discovery/Request', payload, function (res) {
+        if (res && res.Success) {
+            btn.classList.add('discovery-request-done');
+            btn.innerHTML = mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
+            markDiscoveryItemRequested(tmdbId);
+            var card = btn.closest('.discovery-card');
+            if (card) {
+                setTimeout(function () {
+                    card.classList.add('discovery-card-removing');
+                    setTimeout(function () {
+                        card.remove();
+                        var countSpan = document.getElementById('discoveryCount');
+                        if (countSpan) {
+                            var current = parseInt(countSpan.textContent, 10) || 0;
+                            countSpan.textContent = '' + Math.max(0, current - 1);
+                        }
+                    }, 300);
+                }, 800);
+            }
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = mi('error') + ' ' + T('discoveryRequestFailed', 'Failed');
+            setTimeout(function () { btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request'); }, 3000);
+        }
+    }, function () {
+        btn.disabled = false;
+        btn.innerHTML = mi('error') + ' ' + T('discoveryRequestFailed', 'Failed');
+        setTimeout(function () { btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request'); }, 3000);
+    });
 }
 
 function submitDiscoveryRequest(tmdbId, mediaType, seerrUserId, btn) {

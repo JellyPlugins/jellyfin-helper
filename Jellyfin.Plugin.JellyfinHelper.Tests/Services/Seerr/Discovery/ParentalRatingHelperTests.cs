@@ -38,6 +38,37 @@ public class ParentalRatingHelperTests
     }
 
     [Fact]
+    public void GetChildSafeQueryParams_NullRating_ReturnsNull()
+    {
+        var result = ParentalRatingHelper.GetChildSafeQueryParams(null);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetChildSafeQueryParams_HighRating_ReturnsNull()
+    {
+        var result = ParentalRatingHelper.GetChildSafeQueryParams(100);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetChildSafeQueryParams_ChildRating_ReturnsGenreFilter()
+    {
+        var result = ParentalRatingHelper.GetChildSafeQueryParams(60);
+        Assert.NotNull(result);
+        Assert.Contains("with_genres=10751", result);
+    }
+
+    [Fact]
+    public void GetChildSafeTvQueryParams_ChildRating_ReturnsKidsGenre()
+    {
+        var result = ParentalRatingHelper.GetChildSafeTvQueryParams(50);
+        Assert.NotNull(result);
+        Assert.Contains("10762", result);
+        Assert.Contains("10751", result);
+    }
+
+    [Fact]
     public void ShouldExclude_NullMaxRating_ReturnsFalse()
     {
         var candidate = new TmdbDiscoverItem { Id = 1, Adult = true, GenreIds = [27] };
@@ -60,7 +91,7 @@ public class ParentalRatingHelperTests
     }
 
     [Fact]
-    public void ShouldExclude_HorrorGenre_ChildAccount_ReturnsTrue()
+    public void ShouldExclude_HorrorGenre_TeenAccount_ReturnsTrue()
     {
         var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [27] }; // Horror
         Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 80));
@@ -74,14 +105,14 @@ public class ParentalRatingHelperTests
     }
 
     [Fact]
-    public void ShouldExclude_ThrillerGenre_ChildAccount_ReturnsTrue()
+    public void ShouldExclude_ThrillerGenre_TeenAccount_ReturnsTrue()
     {
         var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [53] }; // Thriller
         Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 100));
     }
 
     [Fact]
-    public void ShouldExclude_WarGenre_ChildAccount_ReturnsTrue()
+    public void ShouldExclude_WarGenre_TeenAccount_ReturnsTrue()
     {
         var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [10752] }; // War
         Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 80));
@@ -95,66 +126,174 @@ public class ParentalRatingHelperTests
         Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 120));
     }
 
-    [Fact]
-    public void ShouldExclude_SafeContent_StrictChildAccount_ReturnsFalse()
-    {
-        // Animation + Family = allowed for FSK-6
-        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [16, 10751] }; // Animation, Family
-        Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 60));
-    }
+    // === CRITICAL: Adult Animation Tests (American Dad, Family Guy) ===
 
     [Fact]
-    public void ShouldExclude_ActionOnly_StrictChildAccount_ReturnsTrue()
+    public void ShouldExclude_AnimationOnly_ChildAccount_ReturnsTrue()
     {
-        // Pure Action (28) without any child-friendly genre = excluded for FSK-6 (whitelist)
-        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [28] }; // Action only
+        // Animation (16) alone WITHOUT Family/Kids genre = Adult animation (Family Guy, American Dad)
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [16] };
         Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 60));
     }
 
     [Fact]
-    public void ShouldExclude_DramaOnly_StrictChildAccount_ReturnsTrue()
+    public void ShouldExclude_AnimationComedy_ChildAccount_ReturnsTrue()
     {
-        // Drama (18) is not on the whitelist for FSK-6
-        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [18] }; // Drama
+        // Animation + Comedy but NO Family/Kids genre = Adult animation
+        // This is exactly what American Dad and Family Guy look like on TMDb!
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [16, 35] };
+        Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_AnimationWithFamily_ChildAccount_ReturnsFalse()
+    {
+        // Animation + Family = genuinely child-safe (e.g. Frozen, Moana)
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [16, 10751] };
+        Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_AnimationWithKids_ChildAccount_ReturnsFalse()
+    {
+        // Animation + Kids (TV) = genuinely child-safe (e.g. Peppa Pig, Bluey)
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [16, 10762] };
+        Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_AnimationCrime_ChildAccount_ReturnsTrue()
+    {
+        // Animation + Crime = Adult animation (Archer)
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [16, 80] };
+        Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_ComedyOnly_ChildAccount_ReturnsTrue()
+    {
+        // Comedy alone without Family = adult comedy
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [35] };
+        Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_FamilyComedy_ChildAccount_ReturnsFalse()
+    {
+        // Family + Comedy = child-safe
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [10751, 35] };
+        Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_FamilyOnly_ChildAccount_ReturnsFalse()
+    {
+        // Family genre alone = child-safe
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [10751] };
+        Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_KidsOnly_ChildAccount_ReturnsFalse()
+    {
+        // Kids (TV) genre alone = child-safe
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [10762] };
+        Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_MusicGenre_ChildAccount_ReturnsFalse()
+    {
+        // Music genre = child-safe (primary allowed genre)
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [10402] };
+        Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_AdventureOnly_ChildAccount_ReturnsTrue()
+    {
+        // Adventure alone (without Family/Kids) = not safe for strict child
+        // (e.g. Indiana Jones, Mission Impossible)
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [12] };
+        Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_FamilyAdventure_ChildAccount_ReturnsFalse()
+    {
+        // Family + Adventure = child-safe (e.g. Finding Nemo)
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [10751, 12] };
+        Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_AnimationFamilyAdventure_ChildAccount_ReturnsFalse()
+    {
+        // Animation + Family + Adventure = genuinely child-safe (e.g. Moana)
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [16, 10751, 12] };
+        Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_AnimationFamilyThriller_ChildAccount_ReturnsTrue()
+    {
+        // Even with Family, Thriller genre makes it excluded
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [16, 10751, 53] };
+        Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_DramaOnly_ChildAccount_ReturnsTrue()
+    {
+        // Drama (18) is not on any child-friendly list
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [18] };
         Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 50));
-    }
-
-    [Fact]
-    public void ShouldExclude_AnimationWithThriller_StrictChildAccount_ReturnsTrue()
-    {
-        // Even with Animation (whitelisted), Thriller (blacklisted) takes priority
-        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [16, 53] }; // Animation + Thriller
-        Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 60));
-    }
-
-    [Fact]
-    public void ShouldExclude_ComedyAdventure_StrictChildAccount_ReturnsFalse()
-    {
-        // Comedy + Adventure = both on whitelist, fine for FSK-6
-        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [35, 12] }; // Comedy, Adventure
-        Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 60));
-    }
-
-    [Fact]
-    public void ShouldExclude_MixedGenres_OneRestricted_TeenAccount_ReturnsTrue()
-    {
-        // For FSK-12 (61-100), blacklist is used: Thriller is restricted
-        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [28, 53] }; // Action + Thriller
-        Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 80));
     }
 
     [Fact]
     public void ShouldExclude_ActionDrama_TeenAccount_ReturnsFalse()
     {
         // For FSK-12 (61-100), Action + Drama are not on the blacklist
-        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [28, 18] }; // Action + Drama
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [28, 18] };
         Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 80));
+    }
+
+    [Fact]
+    public void ShouldExclude_MixedGenres_OneRestricted_TeenAccount_ReturnsTrue()
+    {
+        // For FSK-12 (61-100), blacklist is used: Thriller is restricted
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [28, 53] };
+        Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 80));
     }
 
     [Fact]
     public void ShouldExclude_NonAdultContent_HighRating_ReturnsFalse()
     {
-        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [28, 12] }; // Action, Adventure
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [28, 12] };
         Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 140));
+    }
+
+    [Fact]
+    public void ShouldExclude_ActionOnly_StrictChildAccount_ReturnsTrue()
+    {
+        // Pure Action (28) without any child-friendly genre = excluded for FSK-6
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [28] };
+        Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_FantasyOnly_ChildAccount_ReturnsTrue()
+    {
+        // Fantasy alone (without Family/Kids) = conditional, needs primary child genre
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [14] };
+        Assert.True(ParentalRatingHelper.ShouldExclude(candidate, 60));
+    }
+
+    [Fact]
+    public void ShouldExclude_FamilyFantasy_ChildAccount_ReturnsFalse()
+    {
+        // Family + Fantasy = child-safe (e.g. Harry Potter for young kids... well actually borderline)
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = false, GenreIds = [10751, 14] };
+        Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 60));
     }
 }

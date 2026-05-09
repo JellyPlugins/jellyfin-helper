@@ -75,9 +75,9 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the maximum discovery recommendations per user.
-    ///     Default is 5. Valid range: 1-10.
+    ///     Default is 10. Valid range: 1-20.
     /// </summary>
-    public int SeerrDiscoveryMaxPerUser { get; set; } = 5;
+    public int SeerrDiscoveryMaxPerUser { get; set; } = 10;
 
     /// <summary>
     ///     Gets or sets the base URL of the Jellyseerr/Overseerr/Seerr instance.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -28,6 +29,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     Minimum vote average below which candidates are filtered out (quality floor).
     /// </summary>
     private const double MinVoteAverage = 5.0;
+
+    /// <summary>
+    ///     Minimum vote average for child-safe content (higher floor to ensure quality children's content).
+    /// </summary>
+    private const double MinVoteAverageChild = 5.5;
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
 
@@ -184,6 +190,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         int tmdbId,
         string mediaType,
         int? seerrUserId,
+        int? serverId,
+        int? profileId,
+        string? rootFolder,
         CancellationToken cancellationToken)
     {
         if (tmdbId <= 0)
@@ -223,10 +232,35 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             try
             {
-                // Build request payload - include userId if specified to attribute the request
-                object payload = seerrUserId is > 0
-                    ? new { mediaType, mediaId = tmdbId, is4k = false, seasons = "all", userId = seerrUserId.Value }
-                    : new { mediaType, mediaId = tmdbId, is4k = false, seasons = "all" };
+                var payloadDict = new Dictionary<string, object>
+                {
+                    ["mediaType"] = mediaType,
+                    ["mediaId"] = tmdbId,
+                    ["is4k"] = false,
+                    ["seasons"] = "all"
+                };
+
+                if (seerrUserId is > 0)
+                {
+                    payloadDict["userId"] = seerrUserId.Value;
+                }
+
+                if (serverId is > 0)
+                {
+                    payloadDict["serverId"] = serverId.Value;
+                }
+
+                if (profileId is > 0)
+                {
+                    payloadDict["profileId"] = profileId.Value;
+                }
+
+                if (!string.IsNullOrWhiteSpace(rootFolder))
+                {
+                    payloadDict["rootFolder"] = rootFolder;
+                }
+
+                object payload = payloadDict;
 
                 var content = new StringContent(
                     JsonSerializer.Serialize(payload, JsonOptions),
@@ -339,6 +373,110 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<SeerrServiceInfo>> GetServiceInfoAsync(
+        string serviceType,
+        CancellationToken cancellationToken)
+    {
+        if (serviceType is not ("radarr" or "sonarr"))
+        {
+            return [];
+        }
+
+        var config = Plugin.Instance?.Configuration;
+        if (config == null
+            || string.IsNullOrWhiteSpace(config.SeerrUrl)
+            || string.IsNullOrWhiteSpace(config.SeerrApiKey))
+        {
+            return [];
+        }
+
+        HttpClient client;
+        try
+        {
+            client = CreateClient(config.SeerrUrl, config.SeerrApiKey);
+        }
+        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
+        {
+            return [];
+        }
+
+        using (client)
+        {
+            try
+            {
+                // Step 1: Get the server list (basic info without profiles)
+                // Seerr API: GET /service/radarr → server list (id, name, isDefault, is4k)
+                using var listResponse = await client.GetAsync(
+                    new Uri($"api/v1/service/{serviceType}", UriKind.Relative),
+                    cancellationToken).ConfigureAwait(false);
+
+                if (!listResponse.IsSuccessStatusCode)
+                {
+                    return [];
+                }
+
+                var listJson = await listResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var servers = JsonSerializer.Deserialize<List<SeerrServiceInfo>>(listJson, JsonOptions);
+                if (servers == null || servers.Count == 0)
+                {
+                    return [];
+                }
+
+                // Step 2: For each server, fetch quality profiles and root folders
+                // Seerr API: GET /service/radarr/{radarrId} → { profiles: [...], rootFolders: [...] }
+                var enrichedServers = new List<SeerrServiceInfo>();
+                foreach (var server in servers)
+                {
+                    try
+                    {
+                        using var detailResponse = await client.GetAsync(
+                            new Uri($"api/v1/service/{serviceType}/{server.Id}", UriKind.Relative),
+                            cancellationToken).ConfigureAwait(false);
+
+                        if (detailResponse.IsSuccessStatusCode)
+                        {
+                            var detailJson = await detailResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                            var detail = JsonSerializer.Deserialize<SeerrServiceInfo>(detailJson, JsonOptions);
+                            if (detail != null)
+                            {
+                                // Merge: keep the server-level info but add profiles/rootFolders from detail
+                                server.Profiles = detail.Profiles;
+                                server.RootFolders = detail.RootFolders;
+                                server.ActiveProfileId = detail.ActiveProfileId;
+                                server.ActiveDirectory = detail.ActiveDirectory;
+                            }
+                        }
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _pluginLog.LogDebug(
+                            "SeerrDiscovery",
+                            $"Failed to fetch profiles for {serviceType} server #{server.Id}: {ex.Message}",
+                            _logger);
+                    }
+
+                    enrichedServers.Add(server);
+                }
+
+                return enrichedServers;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+            {
+                _pluginLog.LogWarning(
+                    "SeerrDiscovery",
+                    $"Failed to fetch Seerr {serviceType} service info: {ex.Message}",
+                    ex,
+                    _logger);
+                return [];
+            }
+        }
+    }
+
     private async Task<DiscoveryResult?> GenerateForUserAsync(
         UserWatchProfile profile,
         PluginConfiguration config,
@@ -360,9 +498,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         var avgYear = ContentScoring.ComputeAverageYear(profile);
         var preferredPeople = BuildPreferredPeopleSet(profile);
+        var isChildAccount = profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value <= 60;
 
-        // Build certification query parameter based on user's parental rating
-        var certParam = ParentalRatingHelper.GetCertificationQueryParam(profile.MaxParentalRating);
+        // Determine user's primary language for language-based discovery
+        var primaryLanguage = GetPrimaryLanguageForDiscovery(profile);
 
         HttpClient client;
         try
@@ -383,69 +522,111 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             var allCandidates = new List<TmdbDiscoverItem>();
 
-            // Query A: Top genres (one query per genre for movies + TV)
+            // === Seerr API uses PATH-based endpoints, NOT query parameters ===
+            // Correct: /api/v1/discover/movies/genre/{genreId}?page=1
+            // Correct: /api/v1/discover/movies/language/{language}?page=1
+            // WRONG:   /api/v1/discover/movies?genre=16&sortBy=... (causes HTTP 400!)
+
+            // Query A: Top genres (use all top-3 genres for movies + TV)
             if (topGenres.Count >= 1)
             {
-                var movieGenreIds = BuildGenreIdList(topGenres.Take(2), TmdbGenreMap.ToMovieTmdbId);
-                foreach (var genreId in movieGenreIds)
+                if (isChildAccount)
                 {
-                    var queryPath = $"api/v1/discover/movies?genre={genreId}&page=1";
-                    if (certParam != null)
+                    // For child accounts: query Family (10751) genre for movies, Kids (10762) for TV
+                    var familyItems = await ExecuteDiscoverQueryAsync(
+                        client, "api/v1/discover/movies/genre/10751?page=1", cancellationToken).ConfigureAwait(false);
+                    allCandidates.AddRange(familyItems);
+
+                    var familyItems2 = await ExecuteDiscoverQueryAsync(
+                        client, "api/v1/discover/movies/genre/10751?page=2", cancellationToken).ConfigureAwait(false);
+                    allCandidates.AddRange(familyItems2);
+
+                    // Animation + Family for movies (children's animation)
+                    var animItems = await ExecuteDiscoverQueryAsync(
+                        client, "api/v1/discover/movies/genre/16?page=1", cancellationToken).ConfigureAwait(false);
+                    allCandidates.AddRange(animItems);
+
+                    // Kids TV genre
+                    var kidsItems = await ExecuteDiscoverQueryAsync(
+                        client, "api/v1/discover/tv/genre/10762?page=1", cancellationToken).ConfigureAwait(false);
+                    allCandidates.AddRange(kidsItems);
+
+                    var kidsItems2 = await ExecuteDiscoverQueryAsync(
+                        client, "api/v1/discover/tv/genre/10762?page=2", cancellationToken).ConfigureAwait(false);
+                    allCandidates.AddRange(kidsItems2);
+
+                    // Family TV genre
+                    var familyTvItems = await ExecuteDiscoverQueryAsync(
+                        client, "api/v1/discover/tv/genre/10751?page=1", cancellationToken).ConfigureAwait(false);
+                    allCandidates.AddRange(familyTvItems);
+                }
+                else
+                {
+                    // Normal users: query their top-3 preferred genres
+                    var movieGenreIds = BuildGenreIdList(topGenres, TmdbGenreMap.ToMovieTmdbId);
+                    foreach (var genreId in movieGenreIds)
                     {
-                        queryPath += certParam;
+                        var items = await ExecuteDiscoverQueryAsync(
+                            client, $"api/v1/discover/movies/genre/{genreId}?page=1", cancellationToken).ConfigureAwait(false);
+                        allCandidates.AddRange(items);
                     }
 
-                    var items = await ExecuteDiscoverQueryAsync(
-                        client, queryPath, cancellationToken).ConfigureAwait(false);
-                    allCandidates.AddRange(items);
-                }
+                    var tvGenreIds = BuildGenreIdList(topGenres, TmdbGenreMap.ToTvTmdbId);
+                    foreach (var genreId in tvGenreIds)
+                    {
+                        var items = await ExecuteDiscoverQueryAsync(
+                            client, $"api/v1/discover/tv/genre/{genreId}?page=1", cancellationToken).ConfigureAwait(false);
+                        allCandidates.AddRange(items);
+                    }
 
-                var tvGenreIds = BuildGenreIdList(topGenres.Take(2), TmdbGenreMap.ToTvTmdbId);
-                foreach (var genreId in tvGenreIds)
-                {
-                    var queryPath = $"api/v1/discover/tv?genre={genreId}&page=1";
-                    // Note: certification_lte works primarily for movies on TMDb;
-                    // TV uses content_ratings which requires different parameters.
-                    // We rely on genre-based filtering for TV series parental control.
+                    // Query B: Page 2 of top genre for more variety
+                    if (movieGenreIds.Count > 0)
+                    {
+                        var items = await ExecuteDiscoverQueryAsync(
+                            client, $"api/v1/discover/movies/genre/{movieGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
+                        allCandidates.AddRange(items);
+                    }
 
-                    var items = await ExecuteDiscoverQueryAsync(
-                        client, queryPath, cancellationToken).ConfigureAwait(false);
-                    allCandidates.AddRange(items);
+                    if (tvGenreIds.Count > 0)
+                    {
+                        var items = await ExecuteDiscoverQueryAsync(
+                            client, $"api/v1/discover/tv/genre/{tvGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
+                        allCandidates.AddRange(items);
+                    }
+
+                    // Query C: Language-based discovery if user has clear preference
+                    if (!string.IsNullOrEmpty(primaryLanguage))
+                    {
+                        var langMovies = await ExecuteDiscoverQueryAsync(
+                            client, $"api/v1/discover/movies/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
+                        allCandidates.AddRange(langMovies);
+
+                        var langTv = await ExecuteDiscoverQueryAsync(
+                            client, $"api/v1/discover/tv/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
+                        allCandidates.AddRange(langTv);
+                    }
                 }
             }
 
-            // Query B: Top-1 genre, high-rated movies
-            if (topGenres.Count >= 1)
-            {
-                var topGenreId = TmdbGenreMap.ToMovieTmdbId(topGenres[0]);
-                if (topGenreId.HasValue)
-                {
-                    var minRating = ComputeMinRating(profile);
-                    var queryPath = $"api/v1/discover/movies?genre={topGenreId.Value}&voteAverageGte={minRating:F1}&page=1";
-                    if (certParam != null)
-                    {
-                        queryPath += certParam;
-                    }
-
-                    var items = await ExecuteDiscoverQueryAsync(
-                        client, queryPath, cancellationToken).ConfigureAwait(false);
-                    allCandidates.AddRange(items);
-                }
-            }
-
-            // Deduplicate and filter (now includes parental rating filtering)
-            var uniqueCandidates = DeduplicateAndFilter(allCandidates, excludedTmdbIds, profile.MaxParentalRating);
+            // Deduplicate and filter (includes parental rating + year + quality post-filtering)
+            var minVote = isChildAccount ? MinVoteAverageChild : MinVoteAverage;
+            var uniqueCandidates = DeduplicateAndFilter(allCandidates, excludedTmdbIds, profile.MaxParentalRating, minVote, avgYear, isChildAccount);
 
             if (uniqueCandidates.Count == 0)
             {
                 _pluginLog.LogDebug(
                     "SeerrDiscovery",
-                    $"No viable candidates for user {profile.UserName} after filtering.",
+                    $"No viable candidates for user {profile.UserName} after filtering (parental={profile.MaxParentalRating}).",
                     _logger);
                 return null;
             }
 
-            // Score candidates
+            _pluginLog.LogDebug(
+                "SeerrDiscovery",
+                $"User {profile.UserName}: {allCandidates.Count} raw candidates → {uniqueCandidates.Count} after filtering.",
+                _logger);
+
+            // Score candidates using heuristic strategy (same features as recommendation engine)
             var scored = new List<(TmdbDiscoverItem Item, CandidateFeatures Features, double Score)>(uniqueCandidates.Count);
             foreach (var candidate in uniqueCandidates)
             {
@@ -560,27 +741,39 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
         }
 
-        // Note: Sonarr series exclusion skipped - ArrSeries does not expose TmdbId.
-        // TV series deduplication relies on the Seerr request-level filtering.
-
         return excluded;
     }
 
     /// <summary>
     ///     Deduplicates candidates against the exclusion set, removes low-rated items,
-    ///     and applies parental rating filtering (adult flag + genre blacklist for children).
+    ///     applies parental rating filtering, and optionally filters by year relevance.
     /// </summary>
-    /// <param name="candidates">The raw candidate list from all queries.</param>
-    /// <param name="excludedTmdbIds">TMDb IDs already in library or requested.</param>
-    /// <param name="maxParentalRating">The user's max parental rating (null = unrestricted).</param>
-    /// <returns>Filtered and deduplicated candidate list.</returns>
     private static List<TmdbDiscoverItem> DeduplicateAndFilter(
         List<TmdbDiscoverItem> candidates,
         HashSet<int> excludedTmdbIds,
-        int? maxParentalRating)
+        int? maxParentalRating,
+        double minVoteAverage,
+        double avgYear,
+        bool isChildAccount)
     {
         var seen = new HashSet<int>();
         var result = new List<TmdbDiscoverItem>();
+
+        // For year-based post-filtering: compute acceptable year range
+        var currentYear = DateTime.UtcNow.Year;
+        var minYear = 0;
+        if (!isChildAccount && avgYear > 0)
+        {
+            // Users who watch modern content: exclude very old films
+            if (avgYear >= currentYear - 6)
+            {
+                minYear = currentYear - 12; // Last 12 years
+            }
+            else if (avgYear >= 2000)
+            {
+                minYear = (int)avgYear - 15; // Wide window around their preference
+            }
+        }
 
         foreach (var candidate in candidates)
         {
@@ -594,7 +787,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 continue;
             }
 
-            if (candidate.VoteAverage < MinVoteAverage)
+            if (candidate.VoteAverage < minVoteAverage)
             {
                 continue;
             }
@@ -608,6 +801,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             if (ParentalRatingHelper.ShouldExclude(candidate, maxParentalRating))
             {
                 continue;
+            }
+
+            // Year-based post-filtering (soft: only if year is available and min is set)
+            if (minYear > 0 && candidate.EffectiveReleaseDate.HasValue)
+            {
+                if (candidate.EffectiveReleaseDate.Value.Year < minYear)
+                {
+                    continue;
+                }
             }
 
             result.Add(candidate);
@@ -626,7 +828,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             var id = mapper(genre);
             if (id.HasValue)
             {
-                ids.Add(id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                ids.Add(id.Value.ToString(CultureInfo.InvariantCulture));
             }
         }
 
@@ -638,10 +840,99 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         return Math.Max(6.0, profile.AverageCommunityRating > 0 ? profile.AverageCommunityRating : 6.0);
     }
 
+    /// <summary>
+    ///     Gets the primary language code for Seerr language-based discovery endpoints.
+    ///     Returns a 2-letter ISO 639-1 code (e.g. "de", "en") if the user has a clear preference,
+    ///     or null if no clear preference is detected.
+    /// </summary>
+    private static string? GetPrimaryLanguageForDiscovery(UserWatchProfile profile)
+    {
+        var primaryLang = profile.PrimaryLanguage;
+        if (string.IsNullOrWhiteSpace(primaryLang))
+        {
+            return null;
+        }
+
+        // Only use language discovery if the user has actively chosen this language
+        // at least 3 times (not just forced because it was the only option)
+        if (profile.LanguageProfile.TryGetValue(primaryLang, out var entry) && entry.ChosenCount >= 3)
+        {
+            return primaryLang.ToLowerInvariant();
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Builds the set of preferred people (actors/directors) from the user's watch history.
+    ///     Extracts people names from watched items if available.
+    /// </summary>
     private static HashSet<string> BuildPreferredPeopleSet(UserWatchProfile profile)
     {
+        // Currently TMDb discover responses don't include cast data,
+        // so people-based filtering has limited value. Return empty for now.
+        // Future: could extract from WatchedItems if people metadata is cached.
         _ = profile;
         return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    ///     Builds a language query parameter from the user's language profile.
+    ///     Uses the primary preferred language (if determined via active choice, not forced).
+    /// </summary>
+    private static string? BuildLanguageParam(UserWatchProfile profile)
+    {
+        var primaryLang = profile.PrimaryLanguage;
+        if (string.IsNullOrWhiteSpace(primaryLang))
+        {
+            return null;
+        }
+
+        // Only apply language filter if the user has a clear preference
+        // (at least 3 chosen instances of the language)
+        if (profile.LanguageProfile.TryGetValue(primaryLang, out var entry) && entry.ChosenCount >= 3)
+        {
+            return $"&language={Uri.EscapeDataString(primaryLang)}";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Builds a year filter parameter based on the user's average watched year.
+    ///     For users who watch mostly modern content, restricts results to recent years.
+    ///     For child accounts, no year restriction (children watch both old and new content).
+    /// </summary>
+    private static string? BuildYearParam(double avgYear, bool isChildAccount)
+    {
+        if (isChildAccount)
+        {
+            // Children watch Disney classics from 1990s as well as new content - no year filter
+            return null;
+        }
+
+        if (avgYear <= 0)
+        {
+            return null;
+        }
+
+        // If user's average year is recent (e.g. 2018+), restrict to last ~8 years
+        var currentYear = DateTime.UtcNow.Year;
+        if (avgYear >= currentYear - 6)
+        {
+            var minYear = currentYear - 8;
+            return $"&primary_release_date.gte={minYear}-01-01";
+        }
+
+        // If average is older, use a wider window (average - 10 years)
+        if (avgYear >= 2000)
+        {
+            var minYear = (int)avgYear - 10;
+            return $"&primary_release_date.gte={minYear}-01-01";
+        }
+
+        // Very old average year - don't restrict
+        return null;
     }
 
     private static (string ReasonKey, string? RelatedInfo) DetermineReason(

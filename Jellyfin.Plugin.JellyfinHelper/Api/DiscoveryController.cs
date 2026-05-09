@@ -59,6 +59,23 @@ public sealed class DiscoveryController : ControllerBase
     }
 
     /// <summary>
+    ///     Returns the configured Radarr or Sonarr service info from Seerr,
+    ///     including available quality profiles and root folders.
+    /// </summary>
+    /// <param name="serviceType">"radarr" or "sonarr".</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of configured services with profiles.</returns>
+    [HttpGet("Services/{serviceType}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<SeerrServiceInfo>>> GetServiceInfo(
+        string serviceType,
+        CancellationToken cancellationToken)
+    {
+        var services = await _discovery.GetServiceInfoAsync(serviceType, cancellationToken).ConfigureAwait(false);
+        return Ok(services);
+    }
+
+    /// <summary>
     ///     Submits a media request to the configured Seerr instance.
     /// </summary>
     /// <param name="dto">The request data.</param>
@@ -83,7 +100,13 @@ public sealed class DiscoveryController : ControllerBase
         }
 
         var (success, message) = await _discovery.SubmitRequestAsync(
-            dto.TmdbId, dto.MediaType, dto.SeerrUserId, cancellationToken).ConfigureAwait(false);
+            dto.TmdbId,
+            dto.MediaType,
+            dto.SeerrUserId,
+            dto.ServerId,
+            dto.ProfileId,
+            dto.RootFolder,
+            cancellationToken).ConfigureAwait(false);
 
         if (!success)
         {

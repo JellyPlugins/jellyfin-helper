@@ -20,4 +20,22 @@ public sealed class DiscoveryRequestDto
     ///     When null or 0, the request is submitted as the API key owner (admin).
     /// </summary>
     public int? SeerrUserId { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the Radarr/Sonarr server ID in Seerr.
+    ///     When provided, overrides the default server selection.
+    /// </summary>
+    public int? ServerId { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the quality profile ID to use for the download.
+    ///     When provided, overrides the default quality profile.
+    /// </summary>
+    public int? ProfileId { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the root folder path for the download.
+    ///     When provided, overrides the default root folder.
+    /// </summary>
+    public string? RootFolder { get; set; }
 }

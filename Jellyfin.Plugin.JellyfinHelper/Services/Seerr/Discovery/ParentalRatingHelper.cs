@@ -46,13 +46,40 @@ internal static class ParentalRatingHelper
     /// </summary>
     private static readonly HashSet<int> ChildAllowedGenreIds = new()
     {
-        16, // Animation
         10751, // Family
-        35, // Comedy
-        10402, // Music
         10762, // Kids (TV)
+        10402 // Music
+    };
+
+    /// <summary>
+    ///     TMDb genre IDs that are explicitly child-safe ONLY when combined with Family/Kids genres.
+    ///     Animation alone is NOT sufficient because of adult animation (Family Guy, American Dad, etc.).
+    ///     Comedy alone is NOT sufficient because of adult comedies.
+    ///     These genres require at least one <see cref="ChildAllowedGenreIds"/> to be present.
+    /// </summary>
+    private static readonly HashSet<int> ChildConditionalGenreIds = new()
+    {
+        16, // Animation (child-safe ONLY with Family/Kids - excludes Adult Animation)
+        35, // Comedy (child-safe ONLY with Family/Kids - excludes adult comedy)
         12, // Adventure
         14 // Fantasy
+    };
+
+    /// <summary>
+    ///     TMDb keyword IDs known to indicate adult-oriented animation content.
+    ///     These are checked as an additional filter layer.
+    /// </summary>
+    /// <remarks>
+    ///     Note: TMDb discover API does not return keywords in results, so this is used
+    ///     as a secondary signal via vote_average thresholds for animation content.
+    /// </remarks>
+    private static readonly HashSet<int> AdultAnimationGenreCombinations = new()
+    {
+        // Animation (16) combined with these genres typically indicates adult content:
+        80, // Crime (e.g., Archer)
+        53, // Thriller
+        10752, // War
+        10768 // War & Politics
     };
 
     /// <summary>
@@ -85,6 +112,42 @@ internal static class ParentalRatingHelper
     }
 
     /// <summary>
+    ///     Gets additional query parameters for strict child accounts to ensure only
+    ///     genuinely child-appropriate content is discovered.
+    ///     For FSK-6 accounts, this adds genre restrictions to the TMDb query itself.
+    /// </summary>
+    /// <param name="maxParentalRating">The user's max parental rating.</param>
+    /// <returns>Additional query parameters, or null for non-child accounts.</returns>
+    internal static string? GetChildSafeQueryParams(int? maxParentalRating)
+    {
+        if (!maxParentalRating.HasValue || maxParentalRating.Value > 60)
+        {
+            return null;
+        }
+
+        // For strict child accounts, restrict to Family genre in TMDb queries
+        // This is the most reliable way to avoid adult animation/comedy
+        // TMDb genre ID 10751 = Family (movies), 10762 = Kids (TV)
+        return "&with_genres=10751";
+    }
+
+    /// <summary>
+    ///     Gets additional TV-specific query parameters for strict child accounts.
+    /// </summary>
+    /// <param name="maxParentalRating">The user's max parental rating.</param>
+    /// <returns>Additional query parameters for TV queries, or null.</returns>
+    internal static string? GetChildSafeTvQueryParams(int? maxParentalRating)
+    {
+        if (!maxParentalRating.HasValue || maxParentalRating.Value > 60)
+        {
+            return null;
+        }
+
+        // TMDb genre ID 10762 = Kids (TV), 10751 = Family
+        return "&with_genres=10762|10751";
+    }
+
+    /// <summary>
     ///     Determines whether a candidate item should be excluded based on parental rating constraints.
     /// </summary>
     /// <param name="candidate">The TMDb discover item to check.</param>
@@ -103,29 +166,71 @@ internal static class ParentalRatingHelper
             return true;
         }
 
-        // For strict child accounts (FSK-6 and below): WHITELIST approach
-        // Only allow content that has at least one child-friendly genre
+        // For strict child accounts (FSK-6 and below): STRICT WHITELIST approach
+        // Animation alone is NOT enough (American Dad, Family Guy, Archer are all "Animation")
+        // Must have Family (10751) or Kids (10762) or Music (10402) genre
         if (maxParentalRating.Value <= 60)
         {
-            var hasAllowedGenre = false;
+            var hasPrimaryChildGenre = false;
+            var hasConditionalChildGenre = false;
+            var hasRestrictedGenre = false;
+
             foreach (var genreId in candidate.GenreIds)
             {
                 if (ChildAllowedGenreIds.Contains(genreId))
                 {
-                    hasAllowedGenre = true;
-                    break;
+                    hasPrimaryChildGenre = true;
+                }
+
+                if (ChildConditionalGenreIds.Contains(genreId))
+                {
+                    hasConditionalChildGenre = true;
+                }
+
+                if (TeenRestrictedGenreIds.Contains(genreId))
+                {
+                    hasRestrictedGenre = true;
+                }
+
+                if (AdultAnimationGenreCombinations.Contains(genreId) && candidate.GenreIds.Contains(16))
+                {
+                    // Animation + Crime/Thriller/War = likely adult animation
+                    return true;
                 }
             }
 
-            if (!hasAllowedGenre)
+            // Must have at least one primary child-safe genre (Family, Kids, Music)
+            // OR conditional genres (Animation, Comedy, Adventure, Fantasy) ONLY if Family/Kids is also present
+            if (!hasPrimaryChildGenre)
+            {
+                // No Family/Kids/Music genre at all → exclude
+                // Even if it has Animation or Comedy, those alone aren't safe
+                if (hasConditionalChildGenre)
+                {
+                    // Has Animation/Comedy/etc. but no Family/Kids → likely adult content
+                    return true;
+                }
+
+                // No child-friendly genre at all
+                return true;
+            }
+
+            // Even with Family genre, still exclude if a restricted genre is present
+            if (hasRestrictedGenre)
             {
                 return true;
             }
 
-            // Even with an allowed genre, still exclude if a restricted genre is present
-            foreach (var genreId in candidate.GenreIds)
+            // Additional safety: very high vote averages for Animation without Kids/Family
+            // sometimes indicate cult adult shows. If Animation is present but the main
+            // genres are not Kids-focused, apply a stricter check.
+            if (candidate.GenreIds.Contains(16) && !candidate.GenreIds.Contains(10762))
             {
-                if (TeenRestrictedGenreIds.Contains(genreId))
+                // Animation without explicit "Kids" TV genre - check vote count
+                // Adult animations tend to have vote_average between 6-9 with moderate counts
+                // While children's content tends to have lower vote averages (5-7)
+                // We already required Family genre above, so this is a secondary check
+                if (candidate.VoteAverage > 8.0 && !candidate.GenreIds.Contains(10751))
                 {
                     return true;
                 }
