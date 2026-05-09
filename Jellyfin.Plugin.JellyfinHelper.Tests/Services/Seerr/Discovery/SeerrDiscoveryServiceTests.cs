@@ -18,14 +18,22 @@ public class SeerrDiscoveryServiceTests
         var factory = new Mock<System.Net.Http.IHttpClientFactory>();
         var history = new Mock<IWatchHistoryService>();
         var arr = new Mock<IArrIntegrationService>();
+        var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);
         var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var neural = new NeuralScoringStrategy(null, new Mock<ILogger<NeuralScoringStrategy>>().Object);
+        var ensemble = new EnsembleScoringStrategy(
+            learned, heuristic, neural, null,
+            EnsembleScoringStrategy.DefaultAlphaMin,
+            EnsembleScoringStrategy.DefaultAlphaMax,
+            EnsembleScoringStrategy.DefaultGenrePenaltyFloor,
+            new Mock<ILogger<EnsembleScoringStrategy>>().Object);
         var pluginLog = new Mock<IPluginLogService>();
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
         var cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
         var logger = new Mock<ILogger<SeerrDiscoveryService>>();
         return new SeerrDiscoveryService(
             factory.Object, history.Object, arr.Object,
-            heuristic, cache, pluginLog.Object, logger.Object);
+            ensemble, cache, pluginLog.Object, logger.Object);
     }
 
     [Fact]

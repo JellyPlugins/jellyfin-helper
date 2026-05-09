@@ -50,7 +50,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IArrIntegrationService _arrIntegration;
-    private readonly HeuristicScoringStrategy _heuristic;
+    private readonly EnsembleScoringStrategy _ensemble;
     private readonly DiscoveryCacheService _cache;
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<SeerrDiscoveryService> _logger;
@@ -61,7 +61,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="httpClientFactory">The HTTP client factory.</param>
     /// <param name="watchHistoryService">The watch history service.</param>
     /// <param name="arrIntegration">The Arr integration service.</param>
-    /// <param name="heuristic">The heuristic scoring strategy.</param>
+    /// <param name="ensemble">The ensemble scoring strategy (combines heuristic + learned + neural).</param>
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
@@ -69,7 +69,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         IHttpClientFactory httpClientFactory,
         IWatchHistoryService watchHistoryService,
         IArrIntegrationService arrIntegration,
-        HeuristicScoringStrategy heuristic,
+        EnsembleScoringStrategy ensemble,
         DiscoveryCacheService cache,
         IPluginLogService pluginLog,
         ILogger<SeerrDiscoveryService> logger)
@@ -77,7 +77,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(watchHistoryService);
         ArgumentNullException.ThrowIfNull(arrIntegration);
-        ArgumentNullException.ThrowIfNull(heuristic);
+        ArgumentNullException.ThrowIfNull(ensemble);
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(pluginLog);
         ArgumentNullException.ThrowIfNull(logger);
@@ -85,7 +85,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _httpClientFactory = httpClientFactory;
         _watchHistoryService = watchHistoryService;
         _arrIntegration = arrIntegration;
-        _heuristic = heuristic;
+        _ensemble = ensemble;
         _cache = cache;
         _pluginLog = pluginLog;
         _logger = logger;
@@ -629,13 +629,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 $"User {profile.UserName}: {allCandidates.Count} raw candidates → {uniqueCandidates.Count} after filtering.",
                 _logger);
 
-            // Score candidates using heuristic strategy (same features as recommendation engine)
+            // Score candidates using ensemble strategy (heuristic + learned + neural combined)
             var scored = new List<(TmdbDiscoverItem Item, CandidateFeatures Features, double Score)>(uniqueCandidates.Count);
             foreach (var candidate in uniqueCandidates)
             {
                 var features = ExternalCandidateFeatureBuilder.Build(
                     candidate, genrePreferences, preferredPeople, avgYear);
-                var score = _heuristic.Score(features);
+                var score = _ensemble.Score(features);
                 scored.Add((candidate, features, score));
             }
 
