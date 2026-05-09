@@ -95,13 +95,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return;
         }
 
-        if (config.SeerrDiscoveryTaskMode == TaskMode.Deactivate)
+        if (config.RecommendationsTaskMode == TaskMode.Deactivate)
         {
             _pluginLog.LogInfo("SeerrDiscovery", "Discovery task is deactivated. Skipping.", _logger);
             return;
         }
 
-        var dryRun = config.SeerrDiscoveryTaskMode == TaskMode.DryRun;
+        var dryRun = config.RecommendationsTaskMode == TaskMode.DryRun;
         var maxPerUser = config.SeerrDiscoveryMaxPerUser;
 
         _pluginLog.LogInfo(

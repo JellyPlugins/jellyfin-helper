@@ -13,7 +13,6 @@ public class PluginConfiguration : BasePluginConfiguration
 {
     // ===== Backing fields for clamped properties =====
     private int _maxRecommendationsPerUser = 20;
-    private int _seerrDiscoveryMaxPerUser = 5;
     private double _ensembleAlphaMin = 0.3;
     private double _ensembleAlphaMax = 0.75;
     private double _ensembleGenrePenaltyFloor = 0.10;
@@ -75,20 +74,10 @@ public class PluginConfiguration : BasePluginConfiguration
     public int SeerrCleanupAgeDays { get; set; } = 365;
 
     /// <summary>
-    ///     Gets or sets the execution mode for the Seerr Discovery task.
-    ///     Default is <see cref="TaskMode.Deactivate"/> — opt-in feature.
-    /// </summary>
-    public TaskMode SeerrDiscoveryTaskMode { get; set; } = TaskMode.Deactivate;
-
-    /// <summary>
     ///     Gets or sets the maximum discovery recommendations per user.
-    ///     Clamped to [1, 10]. Default is 5.
+    ///     Default is 5. Valid range: 1-10.
     /// </summary>
-    public int SeerrDiscoveryMaxPerUser
-    {
-        get => _seerrDiscoveryMaxPerUser;
-        set => _seerrDiscoveryMaxPerUser = Math.Clamp(value, 1, 10);
-    }
+    public int SeerrDiscoveryMaxPerUser { get; set; } = 5;
 
     /// <summary>
     ///     Gets or sets the base URL of the Jellyseerr/Overseerr/Seerr instance.

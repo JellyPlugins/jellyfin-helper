@@ -139,7 +139,7 @@ public class HelperCleanupTask : IScheduledTask
             ("Seerr Cleanup", config.SeerrCleanupTaskMode, (p, ct) => RunSeerrCleanup(config, p, ct)),
             ("User Watch Activity", config.RecommendationsTaskMode, (p, ct) => RunUserActivityUpdate(config, p, ct)),
             ("Smart Recommendations", config.RecommendationsTaskMode, (p, ct) => RunRecommendationsUpdate(config, p, ct)),
-            ("Seerr Discovery", config.SeerrDiscoveryTaskMode, (p, ct) => RunSeerrDiscovery(p, ct))
+            ("Seerr Discovery", config.RecommendationsTaskMode, (p, ct) => RunSeerrDiscovery(p, ct))
         };
 
         var totalTasks = subTasks.Length;
