@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
@@ -81,71 +80,6 @@ internal static class ParentalRatingHelper
         10752, // War
         10768 // War & Politics
     };
-
-    /// <summary>
-    ///     Gets the TMDb certification query parameter for the given parental rating.
-    ///     Returns null if no restriction should be applied (unrestricted user).
-    /// </summary>
-    /// <param name="maxParentalRating">The user's maximum allowed parental rating value from Jellyfin settings.</param>
-    /// <returns>
-    ///     A query string fragment like "&amp;certification_country=DE&amp;certification.lte=FSK%2012"
-    ///     or null if no restriction needed.
-    /// </returns>
-    internal static string? GetCertificationQueryParam(int? maxParentalRating)
-    {
-        if (!maxParentalRating.HasValue)
-        {
-            return null;
-        }
-
-        var certification = MapToCertification(maxParentalRating.Value);
-        if (certification == null)
-        {
-            return null;
-        }
-
-        // Use German FSK system as it maps well to Jellyfin's numeric values
-        // and is well-supported by TMDb's certification database.
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"&certification_country=DE&certification.lte={Uri.EscapeDataString(certification)}");
-    }
-
-    /// <summary>
-    ///     Gets additional query parameters for strict child accounts to ensure only
-    ///     genuinely child-appropriate content is discovered.
-    ///     For FSK-6 accounts, this adds genre restrictions to the TMDb query itself.
-    /// </summary>
-    /// <param name="maxParentalRating">The user's max parental rating.</param>
-    /// <returns>Additional query parameters, or null for non-child accounts.</returns>
-    internal static string? GetChildSafeQueryParams(int? maxParentalRating)
-    {
-        if (!maxParentalRating.HasValue || maxParentalRating.Value > 60)
-        {
-            return null;
-        }
-
-        // For strict child accounts, restrict to Family genre in TMDb queries
-        // This is the most reliable way to avoid adult animation/comedy
-        // TMDb genre ID 10751 = Family (movies), 10762 = Kids (TV)
-        return "&with_genres=10751";
-    }
-
-    /// <summary>
-    ///     Gets additional TV-specific query parameters for strict child accounts.
-    /// </summary>
-    /// <param name="maxParentalRating">The user's max parental rating.</param>
-    /// <returns>Additional query parameters for TV queries, or null.</returns>
-    internal static string? GetChildSafeTvQueryParams(int? maxParentalRating)
-    {
-        if (!maxParentalRating.HasValue || maxParentalRating.Value > 60)
-        {
-            return null;
-        }
-
-        // TMDb genre ID 10762 = Kids (TV), 10751 = Family
-        return "&with_genres=10762|10751";
-    }
 
     /// <summary>
     ///     Determines whether a candidate item should be excluded based on parental rating constraints.
@@ -253,22 +187,5 @@ internal static class ParentalRatingHelper
         }
 
         return false;
-    }
-
-    /// <summary>
-    ///     Maps a Jellyfin numeric parental rating to a German FSK certification string.
-    /// </summary>
-    /// <param name="maxParentalRating">The Jellyfin parental rating value.</param>
-    /// <returns>The FSK certification string, or null for unrestricted.</returns>
-    private static string? MapToCertification(int maxParentalRating)
-    {
-        return maxParentalRating switch
-        {
-            <= 0 => "FSK 0",
-            <= 60 => "FSK 6",
-            <= 100 => "FSK 12",
-            <= 140 => "FSK 16",
-            _ => null // FSK 18 or no restriction - don't add filter
-        };
     }
 }

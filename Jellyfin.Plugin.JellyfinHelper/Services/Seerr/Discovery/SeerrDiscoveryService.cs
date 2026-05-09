@@ -35,6 +35,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private const double MinVoteAverageChild = 5.5;
 
+    /// <summary>
+    ///     Fixed number of discovery recommendations per user. Not configurable.
+    /// </summary>
+    private const int MaxDiscoveryPerUser = 10;
+
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
 
     /// <summary>
@@ -108,13 +113,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var dryRun = config.RecommendationsTaskMode == TaskMode.DryRun;
-        var maxPerUser = config.SeerrDiscoveryMaxPerUser;
 
         _pluginLog.LogInfo(
             "SeerrDiscovery",
             dryRun
                 ? "Starting discovery generation (Dry Run - will not persist)."
-                : $"Starting discovery generation (max {maxPerUser} per user).",
+                : $"Starting discovery generation (max {MaxDiscoveryPerUser} per user).",
             _logger);
 
         // Step 1: Load user profiles
@@ -146,7 +150,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             try
             {
                 var userResult = await GenerateForUserAsync(
-                    profile, config, excludedTmdbIds, maxPerUser, cancellationToken).ConfigureAwait(false);
+                    profile, config, excludedTmdbIds, cancellationToken).ConfigureAwait(false);
 
                 if (userResult != null)
                 {
@@ -481,7 +485,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         UserWatchProfile profile,
         PluginConfiguration config,
         HashSet<int> excludedTmdbIds,
-        int maxPerUser,
         CancellationToken cancellationToken)
     {
         var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile);
@@ -638,7 +641,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
             // Rank and select top-N
             scored.Sort((a, b) => b.Score.CompareTo(a.Score));
-            var topN = scored.Take(maxPerUser).ToList();
+            var topN = scored.Take(MaxDiscoveryPerUser).ToList();
 
             // Build recommendations
             var recommendations = new List<DiscoveryRecommendation>(topN.Count);
@@ -835,11 +838,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         return ids;
     }
 
-    private static double ComputeMinRating(UserWatchProfile profile)
-    {
-        return Math.Max(6.0, profile.AverageCommunityRating > 0 ? profile.AverageCommunityRating : 6.0);
-    }
-
     /// <summary>
     ///     Gets the primary language code for Seerr language-based discovery endpoints.
     ///     Returns a 2-letter ISO 639-1 code (e.g. "de", "en") if the user has a clear preference,
@@ -865,74 +863,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <summary>
     ///     Builds the set of preferred people (actors/directors) from the user's watch history.
-    ///     Extracts people names from watched items if available.
+    ///     Currently returns empty because TMDb discover responses don't include cast data.
     /// </summary>
     private static HashSet<string> BuildPreferredPeopleSet(UserWatchProfile profile)
     {
-        // Currently TMDb discover responses don't include cast data,
-        // so people-based filtering has limited value. Return empty for now.
-        // Future: could extract from WatchedItems if people metadata is cached.
         _ = profile;
         return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    ///     Builds a language query parameter from the user's language profile.
-    ///     Uses the primary preferred language (if determined via active choice, not forced).
-    /// </summary>
-    private static string? BuildLanguageParam(UserWatchProfile profile)
-    {
-        var primaryLang = profile.PrimaryLanguage;
-        if (string.IsNullOrWhiteSpace(primaryLang))
-        {
-            return null;
-        }
-
-        // Only apply language filter if the user has a clear preference
-        // (at least 3 chosen instances of the language)
-        if (profile.LanguageProfile.TryGetValue(primaryLang, out var entry) && entry.ChosenCount >= 3)
-        {
-            return $"&language={Uri.EscapeDataString(primaryLang)}";
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    ///     Builds a year filter parameter based on the user's average watched year.
-    ///     For users who watch mostly modern content, restricts results to recent years.
-    ///     For child accounts, no year restriction (children watch both old and new content).
-    /// </summary>
-    private static string? BuildYearParam(double avgYear, bool isChildAccount)
-    {
-        if (isChildAccount)
-        {
-            // Children watch Disney classics from 1990s as well as new content - no year filter
-            return null;
-        }
-
-        if (avgYear <= 0)
-        {
-            return null;
-        }
-
-        // If user's average year is recent (e.g. 2018+), restrict to last ~8 years
-        var currentYear = DateTime.UtcNow.Year;
-        if (avgYear >= currentYear - 6)
-        {
-            var minYear = currentYear - 8;
-            return $"&primary_release_date.gte={minYear}-01-01";
-        }
-
-        // If average is older, use a wider window (average - 10 years)
-        if (avgYear >= 2000)
-        {
-            var minYear = (int)avgYear - 10;
-            return $"&primary_release_date.gte={minYear}-01-01";
-        }
-
-        // Very old average year - don't restrict
-        return null;
     }
 
     private static (string ReasonKey, string? RelatedInfo) DetermineReason(

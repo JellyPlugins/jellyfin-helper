@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Xunit;
 
@@ -6,68 +5,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 public class ParentalRatingHelperTests
 {
-    [Fact]
-    public void GetCertificationQueryParam_NullRating_ReturnsNull()
-    {
-        var result = ParentalRatingHelper.GetCertificationQueryParam(null);
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void GetCertificationQueryParam_HighRating_ReturnsNull()
-    {
-        // 160+ means unrestricted (FSK 18 / no filter)
-        var result = ParentalRatingHelper.GetCertificationQueryParam(160);
-        Assert.Null(result);
-    }
-
-    [Theory]
-    [InlineData(0, "FSK%200")]
-    [InlineData(50, "FSK%206")]
-    [InlineData(60, "FSK%206")]
-    [InlineData(80, "FSK%2012")]
-    [InlineData(100, "FSK%2012")]
-    [InlineData(120, "FSK%2016")]
-    [InlineData(140, "FSK%2016")]
-    public void GetCertificationQueryParam_ValidRating_ReturnsExpectedCertification(int rating, string expectedCert)
-    {
-        var result = ParentalRatingHelper.GetCertificationQueryParam(rating);
-        Assert.NotNull(result);
-        Assert.Contains("certification_country=DE", result);
-        Assert.Contains($"certification.lte={expectedCert}", result);
-    }
-
-    [Fact]
-    public void GetChildSafeQueryParams_NullRating_ReturnsNull()
-    {
-        var result = ParentalRatingHelper.GetChildSafeQueryParams(null);
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void GetChildSafeQueryParams_HighRating_ReturnsNull()
-    {
-        var result = ParentalRatingHelper.GetChildSafeQueryParams(100);
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void GetChildSafeQueryParams_ChildRating_ReturnsGenreFilter()
-    {
-        var result = ParentalRatingHelper.GetChildSafeQueryParams(60);
-        Assert.NotNull(result);
-        Assert.Contains("with_genres=10751", result);
-    }
-
-    [Fact]
-    public void GetChildSafeTvQueryParams_ChildRating_ReturnsKidsGenre()
-    {
-        var result = ParentalRatingHelper.GetChildSafeTvQueryParams(50);
-        Assert.NotNull(result);
-        Assert.Contains("10762", result);
-        Assert.Contains("10751", result);
-    }
-
     [Fact]
     public void ShouldExclude_NullMaxRating_ReturnsFalse()
     {
