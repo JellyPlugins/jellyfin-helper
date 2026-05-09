@@ -83,6 +83,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public string SeerrApiKey { get; set; } = string.Empty;
 
+    /// <summary>
+    ///     Gets or sets a value indicating whether non-admin users can access
+    ///     the Seerr Discovery page and submit media requests.
+    ///     Default is false (admin-only). When enabled, any authenticated Jellyfin user
+    ///     can see their personalized discovery recommendations and request downloads.
+    /// </summary>
+    public bool DiscoveryUserAccessEnabled { get; set; }
+
     // ===== Config version for migration =====
 
     /// <summary>

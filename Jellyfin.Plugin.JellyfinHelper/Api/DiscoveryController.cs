@@ -63,14 +63,20 @@ public sealed class DiscoveryController : ControllerBase
 
     /// <summary>
     ///     Returns the cached discovery recommendations for the currently authenticated user.
-    ///     Available to any authenticated user (no admin required).
+    ///     Available to any authenticated user when DiscoveryUserAccessEnabled is true.
     /// </summary>
     /// <returns>The discovery result for the current user, or null if not available.</returns>
     [HttpGet("My")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public ActionResult<DiscoveryResult?> GetMyDiscoveryResults()
     {
+        if (!IsDiscoveryUserAccessEnabled())
+        {
+            return StatusCode(403, null);
+        }
+
         var userId = GetCurrentUserId();
         if (userId == null)
         {
@@ -85,7 +91,7 @@ public sealed class DiscoveryController : ControllerBase
 
     /// <summary>
     ///     Submits a media request to the configured Seerr instance on behalf of the current user.
-    ///     Available to any authenticated user (no admin required).
+    ///     Available to any authenticated user when DiscoveryUserAccessEnabled is true.
     /// </summary>
     /// <param name="dto">The request data.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -94,11 +100,17 @@ public sealed class DiscoveryController : ControllerBase
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status502BadGateway)]
     public async Task<ActionResult<RequestResult>> SubmitMyRequest(
         [FromBody] DiscoveryRequestDto dto,
         CancellationToken cancellationToken)
     {
+        if (!IsDiscoveryUserAccessEnabled())
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+        }
+
         if (dto == null || dto.TmdbId <= 0)
         {
             return BadRequest(new RequestResult { Success = false, Message = "Invalid TMDb ID." });
@@ -124,14 +136,14 @@ public sealed class DiscoveryController : ControllerBase
             }
         }
 
-        // Users cannot override the Seerr user ID — it's determined by the system
+        // User requests use server defaults (no profile/server override for safety)
         var (success, message) = await _discovery.SubmitRequestAsync(
             dto.TmdbId,
             dto.MediaType,
-            dto.SeerrUserId,
-            dto.ServerId,
-            dto.ProfileId,
-            dto.RootFolder,
+            null, // No Seerr user override — uses API key owner
+            null, // No server override — uses Seerr defaults
+            null, // No profile override — uses Seerr defaults
+            null, // No root folder override — uses Seerr defaults
             cancellationToken).ConfigureAwait(false);
 
         if (!success)
@@ -220,6 +232,14 @@ public sealed class DiscoveryController : ControllerBase
         _cache.MarkAsRequested(dto.TmdbId);
 
         return Ok(new RequestResult { Success = true, Message = message });
+    }
+
+    /// <summary>
+    ///     Checks whether the admin has enabled user-level discovery access in plugin settings.
+    /// </summary>
+    private static bool IsDiscoveryUserAccessEnabled()
+    {
+        return Plugin.Instance?.Configuration.DiscoveryUserAccessEnabled == true;
     }
 
     /// <summary>

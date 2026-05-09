@@ -302,5 +302,8 @@
   "discoveryRequestFailed": "Failed",
   "discoverySelectUser": "Select Quality Profile",
   "discoverySelectUserDesc": "Choose which quality profile to use for the download:",
-  "discoveryCancel": "Cancel"
+  "discoveryCancel": "Cancel",
+  "discoveryUserAccess": "Kullanıcıların Discovery görüntülemesine ve istek göndermesine izin ver",
+  "discoveryUserAccessHelp": "Etkinleştirildiğinde, yönetici olmayan kullanıcılar Seerr Discovery sayfası üzerinden kişiselleştirilmiş indirme önerilerini görebilir ve medya talep edebilir.",
+  "discoveryAccessDisabledHint": "Recommendations Etkinleştir olarak ayarlanmalı ve Seerr yapılandırılmış olmalıdır."
 }

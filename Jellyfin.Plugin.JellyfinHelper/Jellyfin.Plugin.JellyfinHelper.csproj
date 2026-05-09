@@ -128,6 +128,8 @@
         <EmbeddedResource Include="i18n\*.json"/>
         <!-- The generated configPage.html is the embedded resource -->
         <EmbeddedResource Include="PluginPages\configPage.html"/>
+        <!-- Standalone discovery page for non-admin users -->
+        <EmbeddedResource Include="PluginPages\discoveryPage.html"/>
         <!-- Source module files are NOT embedded but kept for development -->
         <None Include="PluginPages\configPage.template.html"/>
         <None Include="PluginPages\css\*.css"/>

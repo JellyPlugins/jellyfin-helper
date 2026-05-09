@@ -188,8 +188,16 @@ function loadSettings() {
         h += '<div class="help-text playlist-sync-disabled-hint" style="' + (recsActive ? 'display:none;' : '') + '">' + T('syncPlaylistDisabledHint', 'Set Recommendations to Activate to enable this option.') + '</div>';
         h += '</div>';
 
-        // Seerr Cleanup task mode - greyed out if not configured
+        // Discovery user access toggle - greyed out if Recommendations deactivated OR Seerr not configured
         var seerrConfigured = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
+        var discoveryEnabled = recsActive && seerrConfigured;
+        h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + T('discoveryUserAccess', 'Allow users to view Discovery and submit requests') + '</label></div>';
+        h += '<div class="help-text">' + T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.') + '</div>';
+        h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + T('discoveryAccessDisabledHint', 'Requires Recommendations set to Activate and Seerr configured.') + '</div>';
+        h += '</div>';
+
+        // Seerr Cleanup task mode - greyed out if not configured
         h += '<div class="seerr-task-mode-wrapper" style="' + (!seerrConfigured ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += renderTaskModeSelect('cfgSeerrMode', T('seerrCleanup', 'Seerr Cleanup'), cfg.SeerrCleanupTaskMode || 'Deactivate');
         h += '<div class="help-text seerr-not-configured-hint" style="' + (seerrConfigured ? 'display:none;' : '') + '">' + T('seerrNotConfigured', 'Configure Seerr below to enable this task.') + '</div>';
@@ -321,6 +329,7 @@ function buildSettingsPayload() {
             var v = parseInt(document.getElementById('cfgTrashDays').value, 10);
             return isNaN(v) || v < 0 ? 30 : v;
         })(),
+        DiscoveryUserAccessEnabled: document.getElementById('cfgDiscoveryUserAccess') ? document.getElementById('cfgDiscoveryUserAccess').checked : false,
         Language: document.getElementById('cfgLang').value,
         PluginLogLevel: _currentLogLevel,
         RadarrInstances: radarrInstances,
@@ -737,6 +746,23 @@ function attachAutoSaveHandlers() {
                             if (chk) chk.disabled = !isActive;
                             var hint = document.querySelector('.playlist-sync-disabled-hint');
                             if (hint) hint.style.display = isActive ? 'none' : '';
+
+                            // Update discovery access toggle greyed-out state
+                            // (requires both Recs active AND Seerr configured)
+                            var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
+                            var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+                            var discEnabled = isActive && !!(seerrUrl && seerrKey);
+                            var discWrapper = document.getElementById('discoveryAccessWrapper');
+                            if (discWrapper) {
+                                discWrapper.style.opacity = discEnabled ? '' : '0.5';
+                                discWrapper.style.pointerEvents = discEnabled ? '' : 'none';
+                            }
+                            var discChk = document.getElementById('cfgDiscoveryUserAccess');
+                            if (discChk) discChk.disabled = !discEnabled;
+                            var discHint = document.querySelector('.discovery-access-disabled-hint');
+                            if (discHint) discHint.style.display = discEnabled ? 'none' : '';
+                            // Uncheck discovery when deactivating recommendations
+                            if (!isActive && discChk) discChk.checked = false;
                         }
                     });
                     return;
@@ -751,6 +777,14 @@ function attachAutoSaveHandlers() {
     if (syncEl) {
         syncEl.addEventListener('change', function () {
             doSaveSettings(buildSettingsPayload(), {quiet: true, element: syncEl});
+        });
+    }
+
+    // Discovery user access toggle - auto-save on change (same pattern as playlist sync)
+    var discoveryEl = document.getElementById('cfgDiscoveryUserAccess');
+    if (discoveryEl) {
+        discoveryEl.addEventListener('change', function () {
+            doSaveSettings(buildSettingsPayload(), {quiet: true, element: discoveryEl});
         });
     }
 

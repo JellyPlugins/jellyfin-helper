@@ -302,5 +302,8 @@
   "discoveryRequestFailed": "Failed",
   "discoverySelectUser": "Select Quality Profile",
   "discoverySelectUserDesc": "Choose which quality profile to use for the download:",
-  "discoveryCancel": "Cancel"
+  "discoveryCancel": "Cancel",
+  "discoveryUserAccess": "Allow users to view Discovery and submit requests",
+  "discoveryUserAccessHelp": "When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.",
+  "discoveryAccessDisabledHint": "Requires Recommendations set to Activate and Seerr configured."
 }

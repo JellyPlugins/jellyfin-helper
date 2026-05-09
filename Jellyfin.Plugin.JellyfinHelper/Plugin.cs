@@ -64,6 +64,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 EnableInMainMenu = true,
                 MenuIcon = "handyman",
                 EmbeddedResourcePath = GetType().Namespace + ".PluginPages.configPage.html"
+            },
+            new PluginPageInfo
+            {
+                Name = "SeerrDiscovery",
+                DisplayName = "Seerr Discovery",
+                EnableInMainMenu = true,
+                MenuIcon = "explore",
+                EmbeddedResourcePath = GetType().Namespace + ".PluginPages.discoveryPage.html"
             }
         ];
     }
