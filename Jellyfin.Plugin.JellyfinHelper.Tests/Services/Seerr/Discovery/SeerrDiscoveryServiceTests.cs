@@ -1,0 +1,55 @@
+using System.Threading;
+using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
+using Microsoft.Extensions.Logging;
+using Moq;
+using Xunit;
+
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
+
+public class SeerrDiscoveryServiceTests
+{
+    private static SeerrDiscoveryService CreateService()
+    {
+        var factory = new Mock<System.Net.Http.IHttpClientFactory>();
+        var history = new Mock<IWatchHistoryService>();
+        var arr = new Mock<IArrIntegrationService>();
+        var heuristic = new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
+        var pluginLog = new Mock<IPluginLogService>();
+        var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
+        var cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
+        var logger = new Mock<ILogger<SeerrDiscoveryService>>();
+        return new SeerrDiscoveryService(
+            factory.Object, history.Object, arr.Object,
+            heuristic, cache, pluginLog.Object, logger.Object);
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_InvalidTmdbId_ReturnsFalse()
+    {
+        var service = CreateService();
+        var (success, _) = await service.SubmitRequestAsync(0, "movie", CancellationToken.None);
+        Assert.False(success);
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_InvalidMediaType_ReturnsFalse()
+    {
+        var service = CreateService();
+        var (success, _) = await service.SubmitRequestAsync(123, "invalid", CancellationToken.None);
+        Assert.False(success);
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_SeerrNotConfigured_ReturnsFalse()
+    {
+        var service = CreateService();
+        var (success, message) = await service.SubmitRequestAsync(123, "movie", CancellationToken.None);
+        Assert.False(success);
+        Assert.Contains("not configured", message);
+    }
+}
