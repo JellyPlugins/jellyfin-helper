@@ -4,8 +4,6 @@
 
 A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks, media library statistics, ML-powered smart recommendations, user activity insights, health checks, and Arr stack integration - all from a single, multi-tab dashboard.
 
-[![Ko-Fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/jellyfinhelper)
-
 [![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square)](https://github.com/JellyPlugins/jellyfin-helper/releases)
 [![Tests](https://img.shields.io/badge/tests-2159%20passed-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
@@ -13,6 +11,8 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 [![License](https://img.shields.io/github/license/JellyPlugins/jellyfin-helper?style=flat-square)](LICENSE)
 [![Languages](https://img.shields.io/badge/i18n-7%20languages-blue?style=flat-square)](Jellyfin.Plugin.JellyfinHelper/i18n/)
 [![Live Demo](https://img.shields.io/badge/demo-live%20preview-ff69b4?style=flat-square)](https://jellyplugins.github.io/jellyfin-helper/)
+
+[![Ko-Fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/jellyfinhelper)
 
 ## Live Demo
 
