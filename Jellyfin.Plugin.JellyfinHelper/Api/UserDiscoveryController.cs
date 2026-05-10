@@ -89,6 +89,9 @@ public sealed class UserDiscoveryController : ControllerBase
 
     /// <summary>
     ///     Submits a media request to the configured Seerr instance on behalf of the current user.
+    ///     Resolves the Jellyfin user ID to the corresponding Seerr user ID so the request
+    ///     appears under the correct user in Seerr. If no Seerr account mapping exists,
+    ///     the request is rejected with HTTP 403 — the user must be registered in Seerr first.
     ///     Available to any authenticated user when DiscoveryUserAccessEnabled is true.
     /// </summary>
     /// <param name="dto">The request data.</param>
@@ -118,11 +121,31 @@ public sealed class UserDiscoveryController : ControllerBase
             return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
         }
 
+        // Resolve the current Jellyfin user to their Seerr user ID
+        // so the request appears under their name in Seerr (not as admin).
+        // If no mapping exists, the request is rejected — users must be linked in Seerr.
+        int? seerrUserId = null;
+        var jellyfinUserId = GetCurrentUserId();
+        if (jellyfinUserId.HasValue)
+        {
+            seerrUserId = await _discovery.ResolveSeerrUserIdAsync(
+                jellyfinUserId.Value, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (seerrUserId == null)
+        {
+            return StatusCode(403, new RequestResult
+            {
+                Success = false,
+                Message = "Your Jellyfin account is not linked to a Seerr account. Please contact your server administrator."
+            });
+        }
+
         // User requests use server defaults (no profile/server/rootFolder override for safety)
         var (success, message) = await _discovery.SubmitRequestAsync(
             dto.TmdbId,
             dto.MediaType,
-            null, // No Seerr user override — uses API key owner
+            seerrUserId,
             null, // No server override — uses Seerr defaults
             null, // No profile override — uses Seerr defaults
             null, // No root folder override — uses Seerr defaults

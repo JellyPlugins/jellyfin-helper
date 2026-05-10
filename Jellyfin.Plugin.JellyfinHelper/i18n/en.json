@@ -305,5 +305,14 @@
   "discoveryCancel": "Cancel",
   "discoveryUserAccess": "Allow users to view Discovery and submit requests",
   "discoveryUserAccessHelp": "When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.",
-  "discoveryAccessDisabledHint": "Requires Recommendations set to Activate and Seerr configured."
+  "discoveryAccessDisabledHint": "Requires Recommendations set to Activate and Seerr configured.",
+  "discoverySetupHintTitle": "Setup Instructions",
+  "discoverySetupHint1": "Install the following two plugins:",
+  "discoverySetupHintFT": "File Transformation",
+  "discoverySetupHintCT": "Custom Tabs",
+  "discoverySetupHint2": "Then in Custom Tabs plugin settings, add a new tab with:",
+  "discoverySetupHintDisplay": "Display Text",
+  "discoverySetupHintDisplayVal": "Seerr Discovery",
+  "discoverySetupHintHtml": "HTML Content",
+  "discoverySetupHintHtmlVal": "<div class=\"jellyfinhelper discovery\"></div>"
 }

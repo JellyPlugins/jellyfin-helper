@@ -305,5 +305,14 @@
   "discoveryCancel": "取消",
   "discoveryUserAccess": "允许用户查看发现页面并提交请求",
   "discoveryUserAccessHelp": "启用后，非管理员用户可以通过 Seerr Discovery 页面查看个性化下载建议并请求媒体。",
-  "discoveryAccessDisabledHint": "需要将推荐设置为激活并配置 Seerr。"
+  "discoveryAccessDisabledHint": "需要将推荐设置为激活并配置 Seerr。",
+  "discoverySetupHintTitle": "设置说明",
+  "discoverySetupHint1": "请安装以下两个插件：",
+  "discoverySetupHintFT": "File Transformation",
+  "discoverySetupHintCT": "Custom Tabs",
+  "discoverySetupHint2": "然后在 Custom Tabs 插件设置中添加一个新标签页：",
+  "discoverySetupHintDisplay": "显示文本",
+  "discoverySetupHintDisplayVal": "Seerr Discovery",
+  "discoverySetupHintHtml": "HTML 内容",
+  "discoverySetupHintHtmlVal": "<div class=\"jellyfinhelper discovery\"></div>"
 }

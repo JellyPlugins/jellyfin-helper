@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
@@ -22,8 +21,6 @@ namespace Jellyfin.Plugin.JellyfinHelper;
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
-    private static readonly JsonSerializerOptions PluginPagesJsonOptions = new() { WriteIndented = true };
-
     private readonly IApplicationPaths _applicationPaths;
     private readonly ILogger<Plugin> _logger;
 
@@ -39,7 +36,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Instance = this;
         _applicationPaths = applicationPaths;
         _logger = logger;
-        RegisterPluginPages();
         InjectScript();
     }
 
@@ -97,11 +93,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         if (RegisterFileTransformation())
         {
-            _logger.LogInformation("[Discovery Sidebar] Registered with File Transformation plugin — no direct file write needed");
+            _logger.LogDebug("[Discovery Sidebar] Registered with File Transformation plugin — no direct file write needed");
         }
         else
         {
-            _logger.LogInformation("[Discovery Sidebar] File Transformation plugin not found, using fallback (direct index.html write)");
+            _logger.LogDebug("[Discovery Sidebar] File Transformation plugin not found, using fallback (direct index.html write)");
             UpdateIndexHtml(true);
         }
     }
@@ -190,8 +186,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         try
         {
             var indexPath = IndexHtmlPath;
-            _logger.LogInformation("[Discovery Sidebar] WebPath = {WebPath}", _applicationPaths.WebPath);
-            _logger.LogInformation("[Discovery Sidebar] IndexHtmlPath = {IndexPath}", indexPath);
+            _logger.LogDebug("[Discovery Sidebar] WebPath = {WebPath}", _applicationPaths.WebPath);
+            _logger.LogDebug("[Discovery Sidebar] IndexHtmlPath = {IndexPath}", indexPath);
 
             if (!File.Exists(indexPath))
             {
@@ -199,7 +195,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return;
             }
 
-            _logger.LogInformation("[Discovery Sidebar] index.html found, reading content...");
+            _logger.LogDebug("[Discovery Sidebar] index.html found, reading content...");
             var content = File.ReadAllText(indexPath);
             var scriptUrl = $"../JellyfinHelper/Discovery/My/script";
             var scriptTag = $"<script plugin=\"{Name}\" version=\"{Version}\" src=\"{scriptUrl}\" defer></script>";
@@ -214,7 +210,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 if (content.Contains(closingBodyTag, StringComparison.Ordinal))
                 {
                     content = content.Replace(closingBodyTag, $"{scriptTag}\n{closingBodyTag}", StringComparison.Ordinal);
-                    _logger.LogInformation("[Discovery Sidebar] Script tag injected successfully before </body>");
+                    _logger.LogDebug("[Discovery Sidebar] Script tag injected successfully before </body>");
                 }
                 else
                 {
@@ -224,95 +220,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
             else
             {
-                _logger.LogInformation("[Discovery Sidebar] Removing script tag from index.html");
+                _logger.LogDebug("[Discovery Sidebar] Removing script tag from index.html");
             }
 
             File.WriteAllText(indexPath, content);
-            _logger.LogInformation("[Discovery Sidebar] index.html written successfully");
+            _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[Discovery Sidebar] Failed to update index.html");
-        }
-    }
-
-    /// <summary>
-    ///     Registers the Seerr Discovery user page with the "Plugin Pages" plugin (if installed).
-    ///     This makes the page appear in the user sidebar menu.
-    ///     Requires the Plugin Pages plugin: https://github.com/IAmParadox27/jellyfin-plugin-pluginpages.
-    /// </summary>
-    private void RegisterPluginPages()
-    {
-        try
-        {
-            var pluginPagesConfigPath = Path.Combine(
-                _applicationPaths.PluginConfigurationsPath,
-                "Jellyfin.Plugin.PluginPages",
-                "config.json");
-
-            // Check if PluginPages plugin is installed by searching loaded assemblies
-            var pluginPagesAssembly = AssemblyLoadContext.All
-                .SelectMany(x => x.Assemblies)
-                .FirstOrDefault(x => x.FullName?.Contains("Jellyfin.Plugin.PluginPages", StringComparison.Ordinal) ?? false);
-
-            if (pluginPagesAssembly == null)
-            {
-                // PluginPages not installed — skip silently
-                return;
-            }
-
-            // Load or create config directory
-            var configDir = Path.GetDirectoryName(pluginPagesConfigPath);
-            if (!string.IsNullOrEmpty(configDir) && !Directory.Exists(configDir))
-            {
-                Directory.CreateDirectory(configDir);
-            }
-
-            // Load existing config or create new
-            var config = new Dictionary<string, List<Dictionary<string, object>>>();
-            if (File.Exists(pluginPagesConfigPath))
-            {
-                var json = File.ReadAllText(pluginPagesConfigPath);
-                config = JsonSerializer.Deserialize<Dictionary<string, List<Dictionary<string, object>>>>(json)
-                    ?? new Dictionary<string, List<Dictionary<string, object>>>();
-            }
-
-            if (!config.TryGetValue("pages", out var pages))
-            {
-                pages = new List<Dictionary<string, object>>();
-                config["pages"] = pages;
-            }
-
-            var pageId = GetType().Namespace + ".SeerrDiscoveryPage";
-
-            // Check if already registered
-            var existingPage = pages.FirstOrDefault(p =>
-                p.TryGetValue("Id", out var id) && id?.ToString() == pageId);
-
-            if (existingPage != null)
-            {
-                // Already registered — nothing to do
-                return;
-            }
-
-            // Register the discovery page (URL resolves via Jellyfin's configurationpage handler)
-            pages.Add(new Dictionary<string, object>
-            {
-                ["Id"] = pageId,
-                ["Url"] = "/web/configurationpage?name=SeerrDiscovery",
-                ["DisplayText"] = "Seerr Discovery",
-                ["Icon"] = "explore",
-                ["Version"] = 1
-            });
-
-            var outputJson = JsonSerializer.Serialize(config, PluginPagesJsonOptions);
-            File.WriteAllText(pluginPagesConfigPath, outputJson);
-        }
-        catch (Exception ex)
-        {
-            // Best effort — if PluginPages integration fails, the plugin still works.
-            // Users can still access the page via direct URL.
-            _logger.LogDebug(ex, "[Plugin Pages] Could not register with Plugin Pages plugin");
         }
     }
 

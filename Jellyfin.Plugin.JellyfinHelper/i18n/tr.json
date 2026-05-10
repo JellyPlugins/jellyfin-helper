@@ -305,5 +305,14 @@
   "discoveryCancel": "İptal",
   "discoveryUserAccess": "Kullanıcıların Discovery görüntülemesine ve istek göndermesine izin ver",
   "discoveryUserAccessHelp": "Etkinleştirildiğinde, yönetici olmayan kullanıcılar Seerr Discovery sayfası üzerinden kişiselleştirilmiş öneriler görebilir ve medya talep edebilir.",
-  "discoveryAccessDisabledHint": "Recommendations Etkinleştir olarak ayarlanmalı ve Seerr yapılandırılmış olmalıdır."
+  "discoveryAccessDisabledHint": "Recommendations Etkinleştir olarak ayarlanmalı ve Seerr yapılandırılmış olmalıdır.",
+  "discoverySetupHintTitle": "Kurulum Talimatları",
+  "discoverySetupHint1": "Aşağıdaki iki eklentiyi yükleyin:",
+  "discoverySetupHintFT": "File Transformation",
+  "discoverySetupHintCT": "Custom Tabs",
+  "discoverySetupHint2": "Sonra Custom Tabs eklenti ayarlarında yeni bir sekme ekleyin:",
+  "discoverySetupHintDisplay": "Görünen Metin",
+  "discoverySetupHintDisplayVal": "Seerr Discovery",
+  "discoverySetupHintHtml": "HTML İçeriği",
+  "discoverySetupHintHtmlVal": "<div class=\"jellyfinhelper discovery\"></div>"
 }

@@ -525,6 +525,68 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
+    /// <inheritdoc />
+    public async Task<int?> ResolveSeerrUserIdAsync(Guid jellyfinUserId, CancellationToken cancellationToken)
+    {
+        if (jellyfinUserId == Guid.Empty)
+        {
+            return null;
+        }
+
+        try
+        {
+            var seerrUsers = await GetSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
+            if (seerrUsers.Count == 0)
+            {
+                return null;
+            }
+
+            // Normalize the Jellyfin user ID: lowercase, no hyphens
+            var normalizedJellyfinId = jellyfinUserId.ToString("N").ToLowerInvariant();
+
+            foreach (var seerrUser in seerrUsers)
+            {
+                if (string.IsNullOrWhiteSpace(seerrUser.JellyfinUserId))
+                {
+                    continue;
+                }
+
+                // Normalize the Seerr-stored Jellyfin ID: remove hyphens, lowercase
+                var normalizedSeerrJellyfinId = seerrUser.JellyfinUserId
+                    .Replace("-", string.Empty, StringComparison.Ordinal)
+                    .ToLowerInvariant();
+
+                if (string.Equals(normalizedJellyfinId, normalizedSeerrJellyfinId, StringComparison.Ordinal))
+                {
+                    _pluginLog.LogDebug(
+                        "SeerrDiscovery",
+                        $"Resolved Jellyfin user {jellyfinUserId} to Seerr user #{seerrUser.Id} ({seerrUser.DisplayName}).",
+                        _logger);
+                    return seerrUser.Id;
+                }
+            }
+
+            _pluginLog.LogDebug(
+                "SeerrDiscovery",
+                $"No Seerr user found for Jellyfin user {jellyfinUserId}. Request will use API key owner.",
+                _logger);
+            return null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            _pluginLog.LogWarning(
+                "SeerrDiscovery",
+                $"Failed to resolve Seerr user for Jellyfin user {jellyfinUserId}: {ex.Message}",
+                ex,
+                _logger);
+            return null;
+        }
+    }
+
     private async Task<DiscoveryResult?> GenerateForUserAsync(
         UserWatchProfile profile,
         PluginConfiguration config,

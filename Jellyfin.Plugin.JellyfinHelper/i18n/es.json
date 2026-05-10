@@ -305,5 +305,14 @@
   "discoveryCancel": "Cancelar",
   "discoveryUserAccess": "Permitir a los usuarios ver Discovery y enviar solicitudes",
   "discoveryUserAccessHelp": "Cuando está habilitado, los usuarios no administradores pueden ver sugerencias personalizadas y solicitar medios a través de la página Seerr Discovery.",
-  "discoveryAccessDisabledHint": "Requiere Recommendations en Activar y Seerr configurado."
+  "discoveryAccessDisabledHint": "Requiere Recommendations en Activar y Seerr configurado.",
+  "discoverySetupHintTitle": "Instrucciones de configuración",
+  "discoverySetupHint1": "Instala los siguientes dos plugins:",
+  "discoverySetupHintFT": "File Transformation",
+  "discoverySetupHintCT": "Custom Tabs",
+  "discoverySetupHint2": "Luego en la configuración del plugin Custom Tabs, añade una nueva pestaña con:",
+  "discoverySetupHintDisplay": "Texto a mostrar",
+  "discoverySetupHintDisplayVal": "Seerr Discovery",
+  "discoverySetupHintHtml": "Contenido HTML",
+  "discoverySetupHintHtmlVal": "<div class=\"jellyfinhelper discovery\"></div>"
 }

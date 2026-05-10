@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -52,4 +53,14 @@ public interface ISeerrDiscoveryService
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A list of configured services with profiles and root folders.</returns>
     Task<IReadOnlyList<SeerrServiceInfo>> GetServiceInfoAsync(string serviceType, CancellationToken cancellationToken);
+
+    /// <summary>
+    ///     Resolves a Jellyfin user ID to the corresponding Seerr user ID.
+    ///     Fetches all Seerr users and matches by the <c>jellyfinUserId</c> field
+    ///     using normalized comparison (without hyphens, case-insensitive).
+    /// </summary>
+    /// <param name="jellyfinUserId">The Jellyfin user GUID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The Seerr user ID if a match is found; otherwise null.</returns>
+    Task<int?> ResolveSeerrUserIdAsync(Guid jellyfinUserId, CancellationToken cancellationToken);
 }

@@ -30,4 +30,11 @@ public sealed class SeerrUser
     /// </summary>
     [JsonPropertyName("avatar")]
     public string? Avatar { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the Jellyfin user ID associated with this Seerr user.
+    ///     This is the Jellyfin GUID stored by Seerr (may or may not contain hyphens).
+    /// </summary>
+    [JsonPropertyName("jellyfinUserId")]
+    public string? JellyfinUserId { get; set; }
 }

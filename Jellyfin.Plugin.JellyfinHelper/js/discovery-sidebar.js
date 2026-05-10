@@ -106,7 +106,9 @@
     function tryMountCustomTab() {
         var container = findActiveContainer();
         if (!container) { lastMountedContainer = null; return; }
-        if (container === lastMountedContainer && container.hasChildNodes()) return;
+        // Check if our rendered content is still present (not just any child node).
+        // SPA navigation may clear the container's innerHTML while keeping the same DOM node.
+        if (container === lastMountedContainer && container.querySelector('.jfh-discovery-container')) return;
         renderDiscovery(container);
         lastMountedContainer = container;
     }
