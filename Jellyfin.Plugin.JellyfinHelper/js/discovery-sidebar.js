@@ -78,6 +78,7 @@
             '.jfh-discovery-btn:hover { background: #0090c4; }' +
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
+            '.jfh-discovery-btn-failed { background: #e74c3c !important; }' +
             '.jfh-discovery-msg { text-align: center; padding: 2em; opacity: 0.6; }' +
             '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; }';
         document.head.appendChild(style);
@@ -90,7 +91,9 @@
         injectStyles();
         tryMountCustomTab();
         var pending = false;
-        var observeTarget = document.querySelector('.mainAnimatedPages, .skinBody') || document.body;
+        // Observe document.body (not .mainAnimatedPages) because Jellyfin replaces
+        // .mainAnimatedPages when navigating to the admin dashboard — an observer
+        // bound to the old element would become orphaned after returning to home.
         var observer = new MutationObserver(function () {
             if (!pending) {
                 pending = true;
@@ -100,15 +103,22 @@
                 });
             }
         });
-        observer.observe(observeTarget, { childList: true, subtree: true });
+        observer.observe(document.body, { childList: true, subtree: true });
     }
 
     function tryMountCustomTab() {
         var container = findActiveContainer();
         if (!container) { lastMountedContainer = null; return; }
-        // Check if our rendered content is still present (not just any child node).
-        // SPA navigation may clear the container's innerHTML while keeping the same DOM node.
-        if (container === lastMountedContainer && container.querySelector('.jfh-discovery-container')) return;
+
+        // Determine if we need to (re-)mount:
+        // 1. Different container than last time
+        // 2. Container has no rendered content (was cleared by SPA)
+        // 3. Previous container was removed from DOM (orphaned after navigation)
+        var shouldMount = container !== lastMountedContainer
+            || !container.querySelector('.jfh-discovery-container')
+            || (lastMountedContainer && !document.contains(lastMountedContainer));
+
+        if (!shouldMount) return;
         renderDiscovery(container);
         lastMountedContainer = container;
     }
@@ -208,12 +218,14 @@
                 btn.textContent = '\u2713 ' + t('discoveryRequested', 'Requested');
                 btn.classList.add('jfh-discovery-btn-done');
             } else {
-                btn.textContent = result ? result.Message : t('discoveryRequestFailed', 'Failed');
-                setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.disabled = false; }, 3000);
+                btn.textContent = t('discoveryRequestFailed', 'Failed');
+                btn.classList.add('jfh-discovery-btn-failed');
+                setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; }, 3000);
             }
         }).catch(function () {
             btn.textContent = t('discoveryRequestFailed', 'Failed');
-            setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.disabled = false; }, 3000);
+            btn.classList.add('jfh-discovery-btn-failed');
+            setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; }, 3000);
         });
     }
 
@@ -310,9 +322,11 @@
         loadStrings(function () {
             initCustomTab();
             initSidebar();
-            // Retry mount after delay in case DOM wasn't fully ready on hard reload
-            setTimeout(tryMountCustomTab, 1000);
+            // Retry mount after delays to handle SPA navigation timing edge cases
+            setTimeout(tryMountCustomTab, 500);
+            setTimeout(tryMountCustomTab, 1500);
             setTimeout(tryMountCustomTab, 3000);
+            setTimeout(tryMountCustomTab, 5000);
         });
     });
 })();

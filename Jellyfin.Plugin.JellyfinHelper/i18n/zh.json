@@ -306,6 +306,7 @@
   "discoveryUserAccess": "允许用户查看发现页面并提交请求",
   "discoveryUserAccessHelp": "启用后，非管理员用户可以通过 Seerr Discovery 页面查看个性化下载建议并请求媒体。",
   "discoveryAccessDisabledHint": "需要将推荐设置为激活并配置 Seerr。",
+  "discoveryUserNotLinked": "您的 Jellyfin 账户未关联 Seerr 账户。请联系服务器管理员。",
   "discoverySetupHintTitle": "设置说明",
   "discoverySetupHint1": "请安装以下两个插件：",
   "discoverySetupHintFT": "File Transformation",
@@ -314,5 +315,7 @@
   "discoverySetupHintDisplay": "显示文本",
   "discoverySetupHintDisplayVal": "Seerr Discovery",
   "discoverySetupHintHtml": "HTML 内容",
-  "discoverySetupHintHtmlVal": "<div class=\"jellyfinhelper discovery\"></div>"
+  "discoverySetupHintHtmlVal": "<div class=\"jellyfinhelper discovery\"></div>",
+  "discoverySetupHintAlreadyInstalled": "已安装插件？",
+  "discoverySetupHintConfigureLink": "配置 Custom Tabs →"
 }

@@ -193,26 +193,24 @@ function loadSettings() {
         var discoveryEnabled = recsActive && seerrConfigured;
         h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + T('discoveryUserAccess', 'Allow users to view Discovery and submit requests') + '</label></div>';
-        h += '<div class="help-text">' + T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.') + '</div>';
+        h += '<div class="help-text">' + T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.') + ' <span class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;' + (!discoveryEnabled ? 'display:none;' : '') + '" title="' + T('discoverySetupHintTitle', 'Setup Instructions') + '">info</span></div>';
         h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + T('discoveryAccessDisabledHint', 'Requires Recommendations set to Activate and Seerr configured.') + '</div>';
-        // Discovery setup hint box (info banner with copy button, visible when toggle is enabled)
-        h += '<div class="discovery-setup-hint" style="margin:0.8em 0 0.4em 0;padding:0.8em 1em;background:rgba(0,164,220,0.06);border:1px solid rgba(0,164,220,0.2);border-radius:6px;font-size:0.85em;' + (!discoveryEnabled ? 'display:none;' : '') + '">';
-        h += '<div style="display:flex;align-items:flex-start;gap:0.6em;">';
-        h += '<span class="material-icons" style="color:#00a4dc;font-size:1.3em;margin-top:0.1em;">info</span>';
-        h += '<div style="flex:1;">';
+        // Discovery setup hint — collapsible panel (default: closed)
+        h += '<div class="discovery-setup-hint" style="margin:0.3em 0 0;' + (!discoveryEnabled ? 'display:none;' : '') + '">';
+        h += '<div id="discoveryHintPanel" style="display:none;margin-top:0.5em;padding:0.7em 1em;background:rgba(0,164,220,0.06);border:1px solid rgba(0,164,220,0.2);border-radius:6px;font-size:0.85em;">';
         h += '<strong>' + T('discoverySetupHintTitle', 'Setup Instructions') + '</strong>';
-        h += '<ol style="margin:0.5em 0 0.5em 1.2em;padding:0;line-height:1.8;">';
+        h += '<ol style="margin:0.4em 0 0.4em 1.2em;padding:0;line-height:1.7;">';
         h += '<li>' + T('discoverySetupHint1', 'Install the following two plugins:') + ' <a href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" rel="noopener" style="color:#00a4dc;">' + T('discoverySetupHintFT', 'File Transformation') + '</a> &amp; <a href="https://github.com/IAmParadox27/jellyfin-plugin-custom-tabs" target="_blank" rel="noopener" style="color:#00a4dc;">' + T('discoverySetupHintCT', 'Custom Tabs') + '</a></li>';
-        h += '<li>' + T('discoverySetupHint2', 'Then in Custom Tabs plugin settings, add a new tab with:') + '</li>';
-        h += '<li><span style="opacity:0.7;">' + T('discoverySetupHintDisplay', 'Display Text') + ':</span> <code style="background:rgba(255,255,255,0.08);padding:0.15em 0.4em;border-radius:3px;">Seerr Discovery</code></li>';
-        h += '<li>' + T('discoverySetupHintHtml', 'HTML Content') + ':</li>';
+        h += '<li>' + T('discoverySetupHint2', 'Then in Custom Tabs plugin settings, add a new tab with:') + '<br>';
+        h += '<span style="opacity:0.7;">' + T('discoverySetupHintDisplay', 'Display Text') + ':</span> <code style="background:rgba(255,255,255,0.08);padding:0.1em 0.4em;border-radius:3px;">Seerr Discovery</code><br>';
+        h += '<span style="opacity:0.7;">' + T('discoverySetupHintHtml', 'HTML Content') + ':</span></li>';
         h += '</ol>';
-        h += '<div style="display:flex;align-items:center;gap:0.5em;margin-top:0.3em;">';
-        h += '<button type="button" class="action-btn" id="btnCopyDiscoveryHtml" style="padding:0.25em 0.7em;font-size:0.85em;display:inline-flex;align-items:center;gap:0.3em;"><span class="material-icons" style="font-size:1em;">content_copy</span><span>Copy</span></button>';
-        h += '<pre style="margin:0;padding:0.4em 0.7em;background:rgba(0,0,0,0.3);border-radius:4px;font-size:0.9em;overflow-x:auto;flex:1;"><code>&lt;div class="jellyfinhelper discovery"&gt;&lt;/div&gt;</code></pre>';
+        h += '<div style="display:flex;align-items:center;gap:0.5em;">';
+        h += '<button type="button" class="action-btn" id="btnCopyDiscoveryHtml" style="padding:0.2em 0.6em;font-size:0.82em;display:inline-flex;align-items:center;gap:0.3em;"><span class="material-icons" style="font-size:1em;">content_copy</span><span>Copy</span></button>';
+        h += '<code style="background:rgba(0,0,0,0.3);padding:0.3em 0.6em;border-radius:4px;font-size:0.9em;">&lt;div class=&quot;jellyfinhelper discovery&quot;&gt;&lt;/div&gt;</code>';
         h += '</div>';
-        h += '<div style="margin-top:0.5em;opacity:0.7;font-size:0.9em;"><a href="/web/#/configurationpage?name=Custom%20Tabs" style="color:#00a4dc;">→ ' + T('discoverySetupHintCT', 'Custom Tabs') + ' Settings</a></div>';
-        h += '</div></div></div>';
+        h += '<div style="margin-top:0.6em;font-size:0.9em;">' + T('discoverySetupHintAlreadyInstalled', 'Plugins already installed?') + ' <a href="/web/#/configurationpage?name=Custom%20Tabs" style="color:#00a4dc;">' + T('discoverySetupHintConfigureLink', 'Configure Custom Tabs →') + '</a></div>';
+        h += '</div></div>';
         h += '</div>';
 
         // Seerr Cleanup task mode - greyed out if not configured
@@ -729,39 +727,62 @@ function attachSeerrHandlers() {
 }
 
 /**
- * Attach the copy-to-clipboard handler for the Discovery HTML code snippet.
+ * Attach the toggle + copy-to-clipboard handlers for the Discovery setup hint.
  */
 function attachDiscoveryCopyHandler() {
+    // Toggle handler: ℹ️ icon opens/closes the hint panel
+    var toggleBtn = document.getElementById('btnToggleDiscoveryHint');
+    var panel = document.getElementById('discoveryHintPanel');
+    if (toggleBtn && panel) {
+        toggleBtn.addEventListener('click', function () {
+            var isOpen = panel.style.display !== 'none';
+            panel.style.display = isOpen ? 'none' : 'block';
+        });
+    }
+
+    // Copy handler
     var btn = document.getElementById('btnCopyDiscoveryHtml');
     if (!btn) return;
     btn.addEventListener('click', function () {
         var text = '<div class="jellyfinhelper discovery"></div>';
         var span = btn.querySelector('span:last-child');
-        navigator.clipboard.writeText(text).then(function () {
+
+        function onCopySuccess() {
             if (span) span.textContent = 'Copied!';
             btn.style.background = '#2ecc71';
+            btn.style.color = '#fff';
             setTimeout(function () {
                 if (span) span.textContent = 'Copy';
                 btn.style.background = '';
+                btn.style.color = '';
             }, 2000);
-        }).catch(function () {
-            // Fallback for older browsers or non-HTTPS contexts
-            var textarea = document.createElement('textarea');
-            textarea.value = text;
-            textarea.style.position = 'fixed';
-            textarea.style.opacity = '0';
-            document.body.appendChild(textarea);
-            textarea.select();
-            try { document.execCommand('copy'); } catch (e) { /* ignore */ }
-            document.body.removeChild(textarea);
-            if (span) span.textContent = 'Copied!';
-            btn.style.background = '#2ecc71';
-            setTimeout(function () {
-                if (span) span.textContent = 'Copy';
-                btn.style.background = '';
-            }, 2000);
-        });
+        }
+
+        // Try modern clipboard API first
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(onCopySuccess).catch(function () {
+                fallbackCopy(text);
+                onCopySuccess();
+            });
+        } else {
+            fallbackCopy(text);
+            onCopySuccess();
+        }
     });
+}
+
+/** Fallback copy using textarea + execCommand for non-HTTPS contexts. */
+function fallbackCopy(text) {
+    var textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+    document.body.removeChild(textarea);
 }
 
 /**

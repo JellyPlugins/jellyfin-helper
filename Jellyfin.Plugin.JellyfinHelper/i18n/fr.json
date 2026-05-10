@@ -306,6 +306,7 @@
   "discoveryUserAccess": "Autoriser les utilisateurs à voir Discovery et soumettre des demandes",
   "discoveryUserAccessHelp": "Lorsque activé, les utilisateurs non-administrateurs peuvent voir des suggestions personnalisées et demander des médias via la page Seerr Discovery.",
   "discoveryAccessDisabledHint": "Nécessite que Recommendations soit activé et Seerr configuré.",
+  "discoveryUserNotLinked": "Votre compte Jellyfin n'est pas lié à un compte Seerr. Veuillez contacter votre administrateur.",
   "discoverySetupHintTitle": "Instructions de configuration",
   "discoverySetupHint1": "Installez les deux plugins suivants :",
   "discoverySetupHintFT": "File Transformation",
@@ -314,5 +315,7 @@
   "discoverySetupHintDisplay": "Texte affiché",
   "discoverySetupHintDisplayVal": "Seerr Discovery",
   "discoverySetupHintHtml": "Contenu HTML",
-  "discoverySetupHintHtmlVal": "<div class=\"jellyfinhelper discovery\"></div>"
+  "discoverySetupHintHtmlVal": "<div class=\"jellyfinhelper discovery\"></div>",
+  "discoverySetupHintAlreadyInstalled": "Plugins déjà installés ?",
+  "discoverySetupHintConfigureLink": "Configurer Custom Tabs →"
 }
