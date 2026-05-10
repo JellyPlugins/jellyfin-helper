@@ -317,5 +317,7 @@
   "discoverySetupHintHtml": "HTML 内容",
   "discoverySetupHintHtmlVal": "<div class=\"jellyfinhelper discovery\"></div>",
   "discoverySetupHintAlreadyInstalled": "已安装插件？",
-  "discoverySetupHintConfigureLink": "配置 Custom Tabs →"
+  "discoverySetupHintConfigureLink": "配置 Custom Tabs →",
+  "discoveryCopySnippet": "复制",
+  "discoveryCopied": "已复制！"
 }

@@ -196,8 +196,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
 
             _logger.LogDebug("[Discovery Sidebar] index.html found, reading content...");
-            var content = File.ReadAllText(indexPath);
-            var scriptUrl = $"../JellyfinHelper/Discovery/My/script";
+            var originalContent = File.ReadAllText(indexPath);
+            var content = originalContent;
+            const string scriptUrl = "../JellyfinHelper/Discovery/My/script";
             var scriptTag = $"<script plugin=\"{Name}\" version=\"{Version}\" src=\"{scriptUrl}\" defer></script>";
             var regex = new Regex($"<script[^>]*plugin=[\"']{Regex.Escape(Name)}[\"'][^>]*>\\s*</script>\\n?");
 
@@ -223,10 +224,17 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 _logger.LogDebug("[Discovery Sidebar] Removing script tag from index.html");
             }
 
-            File.WriteAllText(indexPath, content);
-            _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
+            if (!string.Equals(content, originalContent, StringComparison.Ordinal))
+            {
+                File.WriteAllText(indexPath, content);
+                _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
+            }
+            else
+            {
+                _logger.LogDebug("[Discovery Sidebar] index.html already up to date; skipping write");
+            }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             _logger.LogError(ex, "[Discovery Sidebar] Failed to update index.html");
         }

@@ -53,6 +53,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private const int MaxCastPerCandidate = 10;
 
+    /// <summary>
+    ///     Maximum Jellyfin parental rating value that triggers the child-account discovery path.
+    ///     Corresponds to FSK-6 / G / PG — users with this rating or below receive only
+    ///     Family/Kids/Animation content from discovery queries.
+    /// </summary>
+    private const int ChildAccountMaxParentalRating = 60;
+
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
 
     /// <summary>
@@ -280,7 +287,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     payloadDict["rootFolder"] = rootFolder;
                 }
 
-                var content = new StringContent(
+                using var content = new StringContent(
                     JsonSerializer.Serialize(payloadDict, JsonOptions),
                     Encoding.UTF8,
                     "application/json");
@@ -496,7 +503,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                             }
                         }
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
                     {
                         _pluginLog.LogDebug(
                             "SeerrDiscovery",
@@ -541,8 +548,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 return null;
             }
 
-            // Normalize the Jellyfin user ID: lowercase, no hyphens
-            var normalizedJellyfinId = jellyfinUserId.ToString("N").ToLowerInvariant();
+            // Normalize the Jellyfin user ID: no hyphens (ToString("N") already returns lowercase hex)
+            var normalizedJellyfinId = jellyfinUserId.ToString("N");
 
             foreach (var seerrUser in seerrUsers)
             {
@@ -607,7 +614,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         var avgYear = ContentScoring.ComputeAverageYear(profile);
         var preferredPeople = BuildPreferredPeopleSet(profile);
-        var isChildAccount = profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value <= 60;
+        var isChildAccount = profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value <= ChildAccountMaxParentalRating;
 
         // Determine user's primary language for language-based discovery
         var primaryLanguage = GetPrimaryLanguageForDiscovery(profile);
@@ -964,12 +971,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
 
             // Year-based post-filtering (soft: only if year is available and min is set)
-            if (minYear > 0 && candidate.EffectiveReleaseDate.HasValue)
+            if (minYear > 0
+                && candidate.EffectiveReleaseDate.HasValue
+                && candidate.EffectiveReleaseDate.Value.Year < minYear)
             {
-                if (candidate.EffectiveReleaseDate.Value.Year < minYear)
-                {
-                    continue;
-                }
+                continue;
             }
 
             result.Add(candidate);

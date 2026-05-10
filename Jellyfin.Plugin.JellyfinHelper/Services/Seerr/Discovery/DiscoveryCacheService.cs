@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -146,20 +147,35 @@ public sealed class DiscoveryCacheService
                 var modified = false;
                 foreach (var userResult in _memoryCache)
                 {
-                    foreach (var rec in userResult.Recommendations)
+                    foreach (var rec in userResult.Recommendations.Where(rec => rec.TmdbId == tmdbId && !rec.AlreadyRequested))
                     {
-                        if (rec.TmdbId == tmdbId && !rec.AlreadyRequested)
-                        {
-                            rec.AlreadyRequested = true;
-                            modified = true;
-                        }
+                        rec.AlreadyRequested = true;
+                        modified = true;
                     }
                 }
 
                 if (modified)
                 {
-                    var updatedJson = JsonSerializer.Serialize(_memoryCache, JsonOptions);
-                    File.WriteAllText(_filePath, updatedJson);
+                    var tempFilePath = _filePath + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
+                    try
+                    {
+                        var updatedJson = JsonSerializer.Serialize(_memoryCache, JsonOptions);
+                        File.WriteAllText(tempFilePath, updatedJson);
+                        File.Move(tempFilePath, _filePath, overwrite: true);
+                    }
+                    catch
+                    {
+                        try
+                        {
+                            File.Delete(tempFilePath);
+                        }
+                        catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
+                        {
+                            // Best effort cleanup
+                        }
+
+                        throw;
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)

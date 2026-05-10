@@ -305,7 +305,7 @@
   "discoveryCancel": "İptal",
   "discoveryUserAccess": "Kullanıcıların Discovery görüntülemesine ve istek göndermesine izin ver",
   "discoveryUserAccessHelp": "Etkinleştirildiğinde, yönetici olmayan kullanıcılar Seerr Discovery sayfası üzerinden kişiselleştirilmiş öneriler görebilir ve medya talep edebilir.",
-  "discoveryAccessDisabledHint": "Recommendations Etkinleştir olarak ayarlanmalı ve Seerr yapılandırılmış olmalıdır.",
+  "discoveryAccessDisabledHint": "Öneriler Etkinleştir olarak ayarlanmalı ve Seerr yapılandırılmış olmalıdır.",
   "discoveryUserNotLinked": "Jellyfin hesabınız bir Seerr hesabına bağlı değil. Lütfen sunucu yöneticinizle iletişime geçin.",
   "discoverySetupHintTitle": "Kurulum Talimatları",
   "discoverySetupHint1": "Aşağıdaki iki eklentiyi yükleyin:",
@@ -317,5 +317,7 @@
   "discoverySetupHintHtml": "HTML İçeriği",
   "discoverySetupHintHtmlVal": "<div class=\"jellyfinhelper discovery\"></div>",
   "discoverySetupHintAlreadyInstalled": "Eklentiler zaten yüklü mü?",
-  "discoverySetupHintConfigureLink": "Custom Tabs'ı yapılandır →"
+  "discoverySetupHintConfigureLink": "Custom Tabs'ı yapılandır →",
+  "discoveryCopySnippet": "Kopyala",
+  "discoveryCopied": "Kopyalandı!"
 }

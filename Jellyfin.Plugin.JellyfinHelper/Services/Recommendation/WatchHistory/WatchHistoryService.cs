@@ -373,9 +373,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
                 if (string.IsNullOrEmpty(usedAudioLanguage))
                 {
-                    var defaultStream = audioStreams
-                        .FirstOrDefault(s => s.IsDefault) ?? audioStreams[0];
-                    usedAudioLanguage = NormalizeLanguage(defaultStream.Language);
+                    usedAudioLanguage = NormalizeLanguage(audioStreams[0].Language);
                 }
 
                 if (!string.IsNullOrEmpty(usedAudioLanguage))
@@ -485,10 +483,20 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         // Build an item lookup from allItems for O(1) access instead of N+1 DB queries.
         // This eliminates the per-item GetItemList call that was causing performance issues.
-        var itemLookup = new Dictionary<Guid, BaseItem>(allItems.Count);
+        // Also include series items so that synthetic favorite-series entries in WatchedItems
+        // can resolve to their BaseItem for people aggregation.
+        var itemLookup = new Dictionary<Guid, BaseItem>(allItems.Count + (allSeries?.Count ?? 0));
         foreach (var item in allItems)
         {
             itemLookup.TryAdd(item.Id, item);
+        }
+
+        if (allSeries is not null)
+        {
+            foreach (var series in allSeries)
+            {
+                itemLookup.TryAdd(series.Id, series);
+            }
         }
 
         // Maximum number of actors to consider per item (top-billed only)

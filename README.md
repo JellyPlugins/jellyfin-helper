@@ -4,6 +4,8 @@
 
 A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks, media library statistics, ML-powered smart recommendations, user activity insights, health checks, and Arr stack integration - all from a single, multi-tab dashboard.
 
+[![Ko-Fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/jellyfinhelper)
+
 [![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square)](https://github.com/JellyPlugins/jellyfin-helper/releases)
 [![Tests](https://img.shields.io/badge/tests-2159%20passed-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
@@ -101,7 +103,8 @@ GNU General Public License v3.0 - see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-| Who                                      | Contribution           |
-|------------------------------------------|------------------------|
-| [@Noir1992](https://github.com/Noir1992) | Original plugin author |
-| [@K-Money](https://github.com/K-Money)   | Initial testing        |
+| Who                                          | Contribution                                                                                          |
+|----------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| [@Noir1992](https://github.com/Noir1992)     | Original plugin author                                                                                |
+| [@K-Money](https://github.com/K-Money)       | Initial testing                                                                                       |
+| [@n00bcodr](https://github.com/n00bcodr)     | [Jellyfin-Enhanced](https://github.com/n00bcodr/Jellyfin-Enhanced) – inspiration for plugin features  |

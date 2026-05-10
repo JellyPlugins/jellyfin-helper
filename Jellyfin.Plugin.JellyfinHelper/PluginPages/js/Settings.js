@@ -206,7 +206,7 @@ function loadSettings() {
         h += '<span style="opacity:0.7;">' + T('discoverySetupHintHtml', 'HTML Content') + ':</span></li>';
         h += '</ol>';
         h += '<div style="display:flex;align-items:center;gap:0.5em;">';
-        h += '<button type="button" class="action-btn" id="btnCopyDiscoveryHtml" style="padding:0.2em 0.6em;font-size:0.82em;display:inline-flex;align-items:center;gap:0.3em;"><span class="material-icons" style="font-size:1em;">content_copy</span><span>Copy</span></button>';
+        h += '<button type="button" class="action-btn" id="btnCopyDiscoveryHtml" style="padding:0.2em 0.6em;font-size:0.82em;display:inline-flex;align-items:center;gap:0.3em;"><span class="material-icons" style="font-size:1em;">content_copy</span><span>' + T('discoveryCopySnippet', 'Copy') + '</span></button>';
         h += '<code style="background:rgba(0,0,0,0.3);padding:0.3em 0.6em;border-radius:4px;font-size:0.9em;">&lt;div class=&quot;jellyfinhelper discovery&quot;&gt;&lt;/div&gt;</code>';
         h += '</div>';
         h += '<div style="margin-top:0.6em;font-size:0.9em;">' + T('discoverySetupHintAlreadyInstalled', 'Plugins already installed?') + ' <a href="/web/#/configurationpage?name=Custom%20Tabs" style="color:#00a4dc;">' + T('discoverySetupHintConfigureLink', 'Configure Custom Tabs →') + '</a></div>';
@@ -716,6 +716,18 @@ function attachSeerrHandlers() {
                 doSaveSettings(payload, {quiet: true, element: document.getElementById('arrCollapsibleHeaderSeerr')});
                 // Enable previously greyed-out Seerr UI sections
                 updateSeerrUIState(true);
+                // Also refresh the Discovery wrapper (it depends on Seerr being configured)
+                var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
+                var discEnabled = recsMode === 'Activate';
+                var discWrapper = document.getElementById('discoveryAccessWrapper');
+                if (discWrapper) {
+                    discWrapper.style.opacity = discEnabled ? '' : '0.5';
+                    discWrapper.style.pointerEvents = discEnabled ? '' : 'none';
+                }
+                var discChk = document.getElementById('cfgDiscoveryUserAccess');
+                if (discChk) discChk.disabled = !discEnabled;
+                var discHint = document.querySelector('.discovery-access-disabled-hint');
+                if (discHint) discHint.style.display = discEnabled ? 'none' : '';
             } else {
                 _seerrTimer = showButtonFeedback(btn, false, escHtml(res.message || 'Failed'), originalHtml);
             }
@@ -748,11 +760,11 @@ function attachDiscoveryCopyHandler() {
         var span = btn.querySelector('span:last-child');
 
         function onCopySuccess() {
-            if (span) span.textContent = 'Copied!';
+            if (span) span.textContent = T('discoveryCopied', 'Copied!');
             btn.style.background = '#2ecc71';
             btn.style.color = '#fff';
             setTimeout(function () {
-                if (span) span.textContent = 'Copy';
+                if (span) span.textContent = T('discoveryCopySnippet', 'Copy');
                 btn.style.background = '';
                 btn.style.color = '';
             }, 2000);

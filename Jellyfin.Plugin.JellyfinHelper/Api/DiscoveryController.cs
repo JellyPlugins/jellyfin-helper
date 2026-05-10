@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
@@ -92,17 +93,23 @@ public sealed class DiscoveryController : ControllerBase
         [FromBody] DiscoveryRequestDto dto,
         CancellationToken cancellationToken)
     {
-        if (dto == null || dto.TmdbId <= 0)
+        if (dto == null)
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
+        }
+
+        if (dto.TmdbId <= 0)
         {
             return BadRequest(new RequestResult { Success = false, Message = "Invalid TMDb ID." });
         }
 
-        if (dto.MediaType is not ("movie" or "tv"))
+        var mediaType = dto.MediaType?.Trim().ToLowerInvariant();
+        if (mediaType is not ("movie" or "tv"))
         {
             return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
         }
 
-        // Block path traversal attempts and excessive length in rootFolder
+        // Block path traversal attempts, control characters, and excessive length in rootFolder
         if (!string.IsNullOrWhiteSpace(dto.RootFolder))
         {
             if (dto.RootFolder.Length > 512)
@@ -115,11 +122,16 @@ public sealed class DiscoveryController : ControllerBase
             {
                 return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
             }
+
+            if (dto.RootFolder.Any(c => char.IsControl(c)))
+            {
+                return BadRequest(new RequestResult { Success = false, Message = "Root folder path contains invalid characters." });
+            }
         }
 
         var (success, message) = await _discovery.SubmitRequestAsync(
             dto.TmdbId,
-            dto.MediaType,
+            mediaType,
             dto.SeerrUserId,
             dto.ServerId,
             dto.ProfileId,

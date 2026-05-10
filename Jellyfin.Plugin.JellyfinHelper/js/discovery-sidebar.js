@@ -11,8 +11,14 @@
     var DISCOVERY_PAGE_URL = '/JellyfinHelper/discoveryPage';
     var API_URL = '/JellyfinHelper/Discovery/My';
 
+    var _waitForApiRetries = 0;
+    var MAX_API_RETRIES = 60; // 30 seconds max wait
+
     function waitForApi(callback) {
         if (typeof ApiClient === 'undefined' || !ApiClient.getCurrentUserId || !ApiClient.getCurrentUserId()) {
+            if (++_waitForApiRetries > MAX_API_RETRIES) {
+                return; // Bail out — user is likely on a login/auth page
+            }
             setTimeout(function () { waitForApi(callback); }, 500);
             return;
         }
@@ -168,7 +174,7 @@
             } else {
                 poster = '<div class="jfh-discovery-card-poster jfh-discovery-no-poster"><span style="opacity:0.3;font-size:2em;">\uD83C\uDFAC</span></div>';
             }
-            var year = r.Year ? '<span class="jfh-discovery-tag">' + r.Year + '</span>' : '';
+            var year = r.Year ? '<span class="jfh-discovery-tag">' + esc(String(r.Year)) + '</span>' : '';
             var type = r.MediaType ? '<span class="jfh-discovery-tag">' + esc(r.MediaType === 'movie' ? t('movies', 'Movie') : t('tvShows', 'TV')) + '</span>' : '';
             var rating = r.TmdbRating ? '<span class="jfh-discovery-tag">\u2B50 ' + r.TmdbRating.toFixed(1) + '</span>' : '';
             var genres = (r.Genres && r.Genres.length > 0) ? r.Genres.slice(0, 2).map(function(g) { return '<span class="jfh-discovery-tag">' + esc(g) + '</span>'; }).join('') : '';
@@ -185,7 +191,7 @@
                 '<div class="jfh-discovery-card-title" title="' + esc(r.Title || '') + '">' + esc(r.Title || t('recsUnknownTitle', 'Unknown')) + '</div>' +
                 '<div class="jfh-discovery-card-meta">' + year + type + rating + genres + '</div>' +
                 scoreHtml + reason +
-                '<button class="' + btnClass + '" data-tmdb="' + r.TmdbId + '" data-type="' + esc(r.MediaType || '') + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
+                '<button class="' + btnClass + '" data-tmdb="' + (parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(r.MediaType || '') + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
                 '</div></div>';
         }
         html += '</div></div>';
@@ -305,9 +311,12 @@
             '<span class="sectionName navMenuOptionText">' + t('discoveryTitle', 'Seerr Discovery') + '</span>';
         navItem.addEventListener('click', function (e) {
             e.preventDefault();
+            // Match tabs by localized title or data attribute (works across all languages)
+            var localizedTitle = t('discoveryTitle', 'Seerr Discovery').toLowerCase();
             var tabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
             for (var i = 0; i < tabs.length; i++) {
-                if (tabs[i].textContent.trim().toLowerCase().indexOf('discover') !== -1) {
+                var tabText = tabs[i].textContent.trim().toLowerCase();
+                if (tabText.indexOf('discover') !== -1 || tabText.indexOf(localizedTitle) !== -1) {
                     tabs[i].click();
                     return;
                 }

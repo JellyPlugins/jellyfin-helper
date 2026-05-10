@@ -46,4 +46,117 @@ public class DiscoveryControllerTests
         var result = await controller.SubmitRequest(dto, CancellationToken.None);
         Assert.IsType<BadRequestObjectResult>(result.Result);
     }
+
+    [Fact]
+    public async Task PostRequest_NullDto_ReturnsBadRequest()
+    {
+        var controller = CreateController();
+        var result = await controller.SubmitRequest(null!, CancellationToken.None);
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var body = Assert.IsType<RequestResult>(badRequest.Value);
+        Assert.Contains("body", body.Message, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PostRequest_RootFolderTooLong_ReturnsBadRequest()
+    {
+        var controller = CreateController();
+        var dto = new DiscoveryRequestDto
+        {
+            TmdbId = 100,
+            MediaType = "movie",
+            RootFolder = new string('a', 600)
+        };
+        var result = await controller.SubmitRequest(dto, CancellationToken.None);
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var body = Assert.IsType<RequestResult>(badRequest.Value);
+        Assert.Contains("length", body.Message, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PostRequest_RootFolderWithPathTraversal_ReturnsBadRequest()
+    {
+        var controller = CreateController();
+        var dto = new DiscoveryRequestDto
+        {
+            TmdbId = 100,
+            MediaType = "movie",
+            RootFolder = "/media/../etc/passwd"
+        };
+        var result = await controller.SubmitRequest(dto, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task PostRequest_RootFolderWithTilde_ReturnsBadRequest()
+    {
+        var controller = CreateController();
+        var dto = new DiscoveryRequestDto
+        {
+            TmdbId = 100,
+            MediaType = "movie",
+            RootFolder = "~/movies"
+        };
+        var result = await controller.SubmitRequest(dto, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task PostRequest_RootFolderWithControlChars_ReturnsBadRequest()
+    {
+        var controller = CreateController();
+        var dto = new DiscoveryRequestDto
+        {
+            TmdbId = 100,
+            MediaType = "movie",
+            RootFolder = "/media/\0movies"
+        };
+        var result = await controller.SubmitRequest(dto, CancellationToken.None);
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var body = Assert.IsType<RequestResult>(badRequest.Value);
+        Assert.Contains("invalid characters", body.Message, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PostRequest_CaseInsensitiveMediaType_Accepted()
+    {
+        var discovery = new Mock<ISeerrDiscoveryService>();
+        discovery.Setup(d => d.SubmitRequestAsync(
+            It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
+            It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
+            It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "OK"));
+
+        var controller = CreateController(discovery);
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "Movie" };
+        var result = await controller.SubmitRequest(dto, CancellationToken.None);
+
+        // Should normalize "Movie" to "movie" and succeed (returns 502 because Seerr not configured,
+        // but it should NOT be BadRequest - that means validation passed)
+        // Since Seerr is not configured in test, it will call the mock which returns success
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var body = Assert.IsType<RequestResult>(okResult.Value);
+        Assert.True(body.Success);
+    }
+
+    [Fact]
+    public async Task PostRequest_SubmissionFailure_Returns502()
+    {
+        var discovery = new Mock<ISeerrDiscoveryService>();
+        discovery.Setup(d => d.SubmitRequestAsync(
+            It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
+            It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
+            It.IsAny<CancellationToken>()))
+            .ReturnsAsync((false, "Seerr returned HTTP 409: Already requested"));
+
+        var controller = CreateController(discovery);
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
+        var result = await controller.SubmitRequest(dto, CancellationToken.None);
+
+        var statusResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(502, statusResult.StatusCode);
+        var body = Assert.IsType<RequestResult>(statusResult.Value);
+        Assert.False(body.Success);
+        Assert.Contains("409", body.Message);
+    }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
@@ -177,12 +178,9 @@ internal static class ParentalRatingHelper
         // Exclude specific inappropriate genres
         if (maxParentalRating.Value <= 100)
         {
-            foreach (var genreId in candidate.GenreIds)
+            if (candidate.GenreIds.Any(TeenRestrictedGenreIds.Contains))
             {
-                if (TeenRestrictedGenreIds.Contains(genreId))
-                {
-                    return true;
-                }
+                return true;
             }
         }
 

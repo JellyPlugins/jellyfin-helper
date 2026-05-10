@@ -305,7 +305,7 @@
   "discoveryCancel": "Abbrechen",
   "discoveryUserAccess": "Benutzern erlauben, Discovery zu sehen und Anfragen zu stellen",
   "discoveryUserAccessHelp": "Wenn aktiviert, können Nicht-Admin-Benutzer personalisierte Download-Vorschläge sehen und Medien über die Seerr-Discovery-Seite anfragen.",
-  "discoveryAccessDisabledHint": "Erfordert Recommendations auf Aktivieren und konfiguriertes Seerr.",
+  "discoveryAccessDisabledHint": "Erfordert Empfehlungen auf Aktivieren und konfiguriertes Seerr.",
   "discoveryUserNotLinked": "Dein Jellyfin-Konto ist nicht mit einem Seerr-Konto verknüpft. Bitte kontaktiere deinen Server-Administrator.",
   "discoverySetupHintTitle": "Einrichtungsanleitung",
   "discoverySetupHint1": "Installiere die folgenden zwei Plugins:",
@@ -317,5 +317,7 @@
   "discoverySetupHintHtml": "HTML-Inhalt",
   "discoverySetupHintHtmlVal": "<div class=\"jellyfinhelper discovery\"></div>",
   "discoverySetupHintAlreadyInstalled": "Plugins bereits installiert?",
-  "discoverySetupHintConfigureLink": "Custom Tabs konfigurieren →"
+  "discoverySetupHintConfigureLink": "Custom Tabs konfigurieren →",
+  "discoveryCopySnippet": "Kopieren",
+  "discoveryCopied": "Kopiert!"
 }

@@ -32,10 +32,11 @@ public static class TransformationPatches
         var regex = new Regex($"<script[^>]*plugin=[\"']{Regex.Escape(pluginName)}[\"'][^>]*>\\s*</script>\\n?");
         var updatedContent = regex.Replace(content.Contents, string.Empty);
 
-        // Inject the new script tag before </body>
-        if (updatedContent.Contains("</body>", StringComparison.Ordinal))
+        // Inject the new script tag before the first </body>
+        var bodyIndex = updatedContent.IndexOf("</body>", StringComparison.Ordinal);
+        if (bodyIndex >= 0)
         {
-            return updatedContent.Replace("</body>", $"{scriptTag}\n</body>", StringComparison.Ordinal);
+            return updatedContent.Insert(bodyIndex, $"{scriptTag}\n");
         }
 
         return updatedContent;

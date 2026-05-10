@@ -48,7 +48,7 @@ public sealed class UserDiscoveryController : ControllerBase
     {
         if (!IsDiscoveryUserAccessEnabled())
         {
-            return StatusCode(403, null);
+            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
         }
 
         var userId = GetCurrentUserId();
@@ -57,9 +57,10 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
+        var currentUserId = userId.Value;
         var results = _cache.Load();
         var userResult = results.FirstOrDefault(r =>
-            r.UserId.Equals(userId.Value));
+            r.UserId.Equals(currentUserId));
         return Ok(userResult);
     }
 
