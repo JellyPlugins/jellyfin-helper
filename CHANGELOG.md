@@ -9,8 +9,13 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ## [2.1.0.0] - 2026-05-09
 
 ### Added
-- **Seerr Discovery** - Personalized content discovery via the configured Overseerr/Jellyseerr instance. 
-- Uses the existing ensemble scoring strategy to rank TMDb candidates per user and suggest not-yet-in-library media for download. Includes one-click request submission, parental rating enforcement, language-based discovery, and automatic exclusion of items already in Radarr/Sonarr. Displayed as a new collapsible section in the Discover tab, coupled to Seerr configuration (URL + API Key) and Recommendations task mode.
+- **Seerr Discovery** - Personalized content discovery via Overseerr/Jellyseerr. Scores TMDb candidates per user using the ensemble ML strategy, suggests not-yet-in-library media with one-click request submission, parental rating enforcement, language-based discovery, and automatic Arr library exclusion. Displayed in the Discover tab and optionally on the Jellyfin home screen.
+- **Discovery Custom Tab & Sidebar** - Discovery recommendations can be rendered directly on the Jellyfin home page via the Custom Tab plugin (poster flip-cards, score bars, instant request buttons). A sidebar navigation link provides quick access.
+- **File Transformation Support** - Script injection into Jellyfin's `index.html` uses the File Transformation plugin when available (Docker-compatible, no filesystem write). Falls back to direct file modification otherwise.
+- **User Discovery API** - Authenticated users can view their own recommendations and submit requests via their linked Seerr account (`/JellyfinHelper/Discovery/My`).
+- **Admin Discovery API** - Endpoints for viewing all user results, listing Seerr users, querying Radarr/Sonarr service info, and submitting requests with server/profile overrides (`/JellyfinHelper/Discovery`).
+- **Seerr User Mapping** - Jellyfin user IDs are automatically resolved to Seerr user IDs so requests appear under the correct account.
+- **Discovery User Access Toggle** - New `DiscoveryUserAccessEnabled` setting allows admins to control whether regular users can access Discovery.
 
 ### Tests
 - Total: **2159 tests**.
@@ -30,12 +35,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Scoring & Training** - Centralized popularity scoring, richer training feature construction, series aggregation, and weight schema version bumped. A/B testing cohort infrastructure with deterministic user bucketing and adaptive sigmoid midpoint calibration via cohort watch-rate feedback.
 - **NeuralScoringStrategy** – Upgraded MLP architecture from 3 to 4 hidden layers (31→48→24→12→6→1, ~3,097 parameters). Deeper representation captures more complex feature interactions while keeping inference lightweight.
 
-
 ### Tests
-- Unit tests updated for new defaults and weight-version expectations.
-- Updated neural architecture constant assertions (Hidden1Size=48, Hidden2Size=24, Hidden3Size=12, Hidden4Size=6, Version=2), output weight length/bounds tests, and persistence field name checks for the new 4-layer DTO.
-- New `ContentScoringTests` class (14 tests) covering `ComputePopularityScore` edge cases (clamping, fallback paths) and `ComputeCollectionProgressionBoostFromCache` with `watchedIds` logic (BoxSet-ID match, base boost, empty inputs).
-- Strengthened `DefaultWeights_WeightsExcludingBias_SumToOne` test with exact constant-sum verification instead of range assertion.
 - Total: **2124 tests**.
 
 ---
