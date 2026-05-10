@@ -88,30 +88,6 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
-    ///     Serves the standalone discovery page HTML as an embedded resource.
-    ///     This endpoint is used by the sidebar link as a fallback when Custom Tabs is not configured.
-    ///     AllowAnonymous because the page itself checks authentication via JS/ApiClient.
-    /// </summary>
-    /// <returns>The discoveryPage.html content.</returns>
-    [HttpGet("~/JellyfinHelper/discoveryPage")]
-    [AllowAnonymous]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult GetDiscoveryPage()
-    {
-        var stream = Assembly.GetExecutingAssembly()
-            .GetManifestResourceStream("Jellyfin.Plugin.JellyfinHelper.PluginPages.discoveryPage.html");
-
-        if (stream == null)
-        {
-            return NotFound();
-        }
-
-        Response.Headers["Cache-Control"] = "no-cache";
-        return new FileStreamResult(stream, "text/html");
-    }
-
-    /// <summary>
     ///     Submits a media request to the configured Seerr instance on behalf of the current user.
     ///     Available to any authenticated user when DiscoveryUserAccessEnabled is true.
     /// </summary>

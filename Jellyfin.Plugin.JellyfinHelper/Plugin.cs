@@ -85,14 +85,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 MenuIcon = "handyman",
                 EmbeddedResourcePath = GetType().Namespace + ".PluginPages.configPage.html"
             },
-            // SeerrDiscovery page: registered as embedded resource so Jellyfin serves it
-            // via /web/configurationpage?name=SeerrDiscovery, but NOT shown in admin plugin menu.
-            // User-facing visibility is handled by the Plugin Pages plugin integration.
-            new PluginPageInfo
-            {
-                Name = "SeerrDiscovery",
-                EmbeddedResourcePath = GetType().Namespace + ".PluginPages.discoveryPage.html"
-            }
         ];
     }
 
@@ -316,10 +308,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             var outputJson = JsonSerializer.Serialize(config, PluginPagesJsonOptions);
             File.WriteAllText(pluginPagesConfigPath, outputJson);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Best effort — if PluginPages integration fails, the plugin still works.
             // Users can still access the page via direct URL.
+            _logger.LogDebug(ex, "[Plugin Pages] Could not register with Plugin Pages plugin");
         }
     }
 
