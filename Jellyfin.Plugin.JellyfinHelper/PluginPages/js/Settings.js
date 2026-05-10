@@ -773,18 +773,27 @@ function attachAutoSaveHandlers() {
     }
 
     // Playlist sync toggle - auto-save on change
+    // Uses inline indicator appended to the label (not the overlay function which positions badly for checkboxes)
     var syncEl = document.getElementById('cfgSyncPlaylist');
     if (syncEl) {
         syncEl.addEventListener('change', function () {
-            doSaveSettings(buildSettingsPayload(), {quiet: true, element: syncEl});
+            doSaveSettings(buildSettingsPayload(), {
+                quiet: true,
+                element: null, // suppress default overlay
+                onSuccess: function () { showInlineCheckboxIndicator(syncEl); }
+            });
         });
     }
 
-    // Discovery user access toggle - auto-save on change (same pattern as playlist sync)
+    // Discovery user access toggle - auto-save on change
     var discoveryEl = document.getElementById('cfgDiscoveryUserAccess');
     if (discoveryEl) {
         discoveryEl.addEventListener('change', function () {
-            doSaveSettings(buildSettingsPayload(), {quiet: true, element: discoveryEl});
+            doSaveSettings(buildSettingsPayload(), {
+                quiet: true,
+                element: null, // suppress default overlay
+                onSuccess: function () { showInlineCheckboxIndicator(discoveryEl); }
+            });
         });
     }
 
@@ -815,6 +824,38 @@ function attachAutoSaveHandlers() {
             });
         });
     }
+}
+
+/**
+ * Shows a small green checkmark inline AFTER the label text of a checkbox toggle.
+ * Used for checkbox auto-save confirmation instead of showAutoSaveIndicatorOverlay
+ * which doesn't position correctly for checkboxes.
+ * @param {HTMLInputElement} checkbox - The checkbox input element.
+ */
+function showInlineCheckboxIndicator(checkbox) {
+    if (!checkbox) return;
+    var label = checkbox.nextElementSibling;
+    if (!label || label.tagName !== 'LABEL') return;
+
+    // Remove any existing indicator on this label
+    var existing = label.querySelector('.inline-save-indicator');
+    if (existing) existing.remove();
+
+    // Create inline indicator
+    var indicator = document.createElement('span');
+    indicator.className = 'inline-save-indicator';
+    indicator.innerHTML = ' ' + mi('check_circle');
+    indicator.style.color = '#2ecc71';
+    indicator.style.marginLeft = '0.4em';
+    indicator.style.opacity = '1';
+    indicator.style.transition = 'opacity 0.5s';
+    label.appendChild(indicator);
+
+    // Fade out after 2 seconds
+    setTimeout(function () {
+        indicator.style.opacity = '0';
+        setTimeout(function () { indicator.remove(); }, 600);
+    }, 2000);
 }
 
 function saveSettings() {

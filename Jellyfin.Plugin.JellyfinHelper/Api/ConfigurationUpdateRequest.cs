@@ -57,6 +57,12 @@ public class ConfigurationUpdateRequest
     public bool? SyncRecommendationsToPlaylist { get; init; }
 
     /// <summary>
+    ///     Gets a value indicating whether non-admin users can access the Seerr Discovery page.
+    /// </summary>
+    /// <remarks>Nullable so older UI clients won't silently reset it.</remarks>
+    public bool? DiscoveryUserAccessEnabled { get; init; }
+
+    /// <summary>
     ///     Gets the execution mode for the Seerr Cleanup task.
     /// </summary>
     public TaskMode SeerrCleanupTaskMode { get; init; } = TaskMode.Deactivate;

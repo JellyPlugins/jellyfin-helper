@@ -318,6 +318,11 @@ public class ConfigurationController : ControllerBase
             config.SyncRecommendationsToPlaylist = request.SyncRecommendationsToPlaylist.Value;
         }
 
+        if (request.DiscoveryUserAccessEnabled.HasValue)
+        {
+            config.DiscoveryUserAccessEnabled = request.DiscoveryUserAccessEnabled.Value;
+        }
+
         config.SeerrCleanupTaskMode = request.SeerrCleanupTaskMode;
 
         config.UseTrash = request.UseTrash;

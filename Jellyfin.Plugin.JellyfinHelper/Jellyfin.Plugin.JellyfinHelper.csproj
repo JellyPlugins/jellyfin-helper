@@ -130,6 +130,8 @@
         <EmbeddedResource Include="PluginPages\configPage.html"/>
         <!-- Standalone discovery page for non-admin users -->
         <EmbeddedResource Include="PluginPages\discoveryPage.html"/>
+        <!-- Discovery sidebar script injected into index.html -->
+        <EmbeddedResource Include="js\discovery-sidebar.js"/>
         <!-- Source module files are NOT embedded but kept for development -->
         <None Include="PluginPages\configPage.template.html"/>
         <None Include="PluginPages\css\*.css"/>
