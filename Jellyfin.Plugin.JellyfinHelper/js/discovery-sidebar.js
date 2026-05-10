@@ -32,7 +32,8 @@
             '.jfh-discovery-spinner::after { content:"";width:24px;height:24px;border:3px solid rgba(255,255,255,0.2);border-top-color:#00a4dc;border-radius:50%;animation:dspin 0.8s linear infinite; }' +
             '.jfh-discovery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1em; }' +
             '.jfh-discovery-card { background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }' +
-            '.jfh-discovery-card-poster img { width: 100%; height: 180px; object-fit: cover; display: block; }' +
+            '.jfh-discovery-card-poster { position: relative; }' +
+            '.jfh-discovery-card-poster img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; }' +
             '.jfh-discovery-card-body { padding: 0.8em; flex: 1; display: flex; flex-direction: column; gap: 0.4em; }' +
             '.jfh-discovery-card-title { font-weight: 600; font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
             '.jfh-discovery-card-meta { display: flex; flex-wrap: wrap; gap: 0.3em; }' +
@@ -43,7 +44,8 @@
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
             '.jfh-discovery-msg { text-align: center; padding: 2em; opacity: 0.6; }' +
             '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; }' +
-            '.jfh-discovery-no-poster { width: 100%; height: 180px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02); }';
+            '.jfh-discovery-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02); }' +
+            '.jfh-discovery-overview { font-size: 0.8em; opacity: 0.75; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }';
         document.head.appendChild(style);
     }
 
@@ -130,7 +132,10 @@
             var type = r.MediaType ? '<span class="jfh-discovery-tag">' + esc(r.MediaType === 'movie' ? 'Movie' : 'TV') + '</span>' : '';
             var rating = r.TmdbRating ? '<span class="jfh-discovery-tag">⭐ ' + r.TmdbRating.toFixed(1) + '</span>' : '';
             var genres = (r.Genres && r.Genres.length > 0) ? r.Genres.slice(0, 2).map(function(g) { return '<span class="jfh-discovery-tag">' + esc(g) + '</span>'; }).join('') : '';
-            var reason = r.Reason ? '<div class="jfh-discovery-reason">' + esc(r.Reason) + '</div>' : '';
+            // Format reason nicely (translate raw keys to readable text)
+            var reasonText = formatReason(r.Reason, r.RelatedInfo);
+            var reason = reasonText ? '<div class="jfh-discovery-reason">' + esc(reasonText) + '</div>' : '';
+            var overview = r.Overview ? '<div class="jfh-discovery-overview">' + esc(r.Overview) + '</div>' : '';
             var btnText = r.AlreadyRequested ? '\u2713 Requested' : 'Request';
             var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
             var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
@@ -140,6 +145,7 @@
                 '<div class="jfh-discovery-card-body">' +
                 '<div class="jfh-discovery-card-title" title="' + esc(r.Title || '') + '">' + esc(r.Title || 'Unknown') + '</div>' +
                 '<div class="jfh-discovery-card-meta">' + year + type + rating + genres + '</div>' +
+                overview +
                 reason +
                 '<button class="' + btnClass + '" data-tmdb="' + r.TmdbId + '" data-type="' + esc(r.MediaType || '') + '"' + btnDisabled + '>' + btnText + '</button>' +
                 '</div></div>';
@@ -180,6 +186,31 @@
             btn.textContent = 'Error';
             setTimeout(function () { btn.textContent = 'Request'; btn.disabled = false; }, 3000);
         });
+    }
+
+    // Translate raw reason keys to readable text
+    function formatReason(reason, relatedInfo) {
+        if (!reason) return '';
+        var reasonMap = {
+            'reasonPopular': 'Popular on TMDB',
+            'reasonTrending': 'Trending now',
+            'reasonGenre': relatedInfo ? 'Because you like ' + relatedInfo : 'Based on your genre preferences',
+            'reasonDirector': relatedInfo ? 'Directed by ' + relatedInfo : 'Based on directors you watch',
+            'reasonActor': relatedInfo ? 'Starring ' + relatedInfo : 'Based on actors you watch',
+            'reasonSimilar': relatedInfo ? 'Similar to ' + relatedInfo : 'Similar to what you watch',
+            'reasonHighlyRated': 'Highly rated',
+            'reasonNewRelease': 'New release'
+        };
+        // Check if reason is a known key
+        if (reasonMap[reason]) return reasonMap[reason];
+        // Check if it's a key with colon format like "reasonGenre: Action"
+        var parts = reason.split(': ');
+        if (parts.length === 2 && reasonMap[parts[0]]) {
+            return reasonMap[parts[0]].replace(relatedInfo || '', parts[1]);
+        }
+        // Return as-is if it's already human-readable (not a raw key)
+        if (reason.indexOf('reason') === 0) return ''; // hide raw keys
+        return reason;
     }
 
     function esc(str) {

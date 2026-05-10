@@ -739,6 +739,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     Genres = genres,
                     TmdbRating = item.VoteAverage,
                     PosterPath = item.PosterPath,
+                    Overview = item.Overview,
                     AlreadyRequested = false
                 });
             }

@@ -64,6 +64,11 @@ public sealed class DiscoveryRecommendation
     public string? PosterPath { get; set; }
 
     /// <summary>
+    ///     Gets or sets the short overview/description of the media item (1-3 sentences).
+    /// </summary>
+    public string? Overview { get; set; }
+
+    /// <summary>
     ///     Gets or sets a value indicating whether this item has already been requested in Seerr.
     /// </summary>
     public bool AlreadyRequested { get; set; }
