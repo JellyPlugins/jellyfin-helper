@@ -317,5 +317,7 @@
   "discoverySetupHintHtml": "Conteúdo HTML",
   "discoverySetupHintHtmlVal": "<div class=\"jellyfinhelper discovery\"></div>",
   "discoverySetupHintAlreadyInstalled": "Já tem os plugins?",
-  "discoverySetupHintConfigureLink": "Configurar Custom Tabs →"
+  "discoverySetupHintConfigureLink": "Configurar Custom Tabs →",
+  "discoveryCopySnippet": "Copiar",
+  "discoveryCopied": "Copiado!"
 }

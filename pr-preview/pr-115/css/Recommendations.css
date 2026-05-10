@@ -674,10 +674,10 @@
     align-items: center;
     justify-content: center;
     z-index: 9999;
-    animation: popupFadeIn 0.15s ease;
+    animation: popup-fade-in 0.15s ease;
 }
 
-@keyframes popupFadeIn {
+@keyframes popup-fade-in {
     from { opacity: 0; }
     to { opacity: 1; }
 }

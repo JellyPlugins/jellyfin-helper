@@ -323,24 +323,27 @@ function loadDiscoveryForUser(index) {
     if (!results || !results[index]) return;
     var result = results[index];
 
-    // If we already have a per-user cache entry, render immediately
-    if (result._cachedDiscovery !== undefined) {
+    var cacheAge = Date.now() - _discoveryAllUsersCacheTimestamp;
+
+    // If we already have a per-user cache entry AND the global cache is still fresh, render immediately
+    if (result._cachedDiscovery !== undefined && cacheAge < _discoveryCacheTtlMs) {
         renderDiscoveryCards(grid, countSpan, result._cachedDiscovery);
         return;
     }
 
     // If we have the global response cached and it's still fresh, extract user data without another API call
-    var cacheAge = Date.now() - _discoveryAllUsersCacheTimestamp;
     if (_discoveryAllUsersCache !== undefined && cacheAge < _discoveryCacheTtlMs) {
         result._cachedDiscovery = findUserDiscovery(_discoveryAllUsersCache, result.UserId);
         renderDiscoveryCards(grid, countSpan, result._cachedDiscovery);
         return;
     }
 
-    // Cache expired — invalidate per-user caches so fresh data is fetched
+    // Cache expired — invalidate ALL per-user caches so fresh data is fetched
     if (_discoveryAllUsersCache !== undefined && cacheAge >= _discoveryCacheTtlMs) {
         _discoveryAllUsersCache = undefined;
-        result._cachedDiscovery = undefined;
+        for (var k = 0; k < results.length; k++) {
+            if (results[k]) { results[k]._cachedDiscovery = undefined; }
+        }
     }
 
     grid.innerHTML = '<div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div>';
