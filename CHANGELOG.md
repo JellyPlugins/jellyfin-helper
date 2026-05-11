@@ -19,7 +19,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Discovery Feedback Loop for ML Training** - User interactions with Discovery recommendations (shown, dismissed, requested, watched) are persisted as training data. The recommendation engine uses this feedback in Phase 4 of training: items that were requested and later watched produce strong positive signals, dismissed items produce negative signals, and merely shown items serve as weak negatives — continuously improving recommendation quality over time.
 
 ### Tests
-- Total: **2166 tests**.
+- Total: **2171 tests**.
 
 ---
 

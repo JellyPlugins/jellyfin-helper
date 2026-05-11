@@ -130,6 +130,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── SeerrIntegrationServiceTests.cs
 │   │   ├── SeerrMediaDetailsTests.cs
 │   │   └── Discovery/            # Seerr Discovery tests
+│   │       ├── DiscoveryFeedbackStoreTests.cs
 │   │       ├── SeerrDiscoveryServiceTests.cs
 │   │       └── ParentalRatingHelperTests.cs
 │   ├── Statistics/                # Statistics service tests
@@ -186,7 +187,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
 │   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
-│   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId)
+│   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId, MediaType)
 │   ├── RequestResult.cs                 # Generic success/failure response model
 │   ├── GrowthTimelineController.cs      # Library growth timeline API
 │   ├── LibraryInsightsController.cs     # Library insights API

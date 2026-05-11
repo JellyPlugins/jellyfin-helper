@@ -77,20 +77,22 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             var data = LoadInternal();
             var userResult = GetOrCreateUserResult(data, userId, userName);
 
-            // Build a lookup of existing entries by TMDb ID for O(1) dedup checks
-            var existingIds = new HashSet<int>(userResult.Entries.Select(e => e.TmdbId));
+            // Build a lookup of existing entries by composite key (TmdbId, MediaType) for O(1) dedup checks.
+            // This prevents TMDb ID collisions between movies and TV shows (e.g., Movie #550 vs TV #550).
+            var existingKeys = new HashSet<(int TmdbId, string MediaType)>(
+                userResult.Entries.Select(e => (e.TmdbId, e.MediaType)));
             var now = DateTime.UtcNow;
 
             foreach (var item in items)
             {
-                if (existingIds.Contains(item.TmdbId))
+                var key = (item.TmdbId, item.MediaType);
+                if (existingKeys.Contains(key))
                 {
                     // Backfill metadata on existing placeholder entries (created by RecordDismissed/RecordRequested
                     // before RecordShown ran). This ensures training examples have full feature data.
-                    var existing = userResult.Entries.First(e => e.TmdbId == item.TmdbId);
-                    if (string.IsNullOrEmpty(existing.MediaType))
+                    var existing = userResult.Entries.First(e => e.TmdbId == item.TmdbId && e.MediaType == item.MediaType);
+                    if (string.IsNullOrEmpty(existing.Title))
                     {
-                        existing.MediaType = item.MediaType;
                         existing.Title = item.Title;
                         existing.Year = item.Year;
                         existing.Genres = item.Genres;
@@ -112,7 +114,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     Score = item.Score,
                     ShownAtUtc = now
                 });
-                existingIds.Add(item.TmdbId);
+                existingKeys.Add(key);
             }
 
             SaveInternal(data);
@@ -120,17 +122,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     }
 
     /// <inheritdoc />
-    /// <remarks>
-    ///     <para>
-    ///         Ideally <see cref="RecordShown"/> has already been called for this item so the entry
-    ///         contains full metadata (MediaType, Title, Year, Genres, TmdbRating, Score).
-    ///         If this method is called before RecordShown (e.g., user dismisses via UI before the
-    ///         scheduled task persists feedback), a minimal entry with only TmdbId is created.
-    ///         Training features derived from missing metadata (genreSimilarity, combinedCriticScore, etc.)
-    ///         will default to zero/neutral, which reduces the signal quality of this example.
-    ///     </para>
-    /// </remarks>
-    public void RecordDismissed(Guid userId, int tmdbId)
+    public void RecordDismissed(Guid userId, int tmdbId, string mediaType)
     {
         if (tmdbId <= 0)
         {
@@ -143,20 +135,17 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             var userResult = data.FirstOrDefault(r => r.UserId == userId);
             if (userResult == null)
             {
-                // User has no feedback history - create a minimal entry
                 userResult = new DiscoveryFeedbackResult { UserId = userId };
                 data.Add(userResult);
             }
 
-            var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId);
+            var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId && e.MediaType == mediaType);
             if (entry == null)
             {
-                // Item wasn't tracked yet (e.g., user dismisses via UI before RecordShown ran).
-                // Metadata fields (MediaType, Title, Genres, etc.) will remain at defaults,
-                // producing weaker training signals. This is acceptable as a rare edge case.
                 entry = new DiscoveryFeedbackEntry
                 {
                     TmdbId = tmdbId,
+                    MediaType = mediaType,
                     ShownAtUtc = DateTime.UtcNow
                 };
                 userResult.Entries.Add(entry);
@@ -169,7 +158,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     }
 
     /// <inheritdoc />
-    public void RecordRequested(Guid userId, int tmdbId)
+    public void RecordRequested(Guid userId, int tmdbId, string mediaType)
     {
         if (tmdbId <= 0)
         {
@@ -186,12 +175,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 data.Add(userResult);
             }
 
-            var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId);
+            var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId && e.MediaType == mediaType);
             if (entry == null)
             {
                 entry = new DiscoveryFeedbackEntry
                 {
                     TmdbId = tmdbId,
+                    MediaType = mediaType,
                     ShownAtUtc = DateTime.UtcNow
                 };
                 userResult.Entries.Add(entry);
@@ -204,9 +194,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     }
 
     /// <inheritdoc />
-    public void MarkWatched(Guid userId, IReadOnlySet<int> watchedTmdbIds)
+    public void MarkWatched(Guid userId, IReadOnlySet<(int TmdbId, string MediaType)> watchedItems)
     {
-        if (watchedTmdbIds.Count == 0)
+        if (watchedItems.Count == 0)
         {
             return;
         }
@@ -222,7 +212,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
             var modified = false;
             foreach (var entry in userResult.Entries.Where(
-                entry => entry.RequestedAtUtc.HasValue && !entry.WasWatched && watchedTmdbIds.Contains(entry.TmdbId)))
+                entry => entry.RequestedAtUtc.HasValue
+                         && !entry.WasWatched
+                         && watchedItems.Contains((entry.TmdbId, entry.MediaType))))
             {
                 entry.WasWatched = true;
                 modified = true;
@@ -383,8 +375,6 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         {
             TryDeleteTempFile(tempFilePath);
             // Invalidate the in-memory cache so the next LoadInternal() re-reads from disk.
-            // This prevents silently losing evicted entries that were removed from 'data'
-            // but never persisted (the file still has the pre-eviction state).
             _memoryCache = null;
             _pluginLog.LogWarning(
                 "DiscoveryFeedback",

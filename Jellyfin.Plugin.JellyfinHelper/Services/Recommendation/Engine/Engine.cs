@@ -1293,9 +1293,10 @@ public sealed class Engine : IRecommendationEngine
                 profileById.TryAdd(p.UserId, p);
             }
 
-            // Build Jellyfin ItemId → TMDb ID mapping from library items.
+            // Build Jellyfin ItemId → TMDb ID and ItemId → MediaType mappings from library items.
             // Only load movies + series (same as LoadCandidateItems) to avoid excessive queries.
             var tmdbIdByItemId = new Dictionary<Guid, int>();
+            var mediaTypeByItemId = new Dictionary<Guid, string>();
             var libraryItems = _libraryManager.GetItemList(new InternalItemsQuery
             {
                 IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series]
@@ -1309,6 +1310,7 @@ public sealed class Engine : IRecommendationEngine
                     int.TryParse(tmdbStr, out var tmdbId) && tmdbId > 0)
                 {
                     tmdbIdByItemId.TryAdd(item.Id, tmdbId);
+                    mediaTypeByItemId.TryAdd(item.Id, item is Series ? "tv" : "movie");
                 }
             }
 
@@ -1317,7 +1319,7 @@ public sealed class Engine : IRecommendationEngine
                 return;
             }
 
-            // For each user in the feedback store, resolve which TMDb IDs they've watched
+            // For each user in the feedback store, resolve which (TmdbId, MediaType) they've watched
             foreach (var userFeedback in allFeedback)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -1334,19 +1336,21 @@ public sealed class Engine : IRecommendationEngine
                     continue;
                 }
 
-                // Collect TMDb IDs of items this user has watched (Played or IsFavorite)
-                var watchedTmdbIds = new HashSet<int>();
+                // Collect composite (TmdbId, MediaType) keys of items this user has watched.
+                // MediaType resolved from library item type (Movie → "movie", Series → "tv").
+                var watchedItems = new HashSet<(int TmdbId, string MediaType)>();
                 foreach (var w in userProfile.WatchedItems.Where(w => w.Played || w.IsFavorite))
                 {
                     if (tmdbIdByItemId.TryGetValue(w.ItemId, out var tmdbId))
                     {
-                        watchedTmdbIds.Add(tmdbId);
+                        var mt = mediaTypeByItemId.TryGetValue(w.ItemId, out var resolved) ? resolved : "movie";
+                        watchedItems.Add((tmdbId, mt));
                     }
 
                     // Also check series-level TMDb IDs (for TV shows)
                     if (w.SeriesId.HasValue && tmdbIdByItemId.TryGetValue(w.SeriesId.Value, out var seriesTmdbId))
                     {
-                        watchedTmdbIds.Add(seriesTmdbId);
+                        watchedItems.Add((seriesTmdbId, "tv"));
                     }
                 }
 
@@ -1355,13 +1359,13 @@ public sealed class Engine : IRecommendationEngine
                 {
                     if (tmdbIdByItemId.TryGetValue(favoriteSeriesId, out var favoriteSeriesTmdbId))
                     {
-                        watchedTmdbIds.Add(favoriteSeriesTmdbId);
+                        watchedItems.Add((favoriteSeriesTmdbId, "tv"));
                     }
                 }
 
-                if (watchedTmdbIds.Count > 0)
+                if (watchedItems.Count > 0)
                 {
-                    _discoveryFeedbackStore.MarkWatched(userFeedback.UserId, watchedTmdbIds);
+                    _discoveryFeedbackStore.MarkWatched(userFeedback.UserId, watchedItems);
                 }
             }
         }

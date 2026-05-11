@@ -45,7 +45,6 @@ public sealed class UserDiscoveryController : ControllerBase
 
     /// <summary>
     ///     Returns the cached discovery recommendations for the currently authenticated user.
-    ///     Available to any authenticated user when DiscoveryUserAccessEnabled is true.
     /// </summary>
     /// <returns>The discovery result for the current user, or null if not available.</returns>
     [HttpGet]
@@ -64,27 +63,14 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
-        var currentUserId = userId.Value;
         var results = _cache.Load();
-        var userResult = results.FirstOrDefault(r =>
-            r.UserId.Equals(currentUserId));
+        var userResult = results.FirstOrDefault(r => r.UserId.Equals(userId.Value));
         return Ok(userResult);
     }
 
     /// <summary>
-    ///     Evaluates the current user's request permissions for a given service type (radarr/sonarr)
-    ///     and media type (movie/tv). Returns only the quality profiles the user is authorized to use.
-    ///     This is the primary endpoint the frontend calls before showing the request popup.
+    ///     Evaluates the current user's request permissions for a given service type and media type.
     /// </summary>
-    /// <remarks>
-    ///     <para>The logic follows the Overseerr/Jellyseerr permission model:</para>
-    ///     <list type="bullet">
-    ///         <item>If the user has no Seerr account → <c>CanRequest = false</c>.</item>
-    ///         <item>If the user lacks REQUEST permission → <c>CanRequest = false</c>.</item>
-    ///         <item>If the user has REQUEST_ADVANCED or MANAGE_REQUESTS → all profiles returned.</item>
-    ///         <item>Normal users → only the server's default profile (no popup needed).</item>
-    ///     </list>
-    /// </remarks>
     /// <param name="serviceType">"radarr" or "sonarr".</param>
     /// <param name="mediaType">"movie" or "tv".</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -109,7 +95,6 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
-        // Normalize inputs to match SubmitMyRequest behavior (case-insensitive)
         serviceType = serviceType?.Trim().ToLowerInvariant() ?? string.Empty;
         mediaType = mediaType?.Trim().ToLowerInvariant() ?? string.Empty;
 
@@ -130,9 +115,7 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
-    ///     Returns the configured Radarr or Sonarr service info from Seerr,
-    ///     including available quality profiles and root folders.
-    ///     Available to any authenticated user when DiscoveryUserAccessEnabled is true.
+    ///     Returns the configured Radarr or Sonarr service info from Seerr.
     /// </summary>
     /// <param name="serviceType">"radarr" or "sonarr".</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -156,7 +139,6 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
-        // Normalize input to match SubmitMyRequest behavior (case-insensitive)
         serviceType = serviceType?.Trim().ToLowerInvariant() ?? string.Empty;
         if (serviceType is not ("radarr" or "sonarr"))
         {
@@ -169,8 +151,6 @@ public sealed class UserDiscoveryController : ControllerBase
 
     /// <summary>
     ///     Serves the discovery sidebar JavaScript file as an embedded resource.
-    ///     This endpoint is referenced by the script tag injected into Jellyfin's index.html.
-    ///     No admin requirement — the script itself checks access via the API.
     /// </summary>
     /// <returns>The discovery-sidebar.js content.</returns>
     [HttpGet("script")]
@@ -193,11 +173,6 @@ public sealed class UserDiscoveryController : ControllerBase
 
     /// <summary>
     ///     Submits a media request to the configured Seerr instance on behalf of the current user.
-    ///     Resolves the Jellyfin user ID to the corresponding Seerr user ID so the request
-    ///     appears under the correct user in Seerr. If no Seerr account mapping exists,
-    ///     the request is rejected with HTTP 403 — the user must be registered in Seerr first.
-    ///     Supports optional quality profile, server, and root folder overrides when provided.
-    ///     Available to any authenticated user when DiscoveryUserAccessEnabled is true.
     /// </summary>
     /// <param name="dto">The request data.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -232,7 +207,6 @@ public sealed class UserDiscoveryController : ControllerBase
             return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
         }
 
-        // Block path traversal attempts, control characters, and excessive length in rootFolder
         if (!string.IsNullOrWhiteSpace(dto.RootFolder))
         {
             if (dto.RootFolder.Length > 512)
@@ -240,8 +214,7 @@ public sealed class UserDiscoveryController : ControllerBase
                 return BadRequest(new RequestResult { Success = false, Message = "Root folder path exceeds maximum length." });
             }
 
-            if (dto.RootFolder.Contains("..", StringComparison.Ordinal) ||
-                dto.RootFolder.StartsWith('~'))
+            if (dto.RootFolder.Contains("..", StringComparison.Ordinal) || dto.RootFolder.StartsWith('~'))
             {
                 return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
             }
@@ -252,9 +225,6 @@ public sealed class UserDiscoveryController : ControllerBase
             }
         }
 
-        // Resolve the current Jellyfin user to their Seerr user ID
-        // so the request appears under their name in Seerr (not as admin).
-        // If no mapping exists, the request is rejected — users must be linked in Seerr.
         var jellyfinUserId = GetCurrentUserId();
         if (!jellyfinUserId.HasValue)
         {
@@ -273,7 +243,6 @@ public sealed class UserDiscoveryController : ControllerBase
             });
         }
 
-        // Always validate request permissions (server-side enforcement)
         var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
         var permissions = await _discovery.GetUserRequestPermissionsAsync(
             jellyfinUserId!.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
@@ -283,8 +252,6 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(403, new RequestResult { Success = false, Message = "You do not have permission to submit requests." });
         }
 
-        // If the caller supplies ANY profile/server/rootFolder overrides, validate them against the allowed set.
-        // Reject partial overrides (server-only or profile-only) — both must be specified together.
         if (dto.ServerId.HasValue || dto.ProfileId.HasValue || !string.IsNullOrWhiteSpace(dto.RootFolder))
         {
             if (!dto.ServerId.HasValue || !dto.ProfileId.HasValue)
@@ -294,20 +261,16 @@ public sealed class UserDiscoveryController : ControllerBase
 
             if (permissions.Profiles.Count == 0)
             {
-                // No profiles returned means the user is not authorized to override defaults.
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to override the default quality profile." });
             }
 
-            var requestedServerId = dto.ServerId.Value;
-            var requestedProfileId = dto.ProfileId.Value;
             var matchedProfile = permissions.Profiles.FirstOrDefault(profile =>
-                profile.ServerId == requestedServerId && profile.ProfileId == requestedProfileId);
+                profile.ServerId == dto.ServerId.Value && profile.ProfileId == dto.ProfileId.Value);
             if (matchedProfile == null)
             {
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
             }
 
-            // Validate RootFolder against the matched profile's allowed root folder (if caller supplied one)
             if (!string.IsNullOrWhiteSpace(dto.RootFolder) &&
                 !string.Equals(dto.RootFolder, matchedProfile.RootFolder, StringComparison.Ordinal))
             {
@@ -315,7 +278,6 @@ public sealed class UserDiscoveryController : ControllerBase
             }
         }
 
-        // Pass through profile overrides if provided by the user (from quality profile popup)
         var (success, message) = await _discovery.SubmitRequestAsync(
             dto.TmdbId,
             mediaType,
@@ -330,27 +292,22 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(502, new RequestResult { Success = false, Message = message });
         }
 
-        // Mark item as requested in cache so it doesn't reappear on page refresh.
-        // Best-effort: don't let cache bookkeeping failures turn a successful Seerr
-        // request into a 500 response, which would encourage client retries.
         try
         {
             _cache.MarkAsRequested(dto.TmdbId);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            // Already logged inside MarkAsRequested; swallow to preserve the 200 response.
+            // Best-effort cache update.
         }
 
-        // Record the request in the feedback store for training data collection.
-        // Best-effort: training feedback is non-critical and must not affect the user response.
         try
         {
-            _feedbackStore.RecordRequested(jellyfinUserId!.Value, dto.TmdbId);
+            _feedbackStore.RecordRequested(jellyfinUserId!.Value, dto.TmdbId, mediaType);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            // Swallow to preserve the 200 response.
+            // Best-effort feedback recording.
         }
 
         return Ok(new RequestResult { Success = true, Message = message });
@@ -358,11 +315,8 @@ public sealed class UserDiscoveryController : ControllerBase
 
     /// <summary>
     ///     Records that the current user has explicitly dismissed a discovery recommendation.
-    ///     This provides a negative training signal (stronger than mere exposure) indicating
-    ///     the user saw and actively rejected the item.
-    ///     Available to any authenticated user when DiscoveryUserAccessEnabled is true.
     /// </summary>
-    /// <param name="dto">The dismiss request containing the TMDb ID.</param>
+    /// <param name="dto">The dismiss request containing the TMDb ID and media type.</param>
     /// <returns>A result indicating success.</returns>
     [HttpPost("Dismiss")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -391,13 +345,19 @@ public sealed class UserDiscoveryController : ControllerBase
             return BadRequest(new RequestResult { Success = false, Message = "Invalid TMDb ID." });
         }
 
+        var mediaType = dto.MediaType?.Trim().ToLowerInvariant();
+        if (mediaType is not ("movie" or "tv"))
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
+        }
+
         try
         {
-            _feedbackStore.RecordDismissed(userId.Value, dto.TmdbId);
+            _feedbackStore.RecordDismissed(userId.Value, dto.TmdbId, mediaType);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            // Best-effort: feedback recording failure should not break the user flow.
+            // Best-effort feedback recording.
         }
 
         return Ok(new RequestResult { Success = true, Message = "Item dismissed." });

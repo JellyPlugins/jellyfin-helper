@@ -12,7 +12,7 @@ public interface IDiscoveryFeedbackStore
     /// <summary>
     ///     Records that a set of discovery items were shown to a user.
     ///     Called when the discovery task generates new recommendations.
-    ///     Existing entries for the same user+TMDb ID are preserved (not overwritten).
+    ///     Existing entries for the same user + (TMDb ID, MediaType) are preserved (not overwritten).
     /// </summary>
     /// <param name="userId">The Jellyfin user ID.</param>
     /// <param name="userName">The user's display name.</param>
@@ -24,22 +24,25 @@ public interface IDiscoveryFeedbackStore
     /// </summary>
     /// <param name="userId">The Jellyfin user ID.</param>
     /// <param name="tmdbId">The TMDb ID of the dismissed item.</param>
-    void RecordDismissed(Guid userId, int tmdbId);
+    /// <param name="mediaType">The media type ("movie" or "tv").</param>
+    void RecordDismissed(Guid userId, int tmdbId, string mediaType);
 
     /// <summary>
     ///     Records that a user requested a discovery item via Seerr.
     /// </summary>
     /// <param name="userId">The Jellyfin user ID.</param>
     /// <param name="tmdbId">The TMDb ID of the requested item.</param>
-    void RecordRequested(Guid userId, int tmdbId);
+    /// <param name="mediaType">The media type ("movie" or "tv").</param>
+    void RecordRequested(Guid userId, int tmdbId, string mediaType);
 
     /// <summary>
     ///     Marks requested items as watched when they appear in the user's watch history.
     ///     Called during training data preparation to detect "requested AND watched" items.
+    ///     Uses composite key (TmdbId, MediaType) to avoid cross-type collisions.
     /// </summary>
     /// <param name="userId">The Jellyfin user ID.</param>
-    /// <param name="watchedTmdbIds">TMDb IDs of items the user has watched.</param>
-    void MarkWatched(Guid userId, IReadOnlySet<int> watchedTmdbIds);
+    /// <param name="watchedItems">Composite keys of items the user has watched.</param>
+    void MarkWatched(Guid userId, IReadOnlySet<(int TmdbId, string MediaType)> watchedItems);
 
     /// <summary>
     ///     Loads all discovery feedback for all users.
