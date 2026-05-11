@@ -857,6 +857,7 @@ function attachAutoSaveHandlers() {
                             // Update discovery access toggle greyed-out state
                             refreshDiscoveryAccessState();
                             // Uncheck discovery when deactivating recommendations
+                            var discChk = document.getElementById('cfgDiscoveryUserAccess');
                             if (!isActive && discChk) discChk.checked = false;
                         }
                     });
