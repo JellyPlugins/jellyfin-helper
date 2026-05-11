@@ -36,9 +36,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private const double MinVoteAverageChild = 5.5;
 
     /// <summary>
-    ///     Fixed number of discovery recommendations per user. Not configurable.
+    ///     Maximum number of visible discovery recommendations served to the frontend per user.
+    ///     The API layer filters the persisted pool down to this count.
     /// </summary>
-    private const int MaxDiscoveryPerUser = 10;
+    internal const int MaxVisiblePerUser = 10;
+
+    /// <summary>
+    ///     Total number of discovery recommendations generated and persisted per user (backfill pool).
+    ///     Items beyond <see cref="MaxVisiblePerUser"/> serve as replacements when visible items
+    ///     are dismissed or requested by the user.
+    /// </summary>
+    private const int MaxPoolPerUser = 20;
 
     /// <summary>
     ///     Number of top candidates (by pre-score) to enrich with credits data.
@@ -157,7 +165,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             "SeerrDiscovery",
             dryRun
                 ? "Starting discovery generation (Dry Run - will not persist)."
-                : $"Starting discovery generation (max {MaxDiscoveryPerUser} per user).",
+                : $"Starting discovery generation (pool={MaxPoolPerUser}, visible={MaxVisiblePerUser} per user).",
             _logger);
 
         // Step 1: Load user profiles
@@ -1093,7 +1101,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
             // Rank and select top-N from enriched candidates
             scored.Sort((a, b) => b.Score.CompareTo(a.Score));
-            var topN = scored.Take(MaxDiscoveryPerUser).ToList();
+            var topN = scored.Take(MaxPoolPerUser).ToList();
 
             // Build recommendations
             var recommendations = new List<DiscoveryRecommendation>(topN.Count);

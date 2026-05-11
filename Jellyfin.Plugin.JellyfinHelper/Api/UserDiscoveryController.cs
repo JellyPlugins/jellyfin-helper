@@ -71,7 +71,25 @@ public sealed class UserDiscoveryController : ControllerBase
         var currentUserId = userId.Value;
         var results = _cache.Load();
         var userResult = results.FirstOrDefault(r => r.UserId.Equals(currentUserId));
-        return Ok(userResult);
+        if (userResult == null)
+        {
+            return Ok(null);
+        }
+
+        // Filter persisted pool: exclude dismissed + requested, serve only next N visible
+        var excluded = BuildExcludedItemKeys(currentUserId);
+        var visible = userResult.Recommendations
+            .Where(r => !r.AlreadyRequested && !excluded.Contains((r.TmdbId, r.MediaType)))
+            .Take(SeerrDiscoveryService.MaxVisiblePerUser)
+            .ToList();
+
+        return Ok(new DiscoveryResult
+        {
+            UserId = userResult.UserId,
+            UserName = userResult.UserName,
+            Recommendations = visible,
+            GeneratedAt = userResult.GeneratedAt
+        });
     }
 
     /// <summary>
@@ -392,17 +410,33 @@ public sealed class UserDiscoveryController : ControllerBase
             // Best-effort feedback recording.
         }
 
-        // Remove from cached results so the item disappears immediately on page reload
+        return Ok(new RequestResult { Success = true, Message = "Item dismissed." });
+    }
+
+    /// <summary>
+    ///     Builds the set of item keys excluded from the visible pool for a user.
+    /// </summary>
+    private HashSet<(int TmdbId, string MediaType)> BuildExcludedItemKeys(Guid userId)
+    {
+        var excluded = new HashSet<(int TmdbId, string MediaType)>();
         try
         {
-            _cache.RemoveItem(dto.TmdbId, mediaType, currentUserId);
+            foreach (var item in _feedbackStore.GetDismissedItems(userId))
+            {
+                excluded.Add(item);
+            }
+
+            foreach (var item in _feedbackStore.GetRequestedItems(userId))
+            {
+                excluded.Add(item);
+            }
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            // Best-effort cache removal.
+            // Best-effort
         }
 
-        return Ok(new RequestResult { Success = true, Message = "Item dismissed." });
+        return excluded;
     }
 
     /// <summary>

@@ -23,16 +23,19 @@ public sealed class DiscoveryController : ControllerBase
 {
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
+    private readonly IDiscoveryFeedbackStore _feedbackStore;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="DiscoveryController"/> class.
     /// </summary>
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="discovery">The discovery service.</param>
-    public DiscoveryController(DiscoveryCacheService cache, ISeerrDiscoveryService discovery)
+    /// <param name="feedbackStore">The discovery feedback store.</param>
+    public DiscoveryController(DiscoveryCacheService cache, ISeerrDiscoveryService discovery, IDiscoveryFeedbackStore feedbackStore)
     {
         _cache = cache;
         _discovery = discovery;
+        _feedbackStore = feedbackStore;
     }
 
     /// <summary>
@@ -44,7 +47,27 @@ public sealed class DiscoveryController : ControllerBase
     public ActionResult<IReadOnlyList<DiscoveryResult>> GetDiscoveryResults()
     {
         var results = _cache.Load();
-        return Ok(results);
+
+        // Filter each user pool: only next N visible (non-dismissed, non-requested) items
+        var filtered = new List<DiscoveryResult>(results.Count);
+        foreach (var userResult in results)
+        {
+            var excluded = BuildExcludedItemKeys(userResult.UserId);
+            var visible = userResult.Recommendations
+                .Where(r => !r.AlreadyRequested && !excluded.Contains((r.TmdbId, r.MediaType)))
+                .Take(SeerrDiscoveryService.MaxVisiblePerUser)
+                .ToList();
+
+            filtered.Add(new DiscoveryResult
+            {
+                UserId = userResult.UserId,
+                UserName = userResult.UserName,
+                Recommendations = visible,
+                GeneratedAt = userResult.GeneratedAt
+            });
+        }
+
+        return Ok(filtered);
     }
 
     /// <summary>
@@ -156,5 +179,28 @@ public sealed class DiscoveryController : ControllerBase
         }
 
         return Ok(new RequestResult { Success = true, Message = message });
+    }
+
+    private HashSet<(int TmdbId, string MediaType)> BuildExcludedItemKeys(Guid userId)
+    {
+        var excluded = new HashSet<(int TmdbId, string MediaType)>();
+        try
+        {
+            foreach (var item in _feedbackStore.GetDismissedItems(userId))
+            {
+                excluded.Add(item);
+            }
+
+            foreach (var item in _feedbackStore.GetRequestedItems(userId))
+            {
+                excluded.Add(item);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Best-effort
+        }
+
+        return excluded;
     }
 }

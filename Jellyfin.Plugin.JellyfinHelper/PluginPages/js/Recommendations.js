@@ -645,7 +645,7 @@ function handleDiscoveryRequestResponse(res, btn, tmdbId) {
                         countSpan.textContent = '' + Math.max(0, current - 1);
                     }
                 }, 300);
-            }, 800);
+            }, 5000);
         }
     } else {
         handleDiscoveryRequestError(btn);

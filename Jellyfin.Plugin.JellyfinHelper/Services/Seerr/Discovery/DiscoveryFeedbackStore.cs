@@ -278,6 +278,31 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         }
     }
 
+    /// <inheritdoc />
+    public IReadOnlySet<(int TmdbId, string MediaType)> GetRequestedItems(Guid userId)
+    {
+        lock (_fileLock)
+        {
+            var data = LoadInternal();
+            var userResult = data.FirstOrDefault(r => r.UserId == userId);
+            if (userResult == null)
+            {
+                return new HashSet<(int, string)>();
+            }
+
+            var requested = new HashSet<(int TmdbId, string MediaType)>();
+            foreach (var entry in userResult.Entries)
+            {
+                if (entry.RequestedAtUtc.HasValue)
+                {
+                    requested.Add((entry.TmdbId, entry.MediaType));
+                }
+            }
+
+            return requested;
+        }
+    }
+
     /// <summary>
     ///     Creates a defensive copy of a feedback result to avoid exposing internal mutable state.
     /// </summary>

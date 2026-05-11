@@ -66,4 +66,12 @@ public interface IDiscoveryFeedbackStore
     /// <param name="userId">The Jellyfin user ID.</param>
     /// <returns>A set of dismissed composite keys, or an empty set if none.</returns>
     IReadOnlySet<(int TmdbId, string MediaType)> GetDismissedItems(Guid userId);
+
+    /// <summary>
+    ///     Returns the set of (TmdbId, MediaType) pairs that the user has requested.
+    ///     Used by the API layer to filter consumed items from the visible pool.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user ID.</param>
+    /// <returns>A set of requested composite keys, or an empty set if none.</returns>
+    IReadOnlySet<(int TmdbId, string MediaType)> GetRequestedItems(Guid userId);
 }

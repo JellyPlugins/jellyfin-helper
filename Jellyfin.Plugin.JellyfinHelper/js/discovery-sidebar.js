@@ -479,6 +479,20 @@
             if (result && result.Success) {
                 btn.textContent = '\u2713 ' + t('discoveryRequested', 'Requested');
                 btn.classList.add('jfh-discovery-btn-done');
+                // Hide dismiss button in the same row
+                var row = btn.closest('.jfh-discovery-btn-row');
+                var dismissBtn = row ? row.querySelector('.jfh-discovery-btn-dismiss') : null;
+                if (dismissBtn) dismissBtn.style.display = 'none';
+                // After 5 seconds: fade out and remove the card (consumed from pool)
+                var card = btn.closest('.jfh-discovery-card');
+                if (card) {
+                    setTimeout(function () {
+                        card.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+                        card.style.opacity = '0';
+                        card.style.transform = 'scale(0.95)';
+                        setTimeout(function () { card.remove(); }, 400);
+                    }, 5000);
+                }
             } else {
                 btn.textContent = t('discoveryRequestFailed', 'Failed');
                 btn.classList.add('jfh-discovery-btn-failed');
