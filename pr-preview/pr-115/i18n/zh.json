@@ -329,5 +329,6 @@
   "discoveryDismissConfirmText": "{0} 将从未来的建议中隐藏，不再显示。",
   "discoveryDismissConfirmGeneric": "此项目将从未来的建议中隐藏。",
   "discoveryDismissConfirm": "是的，忽略",
-  "discoveryDismissError": "无法忽略此项目。请重试。"
+  "discoveryDismissError": "无法忽略此项目。请重试。",
+  "discoveryTabNotFound": "找不到 Discovery 选项卡。请确保已安装 Custom Tabs 插件，或联系服务器管理员。"
 }

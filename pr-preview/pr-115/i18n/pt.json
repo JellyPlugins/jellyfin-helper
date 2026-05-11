@@ -329,5 +329,6 @@
   "discoveryDismissConfirmText": "{0} será ocultado de sugestões futuras e não será exibido novamente.",
   "discoveryDismissConfirmGeneric": "Este item será ocultado de sugestões futuras.",
   "discoveryDismissConfirm": "Sim, dispensar",
-  "discoveryDismissError": "Não foi possível dispensar este item. Por favor, tente novamente."
+  "discoveryDismissError": "Não foi possível dispensar este item. Por favor, tente novamente.",
+  "discoveryTabNotFound": "A aba Discovery não foi encontrada. Certifique-se de que o plugin Custom Tabs está instalado ou entre em contato com o administrador do servidor."
 }

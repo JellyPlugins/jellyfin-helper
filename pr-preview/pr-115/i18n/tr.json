@@ -329,5 +329,6 @@
   "discoveryDismissConfirmText": "{0} gelecek önerilerden gizlenecek ve tekrar gösterilmeyecek.",
   "discoveryDismissConfirmGeneric": "Bu öğe gelecek önerilerden gizlenecek.",
   "discoveryDismissConfirm": "Evet, kaldır",
-  "discoveryDismissError": "Bu öğe kaldırılamadı. Lütfen tekrar deneyin."
+  "discoveryDismissError": "Bu öğe kaldırılamadı. Lütfen tekrar deneyin.",
+  "discoveryTabNotFound": "Discovery sekmesi bulunamadı. Lütfen Custom Tabs eklentisinin kurulu olduğundan emin olun veya sunucu yöneticinizle iletişime geçin."
 }

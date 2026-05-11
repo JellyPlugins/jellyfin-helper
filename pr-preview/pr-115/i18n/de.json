@@ -329,5 +329,6 @@
   "discoveryDismissConfirmText": "{0} wird aus zukünftigen Vorschlägen ausgeblendet und nicht mehr angezeigt.",
   "discoveryDismissConfirmGeneric": "Dieses Element wird aus zukünftigen Vorschlägen ausgeblendet.",
   "discoveryDismissConfirm": "Ja, ablehnen",
-  "discoveryDismissError": "Konnte dieses Element nicht ablehnen. Bitte versuche es erneut."
+  "discoveryDismissError": "Konnte dieses Element nicht ablehnen. Bitte versuche es erneut.",
+  "discoveryTabNotFound": "Der Discovery-Tab konnte nicht gefunden werden. Bitte stelle sicher, dass das Custom Tabs Plugin installiert ist, oder kontaktiere deinen Serveradministrator."
 }
