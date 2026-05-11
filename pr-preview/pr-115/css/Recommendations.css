@@ -683,11 +683,12 @@
 }
 
 .discovery-popup {
+    box-sizing: border-box;
     background: #1e1e1e;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: var(--radius-md, 8px);
     padding: 1.5em;
-    min-width: 300px;
+    width: min(420px, calc(100vw - 2rem));
     max-width: 420px;
     max-height: 70vh;
     display: flex;

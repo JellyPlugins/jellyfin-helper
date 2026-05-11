@@ -377,12 +377,7 @@ function findUserDiscovery(allData, userId) {
 function renderDiscoveryCards(grid, countSpan, userDiscovery) {
     if (!userDiscovery || !userDiscovery.Recommendations || userDiscovery.Recommendations.length === 0) {
         if (countSpan) countSpan.textContent = '0';
-        // Show configuration hint if discovery data is completely absent (Seerr likely not configured)
-        var config = window._pluginConfig || {};
-        var seerrConfigured = config.SeerrUrl && config.SeerrApiKey;
-        var message = seerrConfigured
-            ? T('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.')
-            : T('discoveryConfigureSeerr', 'Configure Seerr in the Settings tab to see personalized download suggestions.');
+        var message = T('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.');
         grid.innerHTML = '<div class="recs-profile-compact-empty">' + message + '</div>';
         return;
     }

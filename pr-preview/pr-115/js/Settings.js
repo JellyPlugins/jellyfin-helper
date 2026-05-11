@@ -767,9 +767,12 @@ function attachDiscoveryCopyHandler() {
     var toggleBtn = document.getElementById('btnToggleDiscoveryHint');
     var panel = document.getElementById('discoveryHintPanel');
     if (toggleBtn && panel) {
+        toggleBtn.setAttribute('aria-expanded', 'false');
+        toggleBtn.setAttribute('aria-controls', 'discoveryHintPanel');
         toggleBtn.addEventListener('click', function () {
             var isOpen = panel.style.display !== 'none';
             panel.style.display = isOpen ? 'none' : 'block';
+            toggleBtn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
         });
     }
 
