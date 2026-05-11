@@ -305,7 +305,7 @@
   "discoverySelectQualityProfileDesc": "Choisissez le profil de qualité à utiliser pour le téléchargement :",
   "discoveryCancel": "Annuler",
   "discoveryUserAccess": "Autoriser les utilisateurs à voir Discovery et soumettre des demandes",
-  "discoveryUserAccessHelp": "Lorsque activé, les utilisateurs non-administrateurs peuvent voir des suggestions personnalisées et demander des médias via la page Seerr Discovery.",
+  "discoveryUserAccessHelp": "Lorsqu'elle est activée, les utilisateurs non-administrateurs peuvent voir des suggestions personnalisées et demander des médias via la page Seerr Discovery.",
   "discoveryAccessDisabledHint": "Nécessite que Recommandations soit activé et Seerr configuré.",
   "discoveryUserNotLinked": "Votre compte Jellyfin n'est pas lié à un compte Seerr. Veuillez contacter votre administrateur.",
   "discoverySetupHintTitle": "Instructions de configuration",

@@ -25,6 +25,12 @@ internal static class ExternalCandidateFeatureBuilder
     private const int MinPeopleForFullScore = 5;
 
     /// <summary>
+    ///     Normalization cap for TMDb popularity values. Top trending TMDb items typically
+    ///     peak around 100-200 popularity; values above this cap saturate at 1.0.
+    /// </summary>
+    private const double PopularityNormalizationCap = 200.0;
+
+    /// <summary>
     ///     Builds a feature vector from a TMDb discover item and user preferences.
     /// </summary>
     /// <param name="candidate">The TMDb discover item to score.</param>
@@ -64,7 +70,7 @@ internal static class ExternalCandidateFeatureBuilder
                 candidate.EffectiveReleaseDate?.Year, avgYear),
             GenreCount = genres.Count,
             IsSeries = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase),
-            PopularityScore = Math.Clamp(candidate.Popularity / 200.0, 0.0, 1.0),
+            PopularityScore = Math.Clamp(candidate.Popularity / PopularityNormalizationCap, 0.0, 1.0),
             PeopleSimilarity = ComputePeopleSimilarity(candidate, preferredPeople),
 
             // Neutral signals (no library data available)
@@ -87,6 +93,30 @@ internal static class ExternalCandidateFeatureBuilder
     }
 
     /// <summary>
+    ///     Computes people similarity from a list of known people names against preferred people.
+    ///     Shared formula used by both live scoring and training data building.
+    ///     Deduplicates names to prevent double-counting (e.g., director + writer credits).
+    /// </summary>
+    /// <param name="knownPeople">The candidate's known people names.</param>
+    /// <param name="preferredPeople">The user's preferred people set (case-insensitive).</param>
+    /// <returns>A similarity score between 0.0 and 1.0.</returns>
+    internal static double ComputePeopleSimilarityFromNames(
+        IEnumerable<string> knownPeople,
+        HashSet<string> preferredPeople)
+    {
+        if (preferredPeople.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var overlap = knownPeople
+            .Where(p => !string.IsNullOrWhiteSpace(p) && preferredPeople.Contains(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+        return Math.Clamp((double)overlap / Math.Min(preferredPeople.Count, MinPeopleForFullScore), 0.0, 1.0);
+    }
+
+    /// <summary>
     ///     Computes people similarity from limited TMDb data.
     ///     TMDb discover responses include limited cast data; full cast requires
     ///     a separate /movie/{id}/credits call which is too expensive for bulk queries.
@@ -100,8 +130,6 @@ internal static class ExternalCandidateFeatureBuilder
             return 0.0;
         }
 
-        var overlap = candidate.KnownPeople.Count(p =>
-            !string.IsNullOrWhiteSpace(p) && preferredPeople.Contains(p));
-        return Math.Clamp((double)overlap / Math.Min(preferredPeople.Count, MinPeopleForFullScore), 0.0, 1.0);
+        return ComputePeopleSimilarityFromNames(candidate.KnownPeople, preferredPeople);
     }
 }

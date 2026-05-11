@@ -118,7 +118,7 @@ public sealed class DiscoveryController : ControllerBase
             }
 
             if (dto.RootFolder.Contains("..", StringComparison.Ordinal) ||
-                dto.RootFolder.Contains('~', StringComparison.Ordinal))
+                dto.RootFolder.TrimStart().StartsWith('~'))
             {
                 return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
             }

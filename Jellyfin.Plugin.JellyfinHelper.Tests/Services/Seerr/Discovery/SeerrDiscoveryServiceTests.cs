@@ -80,8 +80,8 @@ public class SeerrDiscoveryServiceTests
         {
             if (Plugin.Instance?.Configuration != null)
             {
-                Plugin.Instance.Configuration.SeerrUrl = prevUrl ?? string.Empty;
-                Plugin.Instance.Configuration.SeerrApiKey = prevKey ?? string.Empty;
+                Plugin.Instance.Configuration.SeerrUrl = prevUrl!;
+                Plugin.Instance.Configuration.SeerrApiKey = prevKey!;
             }
         }
     }

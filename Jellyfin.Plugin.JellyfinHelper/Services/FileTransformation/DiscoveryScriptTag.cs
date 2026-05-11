@@ -24,7 +24,7 @@ internal static class DiscoveryScriptTag
     ///     Matches tags with plugin="Jellyfin Helper" regardless of version, URL, or attributes.
     /// </summary>
     public static readonly Regex RemovalRegex = new(
-        "<script[^>]*plugin=[\"']" + Regex.Escape(PluginName) + "[\"'][^>]*>\\s*</script>\\n?",
+        "<script[^>]*plugin=[\"']" + Regex.Escape(PluginName) + "[\"'][^>]*>\\s*</script>\\r?\\n?",
         RegexOptions.Compiled);
 
     /// <summary>

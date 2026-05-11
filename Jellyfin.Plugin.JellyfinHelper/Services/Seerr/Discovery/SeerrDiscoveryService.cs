@@ -462,6 +462,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     }
 
                     skip += take;
+
+                    // Safety: if this is the last allowed iteration, mark as incomplete
+                    if (page == maxPages - 2)
+                    {
+                        _pluginLog.LogWarning(
+                            "SeerrDiscovery",
+                            $"User list pagination hit the {maxPages}-page safety cap ({allUsers.Count} users fetched). Returning partial result.",
+                            null,
+                            _logger);
+                        fetchComplete = false;
+                    }
                 }
 
                 return (allUsers, fetchComplete);

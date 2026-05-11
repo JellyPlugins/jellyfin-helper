@@ -705,14 +705,6 @@
                     return;
                 }
             }
-            // Pass 3: substring match as last resort (legacy behavior)
-            for (var i = 0; i < tabs.length; i++) {
-                var tabText = tabs[i].textContent.trim().toLowerCase();
-                if (tabText.indexOf(localizedTitle) !== -1) {
-                    tabs[i].click();
-                    return;
-                }
-            }
             // Custom Tabs plugin not installed or tab not found — navigate to admin plugin page as fallback
             window.location.href = '/web/index.html#!/configurationpage?name=Jellyfin%20Helper';
         });

@@ -211,6 +211,14 @@ public class ParentalRatingHelperTests
     }
 
     [Fact]
+    public void ShouldExclude_AdultContent_ExactBoundary141_ReturnsFalse()
+    {
+        // MaxParentalRating >= 141 is treated as unrestricted (adult account)
+        var candidate = new TmdbDiscoverItem { Id = 1, Adult = true, GenreIds = [27, 53] };
+        Assert.False(ParentalRatingHelper.ShouldExclude(candidate, 141));
+    }
+
+    [Fact]
     public void ShouldExclude_ActionOnly_StrictChildAccount_ReturnsTrue()
     {
         // Pure Action (28) without any child-friendly genre = excluded for FSK-6

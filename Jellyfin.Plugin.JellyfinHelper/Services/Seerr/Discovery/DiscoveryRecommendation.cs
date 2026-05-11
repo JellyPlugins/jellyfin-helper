@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -8,6 +9,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// </summary>
 public sealed class DiscoveryRecommendation
 {
+    private double _score;
+    private double _tmdbRating;
+
     /// <summary>
     ///     Gets or sets the TMDb ID of the recommended item.
     /// </summary>
@@ -29,9 +33,13 @@ public sealed class DiscoveryRecommendation
     public int? Year { get; set; }
 
     /// <summary>
-    ///     Gets or sets the computed recommendation score (0-1).
+    ///     Gets or sets the computed recommendation score (0-1). Clamped to valid range.
     /// </summary>
-    public double Score { get; set; }
+    public double Score
+    {
+        get => _score;
+        set => _score = Math.Clamp(value, 0.0, 1.0);
+    }
 
     /// <summary>
     ///     Gets or sets the human-readable reason text (fallback when i18n key is not available).
@@ -54,9 +62,13 @@ public sealed class DiscoveryRecommendation
     public IReadOnlyList<string> Genres { get; set; } = [];
 
     /// <summary>
-    ///     Gets or sets the TMDb community rating (0-10).
+    ///     Gets or sets the TMDb community rating (0-10). Clamped to valid range.
     /// </summary>
-    public double TmdbRating { get; set; }
+    public double TmdbRating
+    {
+        get => _tmdbRating;
+        set => _tmdbRating = Math.Clamp(value, 0.0, 10.0);
+    }
 
     /// <summary>
     ///     Gets or sets the poster path (relative to TMDb CDN).

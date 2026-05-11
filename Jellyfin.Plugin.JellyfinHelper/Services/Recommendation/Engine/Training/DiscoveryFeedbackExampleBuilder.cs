@@ -150,10 +150,8 @@ internal static class DiscoveryFeedbackExampleBuilder
         var peopleSimilarity = 0.0;
         if (entry.KnownPeople is { Count: > 0 } && preferredPeople.Count > 0)
         {
-            var overlap = entry.KnownPeople.Count(p =>
-                !string.IsNullOrWhiteSpace(p) && preferredPeople.Contains(p));
-            peopleSimilarity = Math.Clamp(
-                (double)overlap / Math.Min(preferredPeople.Count, 5), 0.0, 1.0);
+            peopleSimilarity = ExternalCandidateFeatureBuilder.ComputePeopleSimilarityFromNames(
+                entry.KnownPeople, preferredPeople);
         }
 
         // Popularity proxy from TMDb rating + score
