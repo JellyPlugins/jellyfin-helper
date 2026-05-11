@@ -89,7 +89,7 @@ internal static class DiscoveryFeedbackExampleBuilder
                 {
                     Features = features,
                     Label = label,
-                    GeneratedAtUtc = entry.ShownAtUtc,
+                    GeneratedAtUtc = entry.RequestedAtUtc ?? entry.DismissedAtUtc ?? entry.ShownAtUtc,
                     SampleWeight = EngineConstants.DiscoveryFeedbackSampleWeight
                 });
             }

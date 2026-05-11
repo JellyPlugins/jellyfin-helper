@@ -472,7 +472,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     skip += take;
 
                     // Safety: if this is the last allowed iteration, mark as incomplete
-                    if (page == maxPages - 2)
+                    if (page == maxPages - 1)
                     {
                         _pluginLog.LogWarning(
                             "SeerrDiscovery",

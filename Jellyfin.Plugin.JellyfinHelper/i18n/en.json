@@ -329,5 +329,6 @@
   "discoveryDismissConfirmText": "{0} will be hidden from future suggestions. It won't be shown again.",
   "discoveryDismissConfirmGeneric": "This item will be hidden from future suggestions.",
   "discoveryDismissConfirm": "Yes, dismiss",
-  "discoveryDismissError": "Could not dismiss this item. Please try again."
+  "discoveryDismissError": "Could not dismiss this item. Please try again.",
+  "discoveryTabNotFound": "The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator."
 }

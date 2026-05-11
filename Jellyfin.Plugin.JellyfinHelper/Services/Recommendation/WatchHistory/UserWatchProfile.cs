@@ -148,9 +148,10 @@ public sealed class UserWatchProfile
     ///     These represent true preferences - the user had alternatives and picked this language.
     ///     Excluded from JSON serialization to avoid redundant data in API responses.
     ///     Computed lazily and cached to avoid repeated collection allocation.
+    ///     Returns a read-only view to prevent external mutation of cached state.
     /// </summary>
     [JsonIgnore]
-    public HashSet<string> PreferredLanguages => _preferredLanguages ??= new(
+    public IReadOnlySet<string> PreferredLanguages => _preferredLanguages ??= new(
         LanguageProfile.Where(kv => kv.Value is { ChosenCount: > 0 }).Select(kv => kv.Key),
         StringComparer.OrdinalIgnoreCase);
 
@@ -159,9 +160,10 @@ public sealed class UserWatchProfile
     ///     These represent tolerance, not preference.
     ///     Excluded from JSON serialization to avoid redundant data in API responses.
     ///     Computed lazily and cached to avoid repeated collection allocation.
+    ///     Returns a read-only view to prevent external mutation of cached state.
     /// </summary>
     [JsonIgnore]
-    public HashSet<string> ToleratedLanguages => _toleratedLanguages ??= new(
+    public IReadOnlySet<string> ToleratedLanguages => _toleratedLanguages ??= new(
         LanguageProfile.Where(kv => kv.Value is { ForcedCount: > 0, ChosenCount: 0 }).Select(kv => kv.Key),
         StringComparer.OrdinalIgnoreCase);
 
@@ -200,9 +202,10 @@ public sealed class UserWatchProfile
     ///     These represent true preferences - the user had alternatives and picked this subtitle language.
     ///     Excluded from JSON serialization to avoid redundant data in API responses.
     ///     Computed lazily and cached to avoid repeated collection allocation.
+    ///     Returns a read-only view to prevent external mutation of cached state.
     /// </summary>
     [JsonIgnore]
-    public HashSet<string> PreferredSubtitleLanguages => _preferredSubtitleLanguages ??= new(
+    public IReadOnlySet<string> PreferredSubtitleLanguages => _preferredSubtitleLanguages ??= new(
         SubtitleLanguageProfile.Where(kv => kv.Value is { ChosenCount: > 0 }).Select(kv => kv.Key),
         StringComparer.OrdinalIgnoreCase);
 
@@ -211,9 +214,10 @@ public sealed class UserWatchProfile
     ///     These represent tolerance, not preference.
     ///     Excluded from JSON serialization to avoid redundant data in API responses.
     ///     Computed lazily and cached to avoid repeated collection allocation.
+    ///     Returns a read-only view to prevent external mutation of cached state.
     /// </summary>
     [JsonIgnore]
-    public HashSet<string> ToleratedSubtitleLanguages => _toleratedSubtitleLanguages ??= new(
+    public IReadOnlySet<string> ToleratedSubtitleLanguages => _toleratedSubtitleLanguages ??= new(
         SubtitleLanguageProfile.Where(kv => kv.Value is { ForcedCount: > 0, ChosenCount: 0 }).Select(kv => kv.Key),
         StringComparer.OrdinalIgnoreCase);
 

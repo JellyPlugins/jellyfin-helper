@@ -12,6 +12,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
+[Collection("ConfigOverride")]
 public class SeerrDiscoveryServiceTests
 {
     private static SeerrDiscoveryService CreateService()

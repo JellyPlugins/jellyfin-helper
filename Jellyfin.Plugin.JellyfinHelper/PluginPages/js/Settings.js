@@ -35,6 +35,7 @@ function refreshDiscoveryAccessState() {
     if (!discEnabled) {
         var panel = document.getElementById('discoveryHintPanel');
         if (panel) panel.style.display = 'none';
+        if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
     }
     return discEnabled;
 }

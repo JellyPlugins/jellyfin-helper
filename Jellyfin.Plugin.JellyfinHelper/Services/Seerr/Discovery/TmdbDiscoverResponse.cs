@@ -8,6 +8,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// </summary>
 internal sealed class TmdbDiscoverResponse
 {
+    private List<TmdbDiscoverItem> _results = [];
+
     /// <summary>
     ///     Gets or sets the current page number.
     /// </summary>
@@ -28,7 +30,12 @@ internal sealed class TmdbDiscoverResponse
 
     /// <summary>
     ///     Gets or sets the list of discover results on this page.
+    ///     Setter coalesces null to empty to prevent NRE when JSON contains "results": null.
     /// </summary>
     [JsonPropertyName("results")]
-    public List<TmdbDiscoverItem> Results { get; set; } = [];
+    public List<TmdbDiscoverItem> Results
+    {
+        get => _results;
+        set => _results = value ?? [];
+    }
 }

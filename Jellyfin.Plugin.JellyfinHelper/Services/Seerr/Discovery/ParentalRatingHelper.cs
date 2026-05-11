@@ -56,9 +56,9 @@ internal static class ParentalRatingHelper
     /// </summary>
     /// <param name="candidate">The TMDb discover item to check.</param>
     /// <param name="maxParentalRating">
-    ///     The user's max parental rating value, or <c>null</c> for unrestricted/adult users.
-    ///     Callers MUST pass <c>null</c> for users without parental rating restrictions (141+)
-    ///     to avoid inadvertently filtering adult-flagged TMDb content for unrestricted accounts.
+    ///     The user's max parental rating value.
+    ///     Use <c>null</c> or any value &gt;= 141 for unrestricted/adult users;
+    ///     both are treated identically (no filtering applied).
     /// </param>
     /// <returns>True if the item should be excluded, false if it passes the filter.</returns>
     internal static bool ShouldExclude(TmdbDiscoverItem candidate, int? maxParentalRating)

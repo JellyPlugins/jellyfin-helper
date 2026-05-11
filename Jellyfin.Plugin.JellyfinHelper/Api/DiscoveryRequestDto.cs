@@ -16,7 +16,9 @@ public sealed class DiscoveryRequestDto
 
     /// <summary>
     ///     Gets or sets the media type ("movie" or "tv").
+    ///     Case-insensitive; the controller normalizes to lowercase before processing.
     /// </summary>
+    [RegularExpression("^(?i)(movie|tv)$", ErrorMessage = "MediaType must be either 'movie' or 'tv'.")]
     public string MediaType { get; set; } = "movie";
 
     /// <summary>
