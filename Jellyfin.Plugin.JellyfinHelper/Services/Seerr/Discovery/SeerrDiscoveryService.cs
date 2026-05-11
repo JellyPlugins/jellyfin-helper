@@ -735,6 +735,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return null;
         }
 
+        // ToString("N") produces a 32-char lowercase hex string without hyphens.
+        // This is the canonical format we compare against.
         var normalizedJellyfinId = jellyfinUserId.ToString("N");
 
         foreach (var user in seerrUsers)
@@ -744,13 +746,25 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 continue;
             }
 
-            var normalizedSeerrJellyfinId = user.JellyfinUserId
-                .Replace("-", string.Empty, StringComparison.Ordinal)
-                .ToLowerInvariant();
-
-            if (string.Equals(normalizedJellyfinId, normalizedSeerrJellyfinId, StringComparison.Ordinal))
+            // Fast path: if the Seerr ID is already 32 chars (no hyphens), compare directly
+            // without allocating a new string. Seerr stores Jellyfin IDs inconsistently —
+            // some have hyphens (36 chars), some don't (32 chars).
+            var seerrId = user.JellyfinUserId;
+            if (seerrId.Length == 32)
             {
-                return user;
+                if (string.Equals(normalizedJellyfinId, seerrId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return user;
+                }
+            }
+            else if (seerrId.Length == 36)
+            {
+                // Has hyphens — must normalize (allocates, but only for 36-char IDs)
+                var normalized = seerrId.Replace("-", string.Empty, StringComparison.Ordinal);
+                if (string.Equals(normalizedJellyfinId, normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    return user;
+                }
             }
         }
 

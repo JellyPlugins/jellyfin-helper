@@ -152,6 +152,17 @@ public sealed class UserDiscoveryController : ControllerBase
             return BadRequest(new RequestResult { Success = false, Message = "serviceType must be 'radarr' or 'sonarr'." });
         }
 
+        // Only expose service infrastructure to users who actually have request permission.
+        // Prevents information disclosure of Radarr/Sonarr server names, paths, and profiles
+        // to users without the Seerr REQUEST permission.
+        var mediaType = serviceType == "radarr" ? "movie" : "tv";
+        var permissions = await _discovery.GetUserRequestPermissionsAsync(
+            userId.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
+        if (!permissions.CanRequest)
+        {
+            return Ok(Array.Empty<SeerrServiceInfo>());
+        }
+
         var services = await _discovery.GetServiceInfoAsync(serviceType, cancellationToken).ConfigureAwait(false);
         return Ok(services);
     }
@@ -159,6 +170,11 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <summary>
     ///     Serves the discovery sidebar JavaScript file as an embedded resource.
     /// </summary>
+    /// <remarks>
+    ///     AllowAnonymous is required because the script tag in index.html loads
+    ///     before Jellyfin's authentication context is established. The script itself
+    ///     uses authenticated API calls internally — no sensitive data is exposed here.
+    /// </remarks>
     /// <returns>The discovery-sidebar.js content.</returns>
     [HttpGet("script")]
     [AllowAnonymous]

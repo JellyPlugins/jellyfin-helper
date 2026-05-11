@@ -77,20 +77,24 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             var data = LoadInternal();
             var userResult = GetOrCreateUserResult(data, userId, userName);
 
-            // Build a lookup of existing entries by composite key (TmdbId, MediaType) for O(1) dedup checks.
+            // Build a lookup of existing entries by composite key (TmdbId, MediaType) for O(1) dedup + backfill.
             // This prevents TMDb ID collisions between movies and TV shows (e.g., Movie #550 vs TV #550).
-            var existingKeys = new HashSet<(int TmdbId, string MediaType)>(
-                userResult.Entries.Select(e => (e.TmdbId, e.MediaType)));
+            var entryLookup = new Dictionary<(int TmdbId, string MediaType), DiscoveryFeedbackEntry>(
+                userResult.Entries.Count);
+            foreach (var entry in userResult.Entries)
+            {
+                entryLookup.TryAdd((entry.TmdbId, entry.MediaType), entry);
+            }
+
             var now = DateTime.UtcNow;
 
             foreach (var item in items)
             {
                 var key = (item.TmdbId, item.MediaType);
-                if (existingKeys.Contains(key))
+                if (entryLookup.TryGetValue(key, out var existing))
                 {
                     // Backfill metadata on existing placeholder entries (created by RecordDismissed/RecordRequested
                     // before RecordShown ran). This ensures training examples have full feature data.
-                    var existing = userResult.Entries.First(e => e.TmdbId == item.TmdbId && e.MediaType == item.MediaType);
                     if (string.IsNullOrEmpty(existing.Title))
                     {
                         existing.Title = item.Title;
@@ -103,7 +107,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     continue;
                 }
 
-                userResult.Entries.Add(new DiscoveryFeedbackEntry
+                var newEntry = new DiscoveryFeedbackEntry
                 {
                     TmdbId = item.TmdbId,
                     MediaType = item.MediaType,
@@ -113,8 +117,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     TmdbRating = item.TmdbRating,
                     Score = item.Score,
                     ShownAtUtc = now
-                });
-                existingKeys.Add(key);
+                };
+                userResult.Entries.Add(newEntry);
+                entryLookup.TryAdd(key, newEntry);
             }
 
             SaveInternal(data);

@@ -280,7 +280,7 @@
             var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
             var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
             var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
-            var dismissBtnHtml = '<button class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-tmdb="' + (parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(r.MediaType || '') + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
+            var dismissBtnHtml = r.AlreadyRequested ? '' : '<button class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-tmdb="' + (parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(r.MediaType || '') + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
             var genresHtml = genres ? '<div class="jfh-discovery-card-genres">' + genres + '</div>' : '';
             html += '<div class="jfh-discovery-card">' + poster +
                 '<div class="jfh-discovery-card-body">' +
@@ -312,6 +312,7 @@
 
     // ===== PERMISSION-AWARE REQUEST LOGIC =====
     var _permCache = {};
+    var PERM_CACHE_TTL_MS = 300000; // 5 minutes
 
     function handleRequest(e) {
         var btn = e.currentTarget;
@@ -325,8 +326,9 @@
     function fetchPermissionsAndRequest(tmdbId, mediaType, btn) {
         var serviceType = (mediaType === 'tv') ? 'sonarr' : 'radarr';
         var cacheKey = serviceType + ':' + mediaType;
-        if (_permCache[cacheKey] !== undefined) {
-            decideAndSubmit(tmdbId, mediaType, btn, _permCache[cacheKey]);
+        var cached = _permCache[cacheKey];
+        if (cached && (Date.now() - cached._ts) < PERM_CACHE_TTL_MS) {
+            decideAndSubmit(tmdbId, mediaType, btn, cached);
             return;
         }
         btn.disabled = true;
@@ -336,7 +338,9 @@
             url: ApiClient.getUrl(API_URL + '/RequestPermissions/' + serviceType + '?mediaType=' + mediaType),
             dataType: 'json'
         }).then(function (permResult) {
-            _permCache[cacheKey] = permResult || { CanRequest: false };
+            var result = permResult || { CanRequest: false };
+            result._ts = Date.now();
+            _permCache[cacheKey] = result;
             btn.disabled = false;
             btn.textContent = t('discoveryRequest', 'Request');
             decideAndSubmit(tmdbId, mediaType, btn, _permCache[cacheKey]);
