@@ -62,6 +62,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <inheritdoc />
     public override void OnUninstalling()
     {
+        UnregisterFileTransformation();
         UpdateIndexHtml(false);
         CleanupDataFiles();
         CleanupRecommendationPlaylists();
@@ -176,10 +177,73 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             registerMethod.Invoke(null, new[] { payload });
             return true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException
+                                   or UnauthorizedAccessException
+                                   or NotSupportedException
+                                   or ArgumentException
+                                   or InvalidOperationException
+                                   or TypeLoadException
+                                   or FileLoadException
+                                   or BadImageFormatException
+                                   or TargetInvocationException
+                                   or TargetException
+                                   or TargetParameterCountException
+                                   or MethodAccessException
+                                   or MemberAccessException)
         {
             _logger.LogWarning(ex, "[Discovery Sidebar] Failed to register with File Transformation plugin");
             return false;
+        }
+    }
+
+    /// <summary>
+    ///     Attempts to unregister the script injection from the File Transformation plugin.
+    ///     Best-effort: if the plugin is not installed or lacks an unregister method, this is a no-op.
+    ///     Called during <see cref="OnUninstalling"/> to clean up the registered transformation.
+    /// </summary>
+    private void UnregisterFileTransformation()
+    {
+        try
+        {
+            var fileTransformationAssembly = AssemblyLoadContext.All
+                .SelectMany(x => x.Assemblies)
+                .FirstOrDefault(x => x.FullName?.Contains(".FileTransformation", StringComparison.Ordinal) ?? false);
+
+            if (fileTransformationAssembly == null)
+            {
+                return;
+            }
+
+            var pluginInterfaceType = fileTransformationAssembly.GetType("Jellyfin.Plugin.FileTransformation.PluginInterface");
+            if (pluginInterfaceType == null)
+            {
+                return;
+            }
+
+            var unregisterMethod = pluginInterfaceType.GetMethod("UnregisterTransformation");
+            if (unregisterMethod == null)
+            {
+                return;
+            }
+
+            unregisterMethod.Invoke(null, new object[] { Id.ToString() });
+            _logger.LogDebug("[Discovery Sidebar] Unregistered from File Transformation plugin");
+        }
+        catch (Exception ex) when (ex is IOException
+                                   or UnauthorizedAccessException
+                                   or NotSupportedException
+                                   or ArgumentException
+                                   or InvalidOperationException
+                                   or TypeLoadException
+                                   or FileLoadException
+                                   or BadImageFormatException
+                                   or TargetInvocationException
+                                   or TargetException
+                                   or TargetParameterCountException
+                                   or MethodAccessException
+                                   or MemberAccessException)
+        {
+            _logger.LogDebug(ex, "[Discovery Sidebar] Failed to unregister from File Transformation plugin (best-effort)");
         }
     }
 

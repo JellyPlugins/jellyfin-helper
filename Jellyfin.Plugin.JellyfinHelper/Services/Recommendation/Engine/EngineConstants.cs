@@ -183,7 +183,7 @@ internal static class EngineConstants
     ///     Training label for discovery items that were shown but the user took no action.
     ///     Identical to <see cref="ExposureLabel"/> — passive non-engagement.
     /// </summary>
-    internal const double DiscoveryShownLabel = 0.05;
+    internal const double DiscoveryShownLabel = ExposureLabel;
 
     /// <summary>
     ///     Training label for discovery items that the user explicitly dismissed.

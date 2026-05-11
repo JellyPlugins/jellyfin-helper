@@ -225,6 +225,9 @@ public sealed class DiscoveryCacheService
                     $"Could not mark TMDb#{tmdbId} as requested in cache: {ex.Message}",
                     ex,
                     _logger);
+
+                // Match Load() behavior: prevent repeated failed disk reads on subsequent calls.
+                _memoryCache ??= [];
             }
         }
     }

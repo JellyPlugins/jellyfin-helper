@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -56,6 +57,13 @@ public class SeerrDiscoveryServiceTests
     [Fact]
     public async Task SubmitRequestAsync_SeerrNotConfigured_ReturnsFalse()
     {
+        // Ensure "not configured" state regardless of prior test execution order
+        if (Plugin.Instance?.Configuration != null)
+        {
+            Plugin.Instance.Configuration.SeerrUrl = string.Empty;
+            Plugin.Instance.Configuration.SeerrApiKey = string.Empty;
+        }
+
         var service = CreateService();
         var (success, message) = await service.SubmitRequestAsync(123, "movie", null, null, null, null, CancellationToken.None);
         Assert.False(success);

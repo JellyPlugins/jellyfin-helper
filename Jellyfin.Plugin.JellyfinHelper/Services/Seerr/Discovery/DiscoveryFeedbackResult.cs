@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
@@ -16,8 +17,11 @@ public sealed class DiscoveryFeedbackResult
     public Guid UserId { get; set; }
 
     /// <summary>
-    ///     Gets or sets the user's display name (for logging/debugging).
+    ///     Gets or sets the user's display name (for runtime logging/debugging only).
+    ///     Excluded from JSON serialization to avoid persisting PII to disk.
+    ///     Resolved at runtime from <see cref="UserId"/> when needed.
     /// </summary>
+    [JsonIgnore]
     public string UserName { get; set; } = string.Empty;
 
     /// <summary>

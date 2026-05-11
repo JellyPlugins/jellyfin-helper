@@ -240,7 +240,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         lock (_fileLock)
         {
             var data = LoadInternal();
-            return data.AsReadOnly();
+            return data.Select(CloneResult).ToList().AsReadOnly();
         }
     }
 
@@ -250,8 +250,36 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         lock (_fileLock)
         {
             var data = LoadInternal();
-            return data.FirstOrDefault(r => r.UserId == userId);
+            var result = data.FirstOrDefault(r => r.UserId == userId);
+            return result == null ? null : CloneResult(result);
         }
+    }
+
+    /// <summary>
+    ///     Creates a defensive copy of a feedback result to avoid exposing internal mutable state.
+    /// </summary>
+    private static DiscoveryFeedbackResult CloneResult(DiscoveryFeedbackResult source)
+    {
+        return new DiscoveryFeedbackResult
+        {
+            UserId = source.UserId,
+            UserName = source.UserName,
+            Entries = source.Entries.Select(e => new DiscoveryFeedbackEntry
+            {
+                TmdbId = e.TmdbId,
+                MediaType = e.MediaType,
+                Title = e.Title,
+                Year = e.Year,
+                Genres = e.Genres?.ToArray() ?? [],
+                TmdbRating = e.TmdbRating,
+                Score = e.Score,
+                KnownPeople = e.KnownPeople?.ToList() ?? [],
+                ShownAtUtc = e.ShownAtUtc,
+                DismissedAtUtc = e.DismissedAtUtc,
+                RequestedAtUtc = e.RequestedAtUtc,
+                WasWatched = e.WasWatched
+            }).ToList()
+        };
     }
 
     /// <summary>

@@ -421,6 +421,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
                     if (!response.IsSuccessStatusCode)
                     {
+                        _pluginLog.LogWarning(
+                            "SeerrDiscovery",
+                            $"User list pagination failed at skip={skip}: HTTP {(int)response.StatusCode}. Returning partial result ({allUsers.Count} users fetched so far).",
+                            null,
+                            _logger);
                         break;
                     }
 
