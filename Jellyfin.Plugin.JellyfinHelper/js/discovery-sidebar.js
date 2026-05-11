@@ -149,7 +149,11 @@
             // Card body
             '.jfh-discovery-card-body { padding: 0.8em; flex: 1; display: flex; flex-direction: column; gap: 0.4em; }' +
             '.jfh-discovery-card-title { font-weight: 600; font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
-            '.jfh-discovery-card-meta { display: flex; flex-wrap: nowrap; gap: 0.3em; overflow: hidden; max-height: 1.6em; }' +
+            '.jfh-discovery-card-meta { display: flex; flex-wrap: nowrap; gap: 0.3em; overflow: hidden; }' +
+            '.jfh-discovery-card-genres { display: flex; flex-wrap: nowrap; gap: 0.3em; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent; }' +
+            '.jfh-discovery-card-genres::-webkit-scrollbar { height: 3px; }' +
+            '.jfh-discovery-card-genres::-webkit-scrollbar-track { background: transparent; }' +
+            '.jfh-discovery-card-genres::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }' +
             '.jfh-discovery-tag { background: rgba(255,255,255,0.1); border-radius: 4px; padding: 0.15em 0.5em; font-size: 0.75em; white-space: nowrap; flex-shrink: 0; }' +
             '.jfh-discovery-score { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; margin: 0.3em 0; }' +
             '.jfh-discovery-score-bar { height: 100%; border-radius: 2px; }' +
@@ -273,10 +277,12 @@
             var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
             var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
             var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
+            var genresHtml = genres ? '<div class="jfh-discovery-card-genres">' + genres + '</div>' : '';
             html += '<div class="jfh-discovery-card">' + poster +
                 '<div class="jfh-discovery-card-body">' +
                 '<div class="jfh-discovery-card-title" title="' + esc(r.Title || '') + '">' + esc(r.Title || t('recsUnknownTitle', 'Unknown')) + '</div>' +
-                '<div class="jfh-discovery-card-meta">' + year + type + rating + genres + '</div>' +
+                '<div class="jfh-discovery-card-meta">' + year + type + rating + '</div>' +
+                genresHtml +
                 scoreHtml + reason +
                 '<button class="' + btnClass + '" data-tmdb="' + (parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(r.MediaType || '') + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
                 '</div></div>';
