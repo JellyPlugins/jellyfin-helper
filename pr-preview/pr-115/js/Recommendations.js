@@ -387,9 +387,15 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
         return;
     }
 
-    var recs = userDiscovery.Recommendations;
-    var availableCount = recs.filter(function(r) { return !r.AlreadyRequested; }).length;
-    if (countSpan) countSpan.textContent = '' + availableCount;
+    var recs = userDiscovery.Recommendations.filter(function(r) { return !r.AlreadyRequested; });
+    if (countSpan) countSpan.textContent = '' + recs.length;
+
+    if (recs.length === 0) {
+        grid.innerHTML = '<div class="recs-profile-compact-empty">' +
+            T('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.') +
+            '</div>';
+        return;
+    }
 
     var html = '<div class="discovery-grid">';
     for (var i = 0; i < recs.length; i++) {
