@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 
@@ -23,6 +24,23 @@ internal static class TrainingDataBuilder
     internal static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount) BuildExamples(
         IReadOnlyList<RecommendationResult> previousResults,
         Collection<UserWatchProfile> allProfiles,
+        CancellationToken cancellationToken)
+    {
+        return BuildExamples(previousResults, allProfiles, discoveryFeedback: null, cancellationToken);
+    }
+
+    /// <summary>
+    ///     Builds all training examples from previous results, user profiles, and optional discovery feedback.
+    /// </summary>
+    /// <param name="previousResults">The recommendation results from previous runs.</param>
+    /// <param name="allProfiles">All user watch profiles.</param>
+    /// <param name="discoveryFeedback">Optional discovery feedback data for Phase 4.</param>
+    /// <param name="cancellationToken">Token to cancel the operation.</param>
+    /// <returns>A tuple of training examples, organic count, and random negative count.</returns>
+    internal static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount) BuildExamples(
+        IReadOnlyList<RecommendationResult> previousResults,
+        Collection<UserWatchProfile> allProfiles,
+        IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -884,6 +902,24 @@ internal static class TrainingDataBuilder
                         });
                     randomNegativeCount++;
                 }
+            }
+        }
+
+        // === Phase 4: Discovery feedback examples (shown/dismissed/requested/watched) ===
+        // Discovery items are external (not in library). Their interactions provide valuable
+        // explicit signals: requests are strong positives, dismissals are negatives.
+        // Only added when discovery feedback is available (non-null, non-empty).
+        if (discoveryFeedback is { Count: > 0 })
+        {
+            var (discoveryExamples, discoveryCount) = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(
+                discoveryFeedback,
+                profileById,
+                cancellationToken);
+
+            if (discoveryExamples.Count > 0)
+            {
+                examples.AddRange(discoveryExamples);
+                organicCount += discoveryCount; // Count discovery examples alongside organic for reporting
             }
         }
 

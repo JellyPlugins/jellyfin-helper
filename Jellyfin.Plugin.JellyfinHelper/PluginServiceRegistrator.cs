@@ -125,6 +125,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IUserActivityCacheService, UserActivityCacheService>();
         serviceCollection.AddSingleton<IRecommendationPlaylistService, RecommendationPlaylistService>();
         serviceCollection.AddSingleton<DiscoveryCacheService>();
+        serviceCollection.AddSingleton<IDiscoveryFeedbackStore, DiscoveryFeedbackStore>();
         serviceCollection.AddSingleton<ISeerrDiscoveryService, SeerrDiscoveryService>();
     }
 }

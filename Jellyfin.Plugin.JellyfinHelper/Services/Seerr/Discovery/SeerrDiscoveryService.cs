@@ -78,6 +78,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly IArrIntegrationService _arrIntegration;
     private readonly EnsembleScoringStrategy _ensemble;
     private readonly DiscoveryCacheService _cache;
+    private readonly IDiscoveryFeedbackStore _feedbackStore;
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<SeerrDiscoveryService> _logger;
 
@@ -97,6 +98,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <param name="arrIntegration">The Arr integration service.</param>
     /// <param name="ensemble">The ensemble scoring strategy (combines heuristic + learned + neural).</param>
     /// <param name="cache">The discovery cache service.</param>
+    /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
     /// <param name="pluginLog">The plugin log service.</param>
     /// <param name="logger">The logger instance.</param>
     public SeerrDiscoveryService(
@@ -105,6 +107,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         IArrIntegrationService arrIntegration,
         EnsembleScoringStrategy ensemble,
         DiscoveryCacheService cache,
+        IDiscoveryFeedbackStore feedbackStore,
         IPluginLogService pluginLog,
         ILogger<SeerrDiscoveryService> logger)
     {
@@ -113,6 +116,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         ArgumentNullException.ThrowIfNull(arrIntegration);
         ArgumentNullException.ThrowIfNull(ensemble);
         ArgumentNullException.ThrowIfNull(cache);
+        ArgumentNullException.ThrowIfNull(feedbackStore);
         ArgumentNullException.ThrowIfNull(pluginLog);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -121,6 +125,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _arrIntegration = arrIntegration;
         _ensemble = ensemble;
         _cache = cache;
+        _feedbackStore = feedbackStore;
         _pluginLog = pluginLog;
         _logger = logger;
     }
@@ -220,6 +225,23 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 "SeerrDiscovery",
                 $"Persisted {allResults.Count} user results with {allResults.Sum(r => r.Recommendations.Count)} total recommendations.",
                 _logger);
+
+            // Step 4: Record shown items in the feedback store for training data collection.
+            // Best-effort: feedback persistence must not break the discovery task.
+            foreach (var result in allResults)
+            {
+                try
+                {
+                    _feedbackStore.RecordShown(result.UserId, result.UserName, result.Recommendations);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+                {
+                    _pluginLog.LogDebug(
+                        "SeerrDiscovery",
+                        $"Failed to record feedback for user {result.UserName}: {ex.Message}",
+                        _logger);
+                }
+            }
         }
     }
 

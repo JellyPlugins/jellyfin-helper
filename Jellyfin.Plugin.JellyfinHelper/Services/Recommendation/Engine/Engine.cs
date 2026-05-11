@@ -9,6 +9,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -30,6 +31,7 @@ public sealed class Engine : IRecommendationEngine
     private readonly IStrategySelector _strategySelector;
     private readonly TrainingService _trainingService;
     private readonly IWatchHistoryService _watchHistoryService;
+    private readonly IDiscoveryFeedbackStore _discoveryFeedbackStore;
 
     // Short-lived cache - populated during GetAllRecommendations and reused by on-demand
     // GetRecommendations calls until next batch run invalidates it.
@@ -43,13 +45,15 @@ public sealed class Engine : IRecommendationEngine
     /// <param name="logger">The logger instance.</param>
     /// <param name="strategy">The scoring strategy resolved via DI.</param>
     /// <param name="strategySelector">The strategy selector for A/B testing.</param>
+    /// <param name="discoveryFeedbackStore">The discovery feedback store for training data enrichment.</param>
     public Engine(
         IWatchHistoryService watchHistoryService,
         ILibraryManager libraryManager,
         IPluginLogService pluginLog,
         ILogger<Engine> logger,
         IScoringStrategy strategy,
-        IStrategySelector strategySelector)
+        IStrategySelector strategySelector,
+        IDiscoveryFeedbackStore discoveryFeedbackStore)
     {
         _watchHistoryService = watchHistoryService;
         _libraryManager = libraryManager;
@@ -57,8 +61,9 @@ public sealed class Engine : IRecommendationEngine
         _logger = logger;
         _strategy = strategy;
         _strategySelector = strategySelector;
+        _discoveryFeedbackStore = discoveryFeedbackStore;
         _similarityComputer = new SimilarityComputer(libraryManager, pluginLog, logger);
-        _trainingService = new TrainingService(watchHistoryService, pluginLog, logger);
+        _trainingService = new TrainingService(watchHistoryService, discoveryFeedbackStore, pluginLog, logger);
     }
 
     /// <inheritdoc />
@@ -118,6 +123,12 @@ public sealed class Engine : IRecommendationEngine
         bool incremental = false,
         CancellationToken cancellationToken = default)
     {
+        // Before training, update discovery feedback "Requested + Watched" status.
+        // Resolves TMDb provider IDs from library items and cross-references with user watch history
+        // to detect when a previously-requested discovery item has been added to the library and watched.
+        // This upgrades the training label from 0.75 (Requested) to 0.90 (RequestedAndWatched).
+        UpdateDiscoveryWatchedStatus(cancellationToken);
+
         var trained = _trainingService.Train(_strategy, previousResults, incremental, cancellationToken);
 
         // After training, apply cohort-based feedback to adapt the sigmoid midpoint.
@@ -1250,6 +1261,107 @@ public sealed class Engine : IRecommendationEngine
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             return 0.0; // Graceful fallback
+        }
+    }
+
+    /// <summary>
+    ///     Updates the "Requested + Watched" status in the discovery feedback store.
+    ///     For each user with discovery feedback, resolves TMDb provider IDs from library items
+    ///     the user has watched and cross-references them with requested discovery items.
+    ///     When a match is found, the feedback entry is upgraded from "Requested" (label 0.75)
+    ///     to "RequestedAndWatched" (label 0.90) for more accurate training signal.
+    ///     Best-effort: failures are logged but do not block training.
+    /// </summary>
+    /// <param name="cancellationToken">Token for cooperative cancellation.</param>
+    private void UpdateDiscoveryWatchedStatus(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var allFeedback = _discoveryFeedbackStore.LoadAll();
+            if (allFeedback.Count == 0)
+            {
+                return;
+            }
+
+            // Build a TMDb ID → watched set per user.
+            // Query library items once and resolve their TMDb provider IDs,
+            // then cross-reference with each user's watched items.
+            var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+
+            // Build Jellyfin ItemId → TMDb ID mapping from library items.
+            // Only load movies + series (same as LoadCandidateItems) to avoid excessive queries.
+            var tmdbIdByItemId = new Dictionary<Guid, int>();
+            var libraryItems = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series]
+            });
+
+            foreach (var item in libraryItems)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (item.TryGetProviderId("Tmdb", out var tmdbStr) &&
+                    int.TryParse(tmdbStr, out var tmdbId) && tmdbId > 0)
+                {
+                    tmdbIdByItemId.TryAdd(item.Id, tmdbId);
+                }
+            }
+
+            if (tmdbIdByItemId.Count == 0)
+            {
+                return;
+            }
+
+            // For each user in the feedback store, resolve which TMDb IDs they've watched
+            foreach (var userFeedback in allFeedback)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Only process users who have at least one requested-but-not-yet-watched entry
+                if (!userFeedback.Entries.Any(e => e.RequestedAtUtc.HasValue && !e.WasWatched))
+                {
+                    continue;
+                }
+
+                // Find the user's watch profile
+                var userProfile = allProfiles.FirstOrDefault(p => p.UserId == userFeedback.UserId);
+                if (userProfile == null)
+                {
+                    continue;
+                }
+
+                // Collect TMDb IDs of items this user has watched (Played or IsFavorite)
+                var watchedTmdbIds = new HashSet<int>();
+                foreach (var w in userProfile.WatchedItems.Where(w => w.Played || w.IsFavorite))
+                {
+                    if (tmdbIdByItemId.TryGetValue(w.ItemId, out var tmdbId))
+                    {
+                        watchedTmdbIds.Add(tmdbId);
+                    }
+
+                    // Also check series-level TMDb IDs (for TV shows)
+                    if (w.SeriesId.HasValue && tmdbIdByItemId.TryGetValue(w.SeriesId.Value, out var seriesTmdbId))
+                    {
+                        watchedTmdbIds.Add(seriesTmdbId);
+                    }
+                }
+
+                if (watchedTmdbIds.Count > 0)
+                {
+                    _discoveryFeedbackStore.MarkWatched(userFeedback.UserId, watchedTmdbIds);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            _pluginLog.LogDebug(
+                "Recommendations",
+                $"Discovery watched-status update failed (non-critical): {ex.Message}",
+                _logger);
         }
     }
 

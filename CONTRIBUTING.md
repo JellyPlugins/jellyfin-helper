@@ -186,6 +186,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
 │   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
+│   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId)
 │   ├── RequestResult.cs                 # Generic success/failure response model
 │   ├── GrowthTimelineController.cs      # Library growth timeline API
 │   ├── LibraryInsightsController.cs     # Library insights API
@@ -220,7 +221,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── TrainingService.cs   # Implicit feedback training pipeline
 │   │   │   ├── Training/            # Training sub-components (refactored from TrainingService)
 │   │   │   │   ├── TrainingDataBuilder.cs      # Builds labeled training examples from watch history
-│   │   │   │   └── TrainingFeatureComputer.cs  # Computes feature vectors for training candidates
+│   │   │   │   ├── TrainingFeatureComputer.cs  # Computes feature vectors for training candidates
+│   │   │   │   └── DiscoveryFeedbackExampleBuilder.cs # Phase 4: training from discovery interactions
 │   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction
 │   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
 │   │   │   ├── TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
@@ -294,7 +296,12 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── SeerrCredits.cs          # TMDb credits response (cast + crew)
 │   │       ├── SeerrCastMember.cs       # Cast member DTO
 │   │       ├── SeerrCrewMember.cs       # Crew member DTO
-│   │       └── SeerrMediaDetailResponse.cs # Detailed media info from Seerr
+│   │       ├── SeerrMediaDetailResponse.cs # Detailed media info from Seerr
+│   │       ├── IDiscoveryFeedbackStore.cs  # Training feedback persistence interface
+│   │       ├── DiscoveryFeedbackStore.cs   # File-based feedback store (shown/dismissed/requested/watched)
+│   │       ├── DiscoveryFeedbackEntry.cs   # Per-item interaction tracking model
+│   │       ├── DiscoveryFeedbackResult.cs  # Per-user feedback container
+│   │       └── DiscoveryInteractionStatus.cs # Enum: Shown/Dismissed/Requested/RequestedAndWatched
 │   ├── Statistics/              # Media statistics
 │   └── Timeline/                # Library growth tracking
 ├── ScheduledTasks/
@@ -450,6 +457,7 @@ The File Transformation registration uses reflection to avoid a hard dependency 
 | `GET` | `/JellyfinHelper/Discovery/My` | User | Current user's own discovery results |
 | `GET` | `/JellyfinHelper/Discovery/My/script` | Anonymous | Serves `discovery-sidebar.js` embedded resource |
 | `POST` | `/JellyfinHelper/Discovery/My/Request` | User | Submit request as linked Seerr user (no overrides) |
+| `POST` | `/JellyfinHelper/Discovery/My/Dismiss` | User | Dismiss a discovery item (training feedback signal) |
 
 ## Configuration Page Build System
 

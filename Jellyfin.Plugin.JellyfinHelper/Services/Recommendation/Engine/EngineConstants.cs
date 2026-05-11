@@ -176,6 +176,40 @@ internal static class EngineConstants
     /// </summary>
     internal const int RandomNegativeSamplesPerUser = 5;
 
+    // === Discovery Feedback Labels ===
+    // Used by TrainingDataBuilder Phase 4 to assign labels to discovery interactions.
+
+    /// <summary>
+    ///     Training label for discovery items that were shown but the user took no action.
+    ///     Identical to <see cref="ExposureLabel"/> — passive non-engagement.
+    /// </summary>
+    internal const double DiscoveryShownLabel = 0.05;
+
+    /// <summary>
+    ///     Training label for discovery items that the user explicitly dismissed.
+    ///     Stronger negative signal than mere exposure — active rejection.
+    /// </summary>
+    internal const double DiscoveryDismissedLabel = 0.0;
+
+    /// <summary>
+    ///     Training label for discovery items that the user requested via Seerr.
+    ///     Strong explicit positive signal — the user actively wants this content.
+    /// </summary>
+    internal const double DiscoveryRequestedLabel = 0.75;
+
+    /// <summary>
+    ///     Training label for discovery items that were requested AND subsequently watched.
+    ///     Strongest positive signal — confirmed interest through consumption.
+    /// </summary>
+    internal const double DiscoveryRequestedAndWatchedLabel = 0.90;
+
+    /// <summary>
+    ///     Sample weight for discovery feedback training examples.
+    ///     Slightly lower than recommendation feedback (1.0) because discovery features
+    ///     lack some signals available for library items (CollaborativeScore, ContentNearestNeighbor).
+    /// </summary>
+    internal const double DiscoveryFeedbackSampleWeight = 0.6;
+
     /// <summary>
     ///     Exponential decay constant for recency scoring, derived from <see cref="RecencyHalfLifeDays" />.
     ///     Computed as ln(2) / halfLife so that exp(-λ × halfLife) = 0.5 exactly.

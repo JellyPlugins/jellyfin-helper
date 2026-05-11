@@ -26,16 +26,22 @@ public sealed class UserDiscoveryController : ControllerBase
 {
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
+    private readonly IDiscoveryFeedbackStore _feedbackStore;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="UserDiscoveryController"/> class.
     /// </summary>
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="discovery">The discovery service.</param>
-    public UserDiscoveryController(DiscoveryCacheService cache, ISeerrDiscoveryService discovery)
+    /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
+    public UserDiscoveryController(
+        DiscoveryCacheService cache,
+        ISeerrDiscoveryService discovery,
+        IDiscoveryFeedbackStore feedbackStore)
     {
         _cache = cache;
         _discovery = discovery;
+        _feedbackStore = feedbackStore;
     }
 
     /// <summary>
@@ -304,7 +310,65 @@ public sealed class UserDiscoveryController : ControllerBase
             // Already logged inside MarkAsRequested; swallow to preserve the 200 response.
         }
 
+        // Record the request in the feedback store for training data collection.
+        // Best-effort: training feedback is non-critical and must not affect the user response.
+        try
+        {
+            _feedbackStore.RecordRequested(jellyfinUserId!.Value, dto.TmdbId);
+        }
+        catch (Exception)
+        {
+            // Swallow to preserve the 200 response.
+        }
+
         return Ok(new RequestResult { Success = true, Message = message });
+    }
+
+    /// <summary>
+    ///     Records that the current user has explicitly dismissed a discovery recommendation.
+    ///     This provides a negative training signal (stronger than mere exposure) indicating
+    ///     the user saw and actively rejected the item.
+    ///     Available to any authenticated user when DiscoveryUserAccessEnabled is true.
+    /// </summary>
+    /// <param name="dto">The dismiss request containing the TMDb ID.</param>
+    /// <returns>A result indicating success.</returns>
+    [HttpPost("Dismiss")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public ActionResult<RequestResult> DismissItem([FromBody] DiscoveryDismissDto dto)
+    {
+        if (!IsDiscoveryUserAccessEnabled())
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+        }
+
+        var userId = GetCurrentUserId();
+        if (userId == null)
+        {
+            return Unauthorized();
+        }
+
+        if (dto == null)
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
+        }
+
+        if (dto.TmdbId <= 0)
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "Invalid TMDb ID." });
+        }
+
+        try
+        {
+            _feedbackStore.RecordDismissed(userId.Value, dto.TmdbId);
+        }
+        catch (Exception)
+        {
+            // Best-effort: feedback recording failure should not break the user flow.
+        }
+
+        return Ok(new RequestResult { Success = true, Message = "Item dismissed." });
     }
 
     /// <summary>
@@ -322,9 +386,9 @@ public sealed class UserDiscoveryController : ControllerBase
     {
         var claim = User?.FindFirst("Jellyfin-UserId")
             ?? User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
-        if (claim != null && Guid.TryParse(claim.Value, out var userId))
+        if (claim != null && Guid.TryParse(claim.Value, out var parsedUserId))
         {
-            return userId;
+            return parsedUserId;
         }
 
         return null;

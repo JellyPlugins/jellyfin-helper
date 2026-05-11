@@ -6,6 +6,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
@@ -26,13 +27,24 @@ internal sealed class TrainingService
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger _logger;
     private readonly IWatchHistoryService _watchHistoryService;
+    private readonly IDiscoveryFeedbackStore? _discoveryFeedbackStore;
 
     internal TrainingService(
         IWatchHistoryService watchHistoryService,
         IPluginLogService pluginLog,
         ILogger logger)
+        : this(watchHistoryService, discoveryFeedbackStore: null, pluginLog, logger)
+    {
+    }
+
+    internal TrainingService(
+        IWatchHistoryService watchHistoryService,
+        IDiscoveryFeedbackStore? discoveryFeedbackStore,
+        IPluginLogService pluginLog,
+        ILogger logger)
     {
         _watchHistoryService = watchHistoryService;
+        _discoveryFeedbackStore = discoveryFeedbackStore;
         _pluginLog = pluginLog;
         _logger = logger;
     }
@@ -91,9 +103,27 @@ internal sealed class TrainingService
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Delegate example building to the TrainingDataBuilder
+        // Load discovery feedback if available (Phase 4 data source).
+        // Best-effort: if the store is unavailable or throws, training continues without it.
+        IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback = null;
+        if (_discoveryFeedbackStore != null)
+        {
+            try
+            {
+                discoveryFeedback = _discoveryFeedbackStore.LoadAll();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                _pluginLog.LogDebug(
+                    "Recommendations",
+                    $"Could not load discovery feedback for training: {ex.Message}",
+                    _logger);
+            }
+        }
+
+        // Delegate example building to the TrainingDataBuilder (includes Phase 4 discovery feedback)
         var (examples, organicCount, randomNegativeCount) =
-            TrainingDataBuilder.BuildExamples(previousResults, allProfiles, cancellationToken);
+            TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, cancellationToken);
 
         var positiveCount = examples.Count(e => e.Label > 0.5);
         _pluginLog.LogInfo(

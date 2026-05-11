@@ -30,10 +30,11 @@ public class SeerrDiscoveryServiceTests
         var pluginLog = new Mock<IPluginLogService>();
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
         var cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
+        var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
         var logger = new Mock<ILogger<SeerrDiscoveryService>>();
         return new SeerrDiscoveryService(
             factory.Object, history.Object, arr.Object,
-            ensemble, cache, pluginLog.Object, logger.Object);
+            ensemble, cache, feedbackStore.Object, pluginLog.Object, logger.Object);
     }
 
     [Fact]
