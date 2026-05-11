@@ -112,6 +112,10 @@ internal sealed class TrainingService
             {
                 discoveryFeedback = _discoveryFeedbackStore.LoadAll();
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
                 _pluginLog.LogInfo(

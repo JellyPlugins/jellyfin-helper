@@ -110,14 +110,8 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
-        var normalizedMediaType = mediaType?.Trim().ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(normalizedMediaType) || (normalizedMediaType is not ("movie" or "tv")))
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "mediaType query parameter must be 'movie' or 'tv'." });
-        }
-
         var result = await _discovery.GetUserRequestPermissionsAsync(
-            userId.Value, normalizedMediaType, serviceType, cancellationToken).ConfigureAwait(false);
+            userId.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
 
         return Ok(result);
     }
@@ -268,9 +262,9 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(403, new RequestResult { Success = false, Message = "You do not have permission to submit requests." });
         }
 
-        // If the caller supplies ANY profile/server overrides, validate them against the allowed set.
+        // If the caller supplies ANY profile/server/rootFolder overrides, validate them against the allowed set.
         // Reject partial overrides (server-only or profile-only) — both must be specified together.
-        if (dto.ServerId.HasValue || dto.ProfileId.HasValue)
+        if (dto.ServerId.HasValue || dto.ProfileId.HasValue || !string.IsNullOrWhiteSpace(dto.RootFolder))
         {
             if (!dto.ServerId.HasValue || !dto.ProfileId.HasValue)
             {

@@ -208,7 +208,12 @@ public class HelperCleanupTaskTests : IDisposable
         VerifyLogContains("Skipping Seerr Cleanup (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping User Watch Activity (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Smart Recommendations (deactivated in settings)", LogLevel.Information);
+        VerifyLogContains("Skipping Seerr Discovery (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Helper Cleanup finished", LogLevel.Information);
+
+        _seerrDiscoveryServiceMock.Verify(
+            s => s.GenerateDiscoveryRecommendationsAsync(It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]

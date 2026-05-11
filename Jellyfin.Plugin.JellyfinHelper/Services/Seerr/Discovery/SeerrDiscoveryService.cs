@@ -544,6 +544,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                             }
                         }
                     }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
                     catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
                     {
                         _pluginLog.LogDebug(

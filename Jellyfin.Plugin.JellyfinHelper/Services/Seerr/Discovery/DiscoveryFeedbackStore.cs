@@ -111,6 +111,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     Score = item.Score,
                     ShownAtUtc = now
                 });
+                existingIds.Add(item.TmdbId);
             }
 
             SaveInternal(data);

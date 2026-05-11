@@ -120,7 +120,7 @@ public class HelperCleanupTask : IScheduledTask
 
     /// <inheritdoc />
     public string Description =>
-        "Runs all configured cleanup and repair tasks sequentially (Trickplay, Empty Folders, Orphaned Subtitles, Link Repair, Seerr Cleanup, User Activity, Smart Recommendations).";
+        "Runs all configured cleanup and repair tasks sequentially (Trickplay, Empty Folders, Orphaned Subtitles, Link Repair, Seerr Cleanup, User Activity, Smart Recommendations, Seerr Discovery).";
 
     /// <inheritdoc />
     public string Category => "Jellyfin Helper";

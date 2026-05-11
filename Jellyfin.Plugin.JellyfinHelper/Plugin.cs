@@ -154,6 +154,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             if (payload == null || addMethod == null || jValueType == null)
             {
+                _logger.LogWarning("[Discovery Sidebar] FileTransformation reflection payload construction failed (payload={Payload}, addMethod={AddMethod}, jValueType={JValueType})", payload != null, addMethod != null, jValueType != null);
                 return false;
             }
 

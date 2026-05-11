@@ -39,7 +39,8 @@ internal sealed class NullableDateTimeConverter : JsonConverter<DateTime?>
             return null;
         }
 
-        // Unexpected token type — skip gracefully
+        // Unexpected token type — consume the token to satisfy the JsonConverter contract
+        reader.Skip();
         return null;
     }
 

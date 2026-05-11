@@ -1287,6 +1287,11 @@ public sealed class Engine : IRecommendationEngine
             // Query library items once and resolve their TMDb provider IDs,
             // then cross-reference with each user's watched items.
             var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+            var profileById = new Dictionary<Guid, UserWatchProfile>(allProfiles.Count);
+            foreach (var p in allProfiles)
+            {
+                profileById.TryAdd(p.UserId, p);
+            }
 
             // Build Jellyfin ItemId → TMDb ID mapping from library items.
             // Only load movies + series (same as LoadCandidateItems) to avoid excessive queries.
@@ -1323,9 +1328,8 @@ public sealed class Engine : IRecommendationEngine
                     continue;
                 }
 
-                // Find the user's watch profile
-                var userProfile = allProfiles.FirstOrDefault(p => p.UserId == userFeedback.UserId);
-                if (userProfile == null)
+                // Find the user's watch profile via O(1) dictionary lookup
+                if (!profileById.TryGetValue(userFeedback.UserId, out var userProfile))
                 {
                     continue;
                 }

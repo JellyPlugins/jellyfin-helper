@@ -574,9 +574,15 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var actorCount = 0;
         var directorCount = 0;
         const int maxDirectorsPerItem = 5;
+        var seenPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var person in people)
         {
             if (string.IsNullOrWhiteSpace(person.Name))
+            {
+                continue;
+            }
+
+            if (!seenPeople.Add(person.Name))
             {
                 continue;
             }
