@@ -135,6 +135,28 @@ public sealed class DiscoveryCacheService
                         return;
                     }
 
+                    // Hardening: reject oversized files (consistent with Load())
+                    var fileInfo = new FileInfo(_filePath);
+                    if (fileInfo.Length > MaxFileSizeBytes)
+                    {
+                        _pluginLog.LogWarning(
+                            "DiscoveryCache",
+                            $"Discovery cache file exceeds {MaxFileSizeBytes / (1024 * 1024)}MB ({fileInfo.Length} bytes). Deleting and returning.",
+                            null,
+                            _logger);
+                        try
+                        {
+                            File.Delete(_filePath);
+                        }
+                        catch (Exception deleteEx) when (deleteEx is IOException or UnauthorizedAccessException)
+                        {
+                            // Best effort
+                        }
+
+                        _memoryCache = [];
+                        return;
+                    }
+
                     var json = File.ReadAllText(_filePath);
                     _memoryCache = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions) ?? [];
                 }

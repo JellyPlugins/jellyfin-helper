@@ -63,4 +63,31 @@ public interface ISeerrDiscoveryService
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The Seerr user ID if a match is found; otherwise null.</returns>
     Task<int?> ResolveSeerrUserIdAsync(Guid jellyfinUserId, CancellationToken cancellationToken);
+
+    /// <summary>
+    ///     Evaluates the request permissions for a specific Jellyfin user and service type.
+    ///     Resolves the user to their Seerr account, checks their permission bitmask,
+    ///     and returns only the quality profiles the user is authorized to select.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         The permission evaluation follows Overseerr/Jellyseerr's permission model:
+    ///     </para>
+    ///     <list type="bullet">
+    ///         <item>If the user has no Seerr account → <see cref="UserRequestPermissionResult.CanRequest"/> is <c>false</c>.</item>
+    ///         <item>If the user lacks REQUEST permission for the media type → <c>CanRequest</c> is <c>false</c>.</item>
+    ///         <item>If the user has REQUEST_ADVANCED, MANAGE_REQUESTS, or ADMIN → all profiles are returned.</item>
+    ///         <item>Otherwise (normal user) → only the server's default profile is returned.</item>
+    ///     </list>
+    /// </remarks>
+    /// <param name="jellyfinUserId">The Jellyfin user GUID.</param>
+    /// <param name="mediaType">"movie" or "tv" — used to check type-specific permissions.</param>
+    /// <param name="serviceType">"radarr" or "sonarr".</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A permission result describing what the user can do and which profiles are available.</returns>
+    Task<UserRequestPermissionResult> GetUserRequestPermissionsAsync(
+        Guid jellyfinUserId,
+        string mediaType,
+        string serviceType,
+        CancellationToken cancellationToken);
 }

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net.Mime;
 using System.Reflection;
@@ -65,6 +67,86 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
+    ///     Evaluates the current user's request permissions for a given service type (radarr/sonarr)
+    ///     and media type (movie/tv). Returns only the quality profiles the user is authorized to use.
+    ///     This is the primary endpoint the frontend calls before showing the request popup.
+    /// </summary>
+    /// <remarks>
+    ///     <para>The logic follows the Overseerr/Jellyseerr permission model:</para>
+    ///     <list type="bullet">
+    ///         <item>If the user has no Seerr account → <c>CanRequest = false</c>.</item>
+    ///         <item>If the user lacks REQUEST permission → <c>CanRequest = false</c>.</item>
+    ///         <item>If the user has REQUEST_ADVANCED or MANAGE_REQUESTS → all profiles returned.</item>
+    ///         <item>Normal users → only the server's default profile (no popup needed).</item>
+    ///     </list>
+    /// </remarks>
+    /// <param name="serviceType">"radarr" or "sonarr".</param>
+    /// <param name="mediaType">"movie" or "tv".</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A permission result indicating what the user can do and which profiles are available.</returns>
+    [HttpGet("RequestPermissions/{serviceType}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<UserRequestPermissionResult>> GetMyRequestPermissions(
+        [RegularExpression("^(radarr|sonarr)$")] string serviceType,
+        [FromQuery][RegularExpression("^(movie|tv)$")] string mediaType,
+        CancellationToken cancellationToken)
+    {
+        if (!IsDiscoveryUserAccessEnabled())
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+        }
+
+        var userId = GetCurrentUserId();
+        if (userId == null)
+        {
+            return Unauthorized();
+        }
+
+        if (string.IsNullOrWhiteSpace(mediaType) || (mediaType is not ("movie" or "tv")))
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "mediaType query parameter must be 'movie' or 'tv'." });
+        }
+
+        var result = await _discovery.GetUserRequestPermissionsAsync(
+            userId.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    ///     Returns the configured Radarr or Sonarr service info from Seerr,
+    ///     including available quality profiles and root folders.
+    ///     Available to any authenticated user when DiscoveryUserAccessEnabled is true.
+    /// </summary>
+    /// <param name="serviceType">"radarr" or "sonarr".</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of configured services with profiles.</returns>
+    [HttpGet("Services/{serviceType}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<IReadOnlyList<SeerrServiceInfo>>> GetMyServiceInfo(
+        [RegularExpression("^(radarr|sonarr)$")] string serviceType,
+        CancellationToken cancellationToken)
+    {
+        if (!IsDiscoveryUserAccessEnabled())
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+        }
+
+        var userId = GetCurrentUserId();
+        if (userId == null)
+        {
+            return Unauthorized();
+        }
+
+        var services = await _discovery.GetServiceInfoAsync(serviceType, cancellationToken).ConfigureAwait(false);
+        return Ok(services);
+    }
+
+    /// <summary>
     ///     Serves the discovery sidebar JavaScript file as an embedded resource.
     ///     This endpoint is referenced by the script tag injected into Jellyfin's index.html.
     ///     No admin requirement — the script itself checks access via the API.
@@ -93,6 +175,7 @@ public sealed class UserDiscoveryController : ControllerBase
     ///     Resolves the Jellyfin user ID to the corresponding Seerr user ID so the request
     ///     appears under the correct user in Seerr. If no Seerr account mapping exists,
     ///     the request is rejected with HTTP 403 — the user must be registered in Seerr first.
+    ///     Supports optional quality profile, server, and root folder overrides when provided.
     ///     Available to any authenticated user when DiscoveryUserAccessEnabled is true.
     /// </summary>
     /// <param name="dto">The request data.</param>
@@ -112,14 +195,40 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
         }
 
-        if (dto == null || dto.TmdbId <= 0)
+        if (dto == null)
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
+        }
+
+        if (dto.TmdbId <= 0)
         {
             return BadRequest(new RequestResult { Success = false, Message = "Invalid TMDb ID." });
         }
 
-        if (dto.MediaType is not ("movie" or "tv"))
+        var mediaType = dto.MediaType?.Trim().ToLowerInvariant();
+        if (mediaType is not ("movie" or "tv"))
         {
             return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
+        }
+
+        // Block path traversal attempts, control characters, and excessive length in rootFolder
+        if (!string.IsNullOrWhiteSpace(dto.RootFolder))
+        {
+            if (dto.RootFolder.Length > 512)
+            {
+                return BadRequest(new RequestResult { Success = false, Message = "Root folder path exceeds maximum length." });
+            }
+
+            if (dto.RootFolder.Contains("..", StringComparison.Ordinal) ||
+                dto.RootFolder.Contains('~', StringComparison.Ordinal))
+            {
+                return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
+            }
+
+            if (dto.RootFolder.Any(c => char.IsControl(c)))
+            {
+                return BadRequest(new RequestResult { Success = false, Message = "Root folder path contains invalid characters." });
+            }
         }
 
         // Resolve the current Jellyfin user to their Seerr user ID
@@ -142,14 +251,14 @@ public sealed class UserDiscoveryController : ControllerBase
             });
         }
 
-        // User requests use server defaults (no profile/server/rootFolder override for safety)
+        // Pass through profile overrides if provided by the user (from quality profile popup)
         var (success, message) = await _discovery.SubmitRequestAsync(
             dto.TmdbId,
-            dto.MediaType,
+            mediaType,
             seerrUserId,
-            null, // No server override — uses Seerr defaults
-            null, // No profile override — uses Seerr defaults
-            null, // No root folder override — uses Seerr defaults
+            dto.ServerId,
+            dto.ProfileId,
+            dto.RootFolder,
             cancellationToken).ConfigureAwait(false);
 
         if (!success)

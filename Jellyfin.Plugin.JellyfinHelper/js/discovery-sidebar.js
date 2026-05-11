@@ -176,7 +176,8 @@
             }
             var year = r.Year ? '<span class="jfh-discovery-tag">' + esc(String(r.Year)) + '</span>' : '';
             var type = r.MediaType ? '<span class="jfh-discovery-tag">' + esc(r.MediaType === 'movie' ? t('movies', 'Movie') : t('tvShows', 'TV')) + '</span>' : '';
-            var rating = r.TmdbRating ? '<span class="jfh-discovery-tag">\u2B50 ' + r.TmdbRating.toFixed(1) + '</span>' : '';
+            var ratingNum = Number(r.TmdbRating);
+            var rating = (!isNaN(ratingNum) && ratingNum > 0) ? '<span class="jfh-discovery-tag">\u2B50 ' + ratingNum.toFixed(1) + '</span>' : '';
             var genres = (r.Genres && r.Genres.length > 0) ? r.Genres.slice(0, 2).map(function(g) { return '<span class="jfh-discovery-tag">' + esc(g) + '</span>'; }).join('') : '';
             var scorePercent = Math.max(0, Math.min(100, Math.round((Number(r.Score) || 0) * 100)));
             var scoreClass = scorePercent >= 80 ? 'jfh-discovery-score-high' : scorePercent >= 50 ? 'jfh-discovery-score-mid' : 'jfh-discovery-score-low';
@@ -207,16 +208,158 @@
         }
     }
 
+    // ===== PERMISSION-AWARE REQUEST LOGIC =====
+    var _permCache = {};
+
     function handleRequest(e) {
         var btn = e.currentTarget;
-        btn.disabled = true;
-        btn.textContent = t('discoveryRequesting', 'Requesting...');
+        if (btn.disabled) return;
         var tmdbId = parseInt(btn.getAttribute('data-tmdb'), 10);
         var mediaType = btn.getAttribute('data-type');
+        if (!tmdbId || !mediaType) return;
+        fetchPermissionsAndRequest(tmdbId, mediaType, btn);
+    }
+
+    function fetchPermissionsAndRequest(tmdbId, mediaType, btn) {
+        var serviceType = (mediaType === 'tv') ? 'sonarr' : 'radarr';
+        var cacheKey = serviceType + ':' + mediaType;
+        if (_permCache[cacheKey] !== undefined) {
+            decideAndSubmit(tmdbId, mediaType, btn, _permCache[cacheKey]);
+            return;
+        }
+        btn.disabled = true;
+        btn.textContent = t('discoveryRequesting', 'Requesting...');
+        ApiClient.ajax({
+            type: 'GET',
+            url: ApiClient.getUrl(API_URL + '/RequestPermissions/' + serviceType + '?mediaType=' + mediaType),
+            dataType: 'json'
+        }).then(function (permResult) {
+            _permCache[cacheKey] = permResult || { CanRequest: false };
+            btn.disabled = false;
+            btn.textContent = t('discoveryRequest', 'Request');
+            decideAndSubmit(tmdbId, mediaType, btn, _permCache[cacheKey]);
+        }).catch(function () {
+            // On network error, try submitting with defaults (server will validate)
+            _permCache[cacheKey] = { CanRequest: true, Profiles: [] };
+            btn.disabled = false;
+            btn.textContent = t('discoveryRequest', 'Request');
+            submitRequest(tmdbId, mediaType, null, null, null, btn);
+        });
+    }
+
+    function decideAndSubmit(tmdbId, mediaType, btn, permResult) {
+        if (!permResult.CanRequest) {
+            btn.textContent = t('discoveryRequestFailed', 'Failed');
+            btn.classList.add('jfh-discovery-btn-failed');
+            setTimeout(function () {
+                btn.textContent = t('discoveryRequest', 'Request');
+                btn.classList.remove('jfh-discovery-btn-failed');
+                btn.disabled = false;
+            }, 3000);
+            return;
+        }
+        var profiles = permResult.Profiles || [];
+        if (profiles.length === 0) {
+            submitRequest(tmdbId, mediaType, null, null, null, btn);
+        } else if (profiles.length === 1) {
+            var p = profiles[0];
+            submitRequest(tmdbId, mediaType, p.ServerId, p.ProfileId, p.RootFolder, btn);
+        } else {
+            showProfilePopup(tmdbId, mediaType, btn, profiles);
+        }
+    }
+
+    function showProfilePopup(tmdbId, mediaType, btn, profiles) {
+        var existing = document.getElementById('jfhDiscoveryPopup');
+        if (existing) existing.remove();
+        injectPopupStyles();
+
+        var multiServer = false;
+        var serverIds = {};
+        for (var i = 0; i < profiles.length; i++) { serverIds[profiles[i].ServerId] = true; }
+        multiServer = Object.keys(serverIds).length > 1;
+
+        var overlay = document.createElement('div');
+        overlay.id = 'jfhDiscoveryPopup';
+        overlay.className = 'jfh-discovery-popup-overlay';
+        var popup = document.createElement('div');
+        popup.className = 'jfh-discovery-popup';
+
+        var title = document.createElement('div');
+        title.className = 'jfh-discovery-popup-title';
+        title.textContent = t('discoverySelectQualityProfile', 'Select Quality Profile');
+        popup.appendChild(title);
+
+        var subtitle = document.createElement('div');
+        subtitle.className = 'jfh-discovery-popup-subtitle';
+        subtitle.textContent = t('discoverySelectQualityProfileDesc', 'Choose which quality profile to use for the download:');
+        popup.appendChild(subtitle);
+
+        var list = document.createElement('div');
+        list.className = 'jfh-discovery-popup-list';
+        for (var i = 0; i < profiles.length; i++) {
+            var prof = profiles[i];
+            var item = document.createElement('button');
+            item.className = 'jfh-discovery-popup-item' + (prof.IsDefault ? ' jfh-discovery-popup-item-default' : '');
+            var label = esc(prof.ProfileName);
+            if (multiServer) label += ' <span style="opacity:0.6">(' + esc(prof.ServerName) + ')</span>';
+            if (prof.IsDefault) label += ' <span style="opacity:0.5;font-size:0.8em">\u2605 default</span>';
+            item.innerHTML = label;
+            item.addEventListener('click', (function (sid, pid, rf) {
+                return function () { closePopup(); submitRequest(tmdbId, mediaType, sid, pid, rf, btn); };
+            })(prof.ServerId, prof.ProfileId, prof.RootFolder));
+            list.appendChild(item);
+        }
+        popup.appendChild(list);
+
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className = 'jfh-discovery-popup-cancel';
+        cancelBtn.textContent = t('discoveryCancel', 'Cancel');
+        cancelBtn.addEventListener('click', closePopup);
+        popup.appendChild(cancelBtn);
+
+        overlay.appendChild(popup);
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closePopup(); });
+        function onEsc(ev) { if (ev.key === 'Escape') closePopup(); }
+        document.addEventListener('keydown', onEsc);
+
+        function closePopup() {
+            document.removeEventListener('keydown', onEsc);
+            var el = document.getElementById('jfhDiscoveryPopup');
+            if (el) el.remove();
+        }
+    }
+
+    function injectPopupStyles() {
+        if (document.getElementById('jfhelper-popup-styles')) return;
+        var s = document.createElement('style');
+        s.id = 'jfhelper-popup-styles';
+        s.textContent =
+            '.jfh-discovery-popup-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center}' +
+            '.jfh-discovery-popup{background:#1c1c2e;border-radius:12px;padding:1.5em;max-width:400px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.5)}' +
+            '.jfh-discovery-popup-title{font-size:1.1em;font-weight:600;margin-bottom:.3em;color:#fff}' +
+            '.jfh-discovery-popup-subtitle{font-size:.85em;opacity:.7;margin-bottom:1em;color:#ccc}' +
+            '.jfh-discovery-popup-list{display:flex;flex-direction:column;gap:.5em}' +
+            '.jfh-discovery-popup-item{display:flex;align-items:center;gap:.6em;padding:.7em 1em;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.03);cursor:pointer;color:#fff;font-size:.9em;transition:background .2s,border-color .2s;text-align:left;width:100%}' +
+            '.jfh-discovery-popup-item:hover{background:rgba(0,164,220,.15);border-color:#00a4dc}' +
+            '.jfh-discovery-popup-item-default{border-color:rgba(0,164,220,.4);background:rgba(0,164,220,.08)}' +
+            '.jfh-discovery-popup-cancel{display:block;width:100%;margin-top:1em;padding:.6em;border:none;border-radius:6px;background:rgba(255,255,255,.1);color:#fff;cursor:pointer;font-size:.85em;text-align:center;transition:background .2s}' +
+            '.jfh-discovery-popup-cancel:hover{background:rgba(255,255,255,.2)}';
+        document.head.appendChild(s);
+    }
+
+    function submitRequest(tmdbId, mediaType, serverId, profileId, rootFolder, btn) {
+        btn.disabled = true;
+        btn.textContent = t('discoveryRequesting', 'Requesting...');
+        var payload = { TmdbId: tmdbId, MediaType: mediaType };
+        if (serverId != null) payload.ServerId = serverId;
+        if (profileId != null) payload.ProfileId = profileId;
+        if (rootFolder) payload.RootFolder = rootFolder;
         ApiClient.ajax({
             type: 'POST',
             url: ApiClient.getUrl(API_URL + '/Request'),
-            data: JSON.stringify({ TmdbId: tmdbId, MediaType: mediaType }),
+            data: JSON.stringify(payload),
             contentType: 'application/json',
             dataType: 'json'
         }).then(function (result) {
@@ -235,7 +378,7 @@
         });
     }
 
-    // Translate reason key to localized human-readable text.
+        // Translate reason key to localized human-readable text.
     // Backend DetermineReason produces: reasonPerson, reasonGenre, reasonTrending, reasonPopular
     function formatReason(reasonKey, reason, relatedInfo) {
         if (!reasonKey && !reason) return '';
@@ -277,14 +420,15 @@
     function initSidebar() {
         injectNavigation();
         var drawer = document.querySelector('.mainDrawer');
-        if (!drawer) return;
+        // Fallback to document.body if .mainDrawer hasn't mounted yet (cold load / SPA timing)
+        var target = drawer || document.body;
         var observer = new MutationObserver(function () {
             var sidebar = document.querySelector('.mainDrawer-scrollContainer');
             if (sidebar && !sidebar.querySelector('.' + NAV_ITEM_CLASS)) {
                 injectNavigation();
             }
         });
-        observer.observe(drawer, { childList: true, subtree: true });
+        observer.observe(target, { childList: true, subtree: true });
     }
 
     function injectNavigation() {

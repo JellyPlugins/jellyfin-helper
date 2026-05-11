@@ -131,9 +131,8 @@ public class DiscoveryControllerTests
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "Movie" };
         var result = await controller.SubmitRequest(dto, CancellationToken.None);
 
-        // Should normalize "Movie" to "movie" and succeed (returns 502 because Seerr not configured,
-        // but it should NOT be BadRequest - that means validation passed)
-        // Since Seerr is not configured in test, it will call the mock which returns success
+        // The controller normalizes "Movie" to "movie" so validation passes,
+        // then delegates to the mocked Seerr service which returns success → 200 OK.
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         var body = Assert.IsType<RequestResult>(okResult.Value);
         Assert.True(body.Success);

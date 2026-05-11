@@ -18,7 +18,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Discovery User Access Toggle** - New `DiscoveryUserAccessEnabled` setting allows admins to control whether regular users can access Discovery.
 
 ### Tests
-- Total: **2159 tests**.
+- Total: **2166 tests**.
 
 ---
 

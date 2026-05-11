@@ -165,7 +165,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             addMethod.Invoke(payload, new[] { "callbackClass", CreateJValue(typeof(TransformationPatches).FullName ?? string.Empty) });
             addMethod.Invoke(payload, new[] { "callbackMethod", CreateJValue(nameof(TransformationPatches.IndexHtml)) });
 
-            pluginInterfaceType.GetMethod("RegisterTransformation")?.Invoke(null, new[] { payload });
+            var registerMethod = pluginInterfaceType.GetMethod("RegisterTransformation");
+            if (registerMethod == null)
+            {
+                _logger.LogWarning("[Discovery Sidebar] FileTransformation PluginInterface.RegisterTransformation method not found");
+                return false;
+            }
+
+            registerMethod.Invoke(null, new[] { payload });
             return true;
         }
         catch (Exception ex)

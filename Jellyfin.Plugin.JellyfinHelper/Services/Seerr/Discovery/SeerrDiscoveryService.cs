@@ -67,6 +67,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private static readonly TimeSpan InterQueryDelay = TimeSpan.FromMilliseconds(500);
 
+    /// <summary>
+    ///     TTL for the cached Seerr user list used by <see cref="ResolveSeerrUserIdAsync"/>.
+    ///     Avoids re-fetching the full paginated user roster on every request submission.
+    /// </summary>
+    private static readonly TimeSpan SeerrUserCacheTtl = TimeSpan.FromMinutes(5);
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IArrIntegrationService _arrIntegration;
@@ -74,6 +80,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private readonly DiscoveryCacheService _cache;
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<SeerrDiscoveryService> _logger;
+
+    /// <summary>
+    ///     Cached Seerr user list to avoid re-fetching the full paginated roster
+    ///     on every <see cref="ResolveSeerrUserIdAsync"/> call (e.g., every frontend request).
+    /// </summary>
+    private readonly Lock _userCacheLock = new();
+    private IReadOnlyList<SeerrUser>? _cachedSeerrUsers;
+    private DateTime _cachedSeerrUsersExpiry = DateTime.MinValue;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="SeerrDiscoveryService"/> class.
@@ -313,7 +327,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     $"Request failed for TMDb#{tmdbId}: HTTP {(int)response.StatusCode} - {body}",
                     null,
                     _logger);
-                return (false, $"Seerr returned HTTP {(int)response.StatusCode}: {body}");
+                return (false, $"Seerr returned HTTP {(int)response.StatusCode}.");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -451,6 +465,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
+            _pluginLog.LogWarning(
+                "SeerrDiscovery",
+                $"Invalid Seerr configuration for service info ({serviceType}): {ex.Message}",
+                ex,
+                _logger);
             return [];
         }
 
@@ -542,7 +561,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         try
         {
-            var seerrUsers = await GetSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
+            var seerrUsers = await GetCachedSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
             if (seerrUsers.Count == 0)
             {
                 return null;
@@ -592,6 +611,210 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 _logger);
             return null;
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<UserRequestPermissionResult> GetUserRequestPermissionsAsync(
+        Guid jellyfinUserId,
+        string mediaType,
+        string serviceType,
+        CancellationToken cancellationToken)
+    {
+        // Step 1: Resolve the Jellyfin user to their Seerr account
+        var seerrUsers = await GetCachedSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
+        var seerrUser = FindSeerrUserByJellyfinId(seerrUsers, jellyfinUserId);
+
+        if (seerrUser == null)
+        {
+            _pluginLog.LogDebug(
+                "SeerrDiscovery",
+                $"Permission check: Jellyfin user {jellyfinUserId} has no linked Seerr account.",
+                _logger);
+
+            return new UserRequestPermissionResult
+            {
+                CanRequest = false,
+                DeniedReason = "Your Jellyfin account is not linked to a Seerr account."
+            };
+        }
+
+        // Step 2: Check if the user has request permission for this media type
+        if (!seerrUser.CanRequest(mediaType))
+        {
+            _pluginLog.LogDebug(
+                "SeerrDiscovery",
+                $"Permission check: Seerr user #{seerrUser.Id} ({seerrUser.DisplayName}) lacks request permission for {mediaType}.",
+                _logger);
+
+            return new UserRequestPermissionResult
+            {
+                CanRequest = false,
+                DeniedReason = "You do not have permission to submit requests."
+            };
+        }
+
+        // Step 3: Determine which quality profiles to expose
+        var services = await GetServiceInfoAsync(serviceType, cancellationToken).ConfigureAwait(false);
+
+        if (services.Count == 0)
+        {
+            // No services configured — user can still request with server defaults
+            return new UserRequestPermissionResult
+            {
+                CanRequest = true,
+                Profiles = []
+            };
+        }
+
+        // Step 4: If user has advanced profile selection permission, expose all profiles
+        if (seerrUser.CanSelectQualityProfile())
+        {
+            var allProfiles = BuildAllowedProfileList(services, filterToDefault: false);
+            return new UserRequestPermissionResult
+            {
+                CanRequest = true,
+                Profiles = allProfiles
+            };
+        }
+
+        // Step 5: Normal user — only expose the default profile per server
+        var defaultProfiles = BuildAllowedProfileList(services, filterToDefault: true);
+        return new UserRequestPermissionResult
+        {
+            CanRequest = true,
+            Profiles = defaultProfiles
+        };
+    }
+
+    /// <summary>
+    ///     Finds the <see cref="SeerrUser"/> matching the given Jellyfin user ID
+    ///     using normalized GUID comparison (no hyphens, case-insensitive).
+    /// </summary>
+    private static SeerrUser? FindSeerrUserByJellyfinId(
+        IReadOnlyList<SeerrUser> seerrUsers,
+        Guid jellyfinUserId)
+    {
+        if (jellyfinUserId == Guid.Empty || seerrUsers.Count == 0)
+        {
+            return null;
+        }
+
+        var normalizedJellyfinId = jellyfinUserId.ToString("N");
+
+        foreach (var user in seerrUsers)
+        {
+            if (string.IsNullOrWhiteSpace(user.JellyfinUserId))
+            {
+                continue;
+            }
+
+            var normalizedSeerrJellyfinId = user.JellyfinUserId
+                .Replace("-", string.Empty, StringComparison.Ordinal)
+                .ToLowerInvariant();
+
+            if (string.Equals(normalizedJellyfinId, normalizedSeerrJellyfinId, StringComparison.Ordinal))
+            {
+                return user;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    ///     Builds the list of <see cref="AllowedQualityProfile"/> entries from the service info.
+    ///     When <paramref name="filterToDefault"/> is <c>true</c>, only the server's active (default)
+    ///     profile is included per server — this is the path for normal users without advanced permissions.
+    /// </summary>
+    private static List<AllowedQualityProfile> BuildAllowedProfileList(
+        IReadOnlyList<SeerrServiceInfo> services,
+        bool filterToDefault)
+    {
+        var result = new List<AllowedQualityProfile>();
+
+        foreach (var server in services)
+        {
+            if (filterToDefault)
+            {
+                // Normal users: only the server's active/default profile
+                var defaultProfile = server.Profiles.FirstOrDefault(p => p.Id == server.ActiveProfileId);
+                if (defaultProfile != null)
+                {
+                    result.Add(new AllowedQualityProfile
+                    {
+                        ServerId = server.Id,
+                        ServerName = server.Name,
+                        ProfileId = defaultProfile.Id,
+                        ProfileName = defaultProfile.Name,
+                        IsDefault = true,
+                        RootFolder = server.ActiveDirectory
+                    });
+                }
+                else if (server.Profiles.Count > 0)
+                {
+                    // Fallback: if active profile ID doesn't match, use the first one
+                    var fallback = server.Profiles[0];
+                    result.Add(new AllowedQualityProfile
+                    {
+                        ServerId = server.Id,
+                        ServerName = server.Name,
+                        ProfileId = fallback.Id,
+                        ProfileName = fallback.Name,
+                        IsDefault = true,
+                        RootFolder = server.ActiveDirectory
+                    });
+                }
+            }
+            else
+            {
+                // Advanced users: all profiles on all servers
+                foreach (var profile in server.Profiles)
+                {
+                    result.Add(new AllowedQualityProfile
+                    {
+                        ServerId = server.Id,
+                        ServerName = server.Name,
+                        ProfileId = profile.Id,
+                        ProfileName = profile.Name,
+                        IsDefault = profile.Id == server.ActiveProfileId,
+                        RootFolder = server.ActiveDirectory
+                    });
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Returns the Seerr user list from the in-memory TTL cache, refreshing it
+    ///     from the Seerr API if the cache is expired or empty.
+    ///     This avoids re-fetching the full paginated user roster on every
+    ///     <see cref="ResolveSeerrUserIdAsync"/> call (triggered per frontend request).
+    /// </summary>
+    private async Task<IReadOnlyList<SeerrUser>> GetCachedSeerrUsersAsync(CancellationToken cancellationToken)
+    {
+        // Fast path: check if cache is still valid (no lock needed for read)
+        if (_cachedSeerrUsers != null && DateTime.UtcNow < _cachedSeerrUsersExpiry)
+        {
+            return _cachedSeerrUsers;
+        }
+
+        // Slow path: refresh from Seerr API
+        var freshUsers = await GetSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
+
+        // Only cache successful (non-empty) results to allow retry on next call
+        // when Seerr is temporarily unavailable.
+        if (freshUsers.Count > 0)
+        {
+            lock (_userCacheLock)
+            {
+                _cachedSeerrUsers = freshUsers;
+                _cachedSeerrUsersExpiry = DateTime.UtcNow.Add(SeerrUserCacheTtl);
+            }
+        }
+
+        return freshUsers;
     }
 
     private async Task<DiscoveryResult?> GenerateForUserAsync(
@@ -866,9 +1089,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         finally
         {
-            // Use CancellationToken.None to avoid throwing OperationCanceledException
-            // from the finally block, which would mask the original exception.
-            await Task.Delay(InterQueryDelay, CancellationToken.None).ConfigureAwait(false);
+            // Skip the rate-limit delay if cancellation has been requested —
+            // no point sleeping when the entire operation is being torn down.
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(InterQueryDelay, CancellationToken.None).ConfigureAwait(false);
+            }
         }
     }
 
@@ -988,17 +1214,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         IEnumerable<string> genres,
         Func<string, int?> mapper)
     {
-        var ids = new List<string>();
-        foreach (var genre in genres)
-        {
-            var id = mapper(genre);
-            if (id.HasValue)
-            {
-                ids.Add(id.Value.ToString(CultureInfo.InvariantCulture));
-            }
-        }
-
-        return ids;
+        return genres
+            .Select(mapper)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value.ToString(CultureInfo.InvariantCulture))
+            .ToList();
     }
 
     /// <summary>
@@ -1084,13 +1304,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 // Add directors first (high signal value)
                 if (detail.Credits.Crew is { Count: > 0 })
                 {
-                    foreach (var crew in detail.Credits.Crew)
+                    foreach (var crew in detail.Credits.Crew.Where(
+                        c => string.Equals(c.Job, "Director", StringComparison.OrdinalIgnoreCase)
+                             && !string.IsNullOrWhiteSpace(c.Name)))
                     {
-                        if (string.Equals(crew.Job, "Director", StringComparison.OrdinalIgnoreCase)
-                            && !string.IsNullOrWhiteSpace(crew.Name))
-                        {
-                            people.Add(crew.Name);
-                        }
+                        people.Add(crew.Name);
                     }
                 }
 

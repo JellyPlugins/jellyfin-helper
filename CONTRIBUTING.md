@@ -281,8 +281,12 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── TmdbDiscoverResponse.cs   # TMDb API page response
 │   │       ├── DiscoveryResult.cs        # Per-user result container
 │   │       ├── DiscoveryRecommendation.cs # Single recommendation DTO
-│   │       ├── SeerrUser.cs             # Seerr user model (with JellyfinUserId mapping)
+│   │       ├── SeerrUser.cs             # Seerr user model (with JellyfinUserId mapping + Permissions)
 │   │       ├── SeerrUserPage.cs         # Paginated user list response
+│   │       ├── SeerrPermissions.cs      # [Flags] enum of all Overseerr/Jellyseerr permission bits
+│   │       ├── SeerrPermissionExtensions.cs # Permission evaluation (HasPermission, CanRequest, CanSelectQualityProfile)
+│   │       ├── UserRequestPermissionResult.cs # Permission check result (CanRequest + allowed profiles)
+│   │       ├── AllowedQualityProfile.cs # Single quality profile the user may select
 │   │       ├── SeerrServiceInfo.cs      # Radarr/Sonarr service config from Seerr
 │   │       ├── SeerrQualityProfile.cs   # Quality profile DTO
 │   │       ├── SeerrRootFolder.cs       # Root folder DTO

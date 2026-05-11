@@ -52,20 +52,6 @@ internal static class ParentalRatingHelper
     };
 
     /// <summary>
-    ///     TMDb genre IDs that are explicitly child-safe ONLY when combined with Family/Kids genres.
-    ///     Animation alone is NOT sufficient because of adult animation (Family Guy, American Dad, etc.).
-    ///     Comedy alone is NOT sufficient because of adult comedies.
-    ///     These genres require at least one <see cref="ChildAllowedGenreIds"/> to be present.
-    /// </summary>
-    private static readonly HashSet<int> ChildConditionalGenreIds = new()
-    {
-        16, // Animation (child-safe ONLY with Family/Kids - excludes Adult Animation)
-        35, // Comedy (child-safe ONLY with Family/Kids - excludes adult comedy)
-        12, // Adventure
-        14 // Fantasy
-    };
-
-    /// <summary>
     ///     TMDb keyword IDs known to indicate adult-oriented animation content.
     ///     These are checked as an additional filter layer.
     /// </summary>
@@ -107,7 +93,6 @@ internal static class ParentalRatingHelper
         if (maxParentalRating.Value <= 60)
         {
             var hasPrimaryChildGenre = false;
-            var hasConditionalChildGenre = false;
             var hasRestrictedGenre = false;
 
             foreach (var genreId in candidate.GenreIds)
@@ -115,11 +100,6 @@ internal static class ParentalRatingHelper
                 if (ChildAllowedGenreIds.Contains(genreId))
                 {
                     hasPrimaryChildGenre = true;
-                }
-
-                if (ChildConditionalGenreIds.Contains(genreId))
-                {
-                    hasConditionalChildGenre = true;
                 }
 
                 if (TeenRestrictedGenreIds.Contains(genreId))
@@ -134,19 +114,11 @@ internal static class ParentalRatingHelper
                 }
             }
 
-            // Must have at least one primary child-safe genre (Family, Kids, Music)
-            // OR conditional genres (Animation, Comedy, Adventure, Fantasy) ONLY if Family/Kids is also present
+            // Must have at least one primary child-safe genre (Family, Kids, Music).
+            // Conditional genres (Animation/Comedy/Adventure/Fantasy) alone are NOT safe
+            // because of adult animation (Family Guy, Archer) and adult comedies.
             if (!hasPrimaryChildGenre)
             {
-                // No Family/Kids/Music genre at all → exclude
-                // Even if it has Animation or Comedy, those alone aren't safe
-                if (hasConditionalChildGenre)
-                {
-                    // Has Animation/Comedy/etc. but no Family/Kids → likely adult content
-                    return true;
-                }
-
-                // No child-friendly genre at all
                 return true;
             }
 
@@ -159,16 +131,15 @@ internal static class ParentalRatingHelper
             // Additional safety: very high vote averages for Animation without Kids/Family
             // sometimes indicate cult adult shows. If Animation is present but the main
             // genres are not Kids-focused, apply a stricter check.
-            if (candidate.GenreIds.Contains(16) && !candidate.GenreIds.Contains(10762))
+            // Adult animations tend to have vote_average between 6-9 with moderate counts
+            // While children's content tends to have lower vote averages (5-7)
+            // We already required Family genre above, so this is a secondary check
+            if (candidate.GenreIds.Contains(16)
+                && !candidate.GenreIds.Contains(10762)
+                && candidate.VoteAverage > 8.0
+                && !candidate.GenreIds.Contains(10751))
             {
-                // Animation without explicit "Kids" TV genre - check vote count
-                // Adult animations tend to have vote_average between 6-9 with moderate counts
-                // While children's content tends to have lower vote averages (5-7)
-                // We already required Family genre above, so this is a secondary check
-                if (candidate.VoteAverage > 8.0 && !candidate.GenreIds.Contains(10751))
-                {
-                    return true;
-                }
+                return true;
             }
 
             return false;
@@ -176,12 +147,9 @@ internal static class ParentalRatingHelper
 
         // For young teen accounts (FSK-12): BLACKLIST approach
         // Exclude specific inappropriate genres
-        if (maxParentalRating.Value <= 100)
+        if (maxParentalRating.Value <= 100 && candidate.GenreIds.Any(TeenRestrictedGenreIds.Contains))
         {
-            if (candidate.GenreIds.Any(TeenRestrictedGenreIds.Contains))
-            {
-                return true;
-            }
+            return true;
         }
 
         return false;
