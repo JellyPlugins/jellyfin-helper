@@ -504,10 +504,18 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
         foreach (var watchedItem in profile.WatchedItems)
         {
-            // Only include items with meaningful interaction
-            if (watchedItem is { Played: false, IsFavorite: false })
+            // Only include items with meaningful interaction.
+            // Includes: Played items, Favorites, and partially-watched items with ≥15% progress.
+            // Excludes: items started and immediately abandoned (< 15% progress).
+            if (!watchedItem.Played && !watchedItem.IsFavorite)
             {
-                continue;
+                var hasSignificantProgress = watchedItem.PlaybackPositionTicks > 0
+                    && watchedItem.RuntimeTicks > 0
+                    && (double)watchedItem.PlaybackPositionTicks / watchedItem.RuntimeTicks >= 0.15;
+                if (!hasSignificantProgress)
+                {
+                    continue;
+                }
             }
 
             // For episodes: aggregate at series level to avoid per-episode noise

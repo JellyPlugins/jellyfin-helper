@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net.Mime;
 using System.Reflection;
@@ -95,8 +94,8 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<UserRequestPermissionResult>> GetMyRequestPermissions(
-        [RegularExpression("^(radarr|sonarr)$")] string serviceType,
-        [FromQuery][RegularExpression("^(movie|tv)$")] string mediaType,
+        string serviceType,
+        [FromQuery] string mediaType,
         CancellationToken cancellationToken)
     {
         if (!IsDiscoveryUserAccessEnabled())
@@ -108,6 +107,20 @@ public sealed class UserDiscoveryController : ControllerBase
         if (userId == null)
         {
             return Unauthorized();
+        }
+
+        // Normalize inputs to match SubmitMyRequest behavior (case-insensitive)
+        serviceType = serviceType?.Trim().ToLowerInvariant() ?? string.Empty;
+        mediaType = mediaType?.Trim().ToLowerInvariant() ?? string.Empty;
+
+        if (serviceType is not ("radarr" or "sonarr"))
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "serviceType must be 'radarr' or 'sonarr'." });
+        }
+
+        if (mediaType is not ("movie" or "tv"))
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
         }
 
         var result = await _discovery.GetUserRequestPermissionsAsync(
@@ -129,7 +142,7 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<IReadOnlyList<SeerrServiceInfo>>> GetMyServiceInfo(
-        [RegularExpression("^(radarr|sonarr)$")] string serviceType,
+        string serviceType,
         CancellationToken cancellationToken)
     {
         if (!IsDiscoveryUserAccessEnabled())
@@ -141,6 +154,13 @@ public sealed class UserDiscoveryController : ControllerBase
         if (userId == null)
         {
             return Unauthorized();
+        }
+
+        // Normalize input to match SubmitMyRequest behavior (case-insensitive)
+        serviceType = serviceType?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (serviceType is not ("radarr" or "sonarr"))
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "serviceType must be 'radarr' or 'sonarr'." });
         }
 
         var services = await _discovery.GetServiceInfoAsync(serviceType, cancellationToken).ConfigureAwait(false);
@@ -235,13 +255,14 @@ public sealed class UserDiscoveryController : ControllerBase
         // Resolve the current Jellyfin user to their Seerr user ID
         // so the request appears under their name in Seerr (not as admin).
         // If no mapping exists, the request is rejected — users must be linked in Seerr.
-        int? seerrUserId = null;
         var jellyfinUserId = GetCurrentUserId();
-        if (jellyfinUserId.HasValue)
+        if (!jellyfinUserId.HasValue)
         {
-            seerrUserId = await _discovery.ResolveSeerrUserIdAsync(
-                jellyfinUserId.Value, cancellationToken).ConfigureAwait(false);
+            return Unauthorized();
         }
+
+        var seerrUserId = await _discovery.ResolveSeerrUserIdAsync(
+            jellyfinUserId.Value, cancellationToken).ConfigureAwait(false);
 
         if (seerrUserId == null)
         {

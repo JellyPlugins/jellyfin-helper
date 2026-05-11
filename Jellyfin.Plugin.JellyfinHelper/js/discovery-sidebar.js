@@ -13,6 +13,8 @@
     // it shows an inline message instead of navigating to a 404 page.
     var API_URL = '/JellyfinHelper/Discovery/My';
 
+    var TOAST_DURATION_MS = 5000;
+
     var _waitForApiRetries = 0;
     var MAX_API_RETRIES = 60; // 30 seconds max wait
 
@@ -48,6 +50,79 @@
     function t(key, fallback) {
         if (_strings && _strings[key]) return _strings[key];
         return fallback || key;
+    }
+
+    // ===== TOAST NOTIFICATIONS =====
+
+    /**
+     * Shows a temporary toast notification at the bottom-center of the viewport.
+     * Used to surface error details from non-200 API responses without blocking the UI.
+     *
+     * @param {string} message - The message text to display (plain text, rendered via textContent).
+     * @param {number} [duration] - Time in milliseconds before auto-dismissal. Defaults to TOAST_DURATION_MS.
+     */
+    function showToast(message, duration) {
+        if (!message) return;
+        duration = duration || TOAST_DURATION_MS;
+
+        var toast = document.createElement('div');
+        toast.className = 'jfh-discovery-toast';
+        toast.textContent = message;
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'assertive');
+
+        document.body.appendChild(toast);
+
+        // Trigger reflow before adding the visible class to ensure CSS transition fires
+        void toast.offsetWidth;
+        toast.classList.add('jfh-discovery-toast-visible');
+
+        var dismissTimeout = setTimeout(function () { dismissToast(toast); }, duration);
+
+        // Allow manual dismissal via click
+        toast.addEventListener('click', function () {
+            clearTimeout(dismissTimeout);
+            dismissToast(toast);
+        });
+    }
+
+    /**
+     * Gracefully dismisses and removes a toast element with a fade-out transition.
+     * @param {HTMLElement} toast - The toast DOM element to remove.
+     */
+    function dismissToast(toast) {
+        if (!toast || !toast.parentNode) return;
+        toast.classList.remove('jfh-discovery-toast-visible');
+        toast.classList.add('jfh-discovery-toast-hidden');
+        // Remove from DOM after the CSS transition completes
+        setTimeout(function () {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 300);
+    }
+
+    /**
+     * Extracts a human-readable error message from an API error response.
+     * Handles both XHR-style objects (responseText/responseJSON) and plain error objects.
+     *
+     * @param {Object} err - The error object from ApiClient.ajax rejection.
+     * @returns {string} The extracted message, or an empty string if unavailable.
+     */
+    function extractErrorMessage(err) {
+        if (!err) return '';
+        try {
+            // ApiClient.ajax may expose responseJSON directly
+            if (err.responseJSON && err.responseJSON.Message) {
+                return err.responseJSON.Message;
+            }
+            // Fall back to parsing responseText
+            if (err.responseText) {
+                var parsed = JSON.parse(err.responseText);
+                if (parsed && parsed.Message) return parsed.Message;
+            }
+        } catch (e) {
+            // JSON parse failure — fall through to empty string
+        }
+        return '';
     }
 
     // ===== STYLES =====
@@ -88,7 +163,11 @@
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
             '.jfh-discovery-btn-failed { background: #e74c3c !important; }' +
             '.jfh-discovery-msg { text-align: center; padding: 2em; opacity: 0.6; }' +
-            '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; }';
+            '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; }' +
+            // Toast notification
+            '.jfh-discovery-toast { position: fixed; bottom: 2em; left: 50%; transform: translateX(-50%) translateY(20px); z-index: 999999; max-width: 480px; width: calc(100% - 2em); padding: 0.9em 1.4em; background: rgba(30,30,40,0.95); color: #fff; font-size: 0.88em; line-height: 1.4; border-radius: 8px; border-left: 4px solid #e74c3c; box-shadow: 0 4px 24px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease; cursor: pointer; }' +
+            '.jfh-discovery-toast-visible { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }' +
+            '.jfh-discovery-toast-hidden { opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(20px); }';
         document.head.appendChild(style);
     }
 
@@ -150,6 +229,11 @@
                     msg = t('discoveryDisabled', 'Discovery is not enabled. Ask your server administrator to enable this feature in Jellyfin Helper settings.');
                 }
                 container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
+                // Surface server-provided error detail as a toast for non-200 responses
+                var serverMessage = extractErrorMessage(err);
+                if (serverMessage) {
+                    showToast(serverMessage);
+                }
             });
     }
 
@@ -253,6 +337,7 @@
         if (!permResult.CanRequest) {
             btn.textContent = t('discoveryRequestFailed', 'Failed');
             btn.classList.add('jfh-discovery-btn-failed');
+            showToast(permResult.Message || t('discoveryNoPermission', 'You do not have permission to submit requests. Please contact your server administrator.'));
             setTimeout(function () {
                 btn.textContent = t('discoveryRequest', 'Request');
                 btn.classList.remove('jfh-discovery-btn-failed');
@@ -377,11 +462,18 @@
             } else {
                 btn.textContent = t('discoveryRequestFailed', 'Failed');
                 btn.classList.add('jfh-discovery-btn-failed');
+                if (result && result.Message) {
+                    showToast(result.Message);
+                }
                 setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; }, 3000);
             }
-        }).catch(function () {
+        }).catch(function (err) {
             btn.textContent = t('discoveryRequestFailed', 'Failed');
             btn.classList.add('jfh-discovery-btn-failed');
+            var serverMessage = extractErrorMessage(err);
+            if (serverMessage) {
+                showToast(serverMessage);
+            }
             setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; }, 3000);
         });
     }
@@ -463,12 +555,31 @@
             '<span class="sectionName navMenuOptionText">' + t('discoveryTitle', 'Seerr Discovery') + '</span>';
         navItem.addEventListener('click', function (e) {
             e.preventDefault();
-            // Match tabs by localized title or data attribute (works across all languages)
+            // Match tabs by data attribute first (most reliable, set by Custom Tabs plugin),
+            // then fall back to exact localized title match to avoid false positives
+            // from unrelated tabs containing the word "discover".
             var localizedTitle = t('discoveryTitle', 'Seerr Discovery').toLowerCase();
             var tabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
+            // Pass 1: look for a data-attribute match (set by Custom Tabs plugin)
+            for (var i = 0; i < tabs.length; i++) {
+                if (tabs[i].getAttribute('data-tab') === 'jellyfinhelper-discovery' ||
+                    tabs[i].getAttribute('data-tabid') === 'jellyfinhelper-discovery') {
+                    tabs[i].click();
+                    return;
+                }
+            }
+            // Pass 2: exact text match against localized title
             for (var i = 0; i < tabs.length; i++) {
                 var tabText = tabs[i].textContent.trim().toLowerCase();
-                if (tabText.indexOf('discover') !== -1 || tabText.indexOf(localizedTitle) !== -1) {
+                if (tabText === localizedTitle) {
+                    tabs[i].click();
+                    return;
+                }
+            }
+            // Pass 3: substring match as last resort (legacy behavior)
+            for (var i = 0; i < tabs.length; i++) {
+                var tabText = tabs[i].textContent.trim().toLowerCase();
+                if (tabText.indexOf(localizedTitle) !== -1) {
                     tabs[i].click();
                     return;
                 }

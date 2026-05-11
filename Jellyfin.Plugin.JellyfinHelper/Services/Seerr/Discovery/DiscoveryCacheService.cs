@@ -54,9 +54,15 @@ public sealed class DiscoveryCacheService
     }
 
     /// <summary>
-    ///     Loads cached discovery results. Returns a snapshot of the in-memory cache if available,
+    ///     Loads cached discovery results. Returns a read-only wrapper of the in-memory cache if available,
     ///     otherwise reads from disk and populates the cache.
-    ///     Callers receive a detached copy to prevent external mutation of cache state.
+    ///     <para>
+    ///         <b>Important:</b> The returned list is a shallow read-only wrapper (<see cref="System.Collections.ObjectModel.ReadOnlyCollection{T}"/>).
+    ///         The outer list cannot be modified, but the <see cref="DiscoveryResult"/> objects within
+    ///         are shared references to the cache. Callers MUST NOT mutate properties of the returned items.
+    ///         Mutation operations (e.g., <see cref="MarkAsRequested"/>) must go through this service
+    ///         under <see cref="_fileLock"/> to ensure thread-safe, atomic updates.
+    ///     </para>
     /// </summary>
     /// <returns>The deserialized results, or an empty list if the file does not exist or is invalid.</returns>
     public IReadOnlyList<DiscoveryResult> Load()

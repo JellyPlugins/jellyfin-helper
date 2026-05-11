@@ -321,5 +321,7 @@
   "discoverySetupHintConfigureLink": "Configurer Custom Tabs →",
   "discoveryCopySnippet": "Copier",
   "discoveryCopied": "Copié !",
-  "discoveryProfileDefault": "par défaut"
+  "discoveryProfileDefault": "par défaut",
+  "discoveryNoPermission": "Vous n'avez pas la permission de soumettre des demandes. Veuillez contacter votre administrateur.",
+  "discoveryRequestError": "La demande n'a pas pu être traitée. Veuillez réessayer plus tard."
 }

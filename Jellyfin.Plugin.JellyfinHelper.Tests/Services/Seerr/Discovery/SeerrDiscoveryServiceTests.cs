@@ -42,16 +42,18 @@ public class SeerrDiscoveryServiceTests
     public async Task SubmitRequestAsync_InvalidTmdbId_ReturnsFalse()
     {
         var service = CreateService();
-        var (success, _) = await service.SubmitRequestAsync(0, "movie", null, null, null, null, CancellationToken.None);
+        var (success, message) = await service.SubmitRequestAsync(0, "movie", null, null, null, null, CancellationToken.None);
         Assert.False(success);
+        Assert.Contains("TMDb", message, System.StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public async Task SubmitRequestAsync_InvalidMediaType_ReturnsFalse()
     {
         var service = CreateService();
-        var (success, _) = await service.SubmitRequestAsync(123, "invalid", null, null, null, null, CancellationToken.None);
+        var (success, message) = await service.SubmitRequestAsync(123, "invalid", null, null, null, null, CancellationToken.None);
         Assert.False(success);
+        Assert.Contains("mediaType", message);
     }
 
     [Fact]

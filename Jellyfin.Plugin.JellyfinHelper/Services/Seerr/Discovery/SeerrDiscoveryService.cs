@@ -91,6 +91,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private DateTime _cachedSeerrUsersExpiry = DateTime.MinValue;
 
     /// <summary>
+    ///     Tracks whether the last <see cref="GetSeerrUsersAsync"/> call completed all pages
+    ///     without mid-pagination HTTP failures. Only complete fetches are safe to cache.
+    /// </summary>
+    private volatile bool _lastFetchWasComplete;
+
+    /// <summary>
     ///     Initializes a new instance of the <see cref="SeerrDiscoveryService"/> class.
     /// </summary>
     /// <param name="httpClientFactory">The HTTP client factory.</param>
@@ -410,6 +416,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 var skip = 0;
                 const int take = 50;
                 const int maxPages = 20; // Safety limit to prevent infinite loops
+                var fetchComplete = true;
 
                 for (var page = 0; page < maxPages; page++)
                 {
@@ -426,6 +433,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                             $"User list pagination failed at skip={skip}: HTTP {(int)response.StatusCode}. Returning partial result ({allUsers.Count} users fetched so far).",
                             null,
                             _logger);
+                        fetchComplete = false;
                         break;
                     }
 
@@ -449,6 +457,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     skip += take;
                 }
 
+                _lastFetchWasComplete = fetchComplete;
                 return allUsers;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -818,9 +827,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Slow path: refresh from Seerr API (outside lock to avoid blocking during I/O)
         var freshUsers = await GetSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
 
-        // Only cache successful (non-empty) results to allow retry on next call
-        // when Seerr is temporarily unavailable.
-        if (freshUsers.Count > 0)
+        // Only cache complete, non-empty results to allow retry on next call
+        // when Seerr is temporarily unavailable or returns partial data.
+        // A partial result (mid-pagination failure) must NOT be cached because
+        // users on unfetched pages would incorrectly get "not linked to Seerr"
+        // for the full TTL instead of the retriable "temporarily unavailable" message.
+        if (freshUsers.Count > 0 && IsCompleteFetch(freshUsers))
         {
             lock (_userCacheLock)
             {
@@ -830,6 +842,20 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         return freshUsers;
+    }
+
+    /// <summary>
+    ///     Checks whether the most recent user fetch completed without mid-pagination failures.
+    ///     Uses the <see cref="_lastFetchWasComplete"/> flag set during <see cref="GetSeerrUsersAsync"/>.
+    /// </summary>
+    /// <param name="users">The fetched user list (unused; the completeness is tracked via the field).</param>
+    /// <returns><c>true</c> if all pages were fetched successfully; <c>false</c> if a pagination failure occurred.</returns>
+    private bool IsCompleteFetch(IReadOnlyList<SeerrUser> users)
+    {
+        // The completeness state is tracked via _lastFetchWasComplete which is set
+        // at the end of GetSeerrUsersAsync. This avoids changing the public return type.
+        _ = users; // Parameter kept for call-site readability
+        return _lastFetchWasComplete;
     }
 
     private async Task<DiscoveryResult?> GenerateForUserAsync(

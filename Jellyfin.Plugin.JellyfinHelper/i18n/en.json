@@ -321,5 +321,7 @@
   "discoverySetupHintConfigureLink": "Configure Custom Tabs →",
   "discoveryCopySnippet": "Copy",
   "discoveryCopied": "Copied!",
-  "discoveryProfileDefault": "default"
+  "discoveryProfileDefault": "default",
+  "discoveryNoPermission": "You do not have permission to submit requests. Please contact your server administrator.",
+  "discoveryRequestError": "The request could not be processed. Please try again later."
 }
