@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
@@ -12,14 +13,38 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 /// <summary>
 ///     Tests for <see cref="DiscoveryFeedbackStore"/> composite key (TmdbId, MediaType) dedup logic.
 ///     Verifies that Movie and TV items with the same TMDb ID are tracked independently.
+///     Each test gets an isolated temp directory to prevent cross-test file contamination.
 /// </summary>
-public class DiscoveryFeedbackStoreTests
+public class DiscoveryFeedbackStoreTests : IDisposable
 {
-    private static DiscoveryFeedbackStore CreateStore()
+    private readonly string _tempDir;
+
+    public DiscoveryFeedbackStoreTests()
+    {
+        _tempDir = Path.Combine(Path.GetTempPath(), "jfh-test-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(_tempDir);
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (Directory.Exists(_tempDir))
+            {
+                Directory.Delete(_tempDir, recursive: true);
+            }
+        }
+        catch
+        {
+            // Best effort cleanup
+        }
+    }
+
+    private DiscoveryFeedbackStore CreateStore()
     {
         var pluginLog = new Mock<IPluginLogService>();
         var logger = new Mock<ILogger<DiscoveryFeedbackStore>>();
-        return new DiscoveryFeedbackStore(pluginLog.Object, logger.Object);
+        return new DiscoveryFeedbackStore(pluginLog.Object, logger.Object, _tempDir);
     }
 
     [Fact]

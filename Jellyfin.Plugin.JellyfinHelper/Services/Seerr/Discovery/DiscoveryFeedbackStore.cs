@@ -64,6 +64,23 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         _filePath = Path.Join(dataPath, FileName);
     }
 
+    /// <summary>
+    ///     Initializes a new instance of the <see cref="DiscoveryFeedbackStore"/> class
+    ///     with an explicit data directory path. Used for test isolation.
+    /// </summary>
+    /// <param name="pluginLog">The plugin log service.</param>
+    /// <param name="logger">The logger instance.</param>
+    /// <param name="dataFolderPath">The directory path where the feedback file will be stored.</param>
+    internal DiscoveryFeedbackStore(
+        IPluginLogService pluginLog,
+        ILogger<DiscoveryFeedbackStore> logger,
+        string dataFolderPath)
+    {
+        _pluginLog = pluginLog;
+        _logger = logger;
+        _filePath = Path.Join(dataFolderPath, FileName);
+    }
+
     /// <inheritdoc />
     public void RecordShown(Guid userId, string userName, IReadOnlyList<DiscoveryRecommendation> items)
     {
@@ -266,12 +283,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             }
 
             var dismissed = new HashSet<(int TmdbId, string MediaType)>();
-            foreach (var entry in userResult.Entries)
+            foreach (var entry in userResult.Entries.Where(e => e.DismissedAtUtc.HasValue))
             {
-                if (entry.DismissedAtUtc.HasValue)
-                {
-                    dismissed.Add((entry.TmdbId, entry.MediaType));
-                }
+                dismissed.Add((entry.TmdbId, entry.MediaType));
             }
 
             return dismissed;
@@ -291,12 +305,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             }
 
             var requested = new HashSet<(int TmdbId, string MediaType)>();
-            foreach (var entry in userResult.Entries)
+            foreach (var entry in userResult.Entries.Where(e => e.RequestedAtUtc.HasValue))
             {
-                if (entry.RequestedAtUtc.HasValue)
-                {
-                    requested.Add((entry.TmdbId, entry.MediaType));
-                }
+                requested.Add((entry.TmdbId, entry.MediaType));
             }
 
             return requested;

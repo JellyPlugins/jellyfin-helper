@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
@@ -8,6 +10,8 @@ public sealed class DiscoveryRequestDto
     /// <summary>
     ///     Gets or sets the TMDb ID.
     /// </summary>
+    [Required]
+    [Range(1, int.MaxValue, ErrorMessage = "TmdbId must be greater than 0.")]
     public int TmdbId { get; set; }
 
     /// <summary>
@@ -37,5 +41,6 @@ public sealed class DiscoveryRequestDto
     ///     Gets or sets the root folder path for the download.
     ///     When provided, overrides the default root folder.
     /// </summary>
+    [StringLength(1024, ErrorMessage = "RootFolder path must not exceed 1024 characters.")]
     public string? RootFolder { get; set; }
 }

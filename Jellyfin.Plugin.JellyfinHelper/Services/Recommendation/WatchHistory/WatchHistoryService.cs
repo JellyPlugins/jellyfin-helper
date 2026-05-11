@@ -590,7 +590,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
-            if (!seenPeople.Add(person.Name))
+            if (seenPeople.Contains(person.Name))
             {
                 continue;
             }
@@ -604,6 +604,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 }
 
                 directorCount++;
+                seenPeople.Add(person.Name);
                 profile.PeopleProfile.TryGetValue(person.Name, out var dirCount);
                 profile.PeopleProfile[person.Name] = dirCount + 1;
             }
@@ -615,6 +616,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 }
 
                 actorCount++;
+                seenPeople.Add(person.Name);
                 profile.PeopleProfile.TryGetValue(person.Name, out var actCount);
                 profile.PeopleProfile[person.Name] = actCount + 1;
             }

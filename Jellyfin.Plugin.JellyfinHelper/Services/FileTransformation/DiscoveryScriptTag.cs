@@ -1,3 +1,4 @@
+using System;
 using System.Text.RegularExpressions;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
@@ -33,5 +34,8 @@ internal static class DiscoveryScriptTag
     /// <param name="version">The plugin version string (used for cache-busting).</param>
     /// <returns>A complete HTML script tag string.</returns>
     public static string Build(string version)
-        => $"<script plugin=\"{PluginName}\" version=\"{version}\" src=\"{ScriptBaseUrl}?v={version}\" defer></script>";
+    {
+        var safeVersion = Uri.EscapeDataString(version ?? string.Empty);
+        return $"<script plugin=\"{PluginName}\" version=\"{version}\" src=\"{ScriptBaseUrl}?v={safeVersion}\" defer></script>";
+    }
 }

@@ -626,18 +626,22 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
  * Shared handler for discovery request API responses.
  * Manages button state, card removal animation, and counter updates.
  */
-function handleDiscoveryRequestResponse(res, btn, tmdbId) {
+function handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType) {
     if (res && res.Success) {
         btn.classList.add('discovery-request-done');
         btn.innerHTML = mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
-        markDiscoveryItemRequested(tmdbId);
+        markDiscoveryItemRequested(tmdbId, mediaType);
 
-        // Fade out and remove the card after brief success display
+        // Fade out and remove the card after brief success display.
+        // Guard: only decrement the counter if the card is still in the DOM when the timeout fires
+        // (prevents incorrect counter updates if the user switches profiles before the animation completes).
         var card = btn.closest('.discovery-card');
         if (card) {
             setTimeout(function () {
+                if (!document.contains(card)) return;
                 card.classList.add('discovery-card-removing');
                 setTimeout(function () {
+                    if (!document.contains(card)) return;
                     card.remove();
                     var countSpan = document.getElementById('discoveryCount');
                     if (countSpan) {
@@ -671,7 +675,7 @@ function submitDiscoveryRequestWithProfile(tmdbId, mediaType, serverId, profileI
     var payload = { TmdbId: tmdbId, MediaType: mediaType, ServerId: serverId, ProfileId: profileId, RootFolder: rootFolder };
 
     apiPost('JellyfinHelper/Discovery/Request', payload, function (res) {
-        handleDiscoveryRequestResponse(res, btn, tmdbId);
+        handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType);
     }, function () {
         handleDiscoveryRequestError(btn);
     });
@@ -685,20 +689,22 @@ function submitDiscoveryRequest(tmdbId, mediaType, seerrUserId, btn) {
     if (seerrUserId) payload.SeerrUserId = seerrUserId;
 
     apiPost('JellyfinHelper/Discovery/Request', payload, function (res) {
-        handleDiscoveryRequestResponse(res, btn, tmdbId);
+        handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType);
     }, function () {
         handleDiscoveryRequestError(btn);
     });
 }
 
-function markDiscoveryItemRequested(tmdbId) {
+function markDiscoveryItemRequested(tmdbId, mediaType) {
     // Update the cached discovery data so the item is marked as already requested
     // and won't reappear when switching between users and back.
+    // Matches by both TmdbId AND MediaType to avoid false positives (TMDb movie/TV IDs are separate namespaces).
     function markInDiscovery(userDiscovery) {
         if (!userDiscovery || !userDiscovery.Recommendations) return;
         for (var r = 0; r < userDiscovery.Recommendations.length; r++) {
-            if (userDiscovery.Recommendations[r].TmdbId === tmdbId) {
-                userDiscovery.Recommendations[r].AlreadyRequested = true;
+            var rec = userDiscovery.Recommendations[r];
+            if (rec.TmdbId === tmdbId && (!mediaType || rec.MediaType === mediaType)) {
+                rec.AlreadyRequested = true;
             }
         }
     }

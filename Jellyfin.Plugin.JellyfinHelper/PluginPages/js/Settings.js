@@ -231,7 +231,7 @@ function loadSettings() {
         h += '<ol style="margin:0.4em 0 0.4em 1.2em;padding:0;line-height:1.7;">';
         h += '<li>' + T('discoverySetupHint1', 'Install the following two plugins:') + ' <a href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" rel="noopener" style="color:#00a4dc;">' + T('discoverySetupHintFT', 'File Transformation') + '</a> &amp; <a href="https://github.com/IAmParadox27/jellyfin-plugin-custom-tabs" target="_blank" rel="noopener" style="color:#00a4dc;">' + T('discoverySetupHintCT', 'Custom Tabs') + '</a></li>';
         h += '<li>' + T('discoverySetupHint2', 'Then in Custom Tabs plugin settings, add a new tab with:') + '<br>';
-        h += '<span style="opacity:0.7;">' + T('discoverySetupHintDisplay', 'Display Text') + ':</span> <code style="background:rgba(255,255,255,0.08);padding:0.1em 0.4em;border-radius:3px;">Seerr Discovery</code><br>';
+        h += '<span style="opacity:0.7;">' + T('discoverySetupHintDisplay', 'Display Text') + ':</span> <code style="background:rgba(255,255,255,0.08);padding:0.1em 0.4em;border-radius:3px;">' + escHtml(T('discoveryTitle', 'Seerr Discovery')) + '</code><br>';
         h += '<span style="opacity:0.7;">' + T('discoverySetupHintHtml', 'HTML Content') + ':</span></li>';
         h += '</ol>';
         h += '<div style="display:flex;align-items:center;gap:0.5em;">';

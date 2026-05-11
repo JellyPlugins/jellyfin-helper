@@ -94,6 +94,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         if (RegisterFileTransformation())
         {
+            // Clean up any older fallback-based injection now that runtime transformation is active.
+            // Without this, upgrading from fallback to FileTransformation would leave the old
+            // <script> tag in index.html, causing the sidebar script to load twice.
+            UpdateIndexHtml(false);
             _logger.LogDebug("[Discovery Sidebar] Registered with File Transformation plugin — no direct file write needed");
         }
         else

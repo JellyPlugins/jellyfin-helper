@@ -48,6 +48,15 @@ public static class SeerrPermissionExtensions
     {
         ArgumentNullException.ThrowIfNull(user);
 
+        // Validate mediaType first — unknown types are always denied regardless of permission level.
+        // This prevents garbage mediaType values from being authorized even for admins (defense in depth).
+        var isMovie = string.Equals(mediaType, "movie", StringComparison.OrdinalIgnoreCase);
+        var isTv = string.Equals(mediaType, "tv", StringComparison.OrdinalIgnoreCase);
+        if (!isMovie && !isTv)
+        {
+            return false;
+        }
+
         // Admins can do everything
         if (user.HasPermission(SeerrPermissions.Admin))
         {
@@ -61,18 +70,12 @@ public static class SeerrPermissionExtensions
         }
 
         // Granular per-type permissions
-        if (string.Equals(mediaType, "movie", StringComparison.OrdinalIgnoreCase))
+        if (isMovie)
         {
             return user.HasPermission(SeerrPermissions.RequestMovie);
         }
 
-        if (string.Equals(mediaType, "tv", StringComparison.OrdinalIgnoreCase))
-        {
-            return user.HasPermission(SeerrPermissions.RequestTv);
-        }
-
-        // Unknown media type — deny by default (defense in depth)
-        return false;
+        return user.HasPermission(SeerrPermissions.RequestTv);
     }
 
     /// <summary>

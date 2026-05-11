@@ -1016,16 +1016,23 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 }
             }
 
-            // Add user-specific dismissed items to the exclusion set (best-effort: failures don't break generation)
+            // Add user-specific dismissed and previously requested items to the exclusion set.
+            // Best-effort: failures don't break generation.
             var userExcluded = excludedTmdbIds;
             try
             {
                 var dismissed = _feedbackStore.GetDismissedItems(profile.UserId);
-                if (dismissed.Count > 0)
+                var requested = _feedbackStore.GetRequestedItems(profile.UserId);
+                if (dismissed.Count > 0 || requested.Count > 0)
                 {
                     // Create a per-user copy to avoid mutating the shared set across users
                     userExcluded = new HashSet<(int TmdbId, string MediaType)>(excludedTmdbIds);
                     foreach (var item in dismissed)
+                    {
+                        userExcluded.Add(item);
+                    }
+
+                    foreach (var item in requested)
                     {
                         userExcluded.Add(item);
                     }
@@ -1035,7 +1042,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 _pluginLog.LogDebug(
                     "SeerrDiscovery",
-                    $"Could not load dismissed items for user {profile.UserName}: {ex.Message}",
+                    $"Could not load dismissed/requested items for user {profile.UserName}: {ex.Message}",
                     _logger);
             }
 
