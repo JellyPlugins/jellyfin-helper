@@ -197,7 +197,7 @@ public sealed class DiscoveryCacheService
                         File.WriteAllText(tempFilePath, updatedJson);
                         File.Move(tempFilePath, _filePath, overwrite: true);
                     }
-                    catch
+                    catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
                     {
                         // Rollback in-memory mutations on persistence failure
                         foreach (var (userIdx, recIdx) in indicesToMark)

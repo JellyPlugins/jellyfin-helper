@@ -81,6 +81,11 @@ internal static class TmdbGenreMap
 
         dict.TryAdd("Science Fiction", 10765);
         dict.TryAdd("Sci-Fi", 10765);
+        // Jellyfin stores "Action" and "Adventure" as separate genres from movies.
+        // Map them to the combined TMDb TV genre "Action & Adventure" (10759)
+        // so users with these preferences get TV discovery results.
+        dict.TryAdd("Action", 10759);
+        dict.TryAdd("Adventure", 10759);
         return dict;
     }
 

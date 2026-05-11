@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
@@ -37,7 +38,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
     private readonly string _filePath;
-    private readonly object _fileLock = new();
+    private readonly Lock _fileLock = new();
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<DiscoveryFeedbackStore> _logger;
 

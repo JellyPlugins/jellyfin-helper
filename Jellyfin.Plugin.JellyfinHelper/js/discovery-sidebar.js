@@ -8,7 +8,9 @@
     var CUSTOM_TAB_SELECTOR = '.jellyfinhelper.discovery';
     var SECTION_CLASS = 'jellyfinHelperSection';
     var NAV_ITEM_CLASS = 'jfhelper-nav-discovery';
-    var DISCOVERY_PAGE_URL = '/JellyfinHelper/discoveryPage';
+    // No standalone page exists — discovery is rendered via Custom Tabs plugin.
+    // The sidebar click handler searches for the tab first; if not found,
+    // it shows an inline message instead of navigating to a 404 page.
     var API_URL = '/JellyfinHelper/Discovery/My';
 
     var _waitForApiRetries = 0;
@@ -471,7 +473,8 @@
                     return;
                 }
             }
-            window.location.href = DISCOVERY_PAGE_URL;
+            // Custom Tabs plugin not installed or tab not found — navigate to admin plugin page as fallback
+            window.location.href = '/web/index.html#!/configurationpage?name=Jellyfin%20Helper';
         });
         section.appendChild(navItem);
     }

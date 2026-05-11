@@ -805,13 +805,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private async Task<IReadOnlyList<SeerrUser>> GetCachedSeerrUsersAsync(CancellationToken cancellationToken)
     {
-        // Fast path: check if cache is still valid (no lock needed for read)
-        if (_cachedSeerrUsers != null && DateTime.UtcNow < _cachedSeerrUsersExpiry)
+        // Fast path: check if cache is still valid under lock to ensure atomicity
+        // of the (_cachedSeerrUsers, _cachedSeerrUsersExpiry) pair across threads.
+        lock (_userCacheLock)
         {
-            return _cachedSeerrUsers;
+            if (_cachedSeerrUsers != null && DateTime.UtcNow < _cachedSeerrUsersExpiry)
+            {
+                return _cachedSeerrUsers;
+            }
         }
 
-        // Slow path: refresh from Seerr API
+        // Slow path: refresh from Seerr API (outside lock to avoid blocking during I/O)
         var freshUsers = await GetSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
 
         // Only cache successful (non-empty) results to allow retry on next call
@@ -1190,7 +1194,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         double avgYear,
         bool isChildAccount)
     {
-        var seen = new HashSet<int>();
+        // Use (Id, MediaType) tuple for deduplication because TMDb movie IDs and TV IDs
+        // occupy separate ID spaces — the same integer can refer to both a movie and a TV show.
+        var seen = new HashSet<(int Id, string MediaType)>();
         var result = new List<TmdbDiscoverItem>();
 
         // For year-based post-filtering: compute acceptable year range
@@ -1226,7 +1232,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 continue;
             }
 
-            if (!seen.Add(candidate.Id))
+            if (!seen.Add((candidate.Id, candidate.MediaType ?? "movie")))
             {
                 continue;
             }
