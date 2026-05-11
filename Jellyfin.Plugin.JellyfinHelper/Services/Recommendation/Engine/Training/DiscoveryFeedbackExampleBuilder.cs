@@ -51,12 +51,11 @@ internal static class DiscoveryFeedbackExampleBuilder
                 continue;
             }
 
-            // Build user-specific preferences for feature computation
+            // Build user-specific preferences for feature computation.
+            // Do NOT skip users with empty genre preferences (cold-start users).
+            // Their explicit discovery interactions (request/dismiss) are still valuable
+            // training signals even when genre features default to zero/neutral.
             var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(userProfile);
-            if (genrePreferences.Count == 0)
-            {
-                continue;
-            }
 
             var avgYear = ContentScoring.ComputeAverageYear(userProfile);
 

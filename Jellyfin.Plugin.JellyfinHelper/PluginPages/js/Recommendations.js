@@ -502,8 +502,9 @@ function showSeerrUserPopup(tmdbId, mediaType, btn) {
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         renderQualityProfilePopup(tmdbId, mediaType, btn, window[cacheKey]);
     }, function () {
-        // If service fetch fails, submit without profile selection
-        window[cacheKey] = [];
+        // If service fetch fails, submit without profile selection.
+        // Do NOT cache the failure — allow retry on next click.
+        delete window[cacheKey];
         btn.disabled = false;
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         submitDiscoveryRequest(tmdbId, mediaType, null, btn);
@@ -511,9 +512,15 @@ function showSeerrUserPopup(tmdbId, mediaType, btn) {
 }
 
 function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
-    // Remove any existing popup
+    // Remove any existing popup and clean up its Escape key handler.
+    // The previous popup's onEscape listener is stored on the element as _onEscape.
     var existing = document.getElementById('seerrUserPopup');
-    if (existing) existing.remove();
+    if (existing) {
+        if (existing._onEscape) {
+            document.removeEventListener('keydown', existing._onEscape);
+        }
+        existing.remove();
+    }
 
     // If no services or no profiles available, submit directly with defaults
     if (!services || services.length === 0) {
@@ -603,6 +610,8 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
         if (ev.key === 'Escape') closePopup();
     }
     document.addEventListener('keydown', onEscape);
+    // Store reference on the element so a subsequent popup can clean up this handler
+    overlay._onEscape = onEscape;
 
     function closePopup() {
         document.removeEventListener('keydown', onEscape);

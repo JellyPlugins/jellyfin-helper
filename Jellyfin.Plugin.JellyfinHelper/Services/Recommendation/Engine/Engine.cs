@@ -1346,6 +1346,15 @@ public sealed class Engine : IRecommendationEngine
                     }
                 }
 
+                // Include series-level favorites (user favorited the series itself, not individual episodes)
+                foreach (var favoriteSeriesId in userProfile.FavoriteSeriesIds)
+                {
+                    if (tmdbIdByItemId.TryGetValue(favoriteSeriesId, out var favoriteSeriesTmdbId))
+                    {
+                        watchedTmdbIds.Add(favoriteSeriesTmdbId);
+                    }
+                }
+
                 if (watchedTmdbIds.Count > 0)
                 {
                     _discoveryFeedbackStore.MarkWatched(userFeedback.UserId, watchedTmdbIds);

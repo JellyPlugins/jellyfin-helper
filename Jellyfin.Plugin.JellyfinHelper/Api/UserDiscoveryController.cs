@@ -277,16 +277,19 @@ public sealed class UserDiscoveryController : ControllerBase
                 return BadRequest(new RequestResult { Success = false, Message = "Both ServerId and ProfileId must be specified together." });
             }
 
-            if (permissions.Profiles.Count > 0)
+            if (permissions.Profiles.Count == 0)
             {
-                var requestedServerId = dto.ServerId.Value;
-                var requestedProfileId = dto.ProfileId.Value;
-                var isAllowed = permissions.Profiles.Any(profile =>
-                    profile.ServerId == requestedServerId && profile.ProfileId == requestedProfileId);
-                if (!isAllowed)
-                {
-                    return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
-                }
+                // No profiles returned means the user is not authorized to override defaults.
+                return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to override the default quality profile." });
+            }
+
+            var requestedServerId = dto.ServerId.Value;
+            var requestedProfileId = dto.ProfileId.Value;
+            var isAllowed = permissions.Profiles.Any(profile =>
+                profile.ServerId == requestedServerId && profile.ProfileId == requestedProfileId);
+            if (!isAllowed)
+            {
+                return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
             }
         }
 
@@ -312,7 +315,7 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             _cache.MarkAsRequested(dto.TmdbId);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // Already logged inside MarkAsRequested; swallow to preserve the 200 response.
         }
@@ -323,7 +326,7 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             _feedbackStore.RecordRequested(jellyfinUserId!.Value, dto.TmdbId);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // Swallow to preserve the 200 response.
         }
@@ -370,7 +373,7 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             _feedbackStore.RecordDismissed(userId.Value, dto.TmdbId);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // Best-effort: feedback recording failure should not break the user flow.
         }

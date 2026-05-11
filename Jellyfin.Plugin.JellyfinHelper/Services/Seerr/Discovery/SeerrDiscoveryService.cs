@@ -589,29 +589,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 return null;
             }
 
-            // Normalize the Jellyfin user ID: no hyphens (ToString("N") already returns lowercase hex)
-            var normalizedJellyfinId = jellyfinUserId.ToString("N");
-
-            foreach (var seerrUser in seerrUsers)
+            var match = FindSeerrUserByJellyfinId(seerrUsers, jellyfinUserId);
+            if (match != null)
             {
-                if (string.IsNullOrWhiteSpace(seerrUser.JellyfinUserId))
-                {
-                    continue;
-                }
-
-                // Normalize the Seerr-stored Jellyfin ID: remove hyphens, lowercase
-                var normalizedSeerrJellyfinId = seerrUser.JellyfinUserId
-                    .Replace("-", string.Empty, StringComparison.Ordinal)
-                    .ToLowerInvariant();
-
-                if (string.Equals(normalizedJellyfinId, normalizedSeerrJellyfinId, StringComparison.Ordinal))
-                {
-                    _pluginLog.LogDebug(
-                        "SeerrDiscovery",
-                        $"Resolved Jellyfin user {jellyfinUserId} to Seerr user #{seerrUser.Id} ({seerrUser.DisplayName}).",
-                        _logger);
-                    return seerrUser.Id;
-                }
+                _pluginLog.LogDebug(
+                    "SeerrDiscovery",
+                    $"Resolved Jellyfin user {jellyfinUserId} to Seerr user #{match.Id} ({match.DisplayName}).",
+                    _logger);
+                return match.Id;
             }
 
             _pluginLog.LogDebug(
@@ -1410,9 +1395,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Person-based reason: when a known actor/director matches the user's preferences
         if (features.PeopleSimilarity > 0.3 && candidate.KnownPeople is { Count: > 0 })
         {
-            // Return the actually matched person name (not just the first in the list)
+            // Only surface a person reason if a preferred person was actually matched.
+            // Avoids showing an arbitrary non-preferred person name due to case-mismatch edge cases.
             var matchedPerson = candidate.KnownPeople.FirstOrDefault(p => preferredPeople.Contains(p));
-            return ("reasonPerson", matchedPerson ?? candidate.KnownPeople[0]);
+            if (matchedPerson != null)
+            {
+                return ("reasonPerson", matchedPerson);
+            }
         }
 
         if (features.GenreSimilarity > 0.7 && topGenres.Count > 0)

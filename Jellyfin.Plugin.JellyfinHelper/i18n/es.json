@@ -294,6 +294,7 @@
   "discoveryConfigureSeerr": "Configura Seerr en la pestaña Configuración para ver sugerencias de descarga personalizadas.",
   "discoveryDisabled": "Discovery no está activado. Pide a tu administrador del servidor que active esta función en la configuración de Jellyfin Helper.",
   "discoveryNoResults": "Aún no hay sugerencias disponibles. Los resultados aparecerán después de la próxima ejecución programada.",
+  "discoveryNoDescription": "Sin descripción disponible.",
   "discoveryLoadError": "No se pudieron cargar las sugerencias de descubrimiento.",
   "discoveryGeneratedAt": "Última actualización",
   "discoveryRequest": "Solicitar",

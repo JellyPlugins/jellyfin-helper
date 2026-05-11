@@ -294,6 +294,7 @@
   "discoveryConfigureSeerr": "Configure Seerr in the Settings tab to see personalized download suggestions.",
   "discoveryDisabled": "Discovery is not enabled. Ask your server administrator to enable this feature in Jellyfin Helper settings.",
   "discoveryNoResults": "No suggestions available yet. Results will appear after the next scheduled task run.",
+  "discoveryNoDescription": "No description available.",
   "discoveryLoadError": "Could not load discovery suggestions.",
   "discoveryGeneratedAt": "Last updated",
   "discoveryRequest": "Request",

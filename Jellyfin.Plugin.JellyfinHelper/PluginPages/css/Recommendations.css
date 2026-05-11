@@ -777,4 +777,5 @@
 
 @media (prefers-reduced-motion: reduce) {
     .discovery-card, .discovery-request-btn, .discovery-card-removing { transition: none; }
+    .discovery-popup-overlay { animation: none; }
 }

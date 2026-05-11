@@ -169,7 +169,7 @@
                 poster = '<div class="jfh-discovery-card-poster">' +
                     '<div class="jfh-discovery-flip-inner">' +
                     '<div class="jfh-discovery-flip-front"><img src="' + esc(posterUrl) + '" alt="' + esc(r.Title || '') + '" loading="lazy"></div>' +
-                    '<div class="jfh-discovery-flip-back"><div class="jfh-discovery-flip-back-text">' + esc(overviewText || t('discoveryNoResults', 'No description available.')) + '</div></div>' +
+                    '<div class="jfh-discovery-flip-back"><div class="jfh-discovery-flip-back-text">' + esc(overviewText || t('discoveryNoDescription', 'No description available.')) + '</div></div>' +
                     '</div></div>';
             } else {
                 poster = '<div class="jfh-discovery-card-poster jfh-discovery-no-poster"><span style="opacity:0.3;font-size:2em;">\uD83C\uDFAC</span></div>';
@@ -239,8 +239,8 @@
             btn.textContent = t('discoveryRequest', 'Request');
             decideAndSubmit(tmdbId, mediaType, btn, _permCache[cacheKey]);
         }).catch(function () {
-            // On network error, try submitting with defaults (server will validate)
-            _permCache[cacheKey] = { CanRequest: true, Profiles: [] };
+            // On network error, try submitting with defaults (server will validate).
+            // Do NOT cache the fallback — a transient failure should allow retry on next click.
             btn.disabled = false;
             btn.textContent = t('discoveryRequest', 'Request');
             submitRequest(tmdbId, mediaType, null, null, null, btn);

@@ -67,14 +67,18 @@ internal sealed class TmdbDiscoverItem
 
     /// <summary>
     ///     Gets or sets the movie release date.
+    ///     Uses a custom converter to handle empty strings from TMDb/Seerr gracefully.
     /// </summary>
     [JsonPropertyName("releaseDate")]
+    [JsonConverter(typeof(NullableDateTimeConverter))]
     public DateTime? ReleaseDate { get; set; }
 
     /// <summary>
     ///     Gets or sets the TV first air date.
+    ///     Uses a custom converter to handle empty strings from TMDb/Seerr gracefully.
     /// </summary>
     [JsonPropertyName("firstAirDate")]
+    [JsonConverter(typeof(NullableDateTimeConverter))]
     public DateTime? FirstAirDate { get; set; }
 
     /// <summary>

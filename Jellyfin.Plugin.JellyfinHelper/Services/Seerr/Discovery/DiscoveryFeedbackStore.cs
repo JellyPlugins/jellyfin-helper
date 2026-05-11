@@ -207,13 +207,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             }
 
             var modified = false;
-            foreach (var entry in userResult.Entries)
+            foreach (var entry in userResult.Entries.Where(
+                entry => entry.RequestedAtUtc.HasValue && !entry.WasWatched && watchedTmdbIds.Contains(entry.TmdbId)))
             {
-                if (entry.RequestedAtUtc.HasValue && !entry.WasWatched && watchedTmdbIds.Contains(entry.TmdbId))
-                {
-                    entry.WasWatched = true;
-                    modified = true;
-                }
+                entry.WasWatched = true;
+                modified = true;
             }
 
             if (modified)

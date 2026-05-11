@@ -42,6 +42,14 @@ internal static class ExternalCandidateFeatureBuilder
         ArgumentNullException.ThrowIfNull(genrePreferences);
         ArgumentNullException.ThrowIfNull(preferredPeople);
 
+        // Defensive: ensure the preferredPeople set uses case-insensitive comparison.
+        // Callers should already pass OrdinalIgnoreCase, but rebuild if not to prevent
+        // silent zero-overlap from TMDb name casing differences.
+        if (preferredPeople.Count > 0 && preferredPeople.Comparer != StringComparer.OrdinalIgnoreCase)
+        {
+            preferredPeople = new HashSet<string>(preferredPeople, StringComparer.OrdinalIgnoreCase);
+        }
+
         var genres = TmdbGenreMap.ToJellyfinGenres(candidate.GenreIds);
 
         return new CandidateFeatures

@@ -278,6 +278,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── SeerrDiscoveryService.cs  # Orchestrator: profiles → TMDb query → scoring → results
 │   │       ├── DiscoveryCacheService.cs  # Disk + memory persistence
 │   │       ├── ExternalCandidateFeatureBuilder.cs  # Builds 31-feature vector for TMDb items
+│   │       ├── NullableDateTimeConverter.cs  # Graceful DateTime? JSON deserialization (handles empty strings from TMDb)
 │   │       ├── ParentalRatingHelper.cs   # Child-safe content filtering
 │   │       ├── TmdbGenreMap.cs           # Jellyfin ↔ TMDb genre ID mapping
 │   │       ├── TmdbDiscoverItem.cs       # TMDb candidate DTO

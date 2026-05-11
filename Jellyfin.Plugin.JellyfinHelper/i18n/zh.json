@@ -294,6 +294,7 @@
   "discoveryConfigureSeerr": "在设置选项卡中配置 Seerr 以查看个性化下载建议。",
   "discoveryDisabled": "Discovery 未启用。请联系您的服务器管理员在 Jellyfin Helper 设置中启用此功能。",
   "discoveryNoResults": "暂无建议。结果将在下次计划任务运行后出现。",
+  "discoveryNoDescription": "暂无描述。",
   "discoveryLoadError": "无法加载发现建议。",
   "discoveryGeneratedAt": "最后更新",
   "discoveryRequest": "请求",

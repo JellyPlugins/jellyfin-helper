@@ -106,7 +106,7 @@ public static class ControllerTestFactory
         var xmlSerializerMock = new Mock<IXmlSerializer>();
 
         // Constructor of Plugin sets Plugin.Instance
-        var loggerMock = new Mock<Microsoft.Extensions.Logging.ILogger<Plugin>>();
+        var loggerMock = new Mock<ILogger<Plugin>>();
         var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object);
 
         // BasePlugin<T> holds configuration in a protected field or similar. 
