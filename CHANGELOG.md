@@ -16,6 +16,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Admin Discovery API** - Endpoints for viewing all user results, listing Seerr users, querying Radarr/Sonarr service info, and submitting requests with server/profile overrides (`/JellyfinHelper/Discovery`).
 - **Seerr User Mapping** - Jellyfin user IDs are automatically resolved to Seerr user IDs so requests appear under the correct account.
 - **Discovery User Access Toggle** - New `DiscoveryUserAccessEnabled` setting allows admins to control whether regular users can access Discovery.
+- **Discovery Feedback Loop for ML Training** - User interactions with Discovery recommendations (shown, dismissed, requested, watched) are persisted as training data. The recommendation engine uses this feedback in Phase 4 of training: items that were requested and later watched produce strong positive signals, dismissed items produce negative signals, and merely shown items serve as weak negatives — continuously improving recommendation quality over time.
 
 ### Tests
 - Total: **2166 tests**.

@@ -140,7 +140,7 @@ public sealed class DiscoveryController : ControllerBase
 
         if (!success)
         {
-            return StatusCode(502, new RequestResult { Success = false, Message = message });
+            return StatusCode(StatusCodes.Status502BadGateway, new RequestResult { Success = false, Message = message });
         }
 
         // Mark item as requested in cache so it doesn't reappear on page refresh.

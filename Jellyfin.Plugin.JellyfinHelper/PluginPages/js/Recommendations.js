@@ -47,7 +47,7 @@ function renderRecommendations(container, results) {
     var html = '';
     var totalRecs = 0, totalUsers = results.length;
     for (var i = 0; i < results.length; i++) { totalRecs += results[i].Recommendations ? results[i].Recommendations.length : 0; }
-    html += '<div class="recs-info-line"><span class="icon-label-inline">' + mi('group') + totalUsers + ' ' + T('recsUsers', 'Users') + '</span><span class="recs-info-sep">�</span><span class="icon-label-inline">' + mi('track_changes') + totalRecs + ' ' + T('recsTotal', 'Recommendations') + '</span></div>';
+    html += '<div class="recs-info-line"><span class="icon-label-inline">' + mi('group') + totalUsers + ' ' + T('recsUsers', 'Users') + '</span><span class="recs-info-sep">\u2022</span><span class="icon-label-inline">' + mi('track_changes') + totalRecs + ' ' + T('recsTotal', 'Recommendations') + '</span></div>';
     html += '<div class="recs-user-selector"><label for="recsUserSelect">' + T('recsSelectUser', 'Select User') + ': </label><select id="recsUserSelect" class="recs-select">';
     for (var u = 0; u < results.length; u++) {
         html += '<option value="' + u + '">' + escHtml(results[u].UserName) + ' (' + (results[u].Recommendations ? results[u].Recommendations.length : 0) + ' ' + T('recsItems', 'items') + ')</option>';
@@ -55,13 +55,13 @@ function renderRecommendations(container, results) {
     html += '</select></div>';
 
     // Collapsible Recommendations section
-    html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsGridToggle" aria-expanded="false" aria-controls="recsGridBody"><span class="recs-collapsible-arrow">?</span> ' + mi('track_changes') + ' ' + T('recsSubtabRecommendations', 'Recommendations') + ' <span>(<span id="recsGridCount">0</span> ' + T('recsItems', 'items') + ')</span></button>';
+    html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsGridToggle" aria-expanded="false" aria-controls="recsGridBody"><span class="recs-collapsible-arrow">\u25B6</span> ' + mi('track_changes') + ' ' + T('recsSubtabRecommendations', 'Recommendations') + ' <span>(<span id="recsGridCount">0</span> ' + T('recsItems', 'items') + ')</span></button>';
     html += '<div class="recs-collapsible-body" id="recsGridBody">';
     html += '<div id="recsUserGrid"></div>';
     html += '</div></div>';
 
     // Collapsible Watch Activity section
-    html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsActivityToggle" aria-expanded="false" aria-controls="recsActivityBody"><span class="recs-collapsible-arrow">?</span> ' + mi('bar_chart') + ' ' + T('recsActivityToggle', 'Watch Activity') + '</button>';
+    html += '<div class="recs-collapsible"><button class="recs-collapsible-toggle" id="recsActivityToggle" aria-expanded="false" aria-controls="recsActivityBody"><span class="recs-collapsible-arrow">\u25B6</span> ' + mi('bar_chart') + ' ' + T('recsActivityToggle', 'Watch Activity') + '</button>';
     html += '<div class="recs-collapsible-body" id="recsActivityBody">';
     html += '<div id="recsUserProfile"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
     html += '<div id="recsUserActivity"><div class="loading-overlay" style="padding:0.5em;"><div class="spinner"></div></div></div>';
@@ -118,11 +118,11 @@ function toggleCollapsible(bodyId, toggleId) {
     if (!body) return;
     if (body.classList.contains('open')) {
         body.classList.remove('open');
-        if (arrow) arrow.textContent = '?';
+        if (arrow) arrow.textContent = '\u25B6';
         if (toggle) toggle.setAttribute('aria-expanded', 'false');
     } else {
         body.classList.add('open');
-        if (arrow) arrow.textContent = '?';
+        if (arrow) arrow.textContent = '\u25BC';
         if (toggle) toggle.setAttribute('aria-expanded', 'true');
     }
 }
@@ -429,7 +429,7 @@ function renderDiscoveryCard(rec, index) {
     html += '<div class="discovery-card-title">' + escHtml(rec.Title) + '</div>';
     html += '<div class="discovery-card-meta">';
     if (rec.MediaType) {
-        html += '<span class="recs-tag recs-tag-type">' + escHtml(rec.MediaType === 'tv' ? 'Series' : 'Movie') + '</span>';
+        html += '<span class="recs-tag recs-tag-type">' + escHtml(rec.MediaType === 'tv' ? T('tvShows', 'Series') : T('movies', 'Movie')) + '</span>';
     }
     if (rec.Genres && rec.Genres.length > 0) {
         for (var g = 0; g < Math.min(rec.Genres.length, 3); g++) {
@@ -437,7 +437,8 @@ function renderDiscoveryCard(rec, index) {
         }
     }
     if (rec.Year) { html += '<span class="recs-tag recs-tag-year">' + rec.Year + '</span>'; }
-    if (rec.TmdbRating) { html += '<span class="recs-tag recs-tag-rating">' + rec.TmdbRating.toFixed(1) + '</span>'; }
+    var ratingNum = Number(rec.TmdbRating);
+    if (!isNaN(ratingNum) && ratingNum > 0) { html += '<span class="recs-tag recs-tag-rating">' + ratingNum.toFixed(1) + '</span>'; }
     html += '</div>';
 
     html += '<div class="recs-item-score ' + scoreClass + '">';
@@ -570,7 +571,7 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
         item.className = 'discovery-popup-user' + (prof.isDefault ? ' discovery-popup-user-default' : '');
         var label = escHtml(prof.profileName);
         if (services.length > 1) { label += ' <span style="opacity:0.6">(' + escHtml(prof.serverName) + ')</span>'; }
-        if (prof.isDefault) { label += ' <span style="opacity:0.5; font-size:0.8em">\u2605 default</span>'; }
+        if (prof.isDefault) { label += ' <span style="opacity:0.5; font-size:0.8em">\u2605 ' + escHtml(T('discoveryProfileDefault', 'default')) + '</span>'; }
         item.innerHTML = mi('high_quality') + ' ' + label;
         item.addEventListener('click', (function (serverId, profileId, rootFolder) {
             return function () {

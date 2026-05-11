@@ -110,13 +110,14 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
-        if (string.IsNullOrWhiteSpace(mediaType) || (mediaType is not ("movie" or "tv")))
+        var normalizedMediaType = mediaType?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(normalizedMediaType) || (normalizedMediaType is not ("movie" or "tv")))
         {
             return BadRequest(new RequestResult { Success = false, Message = "mediaType query parameter must be 'movie' or 'tv'." });
         }
 
         var result = await _discovery.GetUserRequestPermissionsAsync(
-            userId.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
+            userId.Value, normalizedMediaType, serviceType, cancellationToken).ConfigureAwait(false);
 
         return Ok(result);
     }
@@ -267,10 +268,16 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(403, new RequestResult { Success = false, Message = "You do not have permission to submit requests." });
         }
 
-        // If the caller supplies profile overrides, require them to match an allowed tuple
+        // If the caller supplies ANY profile/server overrides, validate them against the allowed set.
+        // Reject partial overrides (server-only or profile-only) — both must be specified together.
         if (dto.ServerId.HasValue || dto.ProfileId.HasValue)
         {
-            if (permissions.Profiles.Count > 0 && dto.ServerId.HasValue && dto.ProfileId.HasValue)
+            if (!dto.ServerId.HasValue || !dto.ProfileId.HasValue)
+            {
+                return BadRequest(new RequestResult { Success = false, Message = "Both ServerId and ProfileId must be specified together." });
+            }
+
+            if (permissions.Profiles.Count > 0)
             {
                 var requestedServerId = dto.ServerId.Value;
                 var requestedProfileId = dto.ProfileId.Value;

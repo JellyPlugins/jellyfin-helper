@@ -167,18 +167,29 @@ public sealed class DiscoveryCacheService
                     return;
                 }
 
-                var modified = false;
-                foreach (var userResult in _memoryCache)
+                // Determine which items need updating WITHOUT mutating the live cache yet.
+                // This avoids leaving _memoryCache in an inconsistent state if persistence fails.
+                var indicesToMark = new List<(int UserIdx, int RecIdx)>();
+                for (var u = 0; u < _memoryCache.Count; u++)
                 {
-                    foreach (var rec in userResult.Recommendations.Where(rec => rec.TmdbId == tmdbId && !rec.AlreadyRequested))
+                    var recs = _memoryCache[u].Recommendations;
+                    for (var r = 0; r < recs.Count; r++)
                     {
-                        rec.AlreadyRequested = true;
-                        modified = true;
+                        if (recs[r].TmdbId == tmdbId && !recs[r].AlreadyRequested)
+                        {
+                            indicesToMark.Add((u, r));
+                        }
                     }
                 }
 
-                if (modified)
+                if (indicesToMark.Count > 0)
                 {
+                    // Apply mutations
+                    foreach (var (userIdx, recIdx) in indicesToMark)
+                    {
+                        _memoryCache[userIdx].Recommendations[recIdx].AlreadyRequested = true;
+                    }
+
                     var tempFilePath = _filePath + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
                     try
                     {
@@ -188,6 +199,12 @@ public sealed class DiscoveryCacheService
                     }
                     catch
                     {
+                        // Rollback in-memory mutations on persistence failure
+                        foreach (var (userIdx, recIdx) in indicesToMark)
+                        {
+                            _memoryCache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
+                        }
+
                         try
                         {
                             File.Delete(tempFilePath);

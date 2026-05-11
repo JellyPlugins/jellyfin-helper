@@ -106,6 +106,16 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    ///     <para>
+    ///         Ideally <see cref="RecordShown"/> has already been called for this item so the entry
+    ///         contains full metadata (MediaType, Title, Year, Genres, TmdbRating, Score).
+    ///         If this method is called before RecordShown (e.g., user dismisses via UI before the
+    ///         scheduled task persists feedback), a minimal entry with only TmdbId is created.
+    ///         Training features derived from missing metadata (genreSimilarity, combinedCriticScore, etc.)
+    ///         will default to zero/neutral, which reduces the signal quality of this example.
+    ///     </para>
+    /// </remarks>
     public void RecordDismissed(Guid userId, int tmdbId)
     {
         if (tmdbId <= 0)
@@ -127,7 +137,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId);
             if (entry == null)
             {
-                // Item wasn't tracked yet (e.g., user dismisses via UI before RecordShown ran)
+                // Item wasn't tracked yet (e.g., user dismisses via UI before RecordShown ran).
+                // Metadata fields (MediaType, Title, Genres, etc.) will remain at defaults,
+                // producing weaker training signals. This is acceptable as a rare edge case.
                 entry = new DiscoveryFeedbackEntry
                 {
                     TmdbId = tmdbId,
@@ -274,6 +286,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 $"Could not load discovery feedback from {_filePath}: {ex.Message}",
                 ex,
                 _logger);
+            if (ex is JsonException)
+            {
+                TryDeleteFile();
+            }
+
             _memoryCache = [];
             return _memoryCache;
         }
@@ -325,6 +342,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
             TryDeleteTempFile(tempFilePath);
+            // Invalidate the in-memory cache so the next LoadInternal() re-reads from disk.
+            // This prevents silently losing evicted entries that were removed from 'data'
+            // but never persisted (the file still has the pre-eviction state).
+            _memoryCache = null;
             _pluginLog.LogWarning(
                 "DiscoveryFeedback",
                 $"Could not save discovery feedback to {_filePath}: {ex.Message}",

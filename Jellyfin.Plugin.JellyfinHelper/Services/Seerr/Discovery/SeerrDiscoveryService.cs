@@ -772,20 +772,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                         RootFolder = server.ActiveDirectory
                     });
                 }
-                else if (server.Profiles.Count > 0)
-                {
-                    // Fallback: if active profile ID doesn't match, use the first one
-                    var fallback = server.Profiles[0];
-                    result.Add(new AllowedQualityProfile
-                    {
-                        ServerId = server.Id,
-                        ServerName = server.Name,
-                        ProfileId = fallback.Id,
-                        ProfileName = fallback.Name,
-                        IsDefault = true,
-                        RootFolder = server.ActiveDirectory
-                    });
-                }
+
+                // If Seerr does not report a resolvable active/default profile for this server,
+                // do not synthesize one from Profiles[0]. The request path will fall back to
+                // Seerr's own server defaults, which is safer than over-granting a random profile.
             }
             else
             {
@@ -1146,7 +1136,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 throw;
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException)
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or JsonException)
             {
                 _pluginLog.LogWarning(
                     "SeerrDiscovery",
@@ -1176,7 +1166,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 throw;
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException)
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException or JsonException)
             {
                 _pluginLog.LogWarning(
                     "SeerrDiscovery",
