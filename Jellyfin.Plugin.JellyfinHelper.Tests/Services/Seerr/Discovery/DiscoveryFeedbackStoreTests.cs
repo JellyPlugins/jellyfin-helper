@@ -34,7 +34,15 @@ public class DiscoveryFeedbackStoreTests : IDisposable
                 Directory.Delete(_tempDir, recursive: true);
             }
         }
-        catch
+        catch (DirectoryNotFoundException)
+        {
+            // Best effort cleanup
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best effort cleanup
+        }
+        catch (IOException)
         {
             // Best effort cleanup
         }
