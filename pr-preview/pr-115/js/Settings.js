@@ -27,6 +27,15 @@ function refreshDiscoveryAccessState() {
     if (chk) chk.disabled = !discEnabled;
     var hint = document.querySelector('.discovery-access-disabled-hint');
     if (hint) hint.style.display = discEnabled ? 'none' : '';
+    // Keep the setup hint button/panel in sync with the enabled state
+    var toggleBtn = document.getElementById('btnToggleDiscoveryHint');
+    if (toggleBtn) toggleBtn.style.display = discEnabled ? '' : 'none';
+    var setupHint = document.querySelector('.discovery-setup-hint');
+    if (setupHint) setupHint.style.display = discEnabled ? '' : 'none';
+    if (!discEnabled) {
+        var panel = document.getElementById('discoveryHintPanel');
+        if (panel) panel.style.display = 'none';
+    }
     return discEnabled;
 }
 
