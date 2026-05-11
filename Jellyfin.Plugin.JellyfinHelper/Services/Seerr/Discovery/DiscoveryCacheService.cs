@@ -54,8 +54,9 @@ public sealed class DiscoveryCacheService
     }
 
     /// <summary>
-    ///     Loads cached discovery results. Returns the in-memory cache if available,
+    ///     Loads cached discovery results. Returns a snapshot of the in-memory cache if available,
     ///     otherwise reads from disk and populates the cache.
+    ///     Callers receive a detached copy to prevent external mutation of cache state.
     /// </summary>
     /// <returns>The deserialized results, or an empty list if the file does not exist or is invalid.</returns>
     public IReadOnlyList<DiscoveryResult> Load()
@@ -64,7 +65,7 @@ public sealed class DiscoveryCacheService
         {
             if (_memoryCache != null)
             {
-                return _memoryCache;
+                return _memoryCache.AsReadOnly();
             }
 
             try
@@ -235,8 +236,9 @@ public sealed class DiscoveryCacheService
                 File.Move(tempFilePath, _filePath, overwrite: true);
 
                 // Update in-memory cache to match persisted state.
-                // Materialize to List to ensure mutability for MarkAsRequested.
-                _memoryCache = results as List<DiscoveryResult> ?? new List<DiscoveryResult>(results);
+                // Always create a detached copy — never alias the caller's list to prevent
+                // external mutation bypassing _fileLock synchronization.
+                _memoryCache = new List<DiscoveryResult>(results);
 
                 _pluginLog.LogDebug(
                     "DiscoveryCache",

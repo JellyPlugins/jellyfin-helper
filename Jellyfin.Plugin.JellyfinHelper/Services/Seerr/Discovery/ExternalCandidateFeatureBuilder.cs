@@ -93,7 +93,7 @@ internal static class ExternalCandidateFeatureBuilder
         }
 
         var overlap = candidate.KnownPeople.Count(p =>
-            preferredPeople.Contains(p));
+            !string.IsNullOrWhiteSpace(p) && preferredPeople.Contains(p));
         return Math.Clamp((double)overlap / Math.Min(preferredPeople.Count, MinPeopleForFullScore), 0.0, 1.0);
     }
 }

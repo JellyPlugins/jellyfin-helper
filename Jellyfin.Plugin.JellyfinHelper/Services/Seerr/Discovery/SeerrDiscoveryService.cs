@@ -1108,14 +1108,29 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         foreach (var instance in config.GetEffectiveRadarrInstances())
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var movies = await _arrIntegration.GetRadarrMoviesAsync(
-                instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
-            if (movies != null)
+            try
             {
-                foreach (var movie in movies.Where(m => m.TmdbId > 0))
+                var movies = await _arrIntegration.GetRadarrMoviesAsync(
+                    instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
+                if (movies != null)
                 {
-                    excluded.Add(movie.TmdbId);
+                    foreach (var movie in movies.Where(m => m.TmdbId > 0))
+                    {
+                        excluded.Add(movie.TmdbId);
+                    }
                 }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException)
+            {
+                _pluginLog.LogWarning(
+                    "SeerrDiscovery",
+                    $"Failed to fetch Radarr exclusion data from {instance.Url}: {ex.Message}. Continuing with remaining instances.",
+                    ex,
+                    _logger);
             }
         }
 
@@ -1123,14 +1138,29 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         foreach (var instance in config.GetEffectiveSonarrInstances())
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var series = await _arrIntegration.GetSonarrSeriesAsync(
-                instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
-            if (series != null)
+            try
             {
-                foreach (var show in series.Where(s => s.TmdbId > 0))
+                var series = await _arrIntegration.GetSonarrSeriesAsync(
+                    instance.Url, instance.ApiKey, cancellationToken).ConfigureAwait(false);
+                if (series != null)
                 {
-                    excluded.Add(show.TmdbId);
+                    foreach (var show in series.Where(s => s.TmdbId > 0))
+                    {
+                        excluded.Add(show.TmdbId);
+                    }
                 }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or TimeoutException)
+            {
+                _pluginLog.LogWarning(
+                    "SeerrDiscovery",
+                    $"Failed to fetch Sonarr exclusion data from {instance.Url}: {ex.Message}. Continuing with remaining instances.",
+                    ex,
+                    _logger);
             }
         }
 
@@ -1345,7 +1375,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
             finally
             {
-                await Task.Delay(InterQueryDelay, CancellationToken.None).ConfigureAwait(false);
+                // Skip the rate-limit delay if cancellation has been requested —
+                // no point sleeping when the entire operation is being torn down.
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    await Task.Delay(InterQueryDelay, CancellationToken.None).ConfigureAwait(false);
+                }
             }
         }
     }

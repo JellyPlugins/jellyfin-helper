@@ -143,8 +143,17 @@ public sealed class DiscoveryController : ControllerBase
             return StatusCode(502, new RequestResult { Success = false, Message = message });
         }
 
-        // Mark item as requested in cache so it doesn't reappear on page refresh
-        _cache.MarkAsRequested(dto.TmdbId);
+        // Mark item as requested in cache so it doesn't reappear on page refresh.
+        // Best-effort: don't let cache bookkeeping failures turn a successful Seerr
+        // request into a 500 response, which would encourage client retries.
+        try
+        {
+            _cache.MarkAsRequested(dto.TmdbId);
+        }
+        catch (Exception)
+        {
+            // Already logged inside MarkAsRequested; swallow to preserve the 200 response.
+        }
 
         return Ok(new RequestResult { Success = true, Message = message });
     }

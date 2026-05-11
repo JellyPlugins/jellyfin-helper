@@ -52,27 +52,27 @@ internal static class ParentalRatingHelper
     };
 
     /// <summary>
-    ///     TMDb keyword IDs known to indicate adult-oriented animation content.
-    ///     These are checked as an additional filter layer.
+    ///     TMDb genre IDs that indicate adult-oriented animation when combined with Animation (16).
+    ///     Derived from <see cref="TeenRestrictedGenreIds"/> minus Horror (27) which is already
+    ///     excluded by the teen blacklist. Kept as a reference alias to prevent the two sets
+    ///     from drifting apart as new genre rules are added.
     /// </summary>
     /// <remarks>
     ///     Note: TMDb discover API does not return keywords in results, so this is used
     ///     as a secondary signal via vote_average thresholds for animation content.
     /// </remarks>
-    private static readonly HashSet<int> AdultAnimationGenreCombinations = new()
-    {
-        // Animation (16) combined with these genres typically indicates adult content:
-        80, // Crime (e.g., Archer)
-        53, // Thriller
-        10752, // War
-        10768 // War & Politics
-    };
+    private static readonly HashSet<int> AdultAnimationGenreCombinations = new(
+        TeenRestrictedGenreIds.Where(id => id != 27)); // Exclude Horror (already filtered at teen level)
 
     /// <summary>
     ///     Determines whether a candidate item should be excluded based on parental rating constraints.
     /// </summary>
     /// <param name="candidate">The TMDb discover item to check.</param>
-    /// <param name="maxParentalRating">The user's max parental rating (null = unrestricted).</param>
+    /// <param name="maxParentalRating">
+    ///     The user's max parental rating value, or <c>null</c> for unrestricted/adult users.
+    ///     Callers MUST pass <c>null</c> for users without parental rating restrictions (141+)
+    ///     to avoid inadvertently filtering adult-flagged TMDb content for unrestricted accounts.
+    /// </param>
     /// <returns>True if the item should be excluded, false if it passes the filter.</returns>
     internal static bool ShouldExclude(TmdbDiscoverItem candidate, int? maxParentalRating)
     {

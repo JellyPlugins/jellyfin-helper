@@ -251,23 +251,25 @@ public sealed class UserDiscoveryController : ControllerBase
             });
         }
 
-        // Validate profile overrides against user permissions (server-side enforcement)
+        // Always validate request permissions (server-side enforcement)
+        var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
+        var permissions = await _discovery.GetUserRequestPermissionsAsync(
+            jellyfinUserId!.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
+
+        if (!permissions.CanRequest)
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = "You do not have permission to submit requests." });
+        }
+
+        // If the caller supplies profile overrides, require them to match an allowed tuple
         if (dto.ServerId.HasValue || dto.ProfileId.HasValue)
         {
-            var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
-            var permissions = await _discovery.GetUserRequestPermissionsAsync(
-                jellyfinUserId!.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
-
-            if (!permissions.CanRequest)
-            {
-                return StatusCode(403, new RequestResult { Success = false, Message = "You do not have permission to submit requests." });
-            }
-
-            // If user has restricted profiles, validate the request matches an allowed one
             if (permissions.Profiles.Count > 0 && dto.ServerId.HasValue && dto.ProfileId.HasValue)
             {
+                var requestedServerId = dto.ServerId.Value;
+                var requestedProfileId = dto.ProfileId.Value;
                 var isAllowed = permissions.Profiles.Any(profile =>
-                    profile.ServerId == dto.ServerId.Value && profile.ProfileId == dto.ProfileId.Value);
+                    profile.ServerId == requestedServerId && profile.ProfileId == requestedProfileId);
                 if (!isAllowed)
                 {
                     return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
@@ -290,8 +292,17 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(502, new RequestResult { Success = false, Message = message });
         }
 
-        // Mark item as requested in cache so it doesn't reappear on page refresh
-        _cache.MarkAsRequested(dto.TmdbId);
+        // Mark item as requested in cache so it doesn't reappear on page refresh.
+        // Best-effort: don't let cache bookkeeping failures turn a successful Seerr
+        // request into a 500 response, which would encourage client retries.
+        try
+        {
+            _cache.MarkAsRequested(dto.TmdbId);
+        }
+        catch (Exception)
+        {
+            // Already logged inside MarkAsRequested; swallow to preserve the 200 response.
+        }
 
         return Ok(new RequestResult { Success = true, Message = message });
     }

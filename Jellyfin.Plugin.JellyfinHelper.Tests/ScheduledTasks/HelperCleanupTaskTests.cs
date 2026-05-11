@@ -236,6 +236,11 @@ public class HelperCleanupTaskTests : IDisposable
         VerifyLogContains("Starting User Watch Activity (Active)", LogLevel.Information);
         VerifyLogContains("Starting Smart Recommendations (Active)", LogLevel.Information);
         VerifyLogContains("Helper Cleanup finished", LogLevel.Information);
+
+        // Verify the Seerr Discovery subtask was invoked
+        _seerrDiscoveryServiceMock.Verify(
+            s => s.GenerateDiscoveryRecommendationsAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]

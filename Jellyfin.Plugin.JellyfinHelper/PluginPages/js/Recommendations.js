@@ -47,7 +47,7 @@ function renderRecommendations(container, results) {
     var html = '';
     var totalRecs = 0, totalUsers = results.length;
     for (var i = 0; i < results.length; i++) { totalRecs += results[i].Recommendations ? results[i].Recommendations.length : 0; }
-    html += '<div class="recs-info-line"><span class="icon-label-inline">' + mi('group') + totalUsers + ' ' + T('recsUsers', 'Users') + '</span><span class="recs-info-sep">·</span><span class="icon-label-inline">' + mi('track_changes') + totalRecs + ' ' + T('recsTotal', 'Recommendations') + '</span></div>';
+    html += '<div class="recs-info-line"><span class="icon-label-inline">' + mi('group') + totalUsers + ' ' + T('recsUsers', 'Users') + '</span><span class="recs-info-sep">ï¿½</span><span class="icon-label-inline">' + mi('track_changes') + totalRecs + ' ' + T('recsTotal', 'Recommendations') + '</span></div>';
     html += '<div class="recs-user-selector"><label for="recsUserSelect">' + T('recsSelectUser', 'Select User') + ': </label><select id="recsUserSelect" class="recs-select">';
     for (var u = 0; u < results.length; u++) {
         html += '<option value="' + u + '">' + escHtml(results[u].UserName) + ' (' + (results[u].Recommendations ? results[u].Recommendations.length : 0) + ' ' + T('recsItems', 'items') + ')</option>';
@@ -338,7 +338,7 @@ function loadDiscoveryForUser(index) {
         return;
     }
 
-    // Cache expired — invalidate ALL per-user caches so fresh data is fetched
+    // Cache expired â€” invalidate ALL per-user caches so fresh data is fetched
     if (_discoveryAllUsersCache !== undefined && cacheAge >= _discoveryCacheTtlMs) {
         _discoveryAllUsersCache = undefined;
         for (var k = 0; k < results.length; k++) {
@@ -682,15 +682,27 @@ function submitDiscoveryRequest(tmdbId, mediaType, seerrUserId, btn) {
 function markDiscoveryItemRequested(tmdbId) {
     // Update the cached discovery data so the item is marked as already requested
     // and won't reappear when switching between users and back.
-    var results = window._recsResults;
-    if (!results) return;
-    for (var i = 0; i < results.length; i++) {
-        var cached = results[i]._cachedDiscovery;
-        if (!cached || !cached.Recommendations) continue;
-        for (var r = 0; r < cached.Recommendations.length; r++) {
-            if (cached.Recommendations[r].TmdbId === tmdbId) {
-                cached.Recommendations[r].AlreadyRequested = true;
+    function markInDiscovery(userDiscovery) {
+        if (!userDiscovery || !userDiscovery.Recommendations) return;
+        for (var r = 0; r < userDiscovery.Recommendations.length; r++) {
+            if (userDiscovery.Recommendations[r].TmdbId === tmdbId) {
+                userDiscovery.Recommendations[r].AlreadyRequested = true;
             }
+        }
+    }
+
+    // Mark in per-user cached discovery (from _recsResults)
+    var results = window._recsResults;
+    if (results) {
+        for (var i = 0; i < results.length; i++) {
+            markInDiscovery(results[i] && results[i]._cachedDiscovery);
+        }
+    }
+
+    // Also mark in the global all-users cache so switching users doesn't resurface the item
+    if (Array.isArray(_discoveryAllUsersCache)) {
+        for (var u = 0; u < _discoveryAllUsersCache.length; u++) {
+            markInDiscovery(_discoveryAllUsersCache[u]);
         }
     }
 }

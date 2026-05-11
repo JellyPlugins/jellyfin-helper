@@ -27,8 +27,8 @@ public static class TransformationPatches
         // Remove any old versions of the script tag first
         var updatedContent = DiscoveryScriptTag.RemovalRegex.Replace(content.Contents, string.Empty);
 
-        // Inject the new script tag before the first </body>
-        var bodyIndex = updatedContent.IndexOf("</body>", StringComparison.Ordinal);
+        // Inject the new script tag before the first </body> (case-insensitive for robustness)
+        var bodyIndex = updatedContent.IndexOf("</body>", StringComparison.OrdinalIgnoreCase);
         if (bodyIndex >= 0)
         {
             return updatedContent.Insert(bodyIndex, $"{scriptTag}\n");

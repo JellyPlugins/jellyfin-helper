@@ -572,6 +572,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
         }
 
         var actorCount = 0;
+        var directorCount = 0;
+        const int maxDirectorsPerItem = 5;
         foreach (var person in people)
         {
             if (string.IsNullOrWhiteSpace(person.Name))
@@ -579,9 +581,15 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
-            // Only include Actors and Directors
+            // Only include Actors and Directors (with caps to prevent metadata bloat)
             if (person.Type == PersonKind.Director)
             {
+                if (directorCount >= maxDirectorsPerItem)
+                {
+                    continue;
+                }
+
+                directorCount++;
                 profile.PeopleProfile.TryGetValue(person.Name, out var dirCount);
                 profile.PeopleProfile[person.Name] = dirCount + 1;
             }
