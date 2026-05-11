@@ -411,7 +411,7 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
     }
     grid.innerHTML = html;
 
-    var buttons = grid.querySelectorAll('.discovery-request-btn');
+    var buttons = grid.querySelectorAll('.discovery-request-btn:not([disabled])');
     for (var b = 0; b < buttons.length; b++) {
         buttons[b].addEventListener('click', handleDiscoveryRequest);
     }
@@ -433,7 +433,7 @@ function renderDiscoveryCard(rec, index) {
     }
 
     html += '<div class="discovery-card-body">';
-    html += '<div class="discovery-card-title">' + escHtml(rec.Title) + '</div>';
+    html += '<div class="discovery-card-title">' + escHtml(rec.Title || T('recsUnknownTitle', 'Unknown')) + '</div>';
     html += '<div class="discovery-card-meta">';
     if (rec.MediaType) {
         html += '<span class="recs-tag recs-tag-type">' + escHtml(rec.MediaType === 'tv' ? T('tvShows', 'Series') : T('movies', 'Movie')) + '</span>';
@@ -443,7 +443,7 @@ function renderDiscoveryCard(rec, index) {
             html += '<span class="recs-tag">' + escHtml(rec.Genres[g]) + '</span>';
         }
     }
-    if (rec.Year) { html += '<span class="recs-tag recs-tag-year">' + rec.Year + '</span>'; }
+    if (rec.Year) { html += '<span class="recs-tag recs-tag-year">' + escHtml(String(rec.Year)) + '</span>'; }
     var ratingNum = Number(rec.TmdbRating);
     if (!isNaN(ratingNum) && ratingNum > 0) { html += '<span class="recs-tag recs-tag-rating">' + ratingNum.toFixed(1) + '</span>'; }
     html += '</div>';
@@ -467,7 +467,7 @@ function renderDiscoveryCard(rec, index) {
         html += '</button>';
     } else {
         html += '<button class="discovery-request-btn" ';
-        html += 'data-tmdb-id="' + rec.TmdbId + '" data-media-type="' + escHtml(rec.MediaType) + '">';
+        html += 'data-tmdb-id="' + (parseInt(rec.TmdbId, 10) || 0) + '" data-media-type="' + escHtml(rec.MediaType || '') + '">';
         html += mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         html += '</button>';
     }

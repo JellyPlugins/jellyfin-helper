@@ -321,5 +321,7 @@
   "discoverySetupHintConfigureLink": "Custom Tabs'ı yapılandır →",
   "discoveryCopySnippet": "Kopyala",
   "discoveryCopied": "Kopyalandı!",
-  "discoveryProfileDefault": "varsayılan"
+  "discoveryProfileDefault": "varsayılan",
+  "discoveryNoPermission": "İstek gönderme izniniz yok. Lütfen sunucu yöneticinizle iletişime geçin.",
+  "discoveryRequestError": "İstek işlenemedi. Lütfen daha sonra tekrar deneyin."
 }

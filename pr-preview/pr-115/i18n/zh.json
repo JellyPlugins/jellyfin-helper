@@ -321,5 +321,7 @@
   "discoverySetupHintConfigureLink": "配置 Custom Tabs →",
   "discoveryCopySnippet": "复制",
   "discoveryCopied": "已复制！",
-  "discoveryProfileDefault": "默认"
+  "discoveryProfileDefault": "默认",
+  "discoveryNoPermission": "您没有提交请求的权限。请联系您的服务器管理员。",
+  "discoveryRequestError": "请求无法处理。请稍后重试。"
 }
