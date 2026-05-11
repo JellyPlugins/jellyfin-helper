@@ -9,6 +9,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
@@ -26,6 +27,7 @@ public sealed class UserDiscoveryController : ControllerBase
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
+    private readonly ILogger<UserDiscoveryController> _logger;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="UserDiscoveryController"/> class.
@@ -33,14 +35,17 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="discovery">The discovery service.</param>
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
+    /// <param name="logger">The logger instance.</param>
     public UserDiscoveryController(
         DiscoveryCacheService cache,
         ISeerrDiscoveryService discovery,
-        IDiscoveryFeedbackStore feedbackStore)
+        IDiscoveryFeedbackStore feedbackStore,
+        ILogger<UserDiscoveryController> logger)
     {
         _cache = cache;
         _discovery = discovery;
         _feedbackStore = feedbackStore;
+        _logger = logger;
     }
 
     /// <summary>
@@ -63,8 +68,9 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
+        var currentUserId = userId.Value;
         var results = _cache.Load();
-        var userResult = results.FirstOrDefault(r => r.UserId.Equals(userId.Value));
+        var userResult = results.FirstOrDefault(r => r.UserId.Equals(currentUserId));
         return Ok(userResult);
     }
 
@@ -95,6 +101,7 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
+        var currentUserId = userId.Value;
         serviceType = serviceType?.Trim().ToLowerInvariant() ?? string.Empty;
         mediaType = mediaType?.Trim().ToLowerInvariant() ?? string.Empty;
 
@@ -109,7 +116,7 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         var result = await _discovery.GetUserRequestPermissionsAsync(
-            userId.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
+            currentUserId, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
 
         return Ok(result);
     }
@@ -164,6 +171,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         if (stream == null)
         {
+            _logger.LogWarning("[Discovery] Embedded resource 'discovery-sidebar.js' could not be loaded. Verify the resource is configured in .csproj with the correct LogicalName");
             return NotFound();
         }
 
@@ -231,8 +239,10 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
+        var currentJellyfinUserId = jellyfinUserId.Value;
+
         var seerrUserId = await _discovery.ResolveSeerrUserIdAsync(
-            jellyfinUserId.Value, cancellationToken).ConfigureAwait(false);
+            currentJellyfinUserId, cancellationToken).ConfigureAwait(false);
 
         if (seerrUserId == null)
         {
@@ -245,7 +255,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
         var permissions = await _discovery.GetUserRequestPermissionsAsync(
-            jellyfinUserId!.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
+            currentJellyfinUserId, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
 
         if (!permissions.CanRequest)
         {
@@ -259,13 +269,16 @@ public sealed class UserDiscoveryController : ControllerBase
                 return BadRequest(new RequestResult { Success = false, Message = "Both ServerId and ProfileId must be specified together." });
             }
 
+            var serverId = dto.ServerId.Value;
+            var profileId = dto.ProfileId.Value;
+
             if (permissions.Profiles.Count == 0)
             {
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to override the default quality profile." });
             }
 
             var matchedProfile = permissions.Profiles.FirstOrDefault(profile =>
-                profile.ServerId == dto.ServerId.Value && profile.ProfileId == dto.ProfileId.Value);
+                profile.ServerId == serverId && profile.ProfileId == profileId);
             if (matchedProfile == null)
             {
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
@@ -294,7 +307,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         try
         {
-            _cache.MarkAsRequested(dto.TmdbId);
+            _cache.MarkAsRequested(dto.TmdbId, mediaType);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -303,7 +316,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         try
         {
-            _feedbackStore.RecordRequested(jellyfinUserId!.Value, dto.TmdbId, mediaType);
+            _feedbackStore.RecordRequested(currentJellyfinUserId, dto.TmdbId, mediaType);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -335,6 +348,8 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
+        var currentUserId = userId.Value;
+
         if (dto == null)
         {
             return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
@@ -353,7 +368,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         try
         {
-            _feedbackStore.RecordDismissed(userId.Value, dto.TmdbId, mediaType);
+            _feedbackStore.RecordDismissed(currentUserId, dto.TmdbId, mediaType);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {

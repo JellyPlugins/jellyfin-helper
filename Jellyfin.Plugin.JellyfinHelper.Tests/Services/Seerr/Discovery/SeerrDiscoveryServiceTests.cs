@@ -59,16 +59,30 @@ public class SeerrDiscoveryServiceTests
     [Fact]
     public async Task SubmitRequestAsync_SeerrNotConfigured_ReturnsFalse()
     {
-        // Ensure "not configured" state regardless of prior test execution order
-        if (Plugin.Instance?.Configuration != null)
+        // Snapshot prior state so we can restore it after the test (Plugin.Instance is a process-wide singleton)
+        var prevUrl = Plugin.Instance?.Configuration?.SeerrUrl;
+        var prevKey = Plugin.Instance?.Configuration?.SeerrApiKey;
+        try
         {
-            Plugin.Instance.Configuration.SeerrUrl = string.Empty;
-            Plugin.Instance.Configuration.SeerrApiKey = string.Empty;
-        }
+            // Ensure "not configured" state regardless of prior test execution order
+            if (Plugin.Instance?.Configuration != null)
+            {
+                Plugin.Instance.Configuration.SeerrUrl = string.Empty;
+                Plugin.Instance.Configuration.SeerrApiKey = string.Empty;
+            }
 
-        var service = CreateService();
-        var (success, message) = await service.SubmitRequestAsync(123, "movie", null, null, null, null, CancellationToken.None);
-        Assert.False(success);
-        Assert.Contains("not configured", message);
+            var service = CreateService();
+            var (success, message) = await service.SubmitRequestAsync(123, "movie", null, null, null, null, CancellationToken.None);
+            Assert.False(success);
+            Assert.Contains("not configured", message);
+        }
+        finally
+        {
+            if (Plugin.Instance?.Configuration != null)
+            {
+                Plugin.Instance.Configuration.SeerrUrl = prevUrl ?? string.Empty;
+                Plugin.Instance.Configuration.SeerrApiKey = prevKey ?? string.Empty;
+            }
+        }
     }
 }

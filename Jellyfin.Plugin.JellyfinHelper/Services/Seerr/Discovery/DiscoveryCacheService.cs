@@ -128,7 +128,8 @@ public sealed class DiscoveryCacheService
     ///     Updates both the in-memory cache and the on-disk file.
     /// </summary>
     /// <param name="tmdbId">The TMDb ID of the requested item.</param>
-    public void MarkAsRequested(int tmdbId)
+    /// <param name="mediaType">The media type ("movie" or "tv") to match against. Required because TMDb movie and TV IDs are separate namespaces.</param>
+    public void MarkAsRequested(int tmdbId, string mediaType)
     {
         lock (_fileLock)
         {
@@ -181,7 +182,9 @@ public sealed class DiscoveryCacheService
                     var recs = _memoryCache[u].Recommendations;
                     for (var r = 0; r < recs.Count; r++)
                     {
-                        if (recs[r].TmdbId == tmdbId && !recs[r].AlreadyRequested)
+                        if (recs[r].TmdbId == tmdbId
+                            && string.Equals(recs[r].MediaType, mediaType, StringComparison.OrdinalIgnoreCase)
+                            && !recs[r].AlreadyRequested)
                         {
                             indicesToMark.Add((u, r));
                         }

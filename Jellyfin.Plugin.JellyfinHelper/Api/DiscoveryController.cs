@@ -148,7 +148,7 @@ public sealed class DiscoveryController : ControllerBase
         // request into a 500 response, which would encourage client retries.
         try
         {
-            _cache.MarkAsRequested(dto.TmdbId);
+            _cache.MarkAsRequested(dto.TmdbId, mediaType);
         }
         catch (Exception)
         {

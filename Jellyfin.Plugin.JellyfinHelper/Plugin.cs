@@ -296,7 +296,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             if (!string.Equals(content, originalContent, StringComparison.Ordinal))
             {
-                File.WriteAllText(indexPath, content);
+                var tempPath = indexPath + ".jfh.tmp";
+                File.WriteAllText(tempPath, content);
+                File.Move(tempPath, indexPath, overwrite: true);
                 _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
             }
             else

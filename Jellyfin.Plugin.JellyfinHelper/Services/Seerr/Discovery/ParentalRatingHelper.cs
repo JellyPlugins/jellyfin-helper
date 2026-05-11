@@ -76,7 +76,7 @@ internal static class ParentalRatingHelper
     /// <returns>True if the item should be excluded, false if it passes the filter.</returns>
     internal static bool ShouldExclude(TmdbDiscoverItem candidate, int? maxParentalRating)
     {
-        if (!maxParentalRating.HasValue)
+        if (!maxParentalRating.HasValue || maxParentalRating.Value >= 141)
         {
             return false;
         }
