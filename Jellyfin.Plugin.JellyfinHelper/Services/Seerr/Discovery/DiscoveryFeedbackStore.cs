@@ -82,9 +82,21 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
             foreach (var item in items)
             {
-                // Only add entries for items not already tracked (preserve existing state)
                 if (existingIds.Contains(item.TmdbId))
                 {
+                    // Backfill metadata on existing placeholder entries (created by RecordDismissed/RecordRequested
+                    // before RecordShown ran). This ensures training examples have full feature data.
+                    var existing = userResult.Entries.First(e => e.TmdbId == item.TmdbId);
+                    if (string.IsNullOrEmpty(existing.MediaType))
+                    {
+                        existing.MediaType = item.MediaType;
+                        existing.Title = item.Title;
+                        existing.Year = item.Year;
+                        existing.Genres = item.Genres;
+                        existing.TmdbRating = item.TmdbRating;
+                        existing.Score = item.Score;
+                    }
+
                     continue;
                 }
 

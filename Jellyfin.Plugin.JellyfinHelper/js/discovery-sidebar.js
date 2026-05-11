@@ -271,7 +271,12 @@
 
     function showProfilePopup(tmdbId, mediaType, btn, profiles) {
         var existing = document.getElementById('jfhDiscoveryPopup');
-        if (existing) existing.remove();
+        if (existing) {
+            if (existing._onEsc) {
+                document.removeEventListener('keydown', existing._onEsc);
+            }
+            existing.remove();
+        }
         injectPopupStyles();
 
         var multiServer = false;
@@ -323,6 +328,7 @@
         overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closePopup(); });
         function onEsc(ev) { if (ev.key === 'Escape') closePopup(); }
         document.addEventListener('keydown', onEsc);
+        overlay._onEsc = onEsc;
 
         function closePopup() {
             document.removeEventListener('keydown', onEsc);

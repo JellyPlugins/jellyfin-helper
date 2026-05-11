@@ -16,6 +16,11 @@ public static class TransformationPatches
     /// <returns>The transformed content with the script tag injected before &lt;/body&gt;.</returns>
     public static string IndexHtml(PatchRequestPayload content)
     {
+        if (content is null)
+        {
+            return string.Empty;
+        }
+
         if (string.IsNullOrEmpty(content.Contents))
         {
             return content.Contents ?? string.Empty;

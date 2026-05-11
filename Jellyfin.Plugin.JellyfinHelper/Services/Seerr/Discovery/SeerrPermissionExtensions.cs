@@ -19,6 +19,12 @@ public static class SeerrPermissionExtensions
     {
         ArgumentNullException.ThrowIfNull(user);
 
+        // Zero-flag guard: HasFlag(0) always returns true, which would incorrectly authorize.
+        if (flag == SeerrPermissions.None)
+        {
+            return false;
+        }
+
         var permissions = (SeerrPermissions)user.Permissions;
 
         // Admins implicitly hold every permission

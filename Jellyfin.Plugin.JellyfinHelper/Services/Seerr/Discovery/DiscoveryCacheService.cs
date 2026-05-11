@@ -73,7 +73,7 @@ public sealed class DiscoveryCacheService
                 if (!File.Exists(_filePath))
                 {
                     _memoryCache = [];
-                    return _memoryCache;
+                    return _memoryCache.AsReadOnly();
                 }
 
                 // Hardening: reject oversized files (likely corrupted or tampered)
@@ -95,12 +95,12 @@ public sealed class DiscoveryCacheService
                     }
 
                     _memoryCache = [];
-                    return _memoryCache;
+                    return _memoryCache.AsReadOnly();
                 }
 
                 var json = File.ReadAllText(_filePath);
                 _memoryCache = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions) ?? [];
-                return _memoryCache;
+                return _memoryCache.AsReadOnly();
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
@@ -112,7 +112,7 @@ public sealed class DiscoveryCacheService
                 // Cache empty result to prevent repeated failed disk reads on every API call.
                 // Next Save() will repopulate the cache with fresh data.
                 _memoryCache = [];
-                return _memoryCache;
+                return _memoryCache.AsReadOnly();
             }
         }
     }

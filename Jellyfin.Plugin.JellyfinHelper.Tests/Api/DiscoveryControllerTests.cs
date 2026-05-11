@@ -130,7 +130,7 @@ public class DiscoveryControllerTests
     {
         var discovery = new Mock<ISeerrDiscoveryService>();
         discovery.Setup(d => d.SubmitRequestAsync(
-            It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
+            It.IsAny<int>(), "movie", It.IsAny<int?>(),
             It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
             It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "OK"));
@@ -144,6 +144,12 @@ public class DiscoveryControllerTests
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         var body = Assert.IsType<RequestResult>(okResult.Value);
         Assert.True(body.Success);
+
+        // Verify the normalized value "movie" (not "Movie") was forwarded to the service
+        discovery.Verify(d => d.SubmitRequestAsync(
+            100, "movie", It.IsAny<int?>(),
+            It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

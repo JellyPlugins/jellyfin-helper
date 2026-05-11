@@ -633,15 +633,20 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         if (seerrUser == null)
         {
+            // Distinguish between "no users fetched" (likely transient failure) and "user not found"
+            var deniedReason = seerrUsers.Count == 0
+                ? "Could not verify your Seerr account. The Seerr server may be temporarily unavailable. Please try again."
+                : "Your Jellyfin account is not linked to a Seerr account.";
+
             _pluginLog.LogDebug(
                 "SeerrDiscovery",
-                $"Permission check: Jellyfin user {jellyfinUserId} has no linked Seerr account.",
+                $"Permission check: Jellyfin user {jellyfinUserId} — {deniedReason}",
                 _logger);
 
             return new UserRequestPermissionResult
             {
                 CanRequest = false,
-                DeniedReason = "Your Jellyfin account is not linked to a Seerr account."
+                DeniedReason = deniedReason
             };
         }
 

@@ -112,7 +112,9 @@ internal static class TmdbGenreMap
     /// <param name="jellyfinGenre">The Jellyfin genre string.</param>
     /// <returns>The TMDb movie genre ID, or null if unmapped.</returns>
     internal static int? ToMovieTmdbId(string jellyfinGenre)
-        => ReverseMovieGenres.TryGetValue(jellyfinGenre, out var id) ? id : null;
+        => string.IsNullOrWhiteSpace(jellyfinGenre)
+            ? null
+            : ReverseMovieGenres.TryGetValue(jellyfinGenre, out var id) ? id : null;
 
     /// <summary>
     ///     Converts a Jellyfin genre string to TMDb TV genre ID.
@@ -120,5 +122,7 @@ internal static class TmdbGenreMap
     /// <param name="jellyfinGenre">The Jellyfin genre string.</param>
     /// <returns>The TMDb TV genre ID, or null if unmapped.</returns>
     internal static int? ToTvTmdbId(string jellyfinGenre)
-        => ReverseTvGenres.TryGetValue(jellyfinGenre, out var id) ? id : null;
+        => string.IsNullOrWhiteSpace(jellyfinGenre)
+            ? null
+            : ReverseTvGenres.TryGetValue(jellyfinGenre, out var id) ? id : null;
 }

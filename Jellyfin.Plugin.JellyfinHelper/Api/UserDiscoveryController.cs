@@ -285,11 +285,18 @@ public sealed class UserDiscoveryController : ControllerBase
 
             var requestedServerId = dto.ServerId.Value;
             var requestedProfileId = dto.ProfileId.Value;
-            var isAllowed = permissions.Profiles.Any(profile =>
+            var matchedProfile = permissions.Profiles.FirstOrDefault(profile =>
                 profile.ServerId == requestedServerId && profile.ProfileId == requestedProfileId);
-            if (!isAllowed)
+            if (matchedProfile == null)
             {
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
+            }
+
+            // Validate RootFolder against the matched profile's allowed root folder (if caller supplied one)
+            if (!string.IsNullOrWhiteSpace(dto.RootFolder) &&
+                !string.Equals(dto.RootFolder, matchedProfile.RootFolder, StringComparison.Ordinal))
+            {
+                return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this root folder." });
             }
         }
 
