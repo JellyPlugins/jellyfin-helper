@@ -388,7 +388,8 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
     }
 
     var recs = userDiscovery.Recommendations;
-    if (countSpan) countSpan.textContent = '' + recs.length;
+    var availableCount = recs.filter(function(r) { return !r.AlreadyRequested; }).length;
+    if (countSpan) countSpan.textContent = '' + availableCount;
 
     var html = '<div class="discovery-grid">';
     for (var i = 0; i < recs.length; i++) {

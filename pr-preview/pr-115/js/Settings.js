@@ -794,12 +794,14 @@ function attachDiscoveryCopyHandler() {
         // Try modern clipboard API first
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(onCopySuccess).catch(function () {
-                fallbackCopy(text);
-                onCopySuccess();
+                if (fallbackCopy(text)) {
+                    onCopySuccess();
+                }
             });
         } else {
-            fallbackCopy(text);
-            onCopySuccess();
+            if (fallbackCopy(text)) {
+                onCopySuccess();
+            }
         }
     });
 }
@@ -814,8 +816,13 @@ function fallbackCopy(text) {
     document.body.appendChild(textarea);
     textarea.focus();
     textarea.select();
-    try { document.execCommand('copy'); } catch (e) { /* ignore */ }
-    document.body.removeChild(textarea);
+    try {
+        return document.execCommand('copy');
+    } catch (e) {
+        return false;
+    } finally {
+        document.body.removeChild(textarea);
+    }
 }
 
 /**
