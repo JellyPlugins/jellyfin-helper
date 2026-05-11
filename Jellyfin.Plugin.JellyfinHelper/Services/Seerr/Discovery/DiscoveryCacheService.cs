@@ -124,6 +124,94 @@ public sealed class DiscoveryCacheService
     }
 
     /// <summary>
+    ///     Removes a specific TMDb item from all users' cached recommendation lists.
+    ///     Called when a user dismisses an item — ensures the item disappears immediately
+    ///     (not just on the next scheduled task run) and stays gone across page reloads.
+    /// </summary>
+    /// <param name="tmdbId">The TMDb ID of the item to remove.</param>
+    /// <param name="mediaType">The media type ("movie" or "tv").</param>
+    /// <param name="userId">The Jellyfin user ID. Only removes from this user's list.</param>
+    public void RemoveItem(int tmdbId, string mediaType, Guid userId)
+    {
+        lock (_fileLock)
+        {
+            try
+            {
+                if (_memoryCache == null)
+                {
+                    if (!File.Exists(_filePath))
+                    {
+                        return;
+                    }
+
+                    var fileInfo = new FileInfo(_filePath);
+                    if (fileInfo.Length > MaxFileSizeBytes)
+                    {
+                        return;
+                    }
+
+                    var json = File.ReadAllText(_filePath);
+                    _memoryCache = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions) ?? [];
+                }
+
+                if (_memoryCache.Count == 0)
+                {
+                    return;
+                }
+
+                var userResult = _memoryCache.FirstOrDefault(r => r.UserId == userId);
+                if (userResult == null)
+                {
+                    return;
+                }
+
+                var removed = userResult.Recommendations.RemoveAll(r =>
+                    r.TmdbId == tmdbId &&
+                    string.Equals(r.MediaType, mediaType, StringComparison.OrdinalIgnoreCase));
+
+                if (removed > 0)
+                {
+                    var tempFilePath = _filePath + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
+                    try
+                    {
+                        var updatedJson = JsonSerializer.Serialize(_memoryCache, JsonOptions);
+                        File.WriteAllText(tempFilePath, updatedJson);
+                        File.Move(tempFilePath, _filePath, overwrite: true);
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+                    {
+                        // Rollback not possible for removal — item stays removed in memory
+                        // which is the desired behavior (user won't see it again this session).
+                        try
+                        {
+                            File.Delete(tempFilePath);
+                        }
+                        catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
+                        {
+                            // Best effort cleanup
+                        }
+
+                        _pluginLog.LogWarning(
+                            "DiscoveryCache",
+                            $"Could not persist removal of TMDb#{tmdbId} from cache: {ex.Message}",
+                            ex,
+                            _logger);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            {
+                _pluginLog.LogWarning(
+                    "DiscoveryCache",
+                    $"Could not remove TMDb#{tmdbId} from cache: {ex.Message}",
+                    ex,
+                    _logger);
+                _memoryCache ??= [];
+            }
+        }
+    }
+
+    /// <summary>
     ///     Marks a specific TMDb item as already requested in the cached results.
     ///     Updates both the in-memory cache and the on-disk file.
     /// </summary>

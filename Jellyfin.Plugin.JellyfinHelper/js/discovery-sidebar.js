@@ -161,11 +161,14 @@
             '.jfh-discovery-score-mid .jfh-discovery-score-bar { background: #f39c12; }' +
             '.jfh-discovery-score-low .jfh-discovery-score-bar { background: #e74c3c; }' +
             '.jfh-discovery-score-text { font-size: 0.7em; opacity: 0.6; }' +
-            '.jfh-discovery-btn { margin-top: auto; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; }' +
+            '.jfh-discovery-btn-row { margin-top: auto; display: flex; gap: 0.4em; }' +
+            '.jfh-discovery-btn { flex: 1; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }' +
             '.jfh-discovery-btn:hover { background: #0090c4; }' +
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
             '.jfh-discovery-btn-failed { background: #e74c3c !important; }' +
+            '.jfh-discovery-btn-dismiss { background: rgba(255,255,255,0.08); color: #ccc; }' +
+            '.jfh-discovery-btn-dismiss:hover { background: rgba(231,76,60,0.2); color: #e74c3c; }' +
             '.jfh-discovery-msg { text-align: center; padding: 2em; opacity: 0.6; }' +
             '.jfh-discovery-reason { font-size: 0.78em; opacity: 0.7; margin: 0.2em 0; font-style: italic; }' +
             // Toast notification
@@ -277,6 +280,7 @@
             var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
             var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
             var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
+            var dismissBtnHtml = '<button class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-tmdb="' + (parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(r.MediaType || '') + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
             var genresHtml = genres ? '<div class="jfh-discovery-card-genres">' + genres + '</div>' : '';
             html += '<div class="jfh-discovery-card">' + poster +
                 '<div class="jfh-discovery-card-body">' +
@@ -284,13 +288,19 @@
                 '<div class="jfh-discovery-card-meta">' + year + type + rating + '</div>' +
                 genresHtml +
                 scoreHtml + reason +
+                '<div class="jfh-discovery-btn-row">' +
                 '<button class="' + btnClass + '" data-tmdb="' + (parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(r.MediaType || '') + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
+                dismissBtnHtml +
+                '</div>' +
                 '</div></div>';
         }
         html += '</div></div>';
         container.innerHTML = html;
-        var buttons = container.querySelectorAll('.jfh-discovery-btn:not([disabled])');
+        var buttons = container.querySelectorAll('.jfh-discovery-btn:not([disabled]):not(.jfh-discovery-btn-dismiss)');
         for (var j = 0; j < buttons.length; j++) { buttons[j].addEventListener('click', handleRequest); }
+        // Attach dismiss button handlers
+        var dismissBtns = container.querySelectorAll('.jfh-discovery-btn-dismiss');
+        for (var d = 0; d < dismissBtns.length; d++) { dismissBtns[d].addEventListener('click', handleDismissClick); }
         // Attach poster flip handlers
         var posters = container.querySelectorAll('.jfh-discovery-card-poster .jfh-discovery-flip-inner');
         for (var p = 0; p < posters.length; p++) {
@@ -484,7 +494,116 @@
         });
     }
 
-        // Translate reason key to localized human-readable text.
+    // ===== DISMISS LOGIC =====
+
+    /**
+     * Handles the dismiss button click. Shows a confirmation popup before dismissing.
+     */
+    function handleDismissClick(e) {
+        var btn = e.currentTarget;
+        if (btn.disabled) return;
+        var tmdbId = parseInt(btn.getAttribute('data-tmdb'), 10);
+        var mediaType = btn.getAttribute('data-type');
+        var title = btn.getAttribute('data-title') || '';
+        if (!tmdbId || !mediaType) return;
+        showDismissConfirmation(tmdbId, mediaType, title, btn);
+    }
+
+    /**
+     * Shows a confirmation popup before dismissing a discovery item.
+     * Reuses the same popup overlay pattern as the profile selector.
+     */
+    function showDismissConfirmation(tmdbId, mediaType, title, btn) {
+        var existing = document.getElementById('jfhDiscoveryPopup');
+        if (existing) {
+            if (existing._onEsc) document.removeEventListener('keydown', existing._onEsc);
+            existing.remove();
+        }
+        injectPopupStyles();
+
+        var overlay = document.createElement('div');
+        overlay.id = 'jfhDiscoveryPopup';
+        overlay.className = 'jfh-discovery-popup-overlay';
+        var popup = document.createElement('div');
+        popup.className = 'jfh-discovery-popup';
+
+        var titleEl = document.createElement('div');
+        titleEl.className = 'jfh-discovery-popup-title';
+        titleEl.textContent = t('discoveryDismissConfirmTitle', 'Dismiss suggestion?');
+        popup.appendChild(titleEl);
+
+        var subtitle = document.createElement('div');
+        subtitle.className = 'jfh-discovery-popup-subtitle';
+        subtitle.textContent = title
+            ? t('discoveryDismissConfirmText', 'This will hide "{0}" from future suggestions. It won\'t be shown again.').replace('{0}', title)
+            : t('discoveryDismissConfirmGeneric', 'This item will be hidden from future suggestions.');
+        popup.appendChild(subtitle);
+
+        var list = document.createElement('div');
+        list.className = 'jfh-discovery-popup-list';
+
+        var confirmBtn = document.createElement('button');
+        confirmBtn.className = 'jfh-discovery-popup-item';
+        confirmBtn.style.justifyContent = 'center';
+        confirmBtn.style.borderColor = 'rgba(231,76,60,0.4)';
+        confirmBtn.style.color = '#e74c3c';
+        confirmBtn.textContent = t('discoveryDismissConfirm', 'Yes, dismiss');
+        confirmBtn.addEventListener('click', function () {
+            closePopup();
+            executeDismiss(tmdbId, mediaType, btn);
+        });
+        list.appendChild(confirmBtn);
+        popup.appendChild(list);
+
+        var cancelBtn = document.createElement('button');
+        cancelBtn.className = 'jfh-discovery-popup-cancel';
+        cancelBtn.textContent = t('discoveryCancel', 'Cancel');
+        cancelBtn.addEventListener('click', closePopup);
+        popup.appendChild(cancelBtn);
+
+        overlay.appendChild(popup);
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closePopup(); });
+        function onEsc(ev) { if (ev.key === 'Escape') closePopup(); }
+        document.addEventListener('keydown', onEsc);
+        overlay._onEsc = onEsc;
+
+        function closePopup() {
+            document.removeEventListener('keydown', onEsc);
+            var el = document.getElementById('jfhDiscoveryPopup');
+            if (el) el.remove();
+        }
+    }
+
+    /**
+     * Submits the dismiss API call and removes the card from the grid on success.
+     */
+    function executeDismiss(tmdbId, mediaType, btn) {
+        btn.disabled = true;
+        btn.textContent = '...';
+        ApiClient.ajax({
+            type: 'POST',
+            url: ApiClient.getUrl(API_URL + '/Dismiss'),
+            data: JSON.stringify({ TmdbId: tmdbId, MediaType: mediaType }),
+            contentType: 'application/json',
+            dataType: 'json'
+        }).then(function () {
+            // Remove the card with a fade-out animation
+            var card = btn.closest('.jfh-discovery-card');
+            if (card) {
+                card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                card.style.opacity = '0';
+                card.style.transform = 'scale(0.95)';
+                setTimeout(function () { card.remove(); }, 300);
+            }
+        }).catch(function () {
+            btn.disabled = false;
+            btn.textContent = t('discoveryDismiss', 'Not interested');
+            showToast(t('discoveryDismissError', 'Could not dismiss this item. Please try again.'));
+        });
+    }
+
+    // Translate reason key to localized human-readable text.
     // Backend DetermineReason produces: reasonPerson, reasonGenre, reasonTrending, reasonPopular
     function formatReason(reasonKey, reason, relatedInfo) {
         if (!reasonKey && !reason) return '';

@@ -222,7 +222,8 @@ public sealed class UserDiscoveryController : ControllerBase
                 return BadRequest(new RequestResult { Success = false, Message = "Root folder path exceeds maximum length." });
             }
 
-            if (dto.RootFolder.Contains("..", StringComparison.Ordinal) || dto.RootFolder.StartsWith('~'))
+            if (dto.RootFolder.Contains("..", StringComparison.Ordinal) ||
+                dto.RootFolder.Contains('~', StringComparison.Ordinal))
             {
                 return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
             }
@@ -373,6 +374,16 @@ public sealed class UserDiscoveryController : ControllerBase
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // Best-effort feedback recording.
+        }
+
+        // Remove from cached results so the item disappears immediately on page reload
+        try
+        {
+            _cache.RemoveItem(dto.TmdbId, mediaType, currentUserId);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Best-effort cache removal.
         }
 
         return Ok(new RequestResult { Success = true, Message = "Item dismissed." });

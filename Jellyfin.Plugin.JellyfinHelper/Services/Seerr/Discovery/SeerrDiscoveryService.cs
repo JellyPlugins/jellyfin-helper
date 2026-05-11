@@ -856,7 +856,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     private async Task<DiscoveryResult?> GenerateForUserAsync(
         UserWatchProfile profile,
         PluginConfiguration config,
-        HashSet<int> excludedTmdbIds,
+        HashSet<(int TmdbId, string MediaType)> excludedTmdbIds,
         CancellationToken cancellationToken)
     {
         var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile);
@@ -983,9 +983,32 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 }
             }
 
+            // Add user-specific dismissed items to the exclusion set (best-effort: failures don't break generation)
+            var userExcluded = excludedTmdbIds;
+            try
+            {
+                var dismissed = _feedbackStore.GetDismissedItems(profile.UserId);
+                if (dismissed.Count > 0)
+                {
+                    // Create a per-user copy to avoid mutating the shared set across users
+                    userExcluded = new HashSet<(int TmdbId, string MediaType)>(excludedTmdbIds);
+                    foreach (var item in dismissed)
+                    {
+                        userExcluded.Add(item);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                _pluginLog.LogDebug(
+                    "SeerrDiscovery",
+                    $"Could not load dismissed items for user {profile.UserName}: {ex.Message}",
+                    _logger);
+            }
+
             // Deduplicate and filter (includes parental rating + year + quality post-filtering)
             var minVote = isChildAccount ? MinVoteAverageChild : MinVoteAverage;
-            var uniqueCandidates = DeduplicateAndFilter(allCandidates, excludedTmdbIds, profile.MaxParentalRating, minVote, avgYear, isChildAccount);
+            var uniqueCandidates = DeduplicateAndFilter(allCandidates, userExcluded, profile.MaxParentalRating, minVote, avgYear, isChildAccount);
 
             if (uniqueCandidates.Count == 0)
             {
@@ -1134,11 +1157,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
-    private async Task<HashSet<int>> BuildExclusionSetAsync(
+    private async Task<HashSet<(int TmdbId, string MediaType)>> BuildExclusionSetAsync(
         PluginConfiguration config,
         CancellationToken cancellationToken)
     {
-        var excluded = new HashSet<int>();
+        var excluded = new HashSet<(int TmdbId, string MediaType)>();
 
         // Exclude movies already in Radarr
         foreach (var instance in config.GetEffectiveRadarrInstances())
@@ -1152,7 +1175,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 {
                     foreach (var movie in movies.Where(m => m.TmdbId > 0))
                     {
-                        excluded.Add(movie.TmdbId);
+                        excluded.Add((movie.TmdbId, "movie"));
                     }
                 }
             }
@@ -1182,7 +1205,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 {
                     foreach (var show in series.Where(s => s.TmdbId > 0))
                     {
-                        excluded.Add(show.TmdbId);
+                        excluded.Add((show.TmdbId, "tv"));
                     }
                 }
             }
@@ -1209,7 +1232,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private static List<TmdbDiscoverItem> DeduplicateAndFilter(
         List<TmdbDiscoverItem> candidates,
-        HashSet<int> excludedTmdbIds,
+        HashSet<(int TmdbId, string MediaType)> excludedTmdbIds,
         int? maxParentalRating,
         double minVoteAverage,
         double avgYear,
@@ -1243,7 +1266,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 continue;
             }
 
-            if (excludedTmdbIds.Contains(candidate.Id))
+            if (excludedTmdbIds.Contains((candidate.Id, candidate.MediaType ?? "movie")))
             {
                 continue;
             }

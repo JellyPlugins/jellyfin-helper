@@ -150,7 +150,7 @@ public sealed class DiscoveryController : ControllerBase
         {
             _cache.MarkAsRequested(dto.TmdbId, mediaType);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // Already logged inside MarkAsRequested; swallow to preserve the 200 response.
         }

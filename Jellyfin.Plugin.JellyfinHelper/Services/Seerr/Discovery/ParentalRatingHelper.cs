@@ -52,19 +52,6 @@ internal static class ParentalRatingHelper
     };
 
     /// <summary>
-    ///     TMDb genre IDs that indicate adult-oriented animation when combined with Animation (16).
-    ///     Derived from <see cref="TeenRestrictedGenreIds"/> minus Horror (27) which is already
-    ///     excluded by the teen blacklist. Kept as a reference alias to prevent the two sets
-    ///     from drifting apart as new genre rules are added.
-    /// </summary>
-    /// <remarks>
-    ///     Note: TMDb discover API does not return keywords in results, so this is used
-    ///     as a secondary signal via vote_average thresholds for animation content.
-    /// </remarks>
-    private static readonly HashSet<int> AdultAnimationGenreCombinations = new(
-        TeenRestrictedGenreIds.Where(id => id != 27)); // Exclude Horror (already filtered at teen level)
-
-    /// <summary>
     ///     Determines whether a candidate item should be excluded based on parental rating constraints.
     /// </summary>
     /// <param name="candidate">The TMDb discover item to check.</param>
@@ -106,12 +93,6 @@ internal static class ParentalRatingHelper
                 {
                     hasRestrictedGenre = true;
                 }
-
-                if (AdultAnimationGenreCombinations.Contains(genreId) && candidate.GenreIds.Contains(16))
-                {
-                    // Animation + Crime/Thriller/War = likely adult animation
-                    return true;
-                }
             }
 
             // Must have at least one primary child-safe genre (Family, Kids, Music).
@@ -124,20 +105,6 @@ internal static class ParentalRatingHelper
 
             // Even with Family genre, still exclude if a restricted genre is present
             if (hasRestrictedGenre)
-            {
-                return true;
-            }
-
-            // Additional safety: very high vote averages for Animation without Kids/Family
-            // sometimes indicate cult adult shows. If Animation is present but the main
-            // genres are not Kids-focused, apply a stricter check.
-            // Adult animations tend to have vote_average between 6-9 with moderate counts
-            // While children's content tends to have lower vote averages (5-7)
-            // We already required Family genre above, so this is a secondary check
-            if (candidate.GenreIds.Contains(16)
-                && !candidate.GenreIds.Contains(10762)
-                && candidate.VoteAverage > 8.0
-                && !candidate.GenreIds.Contains(10751))
             {
                 return true;
             }

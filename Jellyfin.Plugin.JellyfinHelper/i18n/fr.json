@@ -323,5 +323,11 @@
   "discoveryCopied": "Copié !",
   "discoveryProfileDefault": "par défaut",
   "discoveryNoPermission": "Vous n'avez pas la permission de soumettre des demandes. Veuillez contacter votre administrateur.",
-  "discoveryRequestError": "La demande n'a pas pu être traitée. Veuillez réessayer plus tard."
+  "discoveryRequestError": "La demande n'a pas pu être traitée. Veuillez réessayer plus tard.",
+  "discoveryDismiss": "Pas intéressé",
+  "discoveryDismissConfirmTitle": "Ignorer cette suggestion ?",
+  "discoveryDismissConfirmText": "{0} sera masqué des suggestions futures et ne sera plus affiché.",
+  "discoveryDismissConfirmGeneric": "Cet élément sera masqué des suggestions futures.",
+  "discoveryDismissConfirm": "Oui, ignorer",
+  "discoveryDismissError": "Impossible d'ignorer cet élément. Veuillez réessayer."
 }

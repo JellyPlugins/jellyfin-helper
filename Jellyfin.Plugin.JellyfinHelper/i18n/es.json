@@ -323,5 +323,11 @@
   "discoveryCopied": "¡Copiado!",
   "discoveryProfileDefault": "predeterminado",
   "discoveryNoPermission": "No tienes permiso para enviar solicitudes. Por favor, contacta con tu administrador del servidor.",
-  "discoveryRequestError": "La solicitud no pudo ser procesada. Por favor, inténtalo de nuevo más tarde."
+  "discoveryRequestError": "La solicitud no pudo ser procesada. Por favor, inténtalo de nuevo más tarde.",
+  "discoveryDismiss": "No me interesa",
+  "discoveryDismissConfirmTitle": "¿Descartar sugerencia?",
+  "discoveryDismissConfirmText": "{0} se ocultará de futuras sugerencias y no se mostrará de nuevo.",
+  "discoveryDismissConfirmGeneric": "Este elemento se ocultará de futuras sugerencias.",
+  "discoveryDismissConfirm": "Sí, descartar",
+  "discoveryDismissError": "No se pudo descartar este elemento. Por favor, inténtalo de nuevo."
 }

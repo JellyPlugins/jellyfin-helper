@@ -323,5 +323,11 @@
   "discoveryCopied": "已复制！",
   "discoveryProfileDefault": "默认",
   "discoveryNoPermission": "您没有提交请求的权限。请联系您的服务器管理员。",
-  "discoveryRequestError": "请求无法处理。请稍后重试。"
+  "discoveryRequestError": "请求无法处理。请稍后再试。",
+  "discoveryDismiss": "不感兴趣",
+  "discoveryDismissConfirmTitle": "忽略此建议？",
+  "discoveryDismissConfirmText": "{0} 将从未来的建议中隐藏，不再显示。",
+  "discoveryDismissConfirmGeneric": "此项目将从未来的建议中隐藏。",
+  "discoveryDismissConfirm": "是的，忽略",
+  "discoveryDismissError": "无法忽略此项目。请重试。"
 }

@@ -57,4 +57,13 @@ public interface IDiscoveryFeedbackStore
     /// <param name="userId">The Jellyfin user ID.</param>
     /// <returns>The feedback result for the user, or null if no feedback exists.</returns>
     DiscoveryFeedbackResult? LoadForUser(Guid userId);
+
+    /// <summary>
+    ///     Returns the set of (TmdbId, MediaType) pairs that the user has dismissed.
+    ///     Used by the discovery generation task to exclude previously-dismissed items
+    ///     from future recommendations.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user ID.</param>
+    /// <returns>A set of dismissed composite keys, or an empty set if none.</returns>
+    IReadOnlySet<(int TmdbId, string MediaType)> GetDismissedItems(Guid userId);
 }
