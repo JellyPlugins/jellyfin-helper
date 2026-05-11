@@ -22,7 +22,7 @@ function initRecommendationsTab() {
 function loadRecommendations() {
     var container = document.getElementById('recsContent');
     if (!container) return;
-    container.innerHTML = '<div class="loading-overlay" style="padding:2em;"><div class="spinner"></div><p>' + T('loadingRecommendations', 'Loading recommendations…') + '</p></div>';
+    container.innerHTML = '<div class="loading-overlay" style="padding:2em;"><div class="spinner"></div><p>' + T('loadingRecommendations', 'Loading recommendationsâ€¦') + '</p></div>';
     var reqId = ++_recsListReqId;
     apiGet('JellyfinHelper/Recommendations', function (data) {
         if (reqId !== _recsListReqId) return;

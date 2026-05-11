@@ -292,7 +292,7 @@
   "recsAndMore": "还有 {0} 项…",
   "discoveryTitle": "发现新内容",
   "discoveryConfigureSeerr": "在设置选项卡中配置 Seerr 以查看个性化下载建议。",
-  "discoveryDisabled": "请在设置中启用 Seerr Discovery 以生成建议。",
+  "discoveryDisabled": "Discovery 未启用。请联系您的服务器管理员在 Jellyfin Helper 设置中启用此功能。",
   "discoveryNoResults": "暂无建议。结果将在下次计划任务运行后出现。",
   "discoveryLoadError": "无法加载发现建议。",
   "discoveryGeneratedAt": "最后更新",
@@ -319,5 +319,6 @@
   "discoverySetupHintAlreadyInstalled": "已安装插件？",
   "discoverySetupHintConfigureLink": "配置 Custom Tabs →",
   "discoveryCopySnippet": "复制",
-  "discoveryCopied": "已复制！"
+  "discoveryCopied": "已复制！",
+  "discoveryProfileDefault": "默认"
 }

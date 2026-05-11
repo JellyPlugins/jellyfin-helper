@@ -292,7 +292,7 @@
   "recsAndMore": "et {0} de plus…",
   "discoveryTitle": "Découvrir du nouveau contenu",
   "discoveryConfigureSeerr": "Configurez Seerr dans l'onglet Paramètres pour voir des suggestions de téléchargement personnalisées.",
-  "discoveryDisabled": "Activez Seerr Discovery dans les Paramètres pour générer des suggestions.",
+  "discoveryDisabled": "Discovery n'est pas activé. Demandez à votre administrateur serveur d'activer cette fonctionnalité dans les paramètres de Jellyfin Helper.",
   "discoveryNoResults": "Aucune suggestion disponible pour le moment. Les résultats apparaîtront après la prochaine exécution planifiée.",
   "discoveryLoadError": "Impossible de charger les suggestions Discovery.",
   "discoveryGeneratedAt": "Dernière mise à jour",
@@ -319,5 +319,6 @@
   "discoverySetupHintAlreadyInstalled": "Plugins déjà installés ?",
   "discoverySetupHintConfigureLink": "Configurer Custom Tabs →",
   "discoveryCopySnippet": "Copier",
-  "discoveryCopied": "Copié !"
+  "discoveryCopied": "Copié !",
+  "discoveryProfileDefault": "par défaut"
 }
