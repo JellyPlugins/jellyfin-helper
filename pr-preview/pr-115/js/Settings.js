@@ -422,6 +422,8 @@ function doSaveSettings(payload, options) {
 
         // Sync Seerr greyed-out state after save (URL/Key may have been cleared)
         updateSeerrUIState(!!(payload.SeerrUrl && payload.SeerrApiKey));
+        // Refresh the Discovery wrapper (depends on Seerr + Recommendations mode)
+        refreshDiscoveryAccessState();
 
         if (options && typeof options.onSuccess === 'function') {
             options.onSuccess();

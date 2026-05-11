@@ -294,6 +294,7 @@
   "discoveryConfigureSeerr": "Kişiselleştirilmiş indirme önerileri görmek için Ayarlar sekmesinde Seerr'ı yapılandırın.",
   "discoveryDisabled": "Discovery etkin değil. Lütfen sunucu yöneticinizden Jellyfin Helper ayarlarında bu özelliği etkinleştirmesini isteyin.",
   "discoveryNoResults": "Henüz öneri mevcut değil. Sonuçlar bir sonraki zamanlanmış görev çalıştırıldıktan sonra görünecektir.",
+  "discoveryNoDescription": "Açıklama mevcut değil.",
   "discoveryLoadError": "Keşif önerileri yüklenemedi.",
   "discoveryGeneratedAt": "Son güncelleme",
   "discoveryRequest": "İste",
