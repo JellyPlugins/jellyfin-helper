@@ -303,7 +303,7 @@
             item.className = 'jfh-discovery-popup-item' + (prof.IsDefault ? ' jfh-discovery-popup-item-default' : '');
             var label = esc(prof.ProfileName);
             if (multiServer) label += ' <span style="opacity:0.6">(' + esc(prof.ServerName) + ')</span>';
-            if (prof.IsDefault) label += ' <span style="opacity:0.5;font-size:0.8em">\u2605 default</span>';
+            if (prof.IsDefault) label += ' <span style="opacity:0.5;font-size:0.8em">\u2605 ' + esc(t('discoveryProfileDefault', 'default')) + '</span>';
             item.innerHTML = label;
             item.addEventListener('click', (function (sid, pid, rf) {
                 return function () { closePopup(); submitRequest(tmdbId, mediaType, sid, pid, rf, btn); };

@@ -519,6 +519,10 @@ public sealed class WatchHistoryService : IWatchHistoryService
                     continue; // Already counted people for this series
                 }
 
+                // Also mark in processedItemIds so that synthetic favorite-series entries
+                // (which have ItemId = seriesId, SeriesId = null) don't double-count.
+                processedItemIds.Add(seriesId);
+
                 // Try to get series people
                 if (seriesLookup != null && seriesLookup.TryGetValue(seriesId, out var seriesItem))
                 {

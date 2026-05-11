@@ -251,6 +251,30 @@ public sealed class UserDiscoveryController : ControllerBase
             });
         }
 
+        // Validate profile overrides against user permissions (server-side enforcement)
+        if (dto.ServerId.HasValue || dto.ProfileId.HasValue)
+        {
+            var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
+            var permissions = await _discovery.GetUserRequestPermissionsAsync(
+                jellyfinUserId!.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
+
+            if (!permissions.CanRequest)
+            {
+                return StatusCode(403, new RequestResult { Success = false, Message = "You do not have permission to submit requests." });
+            }
+
+            // If user has restricted profiles, validate the request matches an allowed one
+            if (permissions.Profiles.Count > 0 && dto.ServerId.HasValue && dto.ProfileId.HasValue)
+            {
+                var isAllowed = permissions.Profiles.Any(profile =>
+                    profile.ServerId == dto.ServerId.Value && profile.ProfileId == dto.ProfileId.Value);
+                if (!isAllowed)
+                {
+                    return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
+                }
+            }
+        }
+
         // Pass through profile overrides if provided by the user (from quality profile popup)
         var (success, message) = await _discovery.SubmitRequestAsync(
             dto.TmdbId,

@@ -1,5 +1,4 @@
 using System;
-using System.Text.RegularExpressions;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
 
@@ -9,16 +8,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
 /// </summary>
 public static class TransformationPatches
 {
-    private const string PluginName = "Jellyfin Helper";
-
-    /// <summary>
-    ///     Cached regex for removing existing script tags. Compiled once to avoid
-    ///     repeated pattern compilation on every index.html serve.
-    /// </summary>
-    private static readonly Regex ExistingScriptTagRegex = new(
-        "<script[^>]*plugin=[\"']Jellyfin Helper[\"'][^>]*>\\s*</script>\\n?",
-        RegexOptions.Compiled);
-
     /// <summary>
     ///     Transforms Jellyfin's index.html to include the Discovery sidebar script tag.
     ///     Called by the File Transformation plugin whenever index.html is served.
@@ -33,12 +22,10 @@ public static class TransformationPatches
         }
 
         var pluginVersion = Plugin.Instance?.Version.ToString() ?? "unknown";
-
-        var scriptUrl = $"../JellyfinHelper/Discovery/My/script?v={pluginVersion}";
-        var scriptTag = $"<script plugin=\"{PluginName}\" version=\"{pluginVersion}\" src=\"{scriptUrl}\" defer></script>";
+        var scriptTag = DiscoveryScriptTag.Build(pluginVersion);
 
         // Remove any old versions of the script tag first
-        var updatedContent = ExistingScriptTagRegex.Replace(content.Contents, string.Empty);
+        var updatedContent = DiscoveryScriptTag.RemovalRegex.Replace(content.Contents, string.Empty);
 
         // Inject the new script tag before the first </body>
         var bodyIndex = updatedContent.IndexOf("</body>", StringComparison.Ordinal);

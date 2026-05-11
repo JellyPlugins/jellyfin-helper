@@ -10,6 +10,26 @@ var _wasTrashEnabled = false;
 var _currentLogLevel = 'INFO';
 var _logLevelLoaded = false;
 
+// Refresh the Discovery access wrapper UI state based on current form values.
+// Extracted to avoid duplicated DOM manipulation in multiple event handlers.
+function refreshDiscoveryAccessState() {
+    var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
+    var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
+    var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+    var discEnabled = recsMode === 'Activate' && !!(seerrUrl && seerrKey);
+
+    var wrapper = document.getElementById('discoveryAccessWrapper');
+    if (wrapper) {
+        wrapper.style.opacity = discEnabled ? '' : '0.5';
+        wrapper.style.pointerEvents = discEnabled ? '' : 'none';
+    }
+    var chk = document.getElementById('cfgDiscoveryUserAccess');
+    if (chk) chk.disabled = !discEnabled;
+    var hint = document.querySelector('.discovery-access-disabled-hint');
+    if (hint) hint.style.display = discEnabled ? 'none' : '';
+    return discEnabled;
+}
+
 // Show/hide the Recommendations tab button+content based on TaskMode
 function updateRecsTabVisibility(taskMode) {
     var show = taskMode !== 'Deactivate';
@@ -716,18 +736,8 @@ function attachSeerrHandlers() {
                 doSaveSettings(payload, {quiet: true, element: document.getElementById('arrCollapsibleHeaderSeerr')});
                 // Enable previously greyed-out Seerr UI sections
                 updateSeerrUIState(true);
-                // Also refresh the Discovery wrapper (it depends on Seerr being configured)
-                var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
-                var discEnabled = recsMode === 'Activate';
-                var discWrapper = document.getElementById('discoveryAccessWrapper');
-                if (discWrapper) {
-                    discWrapper.style.opacity = discEnabled ? '' : '0.5';
-                    discWrapper.style.pointerEvents = discEnabled ? '' : 'none';
-                }
-                var discChk = document.getElementById('cfgDiscoveryUserAccess');
-                if (discChk) discChk.disabled = !discEnabled;
-                var discHint = document.querySelector('.discovery-access-disabled-hint');
-                if (discHint) discHint.style.display = discEnabled ? 'none' : '';
+                // Refresh the Discovery wrapper (depends on Seerr being configured)
+                refreshDiscoveryAccessState();
             } else {
                 _seerrTimer = showButtonFeedback(btn, false, escHtml(res.message || 'Failed'), originalHtml);
             }
@@ -836,19 +846,7 @@ function attachAutoSaveHandlers() {
                             if (hint) hint.style.display = isActive ? 'none' : '';
 
                             // Update discovery access toggle greyed-out state
-                            // (requires both Recs active AND Seerr configured)
-                            var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
-                            var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
-                            var discEnabled = isActive && !!(seerrUrl && seerrKey);
-                            var discWrapper = document.getElementById('discoveryAccessWrapper');
-                            if (discWrapper) {
-                                discWrapper.style.opacity = discEnabled ? '' : '0.5';
-                                discWrapper.style.pointerEvents = discEnabled ? '' : 'none';
-                            }
-                            var discChk = document.getElementById('cfgDiscoveryUserAccess');
-                            if (discChk) discChk.disabled = !discEnabled;
-                            var discHint = document.querySelector('.discovery-access-disabled-hint');
-                            if (discHint) discHint.style.display = discEnabled ? 'none' : '';
+                            refreshDiscoveryAccessState();
                             // Uncheck discovery when deactivating recommendations
                             if (!isActive && discChk) discChk.checked = false;
                         }

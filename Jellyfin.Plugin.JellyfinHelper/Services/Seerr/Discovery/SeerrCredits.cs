@@ -12,11 +12,11 @@ internal sealed class SeerrCredits
     ///     Gets or sets the cast list (actors).
     /// </summary>
     [JsonPropertyName("cast")]
-    public List<SeerrCastMember>? Cast { get; set; }
+    public List<SeerrCastMember> Cast { get; set; } = [];
 
     /// <summary>
     ///     Gets or sets the crew list (directors, writers, etc.).
     /// </summary>
     [JsonPropertyName("crew")]
-    public List<SeerrCrewMember>? Crew { get; set; }
+    public List<SeerrCrewMember> Crew { get; set; } = [];
 }

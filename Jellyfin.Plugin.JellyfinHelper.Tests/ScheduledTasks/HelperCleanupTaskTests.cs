@@ -24,6 +24,7 @@ public class HelperCleanupTaskTests : IDisposable
 {
     private readonly Mock<ILogger<HelperCleanupTask>> _loggerMock;
     private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
+    private readonly Mock<ISeerrDiscoveryService> _seerrDiscoveryServiceMock;
     private readonly HelperCleanupTask _task;
     private readonly string _testDataPath;
     private PluginConfiguration _config;
@@ -108,6 +109,8 @@ public class HelperCleanupTaskTests : IDisposable
         var recsCacheMock = new Mock<IRecommendationCacheService>();
         var playlistServiceMock = new Mock<IRecommendationPlaylistService>();
 
+        _seerrDiscoveryServiceMock = new Mock<ISeerrDiscoveryService>();
+
         _task = new HelperCleanupTask(
             libraryManagerMock.Object,
             fileSystemMock.Object,
@@ -126,7 +129,7 @@ public class HelperCleanupTaskTests : IDisposable
             recsEngineMock.Object,
             recsCacheMock.Object,
             playlistServiceMock.Object,
-            new Mock<ISeerrDiscoveryService>().Object);
+            _seerrDiscoveryServiceMock.Object);
     }
 
     public void Dispose()

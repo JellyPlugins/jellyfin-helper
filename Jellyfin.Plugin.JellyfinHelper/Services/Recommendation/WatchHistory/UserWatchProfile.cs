@@ -122,9 +122,15 @@ public sealed class UserWatchProfile
     public Dictionary<string, LanguageProfileEntry> LanguageProfile
     {
         get => _languageProfile;
-        set => _languageProfile = value is null
-            ? new Dictionary<string, LanguageProfileEntry>(StringComparer.OrdinalIgnoreCase)
-            : new Dictionary<string, LanguageProfileEntry>(value, StringComparer.OrdinalIgnoreCase);
+        set
+        {
+            _languageProfile = value is null
+                ? new Dictionary<string, LanguageProfileEntry>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, LanguageProfileEntry>(value, StringComparer.OrdinalIgnoreCase);
+            _primaryLanguage = null; // invalidate cache
+            _preferredLanguages = null;
+            _toleratedLanguages = null;
+        }
     }
 
     /// <summary>
@@ -168,9 +174,15 @@ public sealed class UserWatchProfile
     public Dictionary<string, LanguageProfileEntry> SubtitleLanguageProfile
     {
         get => _subtitleLanguageProfile;
-        set => _subtitleLanguageProfile = value is null
-            ? new Dictionary<string, LanguageProfileEntry>(StringComparer.OrdinalIgnoreCase)
-            : new Dictionary<string, LanguageProfileEntry>(value, StringComparer.OrdinalIgnoreCase);
+        set
+        {
+            _subtitleLanguageProfile = value is null
+                ? new Dictionary<string, LanguageProfileEntry>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, LanguageProfileEntry>(value, StringComparer.OrdinalIgnoreCase);
+            _primarySubtitleLanguage = null; // invalidate cache
+            _preferredSubtitleLanguages = null;
+            _toleratedSubtitleLanguages = null;
+        }
     }
 
     /// <summary>
@@ -216,9 +228,13 @@ public sealed class UserWatchProfile
     public Dictionary<string, int> PeopleProfile
     {
         get => _peopleProfile;
-        set => _peopleProfile = value is null
-            ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
-            : new Dictionary<string, int>(value, StringComparer.OrdinalIgnoreCase);
+        set
+        {
+            _peopleProfile = value is null
+                ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, int>(value, StringComparer.OrdinalIgnoreCase);
+            _topPeople = null; // invalidate cache
+        }
     }
 
     /// <summary>

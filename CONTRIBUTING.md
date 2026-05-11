@@ -265,6 +265,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── Link/                    # .strm/symlink repair
 │   ├── PluginLog/               # Structured plugin logging
 │   ├── FileTransformation/      # File Transformation plugin integration
+│   │   ├── DiscoveryScriptTag.cs     # Shared script tag builder + removal regex (single source of truth)
 │   │   ├── PatchRequestPayload.cs    # Payload model for transformation callbacks
 │   │   └── TransformationPatches.cs  # index.html script injection (on-the-fly via File Transformation plugin)
 │   ├── Seerr/                   # Jellyseerr/Overseerr integration

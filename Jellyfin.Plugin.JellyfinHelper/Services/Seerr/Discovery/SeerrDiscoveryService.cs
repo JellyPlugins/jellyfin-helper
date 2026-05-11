@@ -263,7 +263,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 $"Invalid Seerr configuration: {ex.Message}",
                 ex,
                 _logger);
-            return (false, $"Invalid Seerr configuration: {ex.Message}");
+            return (false, "Invalid Seerr configuration.");
         }
 
         using (client)
@@ -340,7 +340,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     $"Request timed out for TMDb#{tmdbId}",
                     ex,
                     _logger);
-                return (false, $"Request timed out: {ex.Message}");
+                return (false, "Request timed out.");
             }
             catch (Exception ex) when (ex is HttpRequestException or TimeoutException or JsonException)
             {
@@ -349,7 +349,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     $"Request failed for TMDb#{tmdbId}: {ex.Message}",
                     ex,
                     _logger);
-                return (false, $"Request failed: {ex.Message}");
+                return (false, "Request failed.");
             }
         }
     }

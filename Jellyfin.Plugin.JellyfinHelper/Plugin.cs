@@ -205,12 +205,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogDebug("[Discovery Sidebar] index.html found, reading content...");
             var originalContent = File.ReadAllText(indexPath);
             var content = originalContent;
-            const string scriptUrl = "../JellyfinHelper/Discovery/My/script";
-            var scriptTag = $"<script plugin=\"{Name}\" version=\"{Version}\" src=\"{scriptUrl}\" defer></script>";
-            var regex = new Regex($"<script[^>]*plugin=[\"']{Regex.Escape(Name)}[\"'][^>]*>\\s*</script>\\n?");
+            var scriptTag = DiscoveryScriptTag.Build(Version.ToString());
 
             // Remove any old versions of the script tag first
-            content = regex.Replace(content, string.Empty);
+            content = DiscoveryScriptTag.RemovalRegex.Replace(content, string.Empty);
 
             if (inject)
             {

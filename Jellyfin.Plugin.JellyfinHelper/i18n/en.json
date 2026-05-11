@@ -319,5 +319,6 @@
   "discoverySetupHintAlreadyInstalled": "Plugins already installed?",
   "discoverySetupHintConfigureLink": "Configure Custom Tabs →",
   "discoveryCopySnippet": "Copy",
-  "discoveryCopied": "Copied!"
+  "discoveryCopied": "Copied!",
+  "discoveryProfileDefault": "default"
 }

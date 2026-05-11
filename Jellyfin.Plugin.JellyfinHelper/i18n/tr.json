@@ -292,7 +292,7 @@
   "recsAndMore": "ve {0} daha…",
   "discoveryTitle": "Yeni İçerik Keşfet",
   "discoveryConfigureSeerr": "Kişiselleştirilmiş indirme önerileri görmek için Ayarlar sekmesinde Seerr'ı yapılandırın.",
-  "discoveryDisabled": "Öneriler oluşturmak için Ayarlar'da Seerr Discovery'yi etkinleştirin.",
+  "discoveryDisabled": "Discovery etkin değil. Lütfen sunucu yöneticinizden Jellyfin Helper ayarlarında bu özelliği etkinleştirmesini isteyin.",
   "discoveryNoResults": "Henüz öneri mevcut değil. Sonuçlar bir sonraki zamanlanmış görev çalıştırıldıktan sonra görünecektir.",
   "discoveryLoadError": "Keşif önerileri yüklenemedi.",
   "discoveryGeneratedAt": "Son güncelleme",
@@ -319,5 +319,6 @@
   "discoverySetupHintAlreadyInstalled": "Eklentiler zaten yüklü mü?",
   "discoverySetupHintConfigureLink": "Custom Tabs'ı yapılandır →",
   "discoveryCopySnippet": "Kopyala",
-  "discoveryCopied": "Kopyalandı!"
+  "discoveryCopied": "Kopyalandı!",
+  "discoveryProfileDefault": "varsayılan"
 }

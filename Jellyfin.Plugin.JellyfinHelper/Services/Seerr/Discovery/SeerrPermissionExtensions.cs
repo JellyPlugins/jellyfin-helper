@@ -55,9 +55,18 @@ public static class SeerrPermissionExtensions
         }
 
         // Granular per-type permissions
-        return string.Equals(mediaType, "movie", StringComparison.OrdinalIgnoreCase)
-            ? user.HasPermission(SeerrPermissions.RequestMovie)
-            : user.HasPermission(SeerrPermissions.RequestTv);
+        if (string.Equals(mediaType, "movie", StringComparison.OrdinalIgnoreCase))
+        {
+            return user.HasPermission(SeerrPermissions.RequestMovie);
+        }
+
+        if (string.Equals(mediaType, "tv", StringComparison.OrdinalIgnoreCase))
+        {
+            return user.HasPermission(SeerrPermissions.RequestTv);
+        }
+
+        // Unknown media type — deny by default (defense in depth)
+        return false;
     }
 
     /// <summary>

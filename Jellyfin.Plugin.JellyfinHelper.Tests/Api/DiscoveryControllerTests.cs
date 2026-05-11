@@ -12,13 +12,21 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 public class DiscoveryControllerTests
 {
-    private static DiscoveryController CreateController(Mock<ISeerrDiscoveryService>? discovery = null)
+    private readonly Mock<ISeerrDiscoveryService> _discoveryMock;
+    private readonly DiscoveryCacheService _cache;
+
+    public DiscoveryControllerTests()
     {
         var pluginLog = new Mock<IPluginLogService>();
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
-        var cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
-        var disc = discovery ?? new Mock<ISeerrDiscoveryService>();
-        return new DiscoveryController(cache, disc.Object);
+        _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
+        _discoveryMock = new Mock<ISeerrDiscoveryService>();
+    }
+
+    private DiscoveryController CreateController(Mock<ISeerrDiscoveryService>? discovery = null)
+    {
+        var disc = discovery ?? _discoveryMock;
+        return new DiscoveryController(_cache, disc.Object);
     }
 
     [Fact]
