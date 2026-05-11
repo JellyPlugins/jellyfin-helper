@@ -305,7 +305,7 @@
   "discoverySelectQualityProfileDesc": "Choisissez le profil de qualité à utiliser pour le téléchargement :",
   "discoveryCancel": "Annuler",
   "discoveryUserAccess": "Autoriser les utilisateurs à voir Discovery et soumettre des demandes",
-  "discoveryUserAccessHelp": "Lorsque activé, les utilisateurs non-administrateurs peuvent voir des suggestions personnalisées et demander des médias via la page Seerr Discovery.",
+  "discoveryUserAccessHelp": "Lorsqu'elle est activée, les utilisateurs non-administrateurs peuvent voir des suggestions personnalisées et demander des médias via la page Seerr Discovery.",
   "discoveryAccessDisabledHint": "Nécessite que Recommandations soit activé et Seerr configuré.",
   "discoveryUserNotLinked": "Votre compte Jellyfin n'est pas lié à un compte Seerr. Veuillez contacter votre administrateur.",
   "discoverySetupHintTitle": "Instructions de configuration",
@@ -323,5 +323,11 @@
   "discoveryCopied": "Copié !",
   "discoveryProfileDefault": "par défaut",
   "discoveryNoPermission": "Vous n'avez pas la permission de soumettre des demandes. Veuillez contacter votre administrateur.",
-  "discoveryRequestError": "La demande n'a pas pu être traitée. Veuillez réessayer plus tard."
+  "discoveryRequestError": "La demande n'a pas pu être traitée. Veuillez réessayer plus tard.",
+  "discoveryDismiss": "Pas intéressé",
+  "discoveryDismissConfirmTitle": "Ignorer cette suggestion ?",
+  "discoveryDismissConfirmText": "{0} sera masqué des suggestions futures et ne sera plus affiché.",
+  "discoveryDismissConfirmGeneric": "Cet élément sera masqué des suggestions futures.",
+  "discoveryDismissConfirm": "Oui, ignorer",
+  "discoveryDismissError": "Impossible d'ignorer cet élément. Veuillez réessayer."
 }

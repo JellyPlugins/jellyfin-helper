@@ -323,5 +323,11 @@
   "discoveryCopied": "Copied!",
   "discoveryProfileDefault": "default",
   "discoveryNoPermission": "You do not have permission to submit requests. Please contact your server administrator.",
-  "discoveryRequestError": "The request could not be processed. Please try again later."
+  "discoveryRequestError": "The request could not be processed. Please try again later.",
+  "discoveryDismiss": "Not interested",
+  "discoveryDismissConfirmTitle": "Dismiss suggestion?",
+  "discoveryDismissConfirmText": "{0} Will be hidden from future suggestions. It won't be shown again.",
+  "discoveryDismissConfirmGeneric": "This item will be hidden from future suggestions.",
+  "discoveryDismissConfirm": "Yes, dismiss",
+  "discoveryDismissError": "Could not dismiss this item. Please try again."
 }
