@@ -182,7 +182,7 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Gets or sets the minimum alpha value for the ensemble scoring strategy.
     ///     Controls the lower bound of learned model blending (0-1). Default is 0.3.
     ///     Out-of-range values are clamped to [0, 1].
-    ///     The min le max invariant is enforced by <see cref="NormalizeAlphaRange"/>
+    ///     The min ≤ max invariant is enforced by <see cref="NormalizeAlphaRange"/>
     ///     after deserialization, not by the setter, to avoid XML element-order dependency.
     /// </summary>
     public double EnsembleAlphaMin
@@ -195,7 +195,7 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Gets or sets the maximum alpha value for the ensemble scoring strategy.
     ///     Controls the upper bound of learned model blending (0-1). Default is 0.75.
     ///     Out-of-range values are clamped to [0, 1].
-    ///     The min le max invariant is enforced by <see cref="NormalizeAlphaRange"/>
+    ///     The min ≤ max invariant is enforced by <see cref="NormalizeAlphaRange"/>
     ///     after deserialization, not by the setter, to avoid XML element-order dependency.
     /// </summary>
     public double EnsembleAlphaMax
@@ -238,7 +238,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public DateTime LastCleanupTimestamp { get; set; } = DateTime.MinValue;
 
     /// <summary>
-    ///     Normalizes the alpha range to ensure <see cref="EnsembleAlphaMin"/> le <see cref="EnsembleAlphaMax"/>
+    ///     Normalizes the alpha range to ensure <see cref="EnsembleAlphaMin"/> ≤ <see cref="EnsembleAlphaMax"/>
     ///     regardless of property setter invocation order during XML deserialization.
     ///     <see cref="System.Xml.Serialization.XmlSerializer"/> does not guarantee property order,
     ///     so a persisted config with Min=0.8 and Max=0.6 could produce different final values
@@ -248,7 +248,7 @@ public class PluginConfiguration : BasePluginConfiguration
     {
         if (_ensembleAlphaMin > _ensembleAlphaMax)
         {
-            // Swap so that min le max
+            // Swap so that min ≤ max
             (_ensembleAlphaMin, _ensembleAlphaMax) = (_ensembleAlphaMax, _ensembleAlphaMin);
         }
     }

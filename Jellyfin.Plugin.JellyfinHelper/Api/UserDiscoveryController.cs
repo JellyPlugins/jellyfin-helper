@@ -367,7 +367,7 @@ public sealed class UserDiscoveryController : ControllerBase
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            // Best-effort feedback recording.
+            _logger.LogWarning(ex, "[Discovery] Failed to record requested item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, mediaType, currentJellyfinUserId);
         }
 
         return Ok(new RequestResult { Success = true, Message = message });
@@ -419,7 +419,7 @@ public sealed class UserDiscoveryController : ControllerBase
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            // Best-effort feedback recording.
+            _logger.LogWarning(ex, "[Discovery] Failed to record dismissed item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, mediaType, currentUserId);
         }
 
         return Ok(new RequestResult { Success = true, Message = "Item dismissed." });

@@ -306,7 +306,7 @@
   "discoveryCancel": "Annuler",
   "discoveryUserAccess": "Autoriser les utilisateurs à voir Discovery et soumettre des demandes",
   "discoveryUserAccessHelp": "Lorsqu'elle est activée, les utilisateurs non-administrateurs peuvent voir des suggestions personnalisées et demander des médias via la page Seerr Discovery.",
-  "discoveryAccessDisabledHint": "Nécessite que Recommandations soit activé et Seerr configuré.",
+  "discoveryAccessDisabledHint": "Nécessite que la fonction Recommandations soit activée et Seerr configuré.",
   "discoveryUserNotLinked": "Votre compte Jellyfin n'est pas lié à un compte Seerr. Veuillez contacter votre administrateur.",
   "discoverySetupHintTitle": "Instructions de configuration",
   "discoverySetupHint1": "Installez les deux plugins suivants :",

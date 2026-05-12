@@ -208,4 +208,70 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Single(result!.Entries);
         Assert.Equal("Original", result.Entries[0].Title);
     }
+
+    [Fact]
+    public void RecordDismissed_MixedCaseMediaType_NormalizesToLowercase()
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        // Show an item with lowercase media type
+        var items = new List<DiscoveryRecommendation>
+        {
+            new() { TmdbId = 999, MediaType = "movie", Title = "Test Movie" }
+        };
+        store.RecordShown(userId, "TestUser", items);
+
+        // Dismiss with mixed-case media type — should still match
+        store.RecordDismissed(userId, 999, "Movie");
+
+        var result = store.LoadForUser(userId);
+        Assert.NotNull(result);
+        Assert.Single(result!.Entries);
+        Assert.NotNull(result.Entries[0].DismissedAtUtc);
+    }
+
+    [Fact]
+    public void RecordRequested_MixedCaseMediaType_NormalizesToLowercase()
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        // Show an item with lowercase media type
+        var items = new List<DiscoveryRecommendation>
+        {
+            new() { TmdbId = 888, MediaType = "tv", Title = "Test TV" }
+        };
+        store.RecordShown(userId, "TestUser", items);
+
+        // Request with uppercase media type — should still match
+        store.RecordRequested(userId, 888, "TV");
+
+        var result = store.LoadForUser(userId);
+        Assert.NotNull(result);
+        Assert.Single(result!.Entries);
+        Assert.NotNull(result.Entries[0].RequestedAtUtc);
+    }
+
+    [Fact]
+    public void RecordDismissed_WhitespaceMediaType_NormalizesCorrectly()
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        // Show an item
+        var items = new List<DiscoveryRecommendation>
+        {
+            new() { TmdbId = 777, MediaType = "movie", Title = "Whitespace Test" }
+        };
+        store.RecordShown(userId, "TestUser", items);
+
+        // Dismiss with whitespace-padded media type — should still match after normalization
+        store.RecordDismissed(userId, 777, " movie ");
+
+        var result = store.LoadForUser(userId);
+        Assert.NotNull(result);
+        Assert.Single(result!.Entries);
+        Assert.NotNull(result.Entries[0].DismissedAtUtc);
+    }
 }
