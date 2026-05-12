@@ -149,13 +149,13 @@ public sealed class Engine : IRecommendationEngine
             {
                 var watched = new HashSet<Guid>(
                     profile.WatchedItems
-                        .Where(w => w.Played || w.IsFavorite)
+                        .Where(w => w.HasMeaningfulInteraction())
                         .Select(w => w.ItemId));
 
                 // Add series-level IDs so series recommendations match episode watches
                 foreach (var w in profile.WatchedItems)
                 {
-                    if (w.SeriesId.HasValue && (w.Played || w.IsFavorite))
+                    if (w.SeriesId.HasValue && w.HasMeaningfulInteraction())
                     {
                         watched.Add(w.SeriesId.Value);
                     }

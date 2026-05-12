@@ -883,7 +883,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
         }
 
-        return freshUsers;
+        // Return empty list for incomplete fetches so callers stay on the retriable
+        // "temporarily unavailable" path instead of consuming truncated data that would
+        // incorrectly mark users on unfetched pages as "not linked to Seerr".
+        return complete ? freshUsers : [];
     }
 
     private async Task<DiscoveryResult?> GenerateForUserAsync(

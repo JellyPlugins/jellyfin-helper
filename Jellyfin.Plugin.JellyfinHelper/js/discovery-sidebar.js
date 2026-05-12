@@ -5,6 +5,13 @@
 (function () {
     'use strict';
 
+    // Guard against double initialization (e.g., duplicate script tag injection
+    // from stale fallback writes or concurrent transformation registrations).
+    if (window.__jfhDiscoverySidebarInitialized) {
+        return;
+    }
+    window.__jfhDiscoverySidebarInitialized = true;
+
     var CUSTOM_TAB_SELECTOR = '.jellyfinhelper.discovery';
     var SECTION_CLASS = 'jellyfinHelperSection';
     var NAV_ITEM_CLASS = 'jfhelper-nav-discovery';
