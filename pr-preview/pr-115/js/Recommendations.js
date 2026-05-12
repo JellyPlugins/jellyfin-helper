@@ -399,10 +399,12 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
     html += '</div>';
     if (userDiscovery.GeneratedAt) {
         var genDate = new Date(userDiscovery.GeneratedAt);
-        html += '<div class="discovery-footer">' +
-            T('discoveryGeneratedAt', 'Last updated') + ': ' +
-            genDate.toLocaleDateString() + ' ' + genDate.toLocaleTimeString() +
-            '</div>';
+        if (!isNaN(genDate.getTime())) {
+            html += '<div class="discovery-footer">' +
+                T('discoveryGeneratedAt', 'Last updated') + ': ' +
+                genDate.toLocaleDateString() + ' ' + genDate.toLocaleTimeString() +
+                '</div>';
+        }
     }
     grid.innerHTML = html;
 
@@ -450,7 +452,9 @@ function renderDiscoveryCard(rec, index) {
 
     var reasonText = rec.ReasonKey ? T(rec.ReasonKey, rec.Reason || '') : (rec.Reason || '');
     if (rec.RelatedInfo) {
-        reasonText = reasonText.replace(/\{0\}/g, rec.RelatedInfo);
+        // Use function form to prevent $& / $' / $` substitution patterns in RelatedInfo
+        // from being interpreted as replacement directives.
+        reasonText = reasonText.replace(/\{0\}/g, function () { return rec.RelatedInfo; });
     }
     if (reasonText) {
         html += '<div class="discovery-card-reason">' + escHtml(reasonText) + '</div>';
