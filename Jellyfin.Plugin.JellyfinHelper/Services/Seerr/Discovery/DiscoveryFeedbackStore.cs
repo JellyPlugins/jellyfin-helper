@@ -161,13 +161,14 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 data.Add(userResult);
             }
 
-            var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId && e.MediaType == mediaType);
+            var normalizedType = NormalizeMediaType(mediaType);
+            var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId && e.MediaType == normalizedType);
             if (entry == null)
             {
                 entry = new DiscoveryFeedbackEntry
                 {
                     TmdbId = tmdbId,
-                    MediaType = mediaType,
+                    MediaType = normalizedType,
                     ShownAtUtc = DateTime.UtcNow
                 };
                 userResult.Entries.Add(entry);
@@ -197,13 +198,14 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 data.Add(userResult);
             }
 
-            var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId && e.MediaType == mediaType);
+            var normalizedType = NormalizeMediaType(mediaType);
+            var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId && e.MediaType == normalizedType);
             if (entry == null)
             {
                 entry = new DiscoveryFeedbackEntry
                 {
                     TmdbId = tmdbId,
-                    MediaType = mediaType,
+                    MediaType = normalizedType,
                     ShownAtUtc = DateTime.UtcNow
                 };
                 userResult.Entries.Add(entry);
@@ -475,6 +477,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         data.Add(newResult);
         return newResult;
     }
+
+    /// <summary>
+    ///     Normalizes a media type string to lowercase for consistent lookup/dedup.
+    ///     Defensive: handles null/whitespace gracefully.
+    /// </summary>
+    private static string NormalizeMediaType(string? mediaType) =>
+        string.IsNullOrWhiteSpace(mediaType) ? string.Empty : mediaType.Trim().ToLowerInvariant();
 
     private void TryDeleteFile()
     {

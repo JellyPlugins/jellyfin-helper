@@ -307,9 +307,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     ["is4k"] = false
                 };
 
-                // For TV requests, omit "seasons" entirely. Overseerr/Jellyseerr
-                // auto-requests all available seasons when the key is absent.
-                // Sending "all" as a string is not a valid API format.
+                // For TV requests, include "seasons": "all" to request all available seasons.
+                // Jellyseerr/Overseerr requires the seasons field to be present for TV requests;
+                // omitting it causes a server-side crash ("Cannot read properties of undefined
+                // (reading 'filter')") because the backend assumes seasons is always defined.
+                // The string "all" is the canonical way to request all seasons in Overseerr API v1.
+                if (mediaType == "tv")
+                {
+                    payloadDict["seasons"] = "all";
+                }
 
                 if (seerrUserId is > 0)
                 {
@@ -358,11 +364,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     null,
                     _logger);
 
-                // Include a truncated excerpt of the Seerr error body in the client-facing message
-                // so admins can diagnose server-side issues (e.g., missing Sonarr anime configuration)
-                // without having to check the Seerr server logs separately.
-                var detail = string.IsNullOrWhiteSpace(body) ? string.Empty : $" {body[..Math.Min(body.Length, 200)]}";
-                return (false, $"Seerr returned HTTP {(int)response.StatusCode}.{detail}");
+                // The full error body is already logged above for admin diagnostics.
+                // Only return a generic status code to the client to avoid leaking
+                // internal Seerr server details (hostnames, config paths, stack traces).
+                return (false, $"Seerr returned HTTP {(int)response.StatusCode}. Check the plugin log for details.");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

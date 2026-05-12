@@ -76,18 +76,20 @@ public class UserDiscoveryControllerTests
     }
 
     [Fact]
-    public async Task SubmitMyRequest_InvalidTmdbId_ReturnsBadRequest()
+    public async Task SubmitMyRequest_InvalidTmdbId_Returns403WhenAccessDisabled()
     {
+        // Note: Validation branches (400) cannot be reached in unit tests because
+        // Plugin.Instance is null → IsDiscoveryUserAccessEnabled() always returns false.
+        // The access gate correctly fires first, which is the expected security behavior.
         var controller = CreateController(Guid.NewGuid());
         var dto = new DiscoveryRequestDto { TmdbId = 0, MediaType = "movie" };
         var result = await controller.SubmitMyRequest(dto, CancellationToken.None);
         var statusResult = Assert.IsType<ObjectResult>(result.Result);
-        // 403 because DiscoveryUserAccessEnabled is false in test context
         Assert.Equal(403, statusResult.StatusCode);
     }
 
     [Fact]
-    public async Task SubmitMyRequest_InvalidMediaType_ReturnsBadRequest()
+    public async Task SubmitMyRequest_InvalidMediaType_Returns403WhenAccessDisabled()
     {
         var controller = CreateController(Guid.NewGuid());
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "invalid" };
@@ -97,7 +99,7 @@ public class UserDiscoveryControllerTests
     }
 
     [Fact]
-    public async Task SubmitMyRequest_RootFolderPathTraversal_ReturnsBadRequest()
+    public async Task SubmitMyRequest_RootFolderPathTraversal_Returns403WhenAccessDisabled()
     {
         var controller = CreateController(Guid.NewGuid());
         var dto = new DiscoveryRequestDto
@@ -108,12 +110,11 @@ public class UserDiscoveryControllerTests
         };
         var result = await controller.SubmitMyRequest(dto, CancellationToken.None);
         var statusResult = Assert.IsType<ObjectResult>(result.Result);
-        // 403 first because DiscoveryUserAccessEnabled is false
         Assert.Equal(403, statusResult.StatusCode);
     }
 
     [Fact]
-    public async Task SubmitMyRequest_RootFolderControlChars_ReturnsBadRequest()
+    public async Task SubmitMyRequest_RootFolderControlChars_Returns403WhenAccessDisabled()
     {
         var controller = CreateController(Guid.NewGuid());
         var dto = new DiscoveryRequestDto
@@ -128,7 +129,7 @@ public class UserDiscoveryControllerTests
     }
 
     [Fact]
-    public async Task SubmitMyRequest_RootFolderTilde_ReturnsBadRequest()
+    public async Task SubmitMyRequest_RootFolderTilde_Returns403WhenAccessDisabled()
     {
         var controller = CreateController(Guid.NewGuid());
         var dto = new DiscoveryRequestDto
@@ -200,11 +201,13 @@ public class UserDiscoveryControllerTests
     }
 
     [Fact]
-    public void GetScript_ReturnsFileOrNotFound()
+    public void GetScript_ReturnsEmbeddedJavaScriptFile()
     {
         var controller = CreateController(Guid.NewGuid());
         var result = controller.GetScript();
-        // Should either return the embedded JS file or 404 if resource not found
-        Assert.True(result is FileStreamResult || result is NotFoundResult);
+        // The embedded resource must always be present in a correctly built assembly.
+        // Accepting NotFound here would mask broken resource embedding in CI.
+        var fileResult = Assert.IsType<FileStreamResult>(result);
+        Assert.Equal("text/javascript", fileResult.ContentType);
     }
 }
