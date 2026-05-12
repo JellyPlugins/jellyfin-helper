@@ -183,8 +183,13 @@ public sealed class UserDiscoveryController : ControllerBase
             return Ok(Array.Empty<SeerrServiceInfo>());
         }
 
+        // Return only the servers and profiles this user is permitted to use.
+        // GetUserRequestPermissionsAsync already evaluates CanSelectQualityProfile —
+        // normal users get only default profiles, advanced users get all profiles.
+        // This prevents non-advanced users from enumerating the full Seerr topology.
         var services = await _discovery.GetServiceInfoAsync(serviceType, cancellationToken).ConfigureAwait(false);
-        return Ok(services);
+        var filteredServices = FilterServicesByAllowedProfiles(services, permissions.Profiles);
+        return Ok(filteredServices);
     }
 
     /// <summary>
@@ -413,6 +418,60 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         return Ok(new RequestResult { Success = true, Message = "Item dismissed." });
+    }
+
+    /// <summary>
+    ///     Filters the full service info list to only include servers and profiles
+    ///     that appear in the user's allowed profile list.
+    ///     This ensures non-advanced users cannot enumerate the full Seerr topology
+    ///     (servers, profiles, root folders) beyond what they are permitted to use.
+    /// </summary>
+    /// <param name="services">The complete service info from Seerr.</param>
+    /// <param name="allowedProfiles">The user's permitted profiles (pre-evaluated by permission logic).</param>
+    /// <returns>A filtered list containing only the servers and profiles the user may access.</returns>
+    private static List<SeerrServiceInfo> FilterServicesByAllowedProfiles(
+        IReadOnlyList<SeerrServiceInfo> services,
+        IReadOnlyList<AllowedQualityProfile> allowedProfiles)
+    {
+        // If the permission evaluation returned no profiles, the user should submit
+        // with server defaults — return an empty list so the frontend skips the popup.
+        if (allowedProfiles.Count == 0)
+        {
+            return [];
+        }
+
+        // Build a lookup of allowed (ServerId, ProfileId) pairs for O(1) membership checks.
+        var allowedKeys = new HashSet<(int ServerId, int ProfileId)>(
+            allowedProfiles.Select(p => (p.ServerId, p.ProfileId)));
+
+        var result = new List<SeerrServiceInfo>();
+        foreach (var service in services)
+        {
+            // Only include profiles that are in the user's allowed set for this server.
+            var filteredProfiles = service.Profiles
+                .Where(p => allowedKeys.Contains((service.Id, p.Id)))
+                .ToList();
+
+            if (filteredProfiles.Count == 0)
+            {
+                continue;
+            }
+
+            // Return a projection with only the allowed profiles — do not expose the full list.
+            result.Add(new SeerrServiceInfo
+            {
+                Id = service.Id,
+                Name = service.Name,
+                IsDefault = service.IsDefault,
+                Is4k = service.Is4k,
+                ActiveProfileId = service.ActiveProfileId,
+                ActiveDirectory = service.ActiveDirectory,
+                Profiles = new System.Collections.ObjectModel.Collection<SeerrQualityProfile>(filteredProfiles),
+                RootFolders = service.RootFolders
+            });
+        }
+
+        return result;
     }
 
     /// <summary>

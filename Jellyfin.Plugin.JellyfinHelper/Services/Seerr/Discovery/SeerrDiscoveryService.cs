@@ -1309,7 +1309,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 continue;
             }
 
-            if (excludedTmdbIds.Contains((candidate.Id, candidate.MediaType ?? "movie")))
+            var mediaTypeKey = (candidate.MediaType ?? "movie").ToLowerInvariant();
+            if (excludedTmdbIds.Contains((candidate.Id, mediaTypeKey)))
             {
                 continue;
             }
@@ -1319,7 +1320,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 continue;
             }
 
-            if (!seen.Add((candidate.Id, candidate.MediaType ?? "movie")))
+            if (!seen.Add((candidate.Id, mediaTypeKey)))
             {
                 continue;
             }

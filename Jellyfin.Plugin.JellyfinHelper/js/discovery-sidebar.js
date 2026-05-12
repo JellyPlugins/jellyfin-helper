@@ -23,14 +23,16 @@
     var TOAST_DURATION_MS = 5000;
 
     var _waitForApiRetries = 0;
-    var MAX_API_RETRIES = 60; // 30 seconds max wait
+    var MAX_FAST_RETRIES = 60; // 30 seconds at 500ms intervals (fast polling)
+    var SLOW_POLL_INTERVAL = 3000; // After fast phase: poll every 3 seconds
 
     function waitForApi(callback) {
         if (typeof ApiClient === 'undefined' || !ApiClient.getCurrentUserId || !ApiClient.getCurrentUserId()) {
-            if (++_waitForApiRetries > MAX_API_RETRIES) {
-                return; // Bail out — user is likely on a login/auth page
-            }
-            setTimeout(function () { waitForApi(callback); }, 500);
+            _waitForApiRetries++;
+            // Fast polling (500ms) for the first 30 seconds, then switch to slow polling (3s).
+            // This handles both quick page loads and delayed logins without permanent bail-out.
+            var delay = _waitForApiRetries <= MAX_FAST_RETRIES ? 500 : SLOW_POLL_INTERVAL;
+            setTimeout(function () { waitForApi(callback); }, delay);
             return;
         }
         callback();

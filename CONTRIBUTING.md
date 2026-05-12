@@ -417,7 +417,7 @@ Plugin starts → Plugin.InjectScript()
     ┌─── File Transformation plugin available? ───┐
     │ YES                                         │ NO
     │ Register callback via reflection            │ Direct index.html write
-    │ (no filesystem write needed)                │ (fallback for non-Docker)
+    │ (no filesystem write needed)                │ (requires writable filesystem)
     └─────────────────────────────────────────────┘
                     ↓
     index.html serves <script src="/JellyfinHelper/Discovery/My/script">

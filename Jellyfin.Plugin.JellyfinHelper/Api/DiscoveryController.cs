@@ -54,7 +54,7 @@ public sealed class DiscoveryController : ControllerBase
         {
             var excluded = BuildExcludedItemKeys(userResult.UserId);
             var visible = userResult.Recommendations
-                .Where(r => !r.AlreadyRequested && !excluded.Contains((r.TmdbId, r.MediaType)))
+                .Where(r => !r.AlreadyRequested && !excluded.Contains((r.TmdbId, r.MediaType?.ToLowerInvariant() ?? "movie")))
                 .Take(SeerrDiscoveryService.MaxVisiblePerUser)
                 .ToList();
 
