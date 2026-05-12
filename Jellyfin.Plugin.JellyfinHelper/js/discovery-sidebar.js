@@ -134,6 +134,28 @@
         return '';
     }
 
+    /**
+     * Maps a raw server error message to a short, user-friendly i18n toast message.
+     * Inspects the message text for HTTP status codes and returns an appropriate translation.
+     * Always returns a non-empty string (falls back to generic error).
+     *
+     * @param {string} serverMessage - The raw message from the API response body.
+     * @returns {string} A short, localized message suitable for a toast notification.
+     */
+    function getUserFriendlyErrorMessage(serverMessage) {
+        var msg = (serverMessage || '').toLowerCase();
+        if (msg.indexOf('http 403') !== -1 || msg.indexOf('not linked') !== -1 || msg.indexOf('no permission') !== -1) {
+            return t('discoveryErrNoPermission', 'No permission. Contact your admin.');
+        }
+        if (msg.indexOf('http 5') !== -1 || msg.indexOf('unreachable') !== -1) {
+            return t('discoveryErrServerUnavailable', 'Server unreachable. Try again later.');
+        }
+        if (msg.indexOf('timed out') !== -1 || msg.indexOf('timeout') !== -1) {
+            return t('discoveryErrTimeout', 'Timed out. Try again later.');
+        }
+        return t('discoveryErrGeneric', 'Request failed. Try again later.');
+    }
+
     // ===== STYLES =====
     function injectStyles() {
         if (document.getElementById('jfhelper-discovery-styles')) return;
@@ -505,18 +527,14 @@
             } else {
                 btn.textContent = t('discoveryRequestFailed', 'Failed');
                 btn.classList.add('jfh-discovery-btn-failed');
-                if (result && result.Message) {
-                    showToast(result.Message);
-                }
+                showToast(getUserFriendlyErrorMessage(result && result.Message));
                 setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; }, 3000);
             }
         }).catch(function (err) {
             btn.textContent = t('discoveryRequestFailed', 'Failed');
             btn.classList.add('jfh-discovery-btn-failed');
             var serverMessage = extractErrorMessage(err);
-            if (serverMessage) {
-                showToast(serverMessage);
-            }
+            showToast(getUserFriendlyErrorMessage(serverMessage));
             setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; }, 3000);
         });
     }

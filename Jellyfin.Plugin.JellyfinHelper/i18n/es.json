@@ -330,5 +330,9 @@
   "discoveryDismissConfirmGeneric": "Este elemento se ocultará de futuras sugerencias.",
   "discoveryDismissConfirm": "Sí, descartar",
   "discoveryDismissError": "No se pudo descartar este elemento. Por favor, inténtalo de nuevo.",
-  "discoveryTabNotFound": "No se pudo encontrar la pestaña Discovery. Asegúrate de que el plugin Custom Tabs esté instalado o contacta al administrador de tu servidor."
+  "discoveryTabNotFound": "No se pudo encontrar la pestaña Discovery. Asegúrate de que el plugin Custom Tabs esté instalado o contacta al administrador de tu servidor.",
+  "discoveryErrNoPermission": "Sin permiso. Contacta a tu admin.",
+  "discoveryErrServerUnavailable": "Servidor no disponible. Inténtalo más tarde.",
+  "discoveryErrTimeout": "Tiempo agotado. Inténtalo más tarde.",
+  "discoveryErrGeneric": "Solicitud fallida. Inténtalo más tarde."
 }

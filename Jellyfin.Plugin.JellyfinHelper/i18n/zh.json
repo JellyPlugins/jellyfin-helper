@@ -330,5 +330,9 @@
   "discoveryDismissConfirmGeneric": "此项目将从未来的建议中隐藏。",
   "discoveryDismissConfirm": "是的，忽略",
   "discoveryDismissError": "无法忽略此项目。请重试。",
-  "discoveryTabNotFound": "找不到 Discovery 选项卡。请确保已安装 Custom Tabs 插件，或联系服务器管理员。"
+  "discoveryTabNotFound": "找不到 Discovery 选项卡。请确保已安装 Custom Tabs 插件，或联系服务器管理员。",
+  "discoveryErrNoPermission": "没有权限。请联系管理员。",
+  "discoveryErrServerUnavailable": "服务器不可达。请稍后再试。",
+  "discoveryErrTimeout": "请求超时。请稍后再试。",
+  "discoveryErrGeneric": "请求失败。请稍后再试。"
 }
