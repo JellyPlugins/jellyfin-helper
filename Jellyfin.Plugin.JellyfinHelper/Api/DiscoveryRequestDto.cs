@@ -43,6 +43,6 @@ public sealed class DiscoveryRequestDto
     ///     Gets or sets the root folder path for the download.
     ///     When provided, overrides the default root folder.
     /// </summary>
-    [StringLength(1024, ErrorMessage = "RootFolder path must not exceed 1024 characters.")]
+    [StringLength(512, ErrorMessage = "RootFolder path must not exceed 512 characters.")]
     public string? RootFolder { get; set; }
 }

@@ -82,4 +82,16 @@ public enum SeerrPermissions : long
 
     /// <summary>Can view recent requests on the dashboard.</summary>
     RecentView = 16777216,
+
+    /// <summary>Can auto-request media (automatic request based on watchlist).</summary>
+    AutoRequest = 33554432,
+
+    /// <summary>Can auto-request movies specifically.</summary>
+    AutoRequestMovie = 67108864,
+
+    /// <summary>Can auto-request TV shows specifically.</summary>
+    AutoRequestTv = 134217728,
+
+    /// <summary>Can view the watchlist view page.</summary>
+    WatchlistView = 268435456,
 }

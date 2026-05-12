@@ -301,9 +301,28 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             if (!string.Equals(content, originalContent, StringComparison.Ordinal))
             {
                 var tempPath = indexPath + ".jfh.tmp";
-                File.WriteAllText(tempPath, content);
-                File.Move(tempPath, indexPath, overwrite: true);
-                _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
+                try
+                {
+                    File.WriteAllText(tempPath, content);
+                    File.Move(tempPath, indexPath, overwrite: true);
+                    _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
+                }
+                finally
+                {
+                    // Clean up the temp file if File.Move() failed (e.g., permission flap, lock).
+                    // Without this, stale .jfh.tmp files accumulate in WebPath across restarts.
+                    if (File.Exists(tempPath))
+                    {
+                        try
+                        {
+                            File.Delete(tempPath);
+                        }
+                        catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
+                        {
+                            // Best-effort cleanup — file may still be locked.
+                        }
+                    }
+                }
             }
             else
             {

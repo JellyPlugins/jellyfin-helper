@@ -17,7 +17,11 @@ public class ArrSeries
     /// <summary>Gets or sets the TVDB ID.</summary>
     public int TvdbId { get; set; }
 
-    /// <summary>Gets or sets the TMDb ID (provided by Sonarr v3+ API).</summary>
+    /// <summary>
+    ///     Gets or sets the TMDb ID.
+    ///     Populated from Sonarr v3.0.9+ / v4+ API responses. Older Sonarr versions
+    ///     do not include this field (value remains 0). Always populated for Radarr movies.
+    /// </summary>
     public int TmdbId { get; set; }
 
     /// <summary>Gets or sets the file path.</summary>

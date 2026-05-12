@@ -76,10 +76,12 @@ public sealed class UserDiscoveryController : ControllerBase
             return Ok(null);
         }
 
-        // Filter persisted pool: exclude dismissed + requested, serve only next N visible
+        // Filter persisted pool: exclude dismissed + requested, serve only next N visible.
+        // Normalize MediaType to lowercase for comparison because the feedback store
+        // persists normalized lowercase values while cache data may retain original API casing.
         var excluded = BuildExcludedItemKeys(currentUserId);
         var visible = userResult.Recommendations
-            .Where(r => !r.AlreadyRequested && !excluded.Contains((r.TmdbId, r.MediaType)))
+            .Where(r => !r.AlreadyRequested && !excluded.Contains((r.TmdbId, r.MediaType?.ToLowerInvariant() ?? string.Empty)))
             .Take(SeerrDiscoveryService.MaxVisiblePerUser)
             .ToList();
 
@@ -210,7 +212,7 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         Response.Headers["Cache-Control"] = "no-cache";
-        return new FileStreamResult(stream, "application/javascript");
+        return new FileStreamResult(stream, "text/javascript");
     }
 
     /// <summary>

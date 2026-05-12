@@ -194,6 +194,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 Year = s.Year,
                 ImdbId = s.ImdbId ?? string.Empty,
                 TvdbId = s.TvdbId,
+                TmdbId = s.TmdbId,
                 Path = s.Path ?? string.Empty,
                 EpisodeFileCount = s.Statistics?.EpisodeFileCount ?? 0,
                 TotalEpisodeCount = s.Statistics?.TotalEpisodeCount ?? 0
@@ -351,6 +352,12 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         public string? ImdbId { get; set; }
 
         public int TvdbId { get; set; }
+
+        /// <summary>
+        ///     Gets or sets the TMDb ID provided by Sonarr v3.0.9+ / v4+ API.
+        ///     Older Sonarr versions may not include this field (defaults to 0).
+        /// </summary>
+        public int TmdbId { get; set; }
 
         public string? Path { get; set; }
 
