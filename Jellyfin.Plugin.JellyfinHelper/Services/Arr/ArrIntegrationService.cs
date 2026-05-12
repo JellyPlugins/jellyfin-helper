@@ -354,8 +354,8 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         public int TvdbId { get; set; }
 
         /// <summary>
-        ///     Gets or sets the TMDb ID provided by Sonarr v3.0.9+ / v4+ API.
-        ///     Older Sonarr versions may not include this field (defaults to 0).
+        ///     Gets or sets the TMDb ID provided by Sonarr v4+ API (added in v4.0.12.2823, June 2024).
+        ///     Sonarr v3 does NOT include this field — value remains at default 0.
         /// </summary>
         public int TmdbId { get; set; }
 

@@ -458,6 +458,19 @@ public sealed class UserDiscoveryController : ControllerBase
             }
 
             // Return a projection with only the allowed profiles — do not expose the full list.
+            // RootFolders are also filtered to only include paths that correspond to allowed profiles
+            // for this server, preventing information disclosure of unrelated server paths.
+            var allowedRootPaths = new HashSet<string>(
+                allowedProfiles
+                    .Where(p => p.ServerId == service.Id && !string.IsNullOrEmpty(p.RootFolder))
+                    .Select(p => p.RootFolder),
+                StringComparer.Ordinal);
+
+            var filteredRootFolders = allowedRootPaths.Count > 0
+                ? new System.Collections.ObjectModel.Collection<SeerrRootFolder>(
+                    service.RootFolders.Where(rf => allowedRootPaths.Contains(rf.Path)).ToList())
+                : new System.Collections.ObjectModel.Collection<SeerrRootFolder>();
+
             result.Add(new SeerrServiceInfo
             {
                 Id = service.Id,
@@ -467,7 +480,7 @@ public sealed class UserDiscoveryController : ControllerBase
                 ActiveProfileId = service.ActiveProfileId,
                 ActiveDirectory = service.ActiveDirectory,
                 Profiles = new System.Collections.ObjectModel.Collection<SeerrQualityProfile>(filteredProfiles),
-                RootFolders = service.RootFolders
+                RootFolders = filteredRootFolders
             });
         }
 

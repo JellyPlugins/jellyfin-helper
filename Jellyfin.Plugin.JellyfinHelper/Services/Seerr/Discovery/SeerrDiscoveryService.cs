@@ -1123,7 +1123,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 recommendations.Add(new DiscoveryRecommendation
                 {
                     TmdbId = item.Id,
-                    MediaType = item.MediaType ?? "movie",
+                    MediaType = string.Equals(item.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
+                        ? "tv"
+                        : "movie",
                     Title = item.DisplayTitle,
                     Year = item.EffectiveReleaseDate?.Year,
                     Score = score,
@@ -1236,7 +1238,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
         }
 
-        // Exclude TV series already in Sonarr (Sonarr v3+ provides tmdbId)
+        // Exclude TV series already in Sonarr (Sonarr v4+ provides tmdbId; v3 entries are skipped via TmdbId > 0 guard)
         foreach (var instance in config.GetEffectiveSonarrInstances())
         {
             cancellationToken.ThrowIfCancellationRequested();
