@@ -72,7 +72,8 @@ public sealed class DiscoveryCacheService
             try
             {
                 EnsureLoadedLocked();
-                return _memoryCache!.AsReadOnly();
+                var cache = _memoryCache ??= [];
+                return cache.AsReadOnly();
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
@@ -104,13 +105,14 @@ public sealed class DiscoveryCacheService
             try
             {
                 EnsureLoadedLocked();
+                var cache = _memoryCache ??= [];
 
-                if (_memoryCache!.Count == 0)
+                if (cache.Count == 0)
                 {
                     return;
                 }
 
-                var userResult = _memoryCache.FirstOrDefault(r => r.UserId == userId);
+                var userResult = cache.FirstOrDefault(r => r.UserId == userId);
                 if (userResult == null)
                 {
                     return;
@@ -125,7 +127,7 @@ public sealed class DiscoveryCacheService
                     var tempFilePath = _filePath + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
                     try
                     {
-                        var updatedJson = JsonSerializer.Serialize(_memoryCache, JsonOptions);
+                        var updatedJson = JsonSerializer.Serialize(cache, JsonOptions);
                         File.WriteAllText(tempFilePath, updatedJson);
                         File.Move(tempFilePath, _filePath, overwrite: true);
                     }
@@ -175,8 +177,9 @@ public sealed class DiscoveryCacheService
             try
             {
                 EnsureLoadedLocked();
+                var cache = _memoryCache ??= [];
 
-                if (_memoryCache!.Count == 0)
+                if (cache.Count == 0)
                 {
                     return;
                 }
@@ -184,9 +187,9 @@ public sealed class DiscoveryCacheService
                 // Determine which items need updating WITHOUT mutating the live cache yet.
                 // This avoids leaving _memoryCache in an inconsistent state if persistence fails.
                 var indicesToMark = new List<(int UserIdx, int RecIdx)>();
-                for (var u = 0; u < _memoryCache.Count; u++)
+                for (var u = 0; u < cache.Count; u++)
                 {
-                    var recs = _memoryCache[u].Recommendations;
+                    var recs = cache[u].Recommendations;
                     for (var r = 0; r < recs.Count; r++)
                     {
                         if (recs[r].TmdbId == tmdbId
@@ -203,13 +206,13 @@ public sealed class DiscoveryCacheService
                     // Apply mutations
                     foreach (var (userIdx, recIdx) in indicesToMark)
                     {
-                        _memoryCache[userIdx].Recommendations[recIdx].AlreadyRequested = true;
+                        cache[userIdx].Recommendations[recIdx].AlreadyRequested = true;
                     }
 
                     var tempFilePath = _filePath + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
                     try
                     {
-                        var updatedJson = JsonSerializer.Serialize(_memoryCache, JsonOptions);
+                        var updatedJson = JsonSerializer.Serialize(cache, JsonOptions);
                         File.WriteAllText(tempFilePath, updatedJson);
                         File.Move(tempFilePath, _filePath, overwrite: true);
                     }
@@ -218,7 +221,7 @@ public sealed class DiscoveryCacheService
                         // Rollback in-memory mutations on persistence failure
                         foreach (var (userIdx, recIdx) in indicesToMark)
                         {
-                            _memoryCache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
+                            cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
                         }
 
                         try
