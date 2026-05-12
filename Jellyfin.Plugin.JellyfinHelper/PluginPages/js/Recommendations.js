@@ -433,8 +433,9 @@ function renderDiscoveryCard(rec, index) {
     html += '<div class="discovery-card-body">';
     html += '<div class="discovery-card-title">' + escHtml(rec.Title || T('recsUnknownTitle', 'Unknown')) + '</div>';
     html += '<div class="discovery-card-meta">';
-    if (rec.MediaType) {
-        html += '<span class="recs-tag recs-tag-type">' + escHtml(rec.MediaType === 'tv' ? T('tvShows', 'Series') : T('movies', 'Movie')) + '</span>';
+    var mediaType = String(rec.MediaType || '').trim().toLowerCase();
+    if (mediaType) {
+        html += '<span class="recs-tag recs-tag-type">' + escHtml(mediaType === 'tv' ? T('tvShows', 'Series') : T('movies', 'Movie')) + '</span>';
     }
     if (rec.Genres && rec.Genres.length > 0) {
         for (var g = 0; g < Math.min(rec.Genres.length, 3); g++) {
@@ -467,7 +468,7 @@ function renderDiscoveryCard(rec, index) {
         html += '</button>';
     } else {
         html += '<button class="discovery-request-btn" ';
-        html += 'data-tmdb-id="' + (parseInt(rec.TmdbId, 10) || 0) + '" data-media-type="' + escHtml(rec.MediaType || '') + '">';
+        html += 'data-tmdb-id="' + (parseInt(rec.TmdbId, 10) || 0) + '" data-media-type="' + escHtml(mediaType) + '">';
         html += mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         html += '</button>';
     }

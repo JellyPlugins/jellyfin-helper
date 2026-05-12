@@ -298,8 +298,9 @@
             } else {
                 poster = '<div class="jfh-discovery-card-poster jfh-discovery-no-poster"><span style="opacity:0.3;font-size:2em;">\uD83C\uDFAC</span></div>';
             }
+            var mediaType = (r.MediaType || '').trim().toLowerCase();
             var year = r.Year ? '<span class="jfh-discovery-tag">' + esc(String(r.Year)) + '</span>' : '';
-            var type = r.MediaType ? '<span class="jfh-discovery-tag">' + esc(r.MediaType === 'movie' ? t('movies', 'Movie') : t('tvShows', 'TV')) + '</span>' : '';
+            var type = r.MediaType ? '<span class="jfh-discovery-tag">' + esc(mediaType === 'movie' ? t('movies', 'Movie') : t('tvShows', 'TV')) + '</span>' : '';
             var ratingNum = Number(r.TmdbRating);
             var rating = (!isNaN(ratingNum) && ratingNum > 0) ? '<span class="jfh-discovery-tag">\u2B50 ' + ratingNum.toFixed(1) + '</span>' : '';
             var genres = (r.Genres && r.Genres.length > 0) ? r.Genres.slice(0, 2).map(function(g) { return '<span class="jfh-discovery-tag">' + esc(g) + '</span>'; }).join('') : '';
@@ -311,7 +312,7 @@
             var btnText = r.AlreadyRequested ? '\u2713 ' + t('discoveryRequested', 'Requested') : t('discoveryRequest', 'Request');
             var btnClass = r.AlreadyRequested ? 'jfh-discovery-btn jfh-discovery-btn-done' : 'jfh-discovery-btn';
             var btnDisabled = r.AlreadyRequested ? ' disabled' : '';
-            var dismissBtnHtml = r.AlreadyRequested ? '' : '<button class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-tmdb="' + (parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(r.MediaType || '') + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
+            var dismissBtnHtml = r.AlreadyRequested ? '' : '<button class="jfh-discovery-btn jfh-discovery-btn-dismiss" data-tmdb="' + (parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '" data-title="' + esc(r.Title || '') + '">' + esc(t('discoveryDismiss', 'Not interested')) + '</button>';
             var genresHtml = genres ? '<div class="jfh-discovery-card-genres">' + genres + '</div>' : '';
             html += '<div class="jfh-discovery-card">' + poster +
                 '<div class="jfh-discovery-card-body">' +
@@ -320,7 +321,7 @@
                 genresHtml +
                 scoreHtml + reason +
                 '<div class="jfh-discovery-btn-row">' +
-                '<button class="' + btnClass + '" data-tmdb="' + (parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(r.MediaType || '') + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
+                '<button class="' + btnClass + '" data-tmdb="' + (parseInt(r.TmdbId, 10) || 0) + '" data-type="' + esc(mediaType) + '"' + btnDisabled + '>' + esc(btnText) + '</button>' +
                 dismissBtnHtml +
                 '</div>' +
                 '</div></div>';

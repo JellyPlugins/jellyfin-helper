@@ -21,7 +21,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
 
     public DiscoveryFeedbackStoreTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "jfh-test-" + Guid.NewGuid().ToString("N")[..8]);
+        _tempDir = Path.Join(Path.GetTempPath(), "jfh-test-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_tempDir);
     }
 

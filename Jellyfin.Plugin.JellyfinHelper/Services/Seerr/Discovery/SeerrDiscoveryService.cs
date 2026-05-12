@@ -556,6 +556,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
                 if (!listResponse.IsSuccessStatusCode)
                 {
+                    _pluginLog.LogWarning(
+                        "SeerrDiscovery",
+                        $"Failed to fetch Seerr {serviceType} services: HTTP {(int)listResponse.StatusCode}.",
+                        null,
+                        _logger);
                     return [];
                 }
 
@@ -1146,7 +1151,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     TmdbRating = item.VoteAverage,
                     PosterPath = item.PosterPath,
                     Overview = item.Overview,
-                    AlreadyRequested = false
+                    AlreadyRequested = false,
+                    KnownPeople = item.KnownPeople
                 });
             }
 

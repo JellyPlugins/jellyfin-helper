@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
@@ -84,4 +85,12 @@ public sealed class DiscoveryRecommendation
     ///     Gets or sets a value indicating whether this item has already been requested in Seerr.
     /// </summary>
     public bool AlreadyRequested { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the known people (actors/directors) from credits enrichment.
+    ///     Excluded from JSON serialization to the frontend (not needed for display).
+    ///     Persisted to the feedback store for PeopleSimilarity training signal.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string>? KnownPeople { get; set; }
 }

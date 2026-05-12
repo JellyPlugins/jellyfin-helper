@@ -311,9 +311,9 @@ public sealed class UserDiscoveryController : ControllerBase
 
         if (dto.ServerId.HasValue || dto.ProfileId.HasValue || rootFolder != null)
         {
-            if (!dto.ServerId.HasValue || !dto.ProfileId.HasValue)
+            if (!dto.ServerId.HasValue || !dto.ProfileId.HasValue || rootFolder == null)
             {
-                return BadRequest(new RequestResult { Success = false, Message = "Both ServerId and ProfileId must be specified together." });
+                return BadRequest(new RequestResult { Success = false, Message = "ServerId, ProfileId, and RootFolder must all be specified together." });
             }
 
             var serverId = dto.ServerId.Value;
@@ -482,8 +482,8 @@ public sealed class UserDiscoveryController : ControllerBase
                 Name = service.Name,
                 IsDefault = service.IsDefault,
                 Is4k = service.Is4k,
-                ActiveProfileId = service.ActiveProfileId,
-                ActiveDirectory = service.ActiveDirectory,
+                ActiveProfileId = filteredProfiles.Any(p => p.Id == service.ActiveProfileId) ? service.ActiveProfileId : (filteredProfiles.FirstOrDefault()?.Id ?? 0),
+                ActiveDirectory = allowedRootPaths.Contains(service.ActiveDirectory) ? service.ActiveDirectory : (filteredRootFolders.FirstOrDefault()?.Path ?? string.Empty),
                 Profiles = new System.Collections.ObjectModel.Collection<SeerrQualityProfile>(filteredProfiles),
                 RootFolders = filteredRootFolders
             });

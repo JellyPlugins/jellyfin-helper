@@ -133,7 +133,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     Genres = item.Genres,
                     TmdbRating = item.TmdbRating,
                     Score = item.Score,
-                    ShownAtUtc = now
+                    ShownAtUtc = now,
+                    KnownPeople = item.KnownPeople ?? []
                 };
                 userResult.Entries.Add(newEntry);
                 entryLookup.TryAdd(key, newEntry);

@@ -9,6 +9,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// </summary>
 public sealed class DiscoveryFeedbackEntry
 {
+    private string _mediaType = "movie";
+
     /// <summary>
     ///     Gets or sets the TMDb ID of the discovery item.
     /// </summary>
@@ -16,8 +18,15 @@ public sealed class DiscoveryFeedbackEntry
 
     /// <summary>
     ///     Gets or sets the media type ("movie" or "tv").
+    ///     Normalized to lowercase on assignment to ensure consistent composite key behavior.
     /// </summary>
-    public string MediaType { get; set; } = "movie";
+    public string MediaType
+    {
+        get => _mediaType;
+        set => _mediaType = string.IsNullOrWhiteSpace(value)
+            ? "movie"
+            : value.Trim().ToLowerInvariant();
+    }
 
     /// <summary>
     ///     Gets or sets the display title (for logging/debugging; not used in scoring).
