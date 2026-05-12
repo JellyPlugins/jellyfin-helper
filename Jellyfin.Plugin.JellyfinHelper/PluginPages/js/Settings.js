@@ -24,7 +24,10 @@ function refreshDiscoveryAccessState() {
         wrapper.style.pointerEvents = discEnabled ? '' : 'none';
     }
     var chk = document.getElementById('cfgDiscoveryUserAccess');
-    if (chk) chk.disabled = !discEnabled;
+    if (chk) {
+        chk.disabled = !discEnabled;
+        if (!discEnabled) chk.checked = false;
+    }
     var hint = document.querySelector('.discovery-access-disabled-hint');
     if (hint) hint.style.display = discEnabled ? 'none' : '';
     // Keep the setup hint button/panel in sync with the enabled state

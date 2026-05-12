@@ -256,20 +256,25 @@ public sealed class UserDiscoveryController : ControllerBase
             return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
         }
 
-        if (!string.IsNullOrWhiteSpace(dto.RootFolder))
+        // Normalize RootFolder: trim whitespace and coalesce whitespace-only to null.
+        // This prevents whitespace-only strings from bypassing validation guards below
+        // and being sent as meaningless overrides to the Seerr API.
+        var rootFolder = string.IsNullOrWhiteSpace(dto.RootFolder) ? null : dto.RootFolder.Trim();
+
+        if (rootFolder != null)
         {
-            if (dto.RootFolder.Length > 512)
+            if (rootFolder.Length > 512)
             {
                 return BadRequest(new RequestResult { Success = false, Message = "Root folder path exceeds maximum length." });
             }
 
-            if (dto.RootFolder.Contains("..", StringComparison.Ordinal) ||
-                dto.RootFolder.TrimStart().StartsWith('~'))
+            if (rootFolder.Contains("..", StringComparison.Ordinal) ||
+                rootFolder.TrimStart().StartsWith('~'))
             {
                 return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
             }
 
-            if (dto.RootFolder.Any(c => char.IsControl(c)))
+            if (rootFolder.Any(c => char.IsControl(c)))
             {
                 return BadRequest(new RequestResult { Success = false, Message = "Root folder path contains invalid characters." });
             }
@@ -304,7 +309,7 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(403, new RequestResult { Success = false, Message = "You do not have permission to submit requests." });
         }
 
-        if (dto.ServerId.HasValue || dto.ProfileId.HasValue || !string.IsNullOrWhiteSpace(dto.RootFolder))
+        if (dto.ServerId.HasValue || dto.ProfileId.HasValue || rootFolder != null)
         {
             if (!dto.ServerId.HasValue || !dto.ProfileId.HasValue)
             {
@@ -326,8 +331,8 @@ public sealed class UserDiscoveryController : ControllerBase
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
             }
 
-            if (!string.IsNullOrWhiteSpace(dto.RootFolder) &&
-                !string.Equals(dto.RootFolder, matchedProfile.RootFolder, StringComparison.Ordinal))
+            if (rootFolder != null &&
+                !string.Equals(rootFolder, matchedProfile.RootFolder, StringComparison.Ordinal))
             {
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this root folder." });
             }
@@ -339,7 +344,7 @@ public sealed class UserDiscoveryController : ControllerBase
             seerrUserId,
             dto.ServerId,
             dto.ProfileId,
-            dto.RootFolder,
+            rootFolder,
             cancellationToken).ConfigureAwait(false);
 
         if (!success)

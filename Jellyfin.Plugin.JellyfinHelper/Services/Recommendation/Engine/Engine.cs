@@ -1339,7 +1339,7 @@ public sealed class Engine : IRecommendationEngine
                 // Collect composite (TmdbId, MediaType) keys of items this user has watched.
                 // MediaType resolved from library item type (Movie → "movie", Series → "tv").
                 var watchedItems = new HashSet<(int TmdbId, string MediaType)>();
-                foreach (var w in userProfile.WatchedItems.Where(w => w.Played || w.IsFavorite))
+                foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
                 {
                     if (tmdbIdByItemId.TryGetValue(w.ItemId, out var tmdbId))
                     {

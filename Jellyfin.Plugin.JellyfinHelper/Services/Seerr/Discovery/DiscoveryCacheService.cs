@@ -69,44 +69,10 @@ public sealed class DiscoveryCacheService
     {
         lock (_fileLock)
         {
-            if (_memoryCache != null)
-            {
-                return _memoryCache.AsReadOnly();
-            }
-
             try
             {
-                if (!File.Exists(_filePath))
-                {
-                    _memoryCache = [];
-                    return _memoryCache.AsReadOnly();
-                }
-
-                // Hardening: reject oversized files (likely corrupted or tampered)
-                var fileInfo = new FileInfo(_filePath);
-                if (fileInfo.Length > MaxFileSizeBytes)
-                {
-                    _pluginLog.LogWarning(
-                        "DiscoveryCache",
-                        $"Discovery cache file exceeds {MaxFileSizeBytes / (1024 * 1024)}MB ({fileInfo.Length} bytes). Deleting and returning empty.",
-                        null,
-                        _logger);
-                    try
-                    {
-                        File.Delete(_filePath);
-                    }
-                    catch (Exception deleteEx) when (deleteEx is IOException or UnauthorizedAccessException)
-                    {
-                        // Best effort
-                    }
-
-                    _memoryCache = [];
-                    return _memoryCache.AsReadOnly();
-                }
-
-                var json = File.ReadAllText(_filePath);
-                _memoryCache = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions) ?? [];
-                return _memoryCache.AsReadOnly();
+                EnsureLoadedLocked();
+                return _memoryCache!.AsReadOnly();
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
@@ -137,40 +103,9 @@ public sealed class DiscoveryCacheService
         {
             try
             {
-                if (_memoryCache == null)
-                {
-                    if (!File.Exists(_filePath))
-                    {
-                        return;
-                    }
+                EnsureLoadedLocked();
 
-                    // Hardening: reject oversized files (consistent with Load() and MarkAsRequested())
-                    var fileInfo = new FileInfo(_filePath);
-                    if (fileInfo.Length > MaxFileSizeBytes)
-                    {
-                        _pluginLog.LogWarning(
-                            "DiscoveryCache",
-                            $"Discovery cache file exceeds {MaxFileSizeBytes / (1024 * 1024)}MB ({fileInfo.Length} bytes). Deleting and returning.",
-                            null,
-                            _logger);
-                        try
-                        {
-                            File.Delete(_filePath);
-                        }
-                        catch (Exception deleteEx) when (deleteEx is IOException or UnauthorizedAccessException)
-                        {
-                            // Best effort
-                        }
-
-                        _memoryCache = [];
-                        return;
-                    }
-
-                    var json = File.ReadAllText(_filePath);
-                    _memoryCache = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions) ?? [];
-                }
-
-                if (_memoryCache.Count == 0)
+                if (_memoryCache!.Count == 0)
                 {
                     return;
                 }
@@ -239,41 +174,9 @@ public sealed class DiscoveryCacheService
         {
             try
             {
-                // Ensure in-memory cache is populated
-                if (_memoryCache == null)
-                {
-                    if (!File.Exists(_filePath))
-                    {
-                        return;
-                    }
+                EnsureLoadedLocked();
 
-                    // Hardening: reject oversized files (consistent with Load())
-                    var fileInfo = new FileInfo(_filePath);
-                    if (fileInfo.Length > MaxFileSizeBytes)
-                    {
-                        _pluginLog.LogWarning(
-                            "DiscoveryCache",
-                            $"Discovery cache file exceeds {MaxFileSizeBytes / (1024 * 1024)}MB ({fileInfo.Length} bytes). Deleting and returning.",
-                            null,
-                            _logger);
-                        try
-                        {
-                            File.Delete(_filePath);
-                        }
-                        catch (Exception deleteEx) when (deleteEx is IOException or UnauthorizedAccessException)
-                        {
-                            // Best effort
-                        }
-
-                        _memoryCache = [];
-                        return;
-                    }
-
-                    var json = File.ReadAllText(_filePath);
-                    _memoryCache = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions) ?? [];
-                }
-
-                if (_memoryCache.Count == 0)
+                if (_memoryCache!.Count == 0)
                 {
                     return;
                 }
@@ -343,6 +246,59 @@ public sealed class DiscoveryCacheService
                 _memoryCache ??= [];
             }
         }
+    }
+
+    /// <summary>
+    ///     Ensures <see cref="_memoryCache"/> is populated from disk if not already loaded.
+    ///     Must be called while holding <see cref="_fileLock"/>.
+    ///     <para>
+    ///         On missing file: initializes to empty list.<br/>
+    ///         On oversized file (&gt; <see cref="MaxFileSizeBytes"/>): deletes the file (best-effort)
+    ///         and initializes to empty list.<br/>
+    ///         On successful read: deserializes JSON and assigns to <see cref="_memoryCache"/>.
+    ///     </para>
+    ///     Callers are responsible for catching <see cref="IOException"/>,
+    ///     <see cref="JsonException"/>, and <see cref="UnauthorizedAccessException"/>
+    ///     if the disk read fails (propagated from <see cref="File.ReadAllText(string)"/>
+    ///     or <see cref="JsonSerializer.Deserialize{TValue}(string, JsonSerializerOptions?)"/>).
+    /// </summary>
+    private void EnsureLoadedLocked()
+    {
+        if (_memoryCache != null)
+        {
+            return;
+        }
+
+        if (!File.Exists(_filePath))
+        {
+            _memoryCache = [];
+            return;
+        }
+
+        // Hardening: reject oversized files (likely corrupted or tampered).
+        var fileInfo = new FileInfo(_filePath);
+        if (fileInfo.Length > MaxFileSizeBytes)
+        {
+            _pluginLog.LogWarning(
+                "DiscoveryCache",
+                $"Discovery cache file exceeds {MaxFileSizeBytes / (1024 * 1024)}MB ({fileInfo.Length} bytes). Deleting and returning empty.",
+                null,
+                _logger);
+            try
+            {
+                File.Delete(_filePath);
+            }
+            catch (Exception deleteEx) when (deleteEx is IOException or UnauthorizedAccessException)
+            {
+                // Best effort — file may be locked by another process.
+            }
+
+            _memoryCache = [];
+            return;
+        }
+
+        var json = File.ReadAllText(_filePath);
+        _memoryCache = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions) ?? [];
     }
 
     /// <summary>
