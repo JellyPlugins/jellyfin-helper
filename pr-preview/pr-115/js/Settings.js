@@ -376,7 +376,17 @@ function buildSettingsPayload() {
             var v = parseInt(document.getElementById('cfgTrashDays').value, 10);
             return isNaN(v) || v < 0 ? 30 : v;
         })(),
-        DiscoveryUserAccessEnabled: document.getElementById('cfgDiscoveryUserAccess') ? document.getElementById('cfgDiscoveryUserAccess').checked : false,
+        DiscoveryUserAccessEnabled: (function () {
+            var checkbox = document.getElementById('cfgDiscoveryUserAccess');
+            if (!checkbox || !checkbox.checked) return false;
+            // Force false when prerequisites are not met (Recommendations must be active + Seerr configured).
+            // This prevents stale "true" from being persisted when the admin disables recommendations
+            // or clears Seerr config while the checkbox was previously enabled.
+            var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
+            var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
+            var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+            return recsMode === 'Activate' && !!(seerrUrl && seerrKey);
+        })(),
         Language: document.getElementById('cfgLang').value,
         PluginLogLevel: _currentLogLevel,
         RadarrInstances: radarrInstances,

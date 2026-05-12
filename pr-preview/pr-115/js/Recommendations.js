@@ -358,6 +358,7 @@ function loadDiscoveryForUser(index) {
         renderDiscoveryCards(grid, countSpan, result._cachedDiscovery);
     }, function () {
         if (reqId !== _discoveryReqId) return;
+        if (countSpan) countSpan.textContent = '0';
         grid.innerHTML = '<div class="recs-profile-compact-empty">' +
             T('discoveryLoadError', 'Could not load discovery suggestions.') + '</div>';
     });
@@ -707,7 +708,8 @@ function markDiscoveryItemRequested(tmdbId, mediaType) {
         if (!userDiscovery || !userDiscovery.Recommendations) return;
         for (var r = 0; r < userDiscovery.Recommendations.length; r++) {
             var rec = userDiscovery.Recommendations[r];
-            if (rec.TmdbId === tmdbId && (!mediaType || rec.MediaType === mediaType)) {
+            var recTmdbId = parseInt(rec.TmdbId, 10);
+            if (recTmdbId === tmdbId && (!mediaType || rec.MediaType === mediaType)) {
                 rec.AlreadyRequested = true;
             }
         }
