@@ -330,5 +330,9 @@
   "discoveryDismissConfirmGeneric": "Dieses Element wird aus zukünftigen Vorschlägen ausgeblendet.",
   "discoveryDismissConfirm": "Ja, ablehnen",
   "discoveryDismissError": "Konnte dieses Element nicht ablehnen. Bitte versuche es erneut.",
-  "discoveryTabNotFound": "Der Discovery-Tab konnte nicht gefunden werden. Bitte stelle sicher, dass das Custom Tabs Plugin installiert ist, oder kontaktiere deinen Serveradministrator."
+  "discoveryTabNotFound": "Der Discovery-Tab konnte nicht gefunden werden. Bitte stelle sicher, dass das Custom Tabs Plugin installiert ist, oder kontaktiere deinen Serveradministrator.",
+  "discoveryErrNoPermission": "Keine Berechtigung. Frag deinen Admin.",
+  "discoveryErrServerUnavailable": "Server nicht erreichbar. Versuch es später.",
+  "discoveryErrTimeout": "Zeitüberschreitung. Versuch es später.",
+  "discoveryErrGeneric": "Anfrage fehlgeschlagen. Versuch es später."
 }

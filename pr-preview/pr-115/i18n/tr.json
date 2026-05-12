@@ -330,5 +330,9 @@
   "discoveryDismissConfirmGeneric": "Bu öğe gelecek önerilerden gizlenecek.",
   "discoveryDismissConfirm": "Evet, kaldır",
   "discoveryDismissError": "Bu öğe kaldırılamadı. Lütfen tekrar deneyin.",
-  "discoveryTabNotFound": "Discovery sekmesi bulunamadı. Lütfen Custom Tabs eklentisinin kurulu olduğundan emin olun veya sunucu yöneticinizle iletişime geçin."
+  "discoveryTabNotFound": "Discovery sekmesi bulunamadı. Lütfen Custom Tabs eklentisinin kurulu olduğundan emin olun veya sunucu yöneticinizle iletişime geçin.",
+  "discoveryErrNoPermission": "İzin yok. Yöneticinize başvurun.",
+  "discoveryErrServerUnavailable": "Sunucu ulaşılamıyor. Daha sonra deneyin.",
+  "discoveryErrTimeout": "Zaman aşımı. Daha sonra deneyin.",
+  "discoveryErrGeneric": "İstek başarısız. Daha sonra deneyin."
 }

@@ -330,5 +330,9 @@
   "discoveryDismissConfirmGeneric": "Cet élément sera masqué des suggestions futures.",
   "discoveryDismissConfirm": "Oui, ignorer",
   "discoveryDismissError": "Impossible d'ignorer cet élément. Veuillez réessayer.",
-  "discoveryTabNotFound": "L'onglet Discovery est introuvable. Veuillez vous assurer que le plugin Custom Tabs est installé, ou contactez votre administrateur serveur."
+  "discoveryTabNotFound": "L'onglet Discovery est introuvable. Veuillez vous assurer que le plugin Custom Tabs est installé, ou contactez votre administrateur serveur.",
+  "discoveryErrNoPermission": "Pas de permission. Contactez votre admin.",
+  "discoveryErrServerUnavailable": "Serveur injoignable. Réessayez plus tard.",
+  "discoveryErrTimeout": "Délai dépassé. Réessayez plus tard.",
+  "discoveryErrGeneric": "Échec de la demande. Réessayez plus tard."
 }
