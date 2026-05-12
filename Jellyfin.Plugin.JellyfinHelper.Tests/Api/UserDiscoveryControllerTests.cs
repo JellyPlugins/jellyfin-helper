@@ -22,7 +22,7 @@ public class UserDiscoveryControllerTests
 
     public UserDiscoveryControllerTests()
     {
-        var pluginLog = new Mock<Services.PluginLog.IPluginLogService>();
+        var pluginLog = new Mock<JellyfinHelper.Services.PluginLog.IPluginLogService>();
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
         _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
         _discoveryMock = new Mock<ISeerrDiscoveryService>();

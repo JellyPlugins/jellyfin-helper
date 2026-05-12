@@ -103,6 +103,7 @@ Tests mirror the source structure:
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── Api/                           # Controller tests
 │   ├── DiscoveryControllerTests.cs
+│   ├── UserDiscoveryControllerTests.cs
 │   ├── RecommendationControllerTests.cs
 │   ├── UserActivityControllerTests.cs
 │   ├── TrashControllerTests.cs
