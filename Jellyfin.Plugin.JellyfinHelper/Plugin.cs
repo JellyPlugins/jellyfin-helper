@@ -282,9 +282,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             if (inject)
             {
                 var closingBodyTag = "</body>";
-                if (content.Contains(closingBodyTag, StringComparison.Ordinal))
+                var closingBodyIndex = content.LastIndexOf(closingBodyTag, StringComparison.OrdinalIgnoreCase);
+                if (closingBodyIndex >= 0)
                 {
-                    content = content.Replace(closingBodyTag, $"{scriptTag}\n{closingBodyTag}", StringComparison.Ordinal);
+                    content = content.Insert(closingBodyIndex, scriptTag + "\n");
                     _logger.LogDebug("[Discovery Sidebar] Script tag injected successfully before </body>");
                 }
                 else

@@ -357,7 +357,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     $"Request failed for TMDb#{tmdbId}: HTTP {(int)response.StatusCode} - {body}",
                     null,
                     _logger);
-                return (false, $"Seerr returned HTTP {(int)response.StatusCode}.");
+
+                // Include a truncated excerpt of the Seerr error body in the client-facing message
+                // so admins can diagnose server-side issues (e.g., missing Sonarr anime configuration)
+                // without having to check the Seerr server logs separately.
+                var detail = string.IsNullOrWhiteSpace(body) ? string.Empty : $" {body[..Math.Min(body.Length, 200)]}";
+                return (false, $"Seerr returned HTTP {(int)response.StatusCode}.{detail}");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

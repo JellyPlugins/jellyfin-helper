@@ -239,7 +239,7 @@ function loadSettings() {
         h += '<button type="button" class="action-btn" id="btnCopyDiscoveryHtml" style="padding:0.2em 0.6em;font-size:0.82em;display:inline-flex;align-items:center;gap:0.3em;"><span class="material-icons" style="font-size:1em;">content_copy</span><span>' + T('discoveryCopySnippet', 'Copy') + '</span></button>';
         h += '<code style="background:rgba(0,0,0,0.3);padding:0.3em 0.6em;border-radius:4px;font-size:0.9em;">&lt;div class=&quot;jellyfinhelper discovery&quot;&gt;&lt;/div&gt;</code>';
         h += '</div>';
-        h += '<div style="margin-top:0.6em;font-size:0.9em;">' + T('discoverySetupHintAlreadyInstalled', 'Plugins already installed?') + ' <a href="/web/#/configurationpage?name=Custom%20Tabs" style="color:#00a4dc;">' + T('discoverySetupHintConfigureLink', 'Configure Custom Tabs →') + '</a></div>';
+        h += '<div style="margin-top:0.6em;font-size:0.9em;">' + T('discoverySetupHintAlreadyInstalled', 'Plugins already installed?') + ' <a href="#/configurationpage?name=Custom%20Tabs" style="color:#00a4dc;">' + T('discoverySetupHintConfigureLink', 'Configure Custom Tabs →') + '</a></div>';
         h += '</div></div>';
         h += '</div>';
 
