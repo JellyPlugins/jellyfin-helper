@@ -120,6 +120,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                         existing.Genres = item.Genres;
                         existing.TmdbRating = item.TmdbRating;
                         existing.Score = item.Score;
+                        existing.KnownPeople = item.KnownPeople ?? [];
                     }
 
                     continue;

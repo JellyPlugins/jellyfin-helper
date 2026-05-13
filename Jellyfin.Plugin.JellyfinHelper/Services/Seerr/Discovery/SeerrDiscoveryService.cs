@@ -980,15 +980,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     // Kids TV genre
                     var kidsItems = await ExecuteDiscoverQueryAsync(
                         client, "api/v1/discover/tv/genre/10762?page=1", cancellationToken).ConfigureAwait(false);
+                    StampMediaType(kidsItems, "tv");
                     allCandidates.AddRange(kidsItems);
 
                     var kidsItems2 = await ExecuteDiscoverQueryAsync(
                         client, "api/v1/discover/tv/genre/10762?page=2", cancellationToken).ConfigureAwait(false);
+                    StampMediaType(kidsItems2, "tv");
                     allCandidates.AddRange(kidsItems2);
 
                     // Family TV genre
                     var familyTvItems = await ExecuteDiscoverQueryAsync(
                         client, "api/v1/discover/tv/genre/10751?page=1", cancellationToken).ConfigureAwait(false);
+                    StampMediaType(familyTvItems, "tv");
                     allCandidates.AddRange(familyTvItems);
                 }
                 else
@@ -1007,6 +1010,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     {
                         var items = await ExecuteDiscoverQueryAsync(
                             client, $"api/v1/discover/tv/genre/{genreId}?page=1", cancellationToken).ConfigureAwait(false);
+                        StampMediaType(items, "tv");
                         allCandidates.AddRange(items);
                     }
 
@@ -1022,6 +1026,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     {
                         var items = await ExecuteDiscoverQueryAsync(
                             client, $"api/v1/discover/tv/genre/{tvGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
+                        StampMediaType(items, "tv");
                         allCandidates.AddRange(items);
                     }
 
@@ -1034,6 +1039,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
                         var langTv = await ExecuteDiscoverQueryAsync(
                             client, $"api/v1/discover/tv/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
+                        StampMediaType(langTv, "tv");
                         allCandidates.AddRange(langTv);
                     }
                 }
@@ -1377,6 +1383,20 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             .Where(id => id.HasValue)
             .Select(id => id!.Value.ToString(CultureInfo.InvariantCulture))
             .ToList();
+    }
+
+    /// <summary>
+    ///     Defensively stamps the <see cref="TmdbDiscoverItem.MediaType"/> on items fetched from
+    ///     typed discover endpoints. Seerr typed endpoints (e.g. /discover/tv/...) normally include
+    ///     mediaType in the response, but this guard ensures correct classification even if the
+    ///     field is missing or defaults to "movie".
+    /// </summary>
+    private static void StampMediaType(List<TmdbDiscoverItem> items, string mediaType)
+    {
+        foreach (var item in items)
+        {
+            item.MediaType = mediaType;
+        }
     }
 
     /// <summary>

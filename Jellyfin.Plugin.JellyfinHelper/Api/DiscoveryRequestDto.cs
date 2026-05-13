@@ -26,18 +26,21 @@ public sealed class DiscoveryRequestDto
     ///     Gets or sets the Seerr user ID to submit the request as.
     ///     When null or 0, the request is submitted as the API key owner (admin).
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "SeerrUserId must be greater than 0 when provided.")]
     public int? SeerrUserId { get; set; }
 
     /// <summary>
     ///     Gets or sets the Radarr/Sonarr server ID in Seerr.
     ///     When provided, overrides the default server selection.
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "ServerId must be greater than 0 when provided.")]
     public int? ServerId { get; set; }
 
     /// <summary>
     ///     Gets or sets the quality profile ID to use for the download.
     ///     When provided, overrides the default quality profile.
     /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "ProfileId must be greater than 0 when provided.")]
     public int? ProfileId { get; set; }
 
     /// <summary>

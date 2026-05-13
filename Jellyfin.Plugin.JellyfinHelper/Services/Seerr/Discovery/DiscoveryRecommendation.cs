@@ -35,11 +35,12 @@ public sealed class DiscoveryRecommendation
 
     /// <summary>
     ///     Gets or sets the computed recommendation score (0-1). Clamped to valid range.
+    ///     Non-finite values (NaN, Infinity) are coerced to 0.0 to prevent JSON serialization failures.
     /// </summary>
     public double Score
     {
         get => _score;
-        set => _score = Math.Clamp(value, 0.0, 1.0);
+        set => _score = double.IsFinite(value) ? Math.Clamp(value, 0.0, 1.0) : 0.0;
     }
 
     /// <summary>
@@ -64,11 +65,12 @@ public sealed class DiscoveryRecommendation
 
     /// <summary>
     ///     Gets or sets the TMDb community rating (0-10). Clamped to valid range.
+    ///     Non-finite values (NaN, Infinity) are coerced to 0.0 to prevent JSON serialization failures.
     /// </summary>
     public double TmdbRating
     {
         get => _tmdbRating;
-        set => _tmdbRating = Math.Clamp(value, 0.0, 10.0);
+        set => _tmdbRating = double.IsFinite(value) ? Math.Clamp(value, 0.0, 10.0) : 0.0;
     }
 
     /// <summary>
