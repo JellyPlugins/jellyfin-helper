@@ -107,7 +107,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
             foreach (var item in items)
             {
-                var key = (item.TmdbId, item.MediaType);
+                var normalizedType = NormalizeMediaType(item.MediaType);
+                var key = (item.TmdbId, normalizedType);
                 if (entryLookup.TryGetValue(key, out var existing))
                 {
                     // Backfill metadata on existing placeholder entries (created by RecordDismissed/RecordRequested
@@ -127,7 +128,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 var newEntry = new DiscoveryFeedbackEntry
                 {
                     TmdbId = item.TmdbId,
-                    MediaType = item.MediaType,
+                    MediaType = normalizedType,
                     Title = item.Title,
                     Year = item.Year,
                     Genres = item.Genres,

@@ -331,8 +331,7 @@ public sealed class UserDiscoveryController : ControllerBase
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
             }
 
-            if (rootFolder != null &&
-                !string.Equals(rootFolder, matchedProfile.RootFolder, StringComparison.Ordinal))
+            if (!string.Equals(rootFolder, matchedProfile.RootFolder, StringComparison.Ordinal))
             {
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this root folder." });
             }

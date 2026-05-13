@@ -184,7 +184,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var excludedTmdbIds = await BuildExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
         _pluginLog.LogDebug(
             "SeerrDiscovery",
-            $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library + requests).",
+            $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library only — per-user dismissed/requested merged later).",
             _logger);
 
         // Step 2: Process each user
@@ -644,6 +644,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             var seerrUsers = await GetCachedSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
             if (seerrUsers.Count == 0)
             {
+                // Empty list means either Seerr is unavailable or a partial fetch occurred.
+                // Return null — callers on the admin request path (DiscoveryController) treat this
+                // as "omit userId" which falls back to the API-key owner. This is acceptable
+                // for admin-initiated requests but NOT for user-scoped requests (UserDiscoveryController),
+                // which should use GetUserRequestPermissionsAsync for proper tri-state handling.
                 return null;
             }
 

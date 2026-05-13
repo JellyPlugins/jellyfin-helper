@@ -63,16 +63,15 @@ public class UserDiscoveryControllerTests
     }
 
     [Fact]
-    public async Task SubmitMyRequest_NullDto_ReturnsBadRequest()
+    public async Task SubmitMyRequest_NullDto_Returns403WhenAccessDisabled()
     {
         var controller = CreateController(Guid.NewGuid());
 
-        // When DiscoveryUserAccessEnabled is false, we get 403 first.
-        // This validates the controller handles null gracefully at the gate level.
+        // When DiscoveryUserAccessEnabled is false (Plugin.Instance is null in tests),
+        // the access gate fires first and returns 403 before null-body validation.
         var result = await controller.SubmitMyRequest(null!, CancellationToken.None);
         var statusResult = Assert.IsType<ObjectResult>(result.Result);
-        // Either 403 (disabled) or 400 (null body) — both are correct defensive behavior
-        Assert.True(statusResult.StatusCode == 403 || statusResult.StatusCode == 400);
+        Assert.Equal(403, statusResult.StatusCode);
     }
 
     [Fact]
