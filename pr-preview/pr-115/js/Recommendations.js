@@ -710,7 +710,8 @@ function markDiscoveryItemRequested(tmdbId, mediaType) {
         for (var r = 0; r < userDiscovery.Recommendations.length; r++) {
             var rec = userDiscovery.Recommendations[r];
             var recTmdbId = parseInt(rec.TmdbId, 10);
-            if (recTmdbId === tmdbId && (!mediaType || rec.MediaType === mediaType)) {
+            var recMediaType = String(rec.MediaType || '').trim().toLowerCase();
+            if (recTmdbId === tmdbId && (!mediaType || recMediaType === mediaType)) {
                 rec.AlreadyRequested = true;
             }
         }
