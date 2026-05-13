@@ -1324,48 +1324,62 @@ public sealed class Engine : IRecommendationEngine
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Only process users who have at least one requested-but-not-yet-watched entry
-                if (!userFeedback.Entries.Any(e => e.RequestedAtUtc.HasValue && !e.WasWatched))
+                try
                 {
-                    continue;
-                }
-
-                // Find the user's watch profile via O(1) dictionary lookup
-                if (!profileById.TryGetValue(userFeedback.UserId, out var userProfile))
-                {
-                    continue;
-                }
-
-                // Collect composite (TmdbId, MediaType) keys of items this user has watched.
-                // MediaType resolved from library item type (Movie → "movie", Series → "tv").
-                var watchedItems = new HashSet<(int TmdbId, string MediaType)>();
-                foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
-                {
-                    if (tmdbIdByItemId.TryGetValue(w.ItemId, out var tmdbId))
+                    // Only process users who have at least one requested-but-not-yet-watched entry
+                    if (!userFeedback.Entries.Any(e => e.RequestedAtUtc.HasValue && !e.WasWatched))
                     {
-                        var mt = mediaTypeByItemId.TryGetValue(w.ItemId, out var resolved) ? resolved : "movie";
-                        watchedItems.Add((tmdbId, mt));
+                        continue;
                     }
 
-                    // Also check series-level TMDb IDs (for TV shows)
-                    if (w.SeriesId.HasValue && tmdbIdByItemId.TryGetValue(w.SeriesId.Value, out var seriesTmdbId))
+                    // Find the user's watch profile via O(1) dictionary lookup
+                    if (!profileById.TryGetValue(userFeedback.UserId, out var userProfile))
                     {
-                        watchedItems.Add((seriesTmdbId, "tv"));
+                        continue;
+                    }
+
+                    // Collect composite (TmdbId, MediaType) keys of items this user has watched.
+                    // MediaType resolved from library item type (Movie → "movie", Series → "tv").
+                    var watchedItems = new HashSet<(int TmdbId, string MediaType)>();
+                    foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
+                    {
+                        if (tmdbIdByItemId.TryGetValue(w.ItemId, out var tmdbId))
+                        {
+                            var mt = mediaTypeByItemId.TryGetValue(w.ItemId, out var resolved) ? resolved : "movie";
+                            watchedItems.Add((tmdbId, mt));
+                        }
+
+                        // Also check series-level TMDb IDs (for TV shows)
+                        if (w.SeriesId.HasValue && tmdbIdByItemId.TryGetValue(w.SeriesId.Value, out var seriesTmdbId))
+                        {
+                            watchedItems.Add((seriesTmdbId, "tv"));
+                        }
+                    }
+
+                    // Include series-level favorites (user favorited the series itself, not individual episodes)
+                    foreach (var favoriteSeriesId in userProfile.FavoriteSeriesIds)
+                    {
+                        if (tmdbIdByItemId.TryGetValue(favoriteSeriesId, out var favoriteSeriesTmdbId))
+                        {
+                            watchedItems.Add((favoriteSeriesTmdbId, "tv"));
+                        }
+                    }
+
+                    if (watchedItems.Count > 0)
+                    {
+                        _discoveryFeedbackStore.MarkWatched(userFeedback.UserId, watchedItems);
                     }
                 }
-
-                // Include series-level favorites (user favorited the series itself, not individual episodes)
-                foreach (var favoriteSeriesId in userProfile.FavoriteSeriesIds)
+                catch (OperationCanceledException)
                 {
-                    if (tmdbIdByItemId.TryGetValue(favoriteSeriesId, out var favoriteSeriesTmdbId))
-                    {
-                        watchedItems.Add((favoriteSeriesTmdbId, "tv"));
-                    }
+                    throw;
                 }
-
-                if (watchedItems.Count > 0)
+                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
                 {
-                    _discoveryFeedbackStore.MarkWatched(userFeedback.UserId, watchedItems);
+                    _pluginLog.LogDebug(
+                        "Recommendations",
+                        $"Could not update discovery watched status for user '{userFeedback.UserId}': {ex.Message}",
+                        _logger);
                 }
             }
         }

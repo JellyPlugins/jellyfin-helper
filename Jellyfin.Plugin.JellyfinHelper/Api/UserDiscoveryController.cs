@@ -311,9 +311,9 @@ public sealed class UserDiscoveryController : ControllerBase
 
         if (dto.ServerId.HasValue || dto.ProfileId.HasValue || rootFolder != null)
         {
-            if (!dto.ServerId.HasValue || !dto.ProfileId.HasValue || rootFolder == null)
+            if (!dto.ServerId.HasValue || !dto.ProfileId.HasValue)
             {
-                return BadRequest(new RequestResult { Success = false, Message = "ServerId, ProfileId, and RootFolder must all be specified together." });
+                return BadRequest(new RequestResult { Success = false, Message = "ServerId and ProfileId must be specified together." });
             }
 
             var serverId = dto.ServerId.Value;
@@ -331,8 +331,22 @@ public sealed class UserDiscoveryController : ControllerBase
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this quality profile." });
             }
 
-            if (!string.Equals(rootFolder, matchedProfile.RootFolder, StringComparison.Ordinal))
+            // Validate root folder against the matched profile.
+            // When the profile has no specific root folder (empty/null), accept both null and empty
+            // from the client — the request will use Seerr's server default.
+            // When the profile HAS a root folder, the client must provide an exact match.
+            var profileHasRootFolder = !string.IsNullOrEmpty(matchedProfile.RootFolder);
+            if (profileHasRootFolder)
             {
+                if (rootFolder == null || !string.Equals(rootFolder, matchedProfile.RootFolder, StringComparison.Ordinal))
+                {
+                    return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this root folder." });
+                }
+            }
+            else if (rootFolder != null)
+            {
+                // Profile has no root folder constraint — reject if client sends a non-empty
+                // root folder (trying to override to an arbitrary path when none is configured).
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this root folder." });
             }
         }

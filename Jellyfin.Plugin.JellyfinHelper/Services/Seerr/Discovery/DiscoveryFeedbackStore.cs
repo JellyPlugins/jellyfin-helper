@@ -236,11 +236,16 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 return;
             }
 
+            // Normalize incoming media types for case-insensitive matching.
+            // Stored entries use NormalizeMediaType (lowercase), but callers may pass mixed case.
+            var normalizedWatched = new HashSet<(int TmdbId, string MediaType)>(
+                watchedItems.Select(w => (w.TmdbId, NormalizeMediaType(w.MediaType))));
+
             var modified = false;
             foreach (var entry in userResult.Entries.Where(
                 entry => entry.RequestedAtUtc.HasValue
                          && !entry.WasWatched
-                         && watchedItems.Contains((entry.TmdbId, entry.MediaType))))
+                         && normalizedWatched.Contains((entry.TmdbId, entry.MediaType))))
             {
                 entry.WasWatched = true;
                 modified = true;
