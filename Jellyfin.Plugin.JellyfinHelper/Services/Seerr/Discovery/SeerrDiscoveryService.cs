@@ -1531,7 +1531,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             var matchedPerson = candidate.KnownPeople.FirstOrDefault(p => preferredPeople.Contains(p));
             if (matchedPerson != null)
             {
-                return ("reasonPerson", matchedPerson);
+                return ("reasonPersonNamed", matchedPerson);
             }
         }
 

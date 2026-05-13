@@ -100,7 +100,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 userResult.Entries.Count);
             foreach (var entry in userResult.Entries)
             {
-                entryLookup.TryAdd((entry.TmdbId, entry.MediaType), entry);
+                entryLookup.TryAdd((entry.TmdbId, NormalizeMediaType(entry.MediaType)), entry);
             }
 
             var now = DateTime.UtcNow;
