@@ -14,8 +14,8 @@ var _logLevelLoaded = false;
 // Extracted to avoid duplicated DOM manipulation in multiple event handlers.
 function refreshDiscoveryAccessState() {
     var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
-    var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
-    var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+    var seerrUrl = ((document.getElementById('cfgSeerrUrl') || {}).value || '').trim();
+    var seerrKey = ((document.getElementById('cfgSeerrApiKey') || {}).value || '').trim();
     var discEnabled = recsMode === 'Activate' && !!(seerrUrl && seerrKey);
 
     var wrapper = document.getElementById('discoveryAccessWrapper');
@@ -386,8 +386,8 @@ function buildSettingsPayload() {
             // This prevents stale "true" from being persisted when the admin disables recommendations
             // or clears Seerr config while the checkbox was previously enabled.
             var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
-            var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
-            var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+            var seerrUrl = ((document.getElementById('cfgSeerrUrl') || {}).value || '').trim();
+            var seerrKey = ((document.getElementById('cfgSeerrApiKey') || {}).value || '').trim();
             return recsMode === 'Activate' && !!(seerrUrl && seerrKey);
         })(),
         Language: document.getElementById('cfgLang').value,
