@@ -125,7 +125,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                         existing.Year = item.Year;
                     }
 
-                    if ((existing.Genres is null || existing.Genres.Length == 0) && item.Genres is { Count: > 0 })
+                    if ((existing.Genres == null || existing.Genres.Count == 0) && item.Genres is { Count: > 0 })
                     {
                         existing.Genres = item.Genres.ToArray();
                     }
