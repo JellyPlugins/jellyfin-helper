@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
@@ -16,7 +17,10 @@ public sealed class DiscoveryResult
 
     /// <summary>
     ///     Gets or sets the user's display name.
+    ///     Excluded from JSON serialization to avoid persisting PII in cache payloads.
+    ///     Display names are resolved at runtime from the Jellyfin user database via <see cref="UserId"/>.
     /// </summary>
+    [JsonIgnore]
     public string UserName { get; set; } = string.Empty;
 
     /// <summary>

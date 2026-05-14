@@ -117,10 +117,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     {
                         existing.Title = item.Title;
                         existing.Year = item.Year;
-                        existing.Genres = item.Genres;
+                        existing.Genres = item.Genres?.ToArray() ?? [];
                         existing.TmdbRating = item.TmdbRating;
                         existing.Score = item.Score;
-                        existing.KnownPeople = item.KnownPeople ?? [];
+                        existing.KnownPeople = item.KnownPeople?.ToList() ?? [];
                     }
 
                     continue;
@@ -132,11 +132,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     MediaType = normalizedType,
                     Title = item.Title,
                     Year = item.Year,
-                    Genres = item.Genres,
+                    Genres = item.Genres?.ToArray() ?? [],
                     TmdbRating = item.TmdbRating,
                     Score = item.Score,
                     ShownAtUtc = now,
-                    KnownPeople = item.KnownPeople ?? []
+                    KnownPeople = item.KnownPeople?.ToList() ?? []
                 };
                 userResult.Entries.Add(newEntry);
                 entryLookup.TryAdd(key, newEntry);

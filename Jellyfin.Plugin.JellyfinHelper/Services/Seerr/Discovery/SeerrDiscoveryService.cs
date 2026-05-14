@@ -268,6 +268,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return (false, "Invalid TMDb ID.");
         }
 
+        mediaType = mediaType?.Trim().ToLowerInvariant() ?? string.Empty;
         if (mediaType is not ("movie" or "tv"))
         {
             return (false, "mediaType must be 'movie' or 'tv'.");

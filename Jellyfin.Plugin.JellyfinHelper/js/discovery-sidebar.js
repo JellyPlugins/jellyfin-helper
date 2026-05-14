@@ -357,7 +357,8 @@
 
     function fetchPermissionsAndRequest(tmdbId, mediaType, btn) {
         var serviceType = (mediaType === 'tv') ? 'sonarr' : 'radarr';
-        var cacheKey = serviceType + ':' + mediaType;
+        var userId = (ApiClient.getCurrentUserId && ApiClient.getCurrentUserId()) || '';
+        var cacheKey = serviceType + ':' + mediaType + ':' + userId;
         var cached = _permCache[cacheKey];
         if (cached && (Date.now() - cached._ts) < PERM_CACHE_TTL_MS) {
             decideAndSubmit(tmdbId, mediaType, btn, cached);

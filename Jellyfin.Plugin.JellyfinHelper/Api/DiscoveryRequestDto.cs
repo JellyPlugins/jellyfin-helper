@@ -24,7 +24,7 @@ public sealed class DiscoveryRequestDto
 
     /// <summary>
     ///     Gets or sets the Seerr user ID to submit the request as.
-    ///     When null or 0, the request is submitted as the API key owner (admin).
+    ///     When null, the request is submitted as the API key owner (admin).
     /// </summary>
     [Range(1, int.MaxValue, ErrorMessage = "SeerrUserId must be greater than 0 when provided.")]
     public int? SeerrUserId { get; set; }

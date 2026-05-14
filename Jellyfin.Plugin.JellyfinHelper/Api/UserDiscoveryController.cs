@@ -371,7 +371,8 @@ public sealed class UserDiscoveryController : ControllerBase
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            // Best-effort cache update.
+            // Best-effort cache update — log but do not fail the request.
+            _logger.LogWarning(ex, "[Discovery] Failed to mark item {TmdbId}/{MediaType} as requested in cache for user {UserId}", dto.TmdbId, mediaType, currentJellyfinUserId);
         }
 
         try
