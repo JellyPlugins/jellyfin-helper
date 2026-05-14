@@ -411,18 +411,20 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     /// </summary>
     private void SaveInternal(List<DiscoveryFeedbackResult> data)
     {
-        // Eviction: remove entries older than MaxEntryAgeDays and cap per-user count
+        // Eviction: remove entries older than MaxEntryAgeDays and cap per-user count.
+        // Use the latest interaction timestamp (not just ShownAtUtc) to prevent evicting
+        // entries that were recently dismissed or requested but originally shown long ago.
         var cutoff = DateTime.UtcNow.AddDays(-MaxEntryAgeDays);
         foreach (var userResult in data)
         {
-            // Remove expired entries
-            userResult.Entries.RemoveAll(e => e.ShownAtUtc < cutoff);
+            // Remove expired entries based on their most recent activity
+            userResult.Entries.RemoveAll(e => GetLatestActivityUtc(e) < cutoff);
 
-            // Cap per-user count (keep most recent by ShownAtUtc)
+            // Cap per-user count (keep most recently active entries)
             if (userResult.Entries.Count > MaxEntriesPerUser)
             {
                 userResult.Entries = userResult.Entries
-                    .OrderByDescending(e => e.ShownAtUtc)
+                    .OrderByDescending(GetLatestActivityUtc)
                     .Take(MaxEntriesPerUser)
                     .ToList();
             }
@@ -484,6 +486,27 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         };
         data.Add(newResult);
         return newResult;
+    }
+
+    /// <summary>
+    ///     Returns the most recent activity timestamp for a feedback entry.
+    ///     Used by eviction logic to retain entries with recent interactions
+    ///     even if their original <see cref="DiscoveryFeedbackEntry.ShownAtUtc"/> is old.
+    /// </summary>
+    private static DateTime GetLatestActivityUtc(DiscoveryFeedbackEntry entry)
+    {
+        var latest = entry.ShownAtUtc;
+        if (entry.DismissedAtUtc.HasValue && entry.DismissedAtUtc.Value > latest)
+        {
+            latest = entry.DismissedAtUtc.Value;
+        }
+
+        if (entry.RequestedAtUtc.HasValue && entry.RequestedAtUtc.Value > latest)
+        {
+            latest = entry.RequestedAtUtc.Value;
+        }
+
+        return latest;
     }
 
     /// <summary>

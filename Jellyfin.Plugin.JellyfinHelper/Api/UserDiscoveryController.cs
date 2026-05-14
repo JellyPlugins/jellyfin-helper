@@ -288,25 +288,34 @@ public sealed class UserDiscoveryController : ControllerBase
 
         var currentJellyfinUserId = jellyfinUserId.Value;
 
-        var seerrUserId = await _discovery.ResolveSeerrUserIdAsync(
-            currentJellyfinUserId, cancellationToken).ConfigureAwait(false);
-
-        if (seerrUserId == null)
-        {
-            return StatusCode(403, new RequestResult
-            {
-                Success = false,
-                Message = "Your Jellyfin account is not linked to a Seerr account. Please contact your server administrator."
-            });
-        }
-
         var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
         var permissions = await _discovery.GetUserRequestPermissionsAsync(
             currentJellyfinUserId, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
 
         if (!permissions.CanRequest)
         {
-            return StatusCode(403, new RequestResult { Success = false, Message = "You do not have permission to submit requests." });
+            // GetUserRequestPermissionsAsync distinguishes "transient Seerr failure" from
+            // "user not linked" via DeniedReason — propagate the specific message to the client.
+            return StatusCode(403, new RequestResult
+            {
+                Success = false,
+                Message = permissions.DeniedReason ?? "You do not have permission to submit requests."
+            });
+        }
+
+        var seerrUserId = await _discovery.ResolveSeerrUserIdAsync(
+            currentJellyfinUserId, cancellationToken).ConfigureAwait(false);
+
+        if (seerrUserId == null)
+        {
+            // At this point GetUserRequestPermissionsAsync already confirmed the user exists
+            // in Seerr (CanRequest=true). A null here indicates a transient cache/network issue
+            // between the two calls — use 502 to signal a retriable upstream failure.
+            return StatusCode(502, new RequestResult
+            {
+                Success = false,
+                Message = "Could not verify your Seerr account. Please try again."
+            });
         }
 
         if (dto.ServerId.HasValue || dto.ProfileId.HasValue || rootFolder != null)
