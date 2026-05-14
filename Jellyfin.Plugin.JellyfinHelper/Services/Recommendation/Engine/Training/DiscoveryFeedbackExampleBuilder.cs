@@ -143,10 +143,10 @@ internal static class DiscoveryFeedbackExampleBuilder
         var yearProximityScore = ContentScoring.ComputeYearProximity(entry.Year, avgYear);
 
         // People similarity from cached KnownPeople.
-        // NOTE: Currently always 0 because RecordShown does not persist KnownPeople
-        // (credits data is only available during GenerateForUserAsync via EnrichTopCandidatesWithCreditsAsync
-        // and is not propagated to the feedback entry). This feature will activate once
-        // RecordShown is extended to include KnownPeople from the DiscoveryRecommendation.
+        // Only populated for candidates that were enriched with credits data during discovery
+        // generation (top-N by pre-score via EnrichTopCandidatesWithCreditsAsync).
+        // Items that were not enriched will have empty KnownPeople and produce a
+        // PeopleSimilarity of 0 for their training examples.
         var peopleSimilarity = 0.0;
         if (entry.KnownPeople is { Count: > 0 } && preferredPeople.Count > 0)
         {

@@ -535,7 +535,7 @@ public sealed class UserDiscoveryController : ControllerBase
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            // Best-effort
+            _logger.LogWarning(ex, "[Discovery] Failed to load excluded item keys for user {UserId}", userId);
         }
 
         return excluded;

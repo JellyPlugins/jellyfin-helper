@@ -254,6 +254,7 @@ public sealed class UserWatchProfile
         ? PeopleProfile
             .Where(kv => kv.Value >= 2)
             .OrderByDescending(kv => kv.Value)
+            .ThenBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
             .Take(20)
             .Select(kv => kv.Key)
             .ToList()
