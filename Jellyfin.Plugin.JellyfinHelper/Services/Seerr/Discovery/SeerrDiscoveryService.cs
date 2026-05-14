@@ -398,8 +398,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <inheritdoc />
     public async Task<IReadOnlyList<SeerrUser>> GetSeerrUsersAsync(CancellationToken cancellationToken)
     {
-        var (users, _) = await FetchSeerrUsersInternalAsync(cancellationToken).ConfigureAwait(false);
-        return users;
+        var (users, complete) = await FetchSeerrUsersInternalAsync(cancellationToken).ConfigureAwait(false);
+
+        // Only return the roster when all pages were fetched successfully.
+        // A partial result would cause callers to incorrectly treat users on
+        // unfetched pages as "not linked to Seerr". Return empty to signal
+        // that the upstream is temporarily unavailable.
+        return complete ? users : [];
     }
 
     /// <summary>
@@ -1585,7 +1590,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         client.BaseAddress = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
-        client.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
+
+        // Use TryAddWithoutValidation to avoid FormatException when the API key
+        // contains characters that fail default header validation (e.g., newlines
+        // from a misconfigured admin paste). The key is treated as an opaque token.
+        client.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", apiKey);
         client.DefaultRequestHeaders.Accept.Add(
             new MediaTypeWithQualityHeaderValue("application/json"));
 

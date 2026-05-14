@@ -89,7 +89,7 @@ internal static class DiscoveryFeedbackExampleBuilder
                 {
                     Features = features,
                     Label = label,
-                    GeneratedAtUtc = entry.RequestedAtUtc ?? entry.DismissedAtUtc ?? entry.ShownAtUtc,
+                    GeneratedAtUtc = GetLatestInteractionUtc(entry),
                     SampleWeight = EngineConstants.DiscoveryFeedbackSampleWeight
                 });
             }
@@ -111,6 +111,27 @@ internal static class DiscoveryFeedbackExampleBuilder
             DiscoveryInteractionStatus.Shown => EngineConstants.DiscoveryShownLabel,
             _ => EngineConstants.DiscoveryShownLabel
         };
+    }
+
+    /// <summary>
+    ///     Returns the most recent interaction timestamp for a feedback entry.
+    ///     Uses the maximum of all stored timestamps to ensure training examples
+    ///     are placed at the correct temporal position for incremental-cutoff and holdout logic.
+    /// </summary>
+    private static DateTime GetLatestInteractionUtc(DiscoveryFeedbackEntry entry)
+    {
+        var latest = entry.ShownAtUtc;
+        if (entry.DismissedAtUtc.HasValue && entry.DismissedAtUtc.Value > latest)
+        {
+            latest = entry.DismissedAtUtc.Value;
+        }
+
+        if (entry.RequestedAtUtc.HasValue && entry.RequestedAtUtc.Value > latest)
+        {
+            latest = entry.RequestedAtUtc.Value;
+        }
+
+        return latest;
     }
 
     /// <summary>

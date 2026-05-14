@@ -10,6 +10,13 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
+/// <summary>
+///     Tests for <see cref="DiscoveryController"/> (admin-level discovery endpoints).
+///     The <see cref="DiscoveryCacheService"/> is instantiated once per test class.
+///     Current tests are stateless (no test mutates the cache), so shared state is safe.
+///     If future tests add cache-mutating scenarios, consider per-test isolation
+///     via a temp-directory-backed cache or mocked <c>IDiscoveryCacheService</c>.
+/// </summary>
 public class DiscoveryControllerTests
 {
     private readonly Mock<ISeerrDiscoveryService> _discoveryMock;

@@ -13,6 +13,15 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
+/// <summary>
+///     Tests for <see cref="UserDiscoveryController"/>.
+///     Note: These tests exercise the security access gate (DiscoveryUserAccessEnabled)
+///     which cannot be bypassed in unit tests because <c>Plugin.Instance</c> is null.
+///     Validation paths (400 responses) are covered by the equivalent admin
+///     <see cref="DiscoveryControllerTests"/> which shares the same DTO validation logic.
+///     Full integration tests covering the enabled-access path require a running
+///     Jellyfin host with Plugin.Instance initialized.
+/// </summary>
 public class UserDiscoveryControllerTests
 {
     private readonly Mock<ISeerrDiscoveryService> _discoveryMock;

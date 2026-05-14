@@ -296,7 +296,12 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             // GetUserRequestPermissionsAsync distinguishes "transient Seerr failure" from
             // "user not linked" via DeniedReason — propagate the specific message to the client.
-            return StatusCode(403, new RequestResult
+            // Use 503 for transient upstream failures so the client knows to retry,
+            // and 403 for genuine permission denials.
+            var isTransient = permissions.DeniedReason != null
+                && permissions.DeniedReason.Contains("temporarily unavailable", StringComparison.OrdinalIgnoreCase);
+            var statusCode = isTransient ? 503 : 403;
+            return StatusCode(statusCode, new RequestResult
             {
                 Success = false,
                 Message = permissions.DeniedReason ?? "You do not have permission to submit requests."

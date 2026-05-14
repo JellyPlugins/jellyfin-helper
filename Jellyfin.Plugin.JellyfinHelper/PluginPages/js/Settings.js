@@ -222,7 +222,7 @@ function loadSettings() {
         h += '</div>';
 
         // Discovery user access toggle - greyed out if Recommendations deactivated OR Seerr not configured
-        var seerrConfigured = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
+        var seerrConfigured = !!((cfg.SeerrUrl || '').trim() && (cfg.SeerrApiKey || '').trim());
         var discoveryEnabled = recsActive && seerrConfigured;
         h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + T('discoveryUserAccess', 'Allow users to view Discovery and submit requests') + '</label></div>';

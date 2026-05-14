@@ -112,15 +112,37 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 if (entryLookup.TryGetValue(key, out var existing))
                 {
                     // Backfill metadata on existing placeholder entries (created by RecordDismissed/RecordRequested
-                    // before RecordShown ran). This ensures training examples have full feature data.
-                    if (string.IsNullOrEmpty(existing.Title))
+                    // before RecordShown ran) or entries missing enriched data (e.g., KnownPeople not available
+                    // on first generation but enriched on a subsequent run). Each field is merged individually
+                    // to avoid overwriting already-populated fields with empty/default values.
+                    if (string.IsNullOrEmpty(existing.Title) && !string.IsNullOrEmpty(item.Title))
                     {
                         existing.Title = item.Title;
+                    }
+
+                    if (existing.Year is null or 0 && item.Year is > 0)
+                    {
                         existing.Year = item.Year;
-                        existing.Genres = item.Genres?.ToArray() ?? [];
+                    }
+
+                    if ((existing.Genres is null || existing.Genres.Length == 0) && item.Genres is { Count: > 0 })
+                    {
+                        existing.Genres = item.Genres.ToArray();
+                    }
+
+                    if (existing.TmdbRating == 0 && item.TmdbRating > 0)
+                    {
                         existing.TmdbRating = item.TmdbRating;
+                    }
+
+                    if (existing.Score == 0 && item.Score > 0)
+                    {
                         existing.Score = item.Score;
-                        existing.KnownPeople = item.KnownPeople?.ToList() ?? [];
+                    }
+
+                    if ((existing.KnownPeople is null || existing.KnownPeople.Count == 0) && item.KnownPeople is { Count: > 0 })
+                    {
+                        existing.KnownPeople = item.KnownPeople.ToList();
                     }
 
                     continue;
