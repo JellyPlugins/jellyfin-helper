@@ -703,7 +703,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         if (seerrUser == null)
         {
             // Distinguish between "no users fetched" (likely transient failure) and "user not found"
-            var deniedReason = seerrUsers.Count == 0
+            var isTransient = seerrUsers.Count == 0;
+            var deniedReason = isTransient
                 ? "Could not verify your Seerr account. The Seerr server may be temporarily unavailable. Please try again."
                 : "Your Jellyfin account is not linked to a Seerr account.";
 
@@ -715,7 +716,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return new UserRequestPermissionResult
             {
                 CanRequest = false,
-                DeniedReason = deniedReason
+                DeniedReason = deniedReason,
+                IsTransient = isTransient
             };
         }
 
@@ -1485,13 +1487,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
                 var people = new List<string>(MaxCastPerCandidate);
 
-                // Add directors first (high signal value)
+                // Add directors first (high signal value), capped to leave room for actors.
                 if (detail.Credits.Crew is { Count: > 0 })
                 {
                     foreach (var crew in detail.Credits.Crew.Where(
                         c => string.Equals(c.Job, "Director", StringComparison.OrdinalIgnoreCase)
                              && !string.IsNullOrWhiteSpace(c.Name)))
                     {
+                        if (people.Count >= MaxCastPerCandidate)
+                        {
+                            break;
+                        }
+
                         people.Add(crew.Name);
                     }
                 }

@@ -131,6 +131,11 @@ internal static class DiscoveryFeedbackExampleBuilder
             latest = entry.RequestedAtUtc.Value;
         }
 
+        if (entry.WatchedAtUtc.HasValue && entry.WatchedAtUtc.Value > latest)
+        {
+            latest = entry.WatchedAtUtc.Value;
+        }
+
         return latest;
     }
 

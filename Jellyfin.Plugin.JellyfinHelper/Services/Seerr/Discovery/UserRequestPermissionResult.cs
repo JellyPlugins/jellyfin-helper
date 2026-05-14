@@ -22,6 +22,14 @@ public sealed class UserRequestPermissionResult
     public string? DeniedReason { get; set; }
 
     /// <summary>
+    ///     Gets or sets a value indicating whether the denial is due to a transient upstream failure
+    ///     (e.g., Seerr server temporarily unavailable). When <c>true</c>, the client should retry
+    ///     rather than treating the denial as a permanent permission issue.
+    ///     Used by the controller to distinguish 503 (retry) from 403 (forbidden) responses.
+    /// </summary>
+    public bool IsTransient { get; set; }
+
+    /// <summary>
     ///     Gets or sets the list of quality profiles the user is permitted to choose from.
     ///     <list type="bullet">
     ///         <item>Empty list: user should submit with server defaults (no profile override).</item>

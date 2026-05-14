@@ -139,7 +139,7 @@ public class HelperCleanupTask : IScheduledTask
             ("Seerr Cleanup", config.SeerrCleanupTaskMode, (p, ct) => RunSeerrCleanup(config, p, ct)),
             ("User Watch Activity", config.RecommendationsTaskMode, (p, ct) => RunUserActivityUpdate(config, p, ct)),
             ("Smart Recommendations", config.RecommendationsTaskMode, (p, ct) => RunRecommendationsUpdate(config, p, ct)),
-            ("Seerr Discovery", config.RecommendationsTaskMode, (p, ct) => RunSeerrDiscovery(p, ct))
+            ("Seerr Discovery", config.RecommendationsTaskMode, (p, ct) => RunSeerrDiscovery(config, p, ct))
         };
 
         var totalTasks = subTasks.Length;
@@ -388,8 +388,15 @@ public class HelperCleanupTask : IScheduledTask
         return task.ExecuteAsync(progress, cancellationToken);
     }
 
-    private async Task RunSeerrDiscovery(IProgress<double> progress, CancellationToken cancellationToken)
+    private async Task RunSeerrDiscovery(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
     {
+        if (config.RecommendationsTaskMode == TaskMode.DryRun)
+        {
+            _pluginLog.LogInfo("SeerrDiscovery", "Task started (Dry Run). Skipping discovery generation.", _logger);
+            progress.Report(100);
+            return;
+        }
+
         await _seerrDiscoveryService.GenerateDiscoveryRecommendationsAsync(cancellationToken)
             .ConfigureAwait(false);
         progress.Report(100);

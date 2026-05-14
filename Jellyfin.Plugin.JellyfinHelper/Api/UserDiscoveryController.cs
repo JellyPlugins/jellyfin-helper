@@ -183,12 +183,19 @@ public sealed class UserDiscoveryController : ControllerBase
             return Ok(Array.Empty<SeerrServiceInfo>());
         }
 
-        // Return only the servers and profiles this user is permitted to use.
-        // GetUserRequestPermissionsAsync already evaluates CanSelectQualityProfile —
-        // normal users get only default profiles, advanced users get all profiles.
-        // This prevents non-advanced users from enumerating the full Seerr topology.
-        var services = await _discovery.GetServiceInfoAsync(serviceType, cancellationToken).ConfigureAwait(false);
-        var filteredServices = FilterServicesByAllowedProfiles(services, permissions.Profiles);
+        // GetUserRequestPermissionsAsync already evaluated CanSelectQualityProfile and
+        // built the allowed profiles list from GetServiceInfoAsync internally.
+        // If no profiles were returned, the user should use server defaults — return empty.
+        if (permissions.Profiles.Count == 0)
+        {
+            return Ok(Array.Empty<SeerrServiceInfo>());
+        }
+
+        // Reconstruct the filtered service info directly from the permissions result
+        // to avoid a redundant second GetServiceInfoAsync HTTP round-trip to Seerr.
+        // GetUserRequestPermissionsAsync already called GetServiceInfoAsync internally
+        // and distilled the results into the Profiles list with all needed metadata.
+        var filteredServices = BuildServiceInfoFromProfiles(permissions.Profiles);
         return Ok(filteredServices);
     }
 
@@ -295,13 +302,9 @@ public sealed class UserDiscoveryController : ControllerBase
 
         if (!permissions.CanRequest)
         {
-            // GetUserRequestPermissionsAsync distinguishes "transient Seerr failure" from
-            // "user not linked" via DeniedReason — propagate the specific message to the client.
-            // Use 503 for transient upstream failures so the client knows to retry,
-            // and 403 for genuine permission denials.
-            var isTransient = permissions.DeniedReason != null
-                && permissions.DeniedReason.Contains("temporarily unavailable", StringComparison.OrdinalIgnoreCase);
-            var statusCode = isTransient ? 503 : 403;
+            // Use 503 for transient upstream failures (e.g., Seerr temporarily unavailable)
+            // so the client knows to retry, and 403 for genuine permission denials.
+            var statusCode = permissions.IsTransient ? 503 : 403;
             return StatusCode(statusCode, new RequestResult
             {
                 Success = false,
@@ -515,6 +518,63 @@ public sealed class UserDiscoveryController : ControllerBase
                 ActiveDirectory = allowedRootPaths.Contains(service.ActiveDirectory) ? service.ActiveDirectory : (filteredRootFolders.FirstOrDefault()?.Path ?? string.Empty),
                 Profiles = new System.Collections.ObjectModel.Collection<SeerrQualityProfile>(filteredProfiles),
                 RootFolders = filteredRootFolders
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Reconstructs <see cref="SeerrServiceInfo"/> objects directly from the pre-evaluated
+    ///     <see cref="AllowedQualityProfile"/> list without requiring a second Seerr API call.
+    ///     The Profiles list from <see cref="UserRequestPermissionResult"/> already contains
+    ///     all metadata needed by the frontend (ServerId, ServerName, ProfileId, ProfileName,
+    ///     IsDefault, RootFolder) because it was built from the GetServiceInfoAsync result
+    ///     during permission evaluation.
+    /// </summary>
+    /// <param name="allowedProfiles">The user's permitted profiles.</param>
+    /// <returns>A list of service info objects grouped by server.</returns>
+    private static List<SeerrServiceInfo> BuildServiceInfoFromProfiles(
+        IReadOnlyList<AllowedQualityProfile> allowedProfiles)
+    {
+        // Group profiles by server and reconstruct minimal SeerrServiceInfo objects.
+        // This avoids the redundant HTTP round-trip to Seerr that GetServiceInfoAsync would cause.
+        var result = new List<SeerrServiceInfo>();
+        var byServer = allowedProfiles.GroupBy(p => p.ServerId);
+
+        foreach (var serverGroup in byServer)
+        {
+            var profiles = serverGroup.ToList();
+            var firstProfile = profiles[0];
+            var defaultProfile = profiles.FirstOrDefault(p => p.IsDefault) ?? firstProfile;
+
+            var qualityProfiles = new System.Collections.ObjectModel.Collection<SeerrQualityProfile>(
+                profiles.Select(p => new SeerrQualityProfile
+                {
+                    Id = p.ProfileId,
+                    Name = p.ProfileName
+                }).ToList());
+
+            var rootFolders = new System.Collections.ObjectModel.Collection<SeerrRootFolder>();
+            var rootFolderPaths = profiles
+                .Where(p => !string.IsNullOrEmpty(p.RootFolder))
+                .Select(p => p.RootFolder)
+                .Distinct(StringComparer.Ordinal);
+            foreach (var path in rootFolderPaths)
+            {
+                rootFolders.Add(new SeerrRootFolder { Path = path });
+            }
+
+            result.Add(new SeerrServiceInfo
+            {
+                Id = firstProfile.ServerId,
+                Name = firstProfile.ServerName,
+                IsDefault = false,
+                Is4k = false,
+                ActiveProfileId = defaultProfile.ProfileId,
+                ActiveDirectory = defaultProfile.RootFolder ?? string.Empty,
+                Profiles = qualityProfiles,
+                RootFolders = rootFolders
             });
         }
 

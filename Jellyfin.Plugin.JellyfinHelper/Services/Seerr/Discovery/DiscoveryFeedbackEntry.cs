@@ -77,6 +77,15 @@ public sealed class DiscoveryFeedbackEntry
     public bool WasWatched { get; set; }
 
     /// <summary>
+    ///     Gets or sets the UTC timestamp when the item was confirmed watched.
+    ///     Null if not yet watched. Set by <see cref="DiscoveryFeedbackStore.MarkWatched"/>
+    ///     when the item is found in the user's watch history after being requested.
+    ///     Used by retention logic to prevent premature eviction of recently-converted entries,
+    ///     and by training to accurately place the interaction in temporal holdout/cutoff windows.
+    /// </summary>
+    public DateTime? WatchedAtUtc { get; set; }
+
+    /// <summary>
     ///     Gets or sets the known people (actors/directors) associated with this item
     ///     at the time of discovery. Used for PeopleSimilarity during training.
     /// </summary>

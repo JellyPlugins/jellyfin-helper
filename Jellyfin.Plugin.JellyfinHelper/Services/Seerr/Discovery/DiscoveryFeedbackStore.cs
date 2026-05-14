@@ -264,6 +264,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             var normalizedWatched = new HashSet<(int TmdbId, string MediaType)>(
                 watchedItems.Select(w => (w.TmdbId, NormalizeMediaType(w.MediaType))));
 
+            var now = DateTime.UtcNow;
             var modified = false;
             foreach (var entry in userResult.Entries.Where(
                 entry => entry.RequestedAtUtc.HasValue
@@ -271,6 +272,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                          && normalizedWatched.Contains((entry.TmdbId, entry.MediaType))))
             {
                 entry.WasWatched = true;
+                entry.WatchedAtUtc = now;
                 modified = true;
             }
 
@@ -368,7 +370,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 ShownAtUtc = e.ShownAtUtc,
                 DismissedAtUtc = e.DismissedAtUtc,
                 RequestedAtUtc = e.RequestedAtUtc,
-                WasWatched = e.WasWatched
+                WasWatched = e.WasWatched,
+                WatchedAtUtc = e.WatchedAtUtc
             }).ToList()
         };
     }
@@ -526,6 +529,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         if (entry.RequestedAtUtc.HasValue && entry.RequestedAtUtc.Value > latest)
         {
             latest = entry.RequestedAtUtc.Value;
+        }
+
+        if (entry.WatchedAtUtc.HasValue && entry.WatchedAtUtc.Value > latest)
+        {
+            latest = entry.WatchedAtUtc.Value;
         }
 
         return latest;
