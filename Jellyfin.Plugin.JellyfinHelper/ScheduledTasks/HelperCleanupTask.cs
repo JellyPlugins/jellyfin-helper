@@ -397,8 +397,10 @@ public class HelperCleanupTask : IScheduledTask
             return;
         }
 
+        _pluginLog.LogInfo("SeerrDiscovery", "Generating discovery recommendations...", _logger);
         await _seerrDiscoveryService.GenerateDiscoveryRecommendationsAsync(cancellationToken)
             .ConfigureAwait(false);
+        _pluginLog.LogInfo("SeerrDiscovery", "Discovery recommendations generated.", _logger);
         progress.Report(100);
     }
 

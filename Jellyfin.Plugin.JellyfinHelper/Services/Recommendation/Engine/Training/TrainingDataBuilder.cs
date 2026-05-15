@@ -919,7 +919,7 @@ internal static class TrainingDataBuilder
             if (discoveryExamples.Count > 0)
             {
                 examples.AddRange(discoveryExamples);
-                organicCount += discoveryCount; // Count discovery examples alongside organic for reporting
+                organicCount += discoveryCount; // Discovery examples counted alongside organic for unified reporting (see Phase 4 design note)
             }
         }
 

@@ -603,6 +603,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                                 server.ActiveDirectory = detail.ActiveDirectory;
                             }
                         }
+                        else
+                        {
+                            _pluginLog.LogDebug(
+                                "SeerrDiscovery",
+                                $"Failed to fetch profiles for {serviceType} server #{server.Id}: HTTP {(int)detailResponse.StatusCode}.",
+                                _logger);
+                        }
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {

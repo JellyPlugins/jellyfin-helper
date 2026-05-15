@@ -531,10 +531,14 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 // (which have ItemId = seriesId, SeriesId = null) don't double-count.
                 processedItemIds.Add(seriesId);
 
-                // Try to get series people
+                // Try to get series people; fall back to episode item if series metadata unavailable
                 if (seriesLookup != null && seriesLookup.TryGetValue(seriesId, out var seriesItem))
                 {
                     AggregatePeopleFromItem(profile, seriesItem, maxActorsPerItem);
+                }
+                else if (itemLookup.TryGetValue(watchedItem.ItemId, out var episodeItem))
+                {
+                    AggregatePeopleFromItem(profile, episodeItem, maxActorsPerItem);
                 }
 
                 continue;

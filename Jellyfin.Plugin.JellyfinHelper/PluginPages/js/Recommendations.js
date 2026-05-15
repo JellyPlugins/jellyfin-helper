@@ -634,6 +634,7 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
  */
 function handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType) {
     if (res && res.Success) {
+        btn.disabled = true;
         btn.classList.add('discovery-request-done');
         btn.innerHTML = mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
         markDiscoveryItemRequested(tmdbId, mediaType);
