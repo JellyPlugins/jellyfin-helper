@@ -472,10 +472,7 @@ public sealed class UserDiscoveryController : ControllerBase
     {
         // Group profiles by server and reconstruct minimal SeerrServiceInfo objects.
         // This avoids the redundant HTTP round-trip to Seerr that GetServiceInfoAsync would cause.
-        var result = new List<SeerrServiceInfo>();
-        var byServer = allowedProfiles.GroupBy(p => p.ServerId);
-
-        foreach (var serverGroup in byServer)
+        return allowedProfiles.GroupBy(p => p.ServerId).Select(serverGroup =>
         {
             var profiles = serverGroup.ToList();
             var firstProfile = profiles[0];
@@ -488,17 +485,15 @@ public sealed class UserDiscoveryController : ControllerBase
                     Name = p.ProfileName
                 }).ToList());
 
-            var rootFolders = new System.Collections.ObjectModel.Collection<SeerrRootFolder>();
-            var rootFolderPaths = profiles
-                .Where(p => !string.IsNullOrEmpty(p.RootFolder))
-                .Select(p => p.RootFolder)
-                .Distinct(StringComparer.Ordinal);
-            foreach (var path in rootFolderPaths)
-            {
-                rootFolders.Add(new SeerrRootFolder { Path = path });
-            }
+            var rootFolders = new System.Collections.ObjectModel.Collection<SeerrRootFolder>(
+                profiles
+                    .Where(p => !string.IsNullOrEmpty(p.RootFolder))
+                    .Select(p => p.RootFolder)
+                    .Distinct(StringComparer.Ordinal)
+                    .Select(path => new SeerrRootFolder { Path = path })
+                    .ToList());
 
-            result.Add(new SeerrServiceInfo
+            return new SeerrServiceInfo
             {
                 Id = firstProfile.ServerId,
                 Name = firstProfile.ServerName,
@@ -508,10 +503,8 @@ public sealed class UserDiscoveryController : ControllerBase
                 ActiveDirectory = defaultProfile.RootFolder ?? string.Empty,
                 Profiles = qualityProfiles,
                 RootFolders = rootFolders
-            });
-        }
-
-        return result;
+            };
+        }).ToList();
     }
 
     /// <summary>
