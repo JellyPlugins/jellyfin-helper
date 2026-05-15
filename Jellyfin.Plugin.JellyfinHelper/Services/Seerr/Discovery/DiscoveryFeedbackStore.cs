@@ -544,7 +544,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     ///     Defensive: handles null/whitespace gracefully.
     /// </summary>
     private static string NormalizeMediaType(string? mediaType) =>
-        string.IsNullOrWhiteSpace(mediaType) ? string.Empty : mediaType.Trim().ToLowerInvariant();
+        string.IsNullOrWhiteSpace(mediaType) ? "movie" : mediaType.Trim().ToLowerInvariant();
 
     private void TryDeleteFile()
     {
