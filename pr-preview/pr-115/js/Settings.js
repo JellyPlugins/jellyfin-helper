@@ -225,7 +225,7 @@ function loadSettings() {
         var seerrConfigured = !!((cfg.SeerrUrl || '').trim() && (cfg.SeerrApiKey || '').trim());
         var discoveryEnabled = recsActive && seerrConfigured;
         h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
-        h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + T('discoveryUserAccess', 'Allow users to view Discovery and submit requests') + '</label></div>';
+        h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (discoveryEnabled && cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + T('discoveryUserAccess', 'Allow users to view Discovery and submit requests') + '</label></div>';
         h += '<div class="help-text">' + T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.') + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;' + (!discoveryEnabled ? 'display:none;' : '') + '" title="' + T('discoverySetupHintTitle', 'Setup Instructions') + '" aria-label="' + T('discoverySetupHintTitle', 'Setup Instructions') + '">info</button></div>';
         h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + T('discoveryAccessDisabledHint', 'Requires Recommendations set to Activate and Seerr configured.') + '</div>';
         // Discovery setup hint — collapsible panel (default: closed)
@@ -445,6 +445,9 @@ function doSaveSettings(payload, options) {
     }, function () {
         if (quiet) {
             showAutoSaveIndicatorOverlay(indicatorEl, false);
+            if (options && typeof options.onError === 'function') {
+                options.onError();
+            }
         } else {
             btn.disabled = false;
             showButtonFeedback(btn, false, T('settingsError', 'Failed to save settings.'), T('saveSettings', 'Save Settings'));
@@ -902,7 +905,8 @@ function attachAutoSaveHandlers() {
             doSaveSettings(buildSettingsPayload(), {
                 quiet: true,
                 element: null, // suppress default overlay
-                onSuccess: function () { showInlineCheckboxIndicator(syncEl); }
+                onSuccess: function () { showInlineCheckboxIndicator(syncEl, true); },
+                onError: function () { showInlineCheckboxIndicator(syncEl, false); }
             });
         });
     }
@@ -914,7 +918,8 @@ function attachAutoSaveHandlers() {
             doSaveSettings(buildSettingsPayload(), {
                 quiet: true,
                 element: null, // suppress default overlay
-                onSuccess: function () { showInlineCheckboxIndicator(discoveryEl); }
+                onSuccess: function () { showInlineCheckboxIndicator(discoveryEl, true); },
+                onError: function () { showInlineCheckboxIndicator(discoveryEl, false); }
             });
         });
     }
@@ -949,15 +954,18 @@ function attachAutoSaveHandlers() {
 }
 
 /**
- * Shows a small green checkmark inline AFTER the label text of a checkbox toggle.
+ * Shows a small inline indicator AFTER the label text of a checkbox toggle.
  * Used for checkbox auto-save confirmation instead of showAutoSaveIndicatorOverlay
  * which doesn't position correctly for checkboxes.
  * @param {HTMLInputElement} checkbox - The checkbox input element.
+ * @param {boolean} [success] - Whether the save succeeded (true) or failed (false). Defaults to true.
  */
-function showInlineCheckboxIndicator(checkbox) {
+function showInlineCheckboxIndicator(checkbox, success) {
     if (!checkbox) return;
     var label = checkbox.nextElementSibling;
     if (!label || label.tagName !== 'LABEL') return;
+
+    var ok = success !== false;
 
     // Remove any existing indicator on this label
     var existing = label.querySelector('.inline-save-indicator');
@@ -966,8 +974,8 @@ function showInlineCheckboxIndicator(checkbox) {
     // Create inline indicator
     var indicator = document.createElement('span');
     indicator.className = 'inline-save-indicator';
-    indicator.innerHTML = ' ' + mi('check_circle');
-    indicator.style.color = '#2ecc71';
+    indicator.innerHTML = ' ' + mi(ok ? 'check_circle' : 'error');
+    indicator.style.color = ok ? '#2ecc71' : '#e74c3c';
     indicator.style.marginLeft = '0.4em';
     indicator.style.opacity = '1';
     indicator.style.transition = 'opacity 0.5s';
