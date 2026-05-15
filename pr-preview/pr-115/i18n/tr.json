@@ -324,6 +324,7 @@
   "discoveryProfileDefault": "varsayılan",
   "discoveryNoPermission": "İstek gönderme izniniz yok. Lütfen sunucu yöneticinizle iletişime geçin.",
   "discoveryRequestError": "İstek işlenemedi. Lütfen daha sonra tekrar deneyin.",
+  "discoveryServiceFetchFailed": "Profiller yüklenemedi. Lütfen tekrar deneyin.",
   "discoveryDismiss": "İlgilenmiyorum",
   "discoveryDismissConfirmTitle": "Öneriyi kaldır?",
   "discoveryDismissConfirmText": "{0} gelecek önerilerden gizlenecek ve tekrar gösterilmeyecek.",

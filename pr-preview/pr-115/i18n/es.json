@@ -324,6 +324,7 @@
   "discoveryProfileDefault": "predeterminado",
   "discoveryNoPermission": "No tienes permiso para enviar solicitudes. Por favor, contacta con tu administrador del servidor.",
   "discoveryRequestError": "La solicitud no pudo ser procesada. Por favor, inténtalo de nuevo más tarde.",
+  "discoveryServiceFetchFailed": "No se pudieron cargar los perfiles. Por favor, inténtalo de nuevo.",
   "discoveryDismiss": "No me interesa",
   "discoveryDismissConfirmTitle": "¿Descartar sugerencia?",
   "discoveryDismissConfirmText": "{0} se ocultará de futuras sugerencias y no se mostrará de nuevo.",

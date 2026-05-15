@@ -324,6 +324,7 @@
   "discoveryProfileDefault": "par défaut",
   "discoveryNoPermission": "Vous n'avez pas la permission de soumettre des demandes. Veuillez contacter votre administrateur.",
   "discoveryRequestError": "La demande n'a pas pu être traitée. Veuillez réessayer plus tard.",
+  "discoveryServiceFetchFailed": "Impossible de charger les profils. Veuillez réessayer.",
   "discoveryDismiss": "Pas intéressé",
   "discoveryDismissConfirmTitle": "Ignorer cette suggestion ?",
   "discoveryDismissConfirmText": "{0} sera masqué des suggestions futures et ne sera plus affiché.",

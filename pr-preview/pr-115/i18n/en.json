@@ -324,6 +324,7 @@
   "discoveryProfileDefault": "default",
   "discoveryNoPermission": "You do not have permission to submit requests. Please contact your server administrator.",
   "discoveryRequestError": "The request could not be processed. Please try again later.",
+  "discoveryServiceFetchFailed": "Could not load profiles. Please try again.",
   "discoveryDismiss": "Not interested",
   "discoveryDismissConfirmTitle": "Dismiss suggestion?",
   "discoveryDismissConfirmText": "{0} will be hidden from future suggestions. It won't be shown again.",

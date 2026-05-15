@@ -510,12 +510,13 @@ function showSeerrUserPopup(tmdbId, mediaType, btn) {
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         renderQualityProfilePopup(tmdbId, mediaType, btn, window[cacheKey]);
     }, function () {
-        // If service fetch fails, submit without profile selection.
-        // Do NOT cache the failure — allow retry on next click.
+        // Fail closed: do NOT auto-submit when profile lookup fails.
+        // A transient network/Seerr error could route the request to a wrong server/profile.
+        // Allow retry on next click by not caching the failure.
         delete window[cacheKey];
         btn.disabled = false;
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
-        submitDiscoveryRequest(tmdbId, mediaType, null, btn);
+        showButtonFeedback(btn, false, T('discoveryServiceFetchFailed', 'Could not load profiles. Please try again.'), mi('cloud_download') + ' ' + T('discoveryRequest', 'Request'), 3000);
     });
 }
 
