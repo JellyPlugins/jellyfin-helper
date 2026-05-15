@@ -90,6 +90,8 @@ internal static class DiscoveryFeedbackExampleBuilder
 
             foreach (var entry in userFeedback.Entries)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var status = entry.GetStatus();
                 var label = GetLabelForStatus(status);
 

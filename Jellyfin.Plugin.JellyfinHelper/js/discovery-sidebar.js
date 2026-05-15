@@ -519,13 +519,14 @@
                 // After 5 seconds: fade out and remove the card (consumed from pool)
                 var card = btn.closest('.jfh-discovery-card');
                 if (card) {
+                    var scopeEl = card.closest('.jfh-discovery-container');
                     setTimeout(function () {
                         card.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
                         card.style.opacity = '0';
                         card.style.transform = 'scale(0.95)';
                         setTimeout(function () {
                             card.remove();
-                            checkEmptyDiscoveryState();
+                            checkEmptyDiscoveryState(scopeEl);
                         }, 400);
                     }, 5000);
                 }
@@ -547,14 +548,17 @@
     /**
      * Checks if all discovery cards have been removed (requested/dismissed) and shows
      * the empty-state message so the user doesn't see a blank page.
+     *
+     * @param {HTMLElement} scopeContainer - The discovery container to check. Scoping avoids
+     *   inspecting an unrelated grid when multiple tab containers coexist in the DOM.
      */
-    function checkEmptyDiscoveryState() {
-        var grid = document.querySelector('.jfh-discovery-grid');
+    function checkEmptyDiscoveryState(scopeContainer) {
+        var grid = scopeContainer ? scopeContainer.querySelector('.jfh-discovery-grid') : null;
         if (!grid) return;
         if (grid.querySelectorAll('.jfh-discovery-card').length === 0) {
-            var container = grid.closest('.jfh-discovery-container');
-            if (container) {
-                container.innerHTML = '<div class="jfh-discovery-msg"><p>' + esc(t('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.')) + '</p></div>';
+            var host = grid.closest('.jfh-discovery-container');
+            if (host) {
+                host.innerHTML = '<div class="jfh-discovery-msg"><p>' + esc(t('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.')) + '</p></div>';
             }
         }
     }
@@ -656,12 +660,13 @@
             // Remove the card with a fade-out animation
             var card = btn.closest('.jfh-discovery-card');
             if (card) {
+                var scopeEl = card.closest('.jfh-discovery-container');
                 card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
                 card.style.opacity = '0';
                 card.style.transform = 'scale(0.95)';
                 setTimeout(function () {
                     card.remove();
-                    checkEmptyDiscoveryState();
+                    checkEmptyDiscoveryState(scopeEl);
                 }, 300);
             }
         }).catch(function () {
