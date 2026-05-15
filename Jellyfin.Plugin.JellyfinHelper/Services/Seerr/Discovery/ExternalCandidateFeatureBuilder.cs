@@ -101,10 +101,10 @@ internal static class ExternalCandidateFeatureBuilder
     /// <param name="preferredPeople">The user's preferred people set (case-insensitive).</param>
     /// <returns>A similarity score between 0.0 and 1.0.</returns>
     internal static double ComputePeopleSimilarityFromNames(
-        IEnumerable<string> knownPeople,
+        IEnumerable<string>? knownPeople,
         HashSet<string> preferredPeople)
     {
-        if (preferredPeople.Count == 0)
+        if (knownPeople == null || preferredPeople.Count == 0)
         {
             return 0.0;
         }

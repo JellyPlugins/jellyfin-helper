@@ -854,18 +854,56 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
             else
             {
-                // Advanced users: all profiles on all servers
+                // Advanced users: all profiles on all servers.
+                // Expose each available root folder per profile so the user can select any valid
+                // combination. The controller's SubmitMyRequest validates (ServerId, ProfileId, RootFolder)
+                // as an exact-match triple — so we must emit a separate entry for each allowed path.
+                var rootFolderPaths = server.RootFolders
+                    .Where(rf => !string.IsNullOrEmpty(rf.Path))
+                    .Select(rf => rf.Path)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+
+                // If the server has no root folders reported (e.g., detail fetch failed),
+                // fall back to ActiveDirectory to maintain backward compatibility.
+                if (rootFolderPaths.Count == 0 && !string.IsNullOrEmpty(server.ActiveDirectory))
+                {
+                    rootFolderPaths.Add(server.ActiveDirectory);
+                }
+
                 foreach (var profile in server.Profiles)
                 {
-                    result.Add(new AllowedQualityProfile
+                    if (rootFolderPaths.Count > 0)
                     {
-                        ServerId = server.Id,
-                        ServerName = server.Name,
-                        ProfileId = profile.Id,
-                        ProfileName = profile.Name,
-                        IsDefault = profile.Id == server.ActiveProfileId,
-                        RootFolder = server.ActiveDirectory
-                    });
+                        foreach (var rootPath in rootFolderPaths)
+                        {
+                            result.Add(new AllowedQualityProfile
+                            {
+                                ServerId = server.Id,
+                                ServerName = server.Name,
+                                ProfileId = profile.Id,
+                                ProfileName = profile.Name,
+                                IsDefault = profile.Id == server.ActiveProfileId
+                                            && string.Equals(rootPath, server.ActiveDirectory, StringComparison.Ordinal),
+                                RootFolder = rootPath
+                            });
+                        }
+                    }
+                    else
+                    {
+                        // No root folders at all — emit with empty RootFolder.
+                        // SubmitMyRequest will reject any client-specified rootFolder for this profile,
+                        // and the request falls back to Seerr's server-configured default.
+                        result.Add(new AllowedQualityProfile
+                        {
+                            ServerId = server.Id,
+                            ServerName = server.Name,
+                            ProfileId = profile.Id,
+                            ProfileName = profile.Name,
+                            IsDefault = profile.Id == server.ActiveProfileId,
+                            RootFolder = string.Empty
+                        });
+                    }
                 }
             }
         }

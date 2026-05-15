@@ -45,23 +45,27 @@ internal static class DiscoveryFeedbackExampleBuilder
                 continue;
             }
 
-            // Look up the user's watch profile for computing features
-            if (!profileById.TryGetValue(userFeedback.UserId, out var userProfile))
-            {
-                continue;
-            }
+            // Look up the user's watch profile for computing features.
+            // If the profile is not found (e.g., watch history was cleared after discovery generation),
+            // use neutral/empty defaults so the user's explicit feedback (dismiss/request) still
+            // contributes training signal even without user-specific preference data.
+            profileById.TryGetValue(userFeedback.UserId, out var userProfile);
 
             // Build user-specific preferences for feature computation.
-            // Do NOT skip users with empty genre preferences (cold-start users).
-            // Their explicit discovery interactions (request/dismiss) are still valuable
-            // training signals even when genre features default to zero/neutral.
-            var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(userProfile);
+            // Users without a watch profile get empty preferences — their explicit discovery
+            // interactions (request/dismiss) are still valuable training signals even when
+            // genre features default to zero/neutral.
+            var genrePreferences = userProfile != null
+                ? PreferenceBuilder.BuildGenrePreferenceVector(userProfile)
+                : new Dictionary<string, double>();
 
-            var avgYear = ContentScoring.ComputeAverageYear(userProfile);
+            var avgYear = userProfile != null
+                ? ContentScoring.ComputeAverageYear(userProfile)
+                : 0.0;
 
             // Build preferred people set from watch profile
             var preferredPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (userProfile.TopPeople is { } topPeople)
+            if (userProfile?.TopPeople is { } topPeople)
             {
                 foreach (var person in topPeople)
                 {
@@ -69,8 +73,20 @@ internal static class DiscoveryFeedbackExampleBuilder
                 }
             }
 
-            // Genre exposure analysis for advanced features
-            var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile);
+            // Genre exposure analysis for advanced features.
+            // BuildGenreExposureAnalysis handles empty genrePreferences gracefully
+            // by returning an analysis with IsValid=false, which causes all exposure
+            // features to default to 0.0 (neutral).
+            var genreExposure = userProfile != null
+                ? PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile)
+                : new PreferenceBuilder.GenreExposureAnalysis
+                {
+                    UnderexposedGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                    DominantGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                    AveragePreferenceWeight = 0,
+                    GenrePreferences = genrePreferences,
+                    IsValid = false
+                };
 
             foreach (var entry in userFeedback.Entries)
             {
