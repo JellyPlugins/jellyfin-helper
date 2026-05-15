@@ -489,13 +489,20 @@ function handleDiscoveryRequest(e) {
     showSeerrUserPopup(tmdbId, mediaType, btn);
 }
 
+// TTL for the cached Seerr service/profile lookup (5 minutes).
+// Ensures that Seerr configuration changes (new servers, profiles, root folders)
+// are picked up without requiring a full page reload.
+var _seerrServicesCacheTtlMs = 5 * 60 * 1000;
+
 function showSeerrUserPopup(tmdbId, mediaType, btn) {
     // Determine which service to query based on media type
     var serviceType = (mediaType === 'tv') ? 'sonarr' : 'radarr';
     var cacheKey = '_seerrServices_' + serviceType;
+    var cacheTimestampKey = cacheKey + '_ts';
 
-    // Check if we have cached service info
-    if (window[cacheKey] !== undefined) {
+    // Check if we have cached service info that is still fresh
+    var cachedAt = window[cacheTimestampKey] || 0;
+    if (window[cacheKey] !== undefined && (Date.now() - cachedAt) < _seerrServicesCacheTtlMs) {
         renderQualityProfilePopup(tmdbId, mediaType, btn, window[cacheKey]);
         return;
     }
@@ -506,6 +513,7 @@ function showSeerrUserPopup(tmdbId, mediaType, btn) {
 
     apiGet('JellyfinHelper/Discovery/Services/' + serviceType, function (services) {
         window[cacheKey] = services || [];
+        window[cacheTimestampKey] = Date.now();
         btn.disabled = false;
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         renderQualityProfilePopup(tmdbId, mediaType, btn, window[cacheKey]);
@@ -514,6 +522,7 @@ function showSeerrUserPopup(tmdbId, mediaType, btn) {
         // A transient network/Seerr error could route the request to a wrong server/profile.
         // Allow retry on next click by not caching the failure.
         delete window[cacheKey];
+        delete window[cacheTimestampKey];
         btn.disabled = false;
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         showButtonFeedback(btn, false, T('discoveryServiceFetchFailed', 'Could not load profiles. Please try again.'), mi('cloud_download') + ' ' + T('discoveryRequest', 'Request'), 3000);
