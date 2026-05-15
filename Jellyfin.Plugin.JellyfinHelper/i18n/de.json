@@ -324,6 +324,7 @@
   "discoveryProfileDefault": "Standard",
   "discoveryNoPermission": "Du hast keine Berechtigung, Anfragen zu stellen. Bitte kontaktiere deinen Server-Administrator.",
   "discoveryRequestError": "Die Anfrage konnte nicht verarbeitet werden. Bitte versuche es später erneut.",
+  "discoveryServiceFetchFailed": "Profile konnten nicht geladen werden. Bitte erneut versuchen.",
   "discoveryDismiss": "Kein Interesse",
   "discoveryDismissConfirmTitle": "Vorschlag ablehnen?",
   "discoveryDismissConfirmText": "{0} wird aus zukünftigen Vorschlägen ausgeblendet und nicht mehr angezeigt.",

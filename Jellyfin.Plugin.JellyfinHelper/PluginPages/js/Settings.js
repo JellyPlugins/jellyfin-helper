@@ -10,13 +10,24 @@ var _wasTrashEnabled = false;
 var _currentLogLevel = 'INFO';
 var _logLevelLoaded = false;
 
+/**
+ * Shared predicate: returns true when Seerr URL and API Key are both non-empty after trimming.
+ * Used across render, payload construction, and post-save UI sync to ensure a single source of truth.
+ * @param {string} url - The Seerr URL value.
+ * @param {string} key - The Seerr API Key value.
+ * @returns {boolean}
+ */
+function isSeerrConfigured(url, key) {
+    return !!((url || '').trim() && (key || '').trim());
+}
+
 // Refresh the Discovery access wrapper UI state based on current form values.
 // Extracted to avoid duplicated DOM manipulation in multiple event handlers.
 function refreshDiscoveryAccessState() {
     var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
-    var seerrUrl = ((document.getElementById('cfgSeerrUrl') || {}).value || '').trim();
-    var seerrKey = ((document.getElementById('cfgSeerrApiKey') || {}).value || '').trim();
-    var discEnabled = recsMode === 'Activate' && !!(seerrUrl && seerrKey);
+    var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
+    var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+    var discEnabled = recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
 
     var wrapper = document.getElementById('discoveryAccessWrapper');
     if (wrapper) {
@@ -222,7 +233,7 @@ function loadSettings() {
         h += '</div>';
 
         // Discovery user access toggle - greyed out if Recommendations deactivated OR Seerr not configured
-        var seerrConfigured = !!((cfg.SeerrUrl || '').trim() && (cfg.SeerrApiKey || '').trim());
+        var seerrConfigured = isSeerrConfigured(cfg.SeerrUrl, cfg.SeerrApiKey);
         var discoveryEnabled = recsActive && seerrConfigured;
         h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (discoveryEnabled && cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + T('discoveryUserAccess', 'Allow users to view Discovery and submit requests') + '</label></div>';
@@ -386,9 +397,9 @@ function buildSettingsPayload() {
             // This prevents stale "true" from being persisted when the admin disables recommendations
             // or clears Seerr config while the checkbox was previously enabled.
             var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
-            var seerrUrl = ((document.getElementById('cfgSeerrUrl') || {}).value || '').trim();
-            var seerrKey = ((document.getElementById('cfgSeerrApiKey') || {}).value || '').trim();
-            return recsMode === 'Activate' && !!(seerrUrl && seerrKey);
+            var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
+            var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+            return recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
         })(),
         Language: document.getElementById('cfgLang').value,
         PluginLogLevel: _currentLogLevel,
@@ -435,7 +446,7 @@ function doSaveSettings(payload, options) {
         if (arrResult) arrResult.innerHTML = '';
 
         // Sync Seerr greyed-out state after save (URL/Key may have been cleared)
-        updateSeerrUIState(!!(payload.SeerrUrl && payload.SeerrApiKey));
+        updateSeerrUIState(isSeerrConfigured(payload.SeerrUrl, payload.SeerrApiKey));
         // Refresh the Discovery wrapper (depends on Seerr + Recommendations mode)
         refreshDiscoveryAccessState();
 

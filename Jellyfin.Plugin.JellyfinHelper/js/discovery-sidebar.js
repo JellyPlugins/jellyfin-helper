@@ -523,7 +523,10 @@
                         card.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
                         card.style.opacity = '0';
                         card.style.transform = 'scale(0.95)';
-                        setTimeout(function () { card.remove(); }, 400);
+                        setTimeout(function () {
+                            card.remove();
+                            checkEmptyDiscoveryState();
+                        }, 400);
                     }, 5000);
                 }
             } else {
@@ -539,6 +542,21 @@
             showToast(getUserFriendlyErrorMessage(serverMessage));
             setTimeout(function () { btn.textContent = t('discoveryRequest', 'Request'); btn.classList.remove('jfh-discovery-btn-failed'); btn.disabled = false; }, 3000);
         });
+    }
+
+    /**
+     * Checks if all discovery cards have been removed (requested/dismissed) and shows
+     * the empty-state message so the user doesn't see a blank page.
+     */
+    function checkEmptyDiscoveryState() {
+        var grid = document.querySelector('.jfh-discovery-grid');
+        if (!grid) return;
+        if (grid.querySelectorAll('.jfh-discovery-card').length === 0) {
+            var container = grid.closest('.jfh-discovery-container');
+            if (container) {
+                container.innerHTML = '<div class="jfh-discovery-msg"><p>' + esc(t('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.')) + '</p></div>';
+            }
+        }
     }
 
     // ===== DISMISS LOGIC =====
@@ -641,7 +659,10 @@
                 card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
                 card.style.opacity = '0';
                 card.style.transform = 'scale(0.95)';
-                setTimeout(function () { card.remove(); }, 300);
+                setTimeout(function () {
+                    card.remove();
+                    checkEmptyDiscoveryState();
+                }, 300);
             }
         }).catch(function () {
             btn.disabled = false;
