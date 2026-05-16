@@ -147,6 +147,8 @@ ComputedAtUtc:new Date().toISOString()
 
 var MOCK_LIBRARIES=[{Name:"Movies",CollectionType:"movies"},{Name:"TV Shows",CollectionType:"tvshows"},{Name:"Music",CollectionType:"music"}];
 
+var _uid1="a1b2c3d4-e5f6-7890-abcd-ef1234567890",_uid2="b2c3d4e5-f6a7-8901-bcde-f12345678901";
+
 // --- Seerr Discovery Mock Data ---
 var MOCK_DISCOVERY=[
 {UserId:_uid1,UserName:"Alice",GeneratedAt:new Date(Date.now()-3600000).toISOString(),Recommendations:[
