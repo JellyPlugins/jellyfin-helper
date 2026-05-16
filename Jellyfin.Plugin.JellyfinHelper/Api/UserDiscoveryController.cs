@@ -545,7 +545,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// </summary>
     private static bool IsDiscoveryUserAccessEnabled()
     {
-        return Plugin.Instance?.Configuration.DiscoveryUserAccessEnabled == true;
+        return Plugin.Instance?.Configuration?.DiscoveryUserAccessEnabled == true;
     }
 
     /// <summary>

@@ -166,16 +166,17 @@
             '.jfh-discovery-container { padding: 12px 3vw; }' +
             '.jfh-discovery-spinner { display:flex;justify-content:center;padding:2em; }' +
             '.jfh-discovery-spinner::after { content:"";width:24px;height:24px;border:3px solid rgba(255,255,255,0.2);border-top-color:#00a4dc;border-radius:50%;animation:dspin 0.8s linear infinite; }' +
-            '.jfh-discovery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1em; }' +
+            '.jfh-discovery-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8em; }' +
+            '@media (max-width: 768px) { .jfh-discovery-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6em; } }' +
             '.jfh-discovery-card { background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }' +
             // Poster flip container
             '.jfh-discovery-card-poster { position: relative; perspective: 800px; cursor: pointer; overflow: hidden; }' +
             '.jfh-discovery-flip-inner { position: relative; width: 100%; aspect-ratio: 2/3; transition: transform 0.5s ease; transform-style: preserve-3d; }' +
             '.jfh-discovery-card-poster.flipped .jfh-discovery-flip-inner { transform: rotateY(180deg); }' +
             '.jfh-discovery-flip-front, .jfh-discovery-flip-back { position: absolute; top: 0; left: 0; width: 100%; height: 100%; backface-visibility: hidden; -webkit-backface-visibility: hidden; box-sizing: border-box; }' +
-            '.jfh-discovery-flip-front img { width: 100%; height: 100%; object-fit: cover; display: block; }' +
+            '.jfh-discovery-flip-front img { width: 100%; height: 100%; object-fit: contain; display: block; }' +
             '.jfh-discovery-flip-back { transform: rotateY(180deg); background: rgba(20,20,30,0.95); padding: 1.2em; overflow-y: auto; box-sizing: border-box; }' +
-            '.jfh-discovery-flip-back-text { font-size: 0.82em; line-height: 1.5; opacity: 0.9; color: #eee; word-break: break-word; overflow-wrap: break-word; }' +
+            '.jfh-discovery-flip-back-text { font-size: 0.92em; line-height: 1.5; opacity: 0.9; color: #eee; word-break: break-word; overflow-wrap: break-word; }' +
             '.jfh-discovery-no-poster { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.02); }' +
             // Card body
             '.jfh-discovery-card-body { padding: 0.8em; flex: 1; display: flex; flex-direction: column; gap: 0.4em; }' +
@@ -192,8 +193,8 @@
             '.jfh-discovery-score-mid .jfh-discovery-score-bar { background: #f39c12; }' +
             '.jfh-discovery-score-low .jfh-discovery-score-bar { background: #e74c3c; }' +
             '.jfh-discovery-score-text { font-size: 0.7em; opacity: 0.6; }' +
-            '.jfh-discovery-btn-row { margin-top: auto; display: flex; gap: 0.4em; }' +
-            '.jfh-discovery-btn { flex: 1; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }' +
+            '.jfh-discovery-btn-row { margin-top: auto; display: flex; gap: 0.4em; align-items: stretch; }' +
+            '.jfh-discovery-btn { flex: 1; padding: 0.5em; border: none; border-radius: 4px; background: #00a4dc; color: #fff; cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; gap: 0.3em; transition: background 0.2s; white-space: normal; text-align: center; min-width: 0; }' +
             '.jfh-discovery-btn:hover { background: #0090c4; }' +
             '.jfh-discovery-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
             '.jfh-discovery-btn-done { background: #2ecc71 !important; }' +
@@ -280,7 +281,7 @@
             container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(t('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.')) + '</p></div></div>';
             return;
         }
-        var TMDB_IMG = 'https://image.tmdb.org/t/p/w300';
+        var TMDB_IMG = 'https://image.tmdb.org/t/p/w185';
         var html = '<div class="jfh-discovery-container"><div class="jfh-discovery-grid">';
         var recs = userDiscovery.Recommendations;
         for (var i = 0; i < recs.length; i++) {
