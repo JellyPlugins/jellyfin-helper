@@ -514,6 +514,7 @@ function showSeerrUserPopup(tmdbId, mediaType, btn) {
     apiGet('JellyfinHelper/Discovery/Services/' + serviceType, function (services) {
         window[cacheKey] = services || [];
         window[cacheTimestampKey] = Date.now();
+        if (!btn.isConnected) return;
         btn.disabled = false;
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         renderQualityProfilePopup(tmdbId, mediaType, btn, window[cacheKey]);
@@ -523,6 +524,7 @@ function showSeerrUserPopup(tmdbId, mediaType, btn) {
         // Allow retry on next click by not caching the failure.
         delete window[cacheKey];
         delete window[cacheTimestampKey];
+        if (!btn.isConnected) return;
         btn.disabled = false;
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
         showButtonFeedback(btn, false, T('discoveryServiceFetchFailed', 'Could not load profiles. Please try again.'), mi('cloud_download') + ' ' + T('discoveryRequest', 'Request'), 3000);
@@ -676,11 +678,19 @@ function handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType) {
 /**
  * Shared error handler for discovery request failures.
  * Resets button state with a brief error display.
+ * Clears any previous error-reset timer to prevent stale callbacks from
+ * overwriting a successful retry's "Requested" state.
  */
 function handleDiscoveryRequestError(btn) {
+    if (btn._discoveryErrorTimer) {
+        clearTimeout(btn._discoveryErrorTimer);
+        btn._discoveryErrorTimer = null;
+    }
     btn.disabled = false;
     btn.innerHTML = mi('error') + ' ' + T('discoveryRequestFailed', 'Failed');
-    setTimeout(function () {
+    btn._discoveryErrorTimer = setTimeout(function () {
+        btn._discoveryErrorTimer = null;
+        if (!btn.isConnected || btn.disabled || btn.classList.contains('discovery-request-done')) return;
         btn.innerHTML = mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
     }, 3000);
 }
