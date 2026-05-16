@@ -822,16 +822,31 @@ function attachDiscoveryCopyHandler() {
             }, 2000);
         }
 
+        function onCopyFailure() {
+            if (span) span.textContent = '\u2717';
+            btn.style.background = '#e74c3c';
+            btn.style.color = '#fff';
+            setTimeout(function () {
+                if (span) span.textContent = T('discoveryCopySnippet', 'Copy');
+                btn.style.background = '';
+                btn.style.color = '';
+            }, 2000);
+        }
+
         // Try modern clipboard API first
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(onCopySuccess).catch(function () {
                 if (fallbackCopy(text)) {
                     onCopySuccess();
+                } else {
+                    onCopyFailure();
                 }
             });
         } else {
             if (fallbackCopy(text)) {
                 onCopySuccess();
+            } else {
+                onCopyFailure();
             }
         }
     });
