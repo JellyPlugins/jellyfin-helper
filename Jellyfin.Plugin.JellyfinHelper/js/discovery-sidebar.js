@@ -373,11 +373,15 @@
             dataType: 'json'
         }).then(function (permResult) {
             var result = permResult || { CanRequest: false };
-            result._ts = Date.now();
-            _permCache[cacheKey] = result;
+            // Only cache definitive responses — transient upstream failures (IsTransient)
+            // should allow immediate retry on the next click instead of being sticky for 5 min.
+            if (!result.IsTransient) {
+                result._ts = Date.now();
+                _permCache[cacheKey] = result;
+            }
             btn.disabled = false;
             btn.textContent = t('discoveryRequest', 'Request');
-            decideAndSubmit(tmdbId, mediaType, btn, _permCache[cacheKey]);
+            decideAndSubmit(tmdbId, mediaType, btn, result);
         }).catch(function () {
             // On network error, try submitting with defaults (server will validate).
             // Do NOT cache the fallback — a transient failure should allow retry on next click.
@@ -391,7 +395,7 @@
         if (!permResult.CanRequest) {
             btn.textContent = t('discoveryRequestFailed', 'Failed');
             btn.classList.add('jfh-discovery-btn-failed');
-            showToast(permResult.Message || t('discoveryNoPermission', 'You do not have permission to submit requests. Please contact your server administrator.'));
+            showToast(permResult.DeniedReason || permResult.Message || t('discoveryNoPermission', 'You do not have permission to submit requests. Please contact your server administrator.'));
             setTimeout(function () {
                 btn.textContent = t('discoveryRequest', 'Request');
                 btn.classList.remove('jfh-discovery-btn-failed');

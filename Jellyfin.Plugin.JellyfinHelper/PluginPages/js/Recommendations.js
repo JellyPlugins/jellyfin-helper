@@ -578,14 +578,20 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
 
     var popup = document.createElement('div');
     popup.className = 'discovery-popup';
+    popup.setAttribute('role', 'dialog');
+    popup.setAttribute('aria-modal', 'true');
+    popup.setAttribute('aria-labelledby', 'seerrPopupTitle');
+    popup.setAttribute('aria-describedby', 'seerrPopupSubtitle');
 
     var title = document.createElement('div');
     title.className = 'discovery-popup-title';
+    title.id = 'seerrPopupTitle';
     title.textContent = T('discoverySelectQualityProfile', 'Select Quality Profile');
     popup.appendChild(title);
 
     var subtitle = document.createElement('div');
     subtitle.className = 'discovery-popup-subtitle';
+    subtitle.id = 'seerrPopupSubtitle';
     subtitle.textContent = T('discoverySelectQualityProfileDesc', 'Choose which quality profile to use for the download:');
     popup.appendChild(subtitle);
 
@@ -620,6 +626,10 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
     overlay.appendChild(popup);
     document.body.appendChild(overlay);
 
+    // Set initial focus to the first profile button for keyboard accessibility
+    var firstItem = list.querySelector('.discovery-popup-user');
+    if (firstItem) { firstItem.focus(); }
+
     // Close on overlay click (outside popup)
     overlay.addEventListener('click', function (ev) {
         if (ev.target === overlay) closePopup();
@@ -637,6 +647,8 @@ function renderQualityProfilePopup(tmdbId, mediaType, btn, services) {
         document.removeEventListener('keydown', onEscape);
         var el = document.getElementById('seerrUserPopup');
         if (el) el.remove();
+        // Restore focus to the trigger button if still in DOM
+        if (btn && btn.isConnected) { btn.focus(); }
     }
 }
 
