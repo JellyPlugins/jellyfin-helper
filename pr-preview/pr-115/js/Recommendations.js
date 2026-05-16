@@ -466,7 +466,7 @@ function renderDiscoveryCard(rec, index) {
         html += '<button class="discovery-request-btn discovery-request-done" disabled>';
         html += mi('check_circle') + ' ' + T('discoveryRequested', 'Requested');
         html += '</button>';
-    } else {
+    } else if (mediaType) {
         html += '<button class="discovery-request-btn" ';
         html += 'data-tmdb-id="' + (parseInt(rec.TmdbId, 10) || 0) + '" data-media-type="' + escHtml(mediaType) + '">';
         html += mi('cloud_download') + ' ' + T('discoveryRequest', 'Request');
