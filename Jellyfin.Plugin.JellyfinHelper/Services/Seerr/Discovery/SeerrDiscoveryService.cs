@@ -168,15 +168,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 : $"Starting discovery generation (pool={MaxPoolPerUser}, visible={MaxVisiblePerUser} per user).",
             _logger);
 
-        // Step 1: Load user profiles
+        // Step 1: Load user profiles.
+        // Include users who have either played content OR have enough favorites to build
+        // genre preferences from. BuildGenrePreferenceVector treats favorites as valid
+        // preference signals (explicit interest without requiring playback).
         var profiles = _watchHistoryService.GetAllUserWatchProfiles();
         var activeProfiles = profiles
-            .Where(p => p.WatchedMovieCount + p.WatchedEpisodeCount > 0)
+            .Where(p => p.WatchedMovieCount + p.WatchedEpisodeCount > 0 || p.FavoriteCount >= 3)
             .ToList();
 
         if (activeProfiles.Count == 0)
         {
-            _pluginLog.LogInfo("SeerrDiscovery", "No users with watch history found. Skipping.", _logger);
+            _pluginLog.LogInfo("SeerrDiscovery", "No users with watch history or sufficient favorites found. Skipping.", _logger);
             return;
         }
 
@@ -644,6 +647,134 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
     }
 
+    /// <summary>
+    ///     Internal variant of <see cref="GetServiceInfoAsync"/> that also returns a success flag
+    ///     indicating whether the fetch completed without errors.
+    ///     Used by <see cref="GetUserRequestPermissionsAsync"/> to distinguish between
+    ///     "no services configured" (success=true, empty list) and "lookup failed" (success=false, empty list).
+    /// </summary>
+    private async Task<(IReadOnlyList<SeerrServiceInfo> Services, bool Success)> GetServiceInfoWithStatusAsync(
+        string serviceType,
+        CancellationToken cancellationToken)
+    {
+        if (serviceType is not ("radarr" or "sonarr"))
+        {
+            return ([], true);
+        }
+
+        var config = Plugin.Instance?.Configuration;
+        if (config == null
+            || string.IsNullOrWhiteSpace(config.SeerrUrl)
+            || string.IsNullOrWhiteSpace(config.SeerrApiKey))
+        {
+            // Not configured is a valid state (not a transient failure)
+            return ([], true);
+        }
+
+        HttpClient client;
+        try
+        {
+            client = CreateClient(config.SeerrUrl, config.SeerrApiKey);
+        }
+        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
+        {
+            _pluginLog.LogWarning(
+                "SeerrDiscovery",
+                $"Invalid Seerr configuration for service info ({serviceType}): {ex.Message}",
+                ex,
+                _logger);
+            return ([], false);
+        }
+
+        using (client)
+        {
+            try
+            {
+                using var listResponse = await client.GetAsync(
+                    new Uri($"api/v1/service/{serviceType}", UriKind.Relative),
+                    cancellationToken).ConfigureAwait(false);
+
+                if (!listResponse.IsSuccessStatusCode)
+                {
+                    _pluginLog.LogWarning(
+                        "SeerrDiscovery",
+                        $"Failed to fetch Seerr {serviceType} services: HTTP {(int)listResponse.StatusCode}.",
+                        null,
+                        _logger);
+                    return ([], false);
+                }
+
+                var listJson = await listResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var servers = JsonSerializer.Deserialize<List<SeerrServiceInfo>>(listJson, JsonOptions);
+                if (servers == null || servers.Count == 0)
+                {
+                    // Successfully fetched but no servers configured
+                    return ([], true);
+                }
+
+                const int maxServerIterations = 10;
+                var enrichedServers = new List<SeerrServiceInfo>();
+                foreach (var server in servers.Take(maxServerIterations))
+                {
+                    try
+                    {
+                        using var detailResponse = await client.GetAsync(
+                            new Uri($"api/v1/service/{serviceType}/{server.Id}", UriKind.Relative),
+                            cancellationToken).ConfigureAwait(false);
+
+                        if (detailResponse.IsSuccessStatusCode)
+                        {
+                            var detailJson = await detailResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                            var detail = JsonSerializer.Deserialize<SeerrServiceInfo>(detailJson, JsonOptions);
+                            if (detail != null)
+                            {
+                                server.Profiles = detail.Profiles;
+                                server.RootFolders = detail.RootFolders;
+                                server.ActiveProfileId = detail.ActiveProfileId;
+                                server.ActiveDirectory = detail.ActiveDirectory;
+                            }
+                        }
+                        else
+                        {
+                            _pluginLog.LogDebug(
+                                "SeerrDiscovery",
+                                $"Failed to fetch profiles for {serviceType} server #{server.Id}: HTTP {(int)detailResponse.StatusCode}.",
+                                _logger);
+                        }
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
+                    {
+                        _pluginLog.LogDebug(
+                            "SeerrDiscovery",
+                            $"Failed to fetch profiles for {serviceType} server #{server.Id}: {ex.Message}",
+                            _logger);
+                    }
+
+                    enrichedServers.Add(server);
+                }
+
+                return (enrichedServers, true);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+            {
+                _pluginLog.LogWarning(
+                    "SeerrDiscovery",
+                    $"Failed to fetch Seerr {serviceType} service info: {ex.Message}",
+                    ex,
+                    _logger);
+                return ([], false);
+            }
+        }
+    }
+
     /// <inheritdoc />
     public async Task<int?> ResolveSeerrUserIdAsync(Guid jellyfinUserId, CancellationToken cancellationToken)
     {
@@ -743,12 +874,27 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        // Step 3: Determine which quality profiles to expose
-        var services = await GetServiceInfoAsync(serviceType, cancellationToken).ConfigureAwait(false);
+        // Step 3: Determine which quality profiles to expose.
+        // Distinguish between "no services configured" (empty result from a successful lookup)
+        // and "service lookup failed" (transient error). On transient failure, still allow the
+        // request but without profile selection — Seerr's own server defaults will apply.
+        // This prevents a temporary Seerr outage from incorrectly routing requests to a wrong
+        // server/profile while still allowing the request to proceed (Seerr validates internally).
+        var (services, servicesFetchSucceeded) = await GetServiceInfoWithStatusAsync(serviceType, cancellationToken).ConfigureAwait(false);
 
         if (services.Count == 0)
         {
-            // No services configured — user can still request with server defaults
+            if (!servicesFetchSucceeded)
+            {
+                // Transient failure: allow request with Seerr defaults (no profile selection).
+                // Log for admin diagnostics but don't block the user.
+                _pluginLog.LogDebug(
+                    "SeerrDiscovery",
+                    $"Permission check: Service info lookup failed for {serviceType}. Allowing request with server defaults.",
+                    _logger);
+            }
+
+            // No services configured or transient failure — user can still request with server defaults
             return new UserRequestPermissionResult
             {
                 CanRequest = true,

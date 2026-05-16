@@ -104,6 +104,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             }
 
             var now = DateTime.UtcNow;
+            var modified = false;
 
             foreach (var item in items)
             {
@@ -118,31 +119,37 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     if (string.IsNullOrEmpty(existing.Title) && !string.IsNullOrEmpty(item.Title))
                     {
                         existing.Title = item.Title;
+                        modified = true;
                     }
 
                     if (existing.Year is null or 0 && item.Year is > 0)
                     {
                         existing.Year = item.Year;
+                        modified = true;
                     }
 
                     if ((existing.Genres == null || existing.Genres.Count == 0) && item.Genres is { Count: > 0 })
                     {
                         existing.Genres = item.Genres.ToArray();
+                        modified = true;
                     }
 
                     if (existing.TmdbRating == 0 && item.TmdbRating > 0)
                     {
                         existing.TmdbRating = item.TmdbRating;
+                        modified = true;
                     }
 
                     if (existing.Score == 0 && item.Score > 0)
                     {
                         existing.Score = item.Score;
+                        modified = true;
                     }
 
                     if ((existing.KnownPeople is null || existing.KnownPeople.Count == 0) && item.KnownPeople is { Count: > 0 })
                     {
                         existing.KnownPeople = item.KnownPeople.ToList();
+                        modified = true;
                     }
 
                     continue;
@@ -162,9 +169,13 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 };
                 userResult.Entries.Add(newEntry);
                 entryLookup.TryAdd(key, newEntry);
+                modified = true;
             }
 
-            SaveInternal(data);
+            if (modified)
+            {
+                SaveInternal(data);
+            }
         }
     }
 

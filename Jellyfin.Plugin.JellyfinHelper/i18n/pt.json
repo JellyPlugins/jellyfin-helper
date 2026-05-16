@@ -332,7 +332,7 @@
   "discoveryDismissConfirm": "Sim, dispensar",
   "discoveryDismissError": "Não foi possível dispensar este item. Por favor, tente novamente.",
   "discoveryTabNotFound": "A aba Discovery não foi encontrada. Certifique-se de que o plugin Custom Tabs está instalado ou entre em contato com o administrador do servidor.",
-  "discoveryErrNoPermission": "Sem permissão. Contacte o seu admin.",
+  "discoveryErrNoPermission": "Sem permissão. Entre em contato com o administrador.",
   "discoveryErrServerUnavailable": "Servidor indisponível. Tente mais tarde.",
   "discoveryErrTimeout": "Tempo esgotado. Tente mais tarde.",
   "discoveryErrGeneric": "Pedido falhou. Tente mais tarde."

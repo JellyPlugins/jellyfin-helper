@@ -274,4 +274,62 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Single(result!.Entries);
         Assert.NotNull(result.Entries[0].DismissedAtUtc);
     }
+
+    [Fact]
+    public void RecordShown_PersistsToDisk_RoundTripThroughFreshStoreInstance()
+    {
+        // Write data through one store instance
+        var store1 = CreateStore();
+        var userId = Guid.NewGuid();
+
+        var items = new List<DiscoveryRecommendation>
+        {
+            new()
+            {
+                TmdbId = 42,
+                MediaType = "movie",
+                Title = "Persistence Test",
+                Year = 2024,
+                Genres = ["Sci-Fi", "Action"],
+                TmdbRating = 7.8,
+                Score = 0.85,
+                KnownPeople = ["Actor A", "Director B"]
+            },
+            new()
+            {
+                TmdbId = 42,
+                MediaType = "tv",
+                Title = "TV Persistence Test",
+                Year = 2023,
+                Genres = ["Drama"],
+                TmdbRating = 8.1,
+                Score = 0.72
+            }
+        };
+        store1.RecordShown(userId, "PersistUser", items);
+
+        // Create a completely new store instance pointing to the same directory.
+        // This forces a full JSON deserialization from disk (fresh _memoryCache = null).
+        var store2 = CreateStore();
+
+        var result = store2.LoadForUser(userId);
+        Assert.NotNull(result);
+        Assert.Equal(userId, result!.UserId);
+        Assert.Equal("PersistUser", result.UserName);
+        Assert.Equal(2, result.Entries.Count);
+
+        var movieEntry = result.Entries.First(e => e.MediaType == "movie");
+        Assert.Equal(42, movieEntry.TmdbId);
+        Assert.Equal("Persistence Test", movieEntry.Title);
+        Assert.Equal(2024, movieEntry.Year);
+        Assert.Equal(7.8, movieEntry.TmdbRating);
+        Assert.Equal(0.85, movieEntry.Score);
+        Assert.Contains("Actor A", movieEntry.KnownPeople);
+        Assert.Contains("Director B", movieEntry.KnownPeople);
+
+        var tvEntry = result.Entries.First(e => e.MediaType == "tv");
+        Assert.Equal(42, tvEntry.TmdbId);
+        Assert.Equal("TV Persistence Test", tvEntry.Title);
+        Assert.Equal(2023, tvEntry.Year);
+    }
 }
