@@ -779,7 +779,7 @@
 
 @media (max-width: 768px) {
     .discovery-card { flex-direction: column; gap: 0.5em; }
-    .discovery-card-poster { width: 100%; height: 80px; }
+    .discovery-card-poster { width: 100%; height: 80px; max-height: none; }
     .discovery-card-poster img { width: auto; height: 100%; margin: 0 auto; }
 }
 

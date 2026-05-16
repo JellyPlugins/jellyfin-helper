@@ -268,10 +268,10 @@
                     msg = t('discoveryDisabled', 'Discovery is not enabled. Ask your server administrator to enable this feature in Jellyfin Helper settings.');
                 }
                 container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(msg) + '</p></div></div>';
-                // Surface server-provided error detail as a toast for non-200 responses
+                // Surface a user-friendly toast for non-200 responses (never raw backend details)
                 var serverMessage = extractErrorMessage(err);
                 if (serverMessage) {
-                    showToast(serverMessage);
+                    showToast(getUserFriendlyErrorMessage(serverMessage));
                 }
             });
     }
@@ -357,6 +357,13 @@
     }
 
     function fetchPermissionsAndRequest(tmdbId, mediaType, btn) {
+        // Clear any pending reset timer from a previous denial/error to prevent
+        // stale callbacks from overwriting the new request's button state.
+        if (btn._resetTimer) {
+            clearTimeout(btn._resetTimer);
+            btn._resetTimer = null;
+        }
+        btn.classList.remove('jfh-discovery-btn-failed');
         var serviceType = (mediaType === 'tv') ? 'sonarr' : 'radarr';
         var userId = (ApiClient.getCurrentUserId && ApiClient.getCurrentUserId()) || '';
         var cacheKey = serviceType + ':' + mediaType + ':' + userId;
@@ -396,7 +403,8 @@
             btn.textContent = t('discoveryRequestFailed', 'Failed');
             btn.classList.add('jfh-discovery-btn-failed');
             showToast(permResult.DeniedReason || permResult.Message || t('discoveryNoPermission', 'You do not have permission to submit requests. Please contact your server administrator.'));
-            setTimeout(function () {
+            btn._resetTimer = setTimeout(function () {
+                btn._resetTimer = null;
                 btn.textContent = t('discoveryRequest', 'Request');
                 btn.classList.remove('jfh-discovery-btn-failed');
                 btn.disabled = false;

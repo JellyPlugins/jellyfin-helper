@@ -118,12 +118,21 @@ public sealed class DiscoveryCacheService
                     return;
                 }
 
-                var removed = userResult.Recommendations.RemoveAll(r =>
-                    r.TmdbId == tmdbId &&
-                    string.Equals(r.MediaType, mediaType, StringComparison.OrdinalIgnoreCase));
+                // Identify items to remove WITHOUT mutating the live cache yet.
+                // This avoids leaving _memoryCache in an inconsistent state if persistence fails.
+                var itemsToRemove = userResult.Recommendations
+                    .Where(r => r.TmdbId == tmdbId &&
+                                string.Equals(r.MediaType, mediaType, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
 
-                if (removed > 0)
+                if (itemsToRemove.Count > 0)
                 {
+                    // Apply removal
+                    foreach (var item in itemsToRemove)
+                    {
+                        userResult.Recommendations.Remove(item);
+                    }
+
                     var tempFilePath = _filePath + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
                     try
                     {
@@ -133,8 +142,12 @@ public sealed class DiscoveryCacheService
                     }
                     catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
                     {
-                        // Rollback not possible for removal — item stays removed in memory
-                        // which is the desired behavior (user won't see it again this session).
+                        // Rollback: re-add removed items to restore memory/disk consistency.
+                        // On next restart the disk state (which still has the items) will be
+                        // loaded, so the user will see the item again — acceptable for a
+                        // transient IO failure vs. silent data loss.
+                        userResult.Recommendations.AddRange(itemsToRemove);
+
                         try
                         {
                             File.Delete(tempFilePath);

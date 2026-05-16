@@ -377,7 +377,7 @@ function buildSettingsPayload() {
             var modeEl = document.getElementById('cfgSeerrMode');
             var url = (document.getElementById('cfgSeerrUrl') || {}).value || '';
             var key = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
-            return (url && key && modeEl) ? modeEl.value : 'Deactivate';
+            return (modeEl && isSeerrConfigured(url, key)) ? modeEl.value : 'Deactivate';
         })(),
         SeerrCleanupAgeDays: (function () {
             var el = document.getElementById('cfgSeerrAgeDays');
