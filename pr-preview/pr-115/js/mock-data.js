@@ -86,7 +86,7 @@ RadarrInstances:[{Name:"Radarr Main",Url:"http://192.168.1.100:7878",ApiKey:"dem
 SonarrInstances:[{Name:"Sonarr",Url:"http://192.168.1.100:8989",ApiKey:"demo-key-abcd"}],
 SeerrUrl:"http://192.168.1.100:5055",SeerrApiKey:"demo-seerr-key",
 SeerrCleanupTaskMode:"DryRun",SeerrCleanupAgeDays:365,
-RecommendationsTaskMode:"Activate",ConfigVersion:3
+RecommendationsTaskMode:"Activate",DiscoveryUserAccessEnabled:true,ConfigVersion:3
 };
 
 var MOCK_CLEANUP_STATS={TotalBytesFreed:8589934592,TotalItemsDeleted:247,LastCleanupTimestamp:new Date(Date.now()-86400000).toISOString()};
@@ -147,7 +147,36 @@ ComputedAtUtc:new Date().toISOString()
 
 var MOCK_LIBRARIES=[{Name:"Movies",CollectionType:"movies"},{Name:"TV Shows",CollectionType:"tvshows"},{Name:"Music",CollectionType:"music"}];
 
-var _uid1="a1b2c3d4-e5f6-7890-abcd-ef1234567890",_uid2="b2c3d4e5-f6a7-8901-bcde-f12345678901";
+// --- Seerr Discovery Mock Data ---
+var MOCK_DISCOVERY=[
+{UserId:_uid1,UserName:"Alice",GeneratedAt:new Date(Date.now()-3600000).toISOString(),Recommendations:[
+{TmdbId:693134,MediaType:"movie",Title:"Dune: Part Two",Year:2024,Score:0.92,Reason:"Popular among similar viewers",ReasonKey:"reasonCollaborative",Genres:["Sci-Fi","Adventure"],TmdbRating:8.2,PosterPath:"/8b8R8l88Qje9dn9OE8PY05Nez7.jpg",Overview:"Follow the mythic journey of Paul Atreides as he unites with Chani and the Fremen while on a warpath of revenge against the conspirators who destroyed his family.",AlreadyRequested:false},
+{TmdbId:746036,MediaType:"movie",Title:"The Fall Guy",Year:2024,Score:0.88,Reason:"Trending \u2014 new and highly rated",ReasonKey:"reasonTrending",Genres:["Action","Comedy"],TmdbRating:7.3,PosterPath:"/tSz1qsmSJon0rqjHBxXZmrotuse.jpg",Overview:"A down-and-out stuntman must track down a missing movie star, solve a conspiracy, and try to win back the love of his life while still doing his day job.",AlreadyRequested:false},
+{TmdbId:108545,MediaType:"tv",Title:"3 Body Problem",Year:2024,Score:0.86,Reason:"Because you like Sci-Fi",ReasonKey:"reasonGenre",RelatedInfo:"Sci-Fi",Genres:["Sci-Fi","Drama","Mystery"],TmdbRating:7.6,PosterPath:"/sg4xJGSJKjGZ3YKDDmzqY9cHCOB.jpg",Overview:"A fateful decision made in 1960s China reverberates across space and time to a group of brilliant scientists in the present day.",AlreadyRequested:false},
+{TmdbId:786892,MediaType:"movie",Title:"Furiosa: A Mad Max Saga",Year:2024,Score:0.84,Reason:"With actors you like",ReasonKey:"reasonPeople",Genres:["Action","Sci-Fi","Adventure"],TmdbRating:7.5,PosterPath:"/iADOJ8Zymht2JPMoy3R7xceZprc.jpg",Overview:"As the world fell, young Furiosa is snatched from the Green Place of Many Mothers and falls into the hands of a great Biker Horde led by the Warlord Dementus.",AlreadyRequested:false},
+{TmdbId:126308,MediaType:"tv",Title:"Sh\u014dgun",Year:2024,Score:0.81,Reason:"Highly rated",ReasonKey:"reasonHighlyRated",Genres:["Drama","War"],TmdbRating:8.7,PosterPath:"/7O4iVfOMQmdCSxhOg1WnzG1AgYT.jpg",Overview:"In Japan in the year 1600, at the dawn of a century-defining civil war, Lord Yoshii Toranaga is fighting for his life as his enemies on the Council of Regents unite against him.",AlreadyRequested:false},
+{TmdbId:1184918,MediaType:"movie",Title:"The Wild Robot",Year:2024,Score:0.78,Reason:"New and highly rated",ReasonKey:"reasonTrending",Genres:["Animation","Sci-Fi","Family"],TmdbRating:8.4,PosterPath:"/wTnV3PCVW5O92JMrFvvrRcV39RU.jpg",Overview:"After a shipwreck, an intelligent robot called Roz is stranded on an uninhabited island. To survive the harsh environment, Roz bonds with the island's animals.",AlreadyRequested:false}
+]},
+{UserId:_uid2,UserName:"Bob",GeneratedAt:new Date(Date.now()-3600000).toISOString(),Recommendations:[
+{TmdbId:840430,MediaType:"movie",Title:"The Holdovers",Year:2023,Score:0.90,Reason:"From a director you like",ReasonKey:"reasonStudioNamed",RelatedInfo:"Alexander Payne",Genres:["Comedy","Drama"],TmdbRating:7.9,PosterPath:"/VHSzNBTwxV8vh7wylo7O9CLdac.jpg",Overview:"A curmudgeonly instructor at a New England prep school is forced to remain on campus during Christmas break to babysit a handful of students with nowhere to go.",AlreadyRequested:false},
+{TmdbId:203737,MediaType:"tv",Title:"Ripley",Year:2024,Score:0.87,Reason:"Because you watched {0}",ReasonKey:"reasonGenreAndCollab",RelatedInfo:"Drama",Genres:["Crime","Drama","Thriller"],TmdbRating:7.8,PosterPath:"/bkZpMfsMwfqRVEwfUn8i3qi2NDE.jpg",Overview:"Tom Ripley, a grifter in early 1960s New York, is hired by a wealthy man to travel to Italy to try to convince his vagabond son to return home.",AlreadyRequested:false},
+{TmdbId:792307,MediaType:"movie",Title:"Poor Things",Year:2023,Score:0.85,Reason:"Popular among similar viewers",ReasonKey:"reasonCollaborative",Genres:["Comedy","Drama","Sci-Fi"],TmdbRating:7.8,PosterPath:"/kCGlIMHnOm8JPXq3rXM6c5wMxcT.jpg",Overview:"Brought back to life by an unorthodox scientist, a young woman runs off with a debauched lawyer on a whirlwind adventure across the continents.",AlreadyRequested:false},
+{TmdbId:225545,MediaType:"tv",Title:"A Gentleman in Moscow",Year:2024,Score:0.82,Reason:"Matches your top genres",ReasonKey:"reasonGenre",RelatedInfo:"Drama",Genres:["Drama","History"],TmdbRating:7.6,PosterPath:"/bKf6CCAagFJiGOddGb4u0yf5kMV.jpg",Overview:"A Count is sentenced to house arrest in a grand Moscow hotel for decades. As Russia undergoes decades of tumultuous change, he must find purpose in an ever-shrinking world.",AlreadyRequested:false},
+{TmdbId:467244,MediaType:"movie",Title:"The Zone of Interest",Year:2023,Score:0.79,Reason:"Highly rated drama",ReasonKey:"reasonHighlyRated",Genres:["Drama","History","War"],TmdbRating:7.1,PosterPath:"/hUu9zyZmDd8VZegKi1iK1Vk0RYS.jpg",Overview:"The commandant of Auschwitz, Rudolf H\u00f6ss, and his wife Hedwig, strive to build a dream life for their family in a house and garden next to the camp.",AlreadyRequested:false}
+]}
+];
+
+// Radarr services: 2 quality profiles (triggers popup for movie requests)
+var MOCK_SEERR_SERVICES_RADARR=[{
+id:1,name:"Radarr Main",isDefault:true,is4k:false,
+activeProfileId:4,activeDirectory:"/data/movies",
+profiles:[{id:4,name:"HD-1080p"},{id:6,name:"Ultra-HD"}],
+rootFolders:[{id:1,path:"/data/movies"}]
+}];
+
+// Sonarr services: empty (no popup for TV requests — uses server defaults)
+var MOCK_SEERR_SERVICES_SONARR=[];
+
 var MOCK_RECOMMENDATIONS=[
 {UserId:_uid1,UserName:"Alice",Recommendations:[
 {Name:"Blade Runner 2049",Score:0.94,ItemType:"Movie",Genres:["Sci-Fi","Thriller"],Year:2017,Reason:"Because you watched {0}",ReasonKey:"recsBecauseWatched",RelatedItemName:"Blade Runner"},
@@ -203,6 +232,10 @@ else if(url.indexOf("Trash/Contents")!==-1)resolve(MOCK_TRASH_CONTENTS);
 else if(url.indexOf("Trash/Folders")!==-1&&method==="DELETE")resolve({deleted:2,failed:0});
 else if(url.indexOf("Trash/Folders")!==-1)resolve(MOCK_TRASH_FOLDERS);
 else if(url.indexOf("Trash/Summary")!==-1)resolve({TotalSize:17179869184,TotalItems:3});
+else if(url.indexOf("Discovery/Services/radarr")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_SEERR_SERVICES_RADARR)));
+else if(url.indexOf("Discovery/Services/sonarr")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_SEERR_SERVICES_SONARR)));
+else if(url.indexOf("Discovery/Request")!==-1&&method==="POST")resolve({Success:true,Message:"Request submitted to Jellyseerr."});
+else if(url.indexOf("Discovery")!==-1&&url.indexOf("Services")===-1&&url.indexOf("Request")===-1)resolve(JSON.parse(JSON.stringify(MOCK_DISCOVERY)));
 else if(url.indexOf("Seerr/Test")!==-1)resolve({success:true,message:"Connected to Jellyseerr (demo)"});
 else if(url.indexOf("ArrIntegration/TestConnection")!==-1)resolve({success:true,message:"Connection successful (demo)"});
 else if(url.indexOf("ArrIntegration/Compare/")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_ARR_COMPARE)));
