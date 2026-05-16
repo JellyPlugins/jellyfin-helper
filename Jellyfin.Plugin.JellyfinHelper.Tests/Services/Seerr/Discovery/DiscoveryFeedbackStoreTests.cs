@@ -315,7 +315,8 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var result = store2.LoadForUser(userId);
         Assert.NotNull(result);
         Assert.Equal(userId, result!.UserId);
-        Assert.Equal("PersistUser", result.UserName);
+        // UserName is [JsonIgnore] (PII not persisted to disk) — expected to be empty after round-trip.
+        Assert.Equal(string.Empty, result.UserName);
         Assert.Equal(2, result.Entries.Count);
 
         var movieEntry = result.Entries.First(e => e.MediaType == "movie");
