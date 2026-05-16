@@ -434,9 +434,13 @@
         overlay.className = 'jfh-discovery-popup-overlay';
         var popup = document.createElement('div');
         popup.className = 'jfh-discovery-popup';
+        popup.setAttribute('role', 'dialog');
+        popup.setAttribute('aria-modal', 'true');
+        popup.setAttribute('aria-labelledby', 'jfhPopupTitle');
 
         var title = document.createElement('div');
         title.className = 'jfh-discovery-popup-title';
+        title.id = 'jfhPopupTitle';
         title.textContent = t('discoverySelectQualityProfile', 'Select Quality Profile');
         popup.appendChild(title);
 
@@ -470,6 +474,8 @@
 
         overlay.appendChild(popup);
         document.body.appendChild(overlay);
+        // Move focus into the dialog for keyboard accessibility
+        cancelBtn.focus();
         overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closePopup(); });
         function onEsc(ev) { if (ev.key === 'Escape') closePopup(); }
         document.addEventListener('keydown', onEsc);
@@ -479,6 +485,8 @@
             document.removeEventListener('keydown', onEsc);
             var el = document.getElementById('jfhDiscoveryPopup');
             if (el) el.remove();
+            // Restore focus to the triggering button
+            if (btn && btn.focus) btn.focus();
         }
     }
 
@@ -600,9 +608,13 @@
         overlay.className = 'jfh-discovery-popup-overlay';
         var popup = document.createElement('div');
         popup.className = 'jfh-discovery-popup';
+        popup.setAttribute('role', 'dialog');
+        popup.setAttribute('aria-modal', 'true');
+        popup.setAttribute('aria-labelledby', 'jfhPopupTitle');
 
         var titleEl = document.createElement('div');
         titleEl.className = 'jfh-discovery-popup-title';
+        titleEl.id = 'jfhPopupTitle';
         titleEl.textContent = t('discoveryDismissConfirmTitle', 'Dismiss suggestion?');
         popup.appendChild(titleEl);
 
@@ -637,6 +649,8 @@
 
         overlay.appendChild(popup);
         document.body.appendChild(overlay);
+        // Move focus into the dialog for keyboard accessibility
+        cancelBtn.focus();
         overlay.addEventListener('click', function (ev) { if (ev.target === overlay) closePopup(); });
         function onEsc(ev) { if (ev.key === 'Escape') closePopup(); }
         document.addEventListener('keydown', onEsc);
@@ -646,6 +660,8 @@
             document.removeEventListener('keydown', onEsc);
             var el = document.getElementById('jfhDiscoveryPopup');
             if (el) el.remove();
+            // Restore focus to the triggering button
+            if (btn && btn.focus) btn.focus();
         }
     }
 
