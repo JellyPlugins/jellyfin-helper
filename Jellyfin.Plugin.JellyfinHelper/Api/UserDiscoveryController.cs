@@ -158,6 +158,7 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<IReadOnlyList<SeerrServiceInfo>>> GetMyServiceInfo(
         string serviceType,
         CancellationToken cancellationToken)
@@ -187,6 +188,18 @@ public sealed class UserDiscoveryController : ControllerBase
             userId.Value, mediaType, serviceType, cancellationToken).ConfigureAwait(false);
         if (!permissions.CanRequest)
         {
+            // Distinguish transient upstream failures (Seerr temporarily unavailable) from
+            // genuine permission denials. Return 503 for transient issues so the client can
+            // retry, rather than silently returning an empty list that looks like "no services".
+            if (permissions.IsTransient)
+            {
+                return StatusCode(503, new RequestResult
+                {
+                    Success = false,
+                    Message = permissions.DeniedReason ?? "Could not verify your Seerr account. Please try again."
+                });
+            }
+
             return Ok(Array.Empty<SeerrServiceInfo>());
         }
 
