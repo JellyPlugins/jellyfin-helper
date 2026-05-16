@@ -673,11 +673,16 @@ function handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType) {
                 card.classList.add('discovery-card-removing');
                 setTimeout(function () {
                     if (!document.contains(card)) return;
+                    var grid = card.closest('.discovery-grid');
                     card.remove();
                     var countSpan = document.getElementById('discoveryCount');
                     if (countSpan) {
                         var current = parseInt(countSpan.textContent, 10) || 0;
                         countSpan.textContent = '' + Math.max(0, current - 1);
+                    }
+                    // Show empty state when all cards have been removed
+                    if (grid && grid.querySelectorAll('.discovery-card').length === 0) {
+                        grid.innerHTML = '<div class="recs-empty"><div class="recs-empty-icon">' + mi('smart_toy') + '</div><p>' + T('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.') + '</p></div>';
                     }
                 }, 300);
             }, 5000);
