@@ -231,27 +231,40 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         else
         {
-            _cache.Save(allResults);
-            _pluginLog.LogInfo(
-                "SeerrDiscovery",
-                $"Persisted {allResults.Count} user results with {allResults.Sum(r => r.Recommendations.Count)} total recommendations.",
-                _logger);
-
-            // Step 4: Record shown items in the feedback store for training data collection.
-            // Best-effort: feedback persistence must not break the discovery task.
-            foreach (var result in allResults)
+            var persisted = _cache.Save(allResults);
+            if (persisted)
             {
-                try
+                _pluginLog.LogInfo(
+                    "SeerrDiscovery",
+                    $"Persisted {allResults.Count} user results with {allResults.Sum(r => r.Recommendations.Count)} total recommendations.",
+                    _logger);
+
+                // Step 4: Record shown items in the feedback store for training data collection.
+                // Only record after successful persistence to prevent feedback/training state
+                // from referencing recommendations that never actually reached disk.
+                // Best-effort: feedback persistence must not break the discovery task.
+                foreach (var result in allResults)
                 {
-                    _feedbackStore.RecordShown(result.UserId, result.UserName, result.Recommendations);
+                    try
+                    {
+                        _feedbackStore.RecordShown(result.UserId, result.UserName, result.Recommendations);
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+                    {
+                        _pluginLog.LogDebug(
+                            "SeerrDiscovery",
+                            $"Failed to record feedback for user {result.UserName}: {ex.Message}",
+                            _logger);
+                    }
                 }
-                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-                {
-                    _pluginLog.LogDebug(
-                        "SeerrDiscovery",
-                        $"Failed to record feedback for user {result.UserName}: {ex.Message}",
-                        _logger);
-                }
+            }
+            else
+            {
+                _pluginLog.LogWarning(
+                    "SeerrDiscovery",
+                    $"Failed to persist {allResults.Count} user results. Skipping feedback recording to avoid stale training data.",
+                    null,
+                    _logger);
             }
         }
     }

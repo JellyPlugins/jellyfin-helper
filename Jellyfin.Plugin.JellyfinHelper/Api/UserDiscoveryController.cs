@@ -77,11 +77,18 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         // Filter persisted pool: exclude dismissed + requested, serve only next N visible.
-        // Normalize MediaType to lowercase for comparison because the feedback store
-        // persists normalized lowercase values while cache data may retain original API casing.
+        // Normalize MediaType using the same canonicalization as DiscoveryFeedbackStore:
+        // null/whitespace → "movie", otherwise trimmed lowercase. This ensures dismissed/requested
+        // items are correctly matched regardless of casing differences in cached data.
         var excluded = BuildExcludedItemKeys(currentUserId);
         var visible = userResult.Recommendations
-            .Where(r => !r.AlreadyRequested && !excluded.Contains((r.TmdbId, r.MediaType?.ToLowerInvariant() ?? string.Empty)))
+            .Where(r =>
+            {
+                var normalizedMediaType = string.IsNullOrWhiteSpace(r.MediaType)
+                    ? "movie"
+                    : r.MediaType.Trim().ToLowerInvariant();
+                return !r.AlreadyRequested && !excluded.Contains((r.TmdbId, normalizedMediaType));
+            })
             .Take(SeerrDiscoveryService.MaxVisiblePerUser)
             .ToList();
 

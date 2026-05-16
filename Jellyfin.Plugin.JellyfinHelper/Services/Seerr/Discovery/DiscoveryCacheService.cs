@@ -308,7 +308,8 @@ public sealed class DiscoveryCacheService
     ///     Saves discovery results to disk using atomic write (temp file + move).
     /// </summary>
     /// <param name="results">The results to persist.</param>
-    public void Save(IReadOnlyList<DiscoveryResult> results)
+    /// <returns><c>true</c> if the results were successfully persisted to disk; <c>false</c> if a write error occurred.</returns>
+    public bool Save(IReadOnlyList<DiscoveryResult> results)
     {
         ArgumentNullException.ThrowIfNull(results);
 
@@ -336,6 +337,8 @@ public sealed class DiscoveryCacheService
                     "DiscoveryCache",
                     $"Saved {results.Count} discovery results to {_filePath}",
                     _logger);
+
+                return true;
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
@@ -353,6 +356,8 @@ public sealed class DiscoveryCacheService
                     $"Could not save discovery results to {_filePath}: {ex.Message}",
                     ex,
                     _logger);
+
+                return false;
             }
         }
     }

@@ -6,7 +6,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 ///     Defines the known permission flags used by Overseerr/Jellyseerr.
 ///     These are bitmask values stored in <see cref="SeerrUser.Permissions"/>.
 ///     A user's effective permissions are the bitwise OR of all their granted flags.
-///     Values sourced from Overseerr server/lib/permissions.ts.
+///     Values sourced from Overseerr server/lib/permissions.ts (sct/overseerr@develop, 2024-12).
+///     Also verified against Fallenbagel/jellyseerr@develop (same values).
+///     Re-validate against upstream when upgrading target Seerr compatibility.
 /// </summary>
 [Flags]
 public enum SeerrPermissions : long
