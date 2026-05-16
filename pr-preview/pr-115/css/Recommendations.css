@@ -763,6 +763,11 @@
 }
 
 @media (prefers-color-scheme: light) {
+    .recs-tag-rating {
+        background: rgba(138, 90, 0, 0.12);
+        color: #8a5a00;
+    }
+
     .discovery-card { background: rgba(0, 0, 0, 0.02); border-color: rgba(0, 0, 0, 0.08); }
     .discovery-card-poster { background: rgba(0, 0, 0, 0.04); }
     .discovery-card-reason { color: rgba(0, 0, 0, 0.6); }
