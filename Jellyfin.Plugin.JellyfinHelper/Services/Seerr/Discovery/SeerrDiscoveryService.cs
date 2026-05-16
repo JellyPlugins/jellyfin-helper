@@ -834,6 +834,29 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string serviceType,
         CancellationToken cancellationToken)
     {
+        // Normalize inputs at the boundary to prevent case/whitespace mismatches
+        // from silently falling into wrong permission paths or bypassing validation.
+        mediaType = mediaType?.Trim().ToLowerInvariant() ?? string.Empty;
+        serviceType = serviceType?.Trim().ToLowerInvariant() ?? string.Empty;
+
+        if (mediaType is not ("movie" or "tv"))
+        {
+            return new UserRequestPermissionResult
+            {
+                CanRequest = false,
+                DeniedReason = "Invalid media type."
+            };
+        }
+
+        if (serviceType is not ("radarr" or "sonarr"))
+        {
+            return new UserRequestPermissionResult
+            {
+                CanRequest = false,
+                DeniedReason = "Invalid service type."
+            };
+        }
+
         // Step 1: Resolve the Jellyfin user to their Seerr account
         var seerrUsers = await GetCachedSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
         var seerrUser = FindSeerrUserByJellyfinId(seerrUsers, jellyfinUserId);
