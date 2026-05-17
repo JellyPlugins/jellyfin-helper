@@ -10,6 +10,50 @@ var _wasTrashEnabled = false;
 var _currentLogLevel = 'INFO';
 var _logLevelLoaded = false;
 
+/**
+ * Shared predicate: returns true when Seerr URL and API Key are both non-empty after trimming.
+ * Used across render, payload construction, and post-save UI sync to ensure a single source of truth.
+ * @param {string} url - The Seerr URL value.
+ * @param {string} key - The Seerr API Key value.
+ * @returns {boolean}
+ */
+function isSeerrConfigured(url, key) {
+    return !!((url || '').trim() && (key || '').trim());
+}
+
+// Refresh the Discovery access wrapper UI state based on current form values.
+// Extracted to avoid duplicated DOM manipulation in multiple event handlers.
+function refreshDiscoveryAccessState() {
+    var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
+    var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
+    var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+    var discEnabled = recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
+
+    var wrapper = document.getElementById('discoveryAccessWrapper');
+    if (wrapper) {
+        wrapper.style.opacity = discEnabled ? '' : '0.5';
+        wrapper.style.pointerEvents = discEnabled ? '' : 'none';
+    }
+    var chk = document.getElementById('cfgDiscoveryUserAccess');
+    if (chk) {
+        chk.disabled = !discEnabled;
+        if (!discEnabled) chk.checked = false;
+    }
+    var hint = document.querySelector('.discovery-access-disabled-hint');
+    if (hint) hint.style.display = discEnabled ? 'none' : '';
+    // Keep the setup hint button/panel in sync with the enabled state
+    var toggleBtn = document.getElementById('btnToggleDiscoveryHint');
+    if (toggleBtn) toggleBtn.style.display = discEnabled ? '' : 'none';
+    var setupHint = document.querySelector('.discovery-setup-hint');
+    if (setupHint) setupHint.style.display = discEnabled ? '' : 'none';
+    if (!discEnabled) {
+        var panel = document.getElementById('discoveryHintPanel');
+        if (panel) panel.style.display = 'none';
+        if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+    }
+    return discEnabled;
+}
+
 // Show/hide the Recommendations tab button+content based on TaskMode
 function updateRecsTabVisibility(taskMode) {
     var show = taskMode !== 'Deactivate';
@@ -188,8 +232,32 @@ function loadSettings() {
         h += '<div class="help-text playlist-sync-disabled-hint" style="' + (recsActive ? 'display:none;' : '') + '">' + T('syncPlaylistDisabledHint', 'Set Recommendations to Activate to enable this option.') + '</div>';
         h += '</div>';
 
+        // Discovery user access toggle - greyed out if Recommendations deactivated OR Seerr not configured
+        var seerrConfigured = isSeerrConfigured(cfg.SeerrUrl, cfg.SeerrApiKey);
+        var discoveryEnabled = recsActive && seerrConfigured;
+        h += '<div class="discovery-access-wrapper" id="discoveryAccessWrapper" style="margin:0.3em 0 0.8em 0;' + (!discoveryEnabled ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (discoveryEnabled && cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + T('discoveryUserAccess', 'Allow users to view Discovery and submit requests') + '</label></div>';
+        h += '<div class="help-text">' + T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.') + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;' + (!discoveryEnabled ? 'display:none;' : '') + '" title="' + T('discoverySetupHintTitle', 'Setup Instructions') + '" aria-label="' + T('discoverySetupHintTitle', 'Setup Instructions') + '">info</button></div>';
+        h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + T('discoveryAccessDisabledHint', 'Requires Recommendations set to Activate and Seerr configured.') + '</div>';
+        // Discovery setup hint — collapsible panel (default: closed)
+        h += '<div class="discovery-setup-hint" style="margin:0.3em 0 0;' + (!discoveryEnabled ? 'display:none;' : '') + '">';
+        h += '<div id="discoveryHintPanel" style="display:none;margin-top:0.5em;padding:0.7em 1em;background:rgba(0,164,220,0.06);border:1px solid rgba(0,164,220,0.2);border-radius:6px;font-size:0.85em;">';
+        h += '<strong>' + T('discoverySetupHintTitle', 'Setup Instructions') + '</strong>';
+        h += '<ol style="margin:0.4em 0 0.4em 1.2em;padding:0;line-height:1.7;">';
+        h += '<li>' + T('discoverySetupHint1', 'Install the following two plugins:') + ' <a href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" rel="noopener" style="color:#00a4dc;">' + T('discoverySetupHintFT', 'File Transformation') + '</a> &amp; <a href="https://github.com/IAmParadox27/jellyfin-plugin-custom-tabs" target="_blank" rel="noopener" style="color:#00a4dc;">' + T('discoverySetupHintCT', 'Custom Tabs') + '</a></li>';
+        h += '<li>' + T('discoverySetupHint2', 'Then in Custom Tabs plugin settings, add a new tab with:') + '<br>';
+        h += '<span style="opacity:0.7;">' + T('discoverySetupHintDisplay', 'Display Text') + ':</span> <code style="background:rgba(255,255,255,0.08);padding:0.1em 0.4em;border-radius:3px;">' + escHtml(T('discoveryTitle', 'Seerr Discovery')) + '</code><br>';
+        h += '<span style="opacity:0.7;">' + T('discoverySetupHintHtml', 'HTML Content') + ':</span></li>';
+        h += '</ol>';
+        h += '<div style="display:flex;align-items:center;gap:0.5em;">';
+        h += '<button type="button" class="action-btn" id="btnCopyDiscoveryHtml" style="padding:0.2em 0.6em;font-size:0.82em;display:inline-flex;align-items:center;gap:0.3em;"><span class="material-icons" style="font-size:1em;">content_copy</span><span>' + T('discoveryCopySnippet', 'Copy') + '</span></button>';
+        h += '<code style="background:rgba(0,0,0,0.3);padding:0.3em 0.6em;border-radius:4px;font-size:0.9em;">&lt;div class=&quot;jellyfinhelper discovery&quot;&gt;&lt;/div&gt;</code>';
+        h += '</div>';
+        h += '<div style="margin-top:0.6em;font-size:0.9em;">' + T('discoverySetupHintAlreadyInstalled', 'Plugins already installed?') + ' <a href="#/configurationpage?name=Custom%20Tabs" style="color:#00a4dc;">' + T('discoverySetupHintConfigureLink', 'Configure Custom Tabs →') + '</a></div>';
+        h += '</div></div>';
+        h += '</div>';
+
         // Seerr Cleanup task mode - greyed out if not configured
-        var seerrConfigured = !!(cfg.SeerrUrl && cfg.SeerrApiKey);
         h += '<div class="seerr-task-mode-wrapper" style="' + (!seerrConfigured ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += renderTaskModeSelect('cfgSeerrMode', T('seerrCleanup', 'Seerr Cleanup'), cfg.SeerrCleanupTaskMode || 'Deactivate');
         h += '<div class="help-text seerr-not-configured-hint" style="' + (seerrConfigured ? 'display:none;' : '') + '">' + T('seerrNotConfigured', 'Configure Seerr below to enable this task.') + '</div>';
@@ -272,6 +340,7 @@ function loadSettings() {
         attachAddHandlers();
         attachBackupHandlers();
         attachSeerrHandlers();
+        attachDiscoveryCopyHandler();
         attachAutoSaveHandlers();
 
         initArrButtons(cfg);
@@ -308,7 +377,7 @@ function buildSettingsPayload() {
             var modeEl = document.getElementById('cfgSeerrMode');
             var url = (document.getElementById('cfgSeerrUrl') || {}).value || '';
             var key = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
-            return (url && key && modeEl) ? modeEl.value : 'Deactivate';
+            return (modeEl && isSeerrConfigured(url, key)) ? modeEl.value : 'Deactivate';
         })(),
         SeerrCleanupAgeDays: (function () {
             var el = document.getElementById('cfgSeerrAgeDays');
@@ -320,6 +389,17 @@ function buildSettingsPayload() {
         TrashRetentionDays: (function () {
             var v = parseInt(document.getElementById('cfgTrashDays').value, 10);
             return isNaN(v) || v < 0 ? 30 : v;
+        })(),
+        DiscoveryUserAccessEnabled: (function () {
+            var checkbox = document.getElementById('cfgDiscoveryUserAccess');
+            if (!checkbox || !checkbox.checked) return false;
+            // Force false when prerequisites are not met (Recommendations must be active + Seerr configured).
+            // This prevents stale "true" from being persisted when the admin disables recommendations
+            // or clears Seerr config while the checkbox was previously enabled.
+            var recsMode = (document.getElementById('cfgRecommendationsMode') || {}).value || '';
+            var seerrUrl = (document.getElementById('cfgSeerrUrl') || {}).value || '';
+            var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
+            return recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
         })(),
         Language: document.getElementById('cfgLang').value,
         PluginLogLevel: _currentLogLevel,
@@ -366,7 +446,9 @@ function doSaveSettings(payload, options) {
         if (arrResult) arrResult.innerHTML = '';
 
         // Sync Seerr greyed-out state after save (URL/Key may have been cleared)
-        updateSeerrUIState(!!(payload.SeerrUrl && payload.SeerrApiKey));
+        updateSeerrUIState(isSeerrConfigured(payload.SeerrUrl, payload.SeerrApiKey));
+        // Refresh the Discovery wrapper (depends on Seerr + Recommendations mode)
+        refreshDiscoveryAccessState();
 
         if (options && typeof options.onSuccess === 'function') {
             options.onSuccess();
@@ -374,6 +456,9 @@ function doSaveSettings(payload, options) {
     }, function () {
         if (quiet) {
             showAutoSaveIndicatorOverlay(indicatorEl, false);
+            if (options && typeof options.onError === 'function') {
+                options.onError();
+            }
         } else {
             btn.disabled = false;
             showButtonFeedback(btn, false, T('settingsError', 'Failed to save settings.'), T('saveSettings', 'Save Settings'));
@@ -690,6 +775,8 @@ function attachSeerrHandlers() {
                 doSaveSettings(payload, {quiet: true, element: document.getElementById('arrCollapsibleHeaderSeerr')});
                 // Enable previously greyed-out Seerr UI sections
                 updateSeerrUIState(true);
+                // Refresh the Discovery wrapper (depends on Seerr being configured)
+                refreshDiscoveryAccessState();
             } else {
                 _seerrTimer = showButtonFeedback(btn, false, escHtml(res.message || 'Failed'), originalHtml);
             }
@@ -698,6 +785,90 @@ function attachSeerrHandlers() {
             _seerrTimer = showButtonFeedback(btn, false, T('testConnectionFailed', 'Connection test failed.'), originalHtml);
         });
     });
+}
+
+/**
+ * Attach the toggle + copy-to-clipboard handlers for the Discovery setup hint.
+ */
+function attachDiscoveryCopyHandler() {
+    // Toggle handler: ℹ️ icon opens/closes the hint panel
+    var toggleBtn = document.getElementById('btnToggleDiscoveryHint');
+    var panel = document.getElementById('discoveryHintPanel');
+    if (toggleBtn && panel) {
+        toggleBtn.setAttribute('aria-expanded', 'false');
+        toggleBtn.setAttribute('aria-controls', 'discoveryHintPanel');
+        toggleBtn.addEventListener('click', function () {
+            var isOpen = panel.style.display !== 'none';
+            panel.style.display = isOpen ? 'none' : 'block';
+            toggleBtn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+        });
+    }
+
+    // Copy handler
+    var btn = document.getElementById('btnCopyDiscoveryHtml');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+        var text = '<div class="jellyfinhelper discovery"></div>';
+        var span = btn.querySelector('span:last-child');
+
+        function onCopySuccess() {
+            if (span) span.textContent = T('discoveryCopied', 'Copied!');
+            btn.style.background = '#2ecc71';
+            btn.style.color = '#fff';
+            setTimeout(function () {
+                if (span) span.textContent = T('discoveryCopySnippet', 'Copy');
+                btn.style.background = '';
+                btn.style.color = '';
+            }, 2000);
+        }
+
+        function onCopyFailure() {
+            if (span) span.textContent = '\u2717';
+            btn.style.background = '#e74c3c';
+            btn.style.color = '#fff';
+            setTimeout(function () {
+                if (span) span.textContent = T('discoveryCopySnippet', 'Copy');
+                btn.style.background = '';
+                btn.style.color = '';
+            }, 2000);
+        }
+
+        // Try modern clipboard API first
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(onCopySuccess).catch(function () {
+                if (fallbackCopy(text)) {
+                    onCopySuccess();
+                } else {
+                    onCopyFailure();
+                }
+            });
+        } else {
+            if (fallbackCopy(text)) {
+                onCopySuccess();
+            } else {
+                onCopyFailure();
+            }
+        }
+    });
+}
+
+/** Fallback copy using textarea + execCommand for non-HTTPS contexts. */
+function fallbackCopy(text) {
+    var textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+        return document.execCommand('copy');
+    } catch (e) {
+        return false;
+    } finally {
+        document.body.removeChild(textarea);
+    }
 }
 
 /**
@@ -737,6 +908,12 @@ function attachAutoSaveHandlers() {
                             if (chk) chk.disabled = !isActive;
                             var hint = document.querySelector('.playlist-sync-disabled-hint');
                             if (hint) hint.style.display = isActive ? 'none' : '';
+
+                            // Update discovery access toggle greyed-out state
+                            refreshDiscoveryAccessState();
+                            // Uncheck discovery when deactivating recommendations
+                            var discChk = document.getElementById('cfgDiscoveryUserAccess');
+                            if (!isActive && discChk) discChk.checked = false;
                         }
                     });
                     return;
@@ -747,10 +924,29 @@ function attachAutoSaveHandlers() {
     }
 
     // Playlist sync toggle - auto-save on change
+    // Uses inline indicator appended to the label (not the overlay function which positions badly for checkboxes)
     var syncEl = document.getElementById('cfgSyncPlaylist');
     if (syncEl) {
         syncEl.addEventListener('change', function () {
-            doSaveSettings(buildSettingsPayload(), {quiet: true, element: syncEl});
+            doSaveSettings(buildSettingsPayload(), {
+                quiet: true,
+                element: null, // suppress default overlay
+                onSuccess: function () { showInlineCheckboxIndicator(syncEl, true); },
+                onError: function () { showInlineCheckboxIndicator(syncEl, false); }
+            });
+        });
+    }
+
+    // Discovery user access toggle - auto-save on change
+    var discoveryEl = document.getElementById('cfgDiscoveryUserAccess');
+    if (discoveryEl) {
+        discoveryEl.addEventListener('change', function () {
+            doSaveSettings(buildSettingsPayload(), {
+                quiet: true,
+                element: null, // suppress default overlay
+                onSuccess: function () { showInlineCheckboxIndicator(discoveryEl, true); },
+                onError: function () { showInlineCheckboxIndicator(discoveryEl, false); }
+            });
         });
     }
 
@@ -781,6 +977,41 @@ function attachAutoSaveHandlers() {
             });
         });
     }
+}
+
+/**
+ * Shows a small inline indicator AFTER the label text of a checkbox toggle.
+ * Used for checkbox auto-save confirmation instead of showAutoSaveIndicatorOverlay
+ * which doesn't position correctly for checkboxes.
+ * @param {HTMLInputElement} checkbox - The checkbox input element.
+ * @param {boolean} [success] - Whether the save succeeded (true) or failed (false). Defaults to true.
+ */
+function showInlineCheckboxIndicator(checkbox, success) {
+    if (!checkbox) return;
+    var label = checkbox.nextElementSibling;
+    if (!label || label.tagName !== 'LABEL') return;
+
+    var ok = success !== false;
+
+    // Remove any existing indicator on this label
+    var existing = label.querySelector('.inline-save-indicator');
+    if (existing) existing.remove();
+
+    // Create inline indicator
+    var indicator = document.createElement('span');
+    indicator.className = 'inline-save-indicator';
+    indicator.innerHTML = ' ' + mi(ok ? 'check_circle' : 'error');
+    indicator.style.color = ok ? '#2ecc71' : '#e74c3c';
+    indicator.style.marginLeft = '0.4em';
+    indicator.style.opacity = '1';
+    indicator.style.transition = 'opacity 0.5s';
+    label.appendChild(indicator);
+
+    // Fade out after 2 seconds
+    setTimeout(function () {
+        indicator.style.opacity = '0';
+        setTimeout(function () { indicator.remove(); }, 600);
+    }, 2000);
 }
 
 function saveSettings() {

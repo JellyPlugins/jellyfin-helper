@@ -83,6 +83,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public string SeerrApiKey { get; set; } = string.Empty;
 
+    /// <summary>
+    ///     Gets or sets a value indicating whether non-admin users can access
+    ///     the Seerr Discovery page and submit media requests.
+    ///     Default is false (admin-only). When enabled, any authenticated Jellyfin user
+    ///     can see their personalized discovery recommendations and request downloads.
+    /// </summary>
+    public bool DiscoveryUserAccessEnabled { get; set; }
+
     // ===== Config version for migration =====
 
     /// <summary>
@@ -150,7 +158,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the maximum number of recommendations to generate per user.
-    ///     Default is 20. Valid range: 1–100. Out-of-range values are clamped.
+    ///     Default is 20. Valid range: 1-100. Out-of-range values are clamped.
     /// </summary>
     public int MaxRecommendationsPerUser
     {
@@ -172,7 +180,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the minimum alpha value for the ensemble scoring strategy.
-    ///     Controls the lower bound of learned model blending (0–1). Default is 0.3.
+    ///     Controls the lower bound of learned model blending (0-1). Default is 0.3.
     ///     Out-of-range values are clamped to [0, 1].
     ///     The min ≤ max invariant is enforced by <see cref="NormalizeAlphaRange"/>
     ///     after deserialization, not by the setter, to avoid XML element-order dependency.
@@ -185,7 +193,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the maximum alpha value for the ensemble scoring strategy.
-    ///     Controls the upper bound of learned model blending (0–1). Default is 0.75.
+    ///     Controls the upper bound of learned model blending (0-1). Default is 0.75.
     ///     Out-of-range values are clamped to [0, 1].
     ///     The min ≤ max invariant is enforced by <see cref="NormalizeAlphaRange"/>
     ///     after deserialization, not by the setter, to avoid XML element-order dependency.

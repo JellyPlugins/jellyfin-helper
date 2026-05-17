@@ -102,6 +102,8 @@ Tests mirror the source structure:
 ```text
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── Api/                           # Controller tests
+│   ├── DiscoveryControllerTests.cs
+│   ├── UserDiscoveryControllerTests.cs
 │   ├── RecommendationControllerTests.cs
 │   ├── UserActivityControllerTests.cs
 │   ├── TrashControllerTests.cs
@@ -126,6 +128,12 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Link/                      # Link repair tests
 │   ├── PluginLog/                 # Plugin log tests
 │   ├── Seerr/                     # Seerr integration tests
+│   │   ├── SeerrIntegrationServiceTests.cs
+│   │   ├── SeerrMediaDetailsTests.cs
+│   │   └── Discovery/            # Seerr Discovery tests
+│   │       ├── DiscoveryFeedbackStoreTests.cs
+│   │       ├── SeerrDiscoveryServiceTests.cs
+│   │       └── ParentalRatingHelperTests.cs
 │   ├── Statistics/                # Statistics service tests
 │   ├── Timeline/                  # Growth timeline tests
 │   └── Recommendation/            # Recommendation engine tests
@@ -167,14 +175,21 @@ Jellyfin.Plugin.JellyfinHelper/
 ├── BuildTasks/
 │   └── ComposeConfigPage.cs     # MSBuild task for config page composition
 ├── i18n/                        # Internationalization files (en, de, fr, es, pt, zh, tr)
-├── Plugin.cs                    # Entry point, web page registration
+├── Plugin.cs                    # Entry point, web page registration, script injection
 ├── PluginServiceRegistrator.cs  # DI registration for all services
 ├── MediaExtensions.cs           # Extension methods for media analysis
+├── js/
+│   └── discovery-sidebar.js     # Discovery Custom Tab + sidebar script (embedded resource, injected into index.html)
 ├── Api/
 │   ├── ArrIntegrationController.cs      # Radarr/Sonarr integration API
 │   ├── BackupController.cs              # Backup/restore API
 │   ├── CleanupStatisticsController.cs   # Cleanup statistics API
 │   ├── ConfigurationController.cs       # Plugin configuration API
+│   ├── DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
+│   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
+│   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
+│   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId, MediaType)
+│   ├── RequestResult.cs                 # Generic success/failure response model
 │   ├── GrowthTimelineController.cs      # Library growth timeline API
 │   ├── LibraryInsightsController.cs     # Library insights API
 │   ├── LogsController.cs               # Plugin logs API
@@ -208,7 +223,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── TrainingService.cs   # Implicit feedback training pipeline
 │   │   │   ├── Training/            # Training sub-components (refactored from TrainingService)
 │   │   │   │   ├── TrainingDataBuilder.cs      # Builds labeled training examples from watch history
-│   │   │   │   └── TrainingFeatureComputer.cs  # Computes feature vectors for training candidates
+│   │   │   │   ├── TrainingFeatureComputer.cs  # Computes feature vectors for training candidates
+│   │   │   │   └── DiscoveryFeedbackExampleBuilder.cs # Phase 4: training from discovery interactions
 │   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction
 │   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
 │   │   │   ├── TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
@@ -252,7 +268,43 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── ConfigAccess/            # Plugin configuration access
 │   ├── Link/                    # .strm/symlink repair
 │   ├── PluginLog/               # Structured plugin logging
+│   ├── FileTransformation/      # File Transformation plugin integration
+│   │   ├── DiscoveryScriptTag.cs     # Shared script tag builder + removal regex (single source of truth)
+│   │   ├── PatchRequestPayload.cs    # Payload model for transformation callbacks
+│   │   └── TransformationPatches.cs  # index.html script injection (on-the-fly via File Transformation plugin)
 │   ├── Seerr/                   # Jellyseerr/Overseerr integration
+│   │   ├── ISeerrIntegrationService.cs   # Seerr cleanup (request removal)
+│   │   ├── SeerrIntegrationService.cs
+│   │   └── Discovery/               # Seerr Discovery (external recommendations)
+│   │       ├── ISeerrDiscoveryService.cs
+│   │       ├── SeerrDiscoveryService.cs  # Orchestrator: profiles → TMDb query → scoring → results
+│   │       ├── DiscoveryCacheService.cs  # Disk + memory persistence
+│   │       ├── ExternalCandidateFeatureBuilder.cs  # Builds 31-feature vector for TMDb items
+│   │       ├── NullableDateTimeConverter.cs  # Graceful DateTime? JSON deserialization (handles empty strings from TMDb)
+│   │       ├── ParentalRatingHelper.cs   # Child-safe content filtering
+│   │       ├── TmdbGenreMap.cs           # Jellyfin ↔ TMDb genre ID mapping
+│   │       ├── TmdbDiscoverItem.cs       # TMDb candidate DTO
+│   │       ├── TmdbDiscoverResponse.cs   # TMDb API page response
+│   │       ├── DiscoveryResult.cs        # Per-user result container
+│   │       ├── DiscoveryRecommendation.cs # Single recommendation DTO
+│   │       ├── SeerrUser.cs             # Seerr user model (with JellyfinUserId mapping + Permissions)
+│   │       ├── SeerrUserPage.cs         # Paginated user list response
+│   │       ├── SeerrPermissions.cs      # [Flags] enum of all Overseerr/Jellyseerr permission bits
+│   │       ├── SeerrPermissionExtensions.cs # Permission evaluation (HasPermission, CanRequest, CanSelectQualityProfile)
+│   │       ├── UserRequestPermissionResult.cs # Permission check result (CanRequest + allowed profiles)
+│   │       ├── AllowedQualityProfile.cs # Single quality profile the user may select
+│   │       ├── SeerrServiceInfo.cs      # Radarr/Sonarr service config from Seerr
+│   │       ├── SeerrQualityProfile.cs   # Quality profile DTO
+│   │       ├── SeerrRootFolder.cs       # Root folder DTO
+│   │       ├── SeerrCredits.cs          # TMDb credits response (cast + crew)
+│   │       ├── SeerrCastMember.cs       # Cast member DTO
+│   │       ├── SeerrCrewMember.cs       # Crew member DTO
+│   │       ├── SeerrMediaDetailResponse.cs # Detailed media info from Seerr
+│   │       ├── IDiscoveryFeedbackStore.cs  # Training feedback persistence interface
+│   │       ├── DiscoveryFeedbackStore.cs   # File-based feedback store (shown/dismissed/requested/watched)
+│   │       ├── DiscoveryFeedbackEntry.cs   # Per-item interaction tracking model
+│   │       ├── DiscoveryFeedbackResult.cs  # Per-user feedback container
+│   │       └── DiscoveryInteractionStatus.cs # Enum: Shown/Dismissed/Requested/RequestedAndWatched
 │   ├── Statistics/              # Media statistics
 │   └── Timeline/                # Library growth tracking
 ├── ScheduledTasks/
@@ -329,6 +381,86 @@ User Watch History → Feature Extraction (31 features) → Scoring Strategy →
 - **EnsembleScoringStrategy**: Blends all three with dynamic α/β weighting
 
 Training uses implicit feedback: previously recommended items are compared against current watch data to generate labeled training examples. The EnsembleScoringStrategy records a rolling history of training quality metrics (validation loss, P@K, R@K, NDCG@K) that are persisted across server restarts for future trend analysis.
+
+### Seerr Discovery Architecture
+
+Seerr Discovery extends the recommendation system to suggest external (not-yet-in-library) content by querying the configured Overseerr/Jellyseerr instance:
+
+```text
+UserWatchProfiles → Genre/People/Language preferences
+                         ↓
+         TMDb Discovery via Seerr API (genre + language endpoints)
+                         ↓
+         Deduplication + Parental Rating Filter + Arr Exclusion
+                         ↓
+         Phase 1: Pre-score all candidates (genre/rating/recency only)
+                         ↓
+         Phase 2: Enrich top-20 with credits (actors/directors via Seerr)
+                         ↓
+         Phase 3: Final score with EnsembleScoringStrategy (full 31 features)
+                         ↓
+         Top-10 per user → DiscoveryCacheService → Frontend
+```
+
+- Coupled to **Seerr configuration** (URL + API Key) - independent of Seerr Cleanup task mode
+- Runs as part of `HelperCleanupTask` when `RecommendationsTaskMode != Deactivate`
+- Uses `ExternalCandidateFeatureBuilder` to construct the same 31-feature vector used for internal recommendations
+- Results persisted to `jellyfin-helper-discovery-results.json` with in-memory cache
+- Request submission via `POST /JellyfinHelper/Discovery/Request` with optional Seerr user/server/profile mapping
+
+### Discovery Custom Tab & Script Injection
+
+Discovery results are also displayed on the Jellyfin home screen via a separate script (`js/discovery-sidebar.js`) that is injected into Jellyfin's `index.html`:
+
+```text
+Plugin starts → Plugin.InjectScript()
+                    ↓
+    ┌─── File Transformation plugin available? ───┐
+    │ YES                                         │ NO
+    │ Register callback via reflection            │ Direct index.html write
+    │ (no filesystem write needed)                │ (requires writable filesystem)
+    └─────────────────────────────────────────────┘
+                    ↓
+    index.html serves <script src="/JellyfinHelper/Discovery/My/script">
+                    ↓
+    discovery-sidebar.js runs in browser:
+      1. Waits for ApiClient to be available
+      2. Loads i18n strings from /JellyfinHelper/Translations
+      3. Observes DOM for Custom Tab container (.jellyfinhelper.discovery)
+      4. Renders discovery cards when container appears
+      5. Injects sidebar navigation link
+```
+
+**Companion plugins (optional):**
+- [Custom Tab Plugin](https://github.com/JellyPlugins/jellyfin-plugin-custom-tabs) - Provides the `.jellyfinhelper.discovery` container on the home page
+- [File Transformation Plugin](https://github.com/JellyPlugins/jellyfin-plugin-file-transformation) - On-the-fly `index.html` patching without write access
+
+**Deployment Scenarios & Graceful Degradation:**
+
+| Scenario | Behavior |
+|----------|----------|
+| Both plugins installed | Best experience: Custom Tab shows Discovery on home; File Transformation injects script without filesystem write |
+| Only File Transformation | Sidebar navigation link appears, clicking it navigates to `/JellyfinHelper/discoveryPage` (full-page fallback) |
+| Only Custom Tabs | Script injection falls back to direct `index.html` write (requires writable filesystem); Custom Tab container renders Discovery |
+| Neither plugin installed | Script injection writes to `index.html` (requires writable filesystem); sidebar link navigates to fallback page URL |
+| Read-only filesystem + no File Transformation | Script injection fails silently (logged at Debug level); Discovery is still accessible via direct URL `/JellyfinHelper/discoveryPage` but no automatic injection occurs |
+
+**Task Mode Coupling:** Discovery generation shares the `RecommendationsTaskMode` setting — there is no separate toggle. When `RecommendationsTaskMode` is set to `Deactivate`, no Discovery recommendations are generated. This is intentional: Discovery depends on the same watch profile data that the Recommendations engine produces.
+
+The File Transformation registration uses reflection to avoid a hard dependency - the plugin loads the assembly at runtime and constructs a Newtonsoft.Json `JObject` payload with `id`, `fileNamePattern`, `callbackAssembly`, `callbackClass`, and `callbackMethod`.
+
+### Discovery API Endpoints
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `GET` | `/JellyfinHelper/Discovery` | Admin | All users' cached discovery results |
+| `GET` | `/JellyfinHelper/Discovery/Users` | Admin | List Seerr users (for request attribution) |
+| `GET` | `/JellyfinHelper/Discovery/Services/{type}` | Admin | Radarr/Sonarr service info (profiles, root folders) |
+| `POST` | `/JellyfinHelper/Discovery/Request` | Admin | Submit request with server/profile/rootFolder overrides |
+| `GET` | `/JellyfinHelper/Discovery/My` | User | Current user's own discovery results |
+| `GET` | `/JellyfinHelper/Discovery/My/script` | Anonymous | Serves `discovery-sidebar.js` embedded resource |
+| `POST` | `/JellyfinHelper/Discovery/My/Request` | User | Submit request as linked Seerr user (no overrides) |
+| `POST` | `/JellyfinHelper/Discovery/My/Dismiss` | User | Dismiss a discovery item (training feedback signal) |
 
 ## Configuration Page Build System
 

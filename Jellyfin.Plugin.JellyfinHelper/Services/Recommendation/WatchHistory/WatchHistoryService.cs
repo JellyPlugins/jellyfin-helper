@@ -296,11 +296,13 @@ public sealed class WatchHistoryService : IWatchHistoryService
             }
         }
 
-        // Build audio language profile from media stream selections (video items only)
-        BuildLanguageProfile(profile, user, allItems);
+        // Build audio + subtitle language profiles in a single pass over allItems.
+        // Previously these were two separate methods each iterating allItems and calling
+        // GetUserData per item, causing 2× the UserData lookups.
+        BuildLanguageProfiles(profile, user, allItems);
 
-        // Build subtitle language profile from media stream selections (video items only)
-        BuildSubtitleLanguageProfile(profile, user, allItems);
+        // Build people (actors/directors) profile from BaseItem.People metadata
+        BuildPeopleProfile(profile, user, allItems, allSeries);
 
         profile.WatchedSeriesCount = watchedSeriesIds.Count;
         profile.AverageCommunityRating = ratingCount > 0 ? Math.Round(ratingSum / ratingCount, 1) : 0;
@@ -316,15 +318,17 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Builds the user's audio language preference profile by analyzing which audio tracks
-    ///     were selected vs. which were available on each watched item.
-    ///     Distinguishes "chosen" (user had alternatives and picked this language) from
-    ///     "forced" (this was the only audio language available).
+    ///     Builds both the audio language and subtitle language preference profiles
+    ///     in a single pass over <paramref name="allItems"/>.
+    ///     This eliminates the prior pattern of two separate loops each calling
+    ///     <c>GetUserData</c> and <c>GetMediaStreams</c> per item (2× the cost).
+    ///     Distinguishes "chosen" (user had alternatives) from "forced" (only option)
+    ///     for both audio and subtitle tracks.
     /// </summary>
     /// <param name="profile">The user profile to populate with language data.</param>
     /// <param name="user">The Jellyfin user entity.</param>
     /// <param name="allItems">Pre-loaded video items from the library.</param>
-    private void BuildLanguageProfile(
+    private void BuildLanguageProfiles(
         UserWatchProfile profile,
         Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem> allItems)
@@ -337,13 +341,11 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
-            // Get all audio streams for this item
-            List<MediaStream>? audioStreams;
+            // Get all media streams once for both audio and subtitle analysis
+            List<MediaStream>? allStreams;
             try
             {
-                audioStreams = item.GetMediaStreams()?
-                    .Where(s => s.Type == MediaStreamType.Audio)
-                    .ToList();
+                allStreams = item.GetMediaStreams()?.ToList();
             }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
@@ -351,149 +353,276 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
-            if (audioStreams is null || audioStreams.Count == 0)
+            if (allStreams is null || allStreams.Count == 0)
             {
                 continue;
             }
 
-            // Determine which language was used
-            string? usedLanguage = null;
-
-            if (userData.AudioStreamIndex.HasValue)
+            // === Audio Language Analysis ===
+            var audioStreams = allStreams.Where(s => s.Type == MediaStreamType.Audio).ToList();
+            if (audioStreams.Count > 0)
             {
-                // User explicitly selected an audio track
-                var chosenStream = audioStreams
-                    .FirstOrDefault(s => s.Index == userData.AudioStreamIndex.Value);
-                usedLanguage = NormalizeLanguage(chosenStream?.Language);
+                string? usedAudioLanguage = null;
+
+                if (userData.AudioStreamIndex.HasValue)
+                {
+                    var chosenStream = audioStreams
+                        .FirstOrDefault(s => s.Index == userData.AudioStreamIndex.Value);
+                    usedAudioLanguage = NormalizeLanguage(chosenStream?.Language);
+                }
+
+                if (string.IsNullOrEmpty(usedAudioLanguage))
+                {
+                    usedAudioLanguage = NormalizeLanguage(audioStreams[0].Language);
+                }
+
+                if (!string.IsNullOrEmpty(usedAudioLanguage))
+                {
+                    var availableAudioLanguages = audioStreams
+                        .Select(s => NormalizeLanguage(s.Language))
+                        .Where(l => !string.IsNullOrEmpty(l))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Count();
+
+                    if (availableAudioLanguages > 0)
+                    {
+                        if (!profile.LanguageProfile.TryGetValue(usedAudioLanguage, out var audioEntry))
+                        {
+                            audioEntry = new LanguageProfileEntry();
+                            profile.LanguageProfile[usedAudioLanguage] = audioEntry;
+                        }
+
+                        if (availableAudioLanguages > 1)
+                        {
+                            audioEntry.ChosenCount++;
+                        }
+                        else
+                        {
+                            audioEntry.ForcedCount++;
+                        }
+                    }
+                }
             }
 
-            if (string.IsNullOrEmpty(usedLanguage))
+            // === Subtitle Language Analysis ===
+            if (userData.SubtitleStreamIndex.HasValue && userData.SubtitleStreamIndex.Value >= 0)
             {
-                // Default track was used (no explicit selection or selection not found)
-                var defaultStream = audioStreams
-                    .FirstOrDefault(s => s.IsDefault) ?? audioStreams[0];
-                usedLanguage = NormalizeLanguage(defaultStream.Language);
-            }
+                var subtitleStreams = allStreams.Where(s => s.Type == MediaStreamType.Subtitle).ToList();
+                if (subtitleStreams.Count > 0)
+                {
+                    var chosenSubStream = subtitleStreams
+                        .FirstOrDefault(s => s.Index == userData.SubtitleStreamIndex.Value);
+                    var usedSubLanguage = NormalizeLanguage(chosenSubStream?.Language);
 
-            if (string.IsNullOrEmpty(usedLanguage))
-            {
-                continue;
-            }
+                    if (!string.IsNullOrEmpty(usedSubLanguage))
+                    {
+                        var availableSubLanguages = subtitleStreams
+                            .Select(s => NormalizeLanguage(s.Language))
+                            .Where(l => !string.IsNullOrEmpty(l))
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .Count();
 
-            // Count distinct available languages for this item
-            var availableLanguages = audioStreams
-                .Select(s => NormalizeLanguage(s.Language))
-                .Where(l => !string.IsNullOrEmpty(l))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+                        if (availableSubLanguages > 0)
+                        {
+                            if (!profile.SubtitleLanguageProfile.TryGetValue(usedSubLanguage, out var subEntry))
+                            {
+                                subEntry = new LanguageProfileEntry();
+                                profile.SubtitleLanguageProfile[usedSubLanguage] = subEntry;
+                            }
 
-            if (availableLanguages.Count == 0)
-            {
-                continue;
-            }
-
-            // Classify: chosen (user had alternatives) vs forced (only option)
-            if (!profile.LanguageProfile.TryGetValue(usedLanguage, out var entry))
-            {
-                entry = new LanguageProfileEntry();
-                profile.LanguageProfile[usedLanguage] = entry;
-            }
-
-            if (availableLanguages.Count > 1)
-            {
-                entry.ChosenCount++;
-            }
-            else
-            {
-                entry.ForcedCount++;
+                            if (availableSubLanguages > 1)
+                            {
+                                subEntry.ChosenCount++;
+                            }
+                            else
+                            {
+                                subEntry.ForcedCount++;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 
     /// <summary>
-    ///     Builds the user's subtitle language preference profile by analyzing which subtitle tracks
-    ///     were selected vs. which were available on each watched item.
-    ///     Analogous to <see cref="BuildLanguageProfile"/> but for <see cref="MediaStreamType.Subtitle"/>.
-    ///     Distinguishes "chosen" (user had alternatives and picked this subtitle) from
-    ///     "forced" (this was the only subtitle language available).
+    ///     Builds the user's people (actors/directors) preference profile by analyzing
+    ///     <c>BaseItem.People</c> metadata for each watched or favorited item.
+    ///     Only Actors and Directors are included. Each person is counted once per distinct item
+    ///     (not per play count) to reflect breadth of exposure rather than re-watch frequency.
+    ///     For episodes, the parent series' people are used (via SeriesId lookup) to avoid
+    ///     counting per-episode guest actors disproportionately.
     /// </summary>
-    /// <param name="profile">The user profile to populate with subtitle language data.</param>
+    /// <param name="profile">The user profile to populate with people data.</param>
     /// <param name="user">The Jellyfin user entity.</param>
     /// <param name="allItems">Pre-loaded video items from the library.</param>
-    private void BuildSubtitleLanguageProfile(
+    /// <param name="allSeries">Pre-loaded series items from the library.</param>
+    private void BuildPeopleProfile(
         UserWatchProfile profile,
         Jellyfin.Database.Implementations.Entities.User user,
-        IReadOnlyList<BaseItem> allItems)
+        IReadOnlyList<BaseItem> allItems,
+        IReadOnlyList<BaseItem>? allSeries)
     {
+        // Track which items we've already processed people for (avoid double-counting)
+        var processedItemIds = new HashSet<Guid>();
+
+        // For episodes, we want to count people at the series level to avoid
+        // over-counting actors who appear in every episode. Track processed series.
+        var processedSeriesIds = new HashSet<Guid>();
+
+        // Build a series lookup for efficient access
+        Dictionary<Guid, BaseItem>? seriesLookup = null;
+        if (allSeries is { Count: > 0 })
+        {
+            seriesLookup = new Dictionary<Guid, BaseItem>(allSeries.Count);
+            foreach (var s in allSeries)
+            {
+                seriesLookup.TryAdd(s.Id, s);
+            }
+        }
+
+        // Build an item lookup from allItems for O(1) access instead of N+1 DB queries.
+        // This eliminates the per-item GetItemList call that was causing performance issues.
+        // Also include series items so that synthetic favorite-series entries in WatchedItems
+        // can resolve to their BaseItem for people aggregation.
+        var itemLookup = new Dictionary<Guid, BaseItem>(allItems.Count + (allSeries?.Count ?? 0));
         foreach (var item in allItems)
         {
-            var userData = _userDataManager.GetUserData(user, item);
-            if (userData is null || (!userData.Played && userData.PlaybackPositionTicks <= 0))
+            itemLookup.TryAdd(item.Id, item);
+        }
+
+        if (allSeries is not null)
+        {
+            foreach (var series in allSeries)
+            {
+                itemLookup.TryAdd(series.Id, series);
+            }
+        }
+
+        // Maximum number of actors to consider per item (top-billed only)
+        const int maxActorsPerItem = 5;
+
+        foreach (var watchedItem in profile.WatchedItems)
+        {
+            // Only include items with meaningful interaction.
+            // Includes: Played items, Favorites, and partially-watched items with ≥15% progress.
+            // Excludes: items started and immediately abandoned (< 15% progress).
+            if (!watchedItem.Played && !watchedItem.IsFavorite)
+            {
+                var hasSignificantProgress = watchedItem.PlaybackPositionTicks > 0
+                    && watchedItem.RuntimeTicks > 0
+                    && (double)watchedItem.PlaybackPositionTicks / watchedItem.RuntimeTicks >= 0.15;
+                if (!hasSignificantProgress)
+                {
+                    continue;
+                }
+            }
+
+            // For episodes: aggregate at series level to avoid per-episode noise
+            if (watchedItem.SeriesId.HasValue && watchedItem.SeriesId.Value != Guid.Empty)
+            {
+                var seriesId = watchedItem.SeriesId.Value;
+                if (!processedSeriesIds.Add(seriesId))
+                {
+                    continue; // Already counted people for this series
+                }
+
+                // Also mark in processedItemIds so that synthetic favorite-series entries
+                // (which have ItemId = seriesId, SeriesId = null) don't double-count.
+                processedItemIds.Add(seriesId);
+
+                // Try to get series people; fall back to episode item if series metadata unavailable
+                if (seriesLookup != null && seriesLookup.TryGetValue(seriesId, out var seriesItem))
+                {
+                    AggregatePeopleFromItem(profile, seriesItem, maxActorsPerItem);
+                }
+                else if (itemLookup.TryGetValue(watchedItem.ItemId, out var episodeItem))
+                {
+                    AggregatePeopleFromItem(profile, episodeItem, maxActorsPerItem);
+                }
+
+                continue;
+            }
+
+            // For movies and other items: aggregate directly
+            if (!processedItemIds.Add(watchedItem.ItemId))
+            {
+                continue; // Already processed
+            }
+
+            // Look up the actual BaseItem from the pre-built dictionary (O(1) instead of DB call)
+            if (itemLookup.TryGetValue(watchedItem.ItemId, out var baseItem))
+            {
+                AggregatePeopleFromItem(profile, baseItem, maxActorsPerItem);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Aggregates people (actors/directors) from a single BaseItem into the profile's PeopleProfile.
+    ///     Only includes persons with PersonKind.Actor (top-billed, limited count) and PersonKind.Director.
+    /// </summary>
+    /// <param name="profile">The user profile to populate.</param>
+    /// <param name="item">The library item to extract people from.</param>
+    /// <param name="maxActors">Maximum number of actors to include (top-billed by sort order).</param>
+    private void AggregatePeopleFromItem(UserWatchProfile profile, BaseItem item, int maxActors)
+    {
+        IReadOnlyList<PersonInfo>? people;
+        try
+        {
+            people = _libraryManager.GetPeople(item);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Graceful: skip items where people lookup fails
+            return;
+        }
+
+        if (people is null || people.Count == 0)
+        {
+            return;
+        }
+
+        var actorCount = 0;
+        var directorCount = 0;
+        const int maxDirectorsPerItem = 5;
+        var seenPeople = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var person in people)
+        {
+            if (string.IsNullOrWhiteSpace(person.Name))
             {
                 continue;
             }
 
-            // Only process items where the user selected a subtitle track
-            if (!userData.SubtitleStreamIndex.HasValue || userData.SubtitleStreamIndex.Value < 0)
+            if (seenPeople.Contains(person.Name))
             {
                 continue;
             }
 
-            // Get all subtitle streams for this item
-            List<MediaStream>? subtitleStreams;
-            try
+            // Only include Actors and Directors (with caps to prevent metadata bloat)
+            if (person.Type == PersonKind.Director)
             {
-                subtitleStreams = item.GetMediaStreams()?
-                    .Where(s => s.Type == MediaStreamType.Subtitle)
-                    .ToList();
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-            {
-                // Graceful: skip items where stream lookup fails (e.g. corrupted metadata)
-                continue;
-            }
+                if (directorCount >= maxDirectorsPerItem)
+                {
+                    continue;
+                }
 
-            if (subtitleStreams is null || subtitleStreams.Count == 0)
-            {
-                continue;
+                directorCount++;
+                seenPeople.Add(person.Name);
+                profile.PeopleProfile.TryGetValue(person.Name, out var dirCount);
+                profile.PeopleProfile[person.Name] = dirCount + 1;
             }
-
-            // Determine which subtitle language was used
-            var chosenStream = subtitleStreams
-                .FirstOrDefault(s => s.Index == userData.SubtitleStreamIndex.Value);
-            var usedLanguage = NormalizeLanguage(chosenStream?.Language);
-
-            if (string.IsNullOrEmpty(usedLanguage))
+            else if (person.Type == PersonKind.Actor)
             {
-                continue;
-            }
+                if (actorCount >= maxActors)
+                {
+                    continue; // Only top-billed actors
+                }
 
-            // Count distinct available subtitle languages for this item
-            var availableLanguages = subtitleStreams
-                .Select(s => NormalizeLanguage(s.Language))
-                .Where(l => !string.IsNullOrEmpty(l))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (availableLanguages.Count == 0)
-            {
-                continue;
-            }
-
-            // Classify: chosen (user had alternatives) vs forced (only option)
-            if (!profile.SubtitleLanguageProfile.TryGetValue(usedLanguage, out var entry))
-            {
-                entry = new LanguageProfileEntry();
-                profile.SubtitleLanguageProfile[usedLanguage] = entry;
-            }
-
-            if (availableLanguages.Count > 1)
-            {
-                entry.ChosenCount++;
-            }
-            else
-            {
-                entry.ForcedCount++;
+                actorCount++;
+                seenPeople.Add(person.Name);
+                profile.PeopleProfile.TryGetValue(person.Name, out var actCount);
+                profile.PeopleProfile[person.Name] = actCount + 1;
             }
         }
     }

@@ -6,6 +6,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using System.Collections.ObjectModel;
 using MediaBrowser.Controller.Library;
@@ -23,6 +24,7 @@ public class HelperCleanupTaskTests : IDisposable
 {
     private readonly Mock<ILogger<HelperCleanupTask>> _loggerMock;
     private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
+    private readonly Mock<ISeerrDiscoveryService> _seerrDiscoveryServiceMock;
     private readonly HelperCleanupTask _task;
     private readonly string _testDataPath;
     private PluginConfiguration _config;
@@ -107,6 +109,8 @@ public class HelperCleanupTaskTests : IDisposable
         var recsCacheMock = new Mock<IRecommendationCacheService>();
         var playlistServiceMock = new Mock<IRecommendationPlaylistService>();
 
+        _seerrDiscoveryServiceMock = new Mock<ISeerrDiscoveryService>();
+
         _task = new HelperCleanupTask(
             libraryManagerMock.Object,
             fileSystemMock.Object,
@@ -124,7 +128,8 @@ public class HelperCleanupTaskTests : IDisposable
             userActivityCacheMock.Object,
             recsEngineMock.Object,
             recsCacheMock.Object,
-            playlistServiceMock.Object);
+            playlistServiceMock.Object,
+            _seerrDiscoveryServiceMock.Object);
     }
 
     public void Dispose()
@@ -203,7 +208,12 @@ public class HelperCleanupTaskTests : IDisposable
         VerifyLogContains("Skipping Seerr Cleanup (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping User Watch Activity (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Smart Recommendations (deactivated in settings)", LogLevel.Information);
+        VerifyLogContains("Skipping Seerr Discovery (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Helper Cleanup finished", LogLevel.Information);
+
+        _seerrDiscoveryServiceMock.Verify(
+            s => s.GenerateDiscoveryRecommendationsAsync(It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]
@@ -231,6 +241,11 @@ public class HelperCleanupTaskTests : IDisposable
         VerifyLogContains("Starting User Watch Activity (Active)", LogLevel.Information);
         VerifyLogContains("Starting Smart Recommendations (Active)", LogLevel.Information);
         VerifyLogContains("Helper Cleanup finished", LogLevel.Information);
+
+        // Verify the Seerr Discovery subtask was invoked
+        _seerrDiscoveryServiceMock.Verify(
+            s => s.GenerateDiscoveryRecommendationsAsync(It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]

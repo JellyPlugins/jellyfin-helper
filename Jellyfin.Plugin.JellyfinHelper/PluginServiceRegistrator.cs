@@ -14,6 +14,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Controller;
@@ -37,6 +38,10 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             client.Timeout = TimeSpan.FromSeconds(15);
         });
         serviceCollection.AddHttpClient("SeerrIntegration", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+        serviceCollection.AddHttpClient("SeerrDiscovery", client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
         });
@@ -119,5 +124,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IUserActivityInsightsService, UserActivityInsightsService>();
         serviceCollection.AddSingleton<IUserActivityCacheService, UserActivityCacheService>();
         serviceCollection.AddSingleton<IRecommendationPlaylistService, RecommendationPlaylistService>();
+        serviceCollection.AddSingleton<DiscoveryCacheService>();
+        serviceCollection.AddSingleton<IDiscoveryFeedbackStore, DiscoveryFeedbackStore>();
+        serviceCollection.AddSingleton<ISeerrDiscoveryService, SeerrDiscoveryService>();
     }
 }

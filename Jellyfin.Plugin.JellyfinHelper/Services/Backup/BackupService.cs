@@ -117,7 +117,10 @@ public class BackupService : IBackupService
 
             // Smart Recommendations (only task mode - count and strategy use sensible defaults)
             RecommendationsTaskMode = config.RecommendationsTaskMode.ToString(),
-            SyncRecommendationsToPlaylist = config.SyncRecommendationsToPlaylist
+            SyncRecommendationsToPlaylist = config.SyncRecommendationsToPlaylist,
+
+            // Discovery user access
+            DiscoveryUserAccessEnabled = config.DiscoveryUserAccessEnabled
         };
 
         // Arr instances
@@ -297,6 +300,9 @@ public class BackupService : IBackupService
 
         // Playlist sync toggle - defaults to false for older backups without this field
         config.SyncRecommendationsToPlaylist = backup.SyncRecommendationsToPlaylist;
+
+        // Discovery user access - defaults to false for older backups without this field
+        config.DiscoveryUserAccessEnabled = backup.DiscoveryUserAccessEnabled;
 
         // Arr instances
         config.RadarrInstances.Clear();

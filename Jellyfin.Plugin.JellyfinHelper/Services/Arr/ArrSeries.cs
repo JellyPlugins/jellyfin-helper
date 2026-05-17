@@ -17,6 +17,14 @@ public class ArrSeries
     /// <summary>Gets or sets the TVDB ID.</summary>
     public int TvdbId { get; set; }
 
+    /// <summary>
+    ///     Gets or sets the TMDb ID.
+    ///     Populated from Sonarr v4+ API responses (added in v4.0.12.2823, June 2024).
+    ///     Sonarr v3 does NOT include this field — value remains 0 and is excluded
+    ///     from exclusion-set filtering via the <c>TmdbId > 0</c> guard.
+    /// </summary>
+    public int TmdbId { get; set; }
+
     /// <summary>Gets or sets the file path.</summary>
     public string Path { get; set; } = string.Empty;
 

@@ -13,6 +13,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
+using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Controller.Library;
@@ -46,6 +47,7 @@ public class HelperCleanupTask : IScheduledTask
     private readonly ICleanupTrackingService _trackingService;
     private readonly ITrashService _trashService;
     private readonly IUserActivityCacheService _userActivityCacheService;
+    private readonly ISeerrDiscoveryService _seerrDiscoveryService;
     private readonly IUserActivityInsightsService _userActivityInsightsService;
 
     /// <summary>
@@ -68,6 +70,7 @@ public class HelperCleanupTask : IScheduledTask
     /// <param name="recsEngine">The recommendation engine.</param>
     /// <param name="recsCacheService">The recommendation cache service.</param>
     /// <param name="playlistService">The recommendation playlist service.</param>
+    /// <param name="seerrDiscoveryService">The Seerr discovery service.</param>
     public HelperCleanupTask(
         ILibraryManager libraryManager,
         IFileSystem fileSystem,
@@ -85,7 +88,8 @@ public class HelperCleanupTask : IScheduledTask
         IUserActivityCacheService userActivityCacheService,
         IRecommendationEngine recsEngine,
         IRecommendationCacheService recsCacheService,
-        IRecommendationPlaylistService playlistService)
+        IRecommendationPlaylistService playlistService,
+        ISeerrDiscoveryService seerrDiscoveryService)
     {
         _libraryManager = libraryManager;
         _fileSystem = fileSystem;
@@ -105,6 +109,7 @@ public class HelperCleanupTask : IScheduledTask
         _recsEngine = recsEngine;
         _recsCacheService = recsCacheService;
         _playlistService = playlistService;
+        _seerrDiscoveryService = seerrDiscoveryService;
     }
 
     /// <inheritdoc />
@@ -115,7 +120,7 @@ public class HelperCleanupTask : IScheduledTask
 
     /// <inheritdoc />
     public string Description =>
-        "Runs all configured cleanup and repair tasks sequentially (Trickplay, Empty Folders, Orphaned Subtitles, Link Repair, Seerr Cleanup, User Activity, Smart Recommendations).";
+        "Runs all configured cleanup and repair tasks sequentially (Trickplay, Empty Folders, Orphaned Subtitles, Link Repair, Seerr Cleanup, User Activity, Smart Recommendations, Seerr Discovery).";
 
     /// <inheritdoc />
     public string Category => "Jellyfin Helper";
@@ -133,7 +138,8 @@ public class HelperCleanupTask : IScheduledTask
             ("Link Repair", config.LinkRepairTaskMode, RunLinkRepair),
             ("Seerr Cleanup", config.SeerrCleanupTaskMode, (p, ct) => RunSeerrCleanup(config, p, ct)),
             ("User Watch Activity", config.RecommendationsTaskMode, (p, ct) => RunUserActivityUpdate(config, p, ct)),
-            ("Smart Recommendations", config.RecommendationsTaskMode, (p, ct) => RunRecommendationsUpdate(config, p, ct))
+            ("Smart Recommendations", config.RecommendationsTaskMode, (p, ct) => RunRecommendationsUpdate(config, p, ct)),
+            ("Seerr Discovery", config.RecommendationsTaskMode, (p, ct) => RunSeerrDiscovery(config, p, ct))
         };
 
         var totalTasks = subTasks.Length;
@@ -380,6 +386,22 @@ public class HelperCleanupTask : IScheduledTask
             _linkRepairService,
             _configHelper);
         return task.ExecuteAsync(progress, cancellationToken);
+    }
+
+    private async Task RunSeerrDiscovery(PluginConfiguration config, IProgress<double> progress, CancellationToken cancellationToken)
+    {
+        if (config.RecommendationsTaskMode == TaskMode.DryRun)
+        {
+            _pluginLog.LogInfo("SeerrDiscovery", "Task started (Dry Run). Skipping discovery generation.", _logger);
+            progress.Report(100);
+            return;
+        }
+
+        _pluginLog.LogInfo("SeerrDiscovery", "Generating discovery recommendations...", _logger);
+        await _seerrDiscoveryService.GenerateDiscoveryRecommendationsAsync(cancellationToken)
+            .ConfigureAwait(false);
+        _pluginLog.LogInfo("SeerrDiscovery", "Discovery recommendations generated.", _logger);
+        progress.Report(100);
     }
 
     private sealed class SubProgress(IProgress<double> parent, double start, double end) : IProgress<double>
