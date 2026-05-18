@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
 
+## [2.1.0.1] - 2026-05-18
+
+### Fixed
+- **Discovery Sidebar Navigation** - The sidebar "Seerr Discovery" link now finds the Discovery tab dynamically by its container's `data-index` attribute, regardless of the user-configured tab name. Previously, it relied on an exact text match against the i18n title, which failed when users named their Custom Tab differently (e.g. "Discover" instead of "Seerr Discovery"). Also added fallback navigation to the home page when clicked from a non-home route.
+
+---
+
 ## [2.1.0.0] - 2026-05-09
 
 ### Added
