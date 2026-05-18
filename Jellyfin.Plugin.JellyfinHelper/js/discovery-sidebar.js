@@ -538,6 +538,7 @@
                 // After 5 seconds: fade out and remove the card (consumed from pool)
                 var card = btn.closest('.jfh-discovery-card');
                 if (card) {
+                    var scopeEl = card.closest('.jfh-discovery-container');
                     setTimeout(function () {
                         card.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
                         card.style.opacity = '0';
