@@ -166,8 +166,7 @@
             '.jfh-discovery-container { padding: 12px 3vw; }' +
             '.jfh-discovery-spinner { display:flex;justify-content:center;padding:2em; }' +
             '.jfh-discovery-spinner::after { content:"";width:24px;height:24px;border:3px solid rgba(255,255,255,0.2);border-top-color:#00a4dc;border-radius:50%;animation:dspin 0.8s linear infinite; }' +
-            '.jfh-discovery-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8em; }' +
-            '@media (max-width: 768px) { .jfh-discovery-grid { grid-template-columns: repeat(2, 1fr); gap: 0.6em; } }' +
+            '.jfh-discovery-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.8em; }' +
             '.jfh-discovery-card { background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }' +
             // Poster flip container
             '.jfh-discovery-card-poster { position: relative; perspective: 800px; cursor: pointer; overflow: hidden; }' +
@@ -281,7 +280,7 @@
             container.innerHTML = '<div class="jfh-discovery-container"><div class="jfh-discovery-msg"><p>' + esc(t('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.')) + '</p></div></div>';
             return;
         }
-        var TMDB_IMG = 'https://image.tmdb.org/t/p/w185';
+        var TMDB_IMG = 'https://image.tmdb.org/t/p/w342';
         var html = '<div class="jfh-discovery-container"><div class="jfh-discovery-grid">';
         var recs = userDiscovery.Recommendations;
         for (var i = 0; i < recs.length; i++) {
@@ -432,10 +431,9 @@
         }
         injectPopupStyles();
 
-        var multiServer = false;
         var serverIds = {};
         for (var i = 0; i < profiles.length; i++) { serverIds[profiles[i].ServerId] = true; }
-        multiServer = Object.keys(serverIds).length > 1;
+        var multiServer = Object.keys(serverIds).length > 1;
 
         var overlay = document.createElement('div');
         overlay.id = 'jfhDiscoveryPopup';
@@ -540,14 +538,17 @@
                 // After 5 seconds: fade out and remove the card (consumed from pool)
                 var card = btn.closest('.jfh-discovery-card');
                 if (card) {
-                    var scopeEl = card.closest('.jfh-discovery-container');
                     setTimeout(function () {
                         card.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
                         card.style.opacity = '0';
                         card.style.transform = 'scale(0.95)';
                         setTimeout(function () {
                             card.remove();
-                            checkEmptyDiscoveryState(scopeEl);
+                            if (lastMountedContainer) {
+                                renderDiscovery(lastMountedContainer);
+                            } else {
+                                checkEmptyDiscoveryState(scopeEl);
+                            }
                         }, 400);
                     }, 5000);
                 }
@@ -695,7 +696,11 @@
                 card.style.transform = 'scale(0.95)';
                 setTimeout(function () {
                     card.remove();
-                    checkEmptyDiscoveryState(scopeEl);
+                    if (lastMountedContainer) {
+                        renderDiscovery(lastMountedContainer);
+                    } else {
+                        checkEmptyDiscoveryState(scopeEl);
+                    }
                 }, 300);
             }
         }).catch(function () {
