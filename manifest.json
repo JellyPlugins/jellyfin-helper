@@ -13,8 +13,8 @@
         "changelog": "v2.1.0.1: Fix Discovery sidebar navigation - tab is now found dynamically by container index regardless of user-configured tab name, instead of relying on exact text match.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.1.0.1/JellyfinHelper_2.1.0.1.zip",
-        "checksum": "",
-        "timestamp": "2026-05-18T00:05:00Z"
+        "checksum": "fa7493861f94c8997e0b5c0fd65eec19",
+        "timestamp": "2026-05-18T00:14:00Z"
       },
       {
         "version": "2.1.0.0",
