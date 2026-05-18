@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/JellyPlugins/jellyfin-helper/main/media/logo.png",
     "versions": [
       {
+        "version": "2.1.0.2",
+        "changelog": "v2.1.0.2: Improved Discovery Sidebar Navigation - tab layout can show more than 5 recommendations in one row now. Automatically reloading next recommendation after one was dismissed or requested.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.1.0.2/JellyfinHelper_2.1.0.2.zip",
+        "checksum": "",
+        "timestamp": "2026-05-18T11:02:00Z"
+      },
+      {
         "version": "2.1.0.1",
         "changelog": "v2.1.0.1: Fix Discovery sidebar navigation - tab is now found dynamically by container index regardless of user-configured tab name, instead of relying on exact text match.",
         "targetAbi": "10.11.0.0",

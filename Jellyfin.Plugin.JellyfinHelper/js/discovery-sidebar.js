@@ -437,10 +437,9 @@
         }
         injectPopupStyles();
 
-        var multiServer = false;
         var serverIds = {};
         for (var i = 0; i < profiles.length; i++) { serverIds[profiles[i].ServerId] = true; }
-        multiServer = Object.keys(serverIds).length > 1;
+        var multiServer = Object.keys(serverIds).length > 1;
 
         var overlay = document.createElement('div');
         overlay.id = 'jfhDiscoveryPopup';
@@ -552,7 +551,11 @@
                         card.style.transform = 'scale(0.95)';
                         setTimeout(function () {
                             card.remove();
-                            checkEmptyDiscoveryState(scopeEl);
+                            if (lastMountedContainer) {
+                                renderDiscovery(lastMountedContainer);
+                            } else {
+                                checkEmptyDiscoveryState(scopeEl);
+                            }
                         }, 400);
                     }, 5000);
                 }
@@ -700,7 +703,11 @@
                 card.style.transform = 'scale(0.95)';
                 setTimeout(function () {
                     card.remove();
-                    checkEmptyDiscoveryState(scopeEl);
+                    if (lastMountedContainer) {
+                        renderDiscovery(lastMountedContainer);
+                    } else {
+                        checkEmptyDiscoveryState(scopeEl);
+                    }
                 }, 300);
             }
         }).catch(function () {

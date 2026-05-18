@@ -1,7 +1,7 @@
 ---
 name: "Jellyfin Helper"
 guid: "0c737645-5cbb-4bd8-80c7-d377b560aaa4"
-version: "2.1.0.1"
+version: "2.1.0.2"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 overview: "Automated cleanup (trickplay, empty folders, subtitles, link repair for .strm & symlinks), Seerr request cleanup, media statistics with codec/health/dynamic-range analysis, ML-powered smart recommendations per user, user activity insights, library insights, backup/restore, trends, trash bin, plugin log viewer, multi-instance Arr integration with collapsible UI, unsaved settings alert, and multi-language 8-tab dashboard."
@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  v2.1.0.1: Fix Discovery sidebar navigation - tab is now found dynamically by container index regardless of user-configured tab name, instead of relying on exact text match.
+  v2.1.0.2: Improved Discovery Sidebar Navigation - tab layout can show more than 5 recommendations in one row now. Automatically reloading next recommendation after one was dismissed or requested.

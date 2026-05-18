@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [2.1.0.2] - 2026-05-18
+
+### Improved
+- **Discovery Sidebar Navigation** - The tab layout can show more than 5 recommendations in one row now. Automatically reloading next recommendation after one was dismissed or requested.
+
+---
 
 ## [2.1.0.1] - 2026-05-18
 
