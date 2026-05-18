@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jellyfin Helper - Live Demo</title>
+    <style>
+        :root {
+            --bg-primary: #101010;
+            --bg-secondary: #1a1a2e;
+            --bg-card: #202040;
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0c0;
+            --accent: #00a4dc;
+            --accent-hover: #0088b8;
+            --border: #333355;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+        .demo-banner {
+            background: linear-gradient(135deg, #00a4dc 0%, #6c5ce7 100%);
+            color: #fff;
+            text-align: center;
+            padding: 12px 20px;
+            font-size: 14px;
+            position: sticky;
+            top: 0;
+            z-index: 9999;
+        }
+        .demo-banner a { color: #fff; font-weight: bold; text-decoration: underline; }
+        .demo-banner a:hover { opacity: 0.85; }
+        .demo-wrapper { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .pluginConfigurationPage { background: transparent; }
+    </style>
+</head>
+<body>
+    <div class="demo-banner">
+        <strong>Interactive Demo</strong> - This is a static preview with sample data. No real Jellyfin server required.
+        <a href="https://github.com/JellyPlugins/jellyfin-helper" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em" style="vertical-align:middle;margin-right:4px;" aria-hidden="true"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>View on GitHub</a>
+    </div>
+    <div class="demo-wrapper">
+        <div id="JellyfinHelperConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-checkbox,emby-select">
+            <style id="pluginStyles"></style>
+            <div data-role="content">
+                <div class="content-primary stats-container">
+                    <div class="stats-header">
+                        <h2>Jellyfin Helper</h2>
+                        <div class="last-scan-badge">
+                            <span id="lastScanBadge" style="display:none;"></span>
+                            <button aria-label="Scan libraries" class="scan-libraries-btn" id="btnScanLibraries" title="Scan libraries"></button>
+                        </div>
+                    </div>
+                    <div id="statsContent">
+                        <div class="loading-overlay" id="loadingIndicator" style="display:none;">
+                            <div class="spinner"></div>
+                            <p>Scanning libraries&#x2026; This may take a while for large collections.</p>
+                        </div>
+                        <div id="statsPlaceholder" style="text-align:center; padding:3em; opacity:0.5;">
+                            <p>Click <strong>Scan Libraries</strong> to analyze your media folders.</p>
+                        </div>
+                        <div id="statsResult" style="display:none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/mock-data.js"></script>
+
+    <!-- Load translations, then inject plugin CSS & JS -->
+    <script>
+    fetch('i18n/en.json')
+        .then(function(r) { return r.json(); })
+        .then(function(t) { MOCK_TRANSLATIONS = t; })
+        .catch(function() { console.warn('Could not load translations'); MOCK_TRANSLATIONS = {}; })
+        .finally(function() { loadPluginAssets(); });
+
+    function loadPluginAssets() {
+        var cssFiles = [
+            'css/Shared.css', 'css/Overview.css', 'css/Codecs.css', 'css/Health.css',
+            'css/Trends.css', 'css/Settings.css', 'css/ArrIntegration.css', 'css/Logs.css',
+            'css/Recommendations.css'
+        ];
+        var styleEl = document.getElementById('pluginStyles');
+        var cssPromises = cssFiles.map(function(f) {
+            return fetch(f).then(function(r) { return r.text(); }).catch(function() { return ''; });
+        });
+        Promise.all(cssPromises).then(function(results) {
+            styleEl.textContent = results.join('\n');
+            var jsFiles = [
+                'js/Shared.js', 'js/Overview.js', 'js/Codecs.js', 'js/Health.js',
+                'js/Trends.js', 'js/Settings.js', 'js/ArrIntegration.js', 'js/Logs.js',
+                'js/Recommendations.js', 'js/Main.js'
+            ];
+            var jsPromises = jsFiles.map(function(f) {
+                return fetch(f).then(function(r) { return r.text(); }).catch(function() { return ''; });
+            });
+            Promise.all(jsPromises).then(function(jsResults) {
+                var fullScript = jsResults.join('\n');
+                try {
+                    var scriptEl = document.createElement('script');
+                    scriptEl.textContent = fullScript;
+                    document.body.appendChild(scriptEl);
+                } catch(e) { console.error('Failed to load plugin JS:', e); }
+            });
+        });
+    }
+    </script>
+</body>
+</html>
