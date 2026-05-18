@@ -782,12 +782,21 @@
             '<span class="sectionName navMenuOptionText">' + t('discoveryTitle', 'Seerr Discovery') + '</span>';
         navItem.addEventListener('click', function (e) {
             e.preventDefault();
-            // Match tabs by data attribute first (most reliable, set by Custom Tabs plugin),
-            // then fall back to exact localized title match to avoid false positives
-            // from unrelated tabs containing the word "discover".
-            var localizedTitle = t('discoveryTitle', 'Seerr Discovery').toLowerCase();
             var tabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
-            // Pass 1: look for a data-attribute match (set by Custom Tabs plugin)
+            // Strategy 1: Find the discovery container in the DOM, determine its tab index dynamically.
+            // This works regardless of the user-configured tab name.
+            var container = document.querySelector(CUSTOM_TAB_SELECTOR);
+            if (container) {
+                var tabContent = container.closest('[data-index]');
+                if (tabContent) {
+                    var index = parseInt(tabContent.getAttribute('data-index'), 10);
+                    if (!isNaN(index) && tabs[index]) {
+                        tabs[index].click();
+                        return;
+                    }
+                }
+            }
+            // Strategy 2: data-attribute match (future Custom Tabs versions may set these)
             for (var i = 0; i < tabs.length; i++) {
                 if (tabs[i].getAttribute('data-tab') === 'jellyfinhelper-discovery' ||
                     tabs[i].getAttribute('data-tabid') === 'jellyfinhelper-discovery') {
@@ -795,15 +804,26 @@
                     return;
                 }
             }
-            // Pass 2: exact text match against localized title
-            for (var i = 0; i < tabs.length; i++) {
-                var tabText = tabs[i].textContent.trim().toLowerCase();
-                if (tabText === localizedTitle) {
-                    tabs[i].click();
-                    return;
-                }
+            // Strategy 3: Navigate to home first, then retry after DOM settles
+            // (handles case where user is not on the home page)
+            if (typeof Emby !== 'undefined' && Emby.Page && Emby.Page.show) {
+                Emby.Page.show('/home.html');
+                setTimeout(function () {
+                    var retryContainer = document.querySelector(CUSTOM_TAB_SELECTOR);
+                    if (retryContainer) {
+                        var retryTabContent = retryContainer.closest('[data-index]');
+                        if (retryTabContent) {
+                            var retryIndex = parseInt(retryTabContent.getAttribute('data-index'), 10);
+                            var retryTabs = document.querySelectorAll('.headerTabs button, [role="tab"]');
+                            if (!isNaN(retryIndex) && retryTabs[retryIndex]) {
+                                retryTabs[retryIndex].click();
+                            }
+                        }
+                    }
+                }, 800);
+                return;
             }
-            // Custom Tabs plugin not installed or tab not found — show informational message
+            // Fallback: show informational message
             if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
                 Dashboard.alert(t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.'));
             } else {
