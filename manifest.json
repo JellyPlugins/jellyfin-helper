@@ -13,8 +13,8 @@
         "changelog": "v2.1.0.3: Add TMDB and Seerr deep links on discovery card flip-back (opens system browser on mobile). Fix 400 Bad Request when submitting discovery requests on Seerr instances with 0-based server IDs. Fix duplicate quality profiles in selection popup for users with multiple root folders. Add graceful error handling for Jellyfin version incompatibility in watch history collection. 2206 tests",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.1.0.3/JellyfinHelper_2.1.0.3.zip",
-        "checksum": "",
-        "timestamp": "2026-05-21T08:33:00Z"
+        "checksum": "09e306c9584d7ff514da42c300c0c447",
+        "timestamp": "2026-05-21T11:09:46Z"
       },
       {
         "version": "2.1.0.2",
