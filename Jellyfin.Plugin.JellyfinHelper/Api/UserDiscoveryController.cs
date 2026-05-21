@@ -241,7 +241,7 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         var config = Plugin.Instance?.Configuration;
-        var seerrUrl = config?.SeerrUrl?.TrimEnd('/') ?? string.Empty;
+        var seerrUrl = config?.SeerrUrl?.Trim().TrimEnd('/') ?? string.Empty;
 
         return Ok(new { SeerrUrl = seerrUrl });
     }

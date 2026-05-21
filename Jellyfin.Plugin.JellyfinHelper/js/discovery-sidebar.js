@@ -70,7 +70,7 @@
      * the Seerr option in the popup will be hidden when _seerrBaseUrl is empty.
      */
     function loadExternalLinksConfig() {
-        ApiClient.ajax({
+        return ApiClient.ajax({
             type: 'GET',
             url: ApiClient.getUrl(EXTERNAL_LINKS_URL),
             dataType: 'json'
@@ -914,14 +914,17 @@
                         setTimeout(tryMountCustomTab, 1500);
                         return;
                     }
-                    // Discovery is active and has recommendations — full initialization
-                    loadExternalLinksConfig();
-                    initCustomTab();
-                    initSidebar();
-                    setTimeout(tryMountCustomTab, 500);
-                    setTimeout(tryMountCustomTab, 1500);
-                    setTimeout(tryMountCustomTab, 3000);
-                    setTimeout(tryMountCustomTab, 5000);
+                    // Discovery is active and has recommendations — full initialization.
+                    // Wait for external links config (Seerr URL) before rendering to ensure
+                    // the Seerr link is available on the first card render.
+                    loadExternalLinksConfig().finally(function () {
+                        initCustomTab();
+                        initSidebar();
+                        setTimeout(tryMountCustomTab, 500);
+                        setTimeout(tryMountCustomTab, 1500);
+                        setTimeout(tryMountCustomTab, 3000);
+                        setTimeout(tryMountCustomTab, 5000);
+                    });
                 })
                 .catch(function () {
                     // 403 (disabled) or network error — do not inject any Discovery UI
