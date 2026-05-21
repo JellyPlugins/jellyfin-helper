@@ -220,6 +220,33 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
+    ///     Returns the external link configuration (Seerr base URL) for constructing
+    ///     deep links to TMDB and Seerr from the discovery UI.
+    /// </summary>
+    /// <returns>An object containing the Seerr base URL.</returns>
+    [HttpGet("ExternalLinks")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public ActionResult GetExternalLinksConfig()
+    {
+        if (!IsDiscoveryUserAccessEnabled())
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+        }
+
+        var userId = GetCurrentUserId();
+        if (userId == null)
+        {
+            return Unauthorized();
+        }
+
+        var config = Plugin.Instance?.Configuration;
+        var seerrUrl = config?.SeerrUrl?.TrimEnd('/') ?? string.Empty;
+
+        return Ok(new { SeerrUrl = seerrUrl });
+    }
+
+    /// <summary>
     ///     Serves the discovery sidebar JavaScript file as an embedded resource.
     /// </summary>
     /// <remarks>

@@ -7,6 +7,9 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ## [2.1.0.3] - 2026-05-21
 
+### Added
+- **Discovery External Links** - Flipping a discovery card now shows TMDB and Seerr deep links on the back side (above the description). Links open the system browser on mobile to avoid WebView navigation issues. A new backend endpoint (`GET /JellyfinHelper/Discovery/My/ExternalLinks`) provides the configured Seerr base URL to the frontend.
+
 ### Fixed
 - **Discovery Request Submission** - Fixed 400 Bad Request when submitting discovery requests on Seerr instances where the first configured Radarr/Sonarr server has ID 0. The DTO validation now correctly accepts 0-based server and profile IDs used by Seerr.
 - **Quality Profile Popup** - Fixed duplicate quality profiles appearing in the selection popup for users with advanced permissions when multiple root folders are configured on the same server. Profiles are now deduplicated by ID before being served to the frontend.
