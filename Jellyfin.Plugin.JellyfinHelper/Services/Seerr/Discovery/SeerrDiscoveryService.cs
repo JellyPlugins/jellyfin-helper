@@ -298,6 +298,19 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return (false, "Seerr is not configured.");
         }
 
+        // Defensive boundary guard: reject negative IDs at the service boundary.
+        // DTO validation covers the controller path, but this method is public and
+        // may be called from other contexts (e.g., admin controller, future internal callers).
+        if (serverId.HasValue && serverId.Value < 0)
+        {
+            return (false, "serverId must be 0 or greater.");
+        }
+
+        if (profileId.HasValue && profileId.Value < 0)
+        {
+            return (false, "profileId must be 0 or greater.");
+        }
+
         HttpClient client;
         try
         {
