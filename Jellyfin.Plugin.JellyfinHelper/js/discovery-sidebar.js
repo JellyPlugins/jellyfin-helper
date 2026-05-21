@@ -848,13 +848,32 @@
     // ===== INIT =====
     waitForApi(function () {
         loadStrings(function () {
-            initCustomTab();
-            initSidebar();
-            // Retry mount after delays to handle SPA navigation timing edge cases
-            setTimeout(tryMountCustomTab, 500);
-            setTimeout(tryMountCustomTab, 1500);
-            setTimeout(tryMountCustomTab, 3000);
-            setTimeout(tryMountCustomTab, 5000);
+            // Check if Discovery is available before injecting UI elements.
+            // If the admin disabled DiscoveryUserAccessEnabled or the task is deactivated,
+            // the API returns 403 or null — in that case, do not show the sidebar item
+            // or Custom Tab content to avoid confusing users with non-functional UI.
+            ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
+                .then(function (data) {
+                    if (!data || !data.Recommendations || data.Recommendations.length === 0) {
+                        // No discovery data available (task deactivated/dry-run/no results yet)
+                        // Still init Custom Tab so it can show "no results" message if container exists,
+                        // but do NOT inject sidebar navigation — no point advertising a feature with no content.
+                        initCustomTab();
+                        setTimeout(tryMountCustomTab, 500);
+                        setTimeout(tryMountCustomTab, 1500);
+                        return;
+                    }
+                    // Discovery is active and has recommendations — full initialization
+                    initCustomTab();
+                    initSidebar();
+                    setTimeout(tryMountCustomTab, 500);
+                    setTimeout(tryMountCustomTab, 1500);
+                    setTimeout(tryMountCustomTab, 3000);
+                    setTimeout(tryMountCustomTab, 5000);
+                })
+                .catch(function () {
+                    // 403 (disabled) or network error — do not inject any Discovery UI
+                });
         });
     });
 })();

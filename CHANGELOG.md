@@ -10,7 +10,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ### Fixed
 - **Discovery Request Submission** - Fixed 400 Bad Request when submitting discovery requests on Seerr instances where the first configured Radarr/Sonarr server has ID 0. The DTO validation now correctly accepts 0-based server and profile IDs used by Seerr.
 - **Quality Profile Popup** - Fixed duplicate quality profiles appearing in the selection popup for users with advanced permissions when multiple root folders are configured on the same server. Profiles are now deduplicated by ID before being served to the frontend.
-- **Watch History Collection** - Added graceful error handling for `MissingMethodException`. Instead of crashing the scheduled task.
+- **Discovery Sidebar Visibility** - The "Discover New Content" sidebar navigation item is now only shown when Discovery is active and has recommendations. When `DiscoveryUserAccessEnabled` is disabled or the recommendation task is deactivated/dry-run, the sidebar item is no longer injected.
+- **Watch History Collection** - Added graceful error handling for `MissingMethodException` when the plugin encounters an incompatible Jellyfin runtime. A concise warning with exact incompatibility details is logged instead of crashing the scheduled task.
 
 ### Tests
 - Total: **2206 tests**.
