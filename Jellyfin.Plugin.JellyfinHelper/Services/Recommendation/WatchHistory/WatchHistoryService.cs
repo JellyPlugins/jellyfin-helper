@@ -61,7 +61,25 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <inheritdoc />
     public Collection<UserWatchProfile> GetAllUserWatchProfiles()
     {
-        var users = _userManager.Users.ToList();
+        List<Jellyfin.Database.Implementations.Entities.User> users;
+        try
+        {
+            users = _userManager.Users.ToList();
+        }
+        catch (MissingMethodException ex)
+        {
+            // Runtime binary incompatibility — the IUserManager.Users property signature
+            // in the loaded Jellyfin assemblies does not match what the plugin was compiled against.
+            // Known to occur with certain installation methods (LXC, native packages) that may
+            // ship different assembly builds than the official Docker image under the same version.
+            _pluginLog.LogWarning(
+                "WatchHistory",
+                $"IUserManager.Users API incompatible — {ex.Message}. Discovery skipped.",
+                ex,
+                _logger);
+            return new Collection<UserWatchProfile>();
+        }
+
         _pluginLog.LogInfo(
             "WatchHistory",
             $"Starting watch profile collection for {users.Count} users...",

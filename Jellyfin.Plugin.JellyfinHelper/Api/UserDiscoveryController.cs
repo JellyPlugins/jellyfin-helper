@@ -220,6 +220,33 @@ public sealed class UserDiscoveryController : ControllerBase
     }
 
     /// <summary>
+    ///     Returns the external link configuration (Seerr base URL) for constructing
+    ///     deep links to TMDB and Seerr from the discovery UI.
+    /// </summary>
+    /// <returns>An object containing the Seerr base URL.</returns>
+    [HttpGet("ExternalLinks")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public ActionResult GetExternalLinksConfig()
+    {
+        if (!IsDiscoveryUserAccessEnabled())
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+        }
+
+        var userId = GetCurrentUserId();
+        if (userId == null)
+        {
+            return Unauthorized();
+        }
+
+        var config = Plugin.Instance?.Configuration;
+        var seerrUrl = config?.SeerrUrl?.Trim().TrimEnd('/') ?? string.Empty;
+
+        return Ok(new { SeerrUrl = seerrUrl });
+    }
+
+    /// <summary>
     ///     Serves the discovery sidebar JavaScript file as an embedded resource.
     /// </summary>
     /// <remarks>
@@ -498,12 +525,17 @@ public sealed class UserDiscoveryController : ControllerBase
             var firstProfile = profiles[0];
             var defaultProfile = profiles.FirstOrDefault(p => p.IsDefault) ?? firstProfile;
 
+            // Deduplicate quality profiles by ProfileId to prevent duplicates caused by
+            // BuildAllowedProfileList emitting one AllowedQualityProfile entry per
+            // (ProfileId × RootFolder) combination. The frontend only needs distinct profiles.
             var qualityProfiles = new System.Collections.ObjectModel.Collection<SeerrQualityProfile>(
-                profiles.Select(p => new SeerrQualityProfile
-                {
-                    Id = p.ProfileId,
-                    Name = p.ProfileName
-                }).ToList());
+                profiles
+                    .GroupBy(p => p.ProfileId)
+                    .Select(g => new SeerrQualityProfile
+                    {
+                        Id = g.Key,
+                        Name = g.First().ProfileName
+                    }).ToList());
 
             var rootFolders = new System.Collections.ObjectModel.Collection<SeerrRootFolder>(
                 profiles

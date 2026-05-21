@@ -132,6 +132,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── SeerrMediaDetailsTests.cs
 │   │   └── Discovery/            # Seerr Discovery tests
 │   │       ├── DiscoveryFeedbackStoreTests.cs
+│   │       ├── DiscoveryRegressionTests.cs  # v2.1.0.3 regression tests (ServerId=0, profile dedup, MissingMethodException)
 │   │       ├── SeerrDiscoveryServiceTests.cs
 │   │       └── ParentalRatingHelperTests.cs
 │   ├── Statistics/                # Statistics service tests

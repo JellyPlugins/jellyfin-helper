@@ -22,6 +22,9 @@
 
     var TOAST_DURATION_MS = 5000;
 
+    var _seerrBaseUrl = '';
+    var EXTERNAL_LINKS_URL = '/JellyfinHelper/Discovery/My/ExternalLinks';
+
     var _waitForApiRetries = 0;
     var MAX_FAST_RETRIES = 60; // 30 seconds at 500ms intervals (fast polling)
     var SLOW_POLL_INTERVAL = 3000; // After fast phase: poll every 3 seconds
@@ -59,6 +62,25 @@
     function t(key, fallback) {
         if (_strings && _strings[key]) return _strings[key];
         return fallback || key;
+    }
+
+    /**
+     * Fetches the external links configuration (Seerr base URL) from the backend.
+     * Best-effort: if the fetch fails, external link icons will still render but
+     * the Seerr option in the popup will be hidden when _seerrBaseUrl is empty.
+     */
+    function loadExternalLinksConfig() {
+        return ApiClient.ajax({
+            type: 'GET',
+            url: ApiClient.getUrl(EXTERNAL_LINKS_URL),
+            dataType: 'json'
+        }).then(function (data) {
+            if (data && data.SeerrUrl) {
+                _seerrBaseUrl = data.SeerrUrl.replace(/\/+$/, '');
+            }
+        }).catch(function () {
+            // Non-critical — Seerr link option will be hidden in the popup
+        });
     }
 
     // ===== TOAST NOTIFICATIONS =====
@@ -192,6 +214,9 @@
             '.jfh-discovery-card-genres::-webkit-scrollbar-track { background: transparent; }' +
             '.jfh-discovery-card-genres::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }' +
             '.jfh-discovery-tag { background: rgba(255,255,255,0.1); border-radius: 4px; padding: 0.15em 0.5em; font-size: 0.75em; white-space: nowrap; flex-shrink: 0; }' +
+            '.jfh-discovery-flip-links { display: flex; gap: 0.6em; margin-bottom: 0.8em; padding-bottom: 0.6em; border-bottom: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; }' +
+            '.jfh-discovery-flip-link { display: inline-flex; align-items: center; gap: 0.3em; color: #00a4dc; text-decoration: none; font-size: 0.85em; font-weight: 500; padding: 0.3em 0.5em; border-radius: 4px; transition: background 0.2s, opacity 0.2s; opacity: 0.9; }' +
+            '.jfh-discovery-flip-link:hover { background: rgba(0,164,220,0.15); opacity: 1; text-decoration: none; }' +
             '.jfh-discovery-score { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; margin: 0.3em 0; }' +
             '.jfh-discovery-score-bar { height: 100%; border-radius: 2px; }' +
             '.jfh-discovery-score-high .jfh-discovery-score-bar { background: #2ecc71; }' +
@@ -294,17 +319,32 @@
             var posterUrl = r.PosterPath ? TMDB_IMG + r.PosterPath : '';
             // Build poster with flip (front = image, back = overview)
             var overviewText = r.Overview || '';
+            var mediaType = (r.MediaType || '').trim().toLowerCase();
             var poster;
+            // Build external links row for the flip back side.
+            // Uses <span> with data-href + JS click handler instead of <a> to prevent
+            // the poster flip from triggering and for consistent cross-platform behavior.
+            var tmdbPath = mediaType === 'tv' ? 'tv' : 'movie';
+            var tmdbExtUrl = 'https://www.themoviedb.org/' + tmdbPath + '/' + (parseInt(r.TmdbId, 10) || 0);
+            var extLinksHtml = '<div class="jfh-discovery-flip-links">' +
+                '<span class="jfh-discovery-flip-link" data-href="' + esc(tmdbExtUrl) + '">' +
+                '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> TMDB</span>';
+            if (_seerrBaseUrl) {
+                var seerrExtUrl = _seerrBaseUrl + '/' + tmdbPath + '/' + (parseInt(r.TmdbId, 10) || 0);
+                extLinksHtml += '<span class="jfh-discovery-flip-link" data-href="' + esc(seerrExtUrl) + '">' +
+                    '<span class="material-icons" style="font-size:0.95em;">open_in_new</span> Seerr</span>';
+            }
+            extLinksHtml += '</div>';
+
             if (posterUrl) {
                 poster = '<div class="jfh-discovery-card-poster">' +
                     '<div class="jfh-discovery-flip-inner">' +
                     '<div class="jfh-discovery-flip-front"><img src="' + esc(posterUrl) + '" alt="' + esc(r.Title || '') + '" loading="lazy"></div>' +
-                    '<div class="jfh-discovery-flip-back"><div class="jfh-discovery-flip-back-text">' + esc(overviewText || t('discoveryNoDescription', 'No description available.')) + '</div></div>' +
+                    '<div class="jfh-discovery-flip-back">' + extLinksHtml + '<div class="jfh-discovery-flip-back-text">' + esc(overviewText || t('discoveryNoDescription', 'No description available.')) + '</div></div>' +
                     '</div></div>';
             } else {
                 poster = '<div class="jfh-discovery-card-poster jfh-discovery-no-poster"><span style="opacity:0.3;font-size:2em;">\uD83C\uDFAC</span></div>';
             }
-            var mediaType = (r.MediaType || '').trim().toLowerCase();
             var year = r.Year ? '<span class="jfh-discovery-tag">' + esc(String(r.Year)) + '</span>' : '';
             var type = r.MediaType ? '<span class="jfh-discovery-tag">' + esc(mediaType === 'movie' ? t('movies', 'Movie') : t('tvShows', 'TV')) + '</span>' : '';
             var ratingNum = Number(r.TmdbRating);
@@ -344,6 +384,17 @@
         for (var p = 0; p < posters.length; p++) {
             posters[p].parentElement.addEventListener('click', function () {
                 this.classList.toggle('flipped');
+            });
+        }
+        // Attach external link handlers on the flip back side.
+        // Opens URLs in a new tab. stopPropagation prevents the poster flip from triggering.
+        var flipLinks = container.querySelectorAll('.jfh-discovery-flip-link[data-href]');
+        for (var fl = 0; fl < flipLinks.length; fl++) {
+            flipLinks[fl].addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var url = this.getAttribute('data-href');
+                if (url) window.open(url, '_blank', 'noopener,noreferrer');
             });
         }
     }
@@ -848,13 +899,36 @@
     // ===== INIT =====
     waitForApi(function () {
         loadStrings(function () {
-            initCustomTab();
-            initSidebar();
-            // Retry mount after delays to handle SPA navigation timing edge cases
-            setTimeout(tryMountCustomTab, 500);
-            setTimeout(tryMountCustomTab, 1500);
-            setTimeout(tryMountCustomTab, 3000);
-            setTimeout(tryMountCustomTab, 5000);
+            // Check if Discovery is available before injecting UI elements.
+            // If the admin disabled DiscoveryUserAccessEnabled or the task is deactivated,
+            // the API returns 403 or null — in that case, do not show the sidebar item
+            // or Custom Tab content to avoid confusing users with non-functional UI.
+            ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
+                .then(function (data) {
+                    if (!data || !data.Recommendations || data.Recommendations.length === 0) {
+                        // No discovery data available (task deactivated/dry-run/no results yet)
+                        // Still init Custom Tab so it can show "no results" message if container exists,
+                        // but do NOT inject sidebar navigation — no point advertising a feature with no content.
+                        initCustomTab();
+                        setTimeout(tryMountCustomTab, 500);
+                        setTimeout(tryMountCustomTab, 1500);
+                        return;
+                    }
+                    // Discovery is active and has recommendations — full initialization.
+                    // Wait for external links config (Seerr URL) before rendering to ensure
+                    // the Seerr link is available on the first card render.
+                    loadExternalLinksConfig().finally(function () {
+                        initCustomTab();
+                        initSidebar();
+                        setTimeout(tryMountCustomTab, 500);
+                        setTimeout(tryMountCustomTab, 1500);
+                        setTimeout(tryMountCustomTab, 3000);
+                        setTimeout(tryMountCustomTab, 5000);
+                    });
+                })
+                .catch(function () {
+                    // 403 (disabled) or network error — do not inject any Discovery UI
+                });
         });
     });
 })();
