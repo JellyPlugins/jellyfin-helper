@@ -322,9 +322,8 @@
             var mediaType = (r.MediaType || '').trim().toLowerCase();
             var poster;
             // Build external links row for the flip back side.
-            // Uses <span> with data-href instead of <a target="_blank"> because Jellyfin mobile apps
-            // use a WebView where target="_blank" navigates away from the app without a back button.
-            // The click handler opens the system browser via window.open() which triggers an intent.
+            // Uses <span> with data-href + JS click handler instead of <a> to prevent
+            // the poster flip from triggering and for consistent cross-platform behavior.
             var tmdbPath = mediaType === 'tv' ? 'tv' : 'movie';
             var tmdbExtUrl = 'https://www.themoviedb.org/' + tmdbPath + '/' + (parseInt(r.TmdbId, 10) || 0);
             var extLinksHtml = '<div class="jfh-discovery-flip-links">' +
@@ -388,8 +387,7 @@
             });
         }
         // Attach external link handlers on the flip back side.
-        // Uses window.open() instead of <a href> to ensure the system browser opens
-        // on mobile WebView-based Jellyfin apps (where target="_blank" hijacks the WebView).
+        // Opens URLs in a new tab. stopPropagation prevents the poster flip from triggering.
         var flipLinks = container.querySelectorAll('.jfh-discovery-flip-link[data-href]');
         for (var fl = 0; fl < flipLinks.length; fl++) {
             flipLinks[fl].addEventListener('click', function (e) {
