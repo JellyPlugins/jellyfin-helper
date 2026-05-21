@@ -12,6 +12,9 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Quality Profile Popup** - Fixed duplicate quality profiles appearing in the selection popup for users with advanced permissions when multiple root folders are configured on the same server. Profiles are now deduplicated by ID before being served to the frontend.
 - **Watch History Collection** - Added graceful error handling for `MissingMethodException`. Instead of crashing the scheduled task.
 
+### Tests
+- Total: **2206 tests**.
+
 ---
 
 ## [2.1.0.2] - 2026-05-18
