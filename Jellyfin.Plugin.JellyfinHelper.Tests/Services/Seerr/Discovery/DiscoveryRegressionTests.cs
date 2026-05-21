@@ -274,11 +274,11 @@ public sealed class DiscoveryRegressionTests
 
         service.GetAllUserWatchProfiles();
 
-        // Verify that a warning was logged with the incompatibility message
+        // Verify that a warning was logged with the incompatibility message including ex.Message
         mockPluginLog.Verify(
             l => l.LogWarning(
                 "WatchHistory",
-                It.Is<string>(msg => msg.Contains("Incompatible Jellyfin version")),
+                It.Is<string>(msg => msg.Contains("IUserManager.Users API incompatible") && msg.Contains("Discovery skipped")),
                 It.IsAny<Exception>(),
                 It.IsAny<ILogger>()),
             Times.Once);
