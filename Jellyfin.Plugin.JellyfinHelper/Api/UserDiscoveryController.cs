@@ -498,12 +498,17 @@ public sealed class UserDiscoveryController : ControllerBase
             var firstProfile = profiles[0];
             var defaultProfile = profiles.FirstOrDefault(p => p.IsDefault) ?? firstProfile;
 
+            // Deduplicate quality profiles by ProfileId to prevent duplicates caused by
+            // BuildAllowedProfileList emitting one AllowedQualityProfile entry per
+            // (ProfileId × RootFolder) combination. The frontend only needs distinct profiles.
             var qualityProfiles = new System.Collections.ObjectModel.Collection<SeerrQualityProfile>(
-                profiles.Select(p => new SeerrQualityProfile
-                {
-                    Id = p.ProfileId,
-                    Name = p.ProfileName
-                }).ToList());
+                profiles
+                    .GroupBy(p => p.ProfileId)
+                    .Select(g => new SeerrQualityProfile
+                    {
+                        Id = g.Key,
+                        Name = g.First().ProfileName
+                    }).ToList());
 
             var rootFolders = new System.Collections.ObjectModel.Collection<SeerrRootFolder>(
                 profiles

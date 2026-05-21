@@ -339,12 +339,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     payloadDict["userId"] = seerrUserId.Value;
                 }
 
-                if (serverId is > 0)
+                if (serverId.HasValue)
                 {
                     payloadDict["serverId"] = serverId.Value;
                 }
 
-                if (profileId is > 0)
+                if (profileId.HasValue)
                 {
                     payloadDict["profileId"] = profileId.Value;
                 }

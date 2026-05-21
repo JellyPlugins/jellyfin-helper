@@ -61,7 +61,28 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <inheritdoc />
     public Collection<UserWatchProfile> GetAllUserWatchProfiles()
     {
-        var users = _userManager.Users.ToList();
+        List<Jellyfin.Database.Implementations.Entities.User> users;
+        try
+        {
+            users = _userManager.Users.ToList();
+        }
+        catch (MissingMethodException ex)
+        {
+            // This occurs when the plugin was compiled against a different Jellyfin version
+            // than the running server. The IUserManager.Users property signature may have
+            // changed between Jellyfin releases (e.g., return type changed from IEnumerable
+            // to IQueryable or the namespace of the User entity was relocated).
+            _pluginLog.LogWarning(
+                "WatchHistory",
+                "Incompatible Jellyfin version detected. The IUserManager.Users API is not available " +
+                "in this Jellyfin build. Please ensure you are running a compatible Jellyfin version " +
+                "(this plugin was built for Jellyfin 10.11.0+). Discovery recommendations cannot be " +
+                "generated until this is resolved.",
+                ex,
+                _logger);
+            return new Collection<UserWatchProfile>();
+        }
+
         _pluginLog.LogInfo(
             "WatchHistory",
             $"Starting watch profile collection for {users.Count} users...",

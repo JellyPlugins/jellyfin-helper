@@ -33,15 +33,17 @@ public sealed class DiscoveryRequestDto
     /// <summary>
     ///     Gets or sets the Radarr/Sonarr server ID in Seerr.
     ///     When provided, overrides the default server selection.
+    ///     Seerr uses 0-based server IDs (first configured server has ID 0).
     /// </summary>
-    [Range(1, int.MaxValue, ErrorMessage = "ServerId must be greater than 0 when provided.")]
+    [Range(0, int.MaxValue, ErrorMessage = "ServerId must be 0 or greater when provided.")]
     public int? ServerId { get; set; }
 
     /// <summary>
     ///     Gets or sets the quality profile ID to use for the download.
     ///     When provided, overrides the default quality profile.
+    ///     Seerr quality profile IDs can start at 0 depending on the Arr instance configuration.
     /// </summary>
-    [Range(1, int.MaxValue, ErrorMessage = "ProfileId must be greater than 0 when provided.")]
+    [Range(0, int.MaxValue, ErrorMessage = "ProfileId must be 0 or greater when provided.")]
     public int? ProfileId { get; set; }
 
     /// <summary>
