@@ -68,16 +68,24 @@ public sealed class WatchHistoryService : IWatchHistoryService
         {
             users = ResolveUsersCompat();
         }
-        catch (Exception ex) when (ex is MissingMethodException or MissingMemberException or TypeLoadException)
+        catch (Exception ex) when (
+            ex is MissingMethodException or MissingMemberException or TypeLoadException
+            or TargetInvocationException
+            {
+                InnerException: MissingMethodException or MissingMemberException or TypeLoadException
+            })
         {
             // Runtime binary incompatibility — the IUserManager API in the loaded Jellyfin
             // assemblies does not match what the plugin was compiled against.
             // Known to occur with certain installation methods (LXC, native packages) that may
             // ship different assembly builds than the official Docker image under the same version.
+            // TargetInvocationException wraps the real cause when GetUsers() is invoked via reflection.
+            var compatEx = ex is TargetInvocationException { InnerException: { } inner } ? inner : ex;
+
             _pluginLog.LogWarning(
                 "WatchHistory",
-                $"IUserManager API incompatible — {ex.Message}. Discovery skipped.",
-                ex,
+                $"IUserManager API incompatible — {compatEx.Message}. Discovery skipped.",
+                compatEx,
                 _logger);
             return new Collection<UserWatchProfile>();
         }

@@ -27,10 +27,10 @@ public sealed class TrashServiceGuardTests
     [Fact]
     public void MoveToTrash_SourceInsideTrashFolder_ReturnsZeroAndLogsWarning()
     {
-        var trashBasePath = Path.Join(Path.GetTempPath(), "test-library", ".jellyfin-trash");
+        var tempBase = Path.Join(Path.GetTempPath(), $"trash-guard-inside-{Guid.NewGuid():N}");
+        var trashBasePath = Path.Join(tempBase, ".jellyfin-trash");
         var sourcePath = Path.Join(trashBasePath, "20260510-010001_Movie.trickplay");
 
-        // Create the directory temporarily so it "exists"
         Directory.CreateDirectory(sourcePath);
         try
         {
@@ -47,17 +47,9 @@ public sealed class TrashServiceGuardTests
         }
         finally
         {
-            Directory.Delete(sourcePath, true);
-            // Clean up parent if empty
-            if (Directory.Exists(trashBasePath) && !Directory.EnumerateFileSystemEntries(trashBasePath).Any())
+            if (Directory.Exists(tempBase))
             {
-                Directory.Delete(trashBasePath);
-            }
-
-            var parentDir = Path.GetDirectoryName(trashBasePath);
-            if (parentDir != null && Directory.Exists(parentDir) && !Directory.EnumerateFileSystemEntries(parentDir).Any())
-            {
-                Directory.Delete(parentDir);
+                Directory.Delete(tempBase, true);
             }
         }
     }
@@ -65,7 +57,8 @@ public sealed class TrashServiceGuardTests
     [Fact]
     public void MoveToTrash_SourceEqualsTrashFolder_ReturnsZero()
     {
-        var trashBasePath = Path.Join(Path.GetTempPath(), "test-library-eq", ".jellyfin-trash");
+        var tempBase = Path.Join(Path.GetTempPath(), $"trash-guard-eq-{Guid.NewGuid():N}");
+        var trashBasePath = Path.Join(tempBase, ".jellyfin-trash");
 
         Directory.CreateDirectory(trashBasePath);
         try
@@ -76,11 +69,9 @@ public sealed class TrashServiceGuardTests
         }
         finally
         {
-            Directory.Delete(trashBasePath, true);
-            var parentDir = Path.GetDirectoryName(trashBasePath);
-            if (parentDir != null && Directory.Exists(parentDir) && !Directory.EnumerateFileSystemEntries(parentDir).Any())
+            if (Directory.Exists(tempBase))
             {
-                Directory.Delete(parentDir);
+                Directory.Delete(tempBase, true);
             }
         }
     }

@@ -12,7 +12,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Trickplay Trash Re-Trashing Loop** - Fixed a critical bug where `CleanTrickplayTask` would recursively scan into the trash folder, re-detect previously trashed `.trickplay` directories as orphans, and move them to trash again on every scheduled run. Each cycle prepended a new timestamp prefix (`yyyyMMdd-HHmmss_`) to the folder name, eventually exceeding the OS path length limit (PATH_MAX) and causing an `IOException`. The task now excludes the configured trash folder (including custom paths) from its directory scan. A defense-in-depth guard in `TrashService.MoveToTrash()` additionally rejects any source path that already resides inside the trash folder.
 
 ### Tests
-- Total: **2221 tests** (+15 new: `CleanTrickplayTrashExclusionTests`, `TrashServiceGuardTests`, `WatchHistoryCompatTests`).
+- Total: **2225 tests** (+15 new: `CleanTrickplayTrashExclusionTests`, `TrashServiceGuardTests`, `WatchHistoryCompatTests`).
 
 ---
 

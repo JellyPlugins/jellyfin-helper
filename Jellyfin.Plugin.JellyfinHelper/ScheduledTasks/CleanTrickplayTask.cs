@@ -80,8 +80,10 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
             // Without this, previously trashed .trickplay folders would be re-detected as orphans
             // and moved to trash again on every run, accumulating timestamp prefixes until the
             // path exceeds the OS limit (PATH_MAX).
+            // Path.GetFullPath normalizes trailing separators, relative segments, and mixed slashes.
             var trashPath = ConfigHelper.GetTrashPath(libraryPath);
-            var normalizedTrash = trashPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            var normalizedTrash = Path.GetFullPath(trashPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                 + Path.DirectorySeparatorChar;
 
             // Cache files per parent directory to avoid repeated filesystem calls
@@ -89,9 +91,14 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
 
             foreach (var dir in directories.TakeWhile(_ => !cancellationToken.IsCancellationRequested))
             {
-                // Skip directories inside the trash folder to prevent re-trashing already-trashed items
-                if (dir.FullName.StartsWith(normalizedTrash, StringComparison.OrdinalIgnoreCase)
-                    || dir.FullName.Equals(trashPath, StringComparison.OrdinalIgnoreCase))
+                // Skip directories inside the trash folder to prevent re-trashing already-trashed items.
+                // Normalize dir.FullName the same way to ensure consistent comparison on all platforms.
+                var normalizedDirPath = Path.GetFullPath(dir.FullName)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (normalizedDirPath.StartsWith(normalizedTrash, StringComparison.OrdinalIgnoreCase)
+                    || normalizedDirPath.Equals(
+                        normalizedTrash.TrimEnd(Path.DirectorySeparatorChar),
+                        StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }

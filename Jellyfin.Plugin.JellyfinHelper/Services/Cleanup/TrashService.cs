@@ -42,10 +42,14 @@ public class TrashService : ITrashService
             // This can occur if a cleanup task's recursive directory scan inadvertently
             // includes the trash directory. Each re-trash prepends a timestamp prefix,
             // eventually exceeding PATH_MAX and causing an IOException.
-            var normalizedTrash = trashBasePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                + Path.DirectorySeparatorChar;
-            if (sourcePath.StartsWith(normalizedTrash, StringComparison.OrdinalIgnoreCase)
-                || sourcePath.Equals(trashBasePath, StringComparison.OrdinalIgnoreCase))
+            // Path.GetFullPath normalizes trailing separators, relative segments, and mixed slashes.
+            var normalizedSource = Path.GetFullPath(sourcePath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var normalizedTrashRoot = Path.GetFullPath(trashBasePath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var normalizedTrashPrefix = normalizedTrashRoot + Path.DirectorySeparatorChar;
+            if (normalizedSource.Equals(normalizedTrashRoot, StringComparison.OrdinalIgnoreCase)
+                || normalizedSource.StartsWith(normalizedTrashPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 _pluginLog.LogWarning(
                     "Trash",
