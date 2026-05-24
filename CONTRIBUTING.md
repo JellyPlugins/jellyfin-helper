@@ -116,6 +116,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── DiscoverHtmlTests.cs       # Recommendations tab HTML tests
 │   └── ...
 ├── ScheduledTasks/                # Task execution tests
+│   ├── CleanTrickplayTrashExclusionTests.cs  # Trash folder exclusion from recursive scan
 │   ├── RecommendationsTaskTests.cs
 │   ├── UserActivityUpdateTaskTests.cs
 │   └── ...
@@ -124,6 +125,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Arr/                       # Arr integration tests
 │   ├── Backup/                    # Backup/restore tests
 │   ├── Cleanup/                   # Cleanup task tests
+│   │   ├── TrashServiceGuardTests.cs  # Defense-in-depth: prevent re-trashing items already in trash
 │   ├── ConfigAccess/              # Configuration access tests
 │   ├── Link/                      # Link repair tests
 │   ├── PluginLog/                 # Plugin log tests
@@ -152,6 +154,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   └── RankingMetricsTests.cs
 │       ├── WatchHistory/          # Watch history service tests
 │       │   ├── LanguageAffinityTests.cs
+│       │   ├── WatchHistoryCompatTests.cs  # IUserManager API compatibility (MissingMethodException handling)
 │       │   └── WatchHistoryServiceTests.cs
 │       ├── RecommendationCacheServiceTests.cs
 │       ├── RecommendationDtoTests.cs

@@ -76,11 +76,26 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 return (deletedCount, bytesFreed);
             }
 
+            // Resolve the trash folder path so we can skip any directories inside it.
+            // Without this, previously trashed .trickplay folders would be re-detected as orphans
+            // and moved to trash again on every run, accumulating timestamp prefixes until the
+            // path exceeds the OS limit (PATH_MAX).
+            var trashPath = ConfigHelper.GetTrashPath(libraryPath);
+            var normalizedTrash = trashPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+
             // Cache files per parent directory to avoid repeated filesystem calls
             var fileCache = new Dictionary<string, FileSystemMetadata[]>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var dir in directories.TakeWhile(_ => !cancellationToken.IsCancellationRequested))
             {
+                // Skip directories inside the trash folder to prevent re-trashing already-trashed items
+                if (dir.FullName.StartsWith(normalizedTrash, StringComparison.OrdinalIgnoreCase)
+                    || dir.FullName.Equals(trashPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 if (!dir.Name.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -147,7 +162,6 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 else if (config.UseTrash)
                 {
                     PluginLog.LogInfo(TaskName, $"Moving orphaned trickplay folder to trash: {dir.FullName}", Logger);
-                    var trashPath = ConfigHelper.GetTrashPath(libraryPath);
                     var size = TrashService.MoveToTrash(dir.FullName, trashPath, Logger);
                     if (size <= 0)
                     {

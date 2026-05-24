@@ -38,6 +38,22 @@ public class TrashService : ITrashService
                 return 0;
             }
 
+            // Guard: prevent re-trashing items that are already inside the trash folder.
+            // This can occur if a cleanup task's recursive directory scan inadvertently
+            // includes the trash directory. Each re-trash prepends a timestamp prefix,
+            // eventually exceeding PATH_MAX and causing an IOException.
+            var normalizedTrash = trashBasePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            if (sourcePath.StartsWith(normalizedTrash, StringComparison.OrdinalIgnoreCase)
+                || sourcePath.Equals(trashBasePath, StringComparison.OrdinalIgnoreCase))
+            {
+                _pluginLog.LogWarning(
+                    "Trash",
+                    $"Source is already inside trash folder, skipping: {sourcePath}",
+                    logger: logger);
+                return 0;
+            }
+
             var dirName = Path.GetFileName(sourcePath);
             var timestamp = (utcNow ?? DateTime.UtcNow).ToString(TimestampFormat, CultureInfo.InvariantCulture);
             var trashItemName = $"{timestamp}_{dirName}";

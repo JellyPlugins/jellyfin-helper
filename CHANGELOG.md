@@ -8,7 +8,11 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ## [2.1.0.4] - 2026-05-24
 
 ### Fixed
-- **MissingMethodException IUserManager.Users** - Fixed `MissingMethodException: Method not found 'IUserManager.get_Users()'` on certain Jellyfin installations (Proxmox LXC, native packages) where the runtime assembly uses `GetUsers()` method instead of `Users` property. The plugin now uses a reflection-based compatibility layer that supports both API variants.
+- **MissingMethodException IUserManager.Users** - Fixed `MissingMethodException: Method not found 'IUserManager.get_Users()'` on certain Jellyfin installations (Proxmox LXC, native packages) where the runtime assembly uses `GetUsers()` method instead of `Users` property. The plugin now uses the compile-time API first (no reflection in the happy path), falling back to reflection only when the primary call fails due to binary incompatibility.
+- **Trickplay Trash Re-Trashing Loop** - Fixed a critical bug where `CleanTrickplayTask` would recursively scan into the trash folder, re-detect previously trashed `.trickplay` directories as orphans, and move them to trash again on every scheduled run. Each cycle prepended a new timestamp prefix (`yyyyMMdd-HHmmss_`) to the folder name, eventually exceeding the OS path length limit (PATH_MAX) and causing an `IOException`. The task now excludes the configured trash folder (including custom paths) from its directory scan. A defense-in-depth guard in `TrashService.MoveToTrash()` additionally rejects any source path that already resides inside the trash folder.
+
+### Tests
+- Total: **2221 tests** (+15 new: `CleanTrickplayTrashExclusionTests`, `TrashServiceGuardTests`, `WatchHistoryCompatTests`).
 
 ---
 

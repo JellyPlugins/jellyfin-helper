@@ -120,7 +120,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Resolves the list of all Jellyfin users in a way that is compatible with both
     ///     older Jellyfin builds (which expose <c>IUserManager.Users</c> as a property) and
     ///     newer builds (which expose <c>IUserManager.GetUsers()</c> as a method).
-    ///     Uses reflection to try the method first, then falls back to the property.
+    ///     Uses the compile-time API first (no reflection in the happy path), then falls back
+    ///     to reflection only when the primary call fails due to binary incompatibility.
     ///     Marked NoInlining to ensure the JIT compiles this independently, so that any
     ///     <see cref="MissingMethodException"/> from binary incompatibility is thrown at call
     ///     time (catchable by the caller) rather than during JIT compilation of the caller.
@@ -129,25 +130,41 @@ public sealed class WatchHistoryService : IWatchHistoryService
     [MethodImpl(MethodImplOptions.NoInlining)]
     private List<Jellyfin.Database.Implementations.Entities.User> ResolveUsersCompat()
     {
-        // Strategy: Use reflection to probe for the GetUsers() method first (newer Jellyfin builds).
-        // If it exists, invoke it. Otherwise, fall back to the Users property (older builds / NuGet API).
-        // This avoids a hard compile-time dependency on either variant and ensures the plugin works
-        // across all Jellyfin 10.11.x installation types (Docker, LXC, native packages).
-        var managerType = _userManager.GetType();
-
-        // Try GetUsers() method first (newer API as seen in Jellyfin source)
-        var getUsersMethod = managerType.GetMethod("GetUsers", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
-        if (getUsersMethod != null)
+        // Primary path: use the compile-time API (IUserManager.Users property).
+        // This works for standard Jellyfin 10.11.x Docker installations without any reflection.
+        try
         {
-            var result = getUsersMethod.Invoke(_userManager, null);
-            if (result is IEnumerable<Jellyfin.Database.Implementations.Entities.User> users)
-            {
-                return users.ToList();
-            }
+            return _userManager.Users.ToList();
         }
+        catch (MissingMethodException primaryEx)
+        {
+            // The compile-time Users property doesn't exist in this runtime binary.
+            // This occurs on certain LXC/native installations that ship different assemblies.
+            // Fallback: probe for GetUsers() method via reflection (newer Jellyfin builds).
+            _pluginLog.LogDebug(
+                "WatchHistory",
+                $"IUserManager.Users property unavailable ({primaryEx.Message}), trying GetUsers() fallback.",
+                _logger);
 
-        // Fall back to Users property (compile-time API from NuGet 10.11.x)
-        return _userManager.Users.ToList();
+            var getUsersMethod = _userManager.GetType().GetMethod(
+                "GetUsers",
+                BindingFlags.Public | BindingFlags.Instance,
+                null,
+                Type.EmptyTypes,
+                null);
+
+            if (getUsersMethod is not null)
+            {
+                var result = getUsersMethod.Invoke(_userManager, null);
+                if (result is IEnumerable<Jellyfin.Database.Implementations.Entities.User> users)
+                {
+                    return users.ToList();
+                }
+            }
+
+            // Neither API variant available — re-throw so the caller's catch handles it gracefully
+            throw;
+        }
     }
 
     /// <summary>

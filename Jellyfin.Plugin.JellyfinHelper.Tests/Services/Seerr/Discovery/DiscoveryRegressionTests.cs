@@ -278,7 +278,7 @@ public sealed class DiscoveryRegressionTests
         mockPluginLog.Verify(
             l => l.LogWarning(
                 "WatchHistory",
-                It.Is<string>(msg => msg.Contains("IUserManager.Users API incompatible") && msg.Contains("Discovery skipped")),
+                It.Is<string>(msg => msg.Contains("IUserManager API incompatible") && msg.Contains("Discovery skipped")),
                 It.IsAny<Exception>(),
                 It.IsAny<ILogger>()),
             Times.Once);
