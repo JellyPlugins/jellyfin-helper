@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Entities;
@@ -64,17 +66,17 @@ public sealed class WatchHistoryService : IWatchHistoryService
         List<Jellyfin.Database.Implementations.Entities.User> users;
         try
         {
-            users = _userManager.Users.ToList();
+            users = ResolveUsersCompat();
         }
-        catch (MissingMethodException ex)
+        catch (Exception ex) when (ex is MissingMethodException or MissingMemberException or TypeLoadException)
         {
-            // Runtime binary incompatibility — the IUserManager.Users property signature
-            // in the loaded Jellyfin assemblies does not match what the plugin was compiled against.
+            // Runtime binary incompatibility — the IUserManager API in the loaded Jellyfin
+            // assemblies does not match what the plugin was compiled against.
             // Known to occur with certain installation methods (LXC, native packages) that may
             // ship different assembly builds than the official Docker image under the same version.
             _pluginLog.LogWarning(
                 "WatchHistory",
-                $"IUserManager.Users API incompatible — {ex.Message}. Discovery skipped.",
+                $"IUserManager API incompatible — {ex.Message}. Discovery skipped.",
                 ex,
                 _logger);
             return new Collection<UserWatchProfile>();
@@ -112,6 +114,40 @@ public sealed class WatchHistoryService : IWatchHistoryService
             _logger);
 
         return profiles;
+    }
+
+    /// <summary>
+    ///     Resolves the list of all Jellyfin users in a way that is compatible with both
+    ///     older Jellyfin builds (which expose <c>IUserManager.Users</c> as a property) and
+    ///     newer builds (which expose <c>IUserManager.GetUsers()</c> as a method).
+    ///     Uses reflection to try the method first, then falls back to the property.
+    ///     Marked NoInlining to ensure the JIT compiles this independently, so that any
+    ///     <see cref="MissingMethodException"/> from binary incompatibility is thrown at call
+    ///     time (catchable by the caller) rather than during JIT compilation of the caller.
+    /// </summary>
+    /// <returns>A list of all Jellyfin user entities.</returns>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private List<Jellyfin.Database.Implementations.Entities.User> ResolveUsersCompat()
+    {
+        // Strategy: Use reflection to probe for the GetUsers() method first (newer Jellyfin builds).
+        // If it exists, invoke it. Otherwise, fall back to the Users property (older builds / NuGet API).
+        // This avoids a hard compile-time dependency on either variant and ensures the plugin works
+        // across all Jellyfin 10.11.x installation types (Docker, LXC, native packages).
+        var managerType = _userManager.GetType();
+
+        // Try GetUsers() method first (newer API as seen in Jellyfin source)
+        var getUsersMethod = managerType.GetMethod("GetUsers", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+        if (getUsersMethod != null)
+        {
+            var result = getUsersMethod.Invoke(_userManager, null);
+            if (result is IEnumerable<Jellyfin.Database.Implementations.Entities.User> users)
+            {
+                return users.ToList();
+            }
+        }
+
+        // Fall back to Users property (compile-time API from NuGet 10.11.x)
+        return _userManager.Users.ToList();
     }
 
     /// <summary>

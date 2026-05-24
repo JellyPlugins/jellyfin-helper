@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [2.1.0.4] - 2026-05-24
+
+### Fixed
+- **MissingMethodException IUserManager.Users** - Fixed `MissingMethodException: Method not found 'IUserManager.get_Users()'` on certain Jellyfin installations (Proxmox LXC, native packages) where the runtime assembly uses `GetUsers()` method instead of `Users` property. The plugin now uses a reflection-based compatibility layer that supports both API variants.
+
+---
+
 ## [2.1.0.3] - 2026-05-21
 
 ### Added
