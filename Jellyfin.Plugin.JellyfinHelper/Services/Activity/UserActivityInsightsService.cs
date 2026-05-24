@@ -49,7 +49,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     /// <inheritdoc />
     public UserActivityResult BuildActivityReport()
     {
-        var users = _userManager.Users.ToList();
+        var users = _userManager.GetUsers().ToList();
         _pluginLog.LogInfo(
             "UserActivity",
             $"Building activity report for {users.Count} users",

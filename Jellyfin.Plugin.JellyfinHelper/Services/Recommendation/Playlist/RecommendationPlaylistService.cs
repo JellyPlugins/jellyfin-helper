@@ -181,7 +181,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     public async Task<int> RemoveAllRecommendationPlaylistsAsync(CancellationToken cancellationToken = default)
     {
         var totalRemoved = 0;
-        var users = _userManager.Users.ToList();
+        var users = _userManager.GetUsers().ToList();
 
         _pluginLog.LogInfo(
             "PlaylistSync",

@@ -219,11 +219,11 @@ public sealed class DiscoveryRegressionTests
     }
 
     // ===========================================================================================
-    // Issue 1: MissingMethodException in GetAllUserWatchProfiles should be handled gracefully
+    // Issue 1: GetAllUserWatchProfiles uses GetUsers() API (Jellyfin 10.11.8+)
     // ===========================================================================================
 
     [Fact]
-    public void GetAllUserWatchProfiles_MissingMethodException_ReturnsEmptyAndDoesNotThrow()
+    public void GetAllUserWatchProfiles_NoUsers_ReturnsEmptyCollection()
     {
         var mockLibraryManager = new Mock<ILibraryManager>();
         var mockUserManager = new Mock<IUserManager>();
@@ -231,12 +231,13 @@ public sealed class DiscoveryRegressionTests
         var mockPluginLog = new Mock<IPluginLogService>();
         var mockLogger = new Mock<ILogger<WatchHistoryService>>();
 
-        // Simulate the MissingMethodException that occurs with incompatible Jellyfin versions
         mockUserManager
-            .Setup(m => m.Users)
-            .Throws(new MissingMethodException(
-                "Method not found: 'IEnumerable`1<Jellyfin.Database.Implementations.Entities.User> " +
-                "MediaBrowser.Controller.Library.IUserManager.get_Users()'."));
+            .Setup(m => m.GetUsers())
+            .Returns(Enumerable.Empty<Jellyfin.Database.Implementations.Entities.User>());
+
+        mockLibraryManager
+            .Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem>());
 
         var service = new WatchHistoryService(
             mockLibraryManager.Object,
@@ -245,7 +246,6 @@ public sealed class DiscoveryRegressionTests
             mockPluginLog.Object,
             mockLogger.Object);
 
-        // Should NOT throw — must return empty collection gracefully
         var result = service.GetAllUserWatchProfiles();
 
         Assert.NotNull(result);
@@ -253,7 +253,7 @@ public sealed class DiscoveryRegressionTests
     }
 
     [Fact]
-    public void GetAllUserWatchProfiles_MissingMethodException_LogsWarning()
+    public void GetAllUserWatchProfiles_UsesGetUsersMethod()
     {
         var mockLibraryManager = new Mock<ILibraryManager>();
         var mockUserManager = new Mock<IUserManager>();
@@ -262,8 +262,12 @@ public sealed class DiscoveryRegressionTests
         var mockLogger = new Mock<ILogger<WatchHistoryService>>();
 
         mockUserManager
-            .Setup(m => m.Users)
-            .Throws(new MissingMethodException("Simulated incompatibility"));
+            .Setup(m => m.GetUsers())
+            .Returns(Enumerable.Empty<Jellyfin.Database.Implementations.Entities.User>());
+
+        mockLibraryManager
+            .Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem>());
 
         var service = new WatchHistoryService(
             mockLibraryManager.Object,
@@ -274,14 +278,8 @@ public sealed class DiscoveryRegressionTests
 
         service.GetAllUserWatchProfiles();
 
-        // Verify that a warning was logged with the incompatibility message including ex.Message
-        mockPluginLog.Verify(
-            l => l.LogWarning(
-                "WatchHistory",
-                It.Is<string>(msg => msg.Contains("IUserManager API incompatible") && msg.Contains("Discovery skipped")),
-                It.IsAny<Exception>(),
-                It.IsAny<ILogger>()),
-            Times.Once);
+        // Verify GetUsers() is called (the 10.11.8+ API)
+        mockUserManager.Verify(m => m.GetUsers(), Times.Once);
     }
 
     // ===========================================================================================
