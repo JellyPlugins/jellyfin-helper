@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  v2.1.0.4: Upgraded to Jellyfin 10.11.9 API (IUserManager.GetUsers). Fixed MissingMethodException for IUserManager.Users on Jellyfin 10.11.8+ installations. Fixed critical trickplay trash re-trashing loop (PATH_MAX overflow). Zero reflection. Min Jellyfin: 10.11.9. 2219 tests.
+  v2.1.0.4: Fix MissingMethodException for IUserManager.Users.
