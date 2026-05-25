@@ -13,8 +13,8 @@
         "changelog": "v2.1.0.4: Fix MissingMethodException for IUserManager.Users.",
         "targetAbi": "10.11.9.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.1.0.4/JellyfinHelper_2.1.0.4.zip",
-        "checksum": "",
-        "timestamp": "2026-05-24T09:50:00Z"
+        "checksum": "56c03554f5f4e36f3527a273a324a00e",
+        "timestamp": "2026-05-25T09:39:14Z"
       },
       {
         "version": "2.1.0.3",
