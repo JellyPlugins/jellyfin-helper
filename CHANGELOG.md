@@ -8,11 +8,14 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ## [2.1.0.4] - 2026-05-24
 
 ### Fixed
-- **MissingMethodException IUserManager.Users** - Fixed `MissingMethodException: Method not found 'IUserManager.get_Users()'`.
+- **IUserManager API Upgrade** - Upgraded from deprecated `IUserManager.Users` property (removed in Jellyfin 10.11.8) to the stable `IUserManager.GetUsers()` method (10.11.9+ API). Resolves `MissingMethodException: Method not found 'IUserManager.get_Users()'` on all Jellyfin 10.11.8+ installations. Zero reflection — direct compile-time API call. Also fixed the same issue in `UserActivityInsightsService.BuildActivityReport()`.
 - **Trickplay Trash Re-Trashing Loop** - Fixed a critical bug where `CleanTrickplayTask` would recursively scan into the trash folder, re-detect previously trashed `.trickplay` directories as orphans, and move them to trash again on every scheduled run. Each cycle prepended a new timestamp prefix (`yyyyMMdd-HHmmss_`) to the folder name, eventually exceeding the OS path length limit (PATH_MAX) and causing an `IOException`. The task now excludes the configured trash folder (including custom paths) from its directory scan. A defense-in-depth guard in `TrashService.MoveToTrash()` additionally rejects any source path that already resides inside the trash folder.
 
+### Changed
+- **Minimum Jellyfin Version** - Raised to **10.11.9** (NuGet `Jellyfin.Controller 10.11.9`). The deprecated `Users` property was removed in 10.11.8; `GetUsers()` stabilized in 10.11.9.
+
 ### Tests
-- Total: **2219 tests** (+9 new: `CleanTrickplayTrashExclusionTests`, `TrashServiceGuardTests`, `WatchHistoryCompatTests`).
+- Total: **2219 tests** (`CleanTrickplayTrashExclusionTests`, `TrashServiceGuardTests`, `WatchHistoryCompatTests`).
 
 ---
 

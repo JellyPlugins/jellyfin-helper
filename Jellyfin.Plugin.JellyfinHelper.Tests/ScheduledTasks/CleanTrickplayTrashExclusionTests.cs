@@ -68,6 +68,11 @@ public class CleanTrickplayTrashExclusionTests : CleanupTaskTestBase
         VerifyLogNeverContains(_loggerMock, "Deleting orphaned trickplay folder", LogLevel.Information);
         VerifyLogNeverContains(_loggerMock, "Moving orphaned trickplay folder to trash", LogLevel.Information);
         VerifyLogNeverContains(_loggerMock, "[Dry Run] Would delete orphaned trickplay folder", LogLevel.Information);
+        // Verify no file enumeration or trash move was attempted for inside-trash items
+        _fileSystemMock.Verify(f => f.GetFiles(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        MockTrashService.Verify(
+            t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+            Times.Never);
     }
 
     [Fact]
@@ -94,6 +99,9 @@ public class CleanTrickplayTrashExclusionTests : CleanupTaskTestBase
 
         // Should process the orphaned folder (trash mode is on)
         VerifyLogContains(_loggerMock, "Moving orphaned trickplay folder to trash", LogLevel.Information);
+        MockTrashService.Verify(
+            t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+            Times.Once);
     }
 
     [Fact]
@@ -123,6 +131,10 @@ public class CleanTrickplayTrashExclusionTests : CleanupTaskTestBase
 
         VerifyLogNeverContains(_loggerMock, "Moving orphaned trickplay folder to trash", LogLevel.Information);
         VerifyLogNeverContains(_loggerMock, "Deleting orphaned trickplay folder", LogLevel.Information);
+        _fileSystemMock.Verify(f => f.GetFiles(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        MockTrashService.Verify(
+            t => t.MoveToTrash(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<ILogger>(), It.IsAny<DateTime?>()),
+            Times.Never);
     }
 
     [Fact]

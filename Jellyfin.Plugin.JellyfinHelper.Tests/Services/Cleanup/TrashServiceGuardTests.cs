@@ -113,8 +113,9 @@ public sealed class TrashServiceGuardTests
     [Fact]
     public void MoveToTrash_SourceDoesNotExist_ReturnsZero()
     {
-        var trashBasePath = Path.Join(Path.GetTempPath(), "nonexistent-lib", ".jellyfin-trash");
-        var sourcePath = Path.Join(Path.GetTempPath(), "this-does-not-exist-at-all");
+        var uniqueId = Guid.NewGuid().ToString("N");
+        var trashBasePath = Path.Join(Path.GetTempPath(), $"nonexistent-lib-{uniqueId}", ".jellyfin-trash");
+        var sourcePath = Path.Join(Path.GetTempPath(), $"missing-source-{uniqueId}");
 
         var result = _service.MoveToTrash(sourcePath, trashBasePath, _mockLogger.Object);
 
