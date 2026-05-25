@@ -57,8 +57,8 @@ public sealed class WatchHistoryServiceTests
     public void GetAllUserWatchProfiles_NoUsers_ReturnsEmptyCollection()
     {
         _mockUserManager
-            .Setup(m => m.Users)
-            .Returns(Enumerable.Empty<Jellyfin.Database.Implementations.Entities.User>().AsQueryable());
+            .Setup(m => m.GetUsers())
+            .Returns(Enumerable.Empty<Jellyfin.Database.Implementations.Entities.User>());
 
         _mockLibraryManager
             .Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
@@ -78,7 +78,7 @@ public sealed class WatchHistoryServiceTests
         var user3 = CreateTestUser("charlie");
 
         _mockUserManager
-            .Setup(m => m.Users)
+            .Setup(m => m.GetUsers())
             .Returns(new[] { user1, user2, user3 }.AsQueryable());
 
         var movie = new Movie { Id = Guid.NewGuid(), Name = "Test Movie" };
@@ -113,7 +113,7 @@ public sealed class WatchHistoryServiceTests
         var user2 = CreateTestUser("bob");
 
         _mockUserManager
-            .Setup(m => m.Users)
+            .Setup(m => m.GetUsers())
             .Returns(new[] { user1, user2 }.AsQueryable());
 
         _mockLibraryManager

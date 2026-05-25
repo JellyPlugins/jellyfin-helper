@@ -16,7 +16,7 @@ permissions:
 
 env:
   PLUGIN_NAME: JellyfinHelper
-  TARGET_ABI: "10.11.0.0"
+  TARGET_ABI: "10.11.9.0"
 
 jobs:
   security-audit:
