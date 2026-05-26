@@ -65,12 +65,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>Fraction of examples used for validation.</summary>
     internal const double ValidationSplitRatio = 0.2;
 
-    /// <summary>Number of folds for k-fold cross-validation loss estimation.</summary>
-    internal const int KFoldCount = 3;
-
-    /// <summary>Minimum examples per fold for k-fold cross-validation.</summary>
-    internal const int MinExamplesPerFold = 3;
-
     /// <summary>Minimum validation examples required for early stopping.</summary>
     internal const int MinValidationExamples = 2;
 

@@ -220,7 +220,8 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             && !string.Equals(resolved, normalizedRoot, StringComparison.OrdinalIgnoreCase))
         {
             // Relative path escapes the library root — fall back to the safe default.
-            return Path.Join(libraryRootPath, ".jellyfin-trash");
+            // Note: admins who intend a path outside the library root should use an absolute path.
+            return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
         }
 
         return resolved;
