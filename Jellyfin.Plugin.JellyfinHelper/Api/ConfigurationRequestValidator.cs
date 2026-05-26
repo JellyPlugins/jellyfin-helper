@@ -97,8 +97,10 @@ public static class ConfigurationRequestValidator
         // Resolve against a dummy root to detect whether ".." sequences escape upward.
         // We cannot use a real library root here — it is runtime state unknown at config-save time.
         // Use Path.GetTempPath() as a guaranteed-absolute, platform-correct anchor.
+        // Path.GetFullPath(path, basePath) is used instead of Path.GetFullPath(Path.Combine(...))
+        // to avoid the silent dropped-prefix pitfall when path is rooted (CA2249 / S4347).
         var dummyRoot = Path.TrimEndingDirectorySeparator(Path.GetTempPath());
-        var resolved = Path.GetFullPath(Path.Combine(dummyRoot, trashFolderPath));
+        var resolved = Path.GetFullPath(trashFolderPath, dummyRoot);
         var rootPrefix = dummyRoot + Path.DirectorySeparatorChar;
 
         if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)

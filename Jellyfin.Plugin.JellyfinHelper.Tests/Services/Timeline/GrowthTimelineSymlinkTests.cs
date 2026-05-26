@@ -111,16 +111,20 @@ public class GrowthTimelineSymlinkTests : IDisposable
         Assert.Equal(512, size);
     }
 
-    // ── Root path itself is a symlink — should not be followed ───────────────
+    // ── Root path itself is a symlink — IS followed (library roots can be symlinks) ───
 
     [Fact]
     [Trait("Category", "Symlink")]
-    public void GetDirectorySize_RootIsSymlink_ReturnsZeroAndDoesNotFollow()
+    public void GetDirectorySize_RootIsSymlink_CountsFilesInsideTarget()
     {
+        // Library roots can be symlinks (e.g. network mounts, bind mounts).
+        // GetDirectorySize must traverse them so that timeline statistics are correct.
+        // The ReparsePoint guard only applies to *sub*directories discovered during recursion
+        // to prevent cycles — it intentionally does not skip the caller-supplied root.
         var realDir = Path.Join(_testRoot, "real_root_target");
         var linkDir = Path.Join(_testRoot, "symlink_root");
         Directory.CreateDirectory(realDir);
-        File.WriteAllBytes(Path.Join(realDir, "secret.mkv"), new byte[4096]);
+        File.WriteAllBytes(Path.Join(realDir, "movie.mkv"), new byte[4096]);
 
         try
         {
@@ -132,11 +136,10 @@ public class GrowthTimelineSymlinkTests : IDisposable
             return;
         }
 
-        // The root passed to GetDirectorySize is itself a symlink.
-        // The service should not follow it — expected size is 0.
+        // The root is a symlink — files inside the target are counted normally.
         var size = _service.GetDirectorySize(linkDir, string.Empty, string.Empty, CancellationToken.None);
 
-        Assert.Equal(0, size);
+        Assert.Equal(4096, size);
     }
 
     // ── Regular subdirectories are still traversed ───────────────────────────
