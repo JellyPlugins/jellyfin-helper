@@ -7,8 +7,15 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ## [2.1.0.5] - 2026-05-26
 
+### Fixed
+- **Symlink / Junction Infinite Recursion** - `GrowthTimelineService.GetDirectorySize()` now skips any subdirectory carrying `FileAttributes.ReparsePoint` (symlinks and NTFS junction points on Windows, symlinks on Linux/macOS). Previously a circular directory structure (A → B → A) caused unbounded recursion and a `StackOverflowException`.
+- **Trash Path Length Overflow** - `TrashService.ResolveCollision()` now enforces the OS path-length limit on every returned path (259 chars on Windows, 4 095 on Linux). Long directory names were never truncated before, causing an `IOException` when the combined timestamp prefix + original name exceeded `MAX_PATH`.
+
 ### Changed
 - **Minimum Jellyfin Version** - Raised to **10.11.10** (NuGet `Jellyfin.Controller 10.11.10`, `Jellyfin.Model 10.11.10`).
+
+### Tests
+- Total: **2231 tests** (`GrowthTimelineSymlinkTests`, `TrashServicePathLengthTests`).
 
 ---
 

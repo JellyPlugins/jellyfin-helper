@@ -16,6 +16,15 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 public class TrashService : ITrashService
 {
     private const string TimestampFormat = "yyyyMMdd-HHmmss";
+
+    /// <summary>
+    ///     Maximum allowed path length. Windows has a legacy MAX_PATH of 260; Linux allows up to
+    ///     4096 but PATH_MAX is typically 4096. We cap at 259 on Windows (leaving room for a null
+    ///     terminator) and 4095 on other platforms to guarantee the resulting path is always valid,
+    ///     even after suffixes or a GUID are appended.
+    /// </summary>
+    private static readonly int MaxPathLength = OperatingSystem.IsWindows() ? 259 : 4095;
+
     private readonly IPluginLogService _pluginLog;
 
     /// <summary>
@@ -368,14 +377,15 @@ public class TrashService : ITrashService
     /// <summary>
     ///     Resolves naming collisions for trash items by appending a numeric suffix (_2, _3, …)
     ///     if the target path already exists as a file or directory.
+    ///     The returned path is guaranteed to fit within the OS path-length limit.
     /// </summary>
     /// <param name="desiredPath">The initially desired trash path.</param>
-    /// <returns>A path that does not yet exist on disk.</returns>
-    private static string ResolveCollision(string desiredPath)
+    /// <returns>A collision-free path that does not yet exist on disk and is within the OS path limit.</returns>
+    internal static string ResolveCollision(string desiredPath)
     {
         if (!File.Exists(desiredPath) && !Directory.Exists(desiredPath))
         {
-            return desiredPath;
+            return EnsurePathLength(desiredPath);
         }
 
         var directory = Path.GetDirectoryName(desiredPath) ?? string.Empty;
@@ -383,15 +393,46 @@ public class TrashService : ITrashService
 
         for (var i = 2; i < 1000; i++)
         {
-            var candidate = Path.Join(directory, $"{name}_{i}");
+            var suffix = $"_{i}";
+            var candidate = Path.Join(directory, $"{name}{suffix}");
             if (!File.Exists(candidate) && !Directory.Exists(candidate))
             {
-                return candidate;
+                return EnsurePathLength(candidate);
             }
         }
 
-        // Extremely unlikely fallback: append a GUID
-        return Path.Join(directory, $"{name}_{Guid.NewGuid():N}");
+        // Extremely unlikely fallback: append a GUID (32 hex chars + underscore = 33 chars)
+        var guidSuffix = $"_{Guid.NewGuid():N}";
+        return EnsurePathLength(Path.Join(directory, $"{name}{guidSuffix}"));
+    }
+
+    /// <summary>
+    ///     Ensures the path does not exceed <see cref="MaxPathLength" />.
+    ///     If it does, the file-name component is truncated (from the end, preserving the directory)
+    ///     until the full path fits. The directory part is never truncated.
+    /// </summary>
+    private static string EnsurePathLength(string path)
+    {
+        if (path.Length <= MaxPathLength)
+        {
+            return path;
+        }
+
+        var directory = Path.GetDirectoryName(path) ?? string.Empty;
+        var name = Path.GetFileName(path);
+
+        // How many characters we can use for the file/folder name
+        // (+1 for the separator between directory and name)
+        var maxNameLength = MaxPathLength - directory.Length - 1;
+        if (maxNameLength <= 0)
+        {
+            // Directory itself is already at or over the limit — nothing safe to do;
+            // return the path as-is and let the caller's IOException handler log it.
+            return path;
+        }
+
+        var truncatedName = name.Length > maxNameLength ? name[..maxNameLength] : name;
+        return Path.Join(directory, truncatedName);
     }
 
     /// <summary>

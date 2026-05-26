@@ -492,8 +492,15 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
     /// <summary>
     ///     Calculates the total size of all files within a directory (recursively).
+    ///     Symlinks and junction points are never followed to prevent infinite loops
+    ///     caused by circular directory structures (A → B → A).
     /// </summary>
-    private long GetDirectorySize(
+    /// <param name="directoryPath">The directory to measure.</param>
+    /// <param name="trashFolderName">Leaf name of the trash folder to skip (may be empty).</param>
+    /// <param name="fullTrashPath">Resolved absolute path of the trash folder to skip (may be empty).</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>Total size in bytes of all files inside the directory tree, excluding skipped paths.</returns>
+    internal long GetDirectorySize(
         string directoryPath,
         string trashFolderName,
         string fullTrashPath,
@@ -515,6 +522,14 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
                 // Skip .trickplay and trash subdirectories
                 if (ShouldSkipDirectory(subDir.FullName, dirName, trashFolderName, fullTrashPath))
+                {
+                    continue;
+                }
+
+                // Never follow symlinks or junction points — they can form cycles (A → B → A)
+                // that cause infinite recursion and a StackOverflowException.
+                var attributes = new DirectoryInfo(subDir.FullName).Attributes;
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
                 {
                     continue;
                 }

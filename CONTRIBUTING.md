@@ -125,7 +125,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Arr/                       # Arr integration tests
 │   ├── Backup/                    # Backup/restore tests
 │   ├── Cleanup/                   # Cleanup task tests
-│   │   ├── TrashServiceGuardTests.cs  # Defense-in-depth: prevent re-trashing items already in trash
+│   │   ├── TrashServiceGuardTests.cs      # Defense-in-depth: prevent re-trashing items already in trash
+│   │   └── TrashServicePathLengthTests.cs # ResolveCollision stays within OS MAX_PATH (Windows 259 / Linux 4095)
 │   ├── ConfigAccess/              # Configuration access tests
 │   ├── Link/                      # Link repair tests
 │   ├── PluginLog/                 # Plugin log tests
@@ -139,6 +140,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       └── ParentalRatingHelperTests.cs
 │   ├── Statistics/                # Statistics service tests
 │   ├── Timeline/                  # Growth timeline tests
+│   │   └── GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks/junctions
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
