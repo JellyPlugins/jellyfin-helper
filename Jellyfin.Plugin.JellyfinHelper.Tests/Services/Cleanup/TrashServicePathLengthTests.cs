@@ -153,6 +153,8 @@ public class TrashServicePathLengthTests : IDisposable
         var result = TrashService.ResolveCollision(path);
 
         Assert.True(result.Length <= maxLen, $"Suffixed path length {result.Length} exceeds OS limit {maxLen}");
+        Assert.False(Directory.Exists(result), "Resolved path must not already exist");
+        Assert.NotEqual(path, result);
     }
 
     // ── GUID fallback stays within limit ─────────────────────────────────────

@@ -402,7 +402,7 @@ public class TrashService : ITrashService
         for (var i = 2; i < 1000; i++)
         {
             var suffix = $"_{i}";
-            var candidate = EnsurePathLength(Path.Join(directory, $"{name}{suffix}"));
+            var candidate = BuildSuffixSafeCandidate(directory, name, suffix);
             if (!File.Exists(candidate) && !Directory.Exists(candidate))
             {
                 return candidate;
@@ -410,8 +410,30 @@ public class TrashService : ITrashService
         }
 
         // Extremely unlikely fallback: append a GUID (32 hex chars + underscore = 33 chars)
-        var guidSuffix = $"_{Guid.NewGuid():N}";
-        return EnsurePathLength(Path.Join(directory, $"{name}{guidSuffix}"));
+        return BuildSuffixSafeCandidate(directory, name, $"_{Guid.NewGuid():N}");
+    }
+
+    /// <summary>
+    ///     Builds a length-safe candidate path by truncating the <paramref name="baseName" />
+    ///     (not the suffix) so that the suffix is always preserved in the result.
+    ///     This prevents the degenerate case where appending a suffix then truncating removes
+    ///     the suffix entirely, causing every candidate to resolve to the same existing path.
+    /// </summary>
+    private static string BuildSuffixSafeCandidate(string directory, string baseName, string suffix)
+    {
+        var maxNameLength = Math.Min(
+            MaxPathLength - directory.Length - 1,
+            MaxPathComponentLength);
+
+        var availableForBase = maxNameLength - suffix.Length;
+        if (availableForBase <= 0)
+        {
+            // Suffix alone fills the budget — truncate suffix as last resort.
+            return Path.Join(directory, suffix.Length > maxNameLength ? suffix[..Math.Max(0, maxNameLength)] : suffix);
+        }
+
+        var truncatedBase = baseName.Length > availableForBase ? baseName[..availableForBase] : baseName;
+        return Path.Join(directory, $"{truncatedBase}{suffix}");
     }
 
     /// <summary>

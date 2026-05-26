@@ -64,7 +64,10 @@ public class GrowthTimelineSymlinkTests : IDisposable
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
-            // Creating symlinks requires elevated privileges on some Windows configurations.
+            // Symlink creation requires elevated privileges on some Windows configurations.
+            // xUnit 2.x has no Assert.Skip — early return keeps the test green but un-asserted,
+            // which is acceptable: the test runs and asserts on runners that support symlinks.
+            _ = ex;
             return;
         }
 
@@ -97,6 +100,7 @@ public class GrowthTimelineSymlinkTests : IDisposable
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
+            _ = ex;
             return;
         }
 
