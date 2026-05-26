@@ -227,8 +227,13 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         }
 
         var rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
-        if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(resolved, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(resolved, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            // TrashFolderPath resolves to the library root itself (e.g. ".") — not safe.
+            return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
+        }
+
+        if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
         {
             // Relative path escapes the library root — fall back to the safe default.
             // Note: admins who intend a path outside the library root should use an absolute path.

@@ -100,7 +100,18 @@ public static class ConfigurationRequestValidator
         // Path.GetFullPath(path, basePath) is used instead of Path.GetFullPath(Path.Combine(...))
         // to avoid the silent dropped-prefix pitfall when path is rooted (CA2249 / S4347).
         var dummyRoot = Path.TrimEndingDirectorySeparator(Path.GetTempPath());
-        var resolved = Path.GetFullPath(trashFolderPath, dummyRoot);
+
+        string resolved;
+        try
+        {
+            resolved = Path.GetFullPath(trashFolderPath, dummyRoot);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return $"TrashFolderPath '{trashFolderPath}' contains invalid characters or is too long. " +
+                   "At runtime it will fall back to '.jellyfin-trash'.";
+        }
+
         var rootPrefix = dummyRoot + Path.DirectorySeparatorChar;
 
         if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)

@@ -288,6 +288,18 @@ public class CleanupConfigHelperTests
         Assert.Equal(expected, result);
     }
 
+    [Fact]
+    public void GetTrashPath_DotPath_FallsBackToDefault()
+    {
+        // TrashFolderPath = "." resolves to the library root itself — must not be allowed.
+        var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        var cfg = new PluginConfiguration { TrashFolderPath = "." };
+        var helper = CreateHelper(cfg);
+        var result = helper.GetTrashPath(root);
+        var expected = Path.GetFullPath(Path.Join(root, ".jellyfin-trash"));
+        Assert.Equal(expected, result);
+    }
+
     // ===== GetFilteredLibraryLocations =====
 
     [Fact]

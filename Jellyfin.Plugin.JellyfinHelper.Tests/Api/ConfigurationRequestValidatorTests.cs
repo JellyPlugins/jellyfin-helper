@@ -262,4 +262,15 @@ public class ConfigurationRequestValidatorTests
         };
         Assert.Null(ConfigurationRequestValidator.Validate(req));
     }
+
+    [Fact]
+    public void ValidateTrashPath_ReturnsWarning_ForNullCharInPath()
+    {
+        // Null characters in paths are universally invalid across all platforms.
+        // Path.GetFullPath throws ArgumentException for embedded null chars.
+        var warning = ConfigurationRequestValidator.ValidateTrashPath("path\0with\0nulls");
+        Assert.NotNull(warning);
+        Assert.Contains("invalid characters or is too long", warning);
+        Assert.Contains(".jellyfin-trash", warning);
+    }
 }
