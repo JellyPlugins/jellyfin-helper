@@ -7,7 +7,7 @@ A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks
 [![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square)](https://github.com/JellyPlugins/jellyfin-helper/releases)
 [![Tests](https://img.shields.io/badge/tests-2231%20passed-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
-[![Jellyfin](+[![Jellyfin](https://img.shields.io/badge/Jellyfin-10.11.10+-00A4DC?style=flat-square&logo=jellyfin&logoColor=white)](https://jellyfin.org/))](https://jellyfin.org/)
+[![Jellyfin](https://img.shields.io/badge/Jellyfin-10.11.10+-00A4DC?style=flat-square&logo=jellyfin&logoColor=white)](https://jellyfin.org/)
 [![License](https://img.shields.io/github/license/JellyPlugins/jellyfin-helper?style=flat-square)](LICENSE)
 [![Languages](https://img.shields.io/badge/i18n-7%20languages-blue?style=flat-square)](Jellyfin.Plugin.JellyfinHelper/i18n/)
 [![Live Demo](https://img.shields.io/badge/demo-live%20preview-ff69b4?style=flat-square)](https://jellyplugins.github.io/jellyfin-helper/)

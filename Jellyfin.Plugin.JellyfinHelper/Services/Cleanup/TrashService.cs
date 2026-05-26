@@ -18,6 +18,13 @@ public class TrashService : ITrashService
     private const string TimestampFormat = "yyyyMMdd-HHmmss";
 
     /// <summary>
+    ///     Maximum length of a single path component (filename or directory name).
+    ///     POSIX NAME_MAX is 255 bytes on virtually all Linux/macOS filesystems.
+    ///     Windows NTFS also caps individual components at 255 UTF-16 code units.
+    /// </summary>
+    private const int MaxPathComponentLength = 255;
+
+    /// <summary>
     ///     Maximum allowed path length. Windows has a legacy MAX_PATH of 260; Linux allows up to
     ///     4096 but PATH_MAX is typically 4096. We cap at 259 on Windows (leaving room for a null
     ///     terminator) and 4095 on other platforms to guarantee the resulting path is always valid,
@@ -383,9 +390,10 @@ public class TrashService : ITrashService
     /// <returns>A collision-free path that does not yet exist on disk and is within the OS path limit.</returns>
     internal static string ResolveCollision(string desiredPath)
     {
-        if (!File.Exists(desiredPath) && !Directory.Exists(desiredPath))
+        var safePath = EnsurePathLength(desiredPath);
+        if (!File.Exists(safePath) && !Directory.Exists(safePath))
         {
-            return EnsurePathLength(desiredPath);
+            return safePath;
         }
 
         var directory = Path.GetDirectoryName(desiredPath) ?? string.Empty;
@@ -394,10 +402,10 @@ public class TrashService : ITrashService
         for (var i = 2; i < 1000; i++)
         {
             var suffix = $"_{i}";
-            var candidate = Path.Join(directory, $"{name}{suffix}");
+            var candidate = EnsurePathLength(Path.Join(directory, $"{name}{suffix}"));
             if (!File.Exists(candidate) && !Directory.Exists(candidate))
             {
-                return EnsurePathLength(candidate);
+                return candidate;
             }
         }
 
@@ -422,8 +430,12 @@ public class TrashService : ITrashService
         var name = Path.GetFileName(path);
 
         // How many characters we can use for the file/folder name
-        // (+1 for the separator between directory and name)
-        var maxNameLength = MaxPathLength - directory.Length - 1;
+        // (+1 for the separator between directory and name).
+        // Also cap at MaxPathComponentLength (NAME_MAX = 255) so a single
+        // component never exceeds the per-segment filesystem limit.
+        var maxNameLength = Math.Min(
+            MaxPathLength - directory.Length - 1,
+            MaxPathComponentLength);
         if (maxNameLength <= 0)
         {
             // Directory itself is already at or over the limit — nothing safe to do;

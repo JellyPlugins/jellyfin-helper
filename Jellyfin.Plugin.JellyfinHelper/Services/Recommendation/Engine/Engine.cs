@@ -764,9 +764,12 @@ public sealed class Engine : IRecommendationEngine
             ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeople)
             : 0.0;
 
-        // Series progression boost: always 0.0 at inference time because any Series with
-        // watched episodes is excluded at line 621 via watchedSeriesIds — so TryGetValue
-        // below always misses and the block never executes.
+        // Series progression boost: effectively always 0.0 at inference time.
+        // seriesEpisodeLookup is keyed by SeriesId from WatchHistoryService, which only adds items
+        // with HasMeaningfulInteraction() (Played || IsFavorite || PlayCount > 0 || PlaybackPositionTicks > 0).
+        // watchedSeriesIds (line 529) uses the same predicate, so any Series present in
+        // seriesEpisodeLookup is also in watchedSeriesIds and already excluded at line 621.
+        // The block below therefore never executes in practice.
         // The field is kept to preserve feature-vector layout parity with the training pipeline,
         // where the boost IS computed from real episode data (the series was recommended first,
         // then the user watched it — progression is a valid training signal even though it

@@ -37,9 +37,10 @@ public class GrowthTimelineSymlinkTests : IDisposable
                 Directory.Delete(_testRoot, true);
             }
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Ignore cleanup failures in CI
+            _ = ex;
         }
     }
 
