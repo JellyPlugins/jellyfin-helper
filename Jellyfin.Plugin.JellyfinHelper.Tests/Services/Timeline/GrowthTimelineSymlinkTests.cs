@@ -111,6 +111,34 @@ public class GrowthTimelineSymlinkTests : IDisposable
         Assert.Equal(512, size);
     }
 
+    // ── Root path itself is a symlink — should not be followed ───────────────
+
+    [Fact]
+    [Trait("Category", "Symlink")]
+    public void GetDirectorySize_RootIsSymlink_ReturnsZeroAndDoesNotFollow()
+    {
+        var realDir = Path.Join(_testRoot, "real_root_target");
+        var linkDir = Path.Join(_testRoot, "symlink_root");
+        Directory.CreateDirectory(realDir);
+        File.WriteAllBytes(Path.Join(realDir, "secret.mkv"), new byte[4096]);
+
+        try
+        {
+            Directory.CreateSymbolicLink(linkDir, realDir);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            _ = ex;
+            return;
+        }
+
+        // The root passed to GetDirectorySize is itself a symlink.
+        // The service should not follow it — expected size is 0.
+        var size = _service.GetDirectorySize(linkDir, string.Empty, string.Empty, CancellationToken.None);
+
+        Assert.Equal(0, size);
+    }
+
     // ── Regular subdirectories are still traversed ───────────────────────────
 
     [Fact]

@@ -443,11 +443,6 @@ public class TrashService : ITrashService
     /// </summary>
     private static string EnsurePathLength(string path)
     {
-        if (path.Length <= MaxPathLength)
-        {
-            return path;
-        }
-
         var directory = Path.GetDirectoryName(path) ?? string.Empty;
         var name = Path.GetFileName(path);
 
@@ -462,6 +457,11 @@ public class TrashService : ITrashService
         {
             // Directory itself is already at or over the limit — nothing safe to do;
             // return the path as-is and let the caller's IOException handler log it.
+            return path;
+        }
+
+        if (path.Length <= MaxPathLength && name.Length <= MaxPathComponentLength)
+        {
             return path;
         }
 

@@ -157,6 +157,26 @@ public class TrashServicePathLengthTests : IDisposable
         Assert.NotEqual(path, result);
     }
 
+    // ── Path-length safety: component over NAME_MAX but path under OS max ────
+
+    [Fact]
+    public void ResolveCollision_ComponentOverLimitButPathUnderMax_TruncatesComponent()
+    {
+        // Windows NAME_MAX enforcement is not applicable here (no per-component cap below MAX_PATH).
+        // This test isolates the per-component cap on non-Windows filesystems (NAME_MAX = 255).
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        // 260 chars > 255 (NAME_MAX) but far below 4095 (PATH_MAX) — exercises the component cap.
+        var path = Path.Join(_testRoot, new string('d', 260));
+        var result = TrashService.ResolveCollision(path);
+
+        Assert.True(Path.GetFileName(result).Length <= 255,
+            $"Component length {Path.GetFileName(result).Length} exceeds NAME_MAX 255");
+    }
+
     // ── GUID fallback stays within limit ─────────────────────────────────────
 
     [Fact]

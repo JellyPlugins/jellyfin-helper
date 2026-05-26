@@ -15,7 +15,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Minimum Jellyfin Version** - Raised to **10.11.10** (NuGet `Jellyfin.Controller 10.11.10`, `Jellyfin.Model 10.11.10`).
 
 ### Tests
-- Total: **2232 tests** (`GrowthTimelineSymlinkTests`, `TrashServicePathLengthTests`).
+- Total: **2243 tests** (`GrowthTimelineSymlinkTests`, `TrashServicePathLengthTests`).
 
 ---
 

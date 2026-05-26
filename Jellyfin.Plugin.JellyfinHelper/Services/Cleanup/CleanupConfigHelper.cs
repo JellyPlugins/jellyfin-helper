@@ -212,9 +212,20 @@ public class CleanupConfigHelper : ICleanupConfigHelper
 
         // Resolve relative path against the library root and verify it does not escape
         // via ".." sequences. Path.Join does not resolve ".." — only GetFullPath does.
-        var resolved = Path.GetFullPath(Path.Join(libraryRootPath, trashPath));
-        var normalizedRoot = Path.GetFullPath(libraryRootPath)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // Guard against malformed or excessively long paths that would otherwise throw.
+        string resolved;
+        string normalizedRoot;
+        try
+        {
+            resolved = Path.GetFullPath(Path.Join(libraryRootPath, trashPath));
+            normalizedRoot = Path.GetFullPath(libraryRootPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
+        }
+
         var rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
         if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
             && !string.Equals(resolved, normalizedRoot, StringComparison.OrdinalIgnoreCase))
