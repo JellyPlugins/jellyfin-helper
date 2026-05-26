@@ -210,7 +210,20 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             return trashPath;
         }
 
-        return Path.Join(libraryRootPath, trashPath);
+        // Resolve relative path against the library root and verify it does not escape
+        // via ".." sequences. Path.Join does not resolve ".." — only GetFullPath does.
+        var resolved = Path.GetFullPath(Path.Join(libraryRootPath, trashPath));
+        var normalizedRoot = Path.GetFullPath(libraryRootPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
+        if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(resolved, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            // Relative path escapes the library root — fall back to the safe default.
+            return Path.Join(libraryRootPath, ".jellyfin-trash");
+        }
+
+        return resolved;
     }
 
     // ===== Pure static helpers (no state, no config access) =====

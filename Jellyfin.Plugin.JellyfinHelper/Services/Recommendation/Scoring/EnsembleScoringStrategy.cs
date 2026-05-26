@@ -634,12 +634,16 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
                     if (neuralQualityOk)
                     {
-                        // Linear ramp from 0 to NeuralMaxBetaFraction over 75..175 examples
+                        // Linear ramp from 0 to NeuralMaxBetaFraction over 75..175 examples.
+                        // Use Math.Max so trend-driven decay (applied below) is not immediately
+                        // undone: once beta is reduced by TrendDegradationDamping it can only
+                        // recover up to the ramp target, never jump past it in a single round.
                         var progress = Math.Clamp(
                             (_trainingExampleCount - NeuralActivationThreshold) / 100.0,
                             0.0,
                             1.0);
-                        _neuralBeta = NeuralMaxBetaFraction * progress;
+                        var rampTarget = NeuralMaxBetaFraction * progress;
+                        _neuralBeta = Math.Max(_neuralBeta, rampTarget);
                     }
                     else
                     {

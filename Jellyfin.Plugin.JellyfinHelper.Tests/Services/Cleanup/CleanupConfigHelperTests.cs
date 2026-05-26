@@ -238,38 +238,54 @@ public class CleanupConfigHelperTests
     [Fact]
     public void GetTrashPath_DefaultsToJellyfinTrash_WhenEmpty()
     {
+        var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
         var cfg = new PluginConfiguration { TrashFolderPath = "" };
         var helper = CreateHelper(cfg);
-        var result = helper.GetTrashPath("/media/movies");
-        Assert.Equal(Path.Join("/media/movies", ".jellyfin-trash"), result);
+        var result = helper.GetTrashPath(root);
+        Assert.Equal(Path.GetFullPath(Path.Join(root, ".jellyfin-trash")), result);
     }
 
     [Fact]
     public void GetTrashPath_DefaultsToJellyfinTrash_WhenWhitespace()
     {
+        var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
         var cfg = new PluginConfiguration { TrashFolderPath = "   " };
         var helper = CreateHelper(cfg);
-        var result = helper.GetTrashPath("/media/movies");
-        Assert.Equal(Path.Join("/media/movies", ".jellyfin-trash"), result);
+        var result = helper.GetTrashPath(root);
+        Assert.Equal(Path.GetFullPath(Path.Join(root, ".jellyfin-trash")), result);
     }
 
     [Fact]
     public void GetTrashPath_RelativePath_JoinsWithLibraryRoot()
     {
+        var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
         var cfg = new PluginConfiguration { TrashFolderPath = ".trash" };
         var helper = CreateHelper(cfg);
-        var result = helper.GetTrashPath("/media/movies");
-        Assert.Equal(Path.Join("/media/movies", ".trash"), result);
+        var result = helper.GetTrashPath(root);
+        Assert.Equal(Path.GetFullPath(Path.Join(root, ".trash")), result);
     }
 
     [Fact]
     public void GetTrashPath_AbsolutePath_ReturnsAsIs()
     {
-        var absolutePath = Path.GetFullPath("/tmp/trash");
+        var absolutePath = Path.GetFullPath(Path.Join(Path.GetTempPath(), "my-trash"));
+        var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
         var cfg = new PluginConfiguration { TrashFolderPath = absolutePath };
         var helper = CreateHelper(cfg);
-        var result = helper.GetTrashPath("/media/movies");
+        var result = helper.GetTrashPath(root);
         Assert.Equal(absolutePath, result);
+    }
+
+    [Fact]
+    public void GetTrashPath_RelativePathTraversal_FallsBackToDefault()
+    {
+        var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        var cfg = new PluginConfiguration { TrashFolderPath = "../../sensitive" };
+        var helper = CreateHelper(cfg);
+        var result = helper.GetTrashPath(root);
+        // Path traversal must not escape the library root — must fall back to safe default.
+        var expected = Path.GetFullPath(Path.Join(root, ".jellyfin-trash"));
+        Assert.Equal(expected, result);
     }
 
     // ===== GetFilteredLibraryLocations =====

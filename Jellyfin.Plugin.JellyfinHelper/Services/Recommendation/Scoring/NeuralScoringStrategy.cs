@@ -1029,27 +1029,26 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _biasOutput = bestBO;
             }
 
-            // Use k-fold cross-validation for more robust loss estimation
-            // when sufficient data is available; fall back to simple split loss otherwise.
-            if (examples.Count >= KFoldCount * MinExamplesPerFold)
+            // Use the early-stopping validation loss as the generalization estimate when
+            // available — it was computed on a held-out split that the model never trained on,
+            // making it a genuine out-of-sample loss.
+            //
+            // The previous k-fold block that ran after the final training pass computed loss on
+            // ALREADY-TRAINED weights (data leakage): it was effectively training loss, not
+            // validation loss, and caused the quality gate in EnsembleScoringStrategy to be
+            // too optimistic.  The early-stopping bestLoss is the correct signal to use here.
+            if (useEarlyStopping && bestLoss < double.MaxValue)
             {
-                var foldSize = examples.Count / KFoldCount;
-                var kFoldLossSum = 0.0;
-                for (var fold = 0; fold < KFoldCount; fold++)
-                {
-                    var foldValStart = fold * foldSize;
-                    var foldValEnd = fold == KFoldCount - 1 ? examples.Count : foldValStart + foldSize;
-                    var foldValIdx = indices[foldValStart..foldValEnd];
-                    kFoldLossSum += ComputeMseLoss(examples, vectors, weights, foldValIdx);
-                }
-
-                _lastValidationLoss = kFoldLossSum / KFoldCount;
+                // bestLoss is the minimum validation loss observed on the held-out split during
+                // early stopping — a genuine out-of-sample measure.
+                _lastValidationLoss = bestLoss;
             }
             else
             {
-                _lastValidationLoss = bestLoss < double.MaxValue
-                    ? bestLoss
-                    : ComputeMseLoss(examples, vectors, weights, trainIdx);
+                // No held-out split available (useEarlyStopping=false or val set was empty).
+                // Fall back to training-set loss as a lower bound; callers should treat this
+                // value as approximate rather than a true generalization estimate.
+                _lastValidationLoss = ComputeMseLoss(examples, vectors, weights, trainIdx);
             }
 
             _featureMeans = featureMeans;
