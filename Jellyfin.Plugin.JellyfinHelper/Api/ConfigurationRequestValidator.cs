@@ -114,8 +114,13 @@ public static class ConfigurationRequestValidator
 
         var rootPrefix = dummyRoot + Path.DirectorySeparatorChar;
 
-        if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(resolved, dummyRoot, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(resolved, dummyRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"TrashFolderPath '{trashFolderPath}' resolves to the library root itself. " +
+                   "At runtime it will fall back to '.jellyfin-trash'.";
+        }
+
+        if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
         {
             return $"TrashFolderPath '{trashFolderPath}' is a relative path that escapes the library root " +
                    "via '..' sequences. At runtime it will fall back to '.jellyfin-trash'. " +

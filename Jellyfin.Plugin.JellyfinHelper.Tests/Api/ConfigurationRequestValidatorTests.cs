@@ -273,4 +273,14 @@ public class ConfigurationRequestValidatorTests
         Assert.Contains("invalid characters or is too long", warning);
         Assert.Contains(".jellyfin-trash", warning);
     }
+
+    [Fact]
+    public void ValidateTrashPath_ReturnsWarning_ForDotPath()
+    {
+        // "." resolves to the library root itself — admin should be warned.
+        var warning = ConfigurationRequestValidator.ValidateTrashPath(".");
+        Assert.NotNull(warning);
+        Assert.Contains("resolves to the library root itself", warning);
+        Assert.Contains(".jellyfin-trash", warning);
+    }
 }

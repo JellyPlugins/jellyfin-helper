@@ -528,7 +528,20 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
                 // Never follow symlinks or junction points — they can form cycles (A → B → A)
                 // that cause infinite recursion and a StackOverflowException.
-                var attributes = new DirectoryInfo(subDir.FullName).Attributes;
+                FileAttributes attributes;
+                try
+                {
+                    attributes = new DirectoryInfo(subDir.FullName).Attributes;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _pluginLog.LogDebug(
+                        "GrowthTimeline",
+                        $"Skipping inaccessible subdirectory during attribute check: {subDir.FullName}: {ex.Message}",
+                        _logger);
+                    continue;
+                }
+
                 if ((attributes & FileAttributes.ReparsePoint) != 0)
                 {
                     continue;
