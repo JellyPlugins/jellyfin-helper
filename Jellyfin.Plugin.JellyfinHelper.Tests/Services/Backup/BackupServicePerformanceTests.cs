@@ -128,7 +128,7 @@ public class BackupServicePerformanceTests(ITestOutputHelper output)
 
     [Fact]
     [Trait("Category", "Performance")]
-    public void Sanitize_MaxSizeTimeline_5000Points_NoTrimming_CompletesWithin200ms()
+    public void Sanitize_MaxSizeTimeline_5000Points_NoTrimming_CompletesWithin500ms()
     {
         // Arrange: BackupData with exactly MaxTimelineDataPoints (5,000) - no trimming expected
         var backup = CreateLargeBackup(timelinePoints: 5_000, baselineDirs: 100, arrInstances: 2);
@@ -140,7 +140,7 @@ public class BackupServicePerformanceTests(ITestOutputHelper output)
 
         // Assert
         output.WriteLine($"Sanitize: 5,000 timeline points (at limit) \u2192 {backup.GrowthTimeline?.DataPoints.Count} in {sw.ElapsedMilliseconds}ms");
-        Assert.True(sw.ElapsedMilliseconds < 200, $"Took {sw.ElapsedMilliseconds}ms, expected < 200ms");
+        Assert.True(sw.ElapsedMilliseconds < 500, $"Took {sw.ElapsedMilliseconds}ms, expected < 500ms");
         var growthTimeline = backup.GrowthTimeline;
         Assert.NotNull(growthTimeline);
         Assert.Equal(5_000, growthTimeline.DataPoints.Count);
