@@ -49,7 +49,7 @@ Explore the full 8-tab dashboard with realistic sample data - no Jellyfin server
 
 All tasks default to **Dry Run** mode - nothing is deleted until you explicitly activate them.
 
-**Compatibility:** Jellyfin **10.11.9+** · .NET **9.0**
+**Compatibility:** Jellyfin **10.11.10+** · .NET **9.0**
 
 ---
 

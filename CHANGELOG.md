@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [2.1.0.5] - 2026-05-26
+
+### Changed
+- **Minimum Jellyfin Version** - Raised to **10.11.10** (NuGet `Jellyfin.Controller 10.11.10`, `Jellyfin.Model 10.11.10`).
+
+---
+
 ## [2.1.0.4] - 2026-05-24
 
 ### Fixed
