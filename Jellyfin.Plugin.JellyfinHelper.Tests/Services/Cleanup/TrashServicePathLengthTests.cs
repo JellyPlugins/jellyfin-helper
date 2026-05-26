@@ -133,8 +133,12 @@ public class TrashServicePathLengthTests : IDisposable
         var separator = Path.DirectorySeparatorChar.ToString();
         var dirPrefixLen = _testRoot.Length + separator.Length;
 
-        // Name that exactly fills the budget
-        var nameLen = maxLen - dirPrefixLen;
+        // Linux NAME_MAX caps a single path component at 255 bytes.
+        // We must stay within that limit so Directory.CreateDirectory succeeds
+        // while still constructing a path that exercises the length-truncation code path.
+        var componentLimit = OperatingSystem.IsWindows() ? maxLen - dirPrefixLen : 200;
+
+        var nameLen = Math.Min(maxLen - dirPrefixLen, componentLimit);
         if (nameLen <= 0)
         {
             return;
@@ -144,7 +148,7 @@ public class TrashServicePathLengthTests : IDisposable
         var path = Path.Join(_testRoot, longName);
 
         // Create a collision so the suffix path must be generated
-        Directory.CreateDirectory(path.Length <= maxLen ? path : _testRoot);
+        Directory.CreateDirectory(path);
 
         var result = TrashService.ResolveCollision(path);
 
