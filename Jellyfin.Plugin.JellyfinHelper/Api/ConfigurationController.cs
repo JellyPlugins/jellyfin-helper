@@ -144,6 +144,14 @@ public class ConfigurationController : ControllerBase
         // After saving, test all configured instance connections and log warnings
         var warnings = await TestAllConnectionsAsync(request, cancellationToken).ConfigureAwait(false);
 
+        // Warn when a relative trash path would escape the library root at runtime (falls back silently).
+        var trashWarning = ConfigurationRequestValidator.ValidateTrashPath(request.TrashFolderPath);
+        if (trashWarning != null)
+        {
+            warnings.Add(trashWarning);
+            _pluginLog.LogWarning("API", trashWarning, logger: _logger);
+        }
+
         return Ok(new { message = "Configuration saved.", warnings });
     }
 

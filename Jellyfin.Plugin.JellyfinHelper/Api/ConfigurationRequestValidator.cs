@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
@@ -72,6 +73,43 @@ public static class ConfigurationRequestValidator
         error ??= ValidateArrInstances(request.SonarrInstances, "Sonarr");
 
         return error;
+    }
+
+    /// <summary>
+    ///     Checks whether <paramref name="trashFolderPath" /> is a relative path that escapes upward via
+    ///     <c>..</c> segments. Returns a warning message when suspicious, or <c>null</c> when the path is
+    ///     fine. Absolute paths and empty/whitespace values are always considered valid here.
+    /// </summary>
+    /// <remarks>
+    ///     The check is intentionally a warning, not a hard error: <c>ICleanupConfigHelper.GetTrashPath</c>
+    ///     already falls back to <c>.jellyfin-trash</c> at runtime, so the system stays safe. The warning
+    ///     surfaces the problem to the admin without blocking the save.
+    /// </remarks>
+    /// <param name="trashFolderPath">The path value from the configuration update request.</param>
+    /// <returns>A warning message string, or <c>null</c> when no issue is detected.</returns>
+    public static string? ValidateTrashPath(string? trashFolderPath)
+    {
+        if (string.IsNullOrWhiteSpace(trashFolderPath) || Path.IsPathRooted(trashFolderPath))
+        {
+            return null;
+        }
+
+        // Resolve against a dummy root to detect whether ".." sequences escape upward.
+        // We cannot use a real library root here — it is runtime state unknown at config-save time.
+        // Use Path.GetTempPath() as a guaranteed-absolute, platform-correct anchor.
+        var dummyRoot = Path.TrimEndingDirectorySeparator(Path.GetTempPath());
+        var resolved = Path.GetFullPath(Path.Combine(dummyRoot, trashFolderPath));
+        var rootPrefix = dummyRoot + Path.DirectorySeparatorChar;
+
+        if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(resolved, dummyRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"TrashFolderPath '{trashFolderPath}' is a relative path that escapes the library root " +
+                   "via '..' sequences. At runtime it will fall back to '.jellyfin-trash'. " +
+                   "Use an absolute path if you intend a location outside the library folder.";
+        }
+
+        return null;
     }
 
     /// <summary>

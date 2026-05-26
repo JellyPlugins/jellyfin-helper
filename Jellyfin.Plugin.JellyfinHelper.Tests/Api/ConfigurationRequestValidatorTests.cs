@@ -208,4 +208,58 @@ public class ConfigurationRequestValidatorTests
         var instances = new List<ArrInstanceConfig> { new() { Url = "http://radarr.local", ApiKey = "key123", Name = "Main" } };
         Assert.Null(ConfigurationRequestValidator.ValidateArrInstances(instances, "Radarr"));
     }
+
+    // ===== TrashFolderPath =====
+
+    [Fact]
+    public void ValidateTrashPath_ReturnsNull_ForEmpty()
+    {
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPath(""));
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPath(null));
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPath("   "));
+    }
+
+    [Fact]
+    public void ValidateTrashPath_ReturnsNull_ForSimpleRelativePath()
+    {
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPath("my-trash"));
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPath(".jellyfin-trash"));
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPath("subdir/trash"));
+    }
+
+    [Theory]
+    [InlineData("/mnt/trash")]
+    [InlineData("/absolute/path/to/trash")]
+    [InlineData("C:\\Trash")]
+    public void ValidateTrashPath_ReturnsNull_ForAbsolutePath(string path)
+    {
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPath(path));
+    }
+
+    [Theory]
+    [InlineData("../../outside")]
+    [InlineData("../sibling")]
+    [InlineData("sub/../../../../../../escape")]
+    public void ValidateTrashPath_ReturnsWarning_ForEscapingRelativePath(string path)
+    {
+        var warning = ConfigurationRequestValidator.ValidateTrashPath(path);
+        Assert.NotNull(warning);
+        Assert.Contains("TrashFolderPath", warning);
+        Assert.Contains(".jellyfin-trash", warning);
+        Assert.Contains("absolute path", warning);
+    }
+
+    [Fact]
+    public void Validate_ReturnsNull_WhenTrashPathEscapes_BecauseWarningsAreNotErrors()
+    {
+        // ValidateTrashPath warnings must NOT cause Validate() to return an error —
+        // escaping paths are warned about in the controller response, not rejected here.
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            TrashFolderPath = "../../evil"
+        };
+        Assert.Null(ConfigurationRequestValidator.Validate(req));
+    }
 }
