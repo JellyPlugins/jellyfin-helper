@@ -1026,11 +1026,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             // Use the early-stopping validation loss as the generalization estimate when
             // available — it was computed on a held-out split that the model never trained on,
             // making it a genuine out-of-sample loss.
-            //
-            // The previous k-fold block that ran after the final training pass computed loss on
-            // ALREADY-TRAINED weights (data leakage): it was effectively training loss, not
-            // validation loss, and caused the quality gate in EnsembleScoringStrategy to be
-            // too optimistic.  The early-stopping bestLoss is the correct signal to use here.
             if (useEarlyStopping && bestLoss < double.MaxValue)
             {
                 // bestLoss is the minimum validation loss observed on the held-out split during
