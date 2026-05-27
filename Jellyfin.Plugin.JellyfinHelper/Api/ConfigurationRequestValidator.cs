@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
@@ -67,12 +68,84 @@ public static class ConfigurationRequestValidator
             return "Seerr API key is required when a Seerr URL is configured.";
         }
 
+        // Trash folder path validation (block obviously invalid paths from being persisted)
+        var trashPathError = ValidateTrashPathStrict(request.TrashFolderPath, request.UseTrash);
+        if (trashPathError != null)
+        {
+            return trashPathError;
+        }
+
         // Arr instance format validation (multi-instance lists)
         var error = ValidateArrInstances(request.RadarrInstances, "Radarr");
 
         error ??= ValidateArrInstances(request.SonarrInstances, "Sonarr");
 
         return error;
+    }
+
+    /// <summary>
+    ///     Performs strict validation of the trash folder path and returns an error message for obviously
+    ///     invalid paths (invalid characters, traversal patterns, only-slashes, etc.).
+    ///     This validation BLOCKS the save — the configuration will NOT be persisted.
+    /// </summary>
+    /// <param name="trashFolderPath">The path value from the configuration update request.</param>
+    /// <param name="useTrash">Whether the trash feature is enabled.</param>
+    /// <returns>An error message string, or <c>null</c> when the path is valid.</returns>
+    public static string? ValidateTrashPathStrict(string? trashFolderPath, bool useTrash)
+    {
+        // When trash is disabled, path is irrelevant — allow save
+        if (!useTrash)
+        {
+            return null;
+        }
+
+        // When trash is enabled, path must not be empty
+        if (string.IsNullOrWhiteSpace(trashFolderPath))
+        {
+            return "Trash folder path is required when trash is enabled.";
+        }
+
+        // Reject paths that consist only of slashes/backslashes (e.g. "/*", "/\", "\/", "/", "\")
+        var trimmed = trashFolderPath.Trim();
+        if (trimmed.All(c => c == '/' || c == '\\' || c == '*' || c == '?' || c == '<' || c == '>' || c == '|' || c == '"'))
+        {
+            return $"Trash folder path '{trashFolderPath}' contains only invalid characters.";
+        }
+
+        // Reject individual invalid characters that are never valid in folder names
+        char[] invalidChars = ['*', '?', '<', '>', '|', '"', '\0'];
+        foreach (var c in invalidChars)
+        {
+            if (trashFolderPath.Contains(c, StringComparison.Ordinal))
+            {
+                return $"Trash folder path contains invalid character '{c}'.";
+            }
+        }
+
+        // Reject path traversal patterns
+        if (trashFolderPath.Contains("..", StringComparison.Ordinal))
+        {
+            return "Trash folder path must not contain '..' sequences.";
+        }
+
+        // Reject paths that resolve to the root itself
+        if (trimmed is "." or "./" or ".\\")
+        {
+            return "Trash folder path must not resolve to the library root itself.";
+        }
+
+        // Attempt Path.GetFullPath to catch OS-level invalid path issues
+        try
+        {
+            var dummyRoot = Path.TrimEndingDirectorySeparator(Path.GetTempPath());
+            Path.GetFullPath(trashFolderPath, dummyRoot);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return $"Trash folder path '{trashFolderPath}' is invalid: {ex.Message}";
+        }
+
+        return null;
     }
 
     /// <summary>

@@ -283,4 +283,120 @@ public class ConfigurationRequestValidatorTests
         Assert.Contains("resolves to the library root itself", warning);
         Assert.Contains(".jellyfin-trash", warning);
     }
+
+    // ===== ValidateTrashPathStrict (blocking validation) =====
+
+    [Fact]
+    public void ValidateTrashPathStrict_ReturnsNull_WhenTrashDisabled()
+    {
+        // When trash is disabled, any path is acceptable (validation is skipped)
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict("/*", false));
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict("/\\", false));
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict("", false));
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict(null, false));
+    }
+
+    [Fact]
+    public void ValidateTrashPathStrict_ReturnsNull_ForValidPaths()
+    {
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict(".jellyfin-trash", true));
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict("my-trash", true));
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict("subdir/trash", true));
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict("/mnt/trash", true));
+    }
+
+    [Fact]
+    public void ValidateTrashPathStrict_ReturnsError_WhenEmptyAndTrashEnabled()
+    {
+        var error = ConfigurationRequestValidator.ValidateTrashPathStrict("", true);
+        Assert.NotNull(error);
+        Assert.Contains("required", error);
+
+        error = ConfigurationRequestValidator.ValidateTrashPathStrict("   ", true);
+        Assert.NotNull(error);
+
+        error = ConfigurationRequestValidator.ValidateTrashPathStrict(null, true);
+        Assert.NotNull(error);
+    }
+
+    [Theory]
+    [InlineData("/*")]
+    [InlineData("/\\")]
+    [InlineData("\\/")]
+    [InlineData("*")]
+    [InlineData("?")]
+    [InlineData("<>")]
+    [InlineData("|")]
+    [InlineData("\"")]
+    public void ValidateTrashPathStrict_ReturnsError_ForInvalidCharacters(string path)
+    {
+        var error = ConfigurationRequestValidator.ValidateTrashPathStrict(path, true);
+        Assert.NotNull(error);
+        Assert.Contains("invalid", error, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("../escape")]
+    [InlineData("../../outside")]
+    [InlineData("sub/../..")]
+    public void ValidateTrashPathStrict_ReturnsError_ForTraversalPatterns(string path)
+    {
+        var error = ConfigurationRequestValidator.ValidateTrashPathStrict(path, true);
+        Assert.NotNull(error);
+        Assert.Contains("'..'", error);
+    }
+
+    [Theory]
+    [InlineData(".")]
+    [InlineData("./")]
+    [InlineData(".\\")]
+    public void ValidateTrashPathStrict_ReturnsError_ForDotPaths(string path)
+    {
+        var error = ConfigurationRequestValidator.ValidateTrashPathStrict(path, true);
+        Assert.NotNull(error);
+        Assert.Contains("library root", error);
+    }
+
+    [Fact]
+    public void Validate_ReturnsError_ForInvalidTrashPath_WhenTrashEnabled()
+    {
+        // When UseTrash is true AND path is invalid, Validate() must block the save
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            UseTrash = true,
+            TrashFolderPath = "/*"
+        };
+        var error = ConfigurationRequestValidator.Validate(req);
+        Assert.NotNull(error);
+        Assert.Contains("invalid", error, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Validate_ReturnsNull_ForInvalidTrashPath_WhenTrashDisabled()
+    {
+        // When UseTrash is false, invalid paths are allowed (they're irrelevant)
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            UseTrash = false,
+            TrashFolderPath = "/*"
+        };
+        Assert.Null(ConfigurationRequestValidator.Validate(req));
+    }
+
+    [Fact]
+    public void Validate_ReturnsNull_ForValidTrashPath_WhenTrashEnabled()
+    {
+        var req = new ConfigurationUpdateRequest
+        {
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            UseTrash = true,
+            TrashFolderPath = ".jellyfin-trash"
+        };
+        Assert.Null(ConfigurationRequestValidator.Validate(req));
+    }
 }

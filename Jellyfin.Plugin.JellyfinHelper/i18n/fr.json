@@ -335,5 +335,10 @@
   "discoveryErrNoPermission": "Pas de permission. Contactez votre admin.",
   "discoveryErrServerUnavailable": "Serveur injoignable. Réessayez plus tard.",
   "discoveryErrTimeout": "Délai dépassé. Réessayez plus tard.",
-  "discoveryErrGeneric": "Échec de la demande. Réessayez plus tard."
+  "discoveryErrGeneric": "Échec de la demande. Réessayez plus tard.",
+  "trashPathInvalid": "Le chemin du dossier corbeille est invalide.",
+  "trashPathInvalidChars": "Le chemin contient des caractères invalides.",
+  "trashPathEmpty": "Le chemin du dossier corbeille est requis lorsque la corbeille est activée.",
+  "trashPathTraversal": "Le chemin ne doit pas contenir de séquences '..'.",
+  "trashPathOnlySlashes": "Le chemin ne peut pas être composé uniquement de barres obliques ou de caractères invalides."
 }

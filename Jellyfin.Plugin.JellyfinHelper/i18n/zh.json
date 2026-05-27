@@ -335,5 +335,10 @@
   "discoveryErrNoPermission": "没有权限。请联系管理员。",
   "discoveryErrServerUnavailable": "服务器不可达。请稍后再试。",
   "discoveryErrTimeout": "请求超时。请稍后再试。",
-  "discoveryErrGeneric": "请求失败。请稍后再试。"
+  "discoveryErrGeneric": "请求失败。请稍后再试。",
+  "trashPathInvalid": "回收站文件夹路径无效。",
+  "trashPathInvalidChars": "路径包含无效字符。",
+  "trashPathEmpty": "启用回收站时必须填写回收站文件夹路径。",
+  "trashPathTraversal": "路径不得包含 '..' 序列。",
+  "trashPathOnlySlashes": "路径不能仅由斜杠或无效字符组成。"
 }

@@ -335,5 +335,10 @@
   "discoveryErrNoPermission": "İzin yok. Yöneticinize başvurun.",
   "discoveryErrServerUnavailable": "Sunucu ulaşılamıyor. Daha sonra deneyin.",
   "discoveryErrTimeout": "Zaman aşımı. Daha sonra deneyin.",
-  "discoveryErrGeneric": "İstek başarısız. Daha sonra deneyin."
+  "discoveryErrGeneric": "İstek başarısız. Daha sonra deneyin.",
+  "trashPathInvalid": "Çöp kutusu klasör yolu geçersiz.",
+  "trashPathInvalidChars": "Yol geçersiz karakterler içeriyor.",
+  "trashPathEmpty": "Çöp kutusu etkinleştirildiğinde çöp kutusu klasör yolu gereklidir.",
+  "trashPathTraversal": "Yol '..' dizileri içeremez.",
+  "trashPathOnlySlashes": "Yol yalnızca eğik çizgi veya geçersiz karakterlerden oluşamaz."
 }

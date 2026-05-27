@@ -335,5 +335,10 @@
   "discoveryErrNoPermission": "Keine Berechtigung. Frag deinen Admin.",
   "discoveryErrServerUnavailable": "Server nicht erreichbar. Versuch es später.",
   "discoveryErrTimeout": "Zeitüberschreitung. Versuch es später.",
-  "discoveryErrGeneric": "Anfrage fehlgeschlagen. Versuch es später."
+  "discoveryErrGeneric": "Anfrage fehlgeschlagen. Versuch es später.",
+  "trashPathInvalid": "Der Papierkorb-Ordnerpfad ist ungültig.",
+  "trashPathInvalidChars": "Pfad enthält ungültige Zeichen.",
+  "trashPathEmpty": "Papierkorb-Ordnerpfad ist erforderlich, wenn der Papierkorb aktiviert ist.",
+  "trashPathTraversal": "Pfad darf keine '..' Sequenzen enthalten.",
+  "trashPathOnlySlashes": "Pfad darf nicht nur aus Schrägstrichen oder ungültigen Zeichen bestehen."
 }

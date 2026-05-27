@@ -335,5 +335,10 @@
   "discoveryErrNoPermission": "No permission. Contact your admin.",
   "discoveryErrServerUnavailable": "Server unreachable. Try again later.",
   "discoveryErrTimeout": "Timed out. Try again later.",
-  "discoveryErrGeneric": "Request failed. Try again later."
+  "discoveryErrGeneric": "Request failed. Try again later.",
+  "trashPathInvalid": "The trash folder path is invalid.",
+  "trashPathInvalidChars": "Path contains invalid characters.",
+  "trashPathEmpty": "Trash folder path is required when trash is enabled.",
+  "trashPathTraversal": "Path must not contain '..' sequences.",
+  "trashPathOnlySlashes": "Path cannot consist of only slashes or invalid characters."
 }
