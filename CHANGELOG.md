@@ -11,11 +11,21 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Symlink / Junction Infinite Recursion** - `GrowthTimelineService.GetDirectorySize()` now skips any subdirectory carrying `FileAttributes.ReparsePoint` (symlinks and NTFS junction points on Windows, symlinks on Linux/macOS). Previously a circular directory structure (A → B → A) caused unbounded recursion and a `StackOverflowException`.
 - **Trash Path Length Overflow** - `TrashService.ResolveCollision()` now enforces the OS path-length limit on every returned path (259 chars on Windows, 4 095 on Linux). Long directory names were never truncated before, causing an `IOException` when the combined timestamp prefix + original name exceeded `MAX_PATH`.
 
+### Added
+- **Swedish Language (sv)** - Full Swedish translation with 352 localized strings, available in the dashboard language selector as "Svenska".
+
 ### Changed
 - **Minimum Jellyfin Version** - Raised to **10.11.10** (NuGet `Jellyfin.Controller 10.11.10`, `Jellyfin.Model 10.11.10`).
+- **Excluded Libraries Widget** - The library exclusion setting now uses a multi-select dropdown with checkboxes instead of a free-text input, providing a clearer overview and preventing typos.
+
+### Improved
+- **Trash Folder Path Browser** - Integrated an interactive folder browser dialog for the trash path setting, allowing admins to visually navigate the filesystem and select the target directory instead of typing paths manually.
+
+### Removed
+- **Include Libraries Setting** - Removed the redundant "Include Libraries" configuration option. The existing "Excluded Libraries" setting already provides the same functionality in a more intuitive way (exclude = everything else is included).
 
 ### Tests
-- Total: **2269 tests** (`GrowthTimelineSymlinkTests`, `TrashServicePathLengthTests`).
+- Total: **2279 tests** (`GrowthTimelineSymlinkTests`, `TrashServicePathLengthTests`).
 
 ---
 

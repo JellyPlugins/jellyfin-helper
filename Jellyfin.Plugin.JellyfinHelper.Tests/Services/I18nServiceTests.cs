@@ -40,7 +40,8 @@ public class I18NServiceTests : IDisposable
         Assert.Contains("pt", languages);
         Assert.Contains("zh", languages);
         Assert.Contains("tr", languages);
-        Assert.Equal(7, languages.Count);
+        Assert.Contains("sv", languages);
+        Assert.Equal(8, languages.Count);
     }
 
     // ===== GetTranslations Tests =====
@@ -80,6 +81,7 @@ public class I18NServiceTests : IDisposable
     [InlineData("pt")]
     [InlineData("zh")]
     [InlineData("tr")]
+    [InlineData("sv")]
     public void GetTranslations_AllHaveAllExpectedKeys(string lang)
     {
         var translations = I18NService.GetTranslations(lang);
@@ -195,6 +197,7 @@ public class I18NServiceTests : IDisposable
     [InlineData("pt")]
     [InlineData("zh")]
     [InlineData("tr")]
+    [InlineData("sv")]
     public void ConfigPage_AllTKeys_ExistInLanguageTranslations(string lang)
     {
         var htmlKeys = ExtractKeysFromHtml();
@@ -214,6 +217,7 @@ public class I18NServiceTests : IDisposable
     [InlineData("pt")]
     [InlineData("zh")]
     [InlineData("tr")]
+    [InlineData("sv")]
     public void AllLanguages_HaveSameKeysAsEnglish(string lang)
     {
         var english = I18NService.GetTranslations("en");
@@ -235,6 +239,7 @@ public class I18NServiceTests : IDisposable
     [InlineData("pt")]
     [InlineData("zh")]
     [InlineData("tr")]
+    [InlineData("sv")]
     public void AllLanguages_HaveNoExtraKeysNotInEnglish(string lang)
     {
         var english = I18NService.GetTranslations("en");
@@ -257,6 +262,7 @@ public class I18NServiceTests : IDisposable
     [InlineData("pt")]
     [InlineData("zh")]
     [InlineData("tr")]
+    [InlineData("sv")]
     public void AllLanguages_NoEmptyOrWhitespaceValues(string lang)
     {
         var translations = I18NService.GetTranslations(lang);
@@ -282,6 +288,7 @@ public class I18NServiceTests : IDisposable
     [InlineData("pt")]
     [InlineData("zh")]
     [InlineData("tr")]
+    [InlineData("sv")]
     public void AllLanguages_SingularPluralPairsExist(string lang)
     {
         var translations = I18NService.GetTranslations(lang);
@@ -319,6 +326,7 @@ public class I18NServiceTests : IDisposable
     [InlineData("pt")]
     [InlineData("zh")]
     [InlineData("tr")]
+    [InlineData("sv")]
     public void NonEnglishLanguages_ScanLibraryDiffersFromEnglish(string lang)
     {
         var english = I18NService.GetTranslations("en");
@@ -337,6 +345,7 @@ public class I18NServiceTests : IDisposable
     [InlineData("pt")]
     [InlineData("zh")]
     [InlineData("tr")]
+    [InlineData("sv")]
     public void AllLanguages_TechnicalKeysAreUnchanged(string lang)
     {
         var translations = I18NService.GetTranslations(lang);
@@ -375,6 +384,7 @@ public class I18NServiceTests : IDisposable
     [InlineData("pt")]
     [InlineData("zh")]
     [InlineData("tr")]
+    [InlineData("sv")]
     public void AllLanguages_SettingsErrorAndLoadErrorAreDifferent(string lang)
     {
         var translations = I18NService.GetTranslations(lang);
@@ -417,6 +427,7 @@ public class I18NServiceTests : IDisposable
     [InlineData("pt")]
     [InlineData("zh")]
     [InlineData("tr")]
+    [InlineData("sv")]
     public void AllLanguages_HaveSameKeyCountAsEnglish(string lang)
     {
         var english = I18NService.GetTranslations("en");

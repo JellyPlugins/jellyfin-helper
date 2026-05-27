@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services;
 /// <summary>
 ///     Provides internationalization (i18n) support for the plugin dashboard.
 ///     Loads translations from embedded JSON resource files in the i18n folder.
-///     Supports: en, de, fr, es, pt, zh, tr.
+///     Supports: en, de, fr, es, pt, zh, tr, sv.
 /// </summary>
 public static class I18NService
 {
@@ -26,7 +26,7 @@ public static class I18NService
     /// </summary>
     public static ReadOnlyCollection<string> SupportedLanguages { get; } = new List<string>
     {
-        "en", "de", "fr", "es", "pt", "zh", "tr"
+        "en", "de", "fr", "es", "pt", "zh", "tr", "sv"
     }.AsReadOnly();
 
     /// <summary>

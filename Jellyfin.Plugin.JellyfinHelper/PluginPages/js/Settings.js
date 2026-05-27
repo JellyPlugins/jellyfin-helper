@@ -190,7 +190,7 @@ function loadSettings() {
 
         h += '<label for="cfgLang">' + T('language', 'Dashboard Language') + '</label>';
         h += '<select id="cfgLang">';
-        var langs = [['en', 'English'], ['de', 'Deutsch'], ['fr', 'Français'], ['es', 'Español'], ['pt', 'Português'], ['zh', '中文'], ['tr', 'Türkçe']];
+        var langs = [['en', 'English'], ['de', 'Deutsch'], ['fr', 'Français'], ['es', 'Español'], ['pt', 'Português'], ['zh', '中文'], ['tr', 'Türkçe'], ['sv', 'Svenska']];
         for (var i = 0; i < langs.length; i++) {
             h += '<option value="' + langs[i][0] + '"' + (cfg.Language === langs[i][0] ? ' selected' : '') + '>' + langs[i][1] + '</option>';
         }

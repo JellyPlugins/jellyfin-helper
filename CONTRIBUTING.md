@@ -180,7 +180,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 Jellyfin.Plugin.JellyfinHelper/
 ├── BuildTasks/
 │   └── ComposeConfigPage.cs     # MSBuild task for config page composition
-├── i18n/                        # Internationalization files (en, de, fr, es, pt, zh, tr)
+├── i18n/                        # Internationalization files (en, de, fr, es, pt, sv, zh, tr)
 ├── Plugin.cs                    # Entry point, web page registration, script injection
 ├── PluginServiceRegistrator.cs  # DI registration for all services
 ├── MediaExtensions.cs           # Extension methods for media analysis
@@ -195,6 +195,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
 │   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId, MediaType)
+│   ├── FolderBrowserController.cs       # Folder browser API (server-side directory listing)
 │   ├── RequestResult.cs                 # Generic success/failure response model
 │   ├── GrowthTimelineController.cs      # Library growth timeline API
 │   ├── LibraryInsightsController.cs     # Library insights API
@@ -223,6 +224,11 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── BackupService.cs     # Create/restore backup
 │   │   ├── BackupValidator.cs   # Comprehensive input validation
 │   │   └── BackupSanitizer.cs   # Clamp/normalize values
+│   ├── FolderBrowser/               # Server-side folder browsing
+│   │   ├── IFolderBrowserService.cs # Interface for folder listing
+│   │   ├── FolderBrowserService.cs  # Implementation: lists directories with safety guards
+│   │   ├── FolderBrowseResult.cs    # Browse result container (entries + current path)
+│   │   └── FolderEntry.cs           # Single folder/file entry DTO
 │   ├── Recommendation/              # ML recommendation system
 │   │   ├── Engine/                  # Core recommendation logic
 │   │   │   ├── Engine.cs            # Orchestrator: profiles → candidates → scoring → results
@@ -332,6 +338,7 @@ Jellyfin.Plugin.JellyfinHelper/
         ├── Shared.js, Overview.js, Codecs.js, Health.js
         ├── Trends.js, Settings.js, ArrIntegration.js, Logs.js
         ├── Recommendations.js    # Discover tab logic
+        ├── FolderBrowser.js      # Folder browser UI (path picker for settings)
         └── Main.js               # Tab routing, IIFE close
 ```
 
@@ -346,6 +353,7 @@ serviceCollection.AddSingleton<ITrashService, TrashService>();
 serviceCollection.AddSingleton<IPluginConfigurationService, PluginConfigurationService>();
 serviceCollection.AddSingleton<IPluginLogService, PluginLogService>();
 serviceCollection.AddSingleton<IMediaStatisticsService, MediaStatisticsService>();
+serviceCollection.AddSingleton<IFolderBrowserService, FolderBrowserService>();
 // (additional services omitted for brevity - see PluginServiceRegistrator.cs for the complete list)
 ```
 
