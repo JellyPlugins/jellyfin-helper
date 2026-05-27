@@ -206,7 +206,7 @@ function browseTo(path, listingEl, breadcrumbEl, state) {
             h += '</div>';
         }
 
-        if (error && dirs.length === 0 && !state.currentPath) {
+        if (error && dirs.length === 0) {
             h += '<div style="padding:1em;text-align:center;opacity:0.6;">' + mi('error') + ' ' + escHtml(error) + '</div>';
         } else if (dirs.length === 0) {
             h += '<div style="padding:1em;text-align:center;opacity:0.5;">' + T('trashBrowseEmpty', 'This folder is empty.') + '</div>';
