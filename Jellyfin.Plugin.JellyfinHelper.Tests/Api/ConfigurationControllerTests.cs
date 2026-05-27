@@ -52,13 +52,16 @@ public class ConfigurationControllerTests
 
         var loggerMock = new Mock<ILogger<ConfigurationController>>();
 
+        var libraryManagerMock = new Mock<MediaBrowser.Controller.Library.ILibraryManager>();
+
         _controller = new ConfigurationController(
             _arrServiceMock.Object,
             pluginLogMock.Object,
             loggerMock.Object,
             configHelperMock.Object,
             _configServiceMock.Object,
-            _seerrServiceMock.Object);
+            _seerrServiceMock.Object,
+            libraryManagerMock.Object);
     }
 
     [Fact]

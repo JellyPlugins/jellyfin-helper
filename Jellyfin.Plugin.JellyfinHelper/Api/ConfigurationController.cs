@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Mime;
 using System.Threading;
@@ -10,6 +11,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
+using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -29,6 +31,7 @@ public class ConfigurationController : ControllerBase
     private readonly IArrIntegrationService _arrService;
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IPluginConfigurationService _configService;
+    private readonly ILibraryManager _libraryManager;
     private readonly ILogger<ConfigurationController> _logger;
     private readonly IPluginLogService _pluginLog;
     private readonly ISeerrIntegrationService _seerrService;
@@ -42,13 +45,15 @@ public class ConfigurationController : ControllerBase
     /// <param name="configHelper">The cleanup configuration helper.</param>
     /// <param name="configService">The plugin configuration service for read/write access.</param>
     /// <param name="seerrService">The Seerr integration service for connection testing.</param>
+    /// <param name="libraryManager">The Jellyfin library manager for listing available libraries.</param>
     public ConfigurationController(
         IArrIntegrationService arrService,
         IPluginLogService pluginLog,
         ILogger<ConfigurationController> logger,
         ICleanupConfigHelper configHelper,
         IPluginConfigurationService configService,
-        ISeerrIntegrationService seerrService)
+        ISeerrIntegrationService seerrService,
+        ILibraryManager libraryManager)
     {
         _arrService = arrService;
         _pluginLog = pluginLog;
@@ -56,6 +61,7 @@ public class ConfigurationController : ControllerBase
         _configHelper = configHelper;
         _configService = configService;
         _seerrService = seerrService;
+        _libraryManager = libraryManager;
     }
 
     /// <summary>
@@ -68,6 +74,25 @@ public class ConfigurationController : ControllerBase
     {
         var config = _configHelper.GetConfig();
         return Ok(config);
+    }
+
+    /// <summary>
+    ///     Gets the list of available Jellyfin libraries (virtual folders) for the multi-select UI.
+    ///     Returns library names that can be used in the Included/Excluded Libraries settings.
+    /// </summary>
+    /// <returns>A list of library names.</returns>
+    [HttpGet("Libraries")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult GetAvailableLibraries()
+    {
+        var virtualFolders = _libraryManager.GetVirtualFolders();
+        var libraries = virtualFolders
+            .Where(f => !string.IsNullOrWhiteSpace(f.Name))
+            .Select(f => new { name = f.Name, collectionType = f.CollectionType?.ToString() ?? "unknown" })
+            .OrderBy(f => f.name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return Ok(new { libraries });
     }
 
     /// <summary>

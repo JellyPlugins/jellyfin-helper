@@ -340,5 +340,8 @@
   "trashPathInvalidChars": "Path contains invalid characters.",
   "trashPathEmpty": "Trash folder path is required when trash is enabled.",
   "trashPathTraversal": "Path must not contain '..' sequences.",
-  "trashPathOnlySlashes": "Path cannot consist of only slashes or invalid characters."
+  "trashPathOnlySlashes": "Path cannot consist of only slashes or invalid characters.",
+  "libraryAllIncluded": "All libraries (default)",
+  "libraryNoneExcluded": "None excluded (default)",
+  "librarySelected": "selected"
 }

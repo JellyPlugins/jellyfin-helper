@@ -340,5 +340,8 @@
   "trashPathInvalidChars": "Pfad enthält ungültige Zeichen.",
   "trashPathEmpty": "Papierkorb-Ordnerpfad ist erforderlich, wenn der Papierkorb aktiviert ist.",
   "trashPathTraversal": "Pfad darf keine '..' Sequenzen enthalten.",
-  "trashPathOnlySlashes": "Pfad darf nicht nur aus Schrägstrichen oder ungültigen Zeichen bestehen."
+  "trashPathOnlySlashes": "Pfad darf nicht nur aus Schrägstrichen oder ungültigen Zeichen bestehen.",
+  "libraryAllIncluded": "Alle Bibliotheken (Standard)",
+  "libraryNoneExcluded": "Keine ausgeschlossen (Standard)",
+  "librarySelected": "ausgewählt"
 }

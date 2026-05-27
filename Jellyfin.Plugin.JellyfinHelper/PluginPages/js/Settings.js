@@ -181,12 +181,12 @@ function loadSettings() {
         var h = '';
         h += '<div class="section-title">' + T('settingsGeneralTitle', 'General settings') + '</div>';
 
-        h += '<label for="cfgIncluded">' + T('includedLibraries', 'Included Libraries (comma-separated)') + '</label>';
-        h += '<input type="text" id="cfgIncluded" value="' + escAttr(cfg.IncludedLibraries || '') + '">';
+        h += '<label>' + T('includedLibraries', 'Included Libraries') + '</label>';
+        h += '<div id="cfgIncludedWrapper" class="library-multiselect-wrapper"></div>';
         h += '<div class="help-text">' + T('includedLibrariesHelp', 'Leave empty to include all libraries.') + '</div>';
 
-        h += '<label for="cfgExcluded">' + T('excludedLibraries', 'Excluded Libraries (comma-separated)') + '</label>';
-        h += '<input type="text" id="cfgExcluded" value="' + escAttr(cfg.ExcludedLibraries || '') + '">';
+        h += '<label>' + T('excludedLibraries', 'Excluded Libraries') + '</label>';
+        h += '<div id="cfgExcludedWrapper" class="library-multiselect-wrapper"></div>';
 
         h += '<label for="cfgOrphanAge">' + T('orphanMinAgeDays', 'Orphan Minimum Age (days)') + '</label>';
         h += '<input type="number" id="cfgOrphanAge" min="0" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
@@ -343,6 +343,7 @@ function loadSettings() {
         attachDiscoveryCopyHandler();
         attachAutoSaveHandlers();
         attachTrashPathInputHandler();
+        initLibraryMultiSelects(cfg);
 
         initArrButtons(cfg);
 
@@ -360,8 +361,8 @@ function buildSettingsPayload() {
     var radarrInstances = collectArrInstances('Radarr');
     var sonarrInstances = collectArrInstances('Sonarr');
     return {
-        IncludedLibraries: document.getElementById('cfgIncluded').value,
-        ExcludedLibraries: document.getElementById('cfgExcluded').value,
+        IncludedLibraries: getLibraryMultiSelectValue('cfgIncludedWrapper'),
+        ExcludedLibraries: getLibraryMultiSelectValue('cfgExcludedWrapper'),
         OrphanMinAgeDays: (function () {
             var v = parseInt(document.getElementById('cfgOrphanAge').value, 10);
             return isNaN(v) || v < 0 ? 0 : v;
@@ -1013,6 +1014,153 @@ function showInlineCheckboxIndicator(checkbox, success) {
         indicator.style.opacity = '0';
         setTimeout(function () { indicator.remove(); }, 600);
     }, 2000);
+}
+
+// ===== Library Multi-Select Widget =====
+
+/**
+ * Initializes the library multi-select dropdowns by fetching available libraries
+ * from the server and rendering checkbox lists inside the wrapper elements.
+ * @param {Object} cfg - The current plugin configuration (contains IncludedLibraries, ExcludedLibraries).
+ */
+function initLibraryMultiSelects(cfg) {
+    apiGet('JellyfinHelper/Configuration/Libraries', function (data) {
+        var libraries = (data && data.libraries) || [];
+        var includedSet = parseCommaSeparatedSet(cfg.IncludedLibraries || '');
+        var excludedSet = parseCommaSeparatedSet(cfg.ExcludedLibraries || '');
+
+        renderLibraryMultiSelect('cfgIncludedWrapper', libraries, includedSet, 'included');
+        renderLibraryMultiSelect('cfgExcludedWrapper', libraries, excludedSet, 'excluded');
+    }, function () {
+        // Fallback: show simple text inputs if API fails
+        var incWrap = document.getElementById('cfgIncludedWrapper');
+        var excWrap = document.getElementById('cfgExcludedWrapper');
+        if (incWrap) incWrap.innerHTML = '<input type="text" id="cfgIncludedFallback" value="' + escAttr(cfg.IncludedLibraries || '') + '" placeholder="' + T('includedLibrariesHelp', 'Leave empty to include all libraries.') + '">';
+        if (excWrap) excWrap.innerHTML = '<input type="text" id="cfgExcludedFallback" value="' + escAttr(cfg.ExcludedLibraries || '') + '">';
+    });
+}
+
+/**
+ * Parses a comma-separated string into a Set of trimmed, lowercased values.
+ */
+function parseCommaSeparatedSet(str) {
+    var set = {};
+    if (!str) return set;
+    var parts = str.split(',');
+    for (var i = 0; i < parts.length; i++) {
+        var v = parts[i].trim();
+        if (v) set[v.toLowerCase()] = v;
+    }
+    return set;
+}
+
+/**
+ * Renders a multi-select checkbox list widget inside the given wrapper element.
+ * @param {string} wrapperId - The DOM id of the wrapper div.
+ * @param {Array} libraries - Array of {name, collectionType} from the API.
+ * @param {Object} selectedSet - Object with lowercase keys of currently selected library names.
+ * @param {string} type - 'included' or 'excluded' for styling/ids.
+ */
+function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return;
+
+    var selectedCount = Object.keys(selectedSet).length;
+    var noneSelectedLabel = type === 'included'
+        ? T('libraryAllIncluded', 'All libraries (default)')
+        : T('libraryNoneExcluded', 'None excluded (default)');
+
+    var h = '<div class="library-multiselect" data-type="' + type + '">';
+    // Summary/toggle button
+    h += '<button type="button" class="library-multiselect-toggle" onclick="toggleLibraryDropdown(this)">';
+    var summaryText = noneSelectedLabel;
+    if (selectedCount > 0) {
+        var selectedNames = [];
+        for (var k in selectedSet) { if (selectedSet.hasOwnProperty(k)) selectedNames.push(selectedSet[k]); }
+        summaryText = selectedNames.length <= 3 ? selectedNames.join(', ') : selectedNames.slice(0, 2).join(', ') + ' +' + (selectedNames.length - 2);
+    }
+    h += '<span class="library-multiselect-summary">' + escHtml(summaryText) + '</span>';
+    h += '<span class="material-icons" style="font-size:1.1em;opacity:0.6;">expand_more</span>';
+    h += '</button>';
+    // Dropdown panel (hidden by default)
+    h += '<div class="library-multiselect-panel" style="display:none;">';
+    if (libraries.length === 0) {
+        h += '<div class="help-text" style="padding:0.5em;">' + T('noData', 'No data') + '</div>';
+    } else {
+        for (var i = 0; i < libraries.length; i++) {
+            var lib = libraries[i];
+            var isChecked = !!(selectedSet[lib.name.toLowerCase()]);
+            var checkId = wrapperId + '_lib_' + i;
+            h += '<div class="library-multiselect-item">';
+            h += '<input type="checkbox" id="' + checkId + '" value="' + escAttr(lib.name) + '"' + (isChecked ? ' checked' : '') + ' onchange="updateLibraryMultiSelectSummary(\'' + wrapperId + '\', \'' + type + '\')">';
+            h += '<label for="' + checkId + '">' + escHtml(lib.name) + ' <span class="library-type-badge">' + escHtml(lib.collectionType) + '</span></label>';
+            h += '</div>';
+        }
+    }
+    h += '</div></div>';
+
+    wrapper.innerHTML = h;
+}
+
+/**
+ * Toggles the visibility of the dropdown panel in a library multi-select.
+ */
+function toggleLibraryDropdown(btn) {
+    var panel = btn.nextElementSibling;
+    if (!panel) return;
+    var isOpen = panel.style.display !== 'none';
+    panel.style.display = isOpen ? 'none' : 'block';
+    // Update chevron
+    var icon = btn.querySelector('.material-icons');
+    if (icon) icon.textContent = isOpen ? 'expand_more' : 'expand_less';
+}
+
+/**
+ * Updates the summary text after a checkbox change.
+ */
+function updateLibraryMultiSelectSummary(wrapperId, type) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return;
+    var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
+    var count = 0;
+    for (var i = 0; i < checkboxes.length; i++) {
+        if (checkboxes[i].checked) count++;
+    }
+    var summary = wrapper.querySelector('.library-multiselect-summary');
+    if (!summary) return;
+
+    var noneSelectedLabel = type === 'included'
+        ? T('libraryAllIncluded', 'All libraries (default)')
+        : T('libraryNoneExcluded', 'None excluded (default)');
+
+    if (count === 0) {
+        summary.textContent = noneSelectedLabel;
+    } else {
+        var names = [];
+        for (var j = 0; j < checkboxes.length; j++) {
+            if (checkboxes[j].checked) names.push(checkboxes[j].value);
+        }
+        summary.textContent = names.length <= 3 ? names.join(', ') : names.slice(0, 2).join(', ') + ' +' + (names.length - 2);
+    }
+}
+
+/**
+ * Gets the comma-separated value from a library multi-select wrapper.
+ * Returns empty string if nothing is selected (=all included / none excluded).
+ */
+function getLibraryMultiSelectValue(wrapperId) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return '';
+    // Check for fallback text input
+    var fallback = wrapper.querySelector('input[type="text"]');
+    if (fallback) return fallback.value;
+    // Read checkboxes
+    var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
+    var selected = [];
+    for (var i = 0; i < checkboxes.length; i++) {
+        if (checkboxes[i].checked) selected.push(checkboxes[i].value);
+    }
+    return selected.join(', ');
 }
 
 /**

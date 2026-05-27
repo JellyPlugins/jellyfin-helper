@@ -340,5 +340,8 @@
   "trashPathInvalidChars": "Le chemin contient des caractères invalides.",
   "trashPathEmpty": "Le chemin du dossier corbeille est requis lorsque la corbeille est activée.",
   "trashPathTraversal": "Le chemin ne doit pas contenir de séquences '..'.",
-  "trashPathOnlySlashes": "Le chemin ne peut pas être composé uniquement de barres obliques ou de caractères invalides."
+  "trashPathOnlySlashes": "Le chemin ne peut pas être composé uniquement de barres obliques ou de caractères invalides.",
+  "libraryAllIncluded": "Toutes les bibliothèques (par défaut)",
+  "libraryNoneExcluded": "Aucune exclue (par défaut)",
+  "librarySelected": "sélectionnée(s)"
 }

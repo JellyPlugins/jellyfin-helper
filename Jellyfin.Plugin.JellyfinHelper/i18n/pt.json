@@ -340,5 +340,8 @@
   "trashPathInvalidChars": "O caminho contém caracteres inválidos.",
   "trashPathEmpty": "O caminho da pasta de lixeira é obrigatório quando a lixeira está ativada.",
   "trashPathTraversal": "O caminho não deve conter sequências '..'.",
-  "trashPathOnlySlashes": "O caminho não pode consistir apenas em barras ou caracteres inválidos."
+  "trashPathOnlySlashes": "O caminho não pode consistir apenas em barras ou caracteres inválidos.",
+  "libraryAllIncluded": "Todas as bibliotecas (padrão)",
+  "libraryNoneExcluded": "Nenhuma excluída (padrão)",
+  "librarySelected": "selecionada(s)"
 }
