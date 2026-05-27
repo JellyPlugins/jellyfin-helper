@@ -263,7 +263,10 @@ function loadSettings() {
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label for="cfgTrash">' + T('useTrash', 'Use Trash (Recycle Bin)') + '</label></div>';
 
         h += '<label for="cfgTrashPath">' + T('trashFolder', 'Trash Folder Path') + '</label>';
-        h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '">';
+        h += '<div style="position:relative;">';
+        h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '" style="padding-right:3em;">';
+        h += '<span id="btnBrowseTrash" style="position:absolute;right:0.6em;top:0;bottom:0;display:flex;align-items:center;cursor:pointer;color:#00a4dc;opacity:0.8;" title="' + T('trashBrowse', 'Browse\u2026') + '">' + mi('folder_open') + '</span>';
+        h += '</div>';
 
         h += '<label for="cfgTrashDays">' + T('trashRetention', 'Trash Retention (days)') + '</label>';
         h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
@@ -340,6 +343,7 @@ function loadSettings() {
         attachAutoSaveHandlers();
         attachOrphanAgeInputHandler();
         attachTrashPathInputHandler();
+        initFolderBrowser();
         initLibraryMultiSelects(cfg);
 
         initArrButtons(cfg);

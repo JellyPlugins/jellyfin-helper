@@ -6,6 +6,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
+using Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
@@ -62,6 +63,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ILinkRepairService, LinkRepairService>();
         serviceCollection.AddSingleton<IArrIntegrationService, ArrIntegrationService>();
         serviceCollection.AddSingleton<ISeerrIntegrationService, SeerrIntegrationService>();
+        serviceCollection.AddSingleton<IFolderBrowserService, FolderBrowserService>();
         serviceCollection.AddSingleton<IWatchHistoryService, WatchHistoryService>();
         serviceCollection.AddSingleton(sp =>
         {

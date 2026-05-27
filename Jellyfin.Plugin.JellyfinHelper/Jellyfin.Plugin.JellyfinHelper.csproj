@@ -67,6 +67,7 @@
         <JsModule Include="PluginPages\js\ArrIntegration.js"/>
         <JsModule Include="PluginPages\js\Recommendations.js"/>
         <JsModule Include="PluginPages\js\Logs.js"/>
+        <JsModule Include="PluginPages\js\FolderBrowser.js"/>
         <JsModule Include="PluginPages\js\Main.js"/>
     </ItemGroup>
 

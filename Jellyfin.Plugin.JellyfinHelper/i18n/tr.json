@@ -340,5 +340,15 @@
   "trashPathTraversal": "Yol '..' dizileri içeremez.",
   "trashPathOnlySlashes": "Yol yalnızca eğik çizgi veya geçersiz karakterlerden oluşamaz.",
   "libraryNoneExcluded": "Hiçbiri hariç tutulmadı (varsayılan)",
-  "librarySelected": "seçili"
+  "librarySelected": "seçili",
+  "trashBrowse": "Gözat…",
+  "trashBrowseTitle": "Çöp klasörünü seç",
+  "trashBrowseGoUp": "Yukarı",
+  "trashBrowseSelect": "Bu klasörü seç",
+  "trashBrowseCreateNew": "Veya yeni klasör adı yazın:",
+  "trashBrowseEmpty": "Bu klasör boş.",
+  "trashBrowseError": "Bu dizine erişilemiyor.",
+  "trashBrowseLibraryRoots": "Kütüphane kökleri",
+  "trashBrowseLoading": "Yükleniyor…",
+  "trashBrowseCurrentPath": "Geçerli yol"
 }

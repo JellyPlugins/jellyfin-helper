@@ -340,5 +340,15 @@
   "trashPathTraversal": "La ruta no debe contener secuencias '..'.",
   "trashPathOnlySlashes": "La ruta no puede consistir solo en barras o caracteres inválidos.",
   "libraryNoneExcluded": "Ninguna excluida (predeterminado)",
-  "librarySelected": "seleccionada(s)"
+  "librarySelected": "seleccionada(s)",
+  "trashBrowse": "Explorar…",
+  "trashBrowseTitle": "Seleccionar carpeta de papelera",
+  "trashBrowseGoUp": "Subir",
+  "trashBrowseSelect": "Seleccionar esta carpeta",
+  "trashBrowseCreateNew": "O escribir un nuevo nombre de carpeta:",
+  "trashBrowseEmpty": "Esta carpeta está vacía.",
+  "trashBrowseError": "No se puede acceder a este directorio.",
+  "trashBrowseLibraryRoots": "Raíces de bibliotecas",
+  "trashBrowseLoading": "Cargando…",
+  "trashBrowseCurrentPath": "Ruta actual"
 }

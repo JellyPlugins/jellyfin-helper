@@ -340,5 +340,15 @@
   "trashPathTraversal": "Le chemin ne doit pas contenir de séquences '..'.",
   "trashPathOnlySlashes": "Le chemin ne peut pas être composé uniquement de barres obliques ou de caractères invalides.",
   "libraryNoneExcluded": "Aucune exclue (par défaut)",
-  "librarySelected": "sélectionnée(s)"
+  "librarySelected": "sélectionnée(s)",
+  "trashBrowse": "Parcourir…",
+  "trashBrowseTitle": "Sélectionner le dossier corbeille",
+  "trashBrowseGoUp": "Remonter",
+  "trashBrowseSelect": "Sélectionner ce dossier",
+  "trashBrowseCreateNew": "Ou saisir un nouveau nom de dossier :",
+  "trashBrowseEmpty": "Ce dossier est vide.",
+  "trashBrowseError": "Impossible d'accéder à ce répertoire.",
+  "trashBrowseLibraryRoots": "Racines des bibliothèques",
+  "trashBrowseLoading": "Chargement…",
+  "trashBrowseCurrentPath": "Chemin actuel"
 }

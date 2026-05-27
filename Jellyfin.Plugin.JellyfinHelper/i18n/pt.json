@@ -340,5 +340,15 @@
   "trashPathTraversal": "O caminho não deve conter sequências '..'.",
   "trashPathOnlySlashes": "O caminho não pode consistir apenas em barras ou caracteres inválidos.",
   "libraryNoneExcluded": "Nenhuma excluída (padrão)",
-  "librarySelected": "selecionada(s)"
+  "librarySelected": "selecionada(s)",
+  "trashBrowse": "Procurar…",
+  "trashBrowseTitle": "Selecionar pasta da lixeira",
+  "trashBrowseGoUp": "Subir",
+  "trashBrowseSelect": "Selecionar esta pasta",
+  "trashBrowseCreateNew": "Ou digite um novo nome de pasta:",
+  "trashBrowseEmpty": "Esta pasta está vazia.",
+  "trashBrowseError": "Não é possível acessar este diretório.",
+  "trashBrowseLibraryRoots": "Raízes das bibliotecas",
+  "trashBrowseLoading": "Carregando…",
+  "trashBrowseCurrentPath": "Caminho atual"
 }

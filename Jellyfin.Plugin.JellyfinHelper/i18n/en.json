@@ -340,5 +340,15 @@
   "trashPathTraversal": "Path must not contain '..' sequences.",
   "trashPathOnlySlashes": "Path cannot consist of only slashes or invalid characters.",
   "libraryNoneExcluded": "None excluded (default)",
-  "librarySelected": "selected"
+  "librarySelected": "selected",
+  "trashBrowse": "Browse…",
+  "trashBrowseTitle": "Select Trash Folder",
+  "trashBrowseGoUp": "Go up",
+  "trashBrowseSelect": "Select This Folder",
+  "trashBrowseCreateNew": "Or type a new folder name:",
+  "trashBrowseEmpty": "This folder is empty.",
+  "trashBrowseError": "Cannot access this directory.",
+  "trashBrowseLibraryRoots": "Library Roots",
+  "trashBrowseLoading": "Loading…",
+  "trashBrowseCurrentPath": "Current path"
 }
