@@ -85,9 +85,7 @@
   "settingsTrashTitle": "Paramètres de la corbeille",
   "settingsArrTitle": "Paramètres d'Arr Stack",
   "clickToExpand": "Cliquez pour développer",
-  "includedLibraries": "Bibliothèques incluses (séparées par virgule)",
-  "includedLibrariesHelp": "Laisser vide pour inclure toutes les bibliothèques.",
-  "excludedLibraries": "Bibliothèques exclues (séparées par virgule)",
+  "excludedLibraries": "Bibliothèques exclues",
   "orphanMinAgeDays": "Âge minimum des orphelins (jours)",
   "orphanMinAgeDaysHelp": "Les éléments plus récents sont protégés de la suppression.",
   "language": "Langue du tableau de bord",
@@ -341,7 +339,6 @@
   "trashPathEmpty": "Le chemin du dossier corbeille est requis lorsque la corbeille est activée.",
   "trashPathTraversal": "Le chemin ne doit pas contenir de séquences '..'.",
   "trashPathOnlySlashes": "Le chemin ne peut pas être composé uniquement de barres obliques ou de caractères invalides.",
-  "libraryAllIncluded": "Toutes les bibliothèques (par défaut)",
   "libraryNoneExcluded": "Aucune exclue (par défaut)",
   "librarySelected": "sélectionnée(s)"
 }

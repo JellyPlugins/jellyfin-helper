@@ -98,7 +98,7 @@ public class I18NServiceTests : IDisposable
             "trendEarliest",
             "clickToExpand",
             "settingsGeneralTitle", "settingsTaskTitle", "settingsTrashTitle", "settingsArrTitle",
-            "includedLibraries", "includedLibrariesHelp", "excludedLibraries",
+            "excludedLibraries",
             "orphanMinAgeDays", "orphanMinAgeDaysHelp",
             "useTrash", "trashFolder", "trashRetention", "language",
             "taskModeTitle", "taskModeHelp", "activate", "dryRun", "deactivate",

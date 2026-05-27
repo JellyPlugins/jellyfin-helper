@@ -131,7 +131,6 @@ public static class BackupValidator
 
         // String field validation (XSS / injection prevention)
         ValidateStringField(result, backup.Language, "Language", MaxStringLength);
-        ValidateStringField(result, backup.IncludedLibraries, "IncludedLibraries", MaxStringLength);
         ValidateStringField(result, backup.ExcludedLibraries, "ExcludedLibraries", MaxStringLength);
         ValidateStringField(result, backup.PluginLogLevel, "PluginLogLevel", MaxStringLength);
         ValidateStringField(result, backup.TrashFolderPath, "TrashFolderPath", MaxStringLength);

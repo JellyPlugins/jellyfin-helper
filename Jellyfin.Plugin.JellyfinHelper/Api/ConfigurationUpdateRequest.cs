@@ -10,12 +10,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 public class ConfigurationUpdateRequest
 {
     /// <summary>
-    ///     Gets the library names to include (allow list). Comma-separated.
-    /// </summary>
-    public string IncludedLibraries { get; init; } = string.Empty;
-
-    /// <summary>
     ///     Gets the library names to exclude (exclude list). Comma-separated.
+    ///     Libraries in this list will be skipped by all cleanup tasks.
     /// </summary>
     public string ExcludedLibraries { get; init; } = string.Empty;
 

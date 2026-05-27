@@ -85,9 +85,7 @@
   "settingsTrashTitle": "回收站设置",
   "settingsArrTitle": "Arr 栈设置",
   "clickToExpand": "点击展开",
-  "includedLibraries": "包含的媒体库（逗号分隔）",
-  "includedLibrariesHelp": "留空以包含所有媒体库。",
-  "excludedLibraries": "排除的媒体库（逗号分隔）",
+  "excludedLibraries": "排除的媒体库",
   "orphanMinAgeDays": "孤立项最小年龄（天）",
   "orphanMinAgeDaysHelp": "比此更新的项目不会被删除。",
   "language": "面板语言",
@@ -341,7 +339,6 @@
   "trashPathEmpty": "启用回收站时必须填写回收站文件夹路径。",
   "trashPathTraversal": "路径不得包含 '..' 序列。",
   "trashPathOnlySlashes": "路径不能仅由斜杠或无效字符组成。",
-  "libraryAllIncluded": "所有媒体库（默认）",
   "libraryNoneExcluded": "无排除（默认）",
   "librarySelected": "已选择"
 }

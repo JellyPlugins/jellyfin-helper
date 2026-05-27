@@ -405,9 +405,9 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
-    public void GetFilteredLibraryLocations_AppliesIncludeFilter()
+    public void GetFilteredLibraryLocations_NoExclude_ReturnsAllVideoLibraries()
     {
-        var cfg = new PluginConfiguration { IncludedLibraries = "Movies" };
+        var cfg = new PluginConfiguration { ExcludedLibraries = "" };
         var helper = CreateHelper(cfg);
         var libraryManager = new Mock<ILibraryManager>();
         libraryManager.Setup(lm => lm.GetVirtualFolders())
@@ -427,8 +427,9 @@ public class CleanupConfigHelperTests
                 }
             });
         var result = helper.GetFilteredLibraryLocations(libraryManager.Object);
-        Assert.Single(result);
-        Assert.Equal("/media/movies", result[0]);
+        Assert.Equal(2, result.Count);
+        Assert.Contains("/media/movies", result);
+        Assert.Contains("/media/tvshows", result);
     }
 
     [Fact]

@@ -85,9 +85,7 @@
   "settingsTrashTitle": "Configurações da lixeira",
   "settingsArrTitle": "Configurações do Arr Stack",
   "clickToExpand": "clique para expandir",
-  "includedLibraries": "Bibliotecas incluídas (separadas por vírgula)",
-  "includedLibrariesHelp": "Deixe vazio para incluir todas as bibliotecas.",
-  "excludedLibraries": "Bibliotecas excluídas (separadas por vírgula)",
+  "excludedLibraries": "Bibliotecas excluídas",
   "orphanMinAgeDays": "Idade mínima de órfãos (dias)",
   "orphanMinAgeDaysHelp": "Itens mais recentes são protegidos contra exclusão.",
   "language": "Idioma do painel",
@@ -341,7 +339,6 @@
   "trashPathEmpty": "O caminho da pasta de lixeira é obrigatório quando a lixeira está ativada.",
   "trashPathTraversal": "O caminho não deve conter sequências '..'.",
   "trashPathOnlySlashes": "O caminho não pode consistir apenas em barras ou caracteres inválidos.",
-  "libraryAllIncluded": "Todas as bibliotecas (padrão)",
   "libraryNoneExcluded": "Nenhuma excluída (padrão)",
   "librarySelected": "selecionada(s)"
 }

@@ -181,10 +181,6 @@ function loadSettings() {
         var h = '';
         h += '<div class="section-title">' + T('settingsGeneralTitle', 'General settings') + '</div>';
 
-        h += '<label>' + T('includedLibraries', 'Included Libraries') + '</label>';
-        h += '<div id="cfgIncludedWrapper" class="library-multiselect-wrapper"></div>';
-        h += '<div class="help-text">' + T('includedLibrariesHelp', 'Leave empty to include all libraries.') + '</div>';
-
         h += '<label>' + T('excludedLibraries', 'Excluded Libraries') + '</label>';
         h += '<div id="cfgExcludedWrapper" class="library-multiselect-wrapper"></div>';
 
@@ -361,7 +357,6 @@ function buildSettingsPayload() {
     var radarrInstances = collectArrInstances('Radarr');
     var sonarrInstances = collectArrInstances('Sonarr');
     return {
-        IncludedLibraries: getLibraryMultiSelectValue('cfgIncludedWrapper'),
         ExcludedLibraries: getLibraryMultiSelectValue('cfgExcludedWrapper'),
         OrphanMinAgeDays: (function () {
             var v = parseInt(document.getElementById('cfgOrphanAge').value, 10);
@@ -1019,23 +1014,19 @@ function showInlineCheckboxIndicator(checkbox, success) {
 // ===== Library Multi-Select Widget =====
 
 /**
- * Initializes the library multi-select dropdowns by fetching available libraries
- * from the server and rendering checkbox lists inside the wrapper elements.
- * @param {Object} cfg - The current plugin configuration (contains IncludedLibraries, ExcludedLibraries).
+ * Initializes the library multi-select dropdown by fetching available libraries
+ * from the server and rendering a checkbox list inside the wrapper element.
+ * @param {Object} cfg - The current plugin configuration (contains ExcludedLibraries).
  */
 function initLibraryMultiSelects(cfg) {
     apiGet('JellyfinHelper/Configuration/Libraries', function (data) {
         var libraries = (data && data.libraries) || [];
-        var includedSet = parseCommaSeparatedSet(cfg.IncludedLibraries || '');
         var excludedSet = parseCommaSeparatedSet(cfg.ExcludedLibraries || '');
 
-        renderLibraryMultiSelect('cfgIncludedWrapper', libraries, includedSet, 'included');
         renderLibraryMultiSelect('cfgExcludedWrapper', libraries, excludedSet, 'excluded');
     }, function () {
-        // Fallback: show simple text inputs if API fails
-        var incWrap = document.getElementById('cfgIncludedWrapper');
+        // Fallback: show simple text input if API fails
         var excWrap = document.getElementById('cfgExcludedWrapper');
-        if (incWrap) incWrap.innerHTML = '<input type="text" id="cfgIncludedFallback" value="' + escAttr(cfg.IncludedLibraries || '') + '" placeholder="' + T('includedLibrariesHelp', 'Leave empty to include all libraries.') + '">';
         if (excWrap) excWrap.innerHTML = '<input type="text" id="cfgExcludedFallback" value="' + escAttr(cfg.ExcludedLibraries || '') + '">';
     });
 }
@@ -1059,20 +1050,18 @@ function parseCommaSeparatedSet(str) {
  * @param {string} wrapperId - The DOM id of the wrapper div.
  * @param {Array} libraries - Array of {name, collectionType} from the API.
  * @param {Object} selectedSet - Object with lowercase keys of currently selected library names.
- * @param {string} type - 'included' or 'excluded' for styling/ids.
+ * @param {string} type - 'excluded' for styling/ids.
  */
 function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
     var wrapper = document.getElementById(wrapperId);
     if (!wrapper) return;
 
     var selectedCount = Object.keys(selectedSet).length;
-    var noneSelectedLabel = type === 'included'
-        ? T('libraryAllIncluded', 'All libraries (default)')
-        : T('libraryNoneExcluded', 'None excluded (default)');
+    var noneSelectedLabel = T('libraryNoneExcluded', 'None excluded (default)');
 
     var h = '<div class="library-multiselect" data-type="' + type + '">';
     // Summary/toggle button
-    h += '<button type="button" class="library-multiselect-toggle" onclick="toggleLibraryDropdown(this)">';
+    h += '<button type="button" class="library-multiselect-toggle">';
     var summaryText = noneSelectedLabel;
     if (selectedCount > 0) {
         var selectedNames = [];
@@ -1092,7 +1081,7 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
             var isChecked = !!(selectedSet[lib.name.toLowerCase()]);
             var checkId = wrapperId + '_lib_' + i;
             h += '<div class="library-multiselect-item">';
-            h += '<input type="checkbox" id="' + checkId + '" value="' + escAttr(lib.name) + '"' + (isChecked ? ' checked' : '') + ' onchange="updateLibraryMultiSelectSummary(\'' + wrapperId + '\', \'' + type + '\')">';
+            h += '<input type="checkbox" id="' + checkId + '" value="' + escAttr(lib.name) + '"' + (isChecked ? ' checked' : '') + '>';
             h += '<label for="' + checkId + '">' + escHtml(lib.name) + ' <span class="library-type-badge">' + escHtml(lib.collectionType) + '</span></label>';
             h += '</div>';
         }
@@ -1100,6 +1089,23 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
     h += '</div></div>';
 
     wrapper.innerHTML = h;
+
+    // Attach click handler via addEventListener (more robust than inline onclick in Jellyfin plugin context)
+    var toggleBtn = wrapper.querySelector('.library-multiselect-toggle');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+            toggleLibraryDropdown(toggleBtn);
+        });
+    }
+
+    // Attach change handlers to checkboxes for auto-save with indicator on the toggle button
+    var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
+    for (var ci = 0; ci < checkboxes.length; ci++) {
+        checkboxes[ci].addEventListener('change', function () {
+            updateLibraryMultiSelectSummary(wrapperId, type);
+            doSaveSettings(buildSettingsPayload(), { quiet: true, element: toggleBtn });
+        });
+    }
 }
 
 /**
@@ -1129,9 +1135,7 @@ function updateLibraryMultiSelectSummary(wrapperId, type) {
     var summary = wrapper.querySelector('.library-multiselect-summary');
     if (!summary) return;
 
-    var noneSelectedLabel = type === 'included'
-        ? T('libraryAllIncluded', 'All libraries (default)')
-        : T('libraryNoneExcluded', 'None excluded (default)');
+    var noneSelectedLabel = T('libraryNoneExcluded', 'None excluded (default)');
 
     if (count === 0) {
         summary.textContent = noneSelectedLabel;

@@ -44,7 +44,6 @@ public static class BackupSanitizer
         backup.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
 
         // String truncation
-        backup.IncludedLibraries = TruncateString(backup.IncludedLibraries, BackupValidator.MaxStringLength);
         backup.ExcludedLibraries = TruncateString(backup.ExcludedLibraries, BackupValidator.MaxStringLength);
         backup.TrashFolderPath = TruncateString(backup.TrashFolderPath, BackupValidator.MaxStringLength);
 

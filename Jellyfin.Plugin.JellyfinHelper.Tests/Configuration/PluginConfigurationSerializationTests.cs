@@ -164,7 +164,6 @@ public class PluginConfigurationSerializationTests
     {
         var config = new PluginConfiguration
         {
-            IncludedLibraries = "Movies, TV",
             ExcludedLibraries = "Music",
             OrphanMinAgeDays = 7,
             TrickplayTaskMode = TaskMode.Activate,
@@ -182,7 +181,6 @@ public class PluginConfigurationSerializationTests
 
         var restored = RoundTrip(config);
 
-        Assert.Equal("Movies, TV", restored.IncludedLibraries);
         Assert.Equal("Music", restored.ExcludedLibraries);
         Assert.Equal(7, restored.OrphanMinAgeDays);
         Assert.Equal(TaskMode.Activate, restored.TrickplayTaskMode);

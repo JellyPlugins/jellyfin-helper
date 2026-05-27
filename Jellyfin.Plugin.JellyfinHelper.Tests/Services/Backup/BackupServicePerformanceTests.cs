@@ -200,7 +200,6 @@ public class BackupServicePerformanceTests(ITestOutputHelper output)
             BackupVersion = 1,
             CreatedAt = now,
             Language = "en",
-            IncludedLibraries = string.Join(",", GenerateStrings("Library", 50)),
             ExcludedLibraries = string.Join(",", GenerateStrings("Exclude", 20)),
             TrashFolderPath = ".jellyfin-trash",
             OrphanMinAgeDays = 14,

@@ -92,7 +92,6 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         var config = GetConfig();
         var virtualFolders = libraryManager.GetVirtualFolders();
 
-        var includedSet = ParseCommaSeparated(config.IncludedLibraries);
         var excludedSet = ParseCommaSeparated(config.ExcludedLibraries);
 
         var filteredFolders = virtualFolders.Where(f =>
@@ -111,12 +110,6 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             // (e.g. for manually created or migrated libraries)
             if (name.Contains("collection", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("boxset", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            // If allow list is set, only include listed libraries
-            if (includedSet.Count > 0 && !includedSet.Contains(name))
             {
                 return false;
             }

@@ -85,9 +85,7 @@
   "settingsTrashTitle": "Papierkorb-Einstellungen",
   "settingsArrTitle": "Arr-Stack-Einstellungen",
   "clickToExpand": "Klicken zum Aufklappen",
-  "includedLibraries": "Eingeschlossene Bibliotheken (kommagetrennt)",
-  "includedLibrariesHelp": "Leer lassen, um alle Bibliotheken einzuschließen.",
-  "excludedLibraries": "Ausgeschlossene Bibliotheken (kommagetrennt)",
+  "excludedLibraries": "Ausgeschlossene Bibliotheken",
   "orphanMinAgeDays": "Mindestalter verwaister Elemente (Tage)",
   "orphanMinAgeDaysHelp": "Elemente jünger als diese Anzahl Tage werden nicht gelöscht.",
   "language": "Dashboard-Sprache",
@@ -341,7 +339,6 @@
   "trashPathEmpty": "Papierkorb-Ordnerpfad ist erforderlich, wenn der Papierkorb aktiviert ist.",
   "trashPathTraversal": "Pfad darf keine '..' Sequenzen enthalten.",
   "trashPathOnlySlashes": "Pfad darf nicht nur aus Schrägstrichen oder ungültigen Zeichen bestehen.",
-  "libraryAllIncluded": "Alle Bibliotheken (Standard)",
   "libraryNoneExcluded": "Keine ausgeschlossen (Standard)",
   "librarySelected": "ausgewählt"
 }

@@ -333,7 +333,6 @@ public class ConfigurationController : ControllerBase
     private static void ApplyRequestToConfig(ConfigurationUpdateRequest request, PluginConfiguration config)
     {
         // Normalize nullable strings to prevent downstream NREs from explicit JSON null values
-        config.IncludedLibraries = request.IncludedLibraries;
         config.ExcludedLibraries = request.ExcludedLibraries;
         config.OrphanMinAgeDays = request.OrphanMinAgeDays;
 

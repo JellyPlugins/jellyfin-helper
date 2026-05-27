@@ -85,9 +85,7 @@
   "settingsTrashTitle": "Trash settings",
   "settingsArrTitle": "Arr stack settings",
   "clickToExpand": "Click to expand",
-  "includedLibraries": "Included Libraries (comma-separated)",
-  "includedLibrariesHelp": "Leave empty to include all libraries.",
-  "excludedLibraries": "Excluded Libraries (comma-separated)",
+  "excludedLibraries": "Excluded Libraries",
   "orphanMinAgeDays": "Orphan Minimum Age (days)",
   "orphanMinAgeDaysHelp": "Items younger than this are protected from deletion.",
   "language": "Dashboard Language",
@@ -341,7 +339,6 @@
   "trashPathEmpty": "Trash folder path is required when trash is enabled.",
   "trashPathTraversal": "Path must not contain '..' sequences.",
   "trashPathOnlySlashes": "Path cannot consist of only slashes or invalid characters.",
-  "libraryAllIncluded": "All libraries (default)",
   "libraryNoneExcluded": "None excluded (default)",
   "librarySelected": "selected"
 }

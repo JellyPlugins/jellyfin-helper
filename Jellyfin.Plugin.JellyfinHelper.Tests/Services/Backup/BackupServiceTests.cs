@@ -23,7 +23,6 @@ public class BackupServiceTests
             CreatedAt = DateTime.UtcNow,
             PluginVersion = "1.0.0",
             Language = "en",
-            IncludedLibraries = "Movies, TV Shows",
             ExcludedLibraries = "",
             OrphanMinAgeDays = 7,
             PluginLogLevel = "INFO",
@@ -237,7 +236,7 @@ public class BackupServiceTests
     public void Validate_ScriptInjectionInLibraryNames_ReturnsError(string malicious)
     {
         var backup = CreateValidBackup();
-        backup.IncludedLibraries = malicious;
+        backup.ExcludedLibraries = malicious;
         var result = BackupValidator.Validate(backup);
 
         Assert.False(result.IsValid);
@@ -263,7 +262,7 @@ public class BackupServiceTests
     public void Validate_NullBytesInString_ReturnsError()
     {
         var backup = CreateValidBackup();
-        backup.IncludedLibraries = "Movies\0EvilPayload";
+        backup.ExcludedLibraries = "Movies\0EvilPayload";
         var result = BackupValidator.Validate(backup);
 
         Assert.False(result.IsValid);
@@ -304,7 +303,7 @@ public class BackupServiceTests
     public void Validate_ExcessiveStringLength_ReturnsError()
     {
         var backup = CreateValidBackup();
-        backup.IncludedLibraries = new string('A', BackupValidator.MaxStringLength + 1);
+        backup.ExcludedLibraries = new string('A', BackupValidator.MaxStringLength + 1);
         var result = BackupValidator.Validate(backup);
 
         Assert.False(result.IsValid);
@@ -515,10 +514,10 @@ public class BackupServiceTests
     public void Sanitize_LongStrings_AreTruncated()
     {
         var backup = CreateValidBackup();
-        backup.IncludedLibraries = new string('A', 2000);
+        backup.ExcludedLibraries = new string('A', 2000);
         BackupSanitizer.Sanitize(backup);
 
-        Assert.Equal(BackupValidator.MaxStringLength, backup.IncludedLibraries.Length);
+        Assert.Equal(BackupValidator.MaxStringLength, backup.ExcludedLibraries.Length);
     }
 
     [Fact]
@@ -658,7 +657,7 @@ public class BackupServiceTests
         {
             BackupVersion = 999,
             Language = "<script>alert(1)</script>",
-            IncludedLibraries = new string('A', 5000),
+            ExcludedLibraries = new string('A', 5000),
             TrashFolderPath = "../../../etc/shadow",
             OrphanMinAgeDays = -100,
             TrashRetentionDays = -50
