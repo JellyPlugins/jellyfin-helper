@@ -113,14 +113,17 @@ public static class ConfigurationRequestValidator
         }
 
         var rootPrefix = dummyRoot + Path.DirectorySeparatorChar;
+        var pathComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
 
-        if (string.Equals(resolved, dummyRoot, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(resolved, dummyRoot, pathComparison))
         {
             return $"TrashFolderPath '{trashFolderPath}' resolves to the library root itself. " +
                    "At runtime it will fall back to '.jellyfin-trash'.";
         }
 
-        if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+        if (!resolved.StartsWith(rootPrefix, pathComparison))
         {
             return $"TrashFolderPath '{trashFolderPath}' is a relative path that escapes the library root " +
                    "via '..' sequences. At runtime it will fall back to '.jellyfin-trash'. " +

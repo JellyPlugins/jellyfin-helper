@@ -177,6 +177,91 @@ public class TrashServicePathLengthTests : IDisposable
             $"Component length {Path.GetFileName(result).Length} exceeds NAME_MAX 255");
     }
 
+    // ── Path-length safety: multibyte UTF-8 characters (Unix byte limits) ────
+
+    [Fact]
+    public void ResolveCollision_MultibyteName_ComponentFitsWithinByteLimit()
+    {
+        // On Unix, NAME_MAX is 255 bytes, not 255 characters.
+        // CJK characters like 'あ' are 3 bytes each in UTF-8.
+        // 100 such characters = 300 bytes > 255 byte limit.
+        // This test verifies that the truncation respects byte boundaries.
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        // 100 CJK chars × 3 bytes = 300 bytes, exceeds NAME_MAX of 255 bytes
+        var multibyteComponent = new string('あ', 100);
+        var path = Path.Join(_testRoot, multibyteComponent);
+        var result = TrashService.ResolveCollision(path);
+
+        var resultComponent = Path.GetFileName(result);
+        var componentByteCount = System.Text.Encoding.UTF8.GetByteCount(resultComponent);
+        Assert.True(componentByteCount <= 255,
+            $"Component byte length {componentByteCount} exceeds NAME_MAX 255 bytes");
+        // Verify we didn't lose everything — should still have some content
+        Assert.True(resultComponent.Length > 0, "Truncated component should not be empty");
+    }
+
+    [Fact]
+    public void ResolveCollision_MultibyteNameWithCollision_SuffixPreservedWithinByteLimit()
+    {
+        // Verifies that when a multibyte name has a collision, the suffix (_2) is preserved
+        // and the total component stays within the byte limit.
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(_testRoot);
+
+        // Use 80 CJK chars (240 bytes) — fits in 255 but after adding suffix would need truncation
+        var multibyteComponent = new string('日', 80);
+        var path = Path.Join(_testRoot, multibyteComponent);
+
+        // Create the original to force collision resolution — but only if it fits NAME_MAX
+        var componentBytes = System.Text.Encoding.UTF8.GetByteCount(multibyteComponent);
+        if (componentBytes <= 255)
+        {
+            Directory.CreateDirectory(path);
+        }
+
+        var result = TrashService.ResolveCollision(path);
+
+        var resultComponent = Path.GetFileName(result);
+        var resultByteCount = System.Text.Encoding.UTF8.GetByteCount(resultComponent);
+        Assert.True(resultByteCount <= 255,
+            $"Suffixed component byte length {resultByteCount} exceeds NAME_MAX 255 bytes");
+    }
+
+    [Fact]
+    public void ResolveCollision_EmojiName_TruncatesOnRuneBoundary()
+    {
+        // Emoji like 🎬 are 4 bytes in UTF-8 and 2 chars (surrogate pair) in UTF-16.
+        // Verify we don't split in the middle of a multi-byte sequence.
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        // 70 emoji × 4 bytes = 280 bytes > 255 byte limit
+        // Cannot use new string(char, count) for surrogate pairs; build manually.
+        var emoji = "\U0001F3AC"; // 🎬 U+1F3AC
+        var emojiComponent = string.Concat(Enumerable.Repeat(emoji, 70));
+        var path = Path.Join(_testRoot, emojiComponent);
+        var result = TrashService.ResolveCollision(path);
+
+        var resultComponent = Path.GetFileName(result);
+        var componentByteCount = System.Text.Encoding.UTF8.GetByteCount(resultComponent);
+        Assert.True(componentByteCount <= 255,
+            $"Emoji component byte length {componentByteCount} exceeds NAME_MAX 255 bytes");
+        // Verify no broken surrogates — re-encoding should round-trip cleanly
+        var reEncoded = System.Text.Encoding.UTF8.GetString(
+            System.Text.Encoding.UTF8.GetBytes(resultComponent));
+        Assert.Equal(resultComponent, reEncoded);
+    }
+
     // ── GUID fallback stays within limit ─────────────────────────────────────
 
     [Fact]

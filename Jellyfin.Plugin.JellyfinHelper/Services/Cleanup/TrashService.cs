@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
@@ -20,17 +21,21 @@ public class TrashService : ITrashService
     /// <summary>
     ///     Maximum length of a single path component (filename or directory name).
     ///     POSIX NAME_MAX is 255 bytes on virtually all Linux/macOS filesystems.
-    ///     Windows NTFS also caps individual components at 255 UTF-16 code units.
+    ///     Windows NTFS caps individual components at 255 UTF-16 code units.
+    ///     On non-Windows platforms this limit is enforced in bytes (UTF-8);
+    ///     on Windows it is enforced in characters (UTF-16 code units).
     /// </summary>
-    private const int MaxPathComponentLength = 255;
+    private const int MaxPathComponentLimit = 255;
 
     /// <summary>
     ///     Maximum allowed path length. Windows has a legacy MAX_PATH of 260; Linux allows up to
     ///     4096 but PATH_MAX is typically 4096. We cap at 259 on Windows (leaving room for a null
     ///     terminator) and 4095 on other platforms to guarantee the resulting path is always valid,
     ///     even after suffixes or a GUID are appended.
+    ///     On non-Windows platforms this is enforced in bytes (UTF-8);
+    ///     on Windows it is enforced in characters (UTF-16 code units).
     /// </summary>
-    private static readonly int MaxPathLength = OperatingSystem.IsWindows() ? 259 : 4095;
+    private static readonly int MaxPathLimit = OperatingSystem.IsWindows() ? 259 : 4095;
 
     private readonly IPluginLogService _pluginLog;
 
@@ -42,6 +47,13 @@ public class TrashService : ITrashService
     {
         _pluginLog = pluginLog;
     }
+
+    /// <summary>
+    ///     Gets the platform-aware string comparison for path containment checks.
+    ///     Windows filesystems (NTFS, FAT) are case-insensitive; Linux/macOS (ext4, APFS) are case-sensitive.
+    /// </summary>
+    internal static StringComparison PathComparison =>
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     /// <inheritdoc />
     public long MoveToTrash(string sourcePath, string trashBasePath, ILogger logger, DateTime? utcNow = null)
@@ -64,8 +76,8 @@ public class TrashService : ITrashService
             var normalizedTrashRoot = Path.GetFullPath(trashBasePath)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var normalizedTrashPrefix = normalizedTrashRoot + Path.DirectorySeparatorChar;
-            if (normalizedSource.Equals(normalizedTrashRoot, StringComparison.OrdinalIgnoreCase)
-                || normalizedSource.StartsWith(normalizedTrashPrefix, StringComparison.OrdinalIgnoreCase))
+            if (normalizedSource.Equals(normalizedTrashRoot, PathComparison)
+                || normalizedSource.StartsWith(normalizedTrashPrefix, PathComparison))
             {
                 _pluginLog.LogWarning(
                     "Trash",
@@ -418,55 +430,154 @@ public class TrashService : ITrashService
     ///     (not the suffix) so that the suffix is always preserved in the result.
     ///     This prevents the degenerate case where appending a suffix then truncating removes
     ///     the suffix entirely, causing every candidate to resolve to the same existing path.
+    ///     On Unix, limits are enforced in UTF-8 bytes; on Windows, in UTF-16 code units (chars).
     /// </summary>
     private static string BuildSuffixSafeCandidate(string directory, string baseName, string suffix)
     {
-        var maxNameLength = Math.Min(
-            MaxPathLength - directory.Length - 1,
-            MaxPathComponentLength);
+        var maxNameSize = GetMaxComponentSize(directory);
 
-        var availableForBase = maxNameLength - suffix.Length;
+        var suffixSize = MeasureString(suffix);
+        var availableForBase = maxNameSize - suffixSize;
         if (availableForBase <= 0)
         {
             // Suffix alone fills the budget — truncate suffix as last resort.
-            return Path.Join(directory, suffix.Length > maxNameLength ? suffix[..Math.Max(0, maxNameLength)] : suffix);
+            var truncatedSuffix = TruncateToSize(suffix, Math.Max(0, maxNameSize));
+            return Path.Join(directory, truncatedSuffix);
         }
 
-        var truncatedBase = baseName.Length > availableForBase ? baseName[..availableForBase] : baseName;
+        var truncatedBase = TruncateToSize(baseName, availableForBase);
         return Path.Join(directory, $"{truncatedBase}{suffix}");
     }
 
     /// <summary>
-    ///     Ensures the path does not exceed <see cref="MaxPathLength" />.
+    ///     Ensures the path does not exceed the platform path limit.
     ///     If it does, the file-name component is truncated (from the end, preserving the directory)
     ///     until the full path fits. The directory part is never truncated.
+    ///     On Unix, limits are enforced in UTF-8 bytes; on Windows, in UTF-16 code units (chars).
     /// </summary>
     private static string EnsurePathLength(string path)
     {
         var directory = Path.GetDirectoryName(path) ?? string.Empty;
         var name = Path.GetFileName(path);
 
-        // How many characters we can use for the file/folder name
-        // (+1 for the separator between directory and name).
-        // Also cap at MaxPathComponentLength (NAME_MAX = 255) so a single
-        // component never exceeds the per-segment filesystem limit.
-        var maxNameLength = Math.Min(
-            MaxPathLength - directory.Length - 1,
-            MaxPathComponentLength);
-        if (maxNameLength <= 0)
+        var maxNameSize = GetMaxComponentSize(directory);
+        if (maxNameSize <= 0)
         {
             // Directory itself is already at or over the limit — nothing safe to do;
             // return the path as-is and let the caller's IOException handler log it.
             return path;
         }
 
-        if (path.Length <= MaxPathLength && name.Length <= MaxPathComponentLength)
+        var pathSize = MeasureString(path);
+        var nameSize = MeasureString(name);
+        if (pathSize <= MaxPathLimit && nameSize <= MaxPathComponentLimit)
         {
             return path;
         }
 
-        var truncatedName = name.Length > maxNameLength ? name[..maxNameLength] : name;
+        var truncatedName = TruncateToSize(name, maxNameSize);
         return Path.Join(directory, truncatedName);
+    }
+
+    /// <summary>
+    ///     Computes the maximum allowed size for a path component given its parent directory.
+    ///     Takes into account both the total path limit (PATH_MAX) and the per-component limit (NAME_MAX).
+    ///     On Unix, sizes are UTF-8 byte counts; on Windows, UTF-16 char counts.
+    /// </summary>
+    private static int GetMaxComponentSize(string directory)
+    {
+        // +1 accounts for the path separator between directory and name
+        var directorySize = MeasureString(directory);
+        var separatorSize = MeasureString(Path.DirectorySeparatorChar.ToString());
+        return Math.Min(
+            MaxPathLimit - directorySize - separatorSize,
+            MaxPathComponentLimit);
+    }
+
+    /// <summary>
+    ///     Measures the size of a string in the platform-appropriate unit.
+    ///     On Unix (where filesystem limits are byte-based), returns the UTF-8 byte count.
+    ///     On Windows (where limits are char-based), returns the string length (UTF-16 code units).
+    /// </summary>
+    /// <param name="value">The string to measure.</param>
+    /// <returns>The size in bytes (Unix) or characters (Windows).</returns>
+    internal static int MeasureString(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return 0;
+        }
+
+        return OperatingSystem.IsWindows() ? value.Length : Encoding.UTF8.GetByteCount(value);
+    }
+
+    /// <summary>
+    ///     Truncates a string so that its platform-measured size does not exceed <paramref name="maxSize" />.
+    ///     On Unix, truncates to fit within a UTF-8 byte budget without splitting multi-byte sequences.
+    ///     On Windows, truncates to fit within a character (UTF-16 code unit) budget without splitting
+    ///     surrogate pairs.
+    /// </summary>
+    /// <param name="value">The string to truncate.</param>
+    /// <param name="maxSize">The maximum allowed size (bytes on Unix, chars on Windows).</param>
+    /// <returns>
+    ///     The original string if it already fits, or a truncated prefix that respects encoding boundaries.
+    /// </returns>
+    internal static string TruncateToSize(string value, int maxSize)
+    {
+        if (string.IsNullOrEmpty(value) || maxSize <= 0)
+        {
+            return string.Empty;
+        }
+
+        if (MeasureString(value) <= maxSize)
+        {
+            return value;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            // Windows: limit is in UTF-16 code units (chars).
+            // Avoid splitting surrogate pairs.
+            var length = Math.Min(value.Length, maxSize);
+            if (length > 0 && char.IsHighSurrogate(value[length - 1]))
+            {
+                length--;
+            }
+
+            return value[..length];
+        }
+
+        // Unix: limit is in UTF-8 bytes. Iterate through characters accumulating byte counts,
+        // stopping before we would exceed the budget. Use Rune enumeration to avoid
+        // splitting multi-byte sequences.
+        var byteCount = 0;
+        var charIndex = 0;
+        while (charIndex < value.Length)
+        {
+            int runeByteCount;
+            int charsConsumed;
+            if (Rune.TryGetRuneAt(value, charIndex, out var rune))
+            {
+                runeByteCount = rune.Utf8SequenceLength;
+                charsConsumed = rune.Utf16SequenceLength;
+            }
+            else
+            {
+                // Isolated surrogate or invalid — treat as replacement char (3 bytes in UTF-8)
+                runeByteCount = 3;
+                charsConsumed = 1;
+            }
+
+            if (byteCount + runeByteCount > maxSize)
+            {
+                break;
+            }
+
+            byteCount += runeByteCount;
+            charIndex += charsConsumed;
+        }
+
+        return value[..charIndex];
     }
 
     /// <summary>
