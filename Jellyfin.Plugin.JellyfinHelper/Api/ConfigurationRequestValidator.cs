@@ -112,14 +112,14 @@ public static class ConfigurationRequestValidator
             return $"Trash folder path '{trashFolderPath}' contains only invalid characters.";
         }
 
-        // Reject individual invalid characters that are never valid in folder names
+        // Reject individual invalid characters that are never valid in folder names.
+        // Note: Cast to char? is required because the array contains '\0' which equals default(char),
+        // making a plain FirstOrDefault unable to distinguish "not found" from "found '\0'".
         char[] invalidChars = ['*', '?', '<', '>', '|', '"', '\0'];
-        foreach (var c in invalidChars)
+        var firstInvalidChar = invalidChars.Cast<char?>().FirstOrDefault(c => trashFolderPath.Contains(c!.Value, StringComparison.Ordinal));
+        if (firstInvalidChar != null)
         {
-            if (trashFolderPath.Contains(c, StringComparison.Ordinal))
-            {
-                return $"Trash folder path contains invalid character '{c}'.";
-            }
+            return $"Trash folder path contains invalid character '{firstInvalidChar}'.";
         }
 
         // Reject path traversal patterns
