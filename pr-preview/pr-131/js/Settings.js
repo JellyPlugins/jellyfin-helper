@@ -185,7 +185,7 @@ function loadSettings() {
         h += '<div id="cfgExcludedWrapper" class="library-multiselect-wrapper"></div>';
 
         h += '<label for="cfgOrphanAge">' + T('orphanMinAgeDays', 'Orphan Minimum Age (days)') + '</label>';
-        h += '<input type="number" id="cfgOrphanAge" min="0" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
+        h += '<input type="number" id="cfgOrphanAge" min="0" max="365" step="1" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
         h += '<div class="help-text">' + T('orphanMinAgeDaysHelp', 'Items younger than this are protected from deletion.') + '</div>';
 
         h += '<label for="cfgLang">' + T('language', 'Dashboard Language') + '</label>';
@@ -338,6 +338,7 @@ function loadSettings() {
         attachSeerrHandlers();
         attachDiscoveryCopyHandler();
         attachAutoSaveHandlers();
+        attachOrphanAgeInputHandler();
         attachTrashPathInputHandler();
         initLibraryMultiSelects(cfg);
 
@@ -360,7 +361,9 @@ function buildSettingsPayload() {
         ExcludedLibraries: getLibraryMultiSelectValue('cfgExcludedWrapper'),
         OrphanMinAgeDays: (function () {
             var v = parseInt(document.getElementById('cfgOrphanAge').value, 10);
-            return isNaN(v) || v < 0 ? 0 : v;
+            if (isNaN(v) || v < 0) return 0;
+            if (v > 365) return 365;
+            return v;
         })(),
         TrickplayTaskMode: document.getElementById('cfgTrickplayMode').value,
         EmptyMediaFolderTaskMode: document.getElementById('cfgEmptyFolderMode').value,
@@ -1165,6 +1168,30 @@ function getLibraryMultiSelectValue(wrapperId) {
         if (checkboxes[i].checked) selected.push(checkboxes[i].value);
     }
     return selected.join(', ');
+}
+
+/**
+ * Attaches keydown and input handlers to the OrphanMinAgeDays number field.
+ * Blocks non-numeric characters (e, E, +, .) that browsers allow in type="number" fields
+ * due to scientific notation support, and clamps the value to [0, 365] on input.
+ */
+function attachOrphanAgeInputHandler() {
+    var input = document.getElementById('cfgOrphanAge');
+    if (!input) return;
+    // Block characters that type="number" allows but are invalid for integer days
+    input.addEventListener('keydown', function (e) {
+        if (e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '.') {
+            e.preventDefault();
+        }
+    });
+    // Clamp on input to enforce max visually (handles paste, spinner clicks, etc.)
+    input.addEventListener('input', function () {
+        var v = parseInt(input.value, 10);
+        if (!isNaN(v)) {
+            if (v > 365) input.value = '365';
+            if (v < 0) input.value = '0';
+        }
+    });
 }
 
 /**
