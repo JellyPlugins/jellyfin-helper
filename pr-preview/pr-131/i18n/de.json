@@ -340,5 +340,15 @@
   "trashPathTraversal": "Pfad darf keine '..' Sequenzen enthalten.",
   "trashPathOnlySlashes": "Pfad darf nicht nur aus Schrägstrichen oder ungültigen Zeichen bestehen.",
   "libraryNoneExcluded": "Keine ausgeschlossen (Standard)",
-  "librarySelected": "ausgewählt"
+  "librarySelected": "ausgewählt",
+  "trashBrowse": "Durchsuchen…",
+  "trashBrowseTitle": "Papierkorb-Ordner auswählen",
+  "trashBrowseGoUp": "Nach oben",
+  "trashBrowseSelect": "Diesen Ordner wählen",
+  "trashBrowseCreateNew": "Oder neuen Ordnernamen eingeben:",
+  "trashBrowseEmpty": "Dieser Ordner ist leer.",
+  "trashBrowseError": "Zugriff auf dieses Verzeichnis nicht möglich.",
+  "trashBrowseLibraryRoots": "Bibliothek-Stammverzeichnisse",
+  "trashBrowseLoading": "Laden…",
+  "trashBrowseCurrentPath": "Aktueller Pfad"
 }

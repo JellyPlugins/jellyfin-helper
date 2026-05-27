@@ -340,5 +340,15 @@
   "trashPathTraversal": "路径不得包含 '..' 序列。",
   "trashPathOnlySlashes": "路径不能仅由斜杠或无效字符组成。",
   "libraryNoneExcluded": "无排除（默认）",
-  "librarySelected": "已选择"
+  "librarySelected": "已选择",
+  "trashBrowse": "浏览…",
+  "trashBrowseTitle": "选择回收站文件夹",
+  "trashBrowseGoUp": "返回上级",
+  "trashBrowseSelect": "选择此文件夹",
+  "trashBrowseCreateNew": "或输入新文件夹名称：",
+  "trashBrowseEmpty": "此文件夹为空。",
+  "trashBrowseError": "无法访问此目录。",
+  "trashBrowseLibraryRoots": "媒体库根目录",
+  "trashBrowseLoading": "加载中…",
+  "trashBrowseCurrentPath": "当前路径"
 }
