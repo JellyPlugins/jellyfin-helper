@@ -1039,10 +1039,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             }
             else
             {
-                // No held-out split available (useEarlyStopping=false or val set was empty).
-                // Fall back to training-set loss as a lower bound; callers should treat this
-                // value as approximate rather than a true generalization estimate.
-                _lastValidationLoss = ComputeMseLoss(examples, vectors, weights, trainIdx);
+                // No held-out validation split: expose "unknown" generalization loss.
+                // EnsembleScoringStrategy already handles NaN as a dampened/uncertain signal.
+                _lastValidationLoss = double.NaN;
             }
 
             _featureMeans = featureMeans;
