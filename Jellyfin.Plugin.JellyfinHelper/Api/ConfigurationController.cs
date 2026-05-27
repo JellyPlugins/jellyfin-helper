@@ -334,7 +334,7 @@ public class ConfigurationController : ControllerBase
     {
         // Normalize nullable strings to prevent downstream NREs from explicit JSON null values
         config.ExcludedLibraries = request.ExcludedLibraries;
-        config.OrphanMinAgeDays = request.OrphanMinAgeDays;
+        config.OrphanMinAgeDays = Math.Clamp(request.OrphanMinAgeDays, 0, 365);
 
         config.TrickplayTaskMode = request.TrickplayTaskMode;
         config.EmptyMediaFolderTaskMode = request.EmptyMediaFolderTaskMode;
