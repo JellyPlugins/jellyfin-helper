@@ -101,13 +101,37 @@ public class FolderBrowserService : IFolderBrowserService
 
             var entries = new List<FolderEntry>();
 
-            // Enumerate immediate subdirectories, skipping those we can't access
-            IEnumerable<DirectoryInfo> subdirs;
+            // Enumerate immediate subdirectories, skipping those we can't access.
+            // EnumerateDirectories() returns a lazy iterator — exceptions from MoveNext()
+            // (e.g. UnauthorizedAccessException when accessing Attributes inside the
+            // Where predicate) are thrown during foreach iteration, not at assignment time.
+            // Therefore all filtering is done inside the per-entry try/catch to ensure a
+            // single inaccessible directory cannot abort the entire listing.
             try
             {
-                subdirs = dirInfo.EnumerateDirectories()
-                    .Where(d => !IsSystemOrHiddenCritical(d))
-                    .OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase);
+                foreach (var subdir in dirInfo.EnumerateDirectories())
+                {
+                    try
+                    {
+                        if (IsSystemOrHiddenCritical(subdir))
+                        {
+                            continue;
+                        }
+
+                        entries.Add(new FolderEntry
+                        {
+                            Name = subdir.Name,
+                            Path = subdir.FullName,
+                            HasChildren = SafeHasSubdirectories(subdir.FullName)
+                        });
+                    }
+                    catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
+                                                   or SecurityException)
+                    {
+                        // Skip individual directories we cannot access
+                        _logger.LogDebug(ex, "Skipping inaccessible directory {Dir}", subdir.FullName);
+                    }
+                }
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
             {
@@ -122,23 +146,7 @@ public class FolderBrowserService : IFolderBrowserService
                 };
             }
 
-            foreach (var subdir in subdirs)
-            {
-                try
-                {
-                    entries.Add(new FolderEntry
-                    {
-                        Name = subdir.Name,
-                        Path = subdir.FullName,
-                        HasChildren = SafeHasSubdirectories(subdir.FullName)
-                    });
-                }
-                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
-                {
-                    // Skip individual directories we cannot access
-                    _logger.LogDebug(ex, "Skipping inaccessible directory {Dir}", subdir.FullName);
-                }
-            }
+            entries.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
 
             var parentPath = GetParentPath(normalizedPath);
 
