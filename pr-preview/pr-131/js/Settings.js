@@ -181,12 +181,8 @@ function loadSettings() {
         var h = '';
         h += '<div class="section-title">' + T('settingsGeneralTitle', 'General settings') + '</div>';
 
-        h += '<label for="cfgIncluded">' + T('includedLibraries', 'Included Libraries (comma-separated)') + '</label>';
-        h += '<input type="text" id="cfgIncluded" value="' + escAttr(cfg.IncludedLibraries || '') + '">';
-        h += '<div class="help-text">' + T('includedLibrariesHelp', 'Leave empty to include all libraries.') + '</div>';
-
-        h += '<label for="cfgExcluded">' + T('excludedLibraries', 'Excluded Libraries (comma-separated)') + '</label>';
-        h += '<input type="text" id="cfgExcluded" value="' + escAttr(cfg.ExcludedLibraries || '') + '">';
+        h += '<label>' + T('excludedLibraries', 'Excluded Libraries') + '</label>';
+        h += '<div id="cfgExcludedWrapper" class="library-multiselect-wrapper"></div>';
 
         h += '<label for="cfgOrphanAge">' + T('orphanMinAgeDays', 'Orphan Minimum Age (days)') + '</label>';
         h += '<input type="number" id="cfgOrphanAge" min="0" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
@@ -342,6 +338,8 @@ function loadSettings() {
         attachSeerrHandlers();
         attachDiscoveryCopyHandler();
         attachAutoSaveHandlers();
+        attachTrashPathInputHandler();
+        initLibraryMultiSelects(cfg);
 
         initArrButtons(cfg);
 
@@ -359,8 +357,7 @@ function buildSettingsPayload() {
     var radarrInstances = collectArrInstances('Radarr');
     var sonarrInstances = collectArrInstances('Sonarr');
     return {
-        IncludedLibraries: document.getElementById('cfgIncluded').value,
-        ExcludedLibraries: document.getElementById('cfgExcluded').value,
+        ExcludedLibraries: getLibraryMultiSelectValue('cfgExcludedWrapper'),
         OrphanMinAgeDays: (function () {
             var v = parseInt(document.getElementById('cfgOrphanAge').value, 10);
             return isNaN(v) || v < 0 ? 0 : v;
@@ -1014,6 +1011,259 @@ function showInlineCheckboxIndicator(checkbox, success) {
     }, 2000);
 }
 
+// ===== Library Multi-Select Widget =====
+
+/**
+ * Initializes the library multi-select dropdown by fetching available libraries
+ * from the server and rendering a checkbox list inside the wrapper element.
+ * @param {Object} cfg - The current plugin configuration (contains ExcludedLibraries).
+ */
+function initLibraryMultiSelects(cfg) {
+    apiGet('JellyfinHelper/Configuration/Libraries', function (data) {
+        var libraries = (data && data.libraries) || [];
+        var excludedSet = parseCommaSeparatedSet(cfg.ExcludedLibraries || '');
+
+        renderLibraryMultiSelect('cfgExcludedWrapper', libraries, excludedSet, 'excluded');
+    }, function () {
+        // Fallback: show simple text input if API fails
+        var excWrap = document.getElementById('cfgExcludedWrapper');
+        if (excWrap) excWrap.innerHTML = '<input type="text" id="cfgExcludedFallback" value="' + escAttr(cfg.ExcludedLibraries || '') + '">';
+    });
+}
+
+/**
+ * Parses a comma-separated string into a Set of trimmed, lowercased values.
+ */
+function parseCommaSeparatedSet(str) {
+    var set = {};
+    if (!str) return set;
+    var parts = str.split(',');
+    for (var i = 0; i < parts.length; i++) {
+        var v = parts[i].trim();
+        if (v) set[v.toLowerCase()] = v;
+    }
+    return set;
+}
+
+/**
+ * Renders a multi-select checkbox list widget inside the given wrapper element.
+ * @param {string} wrapperId - The DOM id of the wrapper div.
+ * @param {Array} libraries - Array of {name, collectionType} from the API.
+ * @param {Object} selectedSet - Object with lowercase keys of currently selected library names.
+ * @param {string} type - 'excluded' for styling/ids.
+ */
+function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return;
+
+    var selectedCount = Object.keys(selectedSet).length;
+    var noneSelectedLabel = T('libraryNoneExcluded', 'None excluded (default)');
+
+    var h = '<div class="library-multiselect" data-type="' + type + '">';
+    // Summary/toggle button
+    h += '<button type="button" class="library-multiselect-toggle">';
+    var summaryText = noneSelectedLabel;
+    if (selectedCount > 0) {
+        var selectedNames = [];
+        for (var k in selectedSet) { if (selectedSet.hasOwnProperty(k)) selectedNames.push(selectedSet[k]); }
+        summaryText = selectedNames.length <= 3 ? selectedNames.join(', ') : selectedNames.slice(0, 2).join(', ') + ' +' + (selectedNames.length - 2);
+    }
+    h += '<span class="library-multiselect-summary">' + escHtml(summaryText) + '</span>';
+    h += '<span class="material-icons" style="font-size:1.1em;opacity:0.6;">expand_more</span>';
+    h += '</button>';
+    // Dropdown panel (hidden by default)
+    h += '<div class="library-multiselect-panel" style="display:none;">';
+    if (libraries.length === 0) {
+        h += '<div class="help-text" style="padding:0.5em;">' + T('noData', 'No data') + '</div>';
+    } else {
+        for (var i = 0; i < libraries.length; i++) {
+            var lib = libraries[i];
+            var isChecked = !!(selectedSet[lib.name.toLowerCase()]);
+            var checkId = wrapperId + '_lib_' + i;
+            h += '<div class="library-multiselect-item">';
+            h += '<input type="checkbox" id="' + checkId + '" value="' + escAttr(lib.name) + '"' + (isChecked ? ' checked' : '') + '>';
+            h += '<label for="' + checkId + '">' + escHtml(lib.name) + ' <span class="library-type-badge">' + escHtml(lib.collectionType) + '</span></label>';
+            h += '</div>';
+        }
+    }
+    h += '</div></div>';
+
+    wrapper.innerHTML = h;
+
+    // Attach click handler via addEventListener (more robust than inline onclick in Jellyfin plugin context)
+    var toggleBtn = wrapper.querySelector('.library-multiselect-toggle');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+            toggleLibraryDropdown(toggleBtn);
+        });
+    }
+
+    // Attach change handlers to checkboxes for auto-save with indicator on the toggle button
+    var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
+    for (var ci = 0; ci < checkboxes.length; ci++) {
+        checkboxes[ci].addEventListener('change', function () {
+            updateLibraryMultiSelectSummary(wrapperId, type);
+            doSaveSettings(buildSettingsPayload(), { quiet: true, element: toggleBtn });
+        });
+    }
+}
+
+/**
+ * Toggles the visibility of the dropdown panel in a library multi-select.
+ */
+function toggleLibraryDropdown(btn) {
+    var panel = btn.nextElementSibling;
+    if (!panel) return;
+    var isOpen = panel.style.display !== 'none';
+    panel.style.display = isOpen ? 'none' : 'block';
+    // Update chevron
+    var icon = btn.querySelector('.material-icons');
+    if (icon) icon.textContent = isOpen ? 'expand_more' : 'expand_less';
+}
+
+/**
+ * Updates the summary text after a checkbox change.
+ */
+function updateLibraryMultiSelectSummary(wrapperId, type) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return;
+    var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
+    var count = 0;
+    for (var i = 0; i < checkboxes.length; i++) {
+        if (checkboxes[i].checked) count++;
+    }
+    var summary = wrapper.querySelector('.library-multiselect-summary');
+    if (!summary) return;
+
+    var noneSelectedLabel = T('libraryNoneExcluded', 'None excluded (default)');
+
+    if (count === 0) {
+        summary.textContent = noneSelectedLabel;
+    } else {
+        var names = [];
+        for (var j = 0; j < checkboxes.length; j++) {
+            if (checkboxes[j].checked) names.push(checkboxes[j].value);
+        }
+        summary.textContent = names.length <= 3 ? names.join(', ') : names.slice(0, 2).join(', ') + ' +' + (names.length - 2);
+    }
+}
+
+/**
+ * Gets the comma-separated value from a library multi-select wrapper.
+ * Returns empty string if nothing is selected (=all included / none excluded).
+ */
+function getLibraryMultiSelectValue(wrapperId) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return '';
+    // Check for fallback text input
+    var fallback = wrapper.querySelector('input[type="text"]');
+    if (fallback) return fallback.value;
+    // Read checkboxes
+    var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
+    var selected = [];
+    for (var i = 0; i < checkboxes.length; i++) {
+        if (checkboxes[i].checked) selected.push(checkboxes[i].value);
+    }
+    return selected.join(', ');
+}
+
+/**
+ * Attaches an input event listener to the trash path field that clears
+ * the validation error state as soon as the user starts editing.
+ * This creates the UX flow: error on save → user edits → error clears → save again.
+ */
+function attachTrashPathInputHandler() {
+    var input = document.getElementById('cfgTrashPath');
+    if (!input) return;
+    input.addEventListener('input', function () {
+        showTrashPathError(null);
+    });
+}
+
+/**
+ * Validates the trash folder path on the client side before saving.
+ * Returns an i18n error message string if invalid, or null if valid.
+ * @param {string} path - The trash folder path value.
+ * @param {boolean} useTrash - Whether the trash feature is enabled.
+ * @returns {string|null}
+ */
+function validateTrashPath(path, useTrash) {
+    // When trash is disabled, path is irrelevant
+    if (!useTrash) return null;
+
+    // When trash is enabled, path must not be empty
+    if (!path || !path.trim()) {
+        return T('trashPathEmpty', 'Trash folder path is required when trash is enabled.');
+    }
+
+    var trimmed = path.trim();
+
+    // Reject individual invalid characters
+    var invalidChars = ['*', '?', '<', '>', '|', '"'];
+    for (var i = 0; i < invalidChars.length; i++) {
+        if (path.indexOf(invalidChars[i]) !== -1) {
+            return T('trashPathInvalidChars', 'Path contains invalid characters.') + ' (' + invalidChars[i] + ')';
+        }
+    }
+
+    // Reject paths that consist only of slashes and invalid chars
+    var allInvalid = true;
+    var badChars = '/\\*?<>|"';
+    for (var j = 0; j < trimmed.length; j++) {
+        if (badChars.indexOf(trimmed[j]) === -1) {
+            allInvalid = false;
+            break;
+        }
+    }
+    if (allInvalid) {
+        return T('trashPathOnlySlashes', 'Path cannot consist of only slashes or invalid characters.');
+    }
+
+    // Reject path traversal
+    if (path.indexOf('..') !== -1) {
+        return T('trashPathTraversal', "Path must not contain '..' sequences.");
+    }
+
+    // Reject paths that resolve to root
+    if (trimmed === '.' || trimmed === './' || trimmed === '.\\') {
+        return T('trashPathInvalid', 'The trash folder path is invalid.');
+    }
+
+    return null;
+}
+
+/**
+ * Shows or clears the trash path validation error UI on the input field.
+ * @param {string|null} errorMsg - The error message, or null to clear.
+ */
+function showTrashPathError(errorMsg) {
+    var input = document.getElementById('cfgTrashPath');
+    var existingErr = document.getElementById('trashPathErrorMsg');
+
+    if (!errorMsg) {
+        // Clear error state
+        if (input) input.style.borderColor = '';
+        if (existingErr) existingErr.remove();
+        return;
+    }
+
+    // Set error state
+    if (input) input.style.borderColor = '#e74c3c';
+    if (existingErr) {
+        existingErr.innerHTML = mi('error') + ' ' + escHtml(errorMsg);
+    } else {
+        var errDiv = document.createElement('div');
+        errDiv.id = 'trashPathErrorMsg';
+        errDiv.className = 'error-msg';
+        errDiv.style.marginTop = '0.3em';
+        errDiv.style.fontSize = '0.85em';
+        errDiv.innerHTML = mi('error') + ' ' + escHtml(errorMsg);
+        if (input && input.parentNode) {
+            input.parentNode.insertBefore(errDiv, input.nextSibling);
+        }
+    }
+}
+
 function saveSettings() {
     var btn = document.getElementById('btnSaveSettings');
     var msg = document.getElementById('settingsMsg');
@@ -1021,6 +1271,15 @@ function saveSettings() {
     msg.innerHTML = '';
 
     var payload = buildSettingsPayload();
+
+    // Validate trash folder path before saving
+    var trashError = validateTrashPath(payload.TrashFolderPath, payload.UseTrash);
+    if (trashError) {
+        showTrashPathError(trashError);
+        btn.disabled = false;
+        return;
+    }
+    showTrashPathError(null); // Clear any previous error
 
     // Check if trash is being disabled (was enabled, now unchecked)
     if (_wasTrashEnabled && !payload.UseTrash) {

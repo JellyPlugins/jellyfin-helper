@@ -85,9 +85,7 @@
   "settingsTrashTitle": "Configuración de papelera",
   "settingsArrTitle": "Configuración de Arr Stack",
   "clickToExpand": "Haz clic para expandir",
-  "includedLibraries": "Bibliotecas incluidas (separadas por coma)",
-  "includedLibrariesHelp": "Dejar vacío para incluir todas las bibliotecas.",
-  "excludedLibraries": "Bibliotecas excluidas (separadas por coma)",
+  "excludedLibraries": "Bibliotecas excluidas",
   "orphanMinAgeDays": "Edad mínima de huérfanos (días)",
   "orphanMinAgeDaysHelp": "Los elementos más recientes están protegidos contra la eliminación.",
   "language": "Idioma del panel",
@@ -335,5 +333,12 @@
   "discoveryErrNoPermission": "Sin permiso. Contacta a tu admin.",
   "discoveryErrServerUnavailable": "Servidor no disponible. Inténtalo más tarde.",
   "discoveryErrTimeout": "Tiempo agotado. Inténtalo más tarde.",
-  "discoveryErrGeneric": "Solicitud fallida. Inténtalo más tarde."
+  "discoveryErrGeneric": "Solicitud fallida. Inténtalo más tarde.",
+  "trashPathInvalid": "La ruta de la carpeta de papelera es inválida.",
+  "trashPathInvalidChars": "La ruta contiene caracteres inválidos.",
+  "trashPathEmpty": "La ruta de la carpeta de papelera es obligatoria cuando la papelera está activada.",
+  "trashPathTraversal": "La ruta no debe contener secuencias '..'.",
+  "trashPathOnlySlashes": "La ruta no puede consistir solo en barras o caracteres inválidos.",
+  "libraryNoneExcluded": "Ninguna excluida (predeterminado)",
+  "librarySelected": "seleccionada(s)"
 }

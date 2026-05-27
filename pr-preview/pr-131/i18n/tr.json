@@ -85,9 +85,7 @@
   "settingsTrashTitle": "Çöp kutusu ayarları",
   "settingsArrTitle": "Arr Stack ayarları",
   "clickToExpand": "genişletmek için tıklayın",
-  "includedLibraries": "Dahil edilen kütüphaneler (virgülle ayrılmış)",
-  "includedLibrariesHelp": "Tüm kütüphaneleri dahil etmek için boş bırakın.",
-  "excludedLibraries": "Hariç tutulan kütüphaneler (virgülle ayrılmış)",
+  "excludedLibraries": "Hariç tutulan kütüphaneler",
   "orphanMinAgeDays": "Sahipsiz öğe minimum yaşı (gün)",
   "orphanMinAgeDaysHelp": "Bundan daha yeni öğeler silinmekten korunur.",
   "language": "Pano dili",
@@ -335,5 +333,12 @@
   "discoveryErrNoPermission": "İzin yok. Yöneticinize başvurun.",
   "discoveryErrServerUnavailable": "Sunucu ulaşılamıyor. Daha sonra deneyin.",
   "discoveryErrTimeout": "Zaman aşımı. Daha sonra deneyin.",
-  "discoveryErrGeneric": "İstek başarısız. Daha sonra deneyin."
+  "discoveryErrGeneric": "İstek başarısız. Daha sonra deneyin.",
+  "trashPathInvalid": "Çöp kutusu klasör yolu geçersiz.",
+  "trashPathInvalidChars": "Yol geçersiz karakterler içeriyor.",
+  "trashPathEmpty": "Çöp kutusu etkinleştirildiğinde çöp kutusu klasör yolu gereklidir.",
+  "trashPathTraversal": "Yol '..' dizileri içeremez.",
+  "trashPathOnlySlashes": "Yol yalnızca eğik çizgi veya geçersiz karakterlerden oluşamaz.",
+  "libraryNoneExcluded": "Hiçbiri hariç tutulmadı (varsayılan)",
+  "librarySelected": "seçili"
 }
