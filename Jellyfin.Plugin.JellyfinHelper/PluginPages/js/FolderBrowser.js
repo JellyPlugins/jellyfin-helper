@@ -79,16 +79,30 @@ function openFolderBrowserDialog() {
     // Store state
     var state = { currentPath: null };
 
+    // Close handler shared across all dismiss paths
+    function closeDialog() {
+        removeDialogById('folderBrowserOverlay');
+    }
+
     // Event handlers
-    document.getElementById('folderBrowserClose').addEventListener('click', function () {
-        removeDialogById('folderBrowserOverlay');
-    });
-    document.getElementById('folderBrowserCancel').addEventListener('click', function () {
-        removeDialogById('folderBrowserOverlay');
-    });
+    document.getElementById('folderBrowserClose').addEventListener('click', closeDialog);
+    document.getElementById('folderBrowserCancel').addEventListener('click', closeDialog);
     overlay.addEventListener('click', function (e) {
-        if (e.target === overlay) removeDialogById('folderBrowserOverlay');
+        if (e.target === overlay) closeDialog();
     });
+
+    // Escape key support - listener is scoped to the overlay element.
+    // When the overlay is removed from the DOM, this listener is automatically cleaned up
+    // (no orphan listeners on document).
+    overlay.setAttribute('tabindex', '-1');
+    overlay.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeDialog();
+        }
+    });
+    overlay.focus();
+
     document.getElementById('folderBrowserSelect').addEventListener('click', function () {
         var newName = (document.getElementById('folderBrowserNewName') || {}).value || '';
         var selectedPath = state.currentPath || '';
@@ -108,7 +122,7 @@ function openFolderBrowserDialog() {
                 input.dispatchEvent(new Event('input', { bubbles: true }));
             }
         }
-        removeDialogById('folderBrowserOverlay');
+        closeDialog();
         if (selectedPath) {
             doSaveSettings(buildSettingsPayload(), {
                 quiet: true,
