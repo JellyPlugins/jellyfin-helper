@@ -439,8 +439,15 @@ public class TrashService : ITrashService
             }
         }
 
-        // Extremely unlikely fallback: append a GUID (32 hex chars + underscore = 33 chars)
-        return BuildSuffixSafeCandidate(directory, name, $"_{Guid.NewGuid():N}");
+        // Extremely unlikely fallback: append a GUID and verify the final truncated path.
+        string guidCandidate;
+        do
+        {
+            guidCandidate = BuildSuffixSafeCandidate(directory, name, $"_{Guid.NewGuid():N}");
+        }
+        while (File.Exists(guidCandidate) || Directory.Exists(guidCandidate));
+
+        return guidCandidate;
     }
 
     /// <summary>
