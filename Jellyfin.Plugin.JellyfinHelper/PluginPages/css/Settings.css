@@ -258,6 +258,13 @@
     padding: 0.3em 0;
 }
 
+@media (prefers-color-scheme: light) {
+    .library-multiselect-panel {
+        background: #ffffff;
+        border-color: rgba(0, 0, 0, 0.15);
+    }
+}
+
 .library-multiselect-item {
     display: flex;
     align-items: center;

@@ -212,8 +212,8 @@ public class FolderBrowserService : IFolderBrowserService
             return "Path contains invalid characters.";
         }
 
-        // Must be an absolute path
-        if (!Path.IsPathRooted(path))
+        // Must be an absolute path (IsPathFullyQualified rejects drive-relative paths like "C:temp")
+        if (!Path.IsPathFullyQualified(path))
         {
             return "Path must be absolute.";
         }

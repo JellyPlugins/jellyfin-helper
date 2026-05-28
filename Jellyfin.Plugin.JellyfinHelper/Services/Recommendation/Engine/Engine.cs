@@ -772,7 +772,7 @@ public sealed class Engine : IRecommendationEngine
         // The field is kept to preserve feature-vector layout parity with the training pipeline,
         // where the boost IS computed from real episode data (the series was recommended first,
         // then the user watched it — progression is a valid training signal even though it
-        // cannot appear at inference time).
+        // rarely appears at inference time).
         var seriesProgressionBoost = 0.0;
         if (candidate is Series candidateSeries &&
             seriesEpisodeLookup.TryGetValue(candidateSeries.Id, out var progressionEps))
