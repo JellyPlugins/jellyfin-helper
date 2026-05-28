@@ -512,7 +512,7 @@ CSS and JS files are injected in a specific order defined in `ComposeConfigPage.
 // JS order  
 "Shared.js", "Overview.js", "Codecs.js", "Health.js",
 "Trends.js", "Settings.js", "ArrIntegration.js", "Logs.js",
-"Recommendations.js", "Main.js"
+"Recommendations.js", "FolderBrowser.js", "Main.js"
 ```
 
 `Shared.css`/`Shared.js` must be first (shared utilities), `Main.js` must be last (tab routing + IIFE close).

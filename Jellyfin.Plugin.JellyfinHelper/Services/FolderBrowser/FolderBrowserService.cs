@@ -41,13 +41,39 @@ public class FolderBrowserService : IFolderBrowserService
 
                 foreach (var drive in drives)
                 {
-                    var hasChildren = SafeHasSubdirectories(drive.RootDirectory.FullName);
-                    entries.Add(new FolderEntry
+                    try
                     {
-                        Name = $"{drive.Name.TrimEnd(Path.DirectorySeparatorChar)} ({drive.VolumeLabel})",
-                        Path = drive.RootDirectory.FullName,
-                        HasChildren = hasChildren
-                    });
+                        var rootPath = drive.RootDirectory.FullName;
+                        var hasChildren = SafeHasSubdirectories(rootPath);
+
+                        string? volumeLabel = null;
+                        try
+                        {
+                            volumeLabel = drive.VolumeLabel;
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                                       or SecurityException)
+                        {
+                            _logger.LogDebug(ex, "Could not read volume label for drive {Drive}", drive.Name);
+                        }
+
+                        var baseName = drive.Name.TrimEnd(Path.DirectorySeparatorChar);
+                        var displayName = string.IsNullOrWhiteSpace(volumeLabel)
+                            ? baseName
+                            : $"{baseName} ({volumeLabel})";
+
+                        entries.Add(new FolderEntry
+                        {
+                            Name = displayName,
+                            Path = rootPath,
+                            HasChildren = hasChildren
+                        });
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                                   or SecurityException)
+                    {
+                        _logger.LogDebug(ex, "Skipping inaccessible drive {Drive}", drive.Name);
+                    }
                 }
             }
             else

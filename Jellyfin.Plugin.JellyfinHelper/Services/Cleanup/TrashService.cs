@@ -127,6 +127,24 @@ public class TrashService : ITrashService
                 return 0;
             }
 
+            // Guard: prevent re-trashing files that are already inside the trash folder.
+            // This mirrors the equivalent guard in MoveDirectoryToTrash() and prevents
+            // path-length growth from repeated timestamp prefixing.
+            var normalizedFile = Path.GetFullPath(sourceFilePath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var normalizedTrashRoot = Path.GetFullPath(trashBasePath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var normalizedTrashPrefix = normalizedTrashRoot + Path.DirectorySeparatorChar;
+            if (normalizedFile.Equals(normalizedTrashRoot, PathComparison)
+                || normalizedFile.StartsWith(normalizedTrashPrefix, PathComparison))
+            {
+                _pluginLog.LogWarning(
+                    "Trash",
+                    $"Source file is already inside trash folder, skipping: {sourceFilePath}",
+                    logger: logger);
+                return 0;
+            }
+
             var fileName = Path.GetFileName(sourceFilePath);
             var timestamp = (utcNow ?? DateTime.UtcNow).ToString(TimestampFormat, CultureInfo.InvariantCulture);
             var trashItemName = $"{timestamp}_{fileName}";
