@@ -1090,7 +1090,7 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
         summaryText = selectedNames.length <= 3 ? selectedNames.join(', ') : selectedNames.slice(0, 2).join(', ') + ' +' + (selectedNames.length - 2);
     }
     h += '<span class="library-multiselect-summary">' + escHtml(summaryText) + '</span>';
-    h += '<span class="material-icons" style="font-size:1.1em;opacity:0.6;">expand_more</span>';
+    h += '<span class="library-multiselect-chevron">' + mi('expand_more') + '</span>';
     h += '</button>';
     // Dropdown panel (hidden by default)
     h += '<div class="library-multiselect-panel" style="display:none;">';
@@ -1124,7 +1124,7 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
     for (var ci = 0; ci < checkboxes.length; ci++) {
         checkboxes[ci].addEventListener('change', function () {
             updateLibraryMultiSelectSummary(wrapperId, type);
-            doSaveSettings(buildSettingsPayload(), { quiet: true, element: toggleBtn });
+            doSaveSettings(buildSettingsPayload(), { quiet: true, element: wrapper });
         });
     }
 }
@@ -1138,8 +1138,8 @@ function toggleLibraryDropdown(btn) {
     var isOpen = panel.style.display !== 'none';
     panel.style.display = isOpen ? 'none' : 'block';
     // Update chevron
-    var icon = btn.querySelector('.material-icons');
-    if (icon) icon.textContent = isOpen ? 'expand_more' : 'expand_less';
+    var chevron = btn.querySelector('.library-multiselect-chevron');
+    if (chevron) chevron.innerHTML = isOpen ? mi('expand_more') : mi('expand_less');
 }
 
 /**
