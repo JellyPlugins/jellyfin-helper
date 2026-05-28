@@ -200,8 +200,11 @@ public class FolderBrowserService : IFolderBrowserService
             return "Path must not be empty.";
         }
 
-        // Reject path traversal patterns
-        if (path.Contains("..", StringComparison.Ordinal))
+        // Reject path traversal patterns (segment-aware to avoid false positives on names like "my..folder")
+        var segments = path.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Any(static s => s == ".."))
         {
             return "Path must not contain '..' sequences.";
         }

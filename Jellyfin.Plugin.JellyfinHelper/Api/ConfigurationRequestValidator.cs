@@ -122,8 +122,9 @@ public static class ConfigurationRequestValidator
             return $"Trash folder path contains invalid character '{firstInvalidChar}'.";
         }
 
-        // Reject path traversal patterns
-        if (trashFolderPath.Contains("..", StringComparison.Ordinal))
+        // Reject path traversal patterns (segment-aware to avoid false positives on names like "my..folder")
+        var segments = trashFolderPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Any(s => s == ".."))
         {
             return "Trash folder path must not contain '..' sequences.";
         }
