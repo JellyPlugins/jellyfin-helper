@@ -131,8 +131,12 @@ function openFolderBrowserDialog() {
     loadLibraryPathsForBrowser(quickJump, state, listing, breadcrumb);
 
     // Start browsing
-    if (currentPath && (currentPath.startsWith('/') || /^[A-Za-z]:/.test(currentPath))) {
-        // Absolute path - try to browse there
+    if (currentPath && (
+        currentPath.startsWith('/') ||
+        currentPath.startsWith('\\\\') ||
+        /^[A-Za-z]:[\\/]/.test(currentPath)
+    )) {
+        // Absolute path (Unix, UNC, or Windows drive with separator) - try to browse there
         browseTo(currentPath, listing, breadcrumb, state);
     } else {
         // Relative or empty - show roots
