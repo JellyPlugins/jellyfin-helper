@@ -72,12 +72,12 @@ internal static class ContentScoring
         switch (hasCommunity)
         {
             case true when hasCritic:
-            {
-                // Both available: 55% TMDb + 45% Tomatometer
-                var tmdb = Math.Clamp(communityRating!.Value / 10.0, 0.0, 1.0);
-                var tomatometer = Math.Clamp(criticRating!.Value / 100.0, 0.0, 1.0);
-                return Math.Clamp((0.55 * tmdb) + (0.45 * tomatometer), 0.0, 1.0);
-            }
+                {
+                    // Both available: 55% TMDb + 45% Tomatometer
+                    var tmdb = Math.Clamp(communityRating!.Value / 10.0, 0.0, 1.0);
+                    var tomatometer = Math.Clamp(criticRating!.Value / 100.0, 0.0, 1.0);
+                    return Math.Clamp((0.55 * tmdb) + (0.45 * tomatometer), 0.0, 1.0);
+                }
 
             case true:
                 // Only TMDb available

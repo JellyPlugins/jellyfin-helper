@@ -1081,7 +1081,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                     NeuralBeta = _neuralBeta,
                     QualityGateFrozen = _qualityGateFrozen,
                     SigmoidMidpointOffset = _sigmoidMidpointOffset,
-                    MetricsHistory = [.._metricsHistory],
+                    MetricsHistory = [.. _metricsHistory],
                     UpdatedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture)
                 };
 

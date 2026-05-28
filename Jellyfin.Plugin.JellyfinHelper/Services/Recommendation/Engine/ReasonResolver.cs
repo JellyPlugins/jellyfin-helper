@@ -234,7 +234,7 @@ internal static class ReasonResolver
                 profile.GenreDistribution,
                 profile.GenreDistribution.Comparer),
             FavoriteCount = profile.FavoriteCount,
-            FavoriteSeriesIds = [..profile.FavoriteSeriesIds],
+            FavoriteSeriesIds = [.. profile.FavoriteSeriesIds],
             AverageCommunityRating = profile.AverageCommunityRating,
             MaxParentalRating = profile.MaxParentalRating,
             WatchedItems = []
