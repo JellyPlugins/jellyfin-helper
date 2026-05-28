@@ -63,7 +63,7 @@ public static class BackupValidator
     /// </summary>
     internal static readonly HashSet<string> ValidLanguages = new(StringComparer.OrdinalIgnoreCase)
     {
-        "en", "de", "fr", "es", "pt", "zh", "tr"
+        "en", "de", "fr", "es", "pt", "zh", "tr", "sv"
     };
 
     /// <summary>

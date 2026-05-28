@@ -133,6 +133,7 @@ public class BackupServiceTests
     [InlineData("pt")]
     [InlineData("zh")]
     [InlineData("tr")]
+    [InlineData("sv")]
     public void Validate_ValidLanguages_NoWarnings(string lang)
     {
         var backup = CreateValidBackup();
