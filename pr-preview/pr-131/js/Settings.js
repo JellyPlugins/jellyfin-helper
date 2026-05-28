@@ -422,6 +422,15 @@ function doSaveSettings(payload, options) {
     var indicatorEl = options && options.element;
     var btn = document.getElementById('btnSaveSettings');
 
+    // Pre-save validation: reject invalid trash paths before sending to server
+    var trashError = validateTrashPath(payload.TrashFolderPath, payload.UseTrash);
+    if (trashError) {
+        showTrashPathError(trashError);
+        if (options && options.onError) options.onError();
+        return;
+    }
+    showTrashPathError(null);
+
     if (!quiet) {
         btn.innerHTML = '<span class="btn-spinner"></span>' + T('savingSettings', 'Saving Settings...');
     }
