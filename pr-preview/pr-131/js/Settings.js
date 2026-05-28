@@ -265,7 +265,7 @@ function loadSettings() {
         h += '<label for="cfgTrashPath">' + T('trashFolder', 'Trash Folder Path') + '</label>';
         h += '<div style="position:relative;">';
         h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '" style="padding-right:3em;">';
-        h += '<span id="btnBrowseTrash" style="position:absolute;right:0.6em;top:0;bottom:0;display:flex;align-items:center;cursor:pointer;color:#00a4dc;opacity:0.8;" title="' + T('trashBrowse', 'Browse\u2026') + '">' + mi('folder_open') + '</span>';
+        h += '<button type="button" id="btnBrowseTrash" style="position:absolute;right:0.6em;top:0;bottom:0;display:flex;align-items:center;cursor:pointer;color:#00a4dc;opacity:0.8;background:none;border:none;padding:0;" title="' + T('trashBrowse', 'Browse\u2026') + '" aria-label="' + T('trashBrowse', 'Browse\u2026') + '">' + mi('folder_open') + '</button>';
         h += '</div>';
 
         h += '<label for="cfgTrashDays">' + T('trashRetention', 'Trash Retention (days)') + '</label>';
@@ -1026,6 +1026,11 @@ function showInlineCheckboxIndicator(checkbox, success) {
  * @param {Object} cfg - The current plugin configuration (contains ExcludedLibraries).
  */
 function initLibraryMultiSelects(cfg) {
+    var wrapper = document.getElementById('cfgExcludedWrapper');
+    if (wrapper) {
+        wrapper.setAttribute('data-initial-value', cfg.ExcludedLibraries || '');
+    }
+
     apiGet('JellyfinHelper/Configuration/Libraries', function (data) {
         var libraries = (data && data.libraries) || [];
         var excludedSet = parseCommaSeparatedSet(cfg.ExcludedLibraries || '');
@@ -1167,6 +1172,10 @@ function getLibraryMultiSelectValue(wrapperId) {
     if (fallback) return fallback.value;
     // Read checkboxes
     var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
+    if (checkboxes.length === 0) {
+        // Widget not yet rendered (async API call pending) - return initial value to avoid data loss
+        return wrapper.getAttribute('data-initial-value') || '';
+    }
     var selected = [];
     for (var i = 0; i < checkboxes.length; i++) {
         if (checkboxes[i].checked) selected.push(checkboxes[i].value);

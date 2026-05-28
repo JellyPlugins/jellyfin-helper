@@ -178,12 +178,16 @@ function loadLibraryPathsForBrowser(quickJumpEl, state, listing, breadcrumb) {
  * Navigates the folder browser to the given path (or roots if null).
  */
 function browseTo(path, listingEl, breadcrumbEl, state) {
+    state.requestId = (state.requestId || 0) + 1;
+    var requestId = state.requestId;
+
     listingEl.innerHTML = '<div style="padding:1em;text-align:center;opacity:0.6;"><span class="btn-spinner" style="display:inline-block;margin-right:0.5em;"></span>' + T('trashBrowseLoading', 'Loading\u2026') + '</div>';
 
     var url = 'JellyfinHelper/Configuration/BrowseFolders';
     if (path) url += '?path=' + encodeURIComponent(path);
 
     apiGet(url, function (result) {
+        if (requestId !== state.requestId) return;
         state.currentPath = result.CurrentPath || result.currentPath || null;
         var parentPath = result.ParentPath || result.parentPath || null;
         var canGoUp = result.CanGoUp || result.canGoUp || false;
@@ -251,6 +255,7 @@ function browseTo(path, listingEl, breadcrumbEl, state) {
             items[j].addEventListener('mouseleave', function () { this.style.background = ''; });
         }
     }, function () {
+        if (requestId !== state.requestId) return;
         listingEl.innerHTML = '<div style="padding:1em;text-align:center;">' + mi('error') + ' ' + T('trashBrowseError', 'Cannot access this directory.') + '</div>';
     });
 }
