@@ -270,7 +270,7 @@ function loadSettings() {
         h += '</div>';
 
         h += '<label for="cfgTrashDays">' + T('trashRetention', 'Trash Retention (days)') + '</label>';
-        h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
+        h += '<input type="number" id="cfgTrashDays" min="0" max="365" step="1" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
         h += '</div>';
 
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
@@ -345,6 +345,7 @@ function loadSettings() {
         attachAutoSaveHandlers();
         attachOrphanAgeInputHandler();
         attachTrashPathInputHandler();
+        attachTrashDaysInputHandler();
         // Toggle trash settings greyed-out state when checkbox changes
         var trashChk = document.getElementById('cfgTrash');
         if (trashChk) {
@@ -405,7 +406,9 @@ function buildSettingsPayload() {
         TrashFolderPath: document.getElementById('cfgTrashPath').value,
         TrashRetentionDays: (function () {
             var v = parseInt(document.getElementById('cfgTrashDays').value, 10);
-            return isNaN(v) || v < 0 ? 30 : v;
+            if (isNaN(v) || v < 0) return 30;
+            if (v > 365) return 365;
+            return v;
         })(),
         DiscoveryUserAccessEnabled: (function () {
             var checkbox = document.getElementById('cfgDiscoveryUserAccess');
@@ -1275,6 +1278,27 @@ function attachTrashPathInputHandler() {
     if (!input) return;
     input.addEventListener('input', function () {
         showTrashPathError(null);
+    });
+}
+
+/**
+ * Attaches keydown and input handlers to the TrashRetentionDays number field.
+ * Blocks non-numeric characters and clamps the value to [0, 365] on input.
+ */
+function attachTrashDaysInputHandler() {
+    var input = document.getElementById('cfgTrashDays');
+    if (!input) return;
+    input.addEventListener('keydown', function (e) {
+        if (e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '.') {
+            e.preventDefault();
+        }
+    });
+    input.addEventListener('input', function () {
+        var v = parseInt(input.value, 10);
+        if (!isNaN(v)) {
+            if (v > 365) input.value = '365';
+            if (v < 0) input.value = '0';
+        }
     });
 }
 
