@@ -1346,14 +1346,15 @@ function validateTrashPath(path, useTrash) {
         return T('trashPathDoubleSlash', 'Path must not contain consecutive slashes or backslashes.');
     }
 
-    // Reject path traversal
-    if (path.indexOf('..') !== -1) {
-        return T('trashPathTraversal', "Path must not contain '..' sequences.");
+    // Reject '.' or '..' as standalone path segments (path traversal / current-dir references)
+    // Matches: ".", "..", "/./", "/../", starts with "./" or "../", ends with "/." or "/.."
+    if (/(^|[/\\])\.\.?([/\\]|$)/.test(trimmed)) {
+        return T('trashPathDotSegment', "Path must not contain '.' or '..' directory references.");
     }
 
-    // Reject paths that resolve to root
-    if (trimmed === '.' || trimmed === './' || trimmed === '.\\') {
-        return T('trashPathInvalid', 'The trash folder path is invalid.');
+    // Reject trailing slash/backslash (ambiguous, indicates directory without a name)
+    if (/[/\\]$/.test(trimmed)) {
+        return T('trashPathTrailingSlash', 'Path must not end with a slash or backslash.');
     }
 
     return null;
