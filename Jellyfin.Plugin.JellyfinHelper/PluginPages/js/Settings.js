@@ -270,7 +270,7 @@ function loadSettings() {
         h += '</div>';
 
         h += '<label for="cfgTrashDays">' + T('trashRetention', 'Trash Retention (days)') + '</label>';
-        h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
+        h += '<input type="number" id="cfgTrashDays" min="0" max="365" step="1" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
         h += '</div>';
 
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
