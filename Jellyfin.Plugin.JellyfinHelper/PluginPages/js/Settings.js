@@ -265,7 +265,7 @@ function loadSettings() {
         h += '<label for="cfgTrashPath">' + T('trashFolder', 'Trash Folder Path') + '</label>';
         h += '<div style="position:relative;">';
         h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '" style="padding-right:3em;">';
-        h += '<button type="button" id="btnBrowseTrash" style="position:absolute;right:0.6em;top:0;bottom:0;display:flex;align-items:center;cursor:pointer;color:#00a4dc;opacity:0.8;background:none;border:none;padding:0;" title="' + T('trashBrowse', 'Browse\u2026') + '" aria-label="' + T('trashBrowse', 'Browse\u2026') + '">' + mi('folder_open') + '</button>';
+        h += '<button type="button" id="btnBrowseTrash" style="position:absolute;right:0.6em;top:0;bottom:0;display:flex;align-items:center;cursor:pointer;color:#00a4dc;opacity:0.8;background:none;border:none;padding:0;font-size:1.3em;line-height:1;" title="' + T('trashBrowse', 'Browse\u2026') + '" aria-label="' + T('trashBrowse', 'Browse\u2026') + '">' + mi('folder_open') + '</button>';
         h += '</div>';
 
         h += '<label for="cfgTrashDays">' + T('trashRetention', 'Trash Retention (days)') + '</label>';
@@ -1027,6 +1027,43 @@ function showInlineCheckboxIndicator(checkbox, success) {
     }, 2000);
 }
 
+/**
+ * Shows a brief inline save indicator after the "Excluded Libraries" label.
+ * Uses the same visual pattern as showInlineCheckboxIndicator but targets
+ * the label element preceding the library multi-select wrapper.
+ * @param {string} wrapperId - The DOM id of the wrapper div (e.g. 'cfgExcludedWrapper').
+ * @param {boolean} [success] - Whether the save succeeded (true) or failed (false).
+ */
+function showLibraryMultiSelectIndicator(wrapperId, success) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return;
+    // The label is the previous sibling of the wrapper
+    var label = wrapper.previousElementSibling;
+    if (!label || label.tagName !== 'LABEL') return;
+
+    var ok = success !== false;
+
+    // Remove any existing indicator on this label
+    var existing = label.querySelector('.inline-save-indicator');
+    if (existing) existing.remove();
+
+    // Create inline indicator (same style as checkbox indicators)
+    var indicator = document.createElement('span');
+    indicator.className = 'inline-save-indicator';
+    indicator.innerHTML = ' ' + mi(ok ? 'check_circle' : 'error');
+    indicator.style.color = ok ? '#2ecc71' : '#e74c3c';
+    indicator.style.marginLeft = '0.4em';
+    indicator.style.opacity = '1';
+    indicator.style.transition = 'opacity 0.5s';
+    label.appendChild(indicator);
+
+    // Fade out after 2 seconds
+    setTimeout(function () {
+        indicator.style.opacity = '0';
+        setTimeout(function () { indicator.remove(); }, 600);
+    }, 2000);
+}
+
 // ===== Library Multi-Select Widget =====
 
 /**
@@ -1119,12 +1156,13 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
         });
     }
 
-    // Attach change handlers to checkboxes for auto-save with indicator on the toggle button
+    // Attach change handlers to checkboxes for auto-save with overlay indicator on the toggle button
     var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
     for (var ci = 0; ci < checkboxes.length; ci++) {
         checkboxes[ci].addEventListener('change', function () {
             updateLibraryMultiSelectSummary(wrapperId, type);
-            doSaveSettings(buildSettingsPayload(), { quiet: true, element: wrapper });
+            var indicatorTarget = wrapper.querySelector('.library-multiselect-toggle') || wrapper;
+            doSaveSettings(buildSettingsPayload(), { quiet: true, element: indicatorTarget });
         });
     }
 }
@@ -1137,9 +1175,7 @@ function toggleLibraryDropdown(btn) {
     if (!panel) return;
     var isOpen = panel.style.display !== 'none';
     panel.style.display = isOpen ? 'none' : 'block';
-    // Update chevron
-    var chevron = btn.querySelector('.library-multiselect-chevron');
-    if (chevron) chevron.innerHTML = isOpen ? mi('expand_more') : mi('expand_less');
+    // Chevron stays as expand_more (pointing down) regardless of state — matches native <select> behavior
 }
 
 /**
