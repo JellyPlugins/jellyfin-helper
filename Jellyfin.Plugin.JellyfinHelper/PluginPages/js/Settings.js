@@ -406,7 +406,9 @@ function buildSettingsPayload() {
         TrashFolderPath: document.getElementById('cfgTrashPath').value,
         TrashRetentionDays: (function () {
             var v = parseInt(document.getElementById('cfgTrashDays').value, 10);
-            return isNaN(v) || v < 0 ? 30 : v;
+            if (isNaN(v) || v < 0) return 30;
+            if (v > 365) return 365;
+            return v;
         })(),
         DiscoveryUserAccessEnabled: (function () {
             var checkbox = document.getElementById('cfgDiscoveryUserAccess');
