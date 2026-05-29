@@ -1361,8 +1361,10 @@ function showTrashPathError(errorMsg) {
         errDiv.style.marginTop = '0.3em';
         errDiv.style.fontSize = '0.85em';
         errDiv.innerHTML = mi('error') + ' ' + escHtml(errorMsg);
-        if (input && input.parentNode) {
-            input.parentNode.insertBefore(errDiv, input.nextSibling);
+        // Insert after the position:relative wrapper div, not inside it
+        var inputWrapper = input.parentNode;
+        if (inputWrapper && inputWrapper.parentNode) {
+            inputWrapper.parentNode.insertBefore(errDiv, inputWrapper.nextSibling);
         }
     }
 }
