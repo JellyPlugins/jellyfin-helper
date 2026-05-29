@@ -262,20 +262,78 @@ function aggregateDict(libraries, prop) {
 
 /**
  * Reusable auto-save feedback indicator.
- * Shows a brief check_circle or error icon on top of the given element, then fades out.
- * Can be attached to any element - the indicator is inserted as an overlay.
- * @param {HTMLElement} element - The element to show the indicator over.
+ * Temporarily replaces the chevron/arrow of a dropdown element with a check_circle or error icon.
+ * For <select> elements: hides the CSS background-image chevron and shows an absolutely positioned icon.
+ * For library-multiselect-toggle buttons: replaces the chevron span innerHTML.
+ * @param {HTMLElement} element - The element to show the indicator on (select or toggle button).
  * @param {boolean} [success=true] - true = green check_circle icon, false = red error icon
  */
 function showAutoSaveIndicatorOverlay(element, success) {
     if (!element || !element.parentNode) return;
 
+    var ok = success !== false;
+    var fadeDelay = ok ? 2000 : 3000;
+    var color = ok ? getCssVar('--color-success', '#2ecc71') : getCssVar('--color-danger', '#e74c3c');
+    var iconHtml = mi(ok ? 'check_circle' : 'error');
+
+    // Library multi-select toggle: replace chevron span content
+    var chevronSpan = element.querySelector && element.querySelector('.library-multiselect-chevron');
+    if (chevronSpan) {
+        var originalChevron = chevronSpan.innerHTML;
+        chevronSpan.innerHTML = '<span style="color:' + color + ';font-size:1em;">' + iconHtml + '</span>';
+        setTimeout(function () {
+            chevronSpan.innerHTML = originalChevron;
+        }, fadeDelay);
+        return;
+    }
+
+    // Native <select> element: replace background-image chevron with a check_circle SVG
+    if (element.tagName === 'SELECT') {
+        // Increment a guard counter to prevent race conditions on rapid changes
+        var selectGuard = (parseInt(element.getAttribute('data-save-guard') || '0', 10)) + 1;
+        element.setAttribute('data-save-guard', String(selectGuard));
+
+        var originalBgImage = element.style.backgroundImage;
+        var originalBgRepeat = element.style.backgroundRepeat;
+        var originalBgPosition = element.style.backgroundPosition;
+        var originalBgSize = element.style.backgroundSize;
+        var originalAppearance = element.style.appearance || '';
+        var originalWebkitAppearance = element.style.webkitAppearance || '';
+
+        // Hide native browser arrow (for selects outside .settings-form that still have native appearance)
+        element.style.webkitAppearance = 'none';
+        element.style.appearance = 'none';
+
+        // Use an inline SVG data URI of check_circle in the success/error color
+        var svgColor = encodeURIComponent(color);
+        var checkSvg = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='" + svgColor + "'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z'/%3E%3C/svg%3E\")";
+        if (!ok) {
+            checkSvg = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='" + svgColor + "'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z'/%3E%3C/svg%3E\")";
+        }
+        element.style.backgroundImage = checkSvg;
+        element.style.backgroundRepeat = 'no-repeat';
+        element.style.backgroundPosition = 'right 0.5em center';
+        element.style.backgroundSize = '1.3em';
+
+        // Restore original chevron after delay (only if no newer indicator was triggered)
+        (function (guardVal) {
+            setTimeout(function () {
+                if (element.getAttribute('data-save-guard') !== String(guardVal)) return;
+                element.style.backgroundImage = originalBgImage || '';
+                element.style.backgroundRepeat = originalBgRepeat || '';
+                element.style.backgroundPosition = originalBgPosition || '';
+                element.style.backgroundSize = originalBgSize || '';
+                element.style.appearance = originalAppearance;
+                element.style.webkitAppearance = originalWebkitAppearance;
+            }, fadeDelay);
+        })(selectGuard);
+        return;
+    }
+
+    // Fallback for other elements: use the old overlay approach
     removeExistingSaveIndicatorOverlay(element);
-
-    const fadeDelay = calculateFadeDelay(success);
-    const indicator = createSaveIndicator(element, success);
-
-    const indicatorContainer = document.createElement('div');
+    var indicator = createSaveIndicator(element, success);
+    var indicatorContainer = document.createElement('div');
     indicatorContainer.style.position = 'absolute';
     indicatorContainer.style.top = getComputedStyle(element).marginTop;
     indicatorContainer.style.width = element.offsetWidth + 'px';
@@ -286,14 +344,12 @@ function showAutoSaveIndicatorOverlay(element, success) {
     indicatorContainer.style.pointerEvents = 'none';
     indicatorContainer.style.boxSizing = 'border-box';
     indicatorContainer.style.paddingRight = '20px';
+    indicatorContainer.style.zIndex = '10';
     indicatorContainer.append(indicator);
-
-    const emptyContainer = document.createElement('div');
+    var emptyContainer = document.createElement('div');
     emptyContainer.style.position = 'relative';
     emptyContainer.append(indicatorContainer);
-
     addFadingDelay(emptyContainer, fadeDelay);
-
     element.before(emptyContainer);
 }
 

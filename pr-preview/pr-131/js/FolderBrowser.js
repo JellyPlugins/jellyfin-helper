@@ -131,10 +131,12 @@ function openFolderBrowserDialog() {
                     var icon = document.getElementById('btnBrowseTrash');
                     if (!icon) return;
                     icon.innerHTML = mi('check_circle');
-                    icon.style.color = '#2ecc71';
+                    icon.style.color = getCssVar('--color-success', '#2ecc71');
+                    icon.style.opacity = '1';
                     setTimeout(function () {
                         icon.innerHTML = mi('folder_open');
                         icon.style.color = '#00a4dc';
+                        icon.style.opacity = '0.8';
                     }, 2000);
                 }
             });
