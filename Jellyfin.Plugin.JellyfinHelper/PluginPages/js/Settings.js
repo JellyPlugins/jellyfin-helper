@@ -345,6 +345,7 @@ function loadSettings() {
         attachAutoSaveHandlers();
         attachOrphanAgeInputHandler();
         attachTrashPathInputHandler();
+        attachTrashDaysInputHandler();
         // Toggle trash settings greyed-out state when checkbox changes
         var trashChk = document.getElementById('cfgTrash');
         if (trashChk) {
