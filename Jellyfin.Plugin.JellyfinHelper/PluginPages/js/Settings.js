@@ -1320,41 +1320,55 @@ function validateTrashPath(path, useTrash) {
 
     var trimmed = path.trim();
 
-    // Reject individual invalid characters
-    var invalidChars = ['*', '?', '<', '>', '|', '"'];
-    for (var i = 0; i < invalidChars.length; i++) {
-        if (path.indexOf(invalidChars[i]) !== -1) {
-            return T('trashPathInvalidChars', 'Path contains invalid characters.') + ' (' + invalidChars[i] + ')';
-        }
+    // 1. Global invalid characters (filesystem-unsafe + control chars)
+    if (/[*?<>|"\x00-\x1f]/.test(trimmed)) {
+        return T('trashPathInvalidChars', 'Path contains invalid characters.');
     }
 
-    // Reject paths that consist only of slashes and invalid chars
-    var allInvalid = true;
-    var badChars = '/\\*?<>|"';
-    for (var j = 0; j < trimmed.length; j++) {
-        if (badChars.indexOf(trimmed[j]) === -1) {
-            allInvalid = false;
-            break;
-        }
-    }
-    if (allInvalid) {
-        return T('trashPathOnlySlashes', 'Path cannot consist of only slashes or invalid characters.');
+    // 2. Must not end with slash or backslash
+    if (/[/\\]$/.test(trimmed)) {
+        return T('trashPathTrailingSlash', 'Path must not end with a slash or backslash.');
     }
 
-    // Reject consecutive slashes/backslashes (e.g. //, \\, /\, \/)
+    // 3. Must not contain consecutive separators (//, \\, /\, \/)
     if (/[/\\]{2,}/.test(trimmed)) {
         return T('trashPathDoubleSlash', 'Path must not contain consecutive slashes or backslashes.');
     }
 
-    // Reject '.' or '..' as standalone path segments (path traversal / current-dir references)
-    // Matches: ".", "..", "/./", "/../", starts with "./" or "../", ends with "/." or "/.."
-    if (/(^|[/\\])\.\.?([/\\]|$)/.test(trimmed)) {
-        return T('trashPathDotSegment', "Path must not contain '.' or '..' directory references.");
+    // 4. Strip optional absolute prefix for segment analysis
+    var segmentPart = trimmed
+        .replace(/^[A-Za-z]:[/\\]/, '')   // strip Windows drive prefix (C:\ or D:/)
+        .replace(/^[/\\]/, '');             // strip leading Unix separator
+
+    // 5. Must have at least one real segment after stripping prefix
+    if (!segmentPart) {
+        return T('trashPathInvalid', 'The trash folder path is invalid.');
     }
 
-    // Reject trailing slash/backslash (ambiguous, indicates directory without a name)
-    if (/[/\\]$/.test(trimmed)) {
-        return T('trashPathTrailingSlash', 'Path must not end with a slash or backslash.');
+    // 6. Split into segments and validate each one
+    var segments = segmentPart.split(/[/\\]/);
+    for (var i = 0; i < segments.length; i++) {
+        var seg = segments[i];
+
+        // Empty segment (defensive — should not happen after double-slash check)
+        if (!seg) {
+            return T('trashPathInvalid', 'The trash folder path is invalid.');
+        }
+
+        // Segment consists only of dots (., .., ..., ....)
+        if (/^\.+$/.test(seg)) {
+            return T('trashPathDotSegment', "Path must not contain '.' or '..' directory references.");
+        }
+
+        // Segment ends with dot or space (Windows filesystem restriction)
+        if (/[. ]$/.test(seg)) {
+            return T('trashPathSegmentEnds', 'Folder names must not end with a dot or space.');
+        }
+
+        // Segment is only whitespace
+        if (/^\s+$/.test(seg)) {
+            return T('trashPathInvalid', 'The trash folder path is invalid.');
+        }
     }
 
     return null;
