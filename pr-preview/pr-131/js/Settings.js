@@ -262,6 +262,7 @@ function loadSettings() {
         h += '<div class="section-title">' + T('settingsTrashTitle', 'Trash settings') + '</div>';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label for="cfgTrash">' + T('useTrash', 'Use Trash (Recycle Bin)') + '</label></div>';
 
+        h += '<div id="trashSettingsWrapper" style="' + (!cfg.UseTrash ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<label for="cfgTrashPath">' + T('trashFolder', 'Trash Folder Path') + '</label>';
         h += '<div style="position:relative;">';
         h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '" style="padding-right:3em;">';
@@ -270,6 +271,7 @@ function loadSettings() {
 
         h += '<label for="cfgTrashDays">' + T('trashRetention', 'Trash Retention (days)') + '</label>';
         h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
+        h += '</div>';
 
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
             var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');var ex=p.classList.contains(\'arr-expanded\');this.setAttribute(\'aria-expanded\',ex?\'true\':\'false\');var b=p.querySelector(\'.arr-collapsible-body\');if(b)b.setAttribute(\'aria-hidden\',ex?\'false\':\'true\')">';
@@ -343,6 +345,17 @@ function loadSettings() {
         attachAutoSaveHandlers();
         attachOrphanAgeInputHandler();
         attachTrashPathInputHandler();
+        // Toggle trash settings greyed-out state when checkbox changes
+        var trashChk = document.getElementById('cfgTrash');
+        if (trashChk) {
+            trashChk.addEventListener('change', function () {
+                var trashWrapper = document.getElementById('trashSettingsWrapper');
+                if (trashWrapper) {
+                    trashWrapper.style.opacity = trashChk.checked ? '' : '0.5';
+                    trashWrapper.style.pointerEvents = trashChk.checked ? '' : 'none';
+                }
+            });
+        }
         initFolderBrowser();
         initLibraryMultiSelects(cfg);
 
@@ -1302,6 +1315,11 @@ function validateTrashPath(path, useTrash) {
     }
     if (allInvalid) {
         return T('trashPathOnlySlashes', 'Path cannot consist of only slashes or invalid characters.');
+    }
+
+    // Reject consecutive slashes/backslashes (e.g. //, \\, /\, \/)
+    if (/[/\\]{2,}/.test(trimmed)) {
+        return T('trashPathDoubleSlash', 'Path must not contain consecutive slashes or backslashes.');
     }
 
     // Reject path traversal
