@@ -1280,6 +1280,27 @@ function attachTrashPathInputHandler() {
 }
 
 /**
+ * Attaches keydown and input handlers to the TrashRetentionDays number field.
+ * Blocks non-numeric characters and clamps the value to [0, 365] on input.
+ */
+function attachTrashDaysInputHandler() {
+    var input = document.getElementById('cfgTrashDays');
+    if (!input) return;
+    input.addEventListener('keydown', function (e) {
+        if (e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '.') {
+            e.preventDefault();
+        }
+    });
+    input.addEventListener('input', function () {
+        var v = parseInt(input.value, 10);
+        if (!isNaN(v)) {
+            if (v > 365) input.value = '365';
+            if (v < 0) input.value = '0';
+        }
+    });
+}
+
+/**
  * Validates the trash folder path on the client side before saving.
  * Returns an i18n error message string if invalid, or null if valid.
  * @param {string} path - The trash folder path value.
