@@ -300,6 +300,23 @@ public class CleanupConfigHelperTests
         Assert.Equal(expected, result);
     }
 
+    [Fact]
+    public void GetTrashPath_FilesystemRoot_ResolvesCorrectly()
+    {
+        // Regression pin: when the library itself is at the filesystem root,
+        // the root-normalization logic must still produce a valid child path.
+        var root = OperatingSystem.IsWindows() ? @"C:\" : "/";
+        var cfg = new PluginConfiguration { TrashFolderPath = ".jellyfin-trash" };
+        var helper = CreateHelper(cfg);
+        var result = helper.GetTrashPath(root);
+        var expected = Path.GetFullPath(Path.Join(root, ".jellyfin-trash"));
+        Assert.Equal(expected, result);
+        // Must be a child of root, not root itself
+        Assert.NotEqual(
+            Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            result.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+    }
+
     // ===== GetFilteredLibraryLocations =====
 
     [Fact]

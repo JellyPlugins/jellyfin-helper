@@ -492,8 +492,9 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
     /// <summary>
     ///     Calculates the total size of all files within a directory (recursively).
-    ///     Symlinks and junction points are never followed to prevent infinite loops
-    ///     caused by circular directory structures (A → B → A).
+    ///     Discovered child directories that are symlinks or junction points are skipped
+    ///     to prevent infinite loops caused by circular directory structures (A → B → A).
+    ///     Note: the root <paramref name="directoryPath"/> itself is not checked for reparse points.
     /// </summary>
     /// <param name="directoryPath">The directory to measure.</param>
     /// <param name="trashFolderName">Leaf name of the trash folder to skip (may be empty).</param>

@@ -28,14 +28,17 @@ public class TrashService : ITrashService
     private const int MaxPathComponentLimit = 255;
 
     /// <summary>
-    ///     Maximum allowed path length. Windows has a legacy MAX_PATH of 260; Linux allows up to
-    ///     4096 but PATH_MAX is typically 4096. We cap at 259 on Windows (leaving room for a null
-    ///     terminator) and 4095 on other platforms to guarantee the resulting path is always valid,
-    ///     even after suffixes or a GUID are appended.
+    ///     Maximum allowed path length. Windows has a legacy MAX_PATH of 260; macOS defines
+    ///     PATH_MAX as 1024; Linux allows up to 4096. We cap at 259 on Windows, 1023 on macOS,
+    ///     and 4095 on Linux to guarantee the resulting path is always valid even after
+    ///     suffixes or a GUID are appended.
     ///     On non-Windows platforms this is enforced in bytes (UTF-8);
     ///     on Windows it is enforced in characters (UTF-16 code units).
     /// </summary>
-    private static readonly int MaxPathLimit = OperatingSystem.IsWindows() ? 259 : 4095;
+    private static readonly int MaxPathLimit =
+        OperatingSystem.IsWindows() ? 259 :
+        OperatingSystem.IsMacOS() ? 1023 :
+        4095;
 
     private readonly IPluginLogService _pluginLog;
 

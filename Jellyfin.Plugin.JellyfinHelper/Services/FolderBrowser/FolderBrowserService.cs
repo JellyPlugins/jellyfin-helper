@@ -236,7 +236,8 @@ public class FolderBrowserService : IFolderBrowserService
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException
                                        or PathTooLongException or SecurityException)
         {
-            return $"Invalid path: {ex.Message}";
+            _logger.LogDebug(ex, "Invalid folder-browse path {Path}", path);
+            return "Invalid path.";
         }
 
         return null;
@@ -270,7 +271,24 @@ public class FolderBrowserService : IFolderBrowserService
     {
         try
         {
-            return Directory.EnumerateDirectories(path).Any();
+            foreach (var childPath in Directory.EnumerateDirectories(path))
+            {
+                try
+                {
+                    var child = new DirectoryInfo(childPath);
+                    if (!IsSystemOrHiddenCritical(child))
+                    {
+                        return true;
+                    }
+                }
+                catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
+                                               or SecurityException or ArgumentException)
+                {
+                    // Ignore individual inaccessible children when probing for visible descendants.
+                }
+            }
+
+            return false;
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
                                        or SecurityException or ArgumentException)

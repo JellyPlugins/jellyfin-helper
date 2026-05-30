@@ -279,11 +279,15 @@ function showAutoSaveIndicatorOverlay(element, success) {
     // Library multi-select toggle: replace chevron span content
     var chevronSpan = element.querySelector && element.querySelector('.library-multiselect-chevron');
     if (chevronSpan) {
+        var chevronGuard = (parseInt(chevronSpan.getAttribute('data-save-guard') || '0', 10)) + 1;
+        chevronSpan.setAttribute('data-save-guard', String(chevronGuard));
         chevronSpan.innerHTML = '<span style="color:' + color + ';font-size:1em;">' + iconHtml + '</span>';
-        setTimeout(function () {
-            // Always restore to the known chevron icon (prevents race conditions on rapid clicks)
-            chevronSpan.innerHTML = mi('expand_more');
-        }, fadeDelay);
+        (function (guardVal) {
+            setTimeout(function () {
+                if (chevronSpan.getAttribute('data-save-guard') !== String(guardVal)) return;
+                chevronSpan.innerHTML = mi('expand_more');
+            }, fadeDelay);
+        })(chevronGuard);
         return;
     }
 
