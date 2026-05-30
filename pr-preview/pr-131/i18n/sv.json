@@ -101,6 +101,7 @@
   "useTrash": "Använd papperskorg istället för permanent borttagning",
   "trashFolder": "Papperskorgens mappsökväg",
   "trashRetention": "Papperskorgens kvarhållning (dagar)",
+  "close": "Stäng",
   "cancel": "Avbryt",
   "trashDisableTitle": "Papperskorgsmappar hittade",
   "trashDisablePrompt": "Papperskorgen avaktiveras. Följande papperskorgsmappar finns på disken:",

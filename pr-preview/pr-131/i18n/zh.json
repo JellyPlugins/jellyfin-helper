@@ -101,6 +101,7 @@
   "useTrash": "使用回收站而非永久删除",
   "trashFolder": "回收站文件夹路径",
   "trashRetention": "回收站保留天数",
+  "close": "关闭",
   "cancel": "取消",
   "trashDisableTitle": "检测到回收站文件夹",
   "trashDisablePrompt": "回收站正在被禁用。以下回收站文件夹存在于磁盘上：",
