@@ -101,6 +101,7 @@
   "useTrash": "Usar lixeira em vez de excluir permanentemente",
   "trashFolder": "Caminho da pasta de lixeira",
   "trashRetention": "Retenção da lixeira (dias)",
+  "close": "Fechar",
   "cancel": "Cancelar",
   "trashDisableTitle": "Pastas de lixeira detectadas",
   "trashDisablePrompt": "A lixeira está sendo desativada. As seguintes pastas de lixeira existem no disco:",

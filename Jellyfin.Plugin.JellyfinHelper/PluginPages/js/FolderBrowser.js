@@ -38,7 +38,7 @@ function openFolderBrowserDialog() {
     var header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:1em;';
     header.innerHTML = '<h3 style="margin:0;font-size:1.1em;display:flex;align-items:center;gap:0.4em;"><span class="material-icons" style="color:#00a4dc;">folder_open</span>' + T('trashBrowseTitle', 'Select Trash Folder') + '</h3>'
-        + '<button type="button" id="folderBrowserClose" style="background:none;border:none;color:inherit;font-size:1.5em;cursor:pointer;padding:0.2em;line-height:1;opacity:0.7;" aria-label="Close">&times;</button>';
+        + '<button type="button" id="folderBrowserClose" style="background:none;border:none;color:inherit;font-size:1.5em;cursor:pointer;padding:0.2em;line-height:1;opacity:0.7;" aria-label="' + escAttr(T('close', 'Close')) + '">&times;</button>';
     dialog.appendChild(header);
 
     // Breadcrumb / current path display
@@ -171,7 +171,7 @@ function openFolderBrowserDialog() {
  */
 function loadLibraryPathsForBrowser(quickJumpEl, state, listing, breadcrumb) {
     apiGet('JellyfinHelper/Configuration/LibraryPaths', function (data) {
-        var paths = (data && data.libraryPaths) || [];
+        var paths = (data && (data.libraryPaths || data.LibraryPaths)) || [];
         if (paths.length === 0) return;
 
         var h = '<div style="font-size:0.8em;opacity:0.7;margin-bottom:0.3em;">' + T('trashBrowseLibraryRoots', 'Library Roots') + ':</div>';
@@ -260,9 +260,12 @@ function browseTo(path, listingEl, breadcrumbEl, state) {
 
         listingEl.innerHTML = h;
 
-        // Attach click handlers to directory items
+        // Attach click/keyboard handlers to directory items
         var items = listingEl.querySelectorAll('.folder-browser-item');
         for (var j = 0; j < items.length; j++) {
+            // Make items keyboard-operable (focusable + role)
+            items[j].setAttribute('tabindex', '0');
+            items[j].setAttribute('role', 'button');
             items[j].addEventListener('click', function () {
                 var targetPath = this.getAttribute('data-path');
                 if (targetPath === '') {
@@ -272,9 +275,17 @@ function browseTo(path, listingEl, breadcrumbEl, state) {
                     browseTo(targetPath, listingEl, breadcrumbEl, state);
                 }
             });
-            // Hover effect
+            items[j].addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    this.click();
+                }
+            });
+            // Hover/focus effect
             items[j].addEventListener('mouseenter', function () { this.style.background = 'rgba(0,164,220,0.1)'; });
             items[j].addEventListener('mouseleave', function () { this.style.background = ''; });
+            items[j].addEventListener('focus', function () { this.style.background = 'rgba(0,164,220,0.1)'; });
+            items[j].addEventListener('blur', function () { this.style.background = ''; });
         }
     }, function () {
         if (requestId !== state.requestId) return;

@@ -112,10 +112,19 @@ public static class ConfigurationRequestValidator
             return $"Trash folder path '{trashFolderPath}' contains only invalid characters.";
         }
 
+        // Reject control characters (U+0000 to U+001F) — these are never valid in folder names
+        // on any platform. This keeps the server-side filter in sync with the UI-side validation
+        // which also blocks the full \x00-\x1F range.
+        var firstControlChar = trashFolderPath.FirstOrDefault(static c => c < '\x20');
+        if (firstControlChar != default || trashFolderPath.Contains('\0', StringComparison.Ordinal))
+        {
+            return "Trash folder path contains invalid control characters.";
+        }
+
         // Reject individual invalid characters that are never valid in folder names.
-        // Note: Cast to char? is required because the array contains '\0' which equals default(char),
-        // making a plain FirstOrDefault unable to distinguish "not found" from "found '\0'".
-        char[] invalidChars = ['*', '?', '<', '>', '|', '"', '\0'];
+        // Note: Cast to char? is required because the array contains characters that could
+        // match default(char), making a plain FirstOrDefault unable to distinguish "not found".
+        char[] invalidChars = ['*', '?', '<', '>', '|', '"'];
         var firstInvalidChar = invalidChars.Cast<char?>().FirstOrDefault(c => trashFolderPath.Contains(c!.Value, StringComparison.Ordinal));
         if (firstInvalidChar != null)
         {

@@ -12,6 +12,15 @@ public class TrashServicePathLengthTests : IDisposable
 {
     private readonly string _testRoot = Path.Join(Path.GetTempPath(), $"TrashPathLen-{Guid.NewGuid():N}");
 
+    /// <summary>
+    ///     Returns the platform-specific maximum path length, matching the production logic in
+    ///     <see cref="TrashService" /> (259 on Windows, 1023 on macOS, 4095 on Linux).
+    /// </summary>
+    private static int GetExpectedMaxPathLength() =>
+        OperatingSystem.IsWindows() ? 259 :
+        OperatingSystem.IsMacOS() ? 1023 :
+        4095;
+
     public void Dispose()
     {
         if (Directory.Exists(_testRoot))
@@ -67,7 +76,7 @@ public class TrashServicePathLengthTests : IDisposable
         var path = Path.Join(_testRoot, "20260601-120000_NormalMovieName");
         var result = TrashService.ResolveCollision(path);
 
-        var maxLen = OperatingSystem.IsWindows() ? 259 : 4095;
+        var maxLen = GetExpectedMaxPathLength();
         Assert.True(result.Length <= maxLen, $"Path length {result.Length} exceeds OS limit {maxLen}");
     }
 
@@ -76,7 +85,7 @@ public class TrashServicePathLengthTests : IDisposable
     [Fact]
     public void ResolveCollision_PathAtExactLimit_DoesNotExceedLimit()
     {
-        var maxLen = OperatingSystem.IsWindows() ? 259 : 4095;
+        var maxLen = GetExpectedMaxPathLength();
 
         // Build a directory name that brings the total path exactly to maxLen.
         // We can only do this when the test root itself is short enough.
@@ -102,7 +111,7 @@ public class TrashServicePathLengthTests : IDisposable
     [Fact]
     public void ResolveCollision_PathOverLimit_TruncatesName()
     {
-        var maxLen = OperatingSystem.IsWindows() ? 259 : 4095;
+        var maxLen = GetExpectedMaxPathLength();
 
         // Construct a path that is maxLen + 50 characters long.
         var separator = Path.DirectorySeparatorChar.ToString();
@@ -129,7 +138,7 @@ public class TrashServicePathLengthTests : IDisposable
     {
         Directory.CreateDirectory(_testRoot);
 
-        var maxLen = OperatingSystem.IsWindows() ? 259 : 4095;
+        var maxLen = GetExpectedMaxPathLength();
         var separator = Path.DirectorySeparatorChar.ToString();
         var dirPrefixLen = _testRoot.Length + separator.Length;
 
@@ -281,7 +290,7 @@ public class TrashServicePathLengthTests : IDisposable
 
         var result = TrashService.ResolveCollision(baseName);
 
-        var maxLen = OperatingSystem.IsWindows() ? 259 : 4095;
+        var maxLen = GetExpectedMaxPathLength();
         Assert.True(result.Length <= maxLen, $"GUID fallback path length {result.Length} exceeds OS limit {maxLen}");
         Assert.False(Directory.Exists(result));
         Assert.False(File.Exists(result));

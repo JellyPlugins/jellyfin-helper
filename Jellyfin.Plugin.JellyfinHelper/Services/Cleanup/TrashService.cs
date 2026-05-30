@@ -423,20 +423,25 @@ public class TrashService : ITrashService
     /// <returns>A collision-free path that does not yet exist on disk and is within the OS path limit.</returns>
     internal static string ResolveCollision(string desiredPath)
     {
+        var directory = Path.GetDirectoryName(desiredPath) ?? string.Empty;
+
+        // Fail fast: if the directory path alone exhausts the OS path budget,
+        // no child name (even a single character) can fit. Throwing here prevents
+        // EnsurePathLength from silently returning an over-budget path that would
+        // fail at Directory.Move/File.Move time.
+        if (GetMaxComponentSize(directory) <= 0)
+        {
+            throw new IOException(
+                $"Trash path is too long to create an entry under '{directory}'.");
+        }
+
         var safePath = EnsurePathLength(desiredPath);
         if (!File.Exists(safePath) && !Directory.Exists(safePath))
         {
             return safePath;
         }
 
-        var directory = Path.GetDirectoryName(desiredPath) ?? string.Empty;
         var name = Path.GetFileName(desiredPath);
-
-        if (GetMaxComponentSize(directory) <= 0)
-        {
-            throw new IOException(
-                $"Trash path is too long to create an entry under '{directory}'.");
-        }
 
         for (var i = 2; i < 1000; i++)
         {

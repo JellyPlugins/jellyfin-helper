@@ -101,6 +101,7 @@
   "useTrash": "Use Trash (Recycle Bin) instead of permanent delete",
   "trashFolder": "Trash Folder Path",
   "trashRetention": "Trash Retention (days)",
+  "close": "Close",
   "cancel": "Cancel",
   "trashDisableTitle": "Trash Folders Detected",
   "trashDisablePrompt": "Trash is being disabled. The following trash folder(s) exist on disk:",

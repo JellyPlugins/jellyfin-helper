@@ -101,6 +101,7 @@
   "useTrash": "Papierkorb statt dauerhaftem Löschen verwenden",
   "trashFolder": "Papierkorb-Ordnerpfad",
   "trashRetention": "Papierkorb-Aufbewahrung (Tage)",
+  "close": "Schließen",
   "cancel": "Abbrechen",
   "trashDisableTitle": "Papierkorb-Ordner gefunden",
   "trashDisablePrompt": "Der Papierkorb wird deaktiviert. Folgende Papierkorb-Ordner existieren auf der Festplatte:",

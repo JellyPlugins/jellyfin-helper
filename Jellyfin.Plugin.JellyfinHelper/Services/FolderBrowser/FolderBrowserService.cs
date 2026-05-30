@@ -34,15 +34,20 @@ public class FolderBrowserService : IFolderBrowserService
 
             if (OperatingSystem.IsWindows())
             {
-                // On Windows, list available drive letters
-                var drives = DriveInfo.GetDrives()
-                    .Where(d => d.IsReady && d.DriveType is DriveType.Fixed or DriveType.Network or DriveType.Ram)
-                    .OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase);
-
-                foreach (var drive in drives)
+                // On Windows, list available drive letters.
+                // DriveInfo property access (IsReady, DriveType, Name) can throw for
+                // problematic drives, so all checks are inside the per-drive try/catch
+                // to ensure a single bad drive cannot abort the entire listing.
+                foreach (var drive in DriveInfo.GetDrives())
                 {
                     try
                     {
+                        if (!drive.IsReady || drive.DriveType is not (DriveType.Fixed or DriveType.Network
+                                or DriveType.Ram or DriveType.Removable))
+                        {
+                            continue;
+                        }
+
                         var rootPath = drive.RootDirectory.FullName;
                         var hasChildren = SafeHasSubdirectories(rootPath);
 
@@ -75,6 +80,8 @@ public class FolderBrowserService : IFolderBrowserService
                         _logger.LogDebug(ex, "Skipping inaccessible drive {Drive}", drive.Name);
                     }
                 }
+
+                entries.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
             }
             else
             {
