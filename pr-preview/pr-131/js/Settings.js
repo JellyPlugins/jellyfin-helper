@@ -1358,8 +1358,8 @@ function validateTrashPath(path, useTrash) {
             return T('trashPathInvalid', 'The trash folder path is invalid.');
         }
 
-        // Segment consists only of dots (., .., ..., ....)
-        if (/^\.+$/.test(seg)) {
+        // Only block actual filesystem navigation markers (. = current dir, .. = parent dir)
+        if (seg === '.' || seg === '..') {
             return T('trashPathDotSegment', "Path must not contain '.' or '..' directory references.");
         }
 
