@@ -257,6 +257,7 @@ else if(url.indexOf("Statistics/History")!==-1)resolve(MOCK_HISTORY);
 else if(url.indexOf("Statistics")!==-1&&url.indexOf("forceRefresh")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
 else if(url.indexOf("CleanupStatistics")!==-1)resolve(MOCK_CLEANUP_STATS);
 else if(url.indexOf("Configuration/LogLevel")!==-1&&method==="PUT"){try{var b=JSON.parse(opts.data);if(b.PluginLogLevel)MOCK_CONFIG.PluginLogLevel=b.PluginLogLevel;}catch(e){}resolve({message:"Log level updated.",pluginLogLevel:MOCK_CONFIG.PluginLogLevel});}
+else if(url.indexOf("Configuration/Libraries")!==-1&&url.indexOf("LibraryPaths")===-1)resolve({libraries:JSON.parse(JSON.stringify(MOCK_LIBRARIES))});
 else if(url.indexOf("Configuration/LibraryPaths")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_LIBRARY_PATHS)));
 else if(url.indexOf("Configuration/BrowseFolders")!==-1||url.indexOf("BrowseFolders")!==-1){var bp=null;var bm=url.match(/[?&]path=([^&]*)/);if(bm)bp=decodeURIComponent(bm[1]);resolve(JSON.parse(JSON.stringify(MOCK_BROWSE_FOLDERS(bp))));}
 else if(url.indexOf("Configuration")!==-1&&method==="POST"){try{Object.assign(MOCK_CONFIG,JSON.parse(opts.data));}catch(e){}resolve({});}
