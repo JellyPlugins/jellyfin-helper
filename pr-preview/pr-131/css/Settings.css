@@ -293,6 +293,15 @@
         background: #ffffff;
         border-color: rgba(0, 0, 0, 0.15);
     }
+
+    .library-multiselect-item:hover {
+        background: rgba(0, 0, 0, 0.04);
+    }
+
+    .library-type-badge {
+        background: rgba(0, 0, 0, 0.06);
+        opacity: 0.7;
+    }
 }
 
 .library-multiselect-item {
