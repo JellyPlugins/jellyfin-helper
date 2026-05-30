@@ -185,7 +185,7 @@ function loadSettings() {
         h += '<div id="cfgExcludedWrapper" class="library-multiselect-wrapper"></div>';
 
         h += '<label for="cfgOrphanAge">' + T('orphanMinAgeDays', 'Orphan Minimum Age (days)') + '</label>';
-        h += '<input type="number" id="cfgOrphanAge" min="0" max="365" step="1" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
+        h += '<input type="number" id="cfgOrphanAge" min="0" max="3650" step="1" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
         h += '<div class="help-text">' + T('orphanMinAgeDaysHelp', 'Items younger than this are protected from deletion.') + '</div>';
 
         h += '<label for="cfgLang">' + T('language', 'Dashboard Language') + '</label>';
@@ -380,7 +380,7 @@ function buildSettingsPayload() {
         OrphanMinAgeDays: (function () {
             var v = parseInt(document.getElementById('cfgOrphanAge').value, 10);
             if (isNaN(v) || v < 0) return 0;
-            if (v > 365) return 365;
+            if (v > 3650) return 3650;
             return v;
         })(),
         TrickplayTaskMode: document.getElementById('cfgTrickplayMode').value,
@@ -1247,7 +1247,7 @@ function getLibraryMultiSelectValue(wrapperId) {
 /**
  * Attaches keydown and input handlers to the OrphanMinAgeDays number field.
  * Blocks non-numeric characters (e, E, +, .) that browsers allow in type="number" fields
- * due to scientific notation support, and clamps the value to [0, 365] on input.
+ * due to scientific notation support, and clamps the value to [0, 3650] on input.
  */
 function attachOrphanAgeInputHandler() {
     var input = document.getElementById('cfgOrphanAge');
@@ -1262,7 +1262,7 @@ function attachOrphanAgeInputHandler() {
     input.addEventListener('input', function () {
         var v = parseInt(input.value, 10);
         if (!isNaN(v)) {
-            if (v > 365) input.value = '365';
+            if (v > 3650) input.value = '3650';
             if (v < 0) input.value = '0';
         }
     });

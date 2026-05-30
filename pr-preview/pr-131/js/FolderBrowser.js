@@ -122,12 +122,13 @@ function openFolderBrowserDialog() {
                 input.dispatchEvent(new Event('input', { bubbles: true }));
             }
         }
-        closeDialog();
         if (selectedPath) {
+            var browseBtn = document.getElementById('btnBrowseTrash');
             doSaveSettings(buildSettingsPayload(), {
                 quiet: true,
-                element: null,
+                element: browseBtn,
                 onSuccess: function () {
+                    closeDialog();
                     var icon = document.getElementById('btnBrowseTrash');
                     if (!icon) return;
                     icon.innerHTML = mi('check_circle');
@@ -138,8 +139,13 @@ function openFolderBrowserDialog() {
                         icon.style.color = '#00a4dc';
                         icon.style.opacity = '0.8';
                     }, 2000);
+                },
+                onError: function () {
+                    closeDialog();
                 }
             });
+        } else {
+            closeDialog();
         }
     });
 
