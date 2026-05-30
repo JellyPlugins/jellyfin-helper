@@ -262,7 +262,7 @@ function loadSettings() {
         h += '<div class="section-title">' + T('settingsTrashTitle', 'Trash settings') + '</div>';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label for="cfgTrash">' + T('useTrash', 'Use Trash (Recycle Bin)') + '</label></div>';
 
-        h += '<div id="trashSettingsWrapper" style="' + (!cfg.UseTrash ? 'opacity:0.5;pointer-events:none;' : '') + '">';
+        h += '<fieldset id="trashSettingsWrapper" ' + (!cfg.UseTrash ? 'disabled ' : '') + 'style="border:0;padding:0;margin:0;min-inline-size:0;' + (!cfg.UseTrash ? 'opacity:0.5;' : '') + '">';
         h += '<label for="cfgTrashPath">' + T('trashFolder', 'Trash Folder Path') + '</label>';
         h += '<div style="position:relative;">';
         h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '" style="padding-right:3em;">';
@@ -273,7 +273,7 @@ function loadSettings() {
         h += '<div style="position:relative;">';
         h += '<input type="number" id="cfgTrashDays" min="0" max="3650" step="1" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
         h += '</div>';
-        h += '</div>';
+        h += '</fieldset>';
 
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
             var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');var ex=p.classList.contains(\'arr-expanded\');this.setAttribute(\'aria-expanded\',ex?\'true\':\'false\');var b=p.querySelector(\'.arr-collapsible-body\');if(b)b.setAttribute(\'aria-hidden\',ex?\'false\':\'true\')">';
@@ -348,14 +348,14 @@ function loadSettings() {
         attachOrphanAgeInputHandler();
         attachTrashPathInputHandler();
         attachTrashDaysInputHandler();
-        // Toggle trash settings greyed-out state when checkbox changes
+        // Toggle trash settings disabled state when checkbox changes
         var trashChk = document.getElementById('cfgTrash');
         if (trashChk) {
             trashChk.addEventListener('change', function () {
                 var trashWrapper = document.getElementById('trashSettingsWrapper');
                 if (trashWrapper) {
+                    trashWrapper.disabled = !trashChk.checked;
                     trashWrapper.style.opacity = trashChk.checked ? '' : '0.5';
-                    trashWrapper.style.pointerEvents = trashChk.checked ? '' : 'none';
                 }
             });
         }
