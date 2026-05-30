@@ -132,16 +132,12 @@ public static class ConfigurationRequestValidator
         }
 
         // Reject path traversal patterns (segment-aware to avoid false positives on names like "my..folder")
+        // Block both "." (current dir) and ".." (parent dir) as segments — these are navigation markers.
+        // Note: literal folder names like "..." or "...." are valid on Linux and are intentionally allowed.
         var segments = trashFolderPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Any(s => s == ".."))
+        if (segments.Any(s => s is "." or ".."))
         {
-            return "Trash folder path must not contain '..' sequences.";
-        }
-
-        // Reject paths that resolve to the root itself
-        if (trimmed is "." or "./" or ".\\")
-        {
-            return "Trash folder path must not resolve to the library root itself.";
+            return "Trash folder path must not contain '.' or '..' directory references.";
         }
 
         // Attempt Path.GetFullPath to catch OS-level invalid path issues

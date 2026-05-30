@@ -10,7 +10,7 @@
     "versions": [
       {
         "version": "2.1.0.5",
-        "changelog": "v2.1.0.5: Prevent StackOverflowException on circular symlinks/junctions in GrowthTimeline directory scan (ReparsePoint guard). Fix IOException on long trash paths — ResolveCollision now truncates names to stay within OS MAX_PATH. Added Swedish (sv) language support. Exclude Libraries as dropdown widget. Trash Path folder browser integrated. Upgraded to Jellyfin 10.11.10 API. Min Jellyfin: 10.11.10. 2281 tests.",
+        "changelog": "v2.1.0.5: Prevent StackOverflowException on circular symlinks/junctions in GrowthTimeline directory scan (ReparsePoint guard). Fix IOException on long trash paths — ResolveCollision now truncates names to stay within OS MAX_PATH. Added Swedish (sv) language support. Exclude Libraries as dropdown widget. Trash Path folder browser integrated. Upgraded to Jellyfin 10.11.10 API. Min Jellyfin: 10.11.10. 2287 tests.",
         "targetAbi": "10.11.10.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.1.0.5/JellyfinHelper_2.1.0.5.zip",
         "checksum": "",

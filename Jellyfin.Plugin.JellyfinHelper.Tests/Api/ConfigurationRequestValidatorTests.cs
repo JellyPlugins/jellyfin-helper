@@ -372,7 +372,7 @@ public class ConfigurationRequestValidatorTests
     {
         var error = ConfigurationRequestValidator.ValidateTrashPathStrict(path, true);
         Assert.NotNull(error);
-        Assert.Contains("library root", error);
+        Assert.Contains("'.'", error);
     }
 
     [Fact]
@@ -416,5 +416,30 @@ public class ConfigurationRequestValidatorTests
             TrashFolderPath = ".jellyfin-trash"
         };
         Assert.Null(ConfigurationRequestValidator.Validate(req));
+    }
+
+    // ===== Multi-dot folder names (valid on Linux) =====
+
+    [Theory]
+    [InlineData("...")]
+    [InlineData("....")]
+    [InlineData("/mnt/.../trash")]
+    [InlineData("sub/..../data")]
+    public void ValidateTrashPathStrict_ReturnsNull_ForMultiDotFolderNames(string path)
+    {
+        // Folder names consisting of three or more dots are legitimate directory names on Linux.
+        // Only "." and ".." are navigation markers and must be blocked.
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict(path, true));
+    }
+
+    [Theory]
+    [InlineData("sub/./trash")]
+    [InlineData("/mnt/./media/trash")]
+    public void ValidateTrashPathStrict_ReturnsError_ForDotSegmentMidPath(string path)
+    {
+        // "." as a segment anywhere in the path is a navigation marker (current directory)
+        var error = ConfigurationRequestValidator.ValidateTrashPathStrict(path, true);
+        Assert.NotNull(error);
+        Assert.Contains("'.'", error);
     }
 }
