@@ -507,26 +507,6 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         string fullTrashPath,
         CancellationToken cancellationToken)
     {
-        // Guard: skip the root directory itself if it is a reparse point (symlink/junction).
-        // Without this check, top-level linked folders would be fully enumerated once
-        // before the child-level reparse-point guard (below) could prevent infinite cycles.
-        try
-        {
-            var rootAttributes = new DirectoryInfo(directoryPath).Attributes;
-            if ((rootAttributes & FileAttributes.ReparsePoint) != 0)
-            {
-                return 0;
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _pluginLog.LogDebug(
-                "GrowthTimeline",
-                $"Skipping inaccessible directory during attribute check: {directoryPath}: {ex.Message}",
-                _logger);
-            return 0;
-        }
-
         long total = 0;
         try
         {
