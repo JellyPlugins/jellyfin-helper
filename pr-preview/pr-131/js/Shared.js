@@ -291,8 +291,8 @@ function showAutoSaveIndicatorOverlay(element, success) {
         return;
     }
 
-    // Native <select> element: replace background-image chevron with a check_circle SVG
-    if (element.tagName === 'SELECT') {
+    // Native <select> or <input> element: replace background-image with a check_circle SVG
+    if (element.tagName === 'SELECT' || element.tagName === 'INPUT') {
         // Increment a guard counter to prevent race conditions on rapid changes
         var selectGuard = (parseInt(element.getAttribute('data-save-guard') || '0', 10)) + 1;
         element.setAttribute('data-save-guard', String(selectGuard));
