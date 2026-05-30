@@ -147,6 +147,35 @@ ComputedAtUtc:new Date().toISOString()
 
 var MOCK_LIBRARIES=[{Name:"Movies",CollectionType:"movies"},{Name:"TV Shows",CollectionType:"tvshows"},{Name:"Music",CollectionType:"music"}];
 
+var MOCK_LIBRARY_PATHS={libraryPaths:[
+{name:"Movies",path:"/data/movies"},
+{name:"TV Shows",path:"/data/tv"},
+{name:"Music",path:"/data/music"}
+]};
+
+var MOCK_BROWSE_FOLDERS=(function(){
+// Simulated filesystem tree for the folder browser preview
+var tree={
+"/":["data","home","mnt","opt","var"],
+"/data":["movies","tv","music","backups","downloads"],
+"/data/movies":[".jellyfin-trash","Action","Comedy","Sci-Fi"],
+"/data/tv":[".jellyfin-trash","Drama","Animation"],
+"/data/music":["FLAC","MP3","Podcasts"],
+"/data/backups":[],
+"/data/downloads":["incomplete","complete"],
+"/home":["jellyfin"],
+"/mnt":["nas-share","usb-drive"]
+};
+function getParent(p){if(!p||p==="/")return null;var parts=p.replace(/\/$/,"").split("/");parts.pop();return parts.length<=1?"/":parts.join("/");}
+return function(path){
+if(!path){return{CurrentPath:null,ParentPath:null,CanGoUp:false,Directories:[{Name:"/",Path:"/",HasChildren:true}]};}
+var children=tree[path];
+if(!children){return{CurrentPath:path,ParentPath:getParent(path),CanGoUp:true,Directories:[],Error:"Directory does not exist."};}
+var dirs=children.map(function(name){var full=path==="/"?"/"+name:path+"/"+name;return{Name:name,Path:full,HasChildren:!!(tree[full]&&tree[full].length>0)};});
+return{CurrentPath:path,ParentPath:getParent(path),CanGoUp:true,Directories:dirs};
+};
+})();
+
 var _uid1="a1b2c3d4-e5f6-7890-abcd-ef1234567890",_uid2="b2c3d4e5-f6a7-8901-bcde-f12345678901";
 
 // --- Seerr Discovery Mock Data ---
@@ -221,13 +250,15 @@ accessToken:function(){return"mock-demo-token";},
 getUrl:function(p){return"mock://"+p;},
 ajax:function(opts){var url=opts.url||"",method=(opts.type||"GET").toUpperCase();
 return new Promise(function(resolve){setTimeout(function(){
-if(url.indexOf("Translations")!==-1)resolve(MOCK_TRANSLATIONS||{});
+if(url.indexOf("Translations")!==-1){var _lang=MOCK_CONFIG.Language||'en';fetch('i18n/'+_lang+'.json').then(function(r){return r.json();}).then(function(t){MOCK_TRANSLATIONS=t;resolve(t);}).catch(function(){resolve(MOCK_TRANSLATIONS||{});});return;}
 else if(url.indexOf("Statistics/Latest")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
 else if(url.indexOf("GrowthTimeline")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_GROWTH_TIMELINE)));
 else if(url.indexOf("Statistics/History")!==-1)resolve(MOCK_HISTORY);
 else if(url.indexOf("Statistics")!==-1&&url.indexOf("forceRefresh")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
 else if(url.indexOf("CleanupStatistics")!==-1)resolve(MOCK_CLEANUP_STATS);
 else if(url.indexOf("Configuration/LogLevel")!==-1&&method==="PUT"){try{var b=JSON.parse(opts.data);if(b.PluginLogLevel)MOCK_CONFIG.PluginLogLevel=b.PluginLogLevel;}catch(e){}resolve({message:"Log level updated.",pluginLogLevel:MOCK_CONFIG.PluginLogLevel});}
+else if(url.indexOf("Configuration/LibraryPaths")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_LIBRARY_PATHS)));
+else if(url.indexOf("Configuration/BrowseFolders")!==-1||url.indexOf("BrowseFolders")!==-1){var bp=null;var bm=url.match(/[?&]path=([^&]*)/);if(bm)bp=decodeURIComponent(bm[1]);resolve(JSON.parse(JSON.stringify(MOCK_BROWSE_FOLDERS(bp))));}
 else if(url.indexOf("Configuration")!==-1&&method==="POST"){try{Object.assign(MOCK_CONFIG,JSON.parse(opts.data));}catch(e){}resolve({});}
 else if(url.indexOf("Configuration")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_CONFIG)));
 else if(url.indexOf("Trash/Contents")!==-1)resolve(MOCK_TRASH_CONTENTS);

@@ -77,7 +77,7 @@ public class FolderBrowserService : IFolderBrowserService
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                                    or SecurityException)
                     {
-                        _logger.LogDebug(ex, "Skipping inaccessible drive {Drive}", drive.Name);
+                        _logger.LogDebug(ex, "Skipping inaccessible drive while enumerating roots");
                     }
                 }
 

@@ -305,7 +305,7 @@ public class CleanupConfigHelperTests
     {
         // Regression pin: when the library itself is at the filesystem root,
         // the root-normalization logic must still produce a valid child path.
-        var root = OperatingSystem.IsWindows() ? @"C:\" : "/";
+        var root = Path.GetPathRoot(Path.GetFullPath(Path.GetTempPath()))!;
         var cfg = new PluginConfiguration { TrashFolderPath = ".jellyfin-trash" };
         var helper = CreateHelper(cfg);
         var result = helper.GetTrashPath(root);

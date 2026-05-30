@@ -45,28 +45,14 @@ public class FolderBrowserController : ControllerBase
     /// <returns>A browse result with the current path, parent path, and list of subdirectories.</returns>
     [HttpGet("BrowseFolders")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult BrowseFolders([FromQuery] string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
-            var roots = _folderBrowser.GetRoots();
-            if (roots.Error != null)
-            {
-                return BadRequest(new { message = roots.Error });
-            }
-
-            return Ok(roots);
+            return Ok(_folderBrowser.GetRoots());
         }
 
-        var result = _folderBrowser.GetChildren(path);
-        if (result.Error != null && result.CurrentPath == null)
-        {
-            // Complete failure — path is invalid/inaccessible
-            return BadRequest(new { message = result.Error });
-        }
-
-        return Ok(result);
+        return Ok(_folderBrowser.GetChildren(path));
     }
 
     /// <summary>
