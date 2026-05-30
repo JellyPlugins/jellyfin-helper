@@ -159,7 +159,8 @@ public class FolderBrowserService : IFolderBrowserService
                     }
                 }
             }
-            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
+                                           or SecurityException)
             {
                 _logger.LogDebug(ex, "Cannot enumerate children of {Path}", normalizedPath);
                 return new FolderBrowseResult

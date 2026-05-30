@@ -211,24 +211,30 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         try
         {
             resolved = Path.GetFullPath(Path.Join(libraryRootPath, trashPath));
-            normalizedRoot = Path.GetFullPath(libraryRootPath)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            normalizedRoot = Path.GetFullPath(libraryRootPath);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
         }
 
-        var rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
         var pathComparison = OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
-        if (string.Equals(resolved, normalizedRoot, pathComparison))
+
+        // Compare without trailing separators so that "/" == "/" and "C:\" == "C:\" work correctly
+        var resolvedTrimmed = resolved
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var rootTrimmed = normalizedRoot
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        if (string.Equals(resolvedTrimmed, rootTrimmed, pathComparison))
         {
             // TrashFolderPath resolves to the library root itself (e.g. ".") — not safe.
             return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
         }
 
+        var rootPrefix = rootTrimmed + Path.DirectorySeparatorChar;
         if (!resolved.StartsWith(rootPrefix, pathComparison))
         {
             // Relative path escapes the library root — fall back to the safe default.

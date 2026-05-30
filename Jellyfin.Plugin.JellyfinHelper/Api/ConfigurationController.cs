@@ -88,7 +88,13 @@ public class ConfigurationController : ControllerBase
         var virtualFolders = _libraryManager.GetVirtualFolders();
         var libraries = virtualFolders
             .Where(f => !string.IsNullOrWhiteSpace(f.Name))
-            .Select(f => new { name = f.Name, collectionType = f.CollectionType?.ToString() ?? "unknown" })
+            .Select(f => new
+            {
+                name = f.Name,
+                collectionType = string.IsNullOrWhiteSpace(f.CollectionType?.ToString())
+                    ? "unknown"
+                    : f.CollectionType!.ToString()
+            })
             .OrderBy(f => f.name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 

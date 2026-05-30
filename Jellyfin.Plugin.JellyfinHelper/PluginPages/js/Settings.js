@@ -270,7 +270,7 @@ function loadSettings() {
         h += '</div>';
 
         h += '<label for="cfgTrashDays">' + T('trashRetention', 'Trash Retention (days)') + '</label>';
-        h += '<input type="number" id="cfgTrashDays" min="0" max="365" step="1" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
+        h += '<input type="number" id="cfgTrashDays" min="0" max="3650" step="1" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
         h += '</div>';
 
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
@@ -407,7 +407,7 @@ function buildSettingsPayload() {
         TrashRetentionDays: (function () {
             var v = parseInt(document.getElementById('cfgTrashDays').value, 10);
             if (isNaN(v) || v < 0) return 30;
-            if (v > 365) return 365;
+            if (v > 3650) return 3650;
             return v;
         })(),
         DiscoveryUserAccessEnabled: (function () {
@@ -1283,7 +1283,7 @@ function attachTrashPathInputHandler() {
 
 /**
  * Attaches keydown and input handlers to the TrashRetentionDays number field.
- * Blocks non-numeric characters and clamps the value to [0, 365] on input.
+ * Blocks non-numeric characters and clamps the value to [0, 3650] on input.
  */
 function attachTrashDaysInputHandler() {
     var input = document.getElementById('cfgTrashDays');
@@ -1296,7 +1296,7 @@ function attachTrashDaysInputHandler() {
     input.addEventListener('input', function () {
         var v = parseInt(input.value, 10);
         if (!isNaN(v)) {
-            if (v > 365) input.value = '365';
+            if (v > 3650) input.value = '3650';
             if (v < 0) input.value = '0';
         }
     });
@@ -1330,15 +1330,16 @@ function validateTrashPath(path, useTrash) {
         return T('trashPathTrailingSlash', 'Path must not end with a slash or backslash.');
     }
 
-    // 3. Must not contain consecutive separators (//, \\, /\, \/)
-    if (/[/\\]{2,}/.test(trimmed)) {
+    // 3. Strip optional absolute prefix for segment analysis
+    var segmentPart = trimmed
+        .replace(/^\\\\[^\\/]+[\\/][^\\/]+/, '') // strip UNC prefix (\\server\share)
+        .replace(/^[A-Za-z]:[/\\]/, '')          // strip Windows drive prefix (C:\ or D:/)
+        .replace(/^[/\\]/, '');                   // strip leading Unix separator
+
+    // 4. Must not contain consecutive separators in the remaining path
+    if (/[/\\]{2,}/.test(segmentPart)) {
         return T('trashPathDoubleSlash', 'Path must not contain consecutive slashes or backslashes.');
     }
-
-    // 4. Strip optional absolute prefix for segment analysis
-    var segmentPart = trimmed
-        .replace(/^[A-Za-z]:[/\\]/, '')   // strip Windows drive prefix (C:\ or D:/)
-        .replace(/^[/\\]/, '');             // strip leading Unix separator
 
     // 5. Must have at least one real segment after stripping prefix
     if (!segmentPart) {

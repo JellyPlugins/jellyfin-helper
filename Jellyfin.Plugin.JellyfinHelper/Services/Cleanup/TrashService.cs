@@ -429,6 +429,12 @@ public class TrashService : ITrashService
         var directory = Path.GetDirectoryName(desiredPath) ?? string.Empty;
         var name = Path.GetFileName(desiredPath);
 
+        if (GetMaxComponentSize(directory) <= 0)
+        {
+            throw new IOException(
+                $"Trash path is too long to create an entry under '{directory}'.");
+        }
+
         for (var i = 2; i < 1000; i++)
         {
             var suffix = $"_{i}";
