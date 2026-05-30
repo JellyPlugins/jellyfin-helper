@@ -140,7 +140,11 @@ function openFolderBrowserDialog() {
                     }, 2000);
                 },
                 onError: function () {
-                    closeDialog();
+                    // Keep the picker open so the user sees the failure.
+                    var listingEl = document.getElementById('folderBrowserListing');
+                    if (listingEl) {
+                        listingEl.innerHTML = '<div style="padding:1em;text-align:center;color:var(--color-error,#e74c3c);">' + mi('error') + ' ' + T('trashBrowseSaveError', 'Failed to save settings. Please try again.') + '</div>';
+                    }
                 }
             });
         } else {
@@ -288,6 +292,8 @@ function browseTo(path, listingEl, breadcrumbEl, state) {
         }
     }, function () {
         if (requestId !== state.requestId) return;
+        state.currentPath = null;
+        breadcrumbEl.textContent = '';
         listingEl.innerHTML = '<div style="padding:1em;text-align:center;">' + mi('error') + ' ' + T('trashBrowseError', 'Cannot access this directory.') + '</div>';
     });
 }

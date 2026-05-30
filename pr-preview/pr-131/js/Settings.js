@@ -1141,7 +1141,7 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
     var summaryText = noneSelectedLabel;
     if (selectedCount > 0) {
         var selectedNames = [];
-        for (var k in selectedSet) { if (selectedSet.hasOwnProperty(k)) selectedNames.push(selectedSet[k]); }
+        for (var k in selectedSet) { if (Object.prototype.hasOwnProperty.call(selectedSet, k)) selectedNames.push(selectedSet[k]); }
         summaryText = selectedNames.length <= 3 ? selectedNames.join(', ') : selectedNames.slice(0, 2).join(', ') + ' +' + (selectedNames.length - 2);
     }
     h += '<span class="library-multiselect-summary">' + escHtml(summaryText) + '</span>';

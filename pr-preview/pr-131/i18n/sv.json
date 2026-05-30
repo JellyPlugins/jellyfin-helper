@@ -353,6 +353,7 @@
   "trashBrowseCreateNew": "Eller skriv ett nytt mappnamn:",
   "trashBrowseEmpty": "Denna mapp är tom.",
   "trashBrowseError": "Kan inte komma åt denna katalog.",
+  "trashBrowseSaveError": "Det gick inte att spara inställningarna. Försök igen.",
   "trashBrowseLibraryRoots": "Biblioteksrotkataloger",
   "trashBrowseLoading": "Laddar…",
   "trashBrowseCurrentPath": "Aktuell sökväg"

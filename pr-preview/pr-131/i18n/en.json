@@ -353,6 +353,7 @@
   "trashBrowseCreateNew": "Or type a new folder name:",
   "trashBrowseEmpty": "This folder is empty.",
   "trashBrowseError": "Cannot access this directory.",
+  "trashBrowseSaveError": "Failed to save settings. Please try again.",
   "trashBrowseLibraryRoots": "Library Roots",
   "trashBrowseLoading": "Loading…",
   "trashBrowseCurrentPath": "Current path"

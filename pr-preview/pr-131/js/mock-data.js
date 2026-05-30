@@ -250,7 +250,7 @@ accessToken:function(){return"mock-demo-token";},
 getUrl:function(p){return"mock://"+p;},
 ajax:function(opts){var url=opts.url||"",method=(opts.type||"GET").toUpperCase();
 return new Promise(function(resolve){setTimeout(function(){
-if(url.indexOf("Translations")!==-1){var _lang=MOCK_CONFIG.Language||'en';fetch('i18n/'+_lang+'.json').then(function(r){return r.json();}).then(function(t){MOCK_TRANSLATIONS=t;resolve(t);}).catch(function(){resolve(MOCK_TRANSLATIONS||{});});return;}
+if(url.indexOf("Translations")!==-1){var _lang=MOCK_CONFIG.Language||'en';fetch('i18n/'+_lang+'.json').then(function(r){return r.json();}).then(function(t){MOCK_TRANSLATIONS=t;resolve(t);}).catch(function(){MOCK_TRANSLATIONS={};resolve(MOCK_TRANSLATIONS);});return;}
 else if(url.indexOf("Statistics/Latest")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
 else if(url.indexOf("GrowthTimeline")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_GROWTH_TIMELINE)));
 else if(url.indexOf("Statistics/History")!==-1)resolve(MOCK_HISTORY);

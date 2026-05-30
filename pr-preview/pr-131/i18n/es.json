@@ -353,6 +353,7 @@
   "trashBrowseCreateNew": "O escribir un nuevo nombre de carpeta:",
   "trashBrowseEmpty": "Esta carpeta está vacía.",
   "trashBrowseError": "No se puede acceder a este directorio.",
+  "trashBrowseSaveError": "No se pudieron guardar los ajustes. Por favor, inténtalo de nuevo.",
   "trashBrowseLibraryRoots": "Raíces de bibliotecas",
   "trashBrowseLoading": "Cargando…",
   "trashBrowseCurrentPath": "Ruta actual"
