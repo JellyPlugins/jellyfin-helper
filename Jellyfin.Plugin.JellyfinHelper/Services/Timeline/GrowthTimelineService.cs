@@ -393,6 +393,26 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                         continue;
                     }
 
+                    // Skip symlinks/junctions at the top level to prevent double-counting
+                    // media that resides in another library or pulling external trees into
+                    // the timeline. Child directories are checked inside GetDirectorySize().
+                    try
+                    {
+                        var topLevelAttrs = new DirectoryInfo(subDir.FullName).Attributes;
+                        if ((topLevelAttrs & FileAttributes.ReparsePoint) != 0)
+                        {
+                            continue;
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _pluginLog.LogDebug(
+                            "GrowthTimeline",
+                            $"Skipping inaccessible subdirectory during reparse-point check: {subDir.FullName}: {ex.Message}",
+                            _logger);
+                        continue;
+                    }
+
                     // Use directory creation date as "when this media was added"
                     var createdUtc = Directory.GetCreationTimeUtc(subDir.FullName);
                     if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)

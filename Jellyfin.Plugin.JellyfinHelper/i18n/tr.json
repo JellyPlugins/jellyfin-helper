@@ -353,6 +353,7 @@
   "trashBrowseCreateNew": "Veya yeni klasör adı yazın:",
   "trashBrowseEmpty": "Bu klasör boş.",
   "trashBrowseError": "Bu dizine erişilemiyor.",
+  "trashBrowseSaveError": "Ayarlar kaydedilemedi. Lütfen tekrar deneyin.",
   "trashBrowseLibraryRoots": "Kütüphane kökleri",
   "trashBrowseLoading": "Yükleniyor…",
   "trashBrowseCurrentPath": "Geçerli yol"

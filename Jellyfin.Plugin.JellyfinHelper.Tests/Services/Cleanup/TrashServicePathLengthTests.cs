@@ -77,7 +77,8 @@ public class TrashServicePathLengthTests : IDisposable
         var result = TrashService.ResolveCollision(path);
 
         var maxLen = GetExpectedMaxPathLength();
-        Assert.True(result.Length <= maxLen, $"Path length {result.Length} exceeds OS limit {maxLen}");
+        var resultSize = TrashService.MeasureString(result);
+        Assert.True(resultSize <= maxLen, $"Path size {resultSize} exceeds OS limit {maxLen}");
     }
 
     // ── Path-length safety: path already at the limit ────────────────────────
@@ -90,8 +91,8 @@ public class TrashServicePathLengthTests : IDisposable
         // Build a directory name that brings the total path exactly to maxLen.
         // We can only do this when the test root itself is short enough.
         var separator = Path.DirectorySeparatorChar.ToString();
-        var dirPrefixLen = _testRoot.Length + separator.Length;
-        var nameLen = maxLen - dirPrefixLen;
+        var dirPrefixSize = TrashService.MeasureString(_testRoot) + TrashService.MeasureString(separator);
+        var nameLen = maxLen - dirPrefixSize;
         if (nameLen <= 0)
         {
             // Test root is already too long for this platform — skip gracefully.
@@ -103,7 +104,8 @@ public class TrashServicePathLengthTests : IDisposable
 
         var result = TrashService.ResolveCollision(path);
 
-        Assert.True(result.Length <= maxLen, $"Path length {result.Length} exceeds OS limit {maxLen}");
+        var resultSize = TrashService.MeasureString(result);
+        Assert.True(resultSize <= maxLen, $"Path size {resultSize} exceeds OS limit {maxLen}");
     }
 
     // ── Path-length safety: path over the limit ───────────────────────────────
@@ -113,10 +115,10 @@ public class TrashServicePathLengthTests : IDisposable
     {
         var maxLen = GetExpectedMaxPathLength();
 
-        // Construct a path that is maxLen + 50 characters long.
+        // Construct a path that exceeds maxLen by 50 units (bytes on Unix, chars on Windows).
         var separator = Path.DirectorySeparatorChar.ToString();
-        var dirPrefixLen = _testRoot.Length + separator.Length;
-        var nameLen = maxLen - dirPrefixLen + 50; // 50 chars over limit
+        var dirPrefixSize = TrashService.MeasureString(_testRoot) + TrashService.MeasureString(separator);
+        var nameLen = maxLen - dirPrefixSize + 50; // 50 units over limit
         if (nameLen <= 0)
         {
             return;
@@ -127,8 +129,9 @@ public class TrashServicePathLengthTests : IDisposable
 
         var result = TrashService.ResolveCollision(path);
 
-        Assert.True(result.Length <= maxLen, $"Path length {result.Length} exceeds OS limit {maxLen}");
-        Assert.True(result.Length > 0);
+        var resultSize = TrashService.MeasureString(result);
+        Assert.True(resultSize <= maxLen, $"Path size {resultSize} exceeds OS limit {maxLen}");
+        Assert.True(resultSize > 0);
     }
 
     // ── Path-length safety: suffix collision with long path ───────────────────
@@ -140,14 +143,14 @@ public class TrashServicePathLengthTests : IDisposable
 
         var maxLen = GetExpectedMaxPathLength();
         var separator = Path.DirectorySeparatorChar.ToString();
-        var dirPrefixLen = _testRoot.Length + separator.Length;
+        var dirPrefixSize = TrashService.MeasureString(_testRoot) + TrashService.MeasureString(separator);
 
         // Linux NAME_MAX caps a single path component at 255 bytes.
         // We must stay within that limit so Directory.CreateDirectory succeeds
         // while still constructing a path that exercises the length-truncation code path.
-        var componentLimit = OperatingSystem.IsWindows() ? maxLen - dirPrefixLen : 200;
+        var componentLimit = OperatingSystem.IsWindows() ? maxLen - dirPrefixSize : 200;
 
-        var nameLen = Math.Min(maxLen - dirPrefixLen, componentLimit);
+        var nameLen = Math.Min(maxLen - dirPrefixSize, componentLimit);
         if (nameLen <= 0)
         {
             return;
@@ -161,7 +164,8 @@ public class TrashServicePathLengthTests : IDisposable
 
         var result = TrashService.ResolveCollision(path);
 
-        Assert.True(result.Length <= maxLen, $"Suffixed path length {result.Length} exceeds OS limit {maxLen}");
+        var resultSize = TrashService.MeasureString(result);
+        Assert.True(resultSize <= maxLen, $"Suffixed path size {resultSize} exceeds OS limit {maxLen}");
         Assert.False(Directory.Exists(result), "Resolved path must not already exist");
         Assert.NotEqual(path, result);
     }
@@ -182,8 +186,9 @@ public class TrashServicePathLengthTests : IDisposable
         var path = Path.Join(_testRoot, new string('d', 260));
         var result = TrashService.ResolveCollision(path);
 
-        Assert.True(Path.GetFileName(result).Length <= 255,
-            $"Component length {Path.GetFileName(result).Length} exceeds NAME_MAX 255");
+        var componentSize = TrashService.MeasureString(Path.GetFileName(result));
+        Assert.True(componentSize <= 255,
+            $"Component size {componentSize} exceeds NAME_MAX 255");
     }
 
     // ── Path-length safety: multibyte UTF-8 characters (Unix byte limits) ────
@@ -291,7 +296,8 @@ public class TrashServicePathLengthTests : IDisposable
         var result = TrashService.ResolveCollision(baseName);
 
         var maxLen = GetExpectedMaxPathLength();
-        Assert.True(result.Length <= maxLen, $"GUID fallback path length {result.Length} exceeds OS limit {maxLen}");
+        var resultSize = TrashService.MeasureString(result);
+        Assert.True(resultSize <= maxLen, $"GUID fallback path size {resultSize} exceeds OS limit {maxLen}");
         Assert.False(Directory.Exists(result));
         Assert.False(File.Exists(result));
     }

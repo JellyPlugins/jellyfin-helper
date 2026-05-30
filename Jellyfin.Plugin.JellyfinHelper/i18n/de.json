@@ -353,6 +353,7 @@
   "trashBrowseCreateNew": "Oder neuen Ordnernamen eingeben:",
   "trashBrowseEmpty": "Dieser Ordner ist leer.",
   "trashBrowseError": "Zugriff auf dieses Verzeichnis nicht möglich.",
+  "trashBrowseSaveError": "Einstellungen konnten nicht gespeichert werden. Bitte erneut versuchen.",
   "trashBrowseLibraryRoots": "Bibliothek-Stammverzeichnisse",
   "trashBrowseLoading": "Laden…",
   "trashBrowseCurrentPath": "Aktueller Pfad"

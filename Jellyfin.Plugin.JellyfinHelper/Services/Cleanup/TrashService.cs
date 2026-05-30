@@ -442,6 +442,17 @@ public class TrashService : ITrashService
         }
 
         var name = Path.GetFileName(desiredPath);
+        var maxNameSize = GetMaxComponentSize(directory);
+
+        // Fail fast when the remaining name budget cannot encode a unique suffix.
+        // Without this guard, BuildSuffixSafeCandidate collapses every candidate to the
+        // same truncated path and the retry loops would spin indefinitely.
+        if (maxNameSize < MeasureString("_2"))
+        {
+            throw new IOException(
+                $"Cannot create a unique trash path under '{directory}': insufficient path budget " +
+                $"(available: {maxNameSize}, minimum required: {MeasureString("_2")}).");
+        }
 
         for (var i = 2; i < 1000; i++)
         {

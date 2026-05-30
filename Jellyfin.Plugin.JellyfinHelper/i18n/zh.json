@@ -353,6 +353,7 @@
   "trashBrowseCreateNew": "或输入新文件夹名称：",
   "trashBrowseEmpty": "此文件夹为空。",
   "trashBrowseError": "无法访问此目录。",
+  "trashBrowseSaveError": "保存设置失败。请重试。",
   "trashBrowseLibraryRoots": "媒体库根目录",
   "trashBrowseLoading": "加载中…",
   "trashBrowseCurrentPath": "当前路径"

@@ -353,6 +353,7 @@
   "trashBrowseCreateNew": "Ou saisir un nouveau nom de dossier :",
   "trashBrowseEmpty": "Ce dossier est vide.",
   "trashBrowseError": "Impossible d'accéder à ce répertoire.",
+  "trashBrowseSaveError": "Échec de l'enregistrement des paramètres. Veuillez réessayer.",
   "trashBrowseLibraryRoots": "Racines des bibliothèques",
   "trashBrowseLoading": "Chargement…",
   "trashBrowseCurrentPath": "Chemin actuel"

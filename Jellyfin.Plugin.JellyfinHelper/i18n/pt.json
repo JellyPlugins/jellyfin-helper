@@ -353,6 +353,7 @@
   "trashBrowseCreateNew": "Ou digite um novo nome de pasta:",
   "trashBrowseEmpty": "Esta pasta está vazia.",
   "trashBrowseError": "Não é possível acessar este diretório.",
+  "trashBrowseSaveError": "Falha ao salvar configurações. Por favor, tente novamente.",
   "trashBrowseLibraryRoots": "Raízes das bibliotecas",
   "trashBrowseLoading": "Carregando…",
   "trashBrowseCurrentPath": "Caminho atual"
