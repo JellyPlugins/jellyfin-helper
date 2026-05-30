@@ -145,7 +145,7 @@ LibrarySizes:{"Movies":_moviesLib.TotalSize,"TV Shows":_tvLib.TotalSize},
 ComputedAtUtc:new Date().toISOString()
 };
 
-var MOCK_LIBRARIES=[{Name:"Movies",CollectionType:"movies"},{Name:"TV Shows",CollectionType:"tvshows"},{Name:"Music",CollectionType:"music"}];
+var MOCK_LIBRARIES=[{name:"Movies",collectionType:"movies"},{name:"TV Shows",collectionType:"tvshows"},{name:"Music",collectionType:"music"}];
 
 var MOCK_LIBRARY_PATHS={libraryPaths:[
 {name:"Movies",path:"/data/movies"},
