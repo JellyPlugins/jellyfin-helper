@@ -123,10 +123,9 @@ function openFolderBrowserDialog() {
             }
         }
         if (selectedPath) {
-            var browseBtn = document.getElementById('btnBrowseTrash');
             doSaveSettings(buildSettingsPayload(), {
                 quiet: true,
-                element: browseBtn,
+                element: null,
                 onSuccess: function () {
                     closeDialog();
                     var icon = document.getElementById('btnBrowseTrash');
