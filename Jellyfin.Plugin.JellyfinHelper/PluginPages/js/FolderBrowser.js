@@ -219,6 +219,12 @@ function browseTo(path, listingEl, breadcrumbEl, state) {
         var dirs = result.Directories || result.directories || [];
         var error = result.Error || result.error || null;
 
+        // Clear selection when the server reports an error with no navigable directories,
+        // preventing "Select This Folder" from persisting an inaccessible path.
+        if (error && dirs.length === 0) {
+            state.currentPath = null;
+        }
+
         // Update breadcrumb
         breadcrumbEl.textContent = state.currentPath ? (T('trashBrowseCurrentPath', 'Current path') + ': ' + state.currentPath) : '';
 
