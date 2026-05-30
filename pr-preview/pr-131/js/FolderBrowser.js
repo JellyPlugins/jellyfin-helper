@@ -37,7 +37,7 @@ function openFolderBrowserDialog() {
     // Header
     var header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:1em;';
-    header.innerHTML = '<h3 style="margin:0;font-size:1.1em;display:flex;align-items:center;gap:0.4em;"><span class="material-icons" style="color:#00a4dc;">folder_open</span>' + T('trashBrowseTitle', 'Select Trash Folder') + '</h3>'
+    header.innerHTML = '<h3 style="margin:0;font-size:1.1em;display:flex;align-items:center;gap:0.4em;"><span style="color:#00a4dc;">' + mi('folder_open') + '</span>' + T('trashBrowseTitle', 'Select Trash Folder') + '</h3>'
         + '<button type="button" id="folderBrowserClose" style="background:none;border:none;color:inherit;font-size:1.5em;cursor:pointer;padding:0.2em;line-height:1;opacity:0.7;" aria-label="' + escAttr(T('close', 'Close')) + '">&times;</button>';
     dialog.appendChild(header);
 
@@ -176,7 +176,7 @@ function loadLibraryPathsForBrowser(quickJumpEl, state, listing, breadcrumb) {
         var h = '<div style="font-size:0.8em;opacity:0.7;margin-bottom:0.3em;">' + T('trashBrowseLibraryRoots', 'Library Roots') + ':</div>';
         h += '<div style="display:flex;flex-wrap:wrap;gap:0.3em;">';
         for (var i = 0; i < paths.length; i++) {
-            h += '<button type="button" class="action-btn folder-browser-quick-btn" data-path="' + escAttr(paths[i].path) + '" style="padding:0.2em 0.6em;font-size:0.78em;display:inline-flex;align-items:center;gap:0.2em;"><span class="material-icons" style="font-size:0.9em;">folder</span>' + escHtml(paths[i].name) + '</button>';
+            h += '<button type="button" class="action-btn folder-browser-quick-btn" data-path="' + escAttr(paths[i].path) + '" style="padding:0.2em 0.6em;font-size:0.78em;display:inline-flex;align-items:center;gap:0.2em;"><span style="font-size:0.9em;">' + mi('folder') + '</span>' + escHtml(paths[i].name) + '</button>';
         }
         h += '</div>';
         quickJumpEl.innerHTML = h;
@@ -224,13 +224,13 @@ function browseTo(path, listingEl, breadcrumbEl, state) {
         // Go up button
         if (canGoUp && parentPath) {
             h += '<div class="folder-browser-item folder-browser-up" data-path="' + escAttr(parentPath) + '" style="padding:0.5em 0.8em;cursor:pointer;display:flex;align-items:center;gap:0.5em;border-bottom:1px solid rgba(255,255,255,0.05);">';
-            h += '<span class="material-icons" style="font-size:1.1em;color:#00a4dc;">arrow_upward</span>';
+            h += '<span style="font-size:1.1em;color:#00a4dc;">' + mi('expand_less') + '</span>';
             h += '<span style="opacity:0.8;">' + T('trashBrowseGoUp', 'Go up') + '</span>';
             h += '</div>';
         } else if (state.currentPath) {
             // Show "go to roots" when at top
             h += '<div class="folder-browser-item folder-browser-up" data-path="" style="padding:0.5em 0.8em;cursor:pointer;display:flex;align-items:center;gap:0.5em;border-bottom:1px solid rgba(255,255,255,0.05);">';
-            h += '<span class="material-icons" style="font-size:1.1em;color:#00a4dc;">arrow_upward</span>';
+            h += '<span style="font-size:1.1em;color:#00a4dc;">' + mi('expand_less') + '</span>';
             h += '<span style="opacity:0.8;">' + T('trashBrowseGoUp', 'Go up') + '</span>';
             h += '</div>';
         }
@@ -246,9 +246,9 @@ function browseTo(path, listingEl, breadcrumbEl, state) {
                 var dirPath = dir.Path || dir.path || '';
                 var hasKids = dir.HasChildren || dir.hasChildren || false;
                 h += '<div class="folder-browser-item" data-path="' + escAttr(dirPath) + '" style="padding:0.5em 0.8em;cursor:pointer;display:flex;align-items:center;gap:0.5em;border-bottom:1px solid rgba(255,255,255,0.05);transition:background 0.15s;">';
-                h += '<span class="material-icons" style="font-size:1.1em;color:' + (hasKids ? '#f39c12' : '#7f8c8d') + ';">folder' + (hasKids ? '' : '_open') + '</span>';
+                h += '<span style="font-size:1.1em;color:' + (hasKids ? '#f39c12' : '#7f8c8d') + ';">' + mi(hasKids ? 'folder' : 'folder_open') + '</span>';
                 h += '<span>' + escHtml(dirName) + '</span>';
-                if (hasKids) h += '<span class="material-icons" style="font-size:0.8em;opacity:0.4;margin-left:auto;">chevron_right</span>';
+                if (hasKids) h += '<span style="font-size:0.8em;opacity:0.4;margin-left:auto;">' + mi('expand_more') + '</span>';
                 h += '</div>';
             }
         }
