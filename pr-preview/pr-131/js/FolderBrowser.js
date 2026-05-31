@@ -115,14 +115,6 @@ function openFolderBrowserDialog() {
             selectedPath += newName.trim();
         }
         if (selectedPath) {
-            var input = document.getElementById('cfgTrashPath');
-            if (input) {
-                input.value = selectedPath;
-                // Trigger input event to clear any validation errors
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-        }
-        if (selectedPath) {
             // Validate path locally before attempting save — shows specific error in picker
             var pathError = validateTrashPath(selectedPath, true);
             if (pathError) {
@@ -131,6 +123,12 @@ function openFolderBrowserDialog() {
                     listingEl.innerHTML = '<div style="padding:1em;text-align:center;color:var(--color-error,#e74c3c);">' + mi('error') + ' ' + escHtml(pathError) + '</div>';
                 }
                 return;
+            }
+            var input = document.getElementById('cfgTrashPath');
+            if (input) {
+                input.value = selectedPath;
+                // Trigger input event to clear any validation errors
+                input.dispatchEvent(new Event('input', { bubbles: true }));
             }
             doSaveSettings(buildSettingsPayload(), {
                 quiet: true,
