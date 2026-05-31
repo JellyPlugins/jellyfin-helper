@@ -193,13 +193,14 @@ public static class BackupValidator
                 $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 1–{MaxRetentionDays}.");
         }
 
-        // Path validation for trash folder — uses the same strict rules as the settings save API
-        // to prevent backup import from persisting paths that the normal save flow rejects.
-        if (!string.IsNullOrEmpty(backup.TrashFolderPath))
+        // Path validation for trash folder — defence in depth:
+        // 1. ValidatePathSafety catches injection patterns (|, `, ;, $(...), ${...})
+        // 2. ValidateTrashPathStrict applies the same structural rules as the settings save API
+        // Only validate when UseTrash is enabled, matching the live save flow behavior.
+        if (backup.UseTrash && !string.IsNullOrEmpty(backup.TrashFolderPath))
         {
             ValidatePathSafety(result, backup.TrashFolderPath, "TrashFolderPath");
 
-            // Additionally apply the shared strict validation (control chars, invalid chars, etc.)
             var trashPathError = ConfigurationRequestValidator.ValidateTrashPathStrict(
                 backup.TrashFolderPath, backup.UseTrash);
             if (trashPathError != null)

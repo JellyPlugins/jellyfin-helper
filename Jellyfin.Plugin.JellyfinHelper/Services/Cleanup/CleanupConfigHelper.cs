@@ -209,9 +209,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                 var absRootNormalized = Path.GetFullPath(libraryRootPath)
                     .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-                var absPathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-                    ? StringComparison.OrdinalIgnoreCase
-                    : StringComparison.Ordinal;
+                var absPathComparison = GetOsPathComparison();
 
                 if (string.Equals(absTrashNormalized, absRootNormalized, absPathComparison))
                 {
@@ -241,9 +239,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
         }
 
-        var pathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
+        var pathComparison = GetOsPathComparison();
 
         // Compare without trailing separators so that "/" == "/" and "C:\" == "C:\" work correctly
         var resolvedTrimmed = resolved
@@ -269,6 +265,16 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     }
 
     // ===== Pure static helpers (no state, no config access) =====
+
+    /// <summary>
+    ///     Returns the OS-appropriate <see cref="StringComparison" /> for file-system path comparisons.
+    /// </summary>
+    private static StringComparison GetOsPathComparison()
+    {
+        return OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+    }
 
     /// <summary>
     ///     Determines whether a task should run in dry-run mode based on its <see cref="TaskMode" />.
