@@ -294,11 +294,24 @@
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    scrollbar-width: thin;
 }
 
 .tab-bar::-webkit-scrollbar {
-    display: none;
+    height: 4px;
+}
+
+.tab-bar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tab-bar::-webkit-scrollbar-thumb {
+    background: var(--color-primary-scrollbar);
+    border-radius: 2px;
+}
+
+.tab-bar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary-scrollbar-hover);
 }
 
 .tab-btn {
