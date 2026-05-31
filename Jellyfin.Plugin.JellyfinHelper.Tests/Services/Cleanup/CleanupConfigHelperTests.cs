@@ -277,6 +277,17 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
+    public void GetTrashPath_AbsolutePath_EqualToLibraryRoot_FallsBackToDefault()
+    {
+        var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+        var cfg = new PluginConfiguration { TrashFolderPath = root };
+        var helper = CreateHelper(cfg);
+        var result = helper.GetTrashPath(root);
+        var expected = Path.GetFullPath(Path.Join(root, ".jellyfin-trash"));
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
     public void GetTrashPath_RelativePathTraversal_FallsBackToDefault()
     {
         var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);

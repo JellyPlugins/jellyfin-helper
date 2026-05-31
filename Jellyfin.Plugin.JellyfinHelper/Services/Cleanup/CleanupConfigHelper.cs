@@ -200,6 +200,29 @@ public class CleanupConfigHelper : ICleanupConfigHelper
 
         if (Path.IsPathFullyQualified(trashPath))
         {
+            // Safety: absolute trash path must not be the library root itself.
+            // If it is, TrashService would treat every source file as "already in trash" and skip all moves.
+            try
+            {
+                var absTrashNormalized = Path.GetFullPath(trashPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var absRootNormalized = Path.GetFullPath(libraryRootPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                var absPathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal;
+
+                if (string.Equals(absTrashNormalized, absRootNormalized, absPathComparison))
+                {
+                    return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
+            }
+
             return trashPath;
         }
 

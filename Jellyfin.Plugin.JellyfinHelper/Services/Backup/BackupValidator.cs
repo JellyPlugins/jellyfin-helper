@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
@@ -192,10 +193,19 @@ public static class BackupValidator
                 $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 1–{MaxRetentionDays}.");
         }
 
-        // Path traversal check for trash folder
+        // Path validation for trash folder — uses the same strict rules as the settings save API
+        // to prevent backup import from persisting paths that the normal save flow rejects.
         if (!string.IsNullOrEmpty(backup.TrashFolderPath))
         {
             ValidatePathSafety(result, backup.TrashFolderPath, "TrashFolderPath");
+
+            // Additionally apply the shared strict validation (control chars, invalid chars, etc.)
+            var trashPathError = ConfigurationRequestValidator.ValidateTrashPathStrict(
+                backup.TrashFolderPath, backup.UseTrash);
+            if (trashPathError != null)
+            {
+                result.Errors.Add($"TrashFolderPath: {trashPathError}");
+            }
         }
 
         // Arr instances validation
