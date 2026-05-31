@@ -258,7 +258,11 @@ public class FolderBrowserService : IFolderBrowserService
             // permission errors into the wrong "does not exist" message.
             try
             {
-                _ = new DirectoryInfo(normalized).Attributes;
+                var attrs = new DirectoryInfo(normalized).Attributes;
+                if (!attrs.HasFlag(FileAttributes.Directory))
+                {
+                    return "Path must point to a directory.";
+                }
             }
             catch (UnauthorizedAccessException)
             {

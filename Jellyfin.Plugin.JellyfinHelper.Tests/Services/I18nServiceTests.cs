@@ -133,6 +133,16 @@ public class I18NServiceTests : IDisposable
             "seerrCleanupAgeDays", "seerrCleanupAgeDaysHelp", "seerrFillFields",
             // Unsaved changes dialog keys
             "unsavedChangesTitle", "unsavedChangesMsg", "discardChanges", "saveAndContinue",
+            // Trash path validation keys
+            "trashPathInvalid", "trashPathInvalidChars", "trashPathEmpty", "trashPathTraversal",
+            "trashPathOnlySlashes", "trashPathDoubleSlash", "trashPathDotSegment",
+            "trashPathTrailingSlash", "trashPathSegmentEnds",
+            // Folder browser keys
+            "close", "trashBrowse", "trashBrowseTitle", "trashBrowseGoUp", "trashBrowseSelect",
+            "trashBrowseCreateNew", "trashBrowseEmpty", "trashBrowseError", "trashBrowseSaveError",
+            "trashBrowseLibraryRoots", "trashBrowseLoading", "trashBrowseCurrentPath",
+            // Library multi-select keys
+            "libraryNoneExcluded", "librarySelected",
         };
 
         foreach (var key in expectedKeys)

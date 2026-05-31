@@ -468,14 +468,17 @@ public class TrashService : ITrashService
         }
 
         // Extremely unlikely fallback: append a GUID and verify the final truncated path.
-        string guidCandidate;
-        do
+        for (var attempt = 0; attempt < 128; attempt++)
         {
-            guidCandidate = BuildSuffixSafeCandidate(directory, name, $"_{Guid.NewGuid():N}");
+            var guidCandidate = BuildSuffixSafeCandidate(directory, name, $"_{Guid.NewGuid():N}");
+            if (!File.Exists(guidCandidate) && !Directory.Exists(guidCandidate))
+            {
+                return guidCandidate;
+            }
         }
-        while (File.Exists(guidCandidate) || Directory.Exists(guidCandidate));
 
-        return guidCandidate;
+        throw new IOException(
+            $"Cannot create a unique trash path under '{directory}' within the remaining path budget.");
     }
 
     /// <summary>
