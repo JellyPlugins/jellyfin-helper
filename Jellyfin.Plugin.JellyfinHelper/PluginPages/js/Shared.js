@@ -291,8 +291,10 @@ function showAutoSaveIndicatorOverlay(element, success) {
         return;
     }
 
-    // Native <select> or <input> element: replace background-image with a check_circle SVG
-    if (element.tagName === 'SELECT' || element.tagName === 'INPUT') {
+    // Native <select> or text-like <input> element: replace background-image with a check_circle SVG
+    var isTextLikeInput = element.tagName === 'INPUT'
+        && !/^(checkbox|radio|file|range|color|submit|button|reset)$/i.test(element.type || 'text');
+    if (element.tagName === 'SELECT' || isTextLikeInput) {
         // Increment a guard counter to prevent race conditions on rapid changes
         var selectGuard = (parseInt(element.getAttribute('data-save-guard') || '0', 10)) + 1;
         element.setAttribute('data-save-guard', String(selectGuard));

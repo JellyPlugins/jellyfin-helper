@@ -51,6 +51,7 @@ public class FolderBrowserService : IFolderBrowserService
                         var rootPath = drive.RootDirectory.FullName;
                         var hasChildren = SafeHasSubdirectories(rootPath);
 
+                        var baseName = rootPath.TrimEnd(Path.DirectorySeparatorChar);
                         string? volumeLabel = null;
                         try
                         {
@@ -59,10 +60,9 @@ public class FolderBrowserService : IFolderBrowserService
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                                        or SecurityException)
                         {
-                            _logger.LogDebug(ex, "Could not read volume label for drive {Drive}", drive.Name);
+                            _logger.LogDebug(ex, "Could not read volume label for drive {Drive}", baseName);
                         }
 
-                        var baseName = drive.Name.TrimEnd(Path.DirectorySeparatorChar);
                         var displayName = string.IsNullOrWhiteSpace(volumeLabel)
                             ? baseName
                             : $"{baseName} ({volumeLabel})";

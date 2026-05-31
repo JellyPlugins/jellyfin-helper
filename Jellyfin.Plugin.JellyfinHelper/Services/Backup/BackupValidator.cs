@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
@@ -263,8 +265,11 @@ public static class BackupValidator
 
     private static void ValidatePathSafety(BackupValidationResult result, string path, string fieldName)
     {
-        // Check for path traversal attempts
-        if (path.Contains("..", StringComparison.Ordinal))
+        // Check for path traversal attempts (segment-aware to avoid false positives on names like "my..folder")
+        var segments = path.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Any(static s => s == ".."))
         {
             result.Errors.Add($"{fieldName} contains path traversal characters '..'.");
         }

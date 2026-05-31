@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Net.Mime;
 using Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
@@ -70,7 +71,7 @@ public class FolderBrowserController : ControllerBase
             .Where(f => !string.IsNullOrWhiteSpace(f.Name))
             .SelectMany(f => (f.Locations ?? []).Select(loc => new { name = f.Name, path = loc }))
             .Where(x => !string.IsNullOrWhiteSpace(x.path))
-            .OrderBy(x => x.name)
+            .OrderBy(x => x.name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         return Ok(new { libraryPaths = paths });

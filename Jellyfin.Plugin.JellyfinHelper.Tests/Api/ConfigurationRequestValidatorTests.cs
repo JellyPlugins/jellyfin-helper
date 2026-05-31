@@ -230,10 +230,20 @@ public class ConfigurationRequestValidatorTests
     [Theory]
     [InlineData("/mnt/trash")]
     [InlineData("/absolute/path/to/trash")]
-    [InlineData("C:\\Trash")]
     public void ValidateTrashPath_ReturnsNull_ForAbsolutePath(string path)
     {
         Assert.Null(ConfigurationRequestValidator.ValidateTrashPath(path));
+    }
+
+    [Fact]
+    public void ValidateTrashPath_ReturnsNull_ForWindowsAbsolutePath()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPath(@"C:\Trash"));
     }
 
     [Theory]

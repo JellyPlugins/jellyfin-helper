@@ -765,10 +765,11 @@ public sealed class Engine : IRecommendationEngine
             : 0.0;
 
         // Series progression boost: usually 0.0 at inference time.
-        // watchedSeriesIds (line 529) is built from HasMeaningfulInteraction() entries and excludes
-        // most in-progress/favourited series at line 621, so this boost is typically not reached.
-        // Note: seriesEpisodeLookup includes all watched entries with a SeriesId (not filtered by
-        // HasMeaningfulInteraction()), so edge cases exist where this block can still execute.
+        // Most series with meaningful interaction are filtered earlier by the watchedSeriesIds check,
+        // so this boost is typically not reached during live scoring.
+        // Note: seriesEpisodeLookup is broader than watchedSeriesIds because it includes all watched
+        // entries with a SeriesId (not filtered by HasMeaningfulInteraction()), so edge cases exist
+        // where this block can still execute.
         // The field is kept to preserve feature-vector layout parity with the training pipeline,
         // where the boost IS computed from real episode data (the series was recommended first,
         // then the user watched it — progression is a valid training signal even though it
