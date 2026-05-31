@@ -339,7 +339,7 @@
   "trashPathInvalidChars": "Pfad enthält ungültige Zeichen.",
   "trashPathEmpty": "Papierkorb-Ordnerpfad ist erforderlich, wenn der Papierkorb aktiviert ist.",
   "trashPathTraversal": "Pfad darf keine '..' Sequenzen enthalten.",
-  "trashPathOnlySlashes": "Pfad darf nicht nur aus Schrägstrichen oder ungültigen Zeichen bestehen.",
+  "trashPathOnlySlashes": "Pfad darf nicht nur aus Schräg-/Backslashes oder ungültigen Zeichen bestehen.",
   "trashPathDoubleSlash": "Pfad darf keine aufeinanderfolgenden Schräg- oder Backslashes enthalten.",
   "trashPathDotSegment": "Pfad darf keine '.' oder '..' Verzeichnisreferenzen enthalten.",
   "trashPathTrailingSlash": "Pfad darf nicht mit einem Schräg- oder Backslash enden.",

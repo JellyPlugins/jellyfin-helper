@@ -6,9 +6,9 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Timeline;
 
 /// <summary>
-///     Tests that <see cref="GrowthTimelineService.GetDirectorySize" /> never follows
-///     symlinks or junction points, preventing an infinite-recursion / StackOverflowException
-///     when the filesystem contains circular directory structures (A → B → A).
+///     Tests that <see cref="GrowthTimelineService.GetDirectorySize" /> skips child-directory
+///     symlinks and junction points during recursion, preventing StackOverflowException
+///     from circular directory structures (A → B → A). The caller-supplied root is followed.
 /// </summary>
 public class GrowthTimelineSymlinkTests : IDisposable
 {
