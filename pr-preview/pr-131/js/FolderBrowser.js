@@ -125,15 +125,16 @@ function openFolderBrowserDialog() {
                 return;
             }
             var input = document.getElementById('cfgTrashPath');
-            if (input) {
-                input.value = selectedPath;
-                // Trigger input event to clear any validation errors
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-            doSaveSettings(buildSettingsPayload(), {
+            var payload = buildSettingsPayload();
+            payload.TrashFolderPath = selectedPath;
+            doSaveSettings(payload, {
                 quiet: true,
                 element: null,
                 onSuccess: function () {
+                    if (input) {
+                        input.value = selectedPath;
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
                     closeDialog();
                     var icon = document.getElementById('btnBrowseTrash');
                     if (!icon) return;

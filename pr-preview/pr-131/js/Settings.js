@@ -1135,6 +1135,20 @@ function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
     var wrapper = document.getElementById(wrapperId);
     if (!wrapper) return;
 
+    // Identify selected libraries that are no longer returned by the API
+    // (renamed/deleted). Store them so getLibraryMultiSelectValue() can preserve them.
+    var available = {};
+    for (var ai = 0; ai < libraries.length; ai++) {
+        available[libraries[ai].name.toLowerCase()] = true;
+    }
+    var missingSelected = [];
+    for (var key in selectedSet) {
+        if (Object.prototype.hasOwnProperty.call(selectedSet, key) && !available[key]) {
+            missingSelected.push(selectedSet[key]);
+        }
+    }
+    wrapper.setAttribute('data-missing-values', missingSelected.join(', '));
+
     var selectedCount = Object.keys(selectedSet).length;
     var noneSelectedLabel = T('libraryNoneExcluded', 'None excluded (default)');
 
@@ -1245,6 +1259,17 @@ function getLibraryMultiSelectValue(wrapperId) {
     var selected = [];
     for (var i = 0; i < checkboxes.length; i++) {
         if (checkboxes[i].checked) selected.push(checkboxes[i].value);
+    }
+    // Preserve previously-excluded library names that are no longer returned by the API
+    // (e.g. renamed or deleted libraries). Without this, those exclusions would be silently
+    // dropped on the next save, potentially causing unexpected cleanup of those libraries.
+    var missingValues = wrapper.getAttribute('data-missing-values');
+    if (missingValues) {
+        var parts = missingValues.split(',');
+        for (var m = 0; m < parts.length; m++) {
+            var v = parts[m].trim();
+            if (v) selected.push(v);
+        }
     }
     return selected.join(', ');
 }
