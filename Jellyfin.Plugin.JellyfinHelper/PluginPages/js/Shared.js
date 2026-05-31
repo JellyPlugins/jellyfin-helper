@@ -297,12 +297,16 @@ function showAutoSaveIndicatorOverlay(element, success) {
         var selectGuard = (parseInt(element.getAttribute('data-save-guard') || '0', 10)) + 1;
         element.setAttribute('data-save-guard', String(selectGuard));
 
-        var originalBgImage = element.style.backgroundImage;
-        var originalBgRepeat = element.style.backgroundRepeat;
-        var originalBgPosition = element.style.backgroundPosition;
-        var originalBgSize = element.style.backgroundSize;
-        var originalAppearance = element.style.appearance || '';
-        var originalWebkitAppearance = element.style.webkitAppearance || '';
+        // Store true originals only on first invocation to prevent snapshot poisoning
+        // when a second auto-save fires while the first icon is still displayed.
+        if (!element.hasAttribute('data-orig-bg')) {
+            element.setAttribute('data-orig-bg', element.style.backgroundImage || '');
+            element.setAttribute('data-orig-bg-repeat', element.style.backgroundRepeat || '');
+            element.setAttribute('data-orig-bg-position', element.style.backgroundPosition || '');
+            element.setAttribute('data-orig-bg-size', element.style.backgroundSize || '');
+            element.setAttribute('data-orig-appearance', element.style.appearance || '');
+            element.setAttribute('data-orig-webkit-appearance', element.style.webkitAppearance || '');
+        }
 
         // Hide native browser arrow (for selects outside .settings-form that still have native appearance)
         element.style.webkitAppearance = 'none';
@@ -319,18 +323,25 @@ function showAutoSaveIndicatorOverlay(element, success) {
         element.style.backgroundPosition = 'right 0.5em center';
         element.style.backgroundSize = '1.3em';
 
-        // Restore original chevron after delay (only if no newer indicator was triggered)
-        (function (guardVal) {
+        // Restore original styles after delay (only if no newer indicator was triggered)
+        (function (guardVal, el) {
             setTimeout(function () {
-                if (element.getAttribute('data-save-guard') !== String(guardVal)) return;
-                element.style.backgroundImage = originalBgImage || '';
-                element.style.backgroundRepeat = originalBgRepeat || '';
-                element.style.backgroundPosition = originalBgPosition || '';
-                element.style.backgroundSize = originalBgSize || '';
-                element.style.appearance = originalAppearance;
-                element.style.webkitAppearance = originalWebkitAppearance;
+                if (el.getAttribute('data-save-guard') !== String(guardVal)) return;
+                el.style.backgroundImage = el.getAttribute('data-orig-bg') || '';
+                el.style.backgroundRepeat = el.getAttribute('data-orig-bg-repeat') || '';
+                el.style.backgroundPosition = el.getAttribute('data-orig-bg-position') || '';
+                el.style.backgroundSize = el.getAttribute('data-orig-bg-size') || '';
+                el.style.appearance = el.getAttribute('data-orig-appearance') || '';
+                el.style.webkitAppearance = el.getAttribute('data-orig-webkit-appearance') || '';
+                // Clear stored originals so next invocation re-captures fresh state
+                el.removeAttribute('data-orig-bg');
+                el.removeAttribute('data-orig-bg-repeat');
+                el.removeAttribute('data-orig-bg-position');
+                el.removeAttribute('data-orig-bg-size');
+                el.removeAttribute('data-orig-appearance');
+                el.removeAttribute('data-orig-webkit-appearance');
             }, fadeDelay);
-        })(selectGuard);
+        })(selectGuard, element);
         return;
     }
 

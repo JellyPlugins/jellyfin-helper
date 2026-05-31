@@ -282,6 +282,47 @@ public class ConfigurationRequestValidatorTests
     }
 
     [Fact]
+    public void ValidateTrashPath_ProducesWarning_WhileValidateStrict_ProducesError_ForSamePath()
+    {
+        // Demonstrates that ValidateTrashPath (advisory) and ValidateTrashPathStrict (blocking)
+        // are separate layers. A path with ".." triggers BOTH: a warning from the advisory method
+        // AND an error from the strict method. This proves Validate() correctly uses only the strict
+        // check — it does not need to suppress warnings because they operate independently.
+        const string escapingPath = "../../escape";
+
+        // Advisory method: produces a warning (non-null)
+        var warning = ConfigurationRequestValidator.ValidateTrashPath(escapingPath);
+        Assert.NotNull(warning);
+        Assert.Contains(".jellyfin-trash", warning);
+
+        // Strict method: also blocks it (non-null error)
+        var strictError = ConfigurationRequestValidator.ValidateTrashPathStrict(escapingPath, useTrash: true);
+        Assert.NotNull(strictError);
+        Assert.Contains("'.' or '..'", strictError);
+
+        // Validate() uses strict, so it blocks the save:
+        var req = new ConfigurationUpdateRequest
+        {
+            UseTrash = true,
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            TrashFolderPath = escapingPath
+        };
+        Assert.NotNull(ConfigurationRequestValidator.Validate(req));
+
+        // But a valid relative path passes Validate() even though ValidateTrashPath returns null for it:
+        var validReq = new ConfigurationUpdateRequest
+        {
+            UseTrash = true,
+            OrphanMinAgeDays = 7,
+            TrashRetentionDays = 30,
+            TrashFolderPath = "sub/trash-folder"
+        };
+        Assert.Null(ConfigurationRequestValidator.Validate(validReq));
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPath("sub/trash-folder"));
+    }
+
+    [Fact]
     public void ValidateTrashPath_ReturnsWarning_ForNullCharInPath()
     {
         // Null characters in paths are universally invalid across all platforms.

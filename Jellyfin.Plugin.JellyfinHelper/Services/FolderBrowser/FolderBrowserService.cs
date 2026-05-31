@@ -141,7 +141,7 @@ public class FolderBrowserService : IFolderBrowserService
                 {
                     return new FolderBrowseResult { Error = "Cannot access this directory." };
                 }
-                catch (System.Security.SecurityException)
+                catch (SecurityException)
                 {
                     return new FolderBrowseResult { Error = "Cannot access this directory." };
                 }
