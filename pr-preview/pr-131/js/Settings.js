@@ -1363,10 +1363,6 @@ function validateTrashPath(path, useTrash) {
             return T('trashPathDotSegment', "Path must not contain '.' or '..' directory references.");
         }
 
-        // Segment ends with dot or space (Windows filesystem restriction)
-        if (/[. ]$/.test(seg)) {
-            return T('trashPathSegmentEnds', 'Folder names must not end with a dot or space.');
-        }
 
         // Segment is only whitespace
         if (/^\s+$/.test(seg)) {

@@ -94,8 +94,8 @@
             styleEl.textContent = results.join('\n');
             var jsFiles = [
                 'js/Shared.js', 'js/Overview.js', 'js/Codecs.js', 'js/Health.js',
-                'js/Trends.js', 'js/Settings.js', 'js/FolderBrowser.js', 'js/ArrIntegration.js',
-                'js/Logs.js', 'js/Recommendations.js', 'js/Main.js'
+                'js/Trends.js', 'js/Settings.js', 'js/ArrIntegration.js',
+                'js/Recommendations.js', 'js/Logs.js', 'js/FolderBrowser.js', 'js/Main.js'
             ];
             var jsPromises = jsFiles.map(function(f) {
                 return fetch(f).then(function(r) { return r.text(); }).catch(function() { return ''; });
