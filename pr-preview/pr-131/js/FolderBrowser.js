@@ -32,12 +32,15 @@ function openFolderBrowserDialog() {
 
     var dialog = document.createElement('div');
     dialog.className = 'dialog-content';
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', 'folderBrowserTitle');
     dialog.style.cssText = 'background:var(--theme-card-bg, #1c1c1e);border-radius:10px;padding:1.5em;max-width:600px;width:90%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
 
     // Header
     var header = document.createElement('div');
     header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:1em;';
-    header.innerHTML = '<h3 style="margin:0;font-size:1.1em;display:flex;align-items:center;gap:0.4em;"><span style="color:#00a4dc;">' + mi('folder_open') + '</span>' + T('trashBrowseTitle', 'Select Trash Folder') + '</h3>'
+    header.innerHTML = '<h3 id="folderBrowserTitle" style="margin:0;font-size:1.1em;display:flex;align-items:center;gap:0.4em;"><span style="color:#00a4dc;">' + mi('folder_open') + '</span>' + T('trashBrowseTitle', 'Select Trash Folder') + '</h3>'
         + '<button type="button" id="folderBrowserClose" style="background:none;border:none;color:inherit;font-size:1.5em;cursor:pointer;padding:0.2em;line-height:1;opacity:0.7;" aria-label="' + escAttr(T('close', 'Close')) + '">&times;</button>';
     dialog.appendChild(header);
 

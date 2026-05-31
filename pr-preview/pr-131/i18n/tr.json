@@ -339,7 +339,7 @@
   "trashPathInvalidChars": "Yol geçersiz karakterler içeriyor.",
   "trashPathEmpty": "Çöp kutusu etkinleştirildiğinde çöp kutusu klasör yolu gereklidir.",
   "trashPathTraversal": "Yol '..' dizileri içeremez.",
-  "trashPathOnlySlashes": "Yol yalnızca eğik çizgi veya geçersiz karakterlerden oluşamaz.",
+  "trashPathOnlySlashes": "Yol yalnızca eğik çizgi/ters eğik çizgi veya geçersiz karakterlerden oluşamaz.",
   "trashPathDoubleSlash": "Yol ardışık eğik çizgi veya ters eğik çizgi içeremez.",
   "trashPathDotSegment": "Yol '.' veya '..' dizin referansları içeremez.",
   "trashPathTrailingSlash": "Yol eğik çizgi veya ters eğik çizgi ile bitemez.",
