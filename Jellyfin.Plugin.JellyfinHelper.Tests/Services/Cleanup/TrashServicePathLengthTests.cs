@@ -247,6 +247,7 @@ public class TrashServicePathLengthTests : IDisposable
         var resultByteCount = System.Text.Encoding.UTF8.GetByteCount(resultComponent);
         Assert.True(resultByteCount <= 255,
             $"Suffixed component byte length {resultByteCount} exceeds NAME_MAX 255 bytes");
+        Assert.EndsWith("_2", resultComponent, StringComparison.Ordinal);
     }
 
     [Fact]

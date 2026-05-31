@@ -342,7 +342,7 @@ public class ConfigurationController : ControllerBase
     private static void ApplyRequestToConfig(ConfigurationUpdateRequest request, PluginConfiguration config)
     {
         // Normalize nullable strings to prevent downstream NREs from explicit JSON null values
-        config.ExcludedLibraries = request.ExcludedLibraries;
+        config.ExcludedLibraries = request.ExcludedLibraries ?? string.Empty;
         config.OrphanMinAgeDays = Math.Clamp(request.OrphanMinAgeDays, 0, 3650);
 
         config.TrickplayTaskMode = request.TrickplayTaskMode;

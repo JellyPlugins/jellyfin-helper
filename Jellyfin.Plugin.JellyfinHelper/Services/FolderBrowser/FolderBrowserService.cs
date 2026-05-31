@@ -129,7 +129,26 @@ public class FolderBrowserService : IFolderBrowserService
 
             if (!dirInfo.Exists)
             {
-                return new FolderBrowseResult { Error = "Directory does not exist." };
+                // DirectoryInfo.Exists returns false for both missing AND permission-denied directories.
+                // Attempt to read attributes to distinguish the two cases.
+                try
+                {
+                    _ = dirInfo.Attributes;
+                    // If we get here without exception, the directory truly does not exist.
+                    return new FolderBrowseResult { Error = "Directory does not exist." };
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    return new FolderBrowseResult { Error = "Cannot access this directory." };
+                }
+                catch (System.Security.SecurityException)
+                {
+                    return new FolderBrowseResult { Error = "Cannot access this directory." };
+                }
+                catch (Exception ex) when (ex is IOException or ArgumentException)
+                {
+                    return new FolderBrowseResult { Error = "Directory does not exist." };
+                }
             }
 
             var entries = new List<FolderEntry>();

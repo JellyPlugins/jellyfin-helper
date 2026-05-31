@@ -53,10 +53,13 @@ public class TrashService : ITrashService
 
     /// <summary>
     ///     Gets the platform-aware string comparison for path containment checks.
-    ///     Windows filesystems (NTFS, FAT) are case-insensitive; Linux/macOS (ext4, APFS) are case-sensitive.
+    ///     Windows filesystems (NTFS, FAT) are case-insensitive; macOS default APFS is case-insensitive
+    ///     (case-preserving); Linux (ext4, XFS) is case-sensitive.
     /// </summary>
     internal static StringComparison PathComparison =>
-        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
 
     /// <inheritdoc />
     public long MoveToTrash(string sourcePath, string trashBasePath, ILogger logger, DateTime? utcNow = null)

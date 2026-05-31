@@ -198,7 +198,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             trashPath = ".jellyfin-trash";
         }
 
-        if (Path.IsPathRooted(trashPath))
+        if (Path.IsPathFullyQualified(trashPath))
         {
             return trashPath;
         }

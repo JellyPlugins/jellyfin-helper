@@ -168,7 +168,10 @@ public static class ConfigurationRequestValidator
     /// <returns>A warning message string, or <c>null</c> when no issue is detected.</returns>
     public static string? ValidateTrashPath(string? trashFolderPath)
     {
-        if (string.IsNullOrWhiteSpace(trashFolderPath) || Path.IsPathRooted(trashFolderPath))
+        if (string.IsNullOrWhiteSpace(trashFolderPath)
+            || Path.IsPathFullyQualified(trashFolderPath)
+            || trashFolderPath[0] == Path.DirectorySeparatorChar
+            || trashFolderPath[0] == Path.AltDirectorySeparatorChar)
         {
             return null;
         }
