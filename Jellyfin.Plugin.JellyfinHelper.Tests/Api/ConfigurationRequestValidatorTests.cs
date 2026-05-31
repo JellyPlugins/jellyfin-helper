@@ -250,15 +250,11 @@ public class ConfigurationRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_ReturnsNull_WhenTrashPathEscapes_BecauseWarningsAreNotErrors()
+    public void Validate_ReturnsNull_ForValidTrashPaths_WhenTrashEnabled()
     {
-        // ValidateTrashPath (the warning-only method) flags escaping relative paths,
-        // but Validate() must NOT reject them — warnings are surfaced separately in the
-        // controller response. This test proves that with UseTrash = true and a path that
-        // passes ValidateTrashPathStrict() (no literal ".." segments), Validate() returns null
-        // even though ValidateTrashPath() would issue a warning for similar paths.
-        // Note: "../../evil" would fail ValidateTrashPathStrict() due to ".." segments,
-        // so we use a simple relative path that Strict allows but is conceptually similar.
+        // Sanity-check that valid trash paths still pass end-to-end when trash is enabled.
+        // Both relative (default) and absolute paths that pass ValidateTrashPathStrict()
+        // must result in Validate() returning null.
         var req = new ConfigurationUpdateRequest
         {
             UseTrash = true,
@@ -268,9 +264,7 @@ public class ConfigurationRequestValidatorTests
         };
         Assert.Null(ConfigurationRequestValidator.Validate(req));
 
-        // Additionally verify that ValidateTrashPath (the warning method) does NOT block Validate.
-        // A path that triggers a ValidateTrashPath warning (absolute path going nowhere suspicious)
-        // must still pass Validate() — the warning is advisory only.
+        // Absolute path variant — also valid and must pass Validate().
         var reqWithAbsolutePath = new ConfigurationUpdateRequest
         {
             UseTrash = true,

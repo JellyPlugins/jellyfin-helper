@@ -218,7 +218,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
         }
 
-        var pathComparison = OperatingSystem.IsWindows()
+        var pathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
 

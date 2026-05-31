@@ -339,7 +339,7 @@
   "trashPathInvalidChars": "Le chemin contient des caractères invalides.",
   "trashPathEmpty": "Le chemin du dossier corbeille est requis lorsque la corbeille est activée.",
   "trashPathTraversal": "Le chemin ne doit pas contenir de séquences '..'.",
-  "trashPathOnlySlashes": "Le chemin ne peut pas être composé uniquement de barres obliques ou de caractères invalides.",
+  "trashPathOnlySlashes": "Le chemin ne peut pas être composé uniquement de barres obliques ou inversées ou de caractères invalides.",
   "trashPathDoubleSlash": "Le chemin ne doit pas contenir de barres obliques ou inversées consécutives.",
   "trashPathDotSegment": "Le chemin ne doit pas contenir de références '.' ou '..'.",
   "trashPathTrailingSlash": "Le chemin ne doit pas se terminer par une barre oblique ou inversée.",

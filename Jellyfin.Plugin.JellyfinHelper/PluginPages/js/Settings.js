@@ -447,6 +447,9 @@ function doSaveSettings(payload, options) {
         if (options && options.onError) options.onError();
         return;
     }
+    if (payload.UseTrash && typeof payload.TrashFolderPath === 'string') {
+        payload.TrashFolderPath = payload.TrashFolderPath.trim();
+    }
     showTrashPathError(null);
 
     if (!quiet) {

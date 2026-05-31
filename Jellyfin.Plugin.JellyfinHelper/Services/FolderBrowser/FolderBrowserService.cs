@@ -253,8 +253,26 @@ public class FolderBrowserService : IFolderBrowserService
         {
             var normalized = Path.GetFullPath(path);
 
-            // Verify directory exists
-            if (!Directory.Exists(normalized))
+            // Verify directory exists — use Attributes to distinguish access-denied from missing.
+            // Directory.Exists() returns false for BOTH cases, which would collapse
+            // permission errors into the wrong "does not exist" message.
+            try
+            {
+                _ = new DirectoryInfo(normalized).Attributes;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return "Cannot access this directory.";
+            }
+            catch (SecurityException)
+            {
+                return "Cannot access this directory.";
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return "Directory does not exist.";
+            }
+            catch (IOException)
             {
                 return "Directory does not exist.";
             }
