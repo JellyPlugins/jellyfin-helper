@@ -123,6 +123,15 @@ function openFolderBrowserDialog() {
             }
         }
         if (selectedPath) {
+            // Validate path locally before attempting save — shows specific error in picker
+            var pathError = validateTrashPath(selectedPath, true);
+            if (pathError) {
+                var listingEl = document.getElementById('folderBrowserListing');
+                if (listingEl) {
+                    listingEl.innerHTML = '<div style="padding:1em;text-align:center;color:var(--color-error,#e74c3c);">' + mi('error') + ' ' + escHtml(pathError) + '</div>';
+                }
+                return;
+            }
             doSaveSettings(buildSettingsPayload(), {
                 quiet: true,
                 element: null,
@@ -141,9 +150,9 @@ function openFolderBrowserDialog() {
                 },
                 onError: function () {
                     // Keep the picker open so the user sees the failure.
-                    var listingEl = document.getElementById('folderBrowserListing');
-                    if (listingEl) {
-                        listingEl.innerHTML = '<div style="padding:1em;text-align:center;color:var(--color-error,#e74c3c);">' + mi('error') + ' ' + T('trashBrowseSaveError', 'Failed to save settings. Please try again.') + '</div>';
+                    var errListingEl = document.getElementById('folderBrowserListing');
+                    if (errListingEl) {
+                        errListingEl.innerHTML = '<div style="padding:1em;text-align:center;color:var(--color-error,#e74c3c);">' + mi('error') + ' ' + T('trashBrowseSaveError', 'Failed to save settings. Please try again.') + '</div>';
                     }
                 }
             });
