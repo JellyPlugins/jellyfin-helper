@@ -145,7 +145,15 @@ public class FolderBrowserService : IFolderBrowserService
                 {
                     return new FolderBrowseResult { Error = "Cannot access this directory." };
                 }
-                catch (Exception ex) when (ex is IOException or ArgumentException)
+                catch (DirectoryNotFoundException)
+                {
+                    return new FolderBrowseResult { Error = "Directory does not exist." };
+                }
+                catch (IOException)
+                {
+                    return new FolderBrowseResult { Error = "Cannot access this directory." };
+                }
+                catch (ArgumentException)
                 {
                     return new FolderBrowseResult { Error = "Directory does not exist." };
                 }

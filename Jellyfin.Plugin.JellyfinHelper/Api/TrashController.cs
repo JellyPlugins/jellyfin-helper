@@ -392,8 +392,12 @@ public class TrashController : ControllerBase
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
 
+            var comparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+
             // Must stay within the library root
-            if (!resolved.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+            if (!resolved.StartsWith(rootPrefix, comparison))
             {
                 return null;
             }

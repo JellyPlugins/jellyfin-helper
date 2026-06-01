@@ -280,10 +280,17 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         if (Path.IsPathFullyQualified(queryPath))
         {
             // Absolute path: single trash folder
-            var fullPath = Path.GetFullPath(queryPath);
-            if (Directory.Exists(fullPath))
+            try
             {
-                existingPaths.Add(fullPath);
+                var fullPath = Path.GetFullPath(queryPath);
+                if (Directory.Exists(fullPath))
+                {
+                    existingPaths.Add(fullPath);
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                // Skip invalid paths silently
             }
         }
         else

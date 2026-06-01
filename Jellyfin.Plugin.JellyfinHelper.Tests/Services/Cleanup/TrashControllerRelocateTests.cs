@@ -182,8 +182,8 @@ public class TrashControllerRelocateTests : IDisposable
         // Assert
         var okResult = Assert.IsType<OkObjectResult>(result);
         trashServiceMock.Verify(ts => ts.RelocateTrashContents(
-            It.Is<string>(s => s.Contains(".old-trash")),
-            It.Is<string>(s => s.Contains(".new-trash")),
+            It.Is<string>(s => s == Path.Combine(libraryRoot, ".old-trash")),
+            It.Is<string>(s => s == Path.Combine(libraryRoot, ".new-trash")),
             It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
     }
 

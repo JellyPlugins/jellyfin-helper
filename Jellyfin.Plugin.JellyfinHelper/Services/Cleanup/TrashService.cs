@@ -378,11 +378,21 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
-        // Safety: old and new must not be the same path
-        var normalizedOld = Path.GetFullPath(oldTrashPath)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var normalizedNew = Path.GetFullPath(newTrashPath)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // Safety: normalize paths and create destination — guard against invalid/malformed paths
+        string normalizedOld;
+        string normalizedNew;
+        try
+        {
+            normalizedOld = Path.GetFullPath(oldTrashPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            normalizedNew = Path.GetFullPath(newTrashPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            _pluginLog.LogError("Trash", $"Failed to normalize trash relocation paths: {oldTrashPath} → {newTrashPath}", ex, logger);
+            return (0, 0);
+        }
 
         if (string.Equals(normalizedOld, normalizedNew, PathComparison))
         {
@@ -407,7 +417,15 @@ public class TrashService : ITrashService
         }
 
         // Ensure destination exists
-        Directory.CreateDirectory(newTrashPath);
+        try
+        {
+            Directory.CreateDirectory(newTrashPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _pluginLog.LogError("Trash", $"Failed to create destination trash directory: {newTrashPath}", ex, logger);
+            return (0, 0);
+        }
 
         // Move directories
         try
