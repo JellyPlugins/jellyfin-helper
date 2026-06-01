@@ -18,9 +18,16 @@ public class TrashControllerRelocateTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_testRoot))
+        try
         {
-            Directory.Delete(_testRoot, true);
+            if (Directory.Exists(_testRoot))
+            {
+                Directory.Delete(_testRoot, true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Transient file locks (antivirus, indexer) must not fail the test suite after assertions pass.
         }
     }
 

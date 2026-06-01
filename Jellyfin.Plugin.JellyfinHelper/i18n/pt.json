@@ -339,7 +339,7 @@
   "trashPathInvalidChars": "O caminho contém caracteres inválidos.",
   "trashPathEmpty": "O caminho da pasta de lixeira é obrigatório quando a lixeira está ativada.",
   "trashPathTraversal": "O caminho não deve conter sequências '..'.",
-  "trashPathOnlySlashes": "O caminho não pode consistir apenas em barras ou caracteres inválidos.",
+  "trashPathOnlySlashes": "O caminho não pode consistir apenas em barras ou barras invertidas, ou em caracteres inválidos.",
   "trashPathDoubleSlash": "O caminho não deve conter barras ou barras invertidas consecutivas.",
   "trashPathDotSegment": "O caminho não deve conter referências de diretório '.' ou '..'.",
   "trashPathTrailingSlash": "O caminho não deve terminar com uma barra ou barra invertida.",

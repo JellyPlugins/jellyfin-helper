@@ -283,6 +283,23 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             try
             {
                 var fullPath = Path.GetFullPath(queryPath);
+
+                // Safety: never report a library root as an existing trash folder.
+                // If it were reported, the relocate/delete flow could target the entire library.
+                var fullPathTrimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var comparison = GetOsPathComparison();
+                var libraryRoots = GetFilteredLibraryLocations(libraryManager);
+                var isLibraryRoot = libraryRoots.Any(root =>
+                    string.Equals(
+                        Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                        fullPathTrimmed,
+                        comparison));
+
+                if (isLibraryRoot)
+                {
+                    return existingPaths;
+                }
+
                 if (Directory.Exists(fullPath))
                 {
                     existingPaths.Add(fullPath);

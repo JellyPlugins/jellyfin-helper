@@ -101,7 +101,7 @@ var MOCK_TRASH_FOLDERS={Paths:["/data/movies/.jellyfin-trash","/data/tv/.jellyfi
 var MOCK_TRASH_FOLDERS_FOR_PATH=function(trashPath){
     // Simulate: relative paths resolve per library, absolute paths check directly
     if(!trashPath)return{Paths:[],IsAbsolute:false};
-    var isAbs=trashPath.startsWith("/");
+    var isAbs=/^(\/|[A-Za-z]:[\\/]|\\\\)/.test(trashPath);
     if(isAbs)return{Paths:[trashPath],IsAbsolute:true};
     // Relative: resolve against each library root
     var libs=["/data/movies","/data/tv"];

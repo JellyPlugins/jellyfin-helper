@@ -279,8 +279,18 @@ public class TrashController : ControllerBase
         // Both paths are further validated by IsPathSafeForDeletion / ResolveRelativeTrashPath.
         var oldPath = request.OldTrashPath.Trim();
         var newPath = request.NewTrashPath.Trim();
-        var sanitizedOld = Path.IsPathRooted(oldPath) ? Path.GetFullPath(oldPath) : oldPath;
-        var sanitizedNew = Path.IsPathRooted(newPath) ? Path.GetFullPath(newPath) : newPath;
+
+        string sanitizedOld;
+        string sanitizedNew;
+        try
+        {
+            sanitizedOld = Path.IsPathRooted(oldPath) ? Path.GetFullPath(oldPath) : oldPath;
+            sanitizedNew = Path.IsPathRooted(newPath) ? Path.GetFullPath(newPath) : newPath;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return BadRequest(new { Error = "One or both trash paths are invalid." });
+        }
 
         var libraryFolders = _configHelper.GetFilteredLibraryLocations(_libraryManager);
         var totalMoved = 0;
@@ -292,6 +302,11 @@ public class TrashController : ControllerBase
             if (!IsPathSafeForDeletion(sanitizedOld, libraryFolders))
             {
                 return BadRequest(new { Error = "Old trash path is unsafe for relocation." });
+            }
+
+            if (!IsPathSafeForDeletion(sanitizedNew, libraryFolders))
+            {
+                return BadRequest(new { Error = "New trash path is unsafe for relocation." });
             }
 
             var (moved, failed) = _trashService.RelocateTrashContents(sanitizedOld, sanitizedNew, _logger);
@@ -350,6 +365,11 @@ public class TrashController : ControllerBase
         else
         {
             // Old is relative, new is absolute: merge all library trash folders into one
+            if (!IsPathSafeForDeletion(sanitizedNew, libraryFolders))
+            {
+                return BadRequest(new { Error = "New trash path is unsafe for relocation." });
+            }
+
             var existingOldFoldersForMerge = _configHelper.GetExistingTrashFoldersForPath(_libraryManager, oldPath);
             foreach (var folder in libraryFolders)
             {
