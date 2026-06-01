@@ -191,7 +191,9 @@ function loadLibraryPathsForBrowser(quickJumpEl, state, listing, breadcrumb) {
         var h = '<div style="font-size:0.8em;opacity:0.7;margin-bottom:0.3em;">' + T('trashBrowseLibraryRoots', 'Library Roots') + ':</div>';
         h += '<div style="display:flex;flex-wrap:wrap;gap:0.3em;">';
         for (var i = 0; i < paths.length; i++) {
-            h += '<button type="button" class="action-btn folder-browser-quick-btn" data-path="' + escAttr(paths[i].path) + '" style="padding:0.2em 0.6em;font-size:0.78em;display:inline-flex;align-items:center;gap:0.2em;"><span style="font-size:0.9em;">' + mi('folder') + '</span>' + escHtml(paths[i].name) + '</button>';
+            var itemPath = paths[i].path || paths[i].Path || '';
+            var itemName = paths[i].name || paths[i].Name || '';
+            h += '<button type="button" class="action-btn folder-browser-quick-btn" data-path="' + escAttr(itemPath) + '" style="padding:0.2em 0.6em;font-size:0.78em;display:inline-flex;align-items:center;gap:0.2em;"><span style="font-size:0.9em;">' + mi('folder') + '</span>' + escHtml(itemName) + '</button>';
         }
         h += '</div>';
         quickJumpEl.innerHTML = h;

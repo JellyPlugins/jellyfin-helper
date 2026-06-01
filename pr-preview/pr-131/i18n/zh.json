@@ -339,7 +339,7 @@
   "trashPathInvalidChars": "路径包含无效字符。",
   "trashPathEmpty": "启用回收站时必须填写回收站文件夹路径。",
   "trashPathTraversal": "路径不得包含 '..' 序列。",
-  "trashPathOnlySlashes": "路径不能仅由斜杠或无效字符组成。",
+  "trashPathOnlySlashes": "路径不能仅由斜杠、反斜杠或无效字符组成。",
   "trashPathDoubleSlash": "路径不能包含连续的斜杠或反斜杠。",
   "trashPathDotSegment": "路径不能包含 '.' 或 '..' 目录引用。",
   "trashPathTrailingSlash": "路径不能以斜杠或反斜杠结尾。",
