@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  v2.1.0.5: Fix StackOverflow on circular symlinks in directory scan. Fix IOException on long trash path names. Added Swedish (sv) language. Exclude Libraries multi-select dropdown. Trash folder browser. Trash path change dialog (move/delete content on path change). Enhanced trash path validation. Upgraded to Jellyfin 10.11.10. 2305 tests.
+  v2.1.0.5: Fix StackOverflow on circular symlinks in directory scan. Fix IOException on long trash path names. Added Swedish (sv) language. Exclude Libraries multi-select dropdown. Trash folder browser. Trash path change dialog (move/delete content on path change). Enhanced trash path validation. Upgraded to Jellyfin 10.11.10. 2307 tests.

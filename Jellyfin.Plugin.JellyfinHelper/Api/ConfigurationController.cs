@@ -12,6 +12,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -78,7 +79,9 @@ public class ConfigurationController : ControllerBase
 
     /// <summary>
     ///     Gets the list of available Jellyfin libraries (virtual folders) for the multi-select UI.
-    ///     Returns library names that can be used in the Included/Excluded Libraries settings.
+    ///     Returns only libraries that are eligible for cleanup (excludes music, boxsets, and
+    ///     collection-like libraries). The user's ExcludedLibraries setting is NOT applied here
+    ///     because users need to see currently-excluded libraries in order to uncheck them.
     /// </summary>
     /// <returns>A list of library names.</returns>
     [HttpGet("Libraries")]
@@ -87,7 +90,29 @@ public class ConfigurationController : ControllerBase
     {
         var virtualFolders = _libraryManager.GetVirtualFolders();
         var libraries = virtualFolders
-            .Where(f => !string.IsNullOrWhiteSpace(f.Name))
+            .Where(f =>
+            {
+                if (string.IsNullOrWhiteSpace(f.Name))
+                {
+                    return false;
+                }
+
+                // Exclude non-video library types that cleanup never processes
+                if (f.CollectionType is CollectionTypeOptions.music or CollectionTypeOptions.boxsets)
+                {
+                    return false;
+                }
+
+                // Fallback: also exclude by name pattern for manually created or migrated libraries
+                var name = f.Name!;
+                if (name.Contains("collection", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("boxset", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                return true;
+            })
             .Select(f => new
             {
                 name = f.Name,

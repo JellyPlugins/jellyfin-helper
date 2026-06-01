@@ -277,6 +277,10 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             return existingPaths;
         }
 
+        // Use ALL library roots (unfiltered) for the safety guard so that music, boxset,
+        // and user-excluded libraries are still protected from accidental deletion/relocation.
+        var allLibraryRoots = GetAllLibraryLocations(libraryManager);
+
         if (Path.IsPathFullyQualified(queryPath))
         {
             // Absolute path: single trash folder
@@ -288,8 +292,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                 // If it were reported, the relocate/delete flow could target the entire library.
                 var fullPathTrimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 var comparison = GetOsPathComparison();
-                var libraryRoots = GetFilteredLibraryLocations(libraryManager);
-                var isLibraryRoot = libraryRoots.Any(root =>
+                var isLibraryRoot = allLibraryRoots.Any(root =>
                     string.Equals(
                         Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                         fullPathTrimmed,
@@ -312,8 +315,9 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         }
         else
         {
-            // Relative path: resolve per library
+            // Relative path: resolve per filtered library (only managed libraries have trash)
             var libraryFolders = GetFilteredLibraryLocations(libraryManager);
+            var comparison = GetOsPathComparison();
             foreach (var folder in libraryFolders)
             {
                 try
@@ -322,7 +326,6 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                     var normalizedRoot = Path.GetFullPath(folder)
                         .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                     var rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
-                    var comparison = GetOsPathComparison();
 
                     // Must stay within the library root
                     if (!resolved.StartsWith(rootPrefix, comparison))
@@ -330,12 +333,16 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                         continue;
                     }
 
-                    // Safety: never report a library root as an existing trash folder.
-                    // If it were reported, the relocate/delete flow could target the entire library.
-                    if (string.Equals(
-                            resolved.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                            normalizedRoot,
-                            comparison))
+                    // Safety: never report ANY library root as an existing trash folder.
+                    // Check against all roots (not just filtered) to protect music/boxset libraries too.
+                    var resolvedTrimmed = resolved.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    var isAnyLibraryRoot = allLibraryRoots.Any(root =>
+                        string.Equals(
+                            Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            resolvedTrimmed,
+                            comparison));
+
+                    if (isAnyLibraryRoot)
                     {
                         continue;
                     }
@@ -355,10 +362,34 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         return existingPaths;
     }
 
+    // ===== Private helpers =====
+
+    /// <summary>
+    ///     Gets ALL library root locations from the library manager without any filtering.
+    ///     Used exclusively for safety guards (e.g., preventing trash operations on any library root)
+    ///     where even music, boxset, and user-excluded libraries must be protected.
+    /// </summary>
+    /// <param name="libraryManager">The library manager.</param>
+    /// <returns>A deduplicated list of all library root paths.</returns>
+    private static List<string> GetAllLibraryLocations(ILibraryManager libraryManager)
+    {
+        return libraryManager.GetVirtualFolders()
+            .SelectMany(f => f.Locations ?? [])
+            .Where(loc => !string.IsNullOrWhiteSpace(loc))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     // ===== Pure static helpers (no state, no config access) =====
 
     /// <summary>
     ///     Returns the OS-appropriate <see cref="StringComparison" /> for file-system path comparisons.
+    ///     Note: macOS is treated as case-insensitive because the overwhelming majority of installations
+    ///     use case-insensitive APFS/HFS+. While case-sensitive APFS volumes exist, using OrdinalIgnoreCase
+    ///     is the safer default for a cleanup/trash tool — it may produce false positives (treating two
+    ///     case-differing paths as identical) but never false negatives (missing a match that could lead
+    ///     to operating on a library root). If case-sensitive macOS volumes become a reported issue,
+    ///     a volume-aware probe can be added here.
     /// </summary>
     private static StringComparison GetOsPathComparison()
     {

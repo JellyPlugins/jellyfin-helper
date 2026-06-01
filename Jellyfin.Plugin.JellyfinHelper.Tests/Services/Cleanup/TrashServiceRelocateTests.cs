@@ -16,9 +16,27 @@ public class TrashServiceRelocateTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_testRoot))
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            Directory.Delete(_testRoot, true);
+            try
+            {
+                if (!Directory.Exists(_testRoot))
+                {
+                    return;
+                }
+
+                Directory.Delete(_testRoot, true);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt == 2 || !Directory.Exists(_testRoot))
+                {
+                    return;
+                }
+
+                Thread.Sleep(50);
+            }
         }
     }
 

@@ -237,4 +237,70 @@ public class TrashControllerRelocateTests : IDisposable
 
         Assert.IsType<BadRequestObjectResult>(result);
     }
+
+    [Fact]
+    public void RelocateTrash_AbsoluteOldRelativeNew_CallsRelocateToFirstLibrary()
+    {
+        // Arrange: old is absolute, new is relative → move to first library's resolved path
+        var libraryRoot = Path.Combine(_testRoot, "movies");
+        Directory.CreateDirectory(libraryRoot);
+        var oldAbsolutePath = Path.Combine(_testRoot, "old-absolute-trash");
+        Directory.CreateDirectory(oldAbsolutePath);
+
+        var trashServiceMock = new Mock<ITrashService>();
+        trashServiceMock.Setup(ts => ts.RelocateTrashContents(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()))
+            .Returns((4, 0));
+
+        var config = new PluginConfiguration();
+        var controller = CreateController(config, [libraryRoot], trashServiceMock);
+
+        // Act
+        var result = controller.RelocateTrash(new TrashRelocateRequest
+        {
+            OldTrashPath = oldAbsolutePath,
+            NewTrashPath = ".new-trash"
+        });
+
+        // Assert
+        Assert.IsType<OkObjectResult>(result);
+        trashServiceMock.Verify(ts => ts.RelocateTrashContents(
+            It.Is<string>(s => s == Path.GetFullPath(oldAbsolutePath)),
+            It.Is<string>(s => s == Path.Combine(libraryRoot, ".new-trash")),
+            It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
+    }
+
+    [Fact]
+    public void RelocateTrash_RelativeOldAbsoluteNew_MergesIntoAbsoluteTarget()
+    {
+        // Arrange: old is relative, new is absolute → merge all library trash into one absolute target
+        var libraryRoot = Path.Combine(_testRoot, "movies");
+        var oldRelativeTrash = Path.Combine(libraryRoot, ".old-trash");
+        Directory.CreateDirectory(oldRelativeTrash);
+        File.WriteAllText(Path.Combine(oldRelativeTrash, "item.txt"), "data");
+
+        var newAbsolutePath = Path.Combine(_testRoot, "new-absolute-trash");
+
+        var trashServiceMock = new Mock<ITrashService>();
+        trashServiceMock.Setup(ts => ts.RelocateTrashContents(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()))
+            .Returns((2, 0));
+
+        var config = new PluginConfiguration();
+        var controller = CreateController(config, [libraryRoot], trashServiceMock);
+
+        // Act
+        var result = controller.RelocateTrash(new TrashRelocateRequest
+        {
+            OldTrashPath = ".old-trash",
+            NewTrashPath = newAbsolutePath
+        });
+
+        // Assert
+        Assert.IsType<OkObjectResult>(result);
+        trashServiceMock.Verify(ts => ts.RelocateTrashContents(
+            It.Is<string>(s => s == oldRelativeTrash),
+            It.Is<string>(s => s == Path.GetFullPath(newAbsolutePath)),
+            It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
+    }
 }

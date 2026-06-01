@@ -436,11 +436,15 @@ public class TrashController : ControllerBase
     /// </summary>
     private static bool IsPathSafeForDeletion(string fullPath, IReadOnlyList<string> libraryFolders)
     {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
         // Reject filesystem roots (e.g., "/", "C:\")
         var root = Path.GetPathRoot(fullPath);
         var normalizedPath = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var normalizedRoot = root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(normalizedPath, normalizedRoot, comparison))
         {
             return false;
         }
@@ -451,13 +455,13 @@ public class TrashController : ControllerBase
             var libraryRoot = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var candidate = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-            if (string.Equals(candidate, libraryRoot, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(candidate, libraryRoot, comparison))
             {
                 return false;
             }
 
             // Reject if a library root is inside the trash path (would delete library contents)
-            if (libraryRoot.StartsWith(candidate + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (libraryRoot.StartsWith(candidate + Path.DirectorySeparatorChar, comparison))
             {
                 return false;
             }
