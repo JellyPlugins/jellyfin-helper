@@ -98,6 +98,16 @@ var MOCK_TRASH_CONTENTS={RetentionDays:30,Libraries:[
 {LibraryName:"TV Shows",Items:[{OriginalName:"Cancelled Show",Size:10737418240,TrashedDate:new Date(Date.now()-86400000).toISOString(),PurgeDate:new Date(Date.now()+2505600000).toISOString(),IsDirectory:true}]}
 ]};
 var MOCK_TRASH_FOLDERS={Paths:["/data/movies/.jellyfin-trash","/data/tv/.jellyfin-trash"]};
+var MOCK_TRASH_FOLDERS_FOR_PATH=function(trashPath){
+    // Simulate: relative paths resolve per library, absolute paths check directly
+    if(!trashPath)return{Paths:[],IsAbsolute:false};
+    var isAbs=trashPath.startsWith("/");
+    if(isAbs)return{Paths:[trashPath],IsAbsolute:true};
+    // Relative: resolve against each library root
+    var libs=["/data/movies","/data/tv"];
+    var paths=libs.map(function(l){return l+"/"+trashPath;});
+    return{Paths:paths,IsAbsolute:false};
+};
 
 var MOCK_ARR_COMPARE={
 InBoth:["Inception (2010)","Interstellar (2014)","The Dark Knight (2008)","Dune Part Two (2024)","Oppenheimer (2023)"],
@@ -155,17 +165,32 @@ var MOCK_LIBRARY_PATHS={libraryPaths:[
 
 var MOCK_BROWSE_FOLDERS=(function(){
 // Simulated filesystem tree for the folder browser preview
-var tree={
-"/":["data","home","mnt","opt","var"],
-"/data":["movies","tv","music","backups","downloads"],
-"/data/movies":[".jellyfin-trash","Action","Comedy","Sci-Fi"],
-"/data/tv":[".jellyfin-trash","Drama","Animation"],
-"/data/music":["FLAC","MP3","Podcasts"],
-"/data/backups":[],
-"/data/downloads":["incomplete","complete"],
-"/home":["jellyfin"],
-"/mnt":["nas-share","usb-drive"]
-};
+    var tree={
+        "/":["data","home","mnt","opt","var"],
+        "/data":["movies","tv","music","backups","downloads"],
+        "/data/movies":[".jellyfin-trash","Action","Comedy","Sci-Fi"],
+        "/data/movies/.jellyfin-trash":[],
+        "/data/movies/Action":[],
+        "/data/movies/Comedy":[],
+        "/data/movies/Sci-Fi":[],
+        "/data/tv":[".jellyfin-trash","Drama","Animation"],
+        "/data/tv/.jellyfin-trash":[],
+        "/data/tv/Drama":[],
+        "/data/tv/Animation":[],
+        "/data/music":["FLAC","MP3","Podcasts"],
+        "/data/music/FLAC":[],
+        "/data/music/MP3":[],
+        "/data/music/Podcasts":[],
+        "/data/backups":[],
+        "/data/downloads":["incomplete","complete"],
+        "/data/downloads/incomplete":[],
+        "/data/downloads/complete":[],
+        "/home":["jellyfin"],
+        "/home/jellyfin":[],
+        "/mnt":["nas-share","usb-drive"],
+        "/mnt/nas-share":[],
+        "/mnt/usb-drive":[]
+    };
 function getParent(p){if(!p||p==="/")return null;var parts=p.replace(/\/$/,"").split("/");parts.pop();return parts.length<=1?"/":parts.join("/");}
 return function(path){
 if(!path){return{CurrentPath:null,ParentPath:null,CanGoUp:false,Directories:[{Name:"/",Path:"/",HasChildren:true}]};}
@@ -264,8 +289,10 @@ else if(url.indexOf("Configuration/BrowseFolders")!==-1||url.indexOf("BrowseFold
 else if(url.indexOf("Configuration")!==-1&&method==="POST"){try{Object.assign(MOCK_CONFIG,JSON.parse(opts.data));}catch(e){}resolve({});}
 else if(url.indexOf("Configuration")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_CONFIG)));
 else if(url.indexOf("Trash/Contents")!==-1)resolve(MOCK_TRASH_CONTENTS);
-else if(url.indexOf("Trash/Folders")!==-1&&method==="DELETE")resolve({deleted:2,failed:0});
-else if(url.indexOf("Trash/Folders")!==-1)resolve(MOCK_TRASH_FOLDERS);
+    else if(url.indexOf("Trash/Relocate")!==-1&&method==="POST"){resolve({Moved:3,Failed:0});}
+    else if(url.indexOf("Trash/FoldersForPath")!==-1&&method==="POST"){try{var fpBody=JSON.parse(opts.data);resolve(JSON.parse(JSON.stringify(MOCK_TRASH_FOLDERS_FOR_PATH(fpBody.TrashFolderPath))));}catch(e){resolve({Paths:[],IsAbsolute:false});}}
+    else if(url.indexOf("Trash/Folders")!==-1&&method==="DELETE")resolve({deleted:2,failed:0});
+    else if(url.indexOf("Trash/Folders")!==-1)resolve(MOCK_TRASH_FOLDERS);
 else if(url.indexOf("Trash/Summary")!==-1)resolve({TotalSize:17179869184,TotalItems:3});
 else if(url.indexOf("Discovery/Services/radarr")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_SEERR_SERVICES_RADARR)));
 else if(url.indexOf("Discovery/Services/sonarr")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_SEERR_SERVICES_SONARR)));

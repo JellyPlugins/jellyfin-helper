@@ -1523,7 +1523,10 @@ function showTrashPathChangeDialog(payload, options) {
                         var moved = result && result.Moved || 0;
                         var failed = result && result.Failed || 0;
                         if (failed === 0 && moved > 0) {
-                            if (msg) msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathMoveSuccess', 'Trash content moved successfully.') + '</div>';
+                            if (msg) {
+                                msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathMoveSuccess', 'Trash content moved successfully.') + '</div>';
+                                setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
+                            }
                         } else if (failed > 0) {
                             var partial = T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed);
                             if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
@@ -1549,7 +1552,10 @@ function showTrashPathChangeDialog(payload, options) {
 
             // Delete old folders first (uses current saved config which still has old path)
             apiDelete('JellyfinHelper/Trash/Folders', function () {
-                if (msg) msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathDeleteSuccess', 'Old trash content deleted.') + '</div>';
+                if (msg) {
+                    msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathDeleteSuccess', 'Old trash content deleted.') + '</div>';
+                    setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
+                }
                 // Now save the new path
                 _previousTrashPath = newPath;
                 doSaveSettings(payload, options);
