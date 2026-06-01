@@ -77,7 +77,7 @@ MovieRootPaths:["/data/movies"],TvShowRootPaths:["/data/tv"],MusicRootPaths:["/d
 };
 
 var MOCK_CONFIG={
-IncludedLibraries:"",ExcludedLibraries:"",OrphanMinAgeDays:0,
+ExcludedLibraries:"",OrphanMinAgeDays:0,
 TrickplayTaskMode:"DryRun",EmptyMediaFolderTaskMode:"Activate",
 OrphanedSubtitleTaskMode:"DryRun",LinkRepairTaskMode:"Deactivate",
 UseTrash:true,TrashFolderPath:".jellyfin-trash",TrashRetentionDays:30,
@@ -169,10 +169,11 @@ var tree={
 function getParent(p){if(!p||p==="/")return null;var parts=p.replace(/\/$/,"").split("/");parts.pop();return parts.length<=1?"/":parts.join("/");}
 return function(path){
 if(!path){return{CurrentPath:null,ParentPath:null,CanGoUp:false,Directories:[{Name:"/",Path:"/",HasChildren:true}]};}
+var parentPath=getParent(path);
 var children=tree[path];
-if(!children){return{CurrentPath:path,ParentPath:getParent(path),CanGoUp:true,Directories:[],Error:"Directory does not exist."};}
+if(!children){return{CurrentPath:path,ParentPath:parentPath,CanGoUp:parentPath!==null,Directories:[],Error:"Directory does not exist."};}
 var dirs=children.map(function(name){var full=path==="/"?"/"+name:path+"/"+name;return{Name:name,Path:full,HasChildren:!!(tree[full]&&tree[full].length>0)};});
-return{CurrentPath:path,ParentPath:getParent(path),CanGoUp:true,Directories:dirs};
+return{CurrentPath:path,ParentPath:parentPath,CanGoUp:parentPath!==null,Directories:dirs};
 };
 })();
 

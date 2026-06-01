@@ -278,7 +278,7 @@ public class FolderBrowserService : IFolderBrowserService
             }
             catch (IOException)
             {
-                return "Directory does not exist.";
+                return "Cannot access this directory.";
             }
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException
