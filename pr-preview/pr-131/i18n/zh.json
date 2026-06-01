@@ -356,5 +356,16 @@
   "trashBrowseSaveError": "保存设置失败。请重试。",
   "trashBrowseLibraryRoots": "媒体库根目录",
   "trashBrowseLoading": "加载中…",
-  "trashBrowseCurrentPath": "当前路径"
+  "trashBrowseCurrentPath": "当前路径",
+  "trashPathChangeTitle": "回收站路径已更改",
+  "trashPathChangePrompt": "回收站路径已更改。在旧位置发现了现有的回收站内容：",
+  "trashPathChangeQuestion": "如何处理现有的回收站内容？",
+  "trashPathMoveContent": "移动内容",
+  "trashPathDeleteContent": "删除并重新开始",
+  "trashPathMoving": "正在移动回收站内容…",
+  "trashPathMoveSuccess": "回收站内容移动成功。",
+  "trashPathMovePartial": "部分移动：{0} 已移动，{1} 失败。",
+  "trashPathMoveError": "移动回收站内容失败。",
+  "trashPathDeleting": "正在删除旧回收站内容…",
+  "trashPathDeleteSuccess": "旧回收站内容已删除。"
 }

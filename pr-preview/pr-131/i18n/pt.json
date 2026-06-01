@@ -356,5 +356,16 @@
   "trashBrowseSaveError": "Falha ao salvar configurações. Por favor, tente novamente.",
   "trashBrowseLibraryRoots": "Raízes das bibliotecas",
   "trashBrowseLoading": "Carregando…",
-  "trashBrowseCurrentPath": "Caminho atual"
+  "trashBrowseCurrentPath": "Caminho atual",
+  "trashPathChangeTitle": "Caminho da lixeira alterado",
+  "trashPathChangePrompt": "O caminho da lixeira foi alterado. Conteúdo existente foi encontrado no local anterior:",
+  "trashPathChangeQuestion": "O que fazer com o conteúdo existente da lixeira?",
+  "trashPathMoveContent": "Mover conteúdo",
+  "trashPathDeleteContent": "Excluir e recomeçar",
+  "trashPathMoving": "Movendo conteúdo da lixeira…",
+  "trashPathMoveSuccess": "Conteúdo da lixeira movido com sucesso.",
+  "trashPathMovePartial": "Parcialmente movido: {0} movido(s), {1} falha(s).",
+  "trashPathMoveError": "Falha ao mover o conteúdo da lixeira.",
+  "trashPathDeleting": "Excluindo conteúdo antigo da lixeira…",
+  "trashPathDeleteSuccess": "Conteúdo antigo da lixeira excluído."
 }

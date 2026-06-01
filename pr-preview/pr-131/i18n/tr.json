@@ -356,5 +356,16 @@
   "trashBrowseSaveError": "Ayarlar kaydedilemedi. Lütfen tekrar deneyin.",
   "trashBrowseLibraryRoots": "Kütüphane kökleri",
   "trashBrowseLoading": "Yükleniyor…",
-  "trashBrowseCurrentPath": "Geçerli yol"
+  "trashBrowseCurrentPath": "Geçerli yol",
+  "trashPathChangeTitle": "Çöp kutusu yolu değişti",
+  "trashPathChangePrompt": "Çöp kutusu yolu değiştirildi. Eski konumda mevcut çöp kutusu içeriği bulundu:",
+  "trashPathChangeQuestion": "Mevcut çöp kutusu içeriğiyle ne yapılsın?",
+  "trashPathMoveContent": "İçeriği taşı",
+  "trashPathDeleteContent": "Sil ve yeniden başla",
+  "trashPathMoving": "Çöp kutusu içeriği taşınıyor…",
+  "trashPathMoveSuccess": "Çöp kutusu içeriği başarıyla taşındı.",
+  "trashPathMovePartial": "Kısmen taşındı: {0} taşındı, {1} başarısız.",
+  "trashPathMoveError": "Çöp kutusu içeriği taşınamadı.",
+  "trashPathDeleting": "Eski çöp kutusu içeriği siliniyor…",
+  "trashPathDeleteSuccess": "Eski çöp kutusu içeriği silindi."
 }

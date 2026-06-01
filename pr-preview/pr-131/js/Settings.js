@@ -6,6 +6,9 @@ var _currentLang = '';
 // Track whether trash was enabled when settings were loaded (for deactivation dialog)
 var _wasTrashEnabled = false;
 
+// Track the saved trash path for detecting path changes (for relocation dialog)
+var _previousTrashPath = '';
+
 // Preserve PluginLogLevel across Settings saves (managed in Logs tab)
 var _currentLogLevel = 'INFO';
 var _logLevelLoaded = false;
@@ -178,6 +181,8 @@ function loadSettings() {
         _logLevelLoaded = true;
         // Remember trash state for deactivation dialog
         _wasTrashEnabled = !!cfg.UseTrash;
+        // Remember trash path for relocation dialog
+        _previousTrashPath = cfg.TrashFolderPath || '.jellyfin-trash';
         var h = '';
         h += '<div class="section-title">' + T('settingsGeneralTitle', 'General settings') + '</div>';
 
@@ -452,6 +457,13 @@ function doSaveSettings(payload, options) {
     }
     showTrashPathError(null);
 
+    // Intercept: if trash path changed, show relocation dialog before saving.
+    // This covers all save paths: explicit Save button, auto-save dropdowns, and "Save & Continue" from unsaved-changes dialog.
+    if (hasTrashPathChanged(payload)) {
+        showTrashPathChangeDialog(payload, options);
+        return;
+    }
+
     if (!quiet) {
         btn.innerHTML = '<span class="btn-spinner"></span>' + T('savingSettings', 'Saving Settings...');
     }
@@ -459,6 +471,7 @@ function doSaveSettings(payload, options) {
     apiPost('JellyfinHelper/Configuration', payload, function (response) {
         var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled;
         _wasTrashEnabled = payload.UseTrash;
+        _previousTrashPath = (payload.TrashFolderPath || '.jellyfin-trash').trim();
         _currentLang = payload.Language;
 
         // Update snapshot after successful save
@@ -1440,6 +1453,120 @@ function showTrashPathError(errorMsg) {
     }
 }
 
+/**
+ * Checks whether the trash path has changed compared to the last saved value.
+ * Only returns true when trash was previously enabled (so old content may exist)
+ * AND trash remains enabled AND the path is different.
+ * @param {Object} payload - The settings payload to check.
+ * @returns {boolean}
+ */
+function hasTrashPathChanged(payload) {
+    if (!_wasTrashEnabled) return false;
+    if (!payload.UseTrash) return false;
+    var oldPath = (_previousTrashPath || '').trim();
+    var newPath = (payload.TrashFolderPath || '').trim();
+    if (!oldPath || !newPath) return false;
+    return oldPath !== newPath;
+}
+
+/**
+ * Shows a dialog when the trash path has changed, asking the user whether to
+ * move existing trash content to the new location, delete it, or cancel.
+ * @param {Object} payload - The settings payload to save after the user decides.
+ * @param {Object} [options] - Optional doSaveSettings options to forward.
+ */
+function showTrashPathChangeDialog(payload, options) {
+    var saveBtn = document.getElementById('btnSaveSettings');
+    var msg = document.getElementById('settingsMsg');
+    var oldPath = _previousTrashPath;
+    var newPath = (payload.TrashFolderPath || '').trim();
+
+    // Query the server for existing folders at the OLD path
+    apiPost('JellyfinHelper/Trash/FoldersForPath', {TrashFolderPath: oldPath}, function (data) {
+        var paths = (data && data.Paths) || [];
+        if (paths.length === 0) {
+            // No old content exists — save directly, update tracking
+            _previousTrashPath = newPath;
+            doSaveSettings(payload, options);
+            return;
+        }
+
+        var bodyText = T('trashPathChangePrompt', 'The trash folder path has changed. Existing trash content was found at the old location:')
+            + formatPathList(paths)
+            + '\n\n' + T('trashPathChangeQuestion', 'What should happen with the existing trash content?');
+
+        removeTrashDialog();
+        var d = createDialogOverlay('trashDialogOverlay', T('trashPathChangeTitle', 'Trash Path Changed'), getCssVar('--color-primary', '#00a4dc'), bodyText, false);
+
+        // Cancel button — revert the path in the input
+        d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
+            removeTrashDialog();
+            var input = document.getElementById('cfgTrashPath');
+            if (input) input.value = oldPath;
+            if (saveBtn) saveBtn.disabled = false;
+        }));
+
+        // Move content button
+        d.btnRow.appendChild(createDialogBtn(T('trashPathMoveContent', 'Move Content'), 'success', function () {
+            removeTrashDialog();
+            if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathMoving', 'Moving trash content…') + '</div>';
+
+            // First save the new path, then relocate.
+            // _previousTrashPath is updated inside onSuccess only — if the save fails,
+            // the tracker stays correct and the dialog will re-appear on next attempt.
+            doSaveSettings(payload, {
+                quiet: !!(options && options.quiet),
+                element: (options && options.element) || null,
+                onSuccess: function () {
+                    _previousTrashPath = newPath;
+                    apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
+                        var moved = result && result.Moved || 0;
+                        var failed = result && result.Failed || 0;
+                        if (failed === 0 && moved > 0) {
+                            if (msg) msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathMoveSuccess', 'Trash content moved successfully.') + '</div>';
+                        } else if (failed > 0) {
+                            var partial = T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed);
+                            if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
+                        } else {
+                            if (msg) msg.innerHTML = '';
+                        }
+                        if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                    }, function () {
+                        if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('trashPathMoveError', 'Failed to move trash content.') + '</div>';
+                        if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                    });
+                },
+                onError: function (errMsg) {
+                    if (options && typeof options.onError === 'function') options.onError(errMsg);
+                }
+            });
+        }));
+
+        // Delete & start fresh button
+        d.btnRow.appendChild(createDialogBtn(T('trashPathDeleteContent', 'Delete & Start Fresh'), 'danger', function () {
+            removeTrashDialog();
+            if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathDeleting', 'Deleting old trash content…') + '</div>';
+
+            // Delete old folders first (uses current saved config which still has old path)
+            apiDelete('JellyfinHelper/Trash/Folders', function () {
+                if (msg) msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathDeleteSuccess', 'Old trash content deleted.') + '</div>';
+                // Now save the new path
+                _previousTrashPath = newPath;
+                doSaveSettings(payload, options);
+            }, function () {
+                if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('trashDeleteError', 'Failed to delete trash folders.') + '</div>';
+                if (saveBtn) saveBtn.disabled = false;
+            });
+        }));
+
+        document.body.appendChild(d.overlay);
+    }, function () {
+        // API error checking old path — proceed with save anyway
+        _previousTrashPath = newPath;
+        doSaveSettings(payload, options);
+    });
+}
+
 function saveSettings() {
     var btn = document.getElementById('btnSaveSettings');
     var msg = document.getElementById('settingsMsg');
@@ -1463,5 +1590,6 @@ function saveSettings() {
         return;
     }
 
+    // Trash path change detection is handled inside doSaveSettings() for all save paths.
     doSaveSettings(payload);
 }

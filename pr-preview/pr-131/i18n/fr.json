@@ -356,5 +356,16 @@
   "trashBrowseSaveError": "Échec de l'enregistrement des paramètres. Veuillez réessayer.",
   "trashBrowseLibraryRoots": "Racines des bibliothèques",
   "trashBrowseLoading": "Chargement…",
-  "trashBrowseCurrentPath": "Chemin actuel"
+  "trashBrowseCurrentPath": "Chemin actuel",
+  "trashPathChangeTitle": "Chemin de la corbeille modifié",
+  "trashPathChangePrompt": "Le chemin de la corbeille a été modifié. Du contenu existant a été trouvé à l'ancien emplacement :",
+  "trashPathChangeQuestion": "Que faire du contenu existant de la corbeille ?",
+  "trashPathMoveContent": "Déplacer le contenu",
+  "trashPathDeleteContent": "Supprimer et recommencer",
+  "trashPathMoving": "Déplacement du contenu de la corbeille…",
+  "trashPathMoveSuccess": "Contenu de la corbeille déplacé avec succès.",
+  "trashPathMovePartial": "Partiellement déplacé : {0} déplacé(s), {1} échoué(s).",
+  "trashPathMoveError": "Échec du déplacement du contenu de la corbeille.",
+  "trashPathDeleting": "Suppression de l'ancien contenu de la corbeille…",
+  "trashPathDeleteSuccess": "Ancien contenu de la corbeille supprimé."
 }

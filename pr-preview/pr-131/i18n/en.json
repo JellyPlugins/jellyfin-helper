@@ -356,5 +356,16 @@
   "trashBrowseSaveError": "Failed to save settings. Please try again.",
   "trashBrowseLibraryRoots": "Library Roots",
   "trashBrowseLoading": "Loading…",
-  "trashBrowseCurrentPath": "Current path"
+  "trashBrowseCurrentPath": "Current path",
+  "trashPathChangeTitle": "Trash Path Changed",
+  "trashPathChangePrompt": "The trash folder path has changed. Existing trash content was found at the old location:",
+  "trashPathChangeQuestion": "What should happen with the existing trash content?",
+  "trashPathMoveContent": "Move Content",
+  "trashPathDeleteContent": "Delete & Start Fresh",
+  "trashPathMoving": "Moving trash content…",
+  "trashPathMoveSuccess": "Trash content moved successfully.",
+  "trashPathMovePartial": "Partially moved: {0} moved, {1} failed.",
+  "trashPathMoveError": "Failed to move trash content.",
+  "trashPathDeleting": "Deleting old trash content…",
+  "trashPathDeleteSuccess": "Old trash content deleted."
 }
