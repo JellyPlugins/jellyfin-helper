@@ -1026,17 +1026,12 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             // Use the early-stopping validation loss as the generalization estimate when
             // available — it was computed on a held-out split that the model never trained on,
             // making it a genuine out-of-sample loss.
-            if (useEarlyStopping && bestLoss < double.MaxValue)
+            // Published under _syncRoot to match the read path in LastValidationLoss getter.
+            lock (_syncRoot)
             {
-                // bestLoss is the minimum validation loss observed on the held-out split during
-                // early stopping — a genuine out-of-sample measure.
-                _lastValidationLoss = bestLoss;
-            }
-            else
-            {
-                // No held-out validation split: expose "unknown" generalization loss.
-                // EnsembleScoringStrategy already handles NaN as a dampened/uncertain signal.
-                _lastValidationLoss = double.NaN;
+                _lastValidationLoss = useEarlyStopping && bestLoss < double.MaxValue
+                    ? bestLoss
+                    : double.NaN;
             }
 
             _featureMeans = featureMeans;

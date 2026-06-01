@@ -127,19 +127,20 @@ function openFolderBrowserDialog() {
                 }
                 return;
             }
-            // Close the browser FIRST so any subsequent dialog (relocation prompt) is visible.
+            // Build payload with the selected path, then save.
+            // UI is only updated after the save succeeds to avoid showing an unconfirmed path.
             var input = document.getElementById('cfgTrashPath');
-            if (input) {
-                input.value = selectedPath;
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-            closeDialog();
-            // Now save — buildSettingsPayload() reads the updated input value.
             var payload = buildSettingsPayload();
+            payload.TrashFolderPath = selectedPath;
             doSaveSettings(payload, {
                 quiet: true,
                 element: null,
                 onSuccess: function () {
+                    if (input) {
+                        input.value = selectedPath;
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                    closeDialog();
                     var icon = document.getElementById('btnBrowseTrash');
                     if (!icon) return;
                     icon.innerHTML = mi('check_circle');
@@ -150,6 +151,10 @@ function openFolderBrowserDialog() {
                         icon.style.color = '#00a4dc';
                         icon.style.opacity = '0.8';
                     }, 2000);
+                },
+                onError: function () {
+                    // Save failed — close picker, path remains unchanged
+                    closeDialog();
                 }
             });
         } else {

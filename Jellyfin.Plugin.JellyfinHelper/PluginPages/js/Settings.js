@@ -1485,9 +1485,16 @@ function showTrashPathChangeDialog(payload, options) {
     apiPost('JellyfinHelper/Trash/FoldersForPath', {TrashFolderPath: oldPath}, function (data) {
         var paths = (data && data.Paths) || [];
         if (paths.length === 0) {
-            // No old content exists — save directly, update tracking
-            _previousTrashPath = newPath;
-            doSaveSettings(payload, options);
+            // No old content exists — save directly, update tracking on success
+            doSaveSettings(payload, {
+                quiet: !!(options && options.quiet),
+                element: (options && options.element) || null,
+                onSuccess: function () {
+                    _previousTrashPath = newPath;
+                    if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                },
+                onError: (options && options.onError) || undefined
+            });
             return;
         }
 
@@ -1511,13 +1518,13 @@ function showTrashPathChangeDialog(payload, options) {
             removeTrashDialog();
             if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathMoving', 'Moving trash content…') + '</div>';
 
-            // Update _previousTrashPath BEFORE calling doSaveSettings so that
-            // hasTrashPathChanged() returns false on re-entry (prevents dialog loop).
-            _previousTrashPath = newPath;
+            // Update _previousTrashPath inside onSuccess so that a failed save
+            // does not suppress the dialog on retry.
             doSaveSettings(payload, {
                 quiet: !!(options && options.quiet),
                 element: (options && options.element) || null,
                 onSuccess: function () {
+                    _previousTrashPath = newPath;
                     apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
                         var moved = result && result.Moved || 0;
                         var failed = result && result.Failed || 0;
@@ -1555,9 +1562,16 @@ function showTrashPathChangeDialog(payload, options) {
                     msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathDeleteSuccess', 'Old trash content deleted.') + '</div>';
                     setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
                 }
-                // Now save the new path
-                _previousTrashPath = newPath;
-                doSaveSettings(payload, options);
+                // Now save the new path — update tracking only on success
+                doSaveSettings(payload, {
+                    quiet: !!(options && options.quiet),
+                    element: (options && options.element) || null,
+                    onSuccess: function () {
+                        _previousTrashPath = newPath;
+                        if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                    },
+                    onError: (options && options.onError) || undefined
+                });
             }, function () {
                 if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('trashDeleteError', 'Failed to delete trash folders.') + '</div>';
                 if (saveBtn) saveBtn.disabled = false;
@@ -1566,9 +1580,16 @@ function showTrashPathChangeDialog(payload, options) {
 
         document.body.appendChild(d.overlay);
     }, function () {
-        // API error checking old path — proceed with save anyway
-        _previousTrashPath = newPath;
-        doSaveSettings(payload, options);
+        // API error checking old path — proceed with save anyway, update tracking on success
+        doSaveSettings(payload, {
+            quiet: !!(options && options.quiet),
+            element: (options && options.element) || null,
+            onSuccess: function () {
+                _previousTrashPath = newPath;
+                if (options && typeof options.onSuccess === 'function') options.onSuccess();
+            },
+            onError: (options && options.onError) || undefined
+        });
     });
 }
 

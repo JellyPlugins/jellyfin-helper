@@ -126,7 +126,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         // Additional safety: filter out any locations that point to Jellyfin's internal
         // collections directory (typically /config/data/collections or similar).
         return filteredFolders
-            .SelectMany(f => f.Locations)
+            .SelectMany(f => f.Locations ?? [])
             .Where(loc => !loc.Contains("/collections", StringComparison.OrdinalIgnoreCase)
                           && !loc.Contains("\\collections", StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -322,9 +322,20 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                     var normalizedRoot = Path.GetFullPath(folder)
                         .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                     var rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
+                    var comparison = GetOsPathComparison();
 
                     // Must stay within the library root
-                    if (!resolved.StartsWith(rootPrefix, GetOsPathComparison()))
+                    if (!resolved.StartsWith(rootPrefix, comparison))
+                    {
+                        continue;
+                    }
+
+                    // Safety: never report a library root as an existing trash folder.
+                    // If it were reported, the relocate/delete flow could target the entire library.
+                    if (string.Equals(
+                            resolved.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            normalizedRoot,
+                            comparison))
                     {
                         continue;
                     }

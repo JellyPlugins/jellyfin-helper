@@ -374,6 +374,25 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            // Skip library roots that are symlinks/junctions to prevent double-counting
+            // media that resides in another library or pulling external trees into the timeline.
+            try
+            {
+                var locationAttrs = new DirectoryInfo(location).Attributes;
+                if ((locationAttrs & FileAttributes.ReparsePoint) != 0)
+                {
+                    continue;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _pluginLog.LogDebug(
+                    "GrowthTimeline",
+                    $"Skipping inaccessible library root during reparse-point check: {location}: {ex.Message}",
+                    _logger);
+                continue;
+            }
+
             try
             {
                 // Resolve the full trash path for this library root (handles both relative and absolute paths)
