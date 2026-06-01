@@ -266,8 +266,11 @@ public static class BackupValidator
     private static void ValidatePathSafety(BackupValidationResult result, string path, string fieldName)
     {
         // Check for path traversal attempts (segment-aware to avoid false positives on names like "my..folder")
+        // Use hardcoded separators because on Unix both Path.DirectorySeparatorChar and
+        // Path.AltDirectorySeparatorChar are '/', so a Windows-style path like "C:\trash\..\escape"
+        // would remain a single segment and bypass the traversal check.
         var segments = path.Split(
-            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            ['/', '\\'],
             StringSplitOptions.RemoveEmptyEntries);
         if (segments.Any(static s => s == ".."))
         {

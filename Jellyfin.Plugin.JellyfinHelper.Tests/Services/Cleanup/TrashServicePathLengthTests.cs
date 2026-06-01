@@ -23,9 +23,18 @@ public class TrashServicePathLengthTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_testRoot))
+        try
         {
-            Directory.Delete(_testRoot, true);
+            if (Directory.Exists(_testRoot))
+            {
+                Directory.Delete(_testRoot, true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Swallow transient filesystem failures during cleanup to avoid
+            // failing the test suite after assertions have already passed.
+            _ = ex;
         }
     }
 

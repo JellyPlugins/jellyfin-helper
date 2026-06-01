@@ -456,7 +456,7 @@ function doSaveSettings(payload, options) {
         btn.innerHTML = '<span class="btn-spinner"></span>' + T('savingSettings', 'Saving Settings...');
     }
 
-    apiPost('JellyfinHelper/Configuration', payload, function () {
+    apiPost('JellyfinHelper/Configuration', payload, function (response) {
         var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled;
         _wasTrashEnabled = payload.UseTrash;
         _currentLang = payload.Language;
@@ -487,11 +487,16 @@ function doSaveSettings(payload, options) {
         if (options && typeof options.onSuccess === 'function') {
             options.onSuccess();
         }
-    }, function () {
+    }, function (err) {
+        var errorMsg = '';
+        try {
+            var errData = err && (err.responseJSON || (typeof err.responseText === 'string' ? JSON.parse(err.responseText) : null));
+            if (errData && errData.message) errorMsg = errData.message;
+        } catch (_e) { /* ignore parse errors */ }
         if (quiet) {
             showAutoSaveIndicatorOverlay(indicatorEl, false);
             if (options && typeof options.onError === 'function') {
-                options.onError();
+                options.onError(errorMsg);
             }
         } else {
             btn.disabled = false;
