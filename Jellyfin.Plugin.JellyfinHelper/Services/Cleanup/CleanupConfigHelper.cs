@@ -264,6 +264,62 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         return resolved;
     }
 
+    /// <inheritdoc />
+    public IReadOnlyList<string> GetExistingTrashFoldersForPath(ILibraryManager libraryManager, string trashFolderPath)
+    {
+        ArgumentNullException.ThrowIfNull(libraryManager);
+
+        var existingPaths = new List<string>();
+        var queryPath = (trashFolderPath ?? string.Empty).Trim();
+
+        if (string.IsNullOrWhiteSpace(queryPath))
+        {
+            return existingPaths;
+        }
+
+        if (Path.IsPathFullyQualified(queryPath))
+        {
+            // Absolute path: single trash folder
+            var fullPath = Path.GetFullPath(queryPath);
+            if (Directory.Exists(fullPath))
+            {
+                existingPaths.Add(fullPath);
+            }
+        }
+        else
+        {
+            // Relative path: resolve per library
+            var libraryFolders = GetFilteredLibraryLocations(libraryManager);
+            foreach (var folder in libraryFolders)
+            {
+                try
+                {
+                    var resolved = Path.GetFullPath(Path.Join(folder, queryPath));
+                    var normalizedRoot = Path.GetFullPath(folder)
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    var rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
+
+                    // Must stay within the library root
+                    if (!resolved.StartsWith(rootPrefix, GetOsPathComparison()))
+                    {
+                        continue;
+                    }
+
+                    if (Directory.Exists(resolved))
+                    {
+                        existingPaths.Add(resolved);
+                    }
+                }
+                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+                {
+                    // Skip invalid paths silently
+                }
+            }
+        }
+
+        return existingPaths;
+    }
+
     // ===== Pure static helpers (no state, no config access) =====
 
     /// <summary>

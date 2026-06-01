@@ -93,4 +93,14 @@ public interface ICleanupConfigHelper
     /// <param name="libraryRootPath">The library root path.</param>
     /// <returns>The full trash folder path.</returns>
     string GetTrashPath(string libraryRootPath);
+
+    /// <summary>
+    /// Gets the list of existing trash folder paths on disk for a given trash folder path setting.
+    /// Handles both relative (per-library) and absolute (single) trash paths.
+    /// Used to check whether trash content exists at a specific path before a configuration change is applied.
+    /// </summary>
+    /// <param name="libraryManager">The library manager for resolving library locations.</param>
+    /// <param name="trashFolderPath">The trash folder path to query (may be relative or absolute).</param>
+    /// <returns>A list of existing trash folder paths found on disk.</returns>
+    IReadOnlyList<string> GetExistingTrashFoldersForPath(ILibraryManager libraryManager, string trashFolderPath);
 }

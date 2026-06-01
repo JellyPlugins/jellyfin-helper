@@ -366,6 +366,138 @@ public class TrashService : ITrashService
         return items;
     }
 
+    /// <inheritdoc />
+    public (int Moved, int Failed) RelocateTrashContents(string oldTrashPath, string newTrashPath, ILogger logger)
+    {
+        var moved = 0;
+        var failed = 0;
+
+        if (!Directory.Exists(oldTrashPath))
+        {
+            _pluginLog.LogInfo("Trash", $"Old trash path does not exist, nothing to relocate: {oldTrashPath}", logger);
+            return (0, 0);
+        }
+
+        // Safety: old and new must not be the same path
+        var normalizedOld = Path.GetFullPath(oldTrashPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedNew = Path.GetFullPath(newTrashPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        if (string.Equals(normalizedOld, normalizedNew, PathComparison))
+        {
+            _pluginLog.LogWarning("Trash", "Old and new trash paths are identical, skipping relocation.", logger: logger);
+            return (0, 0);
+        }
+
+        // Safety: new path must not be inside old path (would cause recursive move)
+        var oldPrefix = normalizedOld + Path.DirectorySeparatorChar;
+        if (normalizedNew.StartsWith(oldPrefix, PathComparison))
+        {
+            _pluginLog.LogError("Trash", $"New trash path is inside old trash path, aborting relocation: {newTrashPath}", null, logger);
+            return (0, 0);
+        }
+
+        // Safety: old path must not be inside new path (would cause data loss)
+        var newPrefix = normalizedNew + Path.DirectorySeparatorChar;
+        if (normalizedOld.StartsWith(newPrefix, PathComparison))
+        {
+            _pluginLog.LogError("Trash", $"Old trash path is inside new trash path, aborting relocation: {oldTrashPath}", null, logger);
+            return (0, 0);
+        }
+
+        // Ensure destination exists
+        Directory.CreateDirectory(newTrashPath);
+
+        // Move directories
+        try
+        {
+            foreach (var dir in Directory.GetDirectories(oldTrashPath))
+            {
+                var dirName = Path.GetFileName(dir);
+                var destPath = Path.Join(newTrashPath, dirName);
+
+                try
+                {
+                    destPath = ResolveCollision(destPath);
+                    Directory.Move(dir, destPath);
+                    moved++;
+                    _pluginLog.LogInfo("Trash", $"Relocated directory: {dir} → {destPath}", logger);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    failed++;
+                    _pluginLog.LogError("Trash", $"Failed to relocate directory: {dir}", ex, logger);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _pluginLog.LogError("Trash", $"Failed to enumerate directories in old trash: {oldTrashPath}", ex, logger);
+        }
+
+        // Move files
+        try
+        {
+            foreach (var file in Directory.GetFiles(oldTrashPath))
+            {
+                var fileName = Path.GetFileName(file);
+                var destPath = Path.Join(newTrashPath, fileName);
+
+                try
+                {
+                    destPath = ResolveCollision(destPath);
+                    File.Move(file, destPath);
+                    moved++;
+                    _pluginLog.LogInfo("Trash", $"Relocated file: {file} → {destPath}", logger);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    failed++;
+                    _pluginLog.LogError("Trash", $"Failed to relocate file: {file}", ex, logger);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _pluginLog.LogError("Trash", $"Failed to enumerate files in old trash: {oldTrashPath}", ex, logger);
+        }
+
+        // Remove the old trash folder if it is now empty
+        TryRemoveEmptyDirectory(oldTrashPath, logger);
+
+        _pluginLog.LogInfo("Trash", $"Relocation complete: {moved} moved, {failed} failed ({oldTrashPath} → {newTrashPath})", logger);
+        return (moved, failed);
+    }
+
+    /// <summary>
+    ///     Attempts to remove a directory if it is empty (no files or subdirectories).
+    ///     Silently ignores errors if the directory cannot be removed.
+    /// </summary>
+    /// <param name="directoryPath">The directory to remove.</param>
+    /// <param name="logger">The logger.</param>
+    private void TryRemoveEmptyDirectory(string directoryPath, ILogger logger)
+    {
+        try
+        {
+            if (!Directory.Exists(directoryPath))
+            {
+                return;
+            }
+
+            if (Directory.GetFileSystemEntries(directoryPath).Length == 0)
+            {
+                Directory.Delete(directoryPath, false);
+                _pluginLog.LogInfo("Trash", $"Removed empty old trash folder: {directoryPath}", logger);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Non-critical: old folder stays if it can't be removed
+            _pluginLog.LogWarning("Trash", $"Could not remove old trash folder: {directoryPath}", ex, logger);
+        }
+    }
+
     /// <summary>
     ///     Extracts the original name from a timestamped trash item name.
     ///     Format: "yyyyMMdd-HHmmss_originalname" → "originalname".

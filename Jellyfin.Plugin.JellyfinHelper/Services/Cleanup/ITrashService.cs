@@ -58,4 +58,15 @@ public interface ITrashService
     /// <param name="retentionDays">The configured retention days to calculate purge dates.</param>
     /// <returns>A list of trash item details.</returns>
     IReadOnlyList<TrashItemInfo> GetTrashContents(string trashBasePath, int retentionDays);
+
+    /// <summary>
+    ///     Relocates all trash contents from an old trash folder to a new trash folder.
+    ///     Moves all top-level entries (files and directories) preserving their timestamp-prefixed names.
+    ///     Creates the destination folder if it does not exist. Removes the old folder if it becomes empty.
+    /// </summary>
+    /// <param name="oldTrashPath">The full path of the old trash folder.</param>
+    /// <param name="newTrashPath">The full path of the new trash folder.</param>
+    /// <param name="logger">The logger.</param>
+    /// <returns>A tuple of items successfully moved and items that failed to move.</returns>
+    (int Moved, int Failed) RelocateTrashContents(string oldTrashPath, string newTrashPath, ILogger logger);
 }

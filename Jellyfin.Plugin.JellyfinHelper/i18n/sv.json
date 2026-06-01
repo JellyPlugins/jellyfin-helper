@@ -356,5 +356,16 @@
   "trashBrowseSaveError": "Det gick inte att spara inställningarna. Försök igen.",
   "trashBrowseLibraryRoots": "Biblioteksrotkataloger",
   "trashBrowseLoading": "Laddar…",
-  "trashBrowseCurrentPath": "Aktuell sökväg"
+  "trashBrowseCurrentPath": "Aktuell sökväg",
+  "trashPathChangeTitle": "Papperskorgssökväg ändrad",
+  "trashPathChangePrompt": "Papperskorgssökvägen har ändrats. Befintligt papperskorgsinnehåll hittades på den gamla platsen:",
+  "trashPathChangeQuestion": "Vad ska hända med det befintliga papperskorgsinnehållet?",
+  "trashPathMoveContent": "Flytta innehåll",
+  "trashPathDeleteContent": "Ta bort och börja om",
+  "trashPathMoving": "Flyttar papperskorgsinnehåll…",
+  "trashPathMoveSuccess": "Papperskorgsinnehåll flyttat.",
+  "trashPathMovePartial": "Delvis flyttat: {0} flyttade, {1} misslyckades.",
+  "trashPathMoveError": "Kunde inte flytta papperskorgsinnehållet.",
+  "trashPathDeleting": "Tar bort gammalt papperskorgsinnehåll…",
+  "trashPathDeleteSuccess": "Gammalt papperskorgsinnehåll borttaget."
 }

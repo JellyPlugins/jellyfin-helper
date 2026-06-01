@@ -356,5 +356,16 @@
   "trashBrowseSaveError": "Einstellungen konnten nicht gespeichert werden. Bitte erneut versuchen.",
   "trashBrowseLibraryRoots": "Bibliothek-Stammverzeichnisse",
   "trashBrowseLoading": "Laden…",
-  "trashBrowseCurrentPath": "Aktueller Pfad"
+  "trashBrowseCurrentPath": "Aktueller Pfad",
+  "trashPathChangeTitle": "Papierkorb-Pfad geändert",
+  "trashPathChangePrompt": "Der Papierkorb-Pfad wurde geändert. Am alten Speicherort wurde vorhandener Papierkorb-Inhalt gefunden:",
+  "trashPathChangeQuestion": "Was soll mit dem vorhandenen Papierkorb-Inhalt geschehen?",
+  "trashPathMoveContent": "Inhalt verschieben",
+  "trashPathDeleteContent": "Löschen & neu anlegen",
+  "trashPathMoving": "Papierkorb-Inhalt wird verschoben…",
+  "trashPathMoveSuccess": "Papierkorb-Inhalt erfolgreich verschoben.",
+  "trashPathMovePartial": "Teilweise verschoben: {0} verschoben, {1} fehlgeschlagen.",
+  "trashPathMoveError": "Papierkorb-Inhalt konnte nicht verschoben werden.",
+  "trashPathDeleting": "Alter Papierkorb-Inhalt wird gelöscht…",
+  "trashPathDeleteSuccess": "Alter Papierkorb-Inhalt gelöscht."
 }

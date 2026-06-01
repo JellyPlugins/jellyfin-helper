@@ -125,8 +125,10 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Arr/                       # Arr integration tests
 │   ├── Backup/                    # Backup/restore tests
 │   ├── Cleanup/                   # Cleanup task tests
+│   │   ├── TrashControllerRelocateTests.cs # Trash path relocation API endpoint tests
 │   │   ├── TrashServiceGuardTests.cs      # Defense-in-depth: prevent re-trashing items already in trash
-│   │   └── TrashServicePathLengthTests.cs # ResolveCollision stays within OS MAX_PATH (Windows 259 / Linux 4095)
+│   │   ├── TrashServicePathLengthTests.cs # ResolveCollision stays within OS MAX_PATH (Windows 259 / Linux 4095)
+│   │   └── TrashServiceRelocateTests.cs   # RelocateTrashContents unit tests (move, collision, safety)
 │   ├── ConfigAccess/              # Configuration access tests
 │   ├── Link/                      # Link repair tests
 │   ├── PluginLog/                 # Plugin log tests
@@ -205,6 +207,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── SeerrController.cs              # Jellyseerr/Overseerr integration API
 │   ├── TranslationsController.cs        # i18n translations API
 │   ├── TrashController.cs               # Trash bin API
+│   ├── TrashPathQueryRequest.cs         # DTO for querying trash folders at a specific path
+│   ├── TrashRelocateRequest.cs          # DTO for relocating trash between paths
 │   └── UserActivityController.cs        # User activity insights API
 ├── Configuration/
 │   ├── PluginConfiguration.cs   # All config properties with defaults
