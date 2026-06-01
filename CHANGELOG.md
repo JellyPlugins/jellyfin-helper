@@ -20,6 +20,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Improved
 - **Trash Folder Path Browser** - Integrated an interactive folder browser dialog for the trash path setting, allowing admins to visually navigate the filesystem and select the target directory instead of typing paths manually.
+- **Trash Path Change Dialog** - When the trash folder path is changed while trash is enabled, a dialog prompts the admin to either move existing trash content to the new location or delete it and start fresh. This prevents orphaned trash folders from accumulating on disk. The dialog appears consistently across all three save paths (Save button, auto-save, and unsaved-changes prompt).
 
 ### Removed
 - **Include Libraries Setting** - Removed the redundant "Include Libraries" configuration option. The existing "Excluded Libraries" setting already provides the same functionality in a more intuitive way (exclude = everything else is included).
