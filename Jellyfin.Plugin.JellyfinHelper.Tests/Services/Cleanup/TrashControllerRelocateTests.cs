@@ -187,7 +187,7 @@ public class TrashControllerRelocateTests : IDisposable
         var result = controller.RelocateTrash(new TrashRelocateRequest { OldTrashPath = ".old-trash", NewTrashPath = ".new-trash" });
 
         // Assert
-        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.IsType<OkObjectResult>(result);
         trashServiceMock.Verify(ts => ts.RelocateTrashContents(
             It.Is<string>(s => s == Path.Combine(libraryRoot, ".old-trash")),
             It.Is<string>(s => s == Path.Combine(libraryRoot, ".new-trash")),
