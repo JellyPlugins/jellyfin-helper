@@ -1511,12 +1511,14 @@ function showTrashPathChangeDialog(payload, options) {
             removeTrashDialog();
             if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathMoving', 'Moving trash content…') + '</div>';
 
-            // First save the new path, then relocate
-            _previousTrashPath = newPath;
+            // First save the new path, then relocate.
+            // _previousTrashPath is updated inside onSuccess only — if the save fails,
+            // the tracker stays correct and the dialog will re-appear on next attempt.
             doSaveSettings(payload, {
                 quiet: !!(options && options.quiet),
                 element: (options && options.element) || null,
                 onSuccess: function () {
+                    _previousTrashPath = newPath;
                     apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
                         var moved = result && result.Moved || 0;
                         var failed = result && result.Failed || 0;
