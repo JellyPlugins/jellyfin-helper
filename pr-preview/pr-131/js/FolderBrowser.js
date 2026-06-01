@@ -150,11 +150,14 @@ function openFolderBrowserDialog() {
                         icon.style.opacity = '0.8';
                     }, 2000);
                 },
-                onError: function () {
+                onError: function (errorMsg) {
                     // Keep the picker open so the user sees the failure.
                     var errListingEl = document.getElementById('folderBrowserListing');
                     if (errListingEl) {
-                        errListingEl.innerHTML = '<div style="padding:1em;text-align:center;color:var(--color-error,#e74c3c);">' + mi('error') + ' ' + T('trashBrowseSaveError', 'Failed to save settings. Please try again.') + '</div>';
+                        var displayMsg = errorMsg
+                            ? escHtml(errorMsg)
+                            : T('trashBrowseSaveError', 'Failed to save settings. Please try again.');
+                        errListingEl.innerHTML = '<div style="padding:1em;text-align:center;color:var(--color-error,#e74c3c);">' + mi('error') + ' ' + displayMsg + '</div>';
                     }
                 }
             });
