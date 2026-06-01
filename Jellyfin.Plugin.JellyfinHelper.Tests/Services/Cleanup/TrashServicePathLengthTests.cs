@@ -301,5 +301,10 @@ public class TrashServicePathLengthTests : IDisposable
         Assert.True(resultSize <= maxLen, $"GUID fallback path size {resultSize} exceeds OS limit {maxLen}");
         Assert.False(Directory.Exists(result));
         Assert.False(File.Exists(result));
+
+        // Verify the GUID fallback format was actually used (not a numeric suffix like _1000).
+        // The fallback should contain a GUID component rather than continuing the numeric sequence.
+        var finalComponent = Path.GetFileName(result);
+        Assert.DoesNotMatch(@"^x_\d+$", finalComponent);
     }
 }
