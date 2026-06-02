@@ -9,6 +9,10 @@ var _wasTrashEnabled = false;
 // Track the saved trash path for detecting path changes (for relocation dialog)
 var _previousTrashPath = '';
 
+// Re-entrancy guard: prevents infinite loop when showTrashPathChangeDialog() calls doSaveSettings()
+// which would otherwise re-detect the path change and re-show the dialog.
+var _trashPathChangeHandled = false;
+
 // Preserve PluginLogLevel across Settings saves (managed in Logs tab)
 var _currentLogLevel = 'INFO';
 var _logLevelLoaded = false;
@@ -459,10 +463,17 @@ function doSaveSettings(payload, options) {
 
     // Intercept: if trash path changed, show relocation dialog before saving.
     // This covers all save paths: explicit Save button, auto-save dropdowns, and "Save & Continue" from unsaved-changes dialog.
-    if (hasTrashPathChanged(payload)) {
+    // The _trashPathChangeHandled guard prevents infinite recursion: when showTrashPathChangeDialog()
+    // calls back into doSaveSettings() after the user has made their choice, the guard is set to
+    // true so we skip this check and proceed with the actual save.
+    if (hasTrashPathChanged(payload) && !_trashPathChangeHandled) {
         showTrashPathChangeDialog(payload, options);
         return;
     }
+    // Reset the guard after passing the check. This ensures:
+    // 1. The guard only suppresses one recursive call (the immediate callback from the dialog).
+    // 2. If the user later changes the path again, the dialog will show again as expected.
+    _trashPathChangeHandled = false;
 
     if (!quiet) {
         btn.innerHTML = '<span class="btn-spinner"></span>' + T('savingSettings', 'Saving Settings...');
@@ -1485,7 +1496,9 @@ function showTrashPathChangeDialog(payload, options) {
     apiPost('JellyfinHelper/Trash/FoldersForPath', {TrashFolderPath: oldPath}, function (data) {
         var paths = (data && data.Paths) || [];
         if (paths.length === 0) {
-            // No old content exists — save directly, update tracking on success
+            // No old content exists — save directly, update tracking on success.
+            // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
+            _trashPathChangeHandled = true;
             doSaveSettings(payload, {
                 quiet: !!(options && options.quiet),
                 element: (options && options.element) || null,
@@ -1518,6 +1531,8 @@ function showTrashPathChangeDialog(payload, options) {
             removeTrashDialog();
             if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathMoving', 'Moving trash content…') + '</div>';
 
+            // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
+            _trashPathChangeHandled = true;
             // Update _previousTrashPath inside onSuccess so that a failed save
             // does not suppress the dialog on retry.
             doSaveSettings(payload, {
@@ -1562,7 +1577,9 @@ function showTrashPathChangeDialog(payload, options) {
                     msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathDeleteSuccess', 'Old trash content deleted.') + '</div>';
                     setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
                 }
-                // Now save the new path — update tracking only on success
+                // Now save the new path — update tracking only on success.
+                // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
+                _trashPathChangeHandled = true;
                 doSaveSettings(payload, {
                     quiet: !!(options && options.quiet),
                     element: (options && options.element) || null,
@@ -1580,7 +1597,9 @@ function showTrashPathChangeDialog(payload, options) {
 
         document.body.appendChild(d.overlay);
     }, function () {
-        // API error checking old path — proceed with save anyway, update tracking on success
+        // API error checking old path — proceed with save anyway, update tracking on success.
+        // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
+        _trashPathChangeHandled = true;
         doSaveSettings(payload, {
             quiet: !!(options && options.quiet),
             element: (options && options.element) || null,
