@@ -18,10 +18,10 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Jellyfin.Controller" Version="10.11.9">
+        <PackageReference Include="Jellyfin.Controller" Version="10.11.10">
             <ExcludeAssets>runtime</ExcludeAssets>
         </PackageReference>
-        <PackageReference Include="Jellyfin.Model" Version="10.11.9">
+        <PackageReference Include="Jellyfin.Model" Version="10.11.10">
             <ExcludeAssets>runtime</ExcludeAssets>
         </PackageReference>
         <PackageReference Include="System.IO.Abstractions" Version="21.2.1"/>
