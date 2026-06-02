@@ -128,68 +128,41 @@ function openFolderBrowserDialog() {
                 return;
             }
 
+            // Close the folder browser immediately so any subsequent dialogs
+            // (e.g. the trash relocation dialog) appear in the foreground.
+            closeDialog();
+
+            // Update the input field with the selected path
             var input = document.getElementById('cfgTrashPath');
+            if (input) {
+                input.value = selectedPath;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
 
-            // Determine if this is a path change (old trash had content) that would
-            // trigger the relocation dialog. If so, close the folder browser first,
-            // set the input value, and let the user click Save to trigger the normal
-            // save flow which will show the relocation dialog properly.
-            // If it's NOT a path change (e.g. initial setup, trash was disabled, or
-            // same path), we can auto-save directly.
-            var testPayload = buildSettingsPayload();
-            testPayload.TrashFolderPath = selectedPath;
-            var isPathChange = hasTrashPathChanged(testPayload);
-
-            if (isPathChange) {
-                // Path change detected — close dialog, set input, let user Save manually.
-                // This avoids the relocation dialog appearing behind the folder browser.
-                closeDialog();
-                if (input) {
-                    input.value = selectedPath;
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-                // Show brief visual feedback on the browse button
-                var icon = document.getElementById('btnBrowseTrash');
-                if (icon) {
-                    icon.innerHTML = mi('folder');
-                    icon.style.color = getCssVar('--color-primary', '#00a4dc');
+            // Trigger save. doSaveSettings() handles all cases:
+            // - Path change with old content → shows relocation dialog (Move/Delete/Cancel)
+            // - Path change without old content → saves directly
+            // - Initial path set (trash was disabled) → saves directly
+            // The re-entrancy guard in Settings.js prevents infinite loops.
+            var payload = buildSettingsPayload();
+            payload.TrashFolderPath = selectedPath;
+            doSaveSettings(payload, {
+                quiet: true,
+                element: null,
+                onSuccess: function () {
+                    // Show success feedback on the browse button
+                    var icon = document.getElementById('btnBrowseTrash');
+                    if (!icon) return;
+                    icon.innerHTML = mi('check_circle');
+                    icon.style.color = getCssVar('--color-success', '#2ecc71');
                     icon.style.opacity = '1';
                     setTimeout(function () {
                         icon.innerHTML = mi('folder_open');
                         icon.style.color = '#00a4dc';
                         icon.style.opacity = '0.8';
-                    }, 1500);
+                    }, 2000);
                 }
-            } else {
-                // No path change (initial set, or trash was previously disabled) — auto-save directly.
-                var payload = buildSettingsPayload();
-                payload.TrashFolderPath = selectedPath;
-                doSaveSettings(payload, {
-                    quiet: true,
-                    element: null,
-                    onSuccess: function () {
-                        if (input) {
-                            input.value = selectedPath;
-                            input.dispatchEvent(new Event('input', { bubbles: true }));
-                        }
-                        closeDialog();
-                        var icon = document.getElementById('btnBrowseTrash');
-                        if (!icon) return;
-                        icon.innerHTML = mi('check_circle');
-                        icon.style.color = getCssVar('--color-success', '#2ecc71');
-                        icon.style.opacity = '1';
-                        setTimeout(function () {
-                            icon.innerHTML = mi('folder_open');
-                            icon.style.color = '#00a4dc';
-                            icon.style.opacity = '0.8';
-                        }, 2000);
-                    },
-                    onError: function () {
-                        // Save failed — close picker, path remains unchanged
-                        closeDialog();
-                    }
-                });
-            }
+            });
         } else {
             closeDialog();
         }
