@@ -69,4 +69,17 @@ public interface ITrashService
     /// <param name="logger">The logger.</param>
     /// <returns>A tuple of items successfully moved and items that failed to move.</returns>
     (int Moved, int Failed) RelocateTrashContents(string oldTrashPath, string newTrashPath, ILogger logger);
+
+    /// <summary>
+    ///     Checks whether the Jellyfin process has read and write access to a given path.
+    ///     If the path does not exist, checks whether the nearest existing parent directory
+    ///     is writable (i.e., the path could be created).
+    /// </summary>
+    /// <param name="path">The absolute path to check.</param>
+    /// <param name="logger">The logger for diagnostics.</param>
+    /// <returns>
+    ///     A <see cref="TrashPathAccessResult"/> indicating whether the path is readable,
+    ///     writable, whether it already exists, and an optional error message.
+    /// </returns>
+    TrashPathAccessResult CheckPathAccess(string path, ILogger logger);
 }

@@ -807,4 +807,143 @@ public class TrashService : ITrashService
 
         return size;
     }
+
+    /// <inheritdoc />
+    public TrashPathAccessResult CheckPathAccess(string path, ILogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return new TrashPathAccessResult
+            {
+                Exists = false,
+                CanRead = false,
+                CanWrite = false,
+                ErrorMessage = "Path is empty."
+            };
+        }
+
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            _pluginLog.LogWarning("Trash", $"Path access check failed — invalid path: {path} ({ex.Message})", ex, logger);
+            return new TrashPathAccessResult
+            {
+                Exists = false,
+                CanRead = false,
+                CanWrite = false,
+                ErrorMessage = $"Invalid path: {ex.Message}"
+            };
+        }
+
+        // If the path exists as a directory, check read/write on it directly.
+        if (Directory.Exists(fullPath))
+        {
+            var canRead = CanReadDirectory(fullPath);
+            var canWrite = CanWriteDirectory(fullPath);
+
+            if (!canRead || !canWrite)
+            {
+                var issue = !canRead && !canWrite ? "read or write" : !canRead ? "read" : "write";
+                var msg = $"Insufficient permissions: cannot {issue} path '{fullPath}'.";
+                _pluginLog.LogWarning("Trash", msg, logger: logger);
+                return new TrashPathAccessResult
+                {
+                    Exists = true,
+                    CanRead = canRead,
+                    CanWrite = canWrite,
+                    ErrorMessage = msg
+                };
+            }
+
+            _pluginLog.LogDebug("Trash", $"Path access check OK (exists, read+write): {fullPath}");
+            return new TrashPathAccessResult { Exists = true, CanRead = true, CanWrite = true };
+        }
+
+        // Path does not exist — walk up to the nearest existing parent and check if we can create there.
+        var parent = fullPath;
+        while (!string.IsNullOrEmpty(parent))
+        {
+            parent = Path.GetDirectoryName(parent);
+            if (string.IsNullOrEmpty(parent))
+            {
+                break;
+            }
+
+            if (Directory.Exists(parent))
+            {
+                var canWrite = CanWriteDirectory(parent);
+                if (!canWrite)
+                {
+                    var msg = $"Cannot create trash folder at '{fullPath}': no write permission on parent '{parent}'.";
+                    _pluginLog.LogWarning("Trash", msg, logger: logger);
+                    return new TrashPathAccessResult
+                    {
+                        Exists = false,
+                        CanRead = true,
+                        CanWrite = false,
+                        ErrorMessage = msg
+                    };
+                }
+
+                _pluginLog.LogDebug("Trash", $"Path access check OK (not yet created, parent writable): {fullPath}");
+                return new TrashPathAccessResult { Exists = false, CanRead = true, CanWrite = true };
+            }
+        }
+
+        // No existing ancestor found (should not happen on valid filesystems)
+        var fallbackMsg = $"Cannot verify access for '{fullPath}': no existing parent directory found.";
+        _pluginLog.LogWarning("Trash", fallbackMsg, logger: logger);
+        return new TrashPathAccessResult
+        {
+            Exists = false,
+            CanRead = false,
+            CanWrite = false,
+            ErrorMessage = fallbackMsg
+        };
+    }
+
+    /// <summary>
+    ///     Attempts to enumerate the contents of a directory to verify read access.
+    ///     Returns true if enumeration succeeds, false if access is denied.
+    /// </summary>
+    private static bool CanReadDirectory(string directoryPath)
+    {
+        try
+        {
+            Directory.GetFileSystemEntries(directoryPath);
+            return true;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    ///     Attempts to create and immediately delete a temporary probe file inside the directory
+    ///     to verify write access. This is more reliable than checking ACLs because it respects
+    ///     effective permissions, SELinux policies, and filesystem mount options.
+    /// </summary>
+    private static bool CanWriteDirectory(string directoryPath)
+    {
+        var probePath = Path.Join(directoryPath, $".jfh-access-probe-{Guid.NewGuid():N}");
+        try
+        {
+            using (File.Create(probePath))
+            {
+                // File created successfully — write access confirmed.
+            }
+
+            File.Delete(probePath);
+            return true;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            return false;
+        }
+    }
 }

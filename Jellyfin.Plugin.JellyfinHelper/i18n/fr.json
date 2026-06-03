@@ -367,5 +367,8 @@
   "trashPathMovePartial": "Partiellement déplacé : {0} déplacé(s), {1} échoué(s).",
   "trashPathMoveError": "Échec du déplacement du contenu de la corbeille.",
   "trashPathDeleting": "Suppression de l'ancien contenu de la corbeille…",
-  "trashPathDeleteSuccess": "Ancien contenu de la corbeille supprimé."
+  "trashPathDeleteSuccess": "Ancien contenu de la corbeille supprimé.",
+  "trashPathCheckingAccess": "Vérification des permissions…",
+  "trashPathAccessDenied": "Permission refusée sur le nouveau chemin de la corbeille.",
+  "trashPathMoveNothingMoved": "Aucun élément n'a été déplacé. La source est peut-être vide ou inaccessible en raison des permissions."
 }

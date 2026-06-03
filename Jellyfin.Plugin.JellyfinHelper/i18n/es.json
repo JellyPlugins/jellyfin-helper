@@ -367,5 +367,8 @@
   "trashPathMovePartial": "Movido parcialmente: {0} movido(s), {1} fallido(s).",
   "trashPathMoveError": "Error al mover el contenido de la papelera.",
   "trashPathDeleting": "Eliminando contenido antiguo de la papelera…",
-  "trashPathDeleteSuccess": "Contenido antiguo de la papelera eliminado."
+  "trashPathDeleteSuccess": "Contenido antiguo de la papelera eliminado.",
+  "trashPathCheckingAccess": "Verificando permisos…",
+  "trashPathAccessDenied": "Permiso denegado en la nueva ruta de la papelera.",
+  "trashPathMoveNothingMoved": "No se movieron elementos. La fuente puede estar vacía o inaccesible debido a permisos."
 }

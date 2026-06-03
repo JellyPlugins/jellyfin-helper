@@ -125,7 +125,9 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Arr/                       # Arr integration tests
 │   ├── Backup/                    # Backup/restore tests
 │   ├── Cleanup/                   # Cleanup task tests
+│   │   ├── TrashControllerAccessTests.cs  # CheckAccess API endpoint tests (permission probing)
 │   │   ├── TrashControllerRelocateTests.cs # Trash path relocation API endpoint tests
+│   │   ├── TrashServiceAccessTests.cs     # CheckPathAccess permission probing tests
 │   │   ├── TrashServiceGuardTests.cs      # Defense-in-depth: prevent re-trashing items already in trash
 │   │   ├── TrashServicePathLengthTests.cs # ResolveCollision stays within OS MAX_PATH (Windows 259 / Linux 4095)
 │   │   └── TrashServiceRelocateTests.cs   # RelocateTrashContents unit tests (move, collision, safety)
@@ -281,6 +283,14 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   └── RecommendationResult.cs
 │   ├── Arr/                     # Radarr/Sonarr integration
 │   ├── Cleanup/                 # File cleanup services
+│   │   ├── ITrashService.cs            # Trash bin interface (move, purge, relocate, access check)
+│   │   ├── TrashService.cs             # Trash bin implementation
+│   │   ├── TrashItemInfo.cs            # Trash item metadata DTO
+│   │   ├── TrashPathAccessResult.cs    # Permission check result (read/write/exists)
+│   │   ├── ICleanupConfigHelper.cs     # Cleanup configuration interface
+│   │   ├── CleanupConfigHelper.cs      # Library filtering, trash path resolution
+│   │   ├── ICleanupTrackingService.cs  # Cleanup statistics tracking interface
+│   │   └── CleanupTrackingService.cs   # Persists bytes-freed/items-deleted counters
 │   ├── ConfigAccess/            # Plugin configuration access
 │   ├── Link/                    # .strm/symlink repair
 │   ├── PluginLog/               # Structured plugin logging

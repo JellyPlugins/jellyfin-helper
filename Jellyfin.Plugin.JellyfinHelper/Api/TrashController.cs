@@ -469,4 +469,82 @@ public class TrashController : ControllerBase
 
         return true;
     }
+
+    /// <summary>
+    /// Checks whether the Jellyfin process has read/write access to a given trash path.
+    /// Used by the UI to proactively warn the user before attempting relocation or deletion
+    /// on a path where permissions are insufficient.
+    /// </summary>
+    /// <param name="request">The request containing the trash folder path to check.</param>
+    /// <returns>An object indicating access status and any error message.</returns>
+    [HttpPost("CheckAccess")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult CheckAccess([FromBody] TrashPathQueryRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.TrashFolderPath))
+        {
+            return BadRequest(new { Error = "TrashFolderPath is required." });
+        }
+
+        var queryPath = request.TrashFolderPath.Trim();
+        var libraryFolders = _configHelper.GetFilteredLibraryLocations(_libraryManager);
+        var results = new List<object>();
+        var allAccessible = true;
+
+        if (Path.IsPathRooted(queryPath))
+        {
+            // Absolute path: check it directly
+            var accessResult = _trashService.CheckPathAccess(queryPath, _logger);
+            _pluginLog.LogInfo(
+                "API",
+                accessResult.HasFullAccess
+                    ? $"Trash path access check passed: {queryPath}"
+                    : $"Trash path access check FAILED: {queryPath} — {accessResult.ErrorMessage}",
+                _logger);
+            allAccessible &= accessResult.HasFullAccess;
+            results.Add(new
+            {
+                Path = queryPath,
+                accessResult.Exists,
+                accessResult.CanRead,
+                accessResult.CanWrite,
+                accessResult.HasFullAccess,
+                accessResult.ErrorMessage
+            });
+        }
+        else
+        {
+            // Relative path: resolve per library and check each
+            foreach (var folder in libraryFolders)
+            {
+                var resolvedPath = _configHelper.GetTrashPath(folder);
+                var accessResult = _trashService.CheckPathAccess(resolvedPath, _logger);
+                _pluginLog.LogInfo(
+                    "API",
+                    accessResult.HasFullAccess
+                        ? $"Trash path access check passed: {resolvedPath} (library: {folder})"
+                        : $"Trash path access check FAILED: {resolvedPath} (library: {folder}) — {accessResult.ErrorMessage}",
+                    _logger);
+                allAccessible &= accessResult.HasFullAccess;
+                results.Add(new
+                {
+                    Path = resolvedPath,
+                    LibraryRoot = folder,
+                    accessResult.Exists,
+                    accessResult.CanRead,
+                    accessResult.CanWrite,
+                    accessResult.HasFullAccess,
+                    accessResult.ErrorMessage
+                });
+            }
+        }
+
+        var allOk = results.Count > 0 && allAccessible;
+        return Ok(new
+        {
+            AllAccessible = allOk,
+            Results = results
+        });
+    }
 }

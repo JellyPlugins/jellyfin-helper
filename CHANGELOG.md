@@ -26,7 +26,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Include Libraries Setting** - Removed the redundant "Include Libraries" configuration option. The existing "Excluded Libraries" setting already provides the same functionality in a more intuitive way (exclude = everything else is included).
 
 ### Tests
-- Total: **2307 tests** (`GrowthTimelineSymlinkTests`, `TrashServicePathLengthTests`).
+- Total: **2318 tests** (`GrowthTimelineSymlinkTests`, `TrashServicePathLengthTests`).
 
 ---
 

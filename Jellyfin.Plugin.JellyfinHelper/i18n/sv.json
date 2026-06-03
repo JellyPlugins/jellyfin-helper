@@ -367,5 +367,8 @@
   "trashPathMovePartial": "Delvis flyttat: {0} flyttade, {1} misslyckades.",
   "trashPathMoveError": "Kunde inte flytta papperskorgsinnehållet.",
   "trashPathDeleting": "Tar bort gammalt papperskorgsinnehåll…",
-  "trashPathDeleteSuccess": "Gammalt papperskorgsinnehåll borttaget."
+  "trashPathDeleteSuccess": "Gammalt papperskorgsinnehåll borttaget.",
+  "trashPathCheckingAccess": "Kontrollerar behörigheter…",
+  "trashPathAccessDenied": "Behörighet nekad för den nya papperskorgsökvägen.",
+  "trashPathMoveNothingMoved": "Inga objekt flyttades. Källan kan vara tom eller otillgänglig på grund av behörigheter."
 }
