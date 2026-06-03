@@ -65,12 +65,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>Fraction of examples used for validation.</summary>
     internal const double ValidationSplitRatio = 0.2;
 
-    /// <summary>Number of folds for k-fold cross-validation loss estimation.</summary>
-    internal const int KFoldCount = 3;
-
-    /// <summary>Minimum examples per fold for k-fold cross-validation.</summary>
-    internal const int MinExamplesPerFold = 3;
-
     /// <summary>Minimum validation examples required for early stopping.</summary>
     internal const int MinValidationExamples = 2;
 
@@ -1029,27 +1023,15 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _biasOutput = bestBO;
             }
 
-            // Use k-fold cross-validation for more robust loss estimation
-            // when sufficient data is available; fall back to simple split loss otherwise.
-            if (examples.Count >= KFoldCount * MinExamplesPerFold)
+            // Use the early-stopping validation loss as the generalization estimate when
+            // available — it was computed on a held-out split that the model never trained on,
+            // making it a genuine out-of-sample loss.
+            // Published under _syncRoot to match the read path in LastValidationLoss getter.
+            lock (_syncRoot)
             {
-                var foldSize = examples.Count / KFoldCount;
-                var kFoldLossSum = 0.0;
-                for (var fold = 0; fold < KFoldCount; fold++)
-                {
-                    var foldValStart = fold * foldSize;
-                    var foldValEnd = fold == KFoldCount - 1 ? examples.Count : foldValStart + foldSize;
-                    var foldValIdx = indices[foldValStart..foldValEnd];
-                    kFoldLossSum += ComputeMseLoss(examples, vectors, weights, foldValIdx);
-                }
-
-                _lastValidationLoss = kFoldLossSum / KFoldCount;
-            }
-            else
-            {
-                _lastValidationLoss = bestLoss < double.MaxValue
+                _lastValidationLoss = useEarlyStopping && bestLoss < double.MaxValue
                     ? bestLoss
-                    : ComputeMseLoss(examples, vectors, weights, trainIdx);
+                    : double.NaN;
             }
 
             _featureMeans = featureMeans;

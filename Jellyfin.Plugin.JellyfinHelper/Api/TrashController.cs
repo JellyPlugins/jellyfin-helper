@@ -233,7 +233,202 @@ public class TrashController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Gets the list of existing trash folder paths for a specific (possibly non-current) trash path.
+    /// Used by the UI to check whether trash content exists at the OLD path before a path change is saved.
+    /// </summary>
+    /// <param name="request">The request containing the trash folder path to query.</param>
+    /// <returns>An object containing the list of existing trash folder paths.</returns>
+    [HttpPost("FoldersForPath")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult GetTrashFoldersForPath([FromBody] TrashPathQueryRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.TrashFolderPath))
+        {
+            return BadRequest(new { Error = "TrashFolderPath is required." });
+        }
+
+        var queryPath = request.TrashFolderPath.Trim();
+        var existingPaths = _configHelper.GetExistingTrashFoldersForPath(_libraryManager, queryPath);
+
+        return Ok(new
+        {
+            Paths = existingPaths,
+            IsAbsolute = Path.IsPathRooted(queryPath),
+        });
+    }
+
+    /// <summary>
+    /// Relocates trash contents from old trash folder(s) to new trash folder(s).
+    /// Called when the user changes the trash path and chooses to move existing content.
+    /// </summary>
+    /// <param name="request">The request containing old and new trash paths.</param>
+    /// <returns>A result indicating how many items were moved/failed.</returns>
+    [HttpPost("Relocate")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult RelocateTrash([FromBody] TrashRelocateRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.OldTrashPath) || string.IsNullOrWhiteSpace(request.NewTrashPath))
+        {
+            return BadRequest(new { Error = "Both OldTrashPath and NewTrashPath are required." });
+        }
+
+        // Sanitize user input via Path.GetFullPath to break CA3003 taint chain.
+        // Both paths are further validated by IsPathSafeForDeletion / ResolveRelativeTrashPath.
+        var oldPath = request.OldTrashPath.Trim();
+        var newPath = request.NewTrashPath.Trim();
+
+        string sanitizedOld;
+        string sanitizedNew;
+        try
+        {
+            sanitizedOld = Path.IsPathRooted(oldPath) ? Path.GetFullPath(oldPath) : oldPath;
+            sanitizedNew = Path.IsPathRooted(newPath) ? Path.GetFullPath(newPath) : newPath;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return BadRequest(new { Error = "One or both trash paths are invalid." });
+        }
+
+        var libraryFolders = _configHelper.GetFilteredLibraryLocations(_libraryManager);
+        var totalMoved = 0;
+        var totalFailed = 0;
+
+        if (Path.IsPathRooted(oldPath) && Path.IsPathRooted(newPath))
+        {
+            // Both absolute: single relocation
+            if (!IsPathSafeForDeletion(sanitizedOld, libraryFolders))
+            {
+                return BadRequest(new { Error = "Old trash path is unsafe for relocation." });
+            }
+
+            if (!IsPathSafeForDeletion(sanitizedNew, libraryFolders))
+            {
+                return BadRequest(new { Error = "New trash path is unsafe for relocation." });
+            }
+
+            var (moved, failed) = _trashService.RelocateTrashContents(sanitizedOld, sanitizedNew, _logger);
+            totalMoved += moved;
+            totalFailed += failed;
+        }
+        else if (!Path.IsPathRooted(oldPath) && !Path.IsPathRooted(newPath))
+        {
+            // Both relative: relocate per library using existing trash folder lookup
+            var existingOldFolders = _configHelper.GetExistingTrashFoldersForPath(_libraryManager, oldPath);
+            foreach (var folder in libraryFolders)
+            {
+                var resolvedOld = ResolveRelativeTrashPath(folder, oldPath);
+                var resolvedNew = ResolveRelativeTrashPath(folder, newPath);
+
+                if (resolvedOld == null || resolvedNew == null)
+                {
+                    continue;
+                }
+
+                // Only relocate if old trash folder actually exists on disk
+                if (!existingOldFolders.Contains(resolvedOld))
+                {
+                    continue;
+                }
+
+                var (moved, failed) = _trashService.RelocateTrashContents(resolvedOld, resolvedNew, _logger);
+                totalMoved += moved;
+                totalFailed += failed;
+            }
+        }
+        else if (Path.IsPathRooted(oldPath) && !Path.IsPathRooted(newPath))
+        {
+            // Old is absolute, new is relative: move from single old to first library's new path
+            if (!IsPathSafeForDeletion(sanitizedOld, libraryFolders))
+            {
+                return BadRequest(new { Error = "Old trash path is unsafe for relocation." });
+            }
+
+            // Distribute to each library's resolved new path (split is not practical;
+            // move all to the first library that resolves successfully)
+            foreach (var folder in libraryFolders)
+            {
+                var resolvedNew = ResolveRelativeTrashPath(folder, newPath);
+                if (resolvedNew == null)
+                {
+                    continue;
+                }
+
+                var (moved, failed) = _trashService.RelocateTrashContents(sanitizedOld, resolvedNew, _logger);
+                totalMoved += moved;
+                totalFailed += failed;
+                break; // Only move once from absolute source
+            }
+        }
+        else
+        {
+            // Old is relative, new is absolute: merge all library trash folders into one
+            if (!IsPathSafeForDeletion(sanitizedNew, libraryFolders))
+            {
+                return BadRequest(new { Error = "New trash path is unsafe for relocation." });
+            }
+
+            var existingOldFoldersForMerge = _configHelper.GetExistingTrashFoldersForPath(_libraryManager, oldPath);
+            foreach (var folder in libraryFolders)
+            {
+                var resolvedOld = ResolveRelativeTrashPath(folder, oldPath);
+                if (resolvedOld == null || !existingOldFoldersForMerge.Contains(resolvedOld))
+                {
+                    continue;
+                }
+
+                var (moved, failed) = _trashService.RelocateTrashContents(resolvedOld, sanitizedNew, _logger);
+                totalMoved += moved;
+                totalFailed += failed;
+            }
+        }
+
+        _pluginLog.LogInfo("API", $"Trash relocation complete: {totalMoved} moved, {totalFailed} failed.", _logger);
+
+        return Ok(new
+        {
+            Moved = totalMoved,
+            Failed = totalFailed,
+        });
+    }
+
     // === Private helpers ===
+
+    /// <summary>
+    /// Resolves a relative trash path against a library root folder.
+    /// Returns null if the resolved path escapes the library root or is invalid.
+    /// </summary>
+    /// <param name="libraryRoot">The library root folder.</param>
+    /// <param name="relativePath">The relative trash path to resolve.</param>
+    /// <returns>The resolved absolute path, or null if invalid.</returns>
+    private static string? ResolveRelativeTrashPath(string libraryRoot, string relativePath)
+    {
+        try
+        {
+            var resolved = Path.GetFullPath(Path.Join(libraryRoot, relativePath));
+            var normalizedRoot = Path.GetFullPath(libraryRoot)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var rootPrefix = normalizedRoot + Path.DirectorySeparatorChar;
+
+            var comparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+
+            // Must stay within the library root
+            if (!resolved.StartsWith(rootPrefix, comparison))
+            {
+                return null;
+            }
+
+            return resolved;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// Validates that a path is safe for recursive deletion.
@@ -241,11 +436,15 @@ public class TrashController : ControllerBase
     /// </summary>
     private static bool IsPathSafeForDeletion(string fullPath, IReadOnlyList<string> libraryFolders)
     {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
         // Reject filesystem roots (e.g., "/", "C:\")
         var root = Path.GetPathRoot(fullPath);
         var normalizedPath = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var normalizedRoot = root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(normalizedPath, normalizedRoot, comparison))
         {
             return false;
         }
@@ -256,18 +455,96 @@ public class TrashController : ControllerBase
             var libraryRoot = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var candidate = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-            if (string.Equals(candidate, libraryRoot, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(candidate, libraryRoot, comparison))
             {
                 return false;
             }
 
             // Reject if a library root is inside the trash path (would delete library contents)
-            if (libraryRoot.StartsWith(candidate + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (libraryRoot.StartsWith(candidate + Path.DirectorySeparatorChar, comparison))
             {
                 return false;
             }
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Checks whether the Jellyfin process has read/write access to a given trash path.
+    /// Used by the UI to proactively warn the user before attempting relocation or deletion
+    /// on a path where permissions are insufficient.
+    /// </summary>
+    /// <param name="request">The request containing the trash folder path to check.</param>
+    /// <returns>An object indicating access status and any error message.</returns>
+    [HttpPost("CheckAccess")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult CheckAccess([FromBody] TrashPathQueryRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.TrashFolderPath))
+        {
+            return BadRequest(new { Error = "TrashFolderPath is required." });
+        }
+
+        var queryPath = request.TrashFolderPath.Trim();
+        var libraryFolders = _configHelper.GetFilteredLibraryLocations(_libraryManager);
+        var results = new List<object>();
+        var allAccessible = true;
+
+        if (Path.IsPathRooted(queryPath))
+        {
+            // Absolute path: check it directly
+            var accessResult = _trashService.CheckPathAccess(queryPath, _logger);
+            _pluginLog.LogInfo(
+                "API",
+                accessResult.HasFullAccess
+                    ? $"Trash path access check passed: {queryPath}"
+                    : $"Trash path access check FAILED: {queryPath} — {accessResult.ErrorMessage}",
+                _logger);
+            allAccessible &= accessResult.HasFullAccess;
+            results.Add(new
+            {
+                Path = queryPath,
+                accessResult.Exists,
+                accessResult.CanRead,
+                accessResult.CanWrite,
+                accessResult.HasFullAccess,
+                accessResult.ErrorMessage
+            });
+        }
+        else
+        {
+            // Relative path: resolve per library and check each
+            foreach (var folder in libraryFolders)
+            {
+                var resolvedPath = _configHelper.GetTrashPath(folder);
+                var accessResult = _trashService.CheckPathAccess(resolvedPath, _logger);
+                _pluginLog.LogInfo(
+                    "API",
+                    accessResult.HasFullAccess
+                        ? $"Trash path access check passed: {resolvedPath} (library: {folder})"
+                        : $"Trash path access check FAILED: {resolvedPath} (library: {folder}) — {accessResult.ErrorMessage}",
+                    _logger);
+                allAccessible &= accessResult.HasFullAccess;
+                results.Add(new
+                {
+                    Path = resolvedPath,
+                    LibraryRoot = folder,
+                    accessResult.Exists,
+                    accessResult.CanRead,
+                    accessResult.CanWrite,
+                    accessResult.HasFullAccess,
+                    accessResult.ErrorMessage
+                });
+            }
+        }
+
+        var allOk = results.Count > 0 && allAccessible;
+        return Ok(new
+        {
+            AllAccessible = allOk,
+            Results = results
+        });
     }
 }

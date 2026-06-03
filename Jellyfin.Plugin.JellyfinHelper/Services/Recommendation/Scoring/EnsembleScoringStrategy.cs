@@ -634,12 +634,18 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
                     if (neuralQualityOk)
                     {
-                        // Linear ramp from 0 to NeuralMaxBetaFraction over 75..175 examples
+                        // Linear ramp from 0 to NeuralMaxBetaFraction over 75..175 examples.
+                        // Math.Max prevents beta from dropping below the ramp floor when trend
+                        // damping and the ramp both apply within the same Train() call, but once
+                        // the ramp has reached its ceiling (progress=1.0) trend-driven decay will
+                        // be re-absorbed by the ramp on the next run — which is intentional: if
+                        // neural quality remains good, the ramp is the dominant signal.
                         var progress = Math.Clamp(
                             (_trainingExampleCount - NeuralActivationThreshold) / 100.0,
                             0.0,
                             1.0);
-                        _neuralBeta = NeuralMaxBetaFraction * progress;
+                        var rampTarget = NeuralMaxBetaFraction * progress;
+                        _neuralBeta = Math.Max(_neuralBeta, rampTarget);
                     }
                     else
                     {
@@ -1075,7 +1081,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                     NeuralBeta = _neuralBeta,
                     QualityGateFrozen = _qualityGateFrozen,
                     SigmoidMidpointOffset = _sigmoidMidpointOffset,
-                    MetricsHistory = [.._metricsHistory],
+                    MetricsHistory = [.. _metricsHistory],
                     UpdatedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture)
                 };
 

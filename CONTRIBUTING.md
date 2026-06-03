@@ -125,7 +125,12 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Arr/                       # Arr integration tests
 │   ├── Backup/                    # Backup/restore tests
 │   ├── Cleanup/                   # Cleanup task tests
-│   │   ├── TrashServiceGuardTests.cs  # Defense-in-depth: prevent re-trashing items already in trash
+│   │   ├── TrashControllerAccessTests.cs  # CheckAccess API endpoint tests (permission probing)
+│   │   ├── TrashControllerRelocateTests.cs # Trash path relocation API endpoint tests
+│   │   ├── TrashServiceAccessTests.cs     # CheckPathAccess permission probing tests
+│   │   ├── TrashServiceGuardTests.cs      # Defense-in-depth: prevent re-trashing items already in trash
+│   │   ├── TrashServicePathLengthTests.cs # ResolveCollision stays within OS MAX_PATH (Windows 259 / Linux 4095)
+│   │   └── TrashServiceRelocateTests.cs   # RelocateTrashContents unit tests (move, collision, safety)
 │   ├── ConfigAccess/              # Configuration access tests
 │   ├── Link/                      # Link repair tests
 │   ├── PluginLog/                 # Plugin log tests
@@ -139,6 +144,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       └── ParentalRatingHelperTests.cs
 │   ├── Statistics/                # Statistics service tests
 │   ├── Timeline/                  # Growth timeline tests
+│   │   └── GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks/junctions
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
@@ -178,7 +184,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 Jellyfin.Plugin.JellyfinHelper/
 ├── BuildTasks/
 │   └── ComposeConfigPage.cs     # MSBuild task for config page composition
-├── i18n/                        # Internationalization files (en, de, fr, es, pt, zh, tr)
+├── i18n/                        # Internationalization files (en, de, fr, es, pt, sv, zh, tr)
 ├── Plugin.cs                    # Entry point, web page registration, script injection
 ├── PluginServiceRegistrator.cs  # DI registration for all services
 ├── MediaExtensions.cs           # Extension methods for media analysis
@@ -193,6 +199,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
 │   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
 │   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId, MediaType)
+│   ├── FolderBrowserController.cs       # Folder browser API (server-side directory listing)
 │   ├── RequestResult.cs                 # Generic success/failure response model
 │   ├── GrowthTimelineController.cs      # Library growth timeline API
 │   ├── LibraryInsightsController.cs     # Library insights API
@@ -202,6 +209,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── SeerrController.cs              # Jellyseerr/Overseerr integration API
 │   ├── TranslationsController.cs        # i18n translations API
 │   ├── TrashController.cs               # Trash bin API
+│   ├── TrashPathQueryRequest.cs         # DTO for querying trash folders at a specific path
+│   ├── TrashRelocateRequest.cs          # DTO for relocating trash between paths
 │   └── UserActivityController.cs        # User activity insights API
 ├── Configuration/
 │   ├── PluginConfiguration.cs   # All config properties with defaults
@@ -221,6 +230,11 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── BackupService.cs     # Create/restore backup
 │   │   ├── BackupValidator.cs   # Comprehensive input validation
 │   │   └── BackupSanitizer.cs   # Clamp/normalize values
+│   ├── FolderBrowser/               # Server-side folder browsing
+│   │   ├── IFolderBrowserService.cs # Interface for folder listing
+│   │   ├── FolderBrowserService.cs  # Implementation: lists directories with safety guards
+│   │   ├── FolderBrowseResult.cs    # Browse result container (entries + current path)
+│   │   └── FolderEntry.cs           # Single folder/file entry DTO
 │   ├── Recommendation/              # ML recommendation system
 │   │   ├── Engine/                  # Core recommendation logic
 │   │   │   ├── Engine.cs            # Orchestrator: profiles → candidates → scoring → results
@@ -269,6 +283,14 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   └── RecommendationResult.cs
 │   ├── Arr/                     # Radarr/Sonarr integration
 │   ├── Cleanup/                 # File cleanup services
+│   │   ├── ITrashService.cs            # Trash bin interface (move, purge, relocate, access check)
+│   │   ├── TrashService.cs             # Trash bin implementation
+│   │   ├── TrashItemInfo.cs            # Trash item metadata DTO
+│   │   ├── TrashPathAccessResult.cs    # Permission check result (read/write/exists)
+│   │   ├── ICleanupConfigHelper.cs     # Cleanup configuration interface
+│   │   ├── CleanupConfigHelper.cs      # Library filtering, trash path resolution
+│   │   ├── ICleanupTrackingService.cs  # Cleanup statistics tracking interface
+│   │   └── CleanupTrackingService.cs   # Persists bytes-freed/items-deleted counters
 │   ├── ConfigAccess/            # Plugin configuration access
 │   ├── Link/                    # .strm/symlink repair
 │   ├── PluginLog/               # Structured plugin logging
@@ -330,6 +352,7 @@ Jellyfin.Plugin.JellyfinHelper/
         ├── Shared.js, Overview.js, Codecs.js, Health.js
         ├── Trends.js, Settings.js, ArrIntegration.js, Logs.js
         ├── Recommendations.js    # Discover tab logic
+        ├── FolderBrowser.js      # Folder browser UI (path picker for settings)
         └── Main.js               # Tab routing, IIFE close
 ```
 
@@ -344,6 +367,7 @@ serviceCollection.AddSingleton<ITrashService, TrashService>();
 serviceCollection.AddSingleton<IPluginConfigurationService, PluginConfigurationService>();
 serviceCollection.AddSingleton<IPluginLogService, PluginLogService>();
 serviceCollection.AddSingleton<IMediaStatisticsService, MediaStatisticsService>();
+serviceCollection.AddSingleton<IFolderBrowserService, FolderBrowserService>();
 // (additional services omitted for brevity - see PluginServiceRegistrator.cs for the complete list)
 ```
 
@@ -502,7 +526,7 @@ CSS and JS files are injected in a specific order defined in `ComposeConfigPage.
 // JS order  
 "Shared.js", "Overview.js", "Codecs.js", "Health.js",
 "Trends.js", "Settings.js", "ArrIntegration.js", "Logs.js",
-"Recommendations.js", "Main.js"
+"Recommendations.js", "FolderBrowser.js", "Main.js"
 ```
 
 `Shared.css`/`Shared.js` must be first (shared utilities), `Main.js` must be last (tab routing + IIFE close).

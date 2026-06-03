@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
+using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
@@ -63,7 +66,7 @@ public static class BackupValidator
     /// </summary>
     internal static readonly HashSet<string> ValidLanguages = new(StringComparer.OrdinalIgnoreCase)
     {
-        "en", "de", "fr", "es", "pt", "zh", "tr"
+        "en", "de", "fr", "es", "pt", "zh", "tr", "sv"
     };
 
     /// <summary>
@@ -131,7 +134,6 @@ public static class BackupValidator
 
         // String field validation (XSS / injection prevention)
         ValidateStringField(result, backup.Language, "Language", MaxStringLength);
-        ValidateStringField(result, backup.IncludedLibraries, "IncludedLibraries", MaxStringLength);
         ValidateStringField(result, backup.ExcludedLibraries, "ExcludedLibraries", MaxStringLength);
         ValidateStringField(result, backup.PluginLogLevel, "PluginLogLevel", MaxStringLength);
         ValidateStringField(result, backup.TrashFolderPath, "TrashFolderPath", MaxStringLength);
@@ -193,10 +195,24 @@ public static class BackupValidator
                 $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 1–{MaxRetentionDays}.");
         }
 
-        // Path traversal check for trash folder
-        if (!string.IsNullOrEmpty(backup.TrashFolderPath))
+        // Path validation for trash folder — defence in depth:
+        // 1. ValidatePathSafety catches injection patterns (|, `, ;, $(...), ${...})
+        // 2. ValidateTrashPathStrict applies the same structural rules as the settings save API
+        // Always run strict validation when UseTrash is enabled (even if path is empty),
+        // matching the live save flow which rejects empty paths when trash is on.
+        if (backup.UseTrash)
         {
-            ValidatePathSafety(result, backup.TrashFolderPath, "TrashFolderPath");
+            if (!string.IsNullOrEmpty(backup.TrashFolderPath))
+            {
+                ValidatePathSafety(result, backup.TrashFolderPath, "TrashFolderPath");
+            }
+
+            var trashPathError = ConfigurationRequestValidator.ValidateTrashPathStrict(
+                backup.TrashFolderPath, backup.UseTrash);
+            if (trashPathError != null)
+            {
+                result.Errors.Add($"TrashFolderPath: {trashPathError}");
+            }
         }
 
         // Arr instances validation
@@ -253,8 +269,14 @@ public static class BackupValidator
 
     private static void ValidatePathSafety(BackupValidationResult result, string path, string fieldName)
     {
-        // Check for path traversal attempts
-        if (path.Contains("..", StringComparison.Ordinal))
+        // Check for path traversal attempts (segment-aware to avoid false positives on names like "my..folder")
+        // Use hardcoded separators because on Unix both Path.DirectorySeparatorChar and
+        // Path.AltDirectorySeparatorChar are '/', so a Windows-style path like "C:\trash\..\escape"
+        // would remain a single segment and bypass the traversal check.
+        var segments = path.Split(
+            ['/', '\\'],
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Any(static s => s == ".."))
         {
             result.Errors.Add($"{fieldName} contains path traversal characters '..'.");
         }

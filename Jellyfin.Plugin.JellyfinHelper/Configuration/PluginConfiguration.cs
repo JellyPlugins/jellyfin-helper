@@ -12,28 +12,30 @@ namespace Jellyfin.Plugin.JellyfinHelper.Configuration;
 public class PluginConfiguration : BasePluginConfiguration
 {
     // ===== Backing fields for clamped properties =====
+    private int _orphanMinAgeDays;
     private int _maxRecommendationsPerUser = 20;
     private double _ensembleAlphaMin = 0.3;
     private double _ensembleAlphaMax = 0.75;
     private double _ensembleGenrePenaltyFloor = 0.10;
 
     /// <summary>
-    ///     Gets or sets the library names to include (allow list). Empty means all libraries are included.
-    ///     Comma-separated list of library names.
-    /// </summary>
-    public string IncludedLibraries { get; set; } = string.Empty;
-
-    /// <summary>
     ///     Gets or sets the library names to exclude (exclude list).
     ///     Comma-separated list of library names.
+    ///     Libraries in this list will be skipped by all cleanup tasks.
+    ///     Empty means no libraries are excluded (all are scanned).
     /// </summary>
     public string ExcludedLibraries { get; set; } = string.Empty;
 
     /// <summary>
     ///     Gets or sets the minimum age in days an orphaned item must have before it is eligible for deletion.
     ///     This protects against race conditions with active downloads. Default is 0 (immediate).
+    ///     Valid range: 0-3650. Out-of-range values are clamped.
     /// </summary>
-    public int OrphanMinAgeDays { get; set; }
+    public int OrphanMinAgeDays
+    {
+        get => _orphanMinAgeDays;
+        set => _orphanMinAgeDays = Math.Clamp(value, 0, 3650);
+    }
 
     // ===== New TaskMode properties (replace old booleans) =====
 

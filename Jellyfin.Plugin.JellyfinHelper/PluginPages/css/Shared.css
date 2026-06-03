@@ -301,9 +301,17 @@
     height: 4px;
 }
 
+.tab-bar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
 .tab-bar::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--color-primary-scrollbar);
     border-radius: 2px;
+}
+
+.tab-bar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-primary-scrollbar-hover);
 }
 
 .tab-btn {

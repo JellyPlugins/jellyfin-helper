@@ -374,6 +374,25 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            // Skip library roots that are symlinks/junctions to prevent double-counting
+            // media that resides in another library or pulling external trees into the timeline.
+            try
+            {
+                var locationAttrs = new DirectoryInfo(location).Attributes;
+                if ((locationAttrs & FileAttributes.ReparsePoint) != 0)
+                {
+                    continue;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _pluginLog.LogDebug(
+                    "GrowthTimeline",
+                    $"Skipping inaccessible library root during reparse-point check: {location}: {ex.Message}",
+                    _logger);
+                continue;
+            }
+
             try
             {
                 // Resolve the full trash path for this library root (handles both relative and absolute paths)
@@ -390,6 +409,26 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                     // Skip .trickplay and trash directories
                     if (ShouldSkipDirectory(subDir.FullName, dirName, trashFolderName, fullTrashPath))
                     {
+                        continue;
+                    }
+
+                    // Skip symlinks/junctions at the top level to prevent double-counting
+                    // media that resides in another library or pulling external trees into
+                    // the timeline. Child directories are checked inside GetDirectorySize().
+                    try
+                    {
+                        var topLevelAttrs = new DirectoryInfo(subDir.FullName).Attributes;
+                        if ((topLevelAttrs & FileAttributes.ReparsePoint) != 0)
+                        {
+                            continue;
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _pluginLog.LogDebug(
+                            "GrowthTimeline",
+                            $"Skipping inaccessible subdirectory during reparse-point check: {subDir.FullName}: {ex.Message}",
+                            _logger);
                         continue;
                     }
 
@@ -492,8 +531,16 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
     /// <summary>
     ///     Calculates the total size of all files within a directory (recursively).
+    ///     Discovered child directories that are symlinks or junction points are skipped
+    ///     to prevent infinite loops caused by circular directory structures (A → B → A).
+    ///     Note: the root <paramref name="directoryPath"/> itself is not checked for reparse points.
     /// </summary>
-    private long GetDirectorySize(
+    /// <param name="directoryPath">The directory to measure.</param>
+    /// <param name="trashFolderName">Leaf name of the trash folder to skip (may be empty).</param>
+    /// <param name="fullTrashPath">Resolved absolute path of the trash folder to skip (may be empty).</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests.</param>
+    /// <returns>Total size in bytes of all files inside the directory tree, excluding skipped paths.</returns>
+    internal long GetDirectorySize(
         string directoryPath,
         string trashFolderName,
         string fullTrashPath,
@@ -515,6 +562,27 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
                 // Skip .trickplay and trash subdirectories
                 if (ShouldSkipDirectory(subDir.FullName, dirName, trashFolderName, fullTrashPath))
+                {
+                    continue;
+                }
+
+                // Never follow symlinks or junction points — they can form cycles (A → B → A)
+                // that cause infinite recursion and a StackOverflowException.
+                FileAttributes attributes;
+                try
+                {
+                    attributes = new DirectoryInfo(subDir.FullName).Attributes;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _pluginLog.LogDebug(
+                        "GrowthTimeline",
+                        $"Skipping inaccessible subdirectory during attribute check: {subDir.FullName}: {ex.Message}",
+                        _logger);
+                    continue;
+                }
+
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
                 {
                     continue;
                 }

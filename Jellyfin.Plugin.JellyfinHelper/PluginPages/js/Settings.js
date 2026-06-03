@@ -6,6 +6,13 @@ var _currentLang = '';
 // Track whether trash was enabled when settings were loaded (for deactivation dialog)
 var _wasTrashEnabled = false;
 
+// Track the saved trash path for detecting path changes (for relocation dialog)
+var _previousTrashPath = '';
+
+// Re-entrancy guard: prevents infinite loop when showTrashPathChangeDialog() calls doSaveSettings()
+// which would otherwise re-detect the path change and re-show the dialog.
+var _trashPathChangeHandled = false;
+
 // Preserve PluginLogLevel across Settings saves (managed in Logs tab)
 var _currentLogLevel = 'INFO';
 var _logLevelLoaded = false;
@@ -178,23 +185,21 @@ function loadSettings() {
         _logLevelLoaded = true;
         // Remember trash state for deactivation dialog
         _wasTrashEnabled = !!cfg.UseTrash;
+        // Remember trash path for relocation dialog
+        _previousTrashPath = cfg.TrashFolderPath || '.jellyfin-trash';
         var h = '';
         h += '<div class="section-title">' + T('settingsGeneralTitle', 'General settings') + '</div>';
 
-        h += '<label for="cfgIncluded">' + T('includedLibraries', 'Included Libraries (comma-separated)') + '</label>';
-        h += '<input type="text" id="cfgIncluded" value="' + escAttr(cfg.IncludedLibraries || '') + '">';
-        h += '<div class="help-text">' + T('includedLibrariesHelp', 'Leave empty to include all libraries.') + '</div>';
-
-        h += '<label for="cfgExcluded">' + T('excludedLibraries', 'Excluded Libraries (comma-separated)') + '</label>';
-        h += '<input type="text" id="cfgExcluded" value="' + escAttr(cfg.ExcludedLibraries || '') + '">';
+        h += '<label>' + T('excludedLibraries', 'Excluded Libraries') + '</label>';
+        h += '<div id="cfgExcludedWrapper" class="library-multiselect-wrapper"></div>';
 
         h += '<label for="cfgOrphanAge">' + T('orphanMinAgeDays', 'Orphan Minimum Age (days)') + '</label>';
-        h += '<input type="number" id="cfgOrphanAge" min="0" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
+        h += '<input type="number" id="cfgOrphanAge" min="0" max="3650" step="1" value="' + (cfg.OrphanMinAgeDays || 0) + '">';
         h += '<div class="help-text">' + T('orphanMinAgeDaysHelp', 'Items younger than this are protected from deletion.') + '</div>';
 
         h += '<label for="cfgLang">' + T('language', 'Dashboard Language') + '</label>';
         h += '<select id="cfgLang">';
-        var langs = [['en', 'English'], ['de', 'Deutsch'], ['fr', 'Français'], ['es', 'Español'], ['pt', 'Português'], ['zh', '中文'], ['tr', 'Türkçe']];
+        var langs = [['en', 'English'], ['de', 'Deutsch'], ['fr', 'Français'], ['es', 'Español'], ['pt', 'Português'], ['zh', '中文'], ['tr', 'Türkçe'], ['sv', 'Svenska']];
         for (var i = 0; i < langs.length; i++) {
             h += '<option value="' + langs[i][0] + '"' + (cfg.Language === langs[i][0] ? ' selected' : '') + '>' + langs[i][1] + '</option>';
         }
@@ -266,11 +271,18 @@ function loadSettings() {
         h += '<div class="section-title">' + T('settingsTrashTitle', 'Trash settings') + '</div>';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label for="cfgTrash">' + T('useTrash', 'Use Trash (Recycle Bin)') + '</label></div>';
 
+        h += '<fieldset id="trashSettingsWrapper" ' + (!cfg.UseTrash ? 'disabled ' : '') + 'style="border:0;padding:0;margin:0;min-inline-size:0;' + (!cfg.UseTrash ? 'opacity:0.5;' : '') + '">';
         h += '<label for="cfgTrashPath">' + T('trashFolder', 'Trash Folder Path') + '</label>';
-        h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '">';
+        h += '<div style="position:relative;">';
+        h += '<input type="text" id="cfgTrashPath" value="' + escAttr(cfg.TrashFolderPath || '.jellyfin-trash') + '" style="padding-right:3em;">';
+        h += '<button type="button" id="btnBrowseTrash" style="position:absolute;right:0.6em;top:0;bottom:0;display:flex;align-items:center;cursor:pointer;color:#00a4dc;opacity:0.8;background:none;border:none;padding:0;font-size:1.3em;line-height:1;" title="' + T('trashBrowse', 'Browse\u2026') + '" aria-label="' + T('trashBrowse', 'Browse\u2026') + '">' + mi('folder_open') + '</button>';
+        h += '</div>';
 
         h += '<label for="cfgTrashDays">' + T('trashRetention', 'Trash Retention (days)') + '</label>';
-        h += '<input type="number" id="cfgTrashDays" min="0" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
+        h += '<div style="position:relative;">';
+        h += '<input type="number" id="cfgTrashDays" min="0" max="3650" step="1" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
+        h += '</div>';
+        h += '</fieldset>';
 
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
             var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');var ex=p.classList.contains(\'arr-expanded\');this.setAttribute(\'aria-expanded\',ex?\'true\':\'false\');var b=p.querySelector(\'.arr-collapsible-body\');if(b)b.setAttribute(\'aria-hidden\',ex?\'false\':\'true\')">';
@@ -342,6 +354,22 @@ function loadSettings() {
         attachSeerrHandlers();
         attachDiscoveryCopyHandler();
         attachAutoSaveHandlers();
+        attachOrphanAgeInputHandler();
+        attachTrashPathInputHandler();
+        attachTrashDaysInputHandler();
+        // Toggle trash settings disabled state when checkbox changes
+        var trashChk = document.getElementById('cfgTrash');
+        if (trashChk) {
+            trashChk.addEventListener('change', function () {
+                var trashWrapper = document.getElementById('trashSettingsWrapper');
+                if (trashWrapper) {
+                    trashWrapper.disabled = !trashChk.checked;
+                    trashWrapper.style.opacity = trashChk.checked ? '' : '0.5';
+                }
+            });
+        }
+        initFolderBrowser();
+        initLibraryMultiSelects(cfg);
 
         initArrButtons(cfg);
 
@@ -359,11 +387,12 @@ function buildSettingsPayload() {
     var radarrInstances = collectArrInstances('Radarr');
     var sonarrInstances = collectArrInstances('Sonarr');
     return {
-        IncludedLibraries: document.getElementById('cfgIncluded').value,
-        ExcludedLibraries: document.getElementById('cfgExcluded').value,
+        ExcludedLibraries: getLibraryMultiSelectValue('cfgExcludedWrapper'),
         OrphanMinAgeDays: (function () {
             var v = parseInt(document.getElementById('cfgOrphanAge').value, 10);
-            return isNaN(v) || v < 0 ? 0 : v;
+            if (isNaN(v) || v < 0) return 0;
+            if (v > 3650) return 3650;
+            return v;
         })(),
         TrickplayTaskMode: document.getElementById('cfgTrickplayMode').value,
         EmptyMediaFolderTaskMode: document.getElementById('cfgEmptyFolderMode').value,
@@ -388,7 +417,9 @@ function buildSettingsPayload() {
         TrashFolderPath: document.getElementById('cfgTrashPath').value,
         TrashRetentionDays: (function () {
             var v = parseInt(document.getElementById('cfgTrashDays').value, 10);
-            return isNaN(v) || v < 0 ? 30 : v;
+            if (isNaN(v) || v < 0) return 30;
+            if (v > 3650) return 3650;
+            return v;
         })(),
         DiscoveryUserAccessEnabled: (function () {
             var checkbox = document.getElementById('cfgDiscoveryUserAccess');
@@ -418,13 +449,40 @@ function doSaveSettings(payload, options) {
     var indicatorEl = options && options.element;
     var btn = document.getElementById('btnSaveSettings');
 
+    // Pre-save validation: reject invalid trash paths before sending to server
+    var trashError = validateTrashPath(payload.TrashFolderPath, payload.UseTrash);
+    if (trashError) {
+        showTrashPathError(trashError);
+        if (options && options.onError) options.onError();
+        return;
+    }
+    if (payload.UseTrash && typeof payload.TrashFolderPath === 'string') {
+        payload.TrashFolderPath = payload.TrashFolderPath.trim();
+    }
+    showTrashPathError(null);
+
+    // Intercept: if trash path changed, show relocation dialog before saving.
+    // This covers all save paths: explicit Save button, auto-save dropdowns, and "Save & Continue" from unsaved-changes dialog.
+    // The _trashPathChangeHandled guard prevents infinite recursion: when showTrashPathChangeDialog()
+    // calls back into doSaveSettings() after the user has made their choice, the guard is set to
+    // true so we skip this check and proceed with the actual save.
+    if (hasTrashPathChanged(payload) && !_trashPathChangeHandled) {
+        showTrashPathChangeDialog(payload, options);
+        return;
+    }
+    // Reset the guard after passing the check. This ensures:
+    // 1. The guard only suppresses one recursive call (the immediate callback from the dialog).
+    // 2. If the user later changes the path again, the dialog will show again as expected.
+    _trashPathChangeHandled = false;
+
     if (!quiet) {
         btn.innerHTML = '<span class="btn-spinner"></span>' + T('savingSettings', 'Saving Settings...');
     }
 
-    apiPost('JellyfinHelper/Configuration', payload, function () {
+    apiPost('JellyfinHelper/Configuration', payload, function (response) {
         var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled;
         _wasTrashEnabled = payload.UseTrash;
+        _previousTrashPath = (payload.TrashFolderPath || '.jellyfin-trash').trim();
         _currentLang = payload.Language;
 
         // Update snapshot after successful save
@@ -453,11 +511,16 @@ function doSaveSettings(payload, options) {
         if (options && typeof options.onSuccess === 'function') {
             options.onSuccess();
         }
-    }, function () {
+    }, function (err) {
+        var errorMsg = '';
+        try {
+            var errData = err && (err.responseJSON || (typeof err.responseText === 'string' ? JSON.parse(err.responseText) : null));
+            if (errData && errData.message) errorMsg = errData.message;
+        } catch (_e) { /* ignore parse errors */ }
         if (quiet) {
             showAutoSaveIndicatorOverlay(indicatorEl, false);
             if (options && typeof options.onError === 'function') {
-                options.onError();
+                options.onError(errorMsg);
             }
         } else {
             btn.disabled = false;
@@ -1014,6 +1077,562 @@ function showInlineCheckboxIndicator(checkbox, success) {
     }, 2000);
 }
 
+/**
+ * Shows a brief inline save indicator after the "Excluded Libraries" label.
+ * Uses the same visual pattern as showInlineCheckboxIndicator but targets
+ * the label element preceding the library multi-select wrapper.
+ * @param {string} wrapperId - The DOM id of the wrapper div (e.g. 'cfgExcludedWrapper').
+ * @param {boolean} [success] - Whether the save succeeded (true) or failed (false).
+ */
+function showLibraryMultiSelectIndicator(wrapperId, success) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return;
+    // The label is the previous sibling of the wrapper
+    var label = wrapper.previousElementSibling;
+    if (!label || label.tagName !== 'LABEL') return;
+
+    var ok = success !== false;
+
+    // Remove any existing indicator on this label
+    var existing = label.querySelector('.inline-save-indicator');
+    if (existing) existing.remove();
+
+    // Create inline indicator (same style as checkbox indicators)
+    var indicator = document.createElement('span');
+    indicator.className = 'inline-save-indicator';
+    indicator.innerHTML = ' ' + mi(ok ? 'check_circle' : 'error');
+    indicator.style.color = ok ? '#2ecc71' : '#e74c3c';
+    indicator.style.marginLeft = '0.4em';
+    indicator.style.opacity = '1';
+    indicator.style.transition = 'opacity 0.5s';
+    label.appendChild(indicator);
+
+    // Fade out after 2 seconds
+    setTimeout(function () {
+        indicator.style.opacity = '0';
+        setTimeout(function () { indicator.remove(); }, 600);
+    }, 2000);
+}
+
+// ===== Library Multi-Select Widget =====
+
+/**
+ * Initializes the library multi-select dropdown by fetching available libraries
+ * from the server and rendering a checkbox list inside the wrapper element.
+ * @param {Object} cfg - The current plugin configuration (contains ExcludedLibraries).
+ */
+function initLibraryMultiSelects(cfg) {
+    var wrapper = document.getElementById('cfgExcludedWrapper');
+    if (wrapper) {
+        wrapper.setAttribute('data-initial-value', cfg.ExcludedLibraries || '');
+    }
+
+    apiGet('JellyfinHelper/Configuration/Libraries', function (data) {
+        var libraries = (data && data.libraries) || [];
+        var excludedSet = parseCommaSeparatedSet(cfg.ExcludedLibraries || '');
+
+        renderLibraryMultiSelect('cfgExcludedWrapper', libraries, excludedSet, 'excluded');
+    }, function () {
+        // Fallback: show simple text input if API fails
+        var excWrap = document.getElementById('cfgExcludedWrapper');
+        if (excWrap) excWrap.innerHTML = '<input type="text" id="cfgExcludedFallback" value="' + escAttr(cfg.ExcludedLibraries || '') + '">';
+    });
+}
+
+/**
+ * Parses a comma-separated string into a Set of trimmed, lowercased values.
+ */
+function parseCommaSeparatedSet(str) {
+    var set = {};
+    if (!str) return set;
+    var parts = str.split(',');
+    for (var i = 0; i < parts.length; i++) {
+        var v = parts[i].trim();
+        if (v) set[v.toLowerCase()] = v;
+    }
+    return set;
+}
+
+/**
+ * Renders a multi-select checkbox list widget inside the given wrapper element.
+ * @param {string} wrapperId - The DOM id of the wrapper div.
+ * @param {Array} libraries - Array of {name, collectionType} from the API.
+ * @param {Object} selectedSet - Object with lowercase keys of currently selected library names.
+ * @param {string} type - 'excluded' for styling/ids.
+ */
+function renderLibraryMultiSelect(wrapperId, libraries, selectedSet, type) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return;
+
+    // Identify selected libraries that are no longer returned by the API
+    // (renamed/deleted). Store them so getLibraryMultiSelectValue() can preserve them.
+    var available = {};
+    for (var ai = 0; ai < libraries.length; ai++) {
+        available[libraries[ai].name.toLowerCase()] = true;
+    }
+    var missingSelected = [];
+    for (var key in selectedSet) {
+        if (Object.prototype.hasOwnProperty.call(selectedSet, key) && !available[key]) {
+            missingSelected.push(selectedSet[key]);
+        }
+    }
+    wrapper.setAttribute('data-missing-values', missingSelected.join(', '));
+
+    var selectedCount = Object.keys(selectedSet).length;
+    var noneSelectedLabel = T('libraryNoneExcluded', 'None excluded (default)');
+
+    var h = '<div class="library-multiselect" data-type="' + type + '">';
+    // Summary/toggle button
+    h += '<button type="button" class="library-multiselect-toggle">';
+    var summaryText = noneSelectedLabel;
+    if (selectedCount > 0) {
+        var selectedNames = [];
+        for (var k in selectedSet) { if (Object.prototype.hasOwnProperty.call(selectedSet, k)) selectedNames.push(selectedSet[k]); }
+        summaryText = selectedNames.length <= 3 ? selectedNames.join(', ') : selectedNames.slice(0, 2).join(', ') + ' +' + (selectedNames.length - 2);
+    }
+    h += '<span class="library-multiselect-summary">' + escHtml(summaryText) + '</span>';
+    h += '<span class="library-multiselect-chevron">' + mi('expand_more') + '</span>';
+    h += '</button>';
+    // Dropdown panel (hidden by default)
+    h += '<div class="library-multiselect-panel" style="display:none;">';
+    if (libraries.length === 0) {
+        h += '<div class="help-text" style="padding:0.5em;">' + T('noData', 'No data') + '</div>';
+    } else {
+        for (var i = 0; i < libraries.length; i++) {
+            var lib = libraries[i];
+            var isChecked = !!(selectedSet[lib.name.toLowerCase()]);
+            var checkId = wrapperId + '_lib_' + i;
+            h += '<div class="library-multiselect-item">';
+            h += '<input type="checkbox" id="' + checkId + '" value="' + escAttr(lib.name) + '"' + (isChecked ? ' checked' : '') + '>';
+            h += '<label for="' + checkId + '">' + escHtml(lib.name) + ' <span class="library-type-badge">' + escHtml(lib.collectionType) + '</span></label>';
+            h += '</div>';
+        }
+    }
+    h += '</div></div>';
+
+    wrapper.innerHTML = h;
+
+    // Attach click handler via addEventListener (more robust than inline onclick in Jellyfin plugin context)
+    var toggleBtn = wrapper.querySelector('.library-multiselect-toggle');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+            toggleLibraryDropdown(toggleBtn);
+        });
+    }
+
+    // Attach change handlers to checkboxes for auto-save with overlay indicator on the toggle button
+    var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
+    for (var ci = 0; ci < checkboxes.length; ci++) {
+        checkboxes[ci].addEventListener('change', function () {
+            updateLibraryMultiSelectSummary(wrapperId, type);
+            var indicatorTarget = wrapper.querySelector('.library-multiselect-toggle') || wrapper;
+            doSaveSettings(buildSettingsPayload(), { quiet: true, element: indicatorTarget });
+        });
+    }
+}
+
+/**
+ * Toggles the visibility of the dropdown panel in a library multi-select.
+ */
+function toggleLibraryDropdown(btn) {
+    var panel = btn.nextElementSibling;
+    if (!panel) return;
+    var isOpen = panel.style.display !== 'none';
+    panel.style.display = isOpen ? 'none' : 'block';
+    // Chevron stays as expand_more (pointing down) regardless of state — matches native <select> behavior
+}
+
+/**
+ * Updates the summary text after a checkbox change.
+ */
+function updateLibraryMultiSelectSummary(wrapperId, type) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return;
+    var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
+    var count = 0;
+    for (var i = 0; i < checkboxes.length; i++) {
+        if (checkboxes[i].checked) count++;
+    }
+    var summary = wrapper.querySelector('.library-multiselect-summary');
+    if (!summary) return;
+
+    var noneSelectedLabel = T('libraryNoneExcluded', 'None excluded (default)');
+
+    if (count === 0) {
+        summary.textContent = noneSelectedLabel;
+    } else {
+        var names = [];
+        for (var j = 0; j < checkboxes.length; j++) {
+            if (checkboxes[j].checked) names.push(checkboxes[j].value);
+        }
+        summary.textContent = names.length <= 3 ? names.join(', ') : names.slice(0, 2).join(', ') + ' +' + (names.length - 2);
+    }
+}
+
+/**
+ * Gets the comma-separated value from a library multi-select wrapper.
+ * Returns empty string if nothing is selected (=all included / none excluded).
+ */
+function getLibraryMultiSelectValue(wrapperId) {
+    var wrapper = document.getElementById(wrapperId);
+    if (!wrapper) return '';
+    // Check for fallback text input
+    var fallback = wrapper.querySelector('input[type="text"]');
+    if (fallback) return fallback.value;
+    // Read checkboxes
+    var checkboxes = wrapper.querySelectorAll('input[type="checkbox"]');
+    if (checkboxes.length === 0) {
+        // Widget not yet rendered (async API call pending) - return initial value to avoid data loss
+        return wrapper.getAttribute('data-initial-value') || '';
+    }
+    var selected = [];
+    for (var i = 0; i < checkboxes.length; i++) {
+        if (checkboxes[i].checked) selected.push(checkboxes[i].value);
+    }
+    // Preserve previously-excluded library names that are no longer returned by the API
+    // (e.g. renamed or deleted libraries). Without this, those exclusions would be silently
+    // dropped on the next save, potentially causing unexpected cleanup of those libraries.
+    var missingValues = wrapper.getAttribute('data-missing-values');
+    if (missingValues) {
+        var parts = missingValues.split(',');
+        for (var m = 0; m < parts.length; m++) {
+            var v = parts[m].trim();
+            if (v) selected.push(v);
+        }
+    }
+    return selected.join(', ');
+}
+
+/**
+ * Attaches keydown and input handlers to the OrphanMinAgeDays number field.
+ * Blocks non-numeric characters (e, E, +, .) that browsers allow in type="number" fields
+ * due to scientific notation support, and clamps the value to [0, 3650] on input.
+ */
+function attachOrphanAgeInputHandler() {
+    var input = document.getElementById('cfgOrphanAge');
+    if (!input) return;
+    // Block characters that type="number" allows but are invalid for integer days
+    input.addEventListener('keydown', function (e) {
+        if (e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '.') {
+            e.preventDefault();
+        }
+    });
+    // Clamp on input to enforce max visually (handles paste, spinner clicks, etc.)
+    input.addEventListener('input', function () {
+        var v = parseInt(input.value, 10);
+        if (!isNaN(v)) {
+            if (v > 3650) input.value = '3650';
+            if (v < 0) input.value = '0';
+        }
+    });
+}
+
+/**
+ * Attaches an input event listener to the trash path field that clears
+ * the validation error state as soon as the user starts editing.
+ * This creates the UX flow: error on save → user edits → error clears → save again.
+ */
+function attachTrashPathInputHandler() {
+    var input = document.getElementById('cfgTrashPath');
+    if (!input) return;
+    input.addEventListener('input', function () {
+        showTrashPathError(null);
+    });
+}
+
+/**
+ * Attaches keydown and input handlers to the TrashRetentionDays number field.
+ * Blocks non-numeric characters and clamps the value to [0, 3650] on input.
+ */
+function attachTrashDaysInputHandler() {
+    var input = document.getElementById('cfgTrashDays');
+    if (!input) return;
+    input.addEventListener('keydown', function (e) {
+        if (e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '.') {
+            e.preventDefault();
+        }
+    });
+    input.addEventListener('input', function () {
+        var v = parseInt(input.value, 10);
+        if (!isNaN(v)) {
+            if (v > 3650) input.value = '3650';
+            if (v < 0) input.value = '0';
+        }
+    });
+}
+
+/**
+ * Validates the trash folder path on the client side before saving.
+ * Returns an i18n error message string if invalid, or null if valid.
+ * @param {string} path - The trash folder path value.
+ * @param {boolean} useTrash - Whether the trash feature is enabled.
+ * @returns {string|null}
+ */
+function validateTrashPath(path, useTrash) {
+    // When trash is disabled, path is irrelevant
+    if (!useTrash) return null;
+
+    // When trash is enabled, path must not be empty
+    if (!path || !path.trim()) {
+        return T('trashPathEmpty', 'Trash folder path is required when trash is enabled.');
+    }
+
+    var trimmed = path.trim();
+
+    // 1. Global invalid characters (filesystem-unsafe + control chars)
+    if (/[*?<>|"\x00-\x1f]/.test(trimmed)) {
+        return T('trashPathInvalidChars', 'Path contains invalid characters.');
+    }
+
+    // 2. Must not end with slash or backslash
+    if (/[/\\]$/.test(trimmed)) {
+        return T('trashPathTrailingSlash', 'Path must not end with a slash or backslash.');
+    }
+
+    // 3. Strip optional absolute prefix for segment analysis
+    var segmentPart = trimmed
+        .replace(/^\\\\[^\\/]+[\\/][^\\/]+/, '') // strip UNC prefix (\\server\share)
+        .replace(/^[A-Za-z]:[/\\]/, '')          // strip Windows drive prefix (C:\ or D:/)
+        .replace(/^[/\\]/, '');                   // strip leading Unix separator
+
+    // 4. Must not contain consecutive separators in the remaining path
+    if (/[/\\]{2,}/.test(segmentPart)) {
+        return T('trashPathDoubleSlash', 'Path must not contain consecutive slashes or backslashes.');
+    }
+
+    // 5. Must have at least one real segment after stripping prefix
+    if (!segmentPart) {
+        return T('trashPathInvalid', 'The trash folder path is invalid.');
+    }
+
+    // 6. Split into segments and validate each one
+    var segments = segmentPart.split(/[/\\]/);
+    for (var i = 0; i < segments.length; i++) {
+        var seg = segments[i];
+
+        // Empty segment (defensive — should not happen after double-slash check)
+        if (!seg) {
+            return T('trashPathInvalid', 'The trash folder path is invalid.');
+        }
+
+        // Only block actual filesystem navigation markers (. = current dir, .. = parent dir)
+        if (seg === '.' || seg === '..') {
+            return T('trashPathDotSegment', "Path must not contain '.' or '..' directory references.");
+        }
+
+
+        // Segment is only whitespace
+        if (/^\s+$/.test(seg)) {
+            return T('trashPathInvalid', 'The trash folder path is invalid.');
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Shows or clears the trash path validation error UI on the input field.
+ * @param {string|null} errorMsg - The error message, or null to clear.
+ */
+function showTrashPathError(errorMsg) {
+    var input = document.getElementById('cfgTrashPath');
+    var existingErr = document.getElementById('trashPathErrorMsg');
+
+    if (!errorMsg) {
+        // Clear error state
+        if (input) input.style.borderColor = '';
+        if (existingErr) existingErr.remove();
+        return;
+    }
+
+    // Set error state
+    if (input) input.style.borderColor = '#e74c3c';
+    if (existingErr) {
+        existingErr.innerHTML = mi('error') + ' ' + escHtml(errorMsg);
+    } else {
+        var errDiv = document.createElement('div');
+        errDiv.id = 'trashPathErrorMsg';
+        errDiv.className = 'error-msg';
+        errDiv.style.marginTop = '0.3em';
+        errDiv.style.fontSize = '0.85em';
+        errDiv.innerHTML = mi('error') + ' ' + escHtml(errorMsg);
+        // Insert after the position:relative wrapper div, not inside it
+        var inputWrapper = input.parentNode;
+        if (inputWrapper && inputWrapper.parentNode) {
+            inputWrapper.parentNode.insertBefore(errDiv, inputWrapper.nextSibling);
+        }
+    }
+}
+
+/**
+ * Checks whether the trash path has changed compared to the last saved value.
+ * Only returns true when trash was previously enabled (so old content may exist)
+ * AND trash remains enabled AND the path is different.
+ * @param {Object} payload - The settings payload to check.
+ * @returns {boolean}
+ */
+function hasTrashPathChanged(payload) {
+    if (!_wasTrashEnabled) return false;
+    if (!payload.UseTrash) return false;
+    var oldPath = (_previousTrashPath || '').trim();
+    var newPath = (payload.TrashFolderPath || '').trim();
+    if (!oldPath || !newPath) return false;
+    return oldPath !== newPath;
+}
+
+/**
+ * Shows a dialog when the trash path has changed, asking the user whether to
+ * move existing trash content to the new location, delete it, or cancel.
+ * @param {Object} payload - The settings payload to save after the user decides.
+ * @param {Object} [options] - Optional doSaveSettings options to forward.
+ */
+function showTrashPathChangeDialog(payload, options) {
+    var saveBtn = document.getElementById('btnSaveSettings');
+    var msg = document.getElementById('settingsMsg');
+    var oldPath = _previousTrashPath;
+    var newPath = (payload.TrashFolderPath || '').trim();
+
+    // Query the server for existing folders at the OLD path
+    apiPost('JellyfinHelper/Trash/FoldersForPath', {TrashFolderPath: oldPath}, function (data) {
+        var paths = (data && data.Paths) || [];
+        if (paths.length === 0) {
+            // No old content exists — save directly, update tracking on success.
+            // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
+            _trashPathChangeHandled = true;
+            doSaveSettings(payload, {
+                quiet: !!(options && options.quiet),
+                element: (options && options.element) || null,
+                onSuccess: function () {
+                    _previousTrashPath = newPath;
+                    if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                },
+                onError: (options && options.onError) || undefined
+            });
+            return;
+        }
+
+        var bodyText = T('trashPathChangePrompt', 'The trash folder path has changed. Existing trash content was found at the old location:')
+            + formatPathList(paths)
+            + '\n\n' + T('trashPathChangeQuestion', 'What should happen with the existing trash content?');
+
+        removeTrashDialog();
+        var d = createDialogOverlay('trashDialogOverlay', T('trashPathChangeTitle', 'Trash Path Changed'), getCssVar('--color-primary', '#00a4dc'), bodyText, false);
+
+        // Cancel button — revert the path in the input
+        d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
+            removeTrashDialog();
+            var input = document.getElementById('cfgTrashPath');
+            if (input) input.value = oldPath;
+            if (saveBtn) saveBtn.disabled = false;
+        }));
+
+        // Move content button
+        d.btnRow.appendChild(createDialogBtn(T('trashPathMoveContent', 'Move Content'), 'success', function () {
+            removeTrashDialog();
+
+            // Extracted helper: saves settings then relocates trash content.
+            // Used by both the access-check success path and the graceful-degradation fallback.
+            function doRelocateTrash() {
+                if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathMoving', 'Moving trash content…') + '</div>';
+                _trashPathChangeHandled = true;
+                doSaveSettings(payload, {
+                    quiet: !!(options && options.quiet),
+                    element: (options && options.element) || null,
+                    onSuccess: function () {
+                        _previousTrashPath = newPath;
+                        apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
+                            var moved = result && result.Moved || 0;
+                            var failed = result && result.Failed || 0;
+                            if (failed === 0 && moved > 0) {
+                                if (msg) {
+                                    msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathMoveSuccess', 'Trash content moved successfully.') + '</div>';
+                                    setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
+                                }
+                            } else if (failed > 0) {
+                                var partial = T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed);
+                                if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
+                            } else {
+                                // 0 moved, 0 failed: likely a permission issue on the source or empty source
+                                if (msg) msg.innerHTML = '<div class="error-msg" style="opacity:0.85;">' + mi('warning') + ' ' + T('trashPathMoveNothingMoved', 'No items were moved. The source may be empty or inaccessible due to permissions.') + '</div>';
+                            }
+                            if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                        }, function () {
+                            if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('trashPathMoveError', 'Failed to move trash content.') + '</div>';
+                            if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                        });
+                    },
+                    onError: function (errMsg) {
+                        if (options && typeof options.onError === 'function') options.onError(errMsg);
+                    }
+                });
+            }
+
+            if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathCheckingAccess', 'Checking permissions…') + '</div>';
+
+            // Proactive access check on the NEW path before attempting relocation
+            apiPost('JellyfinHelper/Trash/CheckAccess', {TrashFolderPath: newPath}, function (accessData) {
+                if (accessData && accessData.AllAccessible === false) {
+                    // Access check failed — show the specific error from the server
+                    var accessErrors = (accessData.Results || []).filter(function(r) { return !r.HasFullAccess; });
+                    var errorDetail = accessErrors.length > 0 ? (accessErrors[0].ErrorMessage || '') : '';
+                    var errorText = errorDetail || T('trashPathAccessDenied', 'Permission denied on new trash path.');
+                    if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(errorText) + '</div>';
+                    if (saveBtn) saveBtn.disabled = false;
+                    return;
+                }
+                doRelocateTrash();
+            }, function () {
+                // CheckAccess API call failed — proceed with move anyway (graceful degradation)
+                doRelocateTrash();
+            });
+        }));
+
+        // Delete & start fresh button
+        d.btnRow.appendChild(createDialogBtn(T('trashPathDeleteContent', 'Delete & Start Fresh'), 'danger', function () {
+            removeTrashDialog();
+            if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathDeleting', 'Deleting old trash content…') + '</div>';
+
+            // Delete old folders first (uses current saved config which still has old path)
+            apiDelete('JellyfinHelper/Trash/Folders', function () {
+                if (msg) {
+                    msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathDeleteSuccess', 'Old trash content deleted.') + '</div>';
+                    setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
+                }
+                // Now save the new path — update tracking only on success.
+                // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
+                _trashPathChangeHandled = true;
+                doSaveSettings(payload, {
+                    quiet: !!(options && options.quiet),
+                    element: (options && options.element) || null,
+                    onSuccess: function () {
+                        _previousTrashPath = newPath;
+                        if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                    },
+                    onError: (options && options.onError) || undefined
+                });
+            }, function () {
+                if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('trashDeleteError', 'Failed to delete trash folders.') + '</div>';
+                if (saveBtn) saveBtn.disabled = false;
+            });
+        }));
+
+        document.body.appendChild(d.overlay);
+    }, function () {
+        // API error checking old path — proceed with save anyway, update tracking on success.
+        // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
+        _trashPathChangeHandled = true;
+        doSaveSettings(payload, {
+            quiet: !!(options && options.quiet),
+            element: (options && options.element) || null,
+            onSuccess: function () {
+                _previousTrashPath = newPath;
+                if (options && typeof options.onSuccess === 'function') options.onSuccess();
+            },
+            onError: (options && options.onError) || undefined
+        });
+    });
+}
+
 function saveSettings() {
     var btn = document.getElementById('btnSaveSettings');
     var msg = document.getElementById('settingsMsg');
@@ -1022,11 +1641,21 @@ function saveSettings() {
 
     var payload = buildSettingsPayload();
 
+    // Validate trash folder path before saving
+    var trashError = validateTrashPath(payload.TrashFolderPath, payload.UseTrash);
+    if (trashError) {
+        showTrashPathError(trashError);
+        btn.disabled = false;
+        return;
+    }
+    showTrashPathError(null); // Clear any previous error
+
     // Check if trash is being disabled (was enabled, now unchecked)
     if (_wasTrashEnabled && !payload.UseTrash) {
         showTrashDisableDialog(payload);
         return;
     }
 
+    // Trash path change detection is handled inside doSaveSettings() for all save paths.
     doSaveSettings(payload);
 }

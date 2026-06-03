@@ -225,7 +225,7 @@ internal static class TrainingFeatureComputer
         var collabScore = ContentScoring.ComputeCollaborativeScore(seriesId, coOccurrence, collaborativeMax);
         var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(mostRecent?.CommunityRating, null);
 
-        // Series progression boost (same formula as Phase 1 and Engine.ScoreCandidate)
+        // Series progression boost (same formula as Engine.ScoreCandidate)
         var seriesProgressionBoost = 0.0;
         if (episodes.Count > 0)
         {

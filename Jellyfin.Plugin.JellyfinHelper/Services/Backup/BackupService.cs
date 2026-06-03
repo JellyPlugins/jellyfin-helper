@@ -93,7 +93,6 @@ public class BackupService : IBackupService
 
             // Configuration preferences
             Language = config.Language,
-            IncludedLibraries = config.IncludedLibraries,
             ExcludedLibraries = config.ExcludedLibraries,
             OrphanMinAgeDays = config.OrphanMinAgeDays,
             PluginLogLevel = config.PluginLogLevel,
@@ -262,7 +261,6 @@ public class BackupService : IBackupService
 
         // Restore preferences
         config.Language = BackupValidator.ValidLanguages.Contains(backup.Language) ? backup.Language : "en";
-        config.IncludedLibraries = backup.IncludedLibraries;
         config.ExcludedLibraries = backup.ExcludedLibraries;
         config.OrphanMinAgeDays = Math.Clamp(backup.OrphanMinAgeDays, 0, BackupValidator.MaxRetentionDays);
         config.PluginLogLevel = BackupValidator.ValidLogLevels.Contains(backup.PluginLogLevel)

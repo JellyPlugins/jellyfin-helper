@@ -77,7 +77,7 @@ MovieRootPaths:["/data/movies"],TvShowRootPaths:["/data/tv"],MusicRootPaths:["/d
 };
 
 var MOCK_CONFIG={
-IncludedLibraries:"",ExcludedLibraries:"",OrphanMinAgeDays:0,
+ExcludedLibraries:"",OrphanMinAgeDays:0,
 TrickplayTaskMode:"DryRun",EmptyMediaFolderTaskMode:"Activate",
 OrphanedSubtitleTaskMode:"DryRun",LinkRepairTaskMode:"Deactivate",
 UseTrash:true,TrashFolderPath:".jellyfin-trash",TrashRetentionDays:30,
@@ -98,6 +98,16 @@ var MOCK_TRASH_CONTENTS={RetentionDays:30,Libraries:[
 {LibraryName:"TV Shows",Items:[{OriginalName:"Cancelled Show",Size:10737418240,TrashedDate:new Date(Date.now()-86400000).toISOString(),PurgeDate:new Date(Date.now()+2505600000).toISOString(),IsDirectory:true}]}
 ]};
 var MOCK_TRASH_FOLDERS={Paths:["/data/movies/.jellyfin-trash","/data/tv/.jellyfin-trash"]};
+var MOCK_TRASH_FOLDERS_FOR_PATH=function(trashPath){
+    // Simulate: relative paths resolve per library, absolute paths check directly
+    if(!trashPath)return{Paths:[],IsAbsolute:false};
+    var isAbs=/^(\/|[A-Za-z]:[\\/]|\\\\)/.test(trashPath);
+    if(isAbs)return{Paths:[trashPath],IsAbsolute:true};
+    // Relative: resolve against each library root
+    var libs=["/data/movies","/data/tv"];
+    var paths=libs.map(function(l){return l+"/"+trashPath;});
+    return{Paths:paths,IsAbsolute:false};
+};
 
 var MOCK_ARR_COMPARE={
 InBoth:["Inception (2010)","Interstellar (2014)","The Dark Knight (2008)","Dune Part Two (2024)","Oppenheimer (2023)"],
@@ -145,7 +155,52 @@ LibrarySizes:{"Movies":_moviesLib.TotalSize,"TV Shows":_tvLib.TotalSize},
 ComputedAtUtc:new Date().toISOString()
 };
 
-var MOCK_LIBRARIES=[{Name:"Movies",CollectionType:"movies"},{Name:"TV Shows",CollectionType:"tvshows"},{Name:"Music",CollectionType:"music"}];
+var MOCK_LIBRARIES=[{name:"Movies",collectionType:"movies"},{name:"TV Shows",collectionType:"tvshows"},{name:"Music",collectionType:"music"}];
+
+var MOCK_LIBRARY_PATHS={libraryPaths:[
+{name:"Movies",path:"/data/movies"},
+{name:"TV Shows",path:"/data/tv"},
+{name:"Music",path:"/data/music"}
+]};
+
+var MOCK_BROWSE_FOLDERS=(function(){
+// Simulated filesystem tree for the folder browser preview
+    var tree={
+        "/":["data","home","mnt","opt","var"],
+        "/data":["movies","tv","music","backups","downloads"],
+        "/data/movies":[".jellyfin-trash","Action","Comedy","Sci-Fi"],
+        "/data/movies/.jellyfin-trash":[],
+        "/data/movies/Action":[],
+        "/data/movies/Comedy":[],
+        "/data/movies/Sci-Fi":[],
+        "/data/tv":[".jellyfin-trash","Drama","Animation"],
+        "/data/tv/.jellyfin-trash":[],
+        "/data/tv/Drama":[],
+        "/data/tv/Animation":[],
+        "/data/music":["FLAC","MP3","Podcasts"],
+        "/data/music/FLAC":[],
+        "/data/music/MP3":[],
+        "/data/music/Podcasts":[],
+        "/data/backups":[],
+        "/data/downloads":["incomplete","complete"],
+        "/data/downloads/incomplete":[],
+        "/data/downloads/complete":[],
+        "/home":["jellyfin"],
+        "/home/jellyfin":[],
+        "/mnt":["nas-share","usb-drive"],
+        "/mnt/nas-share":[],
+        "/mnt/usb-drive":[]
+    };
+function getParent(p){if(!p||p==="/")return null;var parts=p.replace(/\/$/,"").split("/");parts.pop();return parts.length<=1?"/":parts.join("/");}
+return function(path){
+if(!path){return{CurrentPath:null,ParentPath:null,CanGoUp:false,Directories:[{Name:"/",Path:"/",HasChildren:true}]};}
+var parentPath=getParent(path);
+var children=tree[path];
+if(!children){return{CurrentPath:path,ParentPath:parentPath,CanGoUp:parentPath!==null,Directories:[],Error:"Directory does not exist."};}
+var dirs=children.map(function(name){var full=path==="/"?"/"+name:path+"/"+name;return{Name:name,Path:full,HasChildren:!!(tree[full]&&tree[full].length>0)};});
+return{CurrentPath:path,ParentPath:parentPath,CanGoUp:parentPath!==null,Directories:dirs};
+};
+})();
 
 var _uid1="a1b2c3d4-e5f6-7890-abcd-ef1234567890",_uid2="b2c3d4e5-f6a7-8901-bcde-f12345678901";
 
@@ -221,18 +276,24 @@ accessToken:function(){return"mock-demo-token";},
 getUrl:function(p){return"mock://"+p;},
 ajax:function(opts){var url=opts.url||"",method=(opts.type||"GET").toUpperCase();
 return new Promise(function(resolve){setTimeout(function(){
-if(url.indexOf("Translations")!==-1)resolve(MOCK_TRANSLATIONS||{});
+if(url.indexOf("Translations")!==-1){var _lang=MOCK_CONFIG.Language||'en';fetch('i18n/'+_lang+'.json').then(function(r){return r.json();}).then(function(t){MOCK_TRANSLATIONS=t;resolve(t);}).catch(function(){MOCK_TRANSLATIONS={};resolve(MOCK_TRANSLATIONS);});return;}
 else if(url.indexOf("Statistics/Latest")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
 else if(url.indexOf("GrowthTimeline")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_GROWTH_TIMELINE)));
 else if(url.indexOf("Statistics/History")!==-1)resolve(MOCK_HISTORY);
 else if(url.indexOf("Statistics")!==-1&&url.indexOf("forceRefresh")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_STATISTICS)));
 else if(url.indexOf("CleanupStatistics")!==-1)resolve(MOCK_CLEANUP_STATS);
 else if(url.indexOf("Configuration/LogLevel")!==-1&&method==="PUT"){try{var b=JSON.parse(opts.data);if(b.PluginLogLevel)MOCK_CONFIG.PluginLogLevel=b.PluginLogLevel;}catch(e){}resolve({message:"Log level updated.",pluginLogLevel:MOCK_CONFIG.PluginLogLevel});}
+else if(url.indexOf("Configuration/Libraries")!==-1&&url.indexOf("LibraryPaths")===-1)resolve({libraries:JSON.parse(JSON.stringify(MOCK_LIBRARIES))});
+else if(url.indexOf("Configuration/LibraryPaths")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_LIBRARY_PATHS)));
+else if(url.indexOf("Configuration/BrowseFolders")!==-1||url.indexOf("BrowseFolders")!==-1){var bp=null;var bm=url.match(/[?&]path=([^&]*)/);if(bm)bp=decodeURIComponent(bm[1]);resolve(JSON.parse(JSON.stringify(MOCK_BROWSE_FOLDERS(bp))));}
 else if(url.indexOf("Configuration")!==-1&&method==="POST"){try{Object.assign(MOCK_CONFIG,JSON.parse(opts.data));}catch(e){}resolve({});}
 else if(url.indexOf("Configuration")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_CONFIG)));
 else if(url.indexOf("Trash/Contents")!==-1)resolve(MOCK_TRASH_CONTENTS);
-else if(url.indexOf("Trash/Folders")!==-1&&method==="DELETE")resolve({deleted:2,failed:0});
-else if(url.indexOf("Trash/Folders")!==-1)resolve(MOCK_TRASH_FOLDERS);
+    else if(url.indexOf("Trash/CheckAccess")!==-1&&method==="POST"){resolve({AllAccessible:true,Results:[{Path:"/data/movies/.jellyfin-trash",Exists:false,CanRead:true,CanWrite:true,HasFullAccess:true,ErrorMessage:null}]});}
+    else if(url.indexOf("Trash/Relocate")!==-1&&method==="POST"){resolve({Moved:3,Failed:0});}
+    else if(url.indexOf("Trash/FoldersForPath")!==-1&&method==="POST"){try{var fpBody=JSON.parse(opts.data);resolve(JSON.parse(JSON.stringify(MOCK_TRASH_FOLDERS_FOR_PATH(fpBody.TrashFolderPath))));}catch(e){resolve({Paths:[],IsAbsolute:false});}}
+    else if(url.indexOf("Trash/Folders")!==-1&&method==="DELETE")resolve({deleted:2,failed:0});
+    else if(url.indexOf("Trash/Folders")!==-1)resolve(MOCK_TRASH_FOLDERS);
 else if(url.indexOf("Trash/Summary")!==-1)resolve({TotalSize:17179869184,TotalItems:3});
 else if(url.indexOf("Discovery/Services/radarr")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_SEERR_SERVICES_RADARR)));
 else if(url.indexOf("Discovery/Services/sonarr")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_SEERR_SERVICES_SONARR)));

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Mime;
 using System.Threading;
@@ -10,6 +11,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -29,6 +32,7 @@ public class ConfigurationController : ControllerBase
     private readonly IArrIntegrationService _arrService;
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IPluginConfigurationService _configService;
+    private readonly ILibraryManager _libraryManager;
     private readonly ILogger<ConfigurationController> _logger;
     private readonly IPluginLogService _pluginLog;
     private readonly ISeerrIntegrationService _seerrService;
@@ -42,13 +46,15 @@ public class ConfigurationController : ControllerBase
     /// <param name="configHelper">The cleanup configuration helper.</param>
     /// <param name="configService">The plugin configuration service for read/write access.</param>
     /// <param name="seerrService">The Seerr integration service for connection testing.</param>
+    /// <param name="libraryManager">The Jellyfin library manager for listing available libraries.</param>
     public ConfigurationController(
         IArrIntegrationService arrService,
         IPluginLogService pluginLog,
         ILogger<ConfigurationController> logger,
         ICleanupConfigHelper configHelper,
         IPluginConfigurationService configService,
-        ISeerrIntegrationService seerrService)
+        ISeerrIntegrationService seerrService,
+        ILibraryManager libraryManager)
     {
         _arrService = arrService;
         _pluginLog = pluginLog;
@@ -56,6 +62,7 @@ public class ConfigurationController : ControllerBase
         _configHelper = configHelper;
         _configService = configService;
         _seerrService = seerrService;
+        _libraryManager = libraryManager;
     }
 
     /// <summary>
@@ -68,6 +75,55 @@ public class ConfigurationController : ControllerBase
     {
         var config = _configHelper.GetConfig();
         return Ok(config);
+    }
+
+    /// <summary>
+    ///     Gets the list of available Jellyfin libraries (virtual folders) for the multi-select UI.
+    ///     Returns only libraries that are eligible for cleanup (excludes music, boxsets, and
+    ///     collection-like libraries). The user's ExcludedLibraries setting is NOT applied here
+    ///     because users need to see currently-excluded libraries in order to uncheck them.
+    /// </summary>
+    /// <returns>A list of library names.</returns>
+    [HttpGet("Libraries")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult GetAvailableLibraries()
+    {
+        var virtualFolders = _libraryManager.GetVirtualFolders();
+        var libraries = virtualFolders
+            .Where(f =>
+            {
+                if (string.IsNullOrWhiteSpace(f.Name))
+                {
+                    return false;
+                }
+
+                // Exclude non-video library types that cleanup never processes
+                if (f.CollectionType is CollectionTypeOptions.music or CollectionTypeOptions.boxsets)
+                {
+                    return false;
+                }
+
+                // Fallback: also exclude by name pattern for manually created or migrated libraries
+                var name = f.Name!;
+                if (name.Contains("collection", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("boxset", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                return true;
+            })
+            .Select(f => new
+            {
+                name = f.Name,
+                collectionType = string.IsNullOrWhiteSpace(f.CollectionType?.ToString())
+                    ? "unknown"
+                    : f.CollectionType!.ToString()
+            })
+            .OrderBy(f => f.name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return Ok(new { libraries });
     }
 
     /// <summary>
@@ -143,6 +199,17 @@ public class ConfigurationController : ControllerBase
 
         // After saving, test all configured instance connections and log warnings
         var warnings = await TestAllConnectionsAsync(request, cancellationToken).ConfigureAwait(false);
+
+        // Warn when a relative trash path would escape the library root at runtime (falls back silently).
+        if (request.UseTrash)
+        {
+            var trashWarning = ConfigurationRequestValidator.ValidateTrashPath(request.TrashFolderPath);
+            if (trashWarning != null)
+            {
+                warnings.Add(trashWarning);
+                _pluginLog.LogWarning("API", trashWarning, logger: _logger);
+            }
+        }
 
         return Ok(new { message = "Configuration saved.", warnings });
     }
@@ -300,9 +367,8 @@ public class ConfigurationController : ControllerBase
     private static void ApplyRequestToConfig(ConfigurationUpdateRequest request, PluginConfiguration config)
     {
         // Normalize nullable strings to prevent downstream NREs from explicit JSON null values
-        config.IncludedLibraries = request.IncludedLibraries;
-        config.ExcludedLibraries = request.ExcludedLibraries;
-        config.OrphanMinAgeDays = request.OrphanMinAgeDays;
+        config.ExcludedLibraries = request.ExcludedLibraries ?? string.Empty;
+        config.OrphanMinAgeDays = Math.Clamp(request.OrphanMinAgeDays, 0, 3650);
 
         config.TrickplayTaskMode = request.TrickplayTaskMode;
         config.EmptyMediaFolderTaskMode = request.EmptyMediaFolderTaskMode;

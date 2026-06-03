@@ -764,12 +764,16 @@ public sealed class Engine : IRecommendationEngine
             ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeople)
             : 0.0;
 
-        // Series progression boost: structurally 0 during scoring because series with any
-        // Played/IsFavorite episodes are excluded at line 446 (Jellyfin's "Next Up" handles them).
-        // Series that reach this point only have started-but-unfinished episodes (Played=false),
-        // so playedEps is always 0 → ratio=0 → boost=0. The code is intentionally kept to
-        // maintain feature vector parity with TrainingService (which computes real progression
-        // values from cached recommendation data where the series IS known to be watched).
+        // Series progression boost: usually 0.0 at inference time.
+        // Most series with meaningful interaction are filtered earlier by the watchedSeriesIds check,
+        // so this boost is typically not reached during live scoring.
+        // Note: seriesEpisodeLookup is broader than watchedSeriesIds because it includes all watched
+        // entries with a SeriesId (not filtered by HasMeaningfulInteraction()), so edge cases exist
+        // where this block can still execute.
+        // The field is kept to preserve feature-vector layout parity with the training pipeline,
+        // where the boost IS computed from real episode data (the series was recommended first,
+        // then the user watched it — progression is a valid training signal even though it
+        // rarely appears at inference time).
         var seriesProgressionBoost = 0.0;
         if (candidate is Series candidateSeries &&
             seriesEpisodeLookup.TryGetValue(candidateSeries.Id, out var progressionEps))

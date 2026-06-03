@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [2.1.0.5] - 2026-05-26
+
+### Fixed
+- **Symlink / Junction Infinite Recursion** - `GrowthTimelineService.GetDirectorySize()` now skips any subdirectory carrying `FileAttributes.ReparsePoint` (symlinks and NTFS junction points on Windows, symlinks on Linux/macOS). Previously a circular directory structure (A → B → A) caused unbounded recursion and a `StackOverflowException`.
+- **Trash Path Length Overflow** - `TrashService.ResolveCollision()` now enforces the OS path-length limit on every returned path (259 chars on Windows, 4 095 on Linux). Long directory names were never truncated before, causing an `IOException` when the combined timestamp prefix + original name exceeded `MAX_PATH`.
+
+### Added
+- **Swedish Language (sv)** - Full Swedish translation with 352 localized strings, available in the dashboard language selector as "Svenska".
+
+### Changed
+- **Minimum Jellyfin Version** - Raised to **10.11.10** (NuGet `Jellyfin.Controller 10.11.10`, `Jellyfin.Model 10.11.10`).
+- **Excluded Libraries Widget** - The library exclusion setting now uses a multi-select dropdown with checkboxes instead of a free-text input, providing a clearer overview and preventing typos.
+
+### Improved
+- **Trash Folder Path Browser** - Integrated an interactive folder browser dialog for the trash path setting, allowing admins to visually navigate the filesystem and select the target directory instead of typing paths manually.
+- **Trash Path Change Dialog** - When the trash folder path is changed while trash is enabled, a dialog prompts the admin to either move existing trash content to the new location or delete it and start fresh. This prevents orphaned trash folders from accumulating on disk. The dialog appears consistently across all three save paths (Save button, auto-save, and unsaved-changes prompt).
+
+### Removed
+- **Include Libraries Setting** - Removed the redundant "Include Libraries" configuration option. The existing "Excluded Libraries" setting already provides the same functionality in a more intuitive way (exclude = everything else is included).
+
+### Tests
+- Total: **2318 tests** (`GrowthTimelineSymlinkTests`, `TrashServicePathLengthTests`).
+
+---
+
 ## [2.1.0.4] - 2026-05-24
 
 ### Fixed

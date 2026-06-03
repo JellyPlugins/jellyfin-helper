@@ -256,27 +256,27 @@ internal static class TrainingDataBuilder
                 switch (isSeries)
                 {
                     case true when seriesEpisodeLookup.TryGetValue(rec.ItemId, out var episodesForScoring):
-                    {
-                        // For series, watchedItemLookup is keyed by episode IDs so rec.ItemId (series ID)
-                        // usually misses. Use the most-recently-watched episode so temporal features get real timestamps.
-                        watchedItemForRec = episodesForScoring
-                            .OrderByDescending(e => e.LastPlayedDate)
-                            .FirstOrDefault();
+                        {
+                            // For series, watchedItemLookup is keyed by episode IDs so rec.ItemId (series ID)
+                            // usually misses. Use the most-recently-watched episode so temporal features get real timestamps.
+                            watchedItemForRec = episodesForScoring
+                                .OrderByDescending(e => e.LastPlayedDate)
+                                .FirstOrDefault();
 
-                        hasUserInteraction = true;
-                        var ratedEpisodes = episodesForScoring.Where(e => e.UserRating is > 0).ToList();
-                        userRatingScore = ratedEpisodes.Count > 0
-                            ? Math.Clamp(ratedEpisodes.Average(e => e.UserRating!.Value) / 10.0, 0.0, 1.0)
-                            : 0.5;
-                        // Average per-episode completion ratios
-                        completionRatio = episodesForScoring.Count > 0
-                            ? Math.Clamp(
-                                episodesForScoring.Average(ContentScoring.ComputeCompletionRatio),
-                                0.0,
-                                1.0)
-                            : 0.5;
-                        break;
-                    }
+                            hasUserInteraction = true;
+                            var ratedEpisodes = episodesForScoring.Where(e => e.UserRating is > 0).ToList();
+                            userRatingScore = ratedEpisodes.Count > 0
+                                ? Math.Clamp(ratedEpisodes.Average(e => e.UserRating!.Value) / 10.0, 0.0, 1.0)
+                                : 0.5;
+                            // Average per-episode completion ratios
+                            completionRatio = episodesForScoring.Count > 0
+                                ? Math.Clamp(
+                                    episodesForScoring.Average(ContentScoring.ComputeCompletionRatio),
+                                    0.0,
+                                    1.0)
+                                : 0.5;
+                            break;
+                        }
 
                     case true when wasWatched && watchedItemForRec is null:
                         // Series-level favorite without watched episodes: the user favorited
@@ -401,15 +401,15 @@ internal static class TrainingDataBuilder
                             baseLabel = 0.65; // Favorite-only: explicit interest without playback
                             break;
                         default:
-                        {
-                            // User started the item but abandoned it early - this is a stronger
-                            // negative signal than "never seen" (exposure). Active rejection > passive ignore.
-                            baseLabel =
-                                features.CompletionRatio is > 0 and < EngineConstants.AbandonedCompletionThreshold
-                                    ? EngineConstants.AbandonedLabel
-                                    : ContentScoring.ComputeEngagementLabel(features.CompletionRatio);
-                            break;
-                        }
+                            {
+                                // User started the item but abandoned it early - this is a stronger
+                                // negative signal than "never seen" (exposure). Active rejection > passive ignore.
+                                baseLabel =
+                                    features.CompletionRatio is > 0 and < EngineConstants.AbandonedCompletionThreshold
+                                        ? EngineConstants.AbandonedLabel
+                                        : ContentScoring.ComputeEngagementLabel(features.CompletionRatio);
+                                break;
+                            }
                     }
 
                     // Watched shortly after recommendation - boost label (but not abandoned items)
