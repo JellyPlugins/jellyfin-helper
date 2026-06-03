@@ -36,8 +36,8 @@ public class TrashControllerAccessTests : IDisposable
         var libraryManager = TestMockFactory.CreateLibraryManager();
         var mockPluginLog = new Mock<IPluginLogService>();
         var logger = TestMockFactory.CreateLogger<TrashController>();
-        var pluginLogService = TestMockFactory.CreatePluginLogService(config);
-        var trashService = new TrashService(pluginLogService);
+        var pluginLogConcrete = TestMockFactory.CreatePluginLogService(config);
+        var trashService = new TrashService(pluginLogConcrete);
         var configHelper = TestMockFactory.CreateCleanupConfigHelper(config);
 
         configHelper.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<MediaBrowser.Controller.Library.ILibraryManager>()))
@@ -90,7 +90,6 @@ public class TrashControllerAccessTests : IDisposable
         var okResult = Assert.IsType<OkObjectResult>(result);
         var data = okResult.Value;
         var allAccessible = data!.GetType().GetProperty("AllAccessible")!.GetValue(data);
-        // The parent (_testRoot) is writable, so creating .my-trash should be possible
         Assert.True((bool)allAccessible!);
     }
 }
