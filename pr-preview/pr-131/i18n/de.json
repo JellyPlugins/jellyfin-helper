@@ -367,5 +367,8 @@
   "trashPathMovePartial": "Teilweise verschoben: {0} verschoben, {1} fehlgeschlagen.",
   "trashPathMoveError": "Papierkorb-Inhalt konnte nicht verschoben werden.",
   "trashPathDeleting": "Alter Papierkorb-Inhalt wird gelöscht…",
-  "trashPathDeleteSuccess": "Alter Papierkorb-Inhalt gelöscht."
+  "trashPathDeleteSuccess": "Alter Papierkorb-Inhalt gelöscht.",
+  "trashPathCheckingAccess": "Berechtigungen werden geprüft…",
+  "trashPathAccessDenied": "Zugriff auf den neuen Trash-Pfad verweigert.",
+  "trashPathMoveNothingMoved": "Es wurden keine Elemente verschoben. Die Quelle ist möglicherweise leer oder aufgrund fehlender Berechtigungen nicht zugänglich."
 }

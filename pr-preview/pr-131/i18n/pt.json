@@ -367,5 +367,8 @@
   "trashPathMovePartial": "Parcialmente movido: {0} movido(s), {1} falha(s).",
   "trashPathMoveError": "Falha ao mover o conteúdo da lixeira.",
   "trashPathDeleting": "Excluindo conteúdo antigo da lixeira…",
-  "trashPathDeleteSuccess": "Conteúdo antigo da lixeira excluído."
+  "trashPathDeleteSuccess": "Conteúdo antigo da lixeira excluído.",
+  "trashPathCheckingAccess": "Verificando permissões…",
+  "trashPathAccessDenied": "Permissão negada no novo caminho da lixeira.",
+  "trashPathMoveNothingMoved": "Nenhum item foi movido. A origem pode estar vazia ou inacessível devido a permissões."
 }

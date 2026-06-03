@@ -1529,40 +1529,60 @@ function showTrashPathChangeDialog(payload, options) {
         // Move content button
         d.btnRow.appendChild(createDialogBtn(T('trashPathMoveContent', 'Move Content'), 'success', function () {
             removeTrashDialog();
-            if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathMoving', 'Moving trash content…') + '</div>';
 
-            // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
-            _trashPathChangeHandled = true;
-            // Update _previousTrashPath inside onSuccess so that a failed save
-            // does not suppress the dialog on retry.
-            doSaveSettings(payload, {
-                quiet: !!(options && options.quiet),
-                element: (options && options.element) || null,
-                onSuccess: function () {
-                    _previousTrashPath = newPath;
-                    apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
-                        var moved = result && result.Moved || 0;
-                        var failed = result && result.Failed || 0;
-                        if (failed === 0 && moved > 0) {
-                            if (msg) {
-                                msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathMoveSuccess', 'Trash content moved successfully.') + '</div>';
-                                setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
+            // Extracted helper: saves settings then relocates trash content.
+            // Used by both the access-check success path and the graceful-degradation fallback.
+            function doRelocateTrash() {
+                if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathMoving', 'Moving trash content…') + '</div>';
+                _trashPathChangeHandled = true;
+                doSaveSettings(payload, {
+                    quiet: !!(options && options.quiet),
+                    element: (options && options.element) || null,
+                    onSuccess: function () {
+                        _previousTrashPath = newPath;
+                        apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
+                            var moved = result && result.Moved || 0;
+                            var failed = result && result.Failed || 0;
+                            if (failed === 0 && moved > 0) {
+                                if (msg) {
+                                    msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + T('trashPathMoveSuccess', 'Trash content moved successfully.') + '</div>';
+                                    setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
+                                }
+                            } else if (failed > 0) {
+                                var partial = T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed);
+                                if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
+                            } else {
+                                // 0 moved, 0 failed: likely a permission issue on the source or empty source
+                                if (msg) msg.innerHTML = '<div class="error-msg" style="opacity:0.85;">' + mi('warning') + ' ' + T('trashPathMoveNothingMoved', 'No items were moved. The source may be empty or inaccessible due to permissions.') + '</div>';
                             }
-                        } else if (failed > 0) {
-                            var partial = T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed);
-                            if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
-                        } else {
-                            if (msg) msg.innerHTML = '';
-                        }
-                        if (options && typeof options.onSuccess === 'function') options.onSuccess();
-                    }, function () {
-                        if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('trashPathMoveError', 'Failed to move trash content.') + '</div>';
-                        if (options && typeof options.onSuccess === 'function') options.onSuccess();
-                    });
-                },
-                onError: function (errMsg) {
-                    if (options && typeof options.onError === 'function') options.onError(errMsg);
+                            if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                        }, function () {
+                            if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('trashPathMoveError', 'Failed to move trash content.') + '</div>';
+                            if (options && typeof options.onSuccess === 'function') options.onSuccess();
+                        });
+                    },
+                    onError: function (errMsg) {
+                        if (options && typeof options.onError === 'function') options.onError(errMsg);
+                    }
+                });
+            }
+
+            if (msg) msg.innerHTML = '<div style="opacity:0.6;">' + T('trashPathCheckingAccess', 'Checking permissions…') + '</div>';
+
+            // Proactive access check on the NEW path before attempting relocation
+            apiPost('JellyfinHelper/Trash/CheckAccess', {TrashFolderPath: newPath}, function (accessData) {
+                if (accessData && !accessData.AllAccessible) {
+                    // Permission denied — show error and abort relocation
+                    var accessErrors = (accessData.Results || []).filter(function(r) { return !r.HasFullAccess; });
+                    var errorDetail = accessErrors.length > 0 ? (accessErrors[0].ErrorMessage || '') : '';
+                    if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('trashPathAccessDenied', 'Permission denied on new trash path.') + (errorDetail ? '<br><span style="opacity:0.7;font-size:0.85em;">' + escHtml(errorDetail) + '</span>' : '') + '</div>';
+                    if (saveBtn) saveBtn.disabled = false;
+                    return;
                 }
+                doRelocateTrash();
+            }, function () {
+                // CheckAccess API call failed — proceed with move anyway (graceful degradation)
+                doRelocateTrash();
             });
         }));
 

@@ -367,5 +367,8 @@
   "trashPathMovePartial": "Kısmen taşındı: {0} taşındı, {1} başarısız.",
   "trashPathMoveError": "Çöp kutusu içeriği taşınamadı.",
   "trashPathDeleting": "Eski çöp kutusu içeriği siliniyor…",
-  "trashPathDeleteSuccess": "Eski çöp kutusu içeriği silindi."
+  "trashPathDeleteSuccess": "Eski çöp kutusu içeriği silindi.",
+  "trashPathCheckingAccess": "İzinler kontrol ediliyor…",
+  "trashPathAccessDenied": "Yeni çöp klasörü yolunda izin reddedildi.",
+  "trashPathMoveNothingMoved": "Hiçbir öğe taşınmadı. Kaynak boş olabilir veya izin sorunları nedeniyle erişilemeyebilir."
 }
