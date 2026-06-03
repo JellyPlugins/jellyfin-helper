@@ -1571,11 +1571,12 @@ function showTrashPathChangeDialog(payload, options) {
 
             // Proactive access check on the NEW path before attempting relocation
             apiPost('JellyfinHelper/Trash/CheckAccess', {TrashFolderPath: newPath}, function (accessData) {
-                if (accessData && !accessData.AllAccessible) {
-                    // Permission denied — show error and abort relocation
+                if (accessData && accessData.AllAccessible === false) {
+                    // Access check failed — show the specific error from the server
                     var accessErrors = (accessData.Results || []).filter(function(r) { return !r.HasFullAccess; });
                     var errorDetail = accessErrors.length > 0 ? (accessErrors[0].ErrorMessage || '') : '';
-                    if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('trashPathAccessDenied', 'Permission denied on new trash path.') + (errorDetail ? '<br><span style="opacity:0.7;font-size:0.85em;">' + escHtml(errorDetail) + '</span>' : '') + '</div>';
+                    var errorText = errorDetail || T('trashPathAccessDenied', 'Permission denied on new trash path.');
+                    if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(errorText) + '</div>';
                     if (saveBtn) saveBtn.disabled = false;
                     return;
                 }

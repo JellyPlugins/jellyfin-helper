@@ -289,6 +289,7 @@ else if(url.indexOf("Configuration/BrowseFolders")!==-1||url.indexOf("BrowseFold
 else if(url.indexOf("Configuration")!==-1&&method==="POST"){try{Object.assign(MOCK_CONFIG,JSON.parse(opts.data));}catch(e){}resolve({});}
 else if(url.indexOf("Configuration")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_CONFIG)));
 else if(url.indexOf("Trash/Contents")!==-1)resolve(MOCK_TRASH_CONTENTS);
+    else if(url.indexOf("Trash/CheckAccess")!==-1&&method==="POST"){resolve({AllAccessible:true,Results:[{Path:"/data/movies/.jellyfin-trash",Exists:false,CanRead:true,CanWrite:true,HasFullAccess:true,ErrorMessage:null}]});}
     else if(url.indexOf("Trash/Relocate")!==-1&&method==="POST"){resolve({Moved:3,Failed:0});}
     else if(url.indexOf("Trash/FoldersForPath")!==-1&&method==="POST"){try{var fpBody=JSON.parse(opts.data);resolve(JSON.parse(JSON.stringify(MOCK_TRASH_FOLDERS_FOR_PATH(fpBody.TrashFolderPath))));}catch(e){resolve({Paths:[],IsAbsolute:false});}}
     else if(url.indexOf("Trash/Folders")!==-1&&method==="DELETE")resolve({deleted:2,failed:0});
