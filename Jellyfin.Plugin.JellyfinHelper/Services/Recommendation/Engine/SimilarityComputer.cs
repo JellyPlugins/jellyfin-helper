@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -16,6 +17,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// </summary>
 internal sealed class SimilarityComputer
 {
+    /// <summary>
+    ///     Person-type strings expected by <see cref="ILibraryManager.GetPeopleNamesByItems"/>.
+    ///     Derived from <see cref="PersonKind"/> enum names so that any future refactor of
+    ///     <see cref="EngineConstants.RelevantPersonKinds"/> automatically flows through here.
+    /// </summary>
+    private static readonly IReadOnlyList<string> RelevantPersonTypeStrings =
+        EngineConstants.RelevantPersonKinds.Select(k => k.ToString()).ToList().AsReadOnly();
+
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger _logger;
     private readonly IPluginLogService _pluginLog;
@@ -40,10 +49,120 @@ internal sealed class SimilarityComputer
     ///     Batch-loads people (actors/directors) for all candidate items into a lookup dictionary.
     ///     Called once per recommendation run and shared across all users for performance.
     ///     Only stores person names for relevant types (Actor, Director) to keep memory compact.
+    ///     <para>
+    ///         Uses <see cref="ILibraryManager.GetPeopleNamesByItems"/> (Jellyfin 12+) as a single
+    ///         database roundtrip when available, falling back to per-item
+    ///         <c>ILibraryManager.GetPeople(BaseItem)</c> calls if the batch API throws for any reason.
+    ///         The fallback guarantees the lookup is never worse than the pre-Jellyfin-12 implementation.
+    ///     </para>
     /// </summary>
     /// <param name="candidates">All candidate base items.</param>
     /// <returns>A dictionary mapping item IDs to their associated person name sets (case-insensitive).</returns>
     internal Dictionary<Guid, HashSet<string>> BuildCandidatePeopleLookup(List<BaseItem> candidates)
+    {
+        // Fast path: attempt a single batch call to the library. On success, the
+        // returned dictionary already filters people-types server-side, so we only
+        // need to wrap each name list in a case-insensitive HashSet.
+        var batchLookup = TryBuildPeopleLookupBatch(candidates);
+        if (batchLookup is not null)
+        {
+            _pluginLog.LogDebug(
+                "Recommendations",
+                $"Built people lookup (batch) for {batchLookup.Count}/{candidates.Count} candidates.",
+                _logger);
+            return batchLookup;
+        }
+
+        // Fallback path: per-item GetPeople with client-side type filtering.
+        // Kept identical to the pre-Jellyfin-12 behavior so that a single failing
+        // candidate cannot abort the entire lookup — only cancellation propagates.
+        var lookup = BuildPeopleLookupPerItem(candidates);
+        _pluginLog.LogDebug(
+            "Recommendations",
+            $"Built people lookup (per-item fallback) for {lookup.Count}/{candidates.Count} candidates.",
+            _logger);
+        return lookup;
+    }
+
+    /// <summary>
+    ///     Attempts to build the people lookup via the Jellyfin 12+
+    ///     <see cref="ILibraryManager.GetPeopleNamesByItems"/> batch API.
+    ///     Returns <c>null</c> if the API is unavailable, throws, or returns null so that
+    ///     <see cref="BuildCandidatePeopleLookup"/> can fall back to the per-item path.
+    ///     <see cref="OperationCanceledException"/> is propagated (never swallowed) to preserve
+    ///     cooperative cancellation semantics.
+    /// </summary>
+    /// <param name="candidates">The candidate items to fetch people for.</param>
+    /// <returns>A dictionary mapping item IDs to case-insensitive name sets, or <c>null</c> on failure.</returns>
+    private Dictionary<Guid, HashSet<string>>? TryBuildPeopleLookupBatch(List<BaseItem> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            // Return an empty dictionary rather than null so the fast path is still taken -
+            // there is no work to fall back to.
+            return new Dictionary<Guid, HashSet<string>>();
+        }
+
+        try
+        {
+            var itemIds = candidates.Select(c => c.Id).ToList();
+            var batch = _libraryManager.GetPeopleNamesByItems(itemIds, RelevantPersonTypeStrings);
+            if (batch is null)
+            {
+                return null;
+            }
+
+            var lookup = new Dictionary<Guid, HashSet<string>>(batch.Count);
+            foreach (var kvp in batch)
+            {
+                if (kvp.Value is null || kvp.Value.Count == 0)
+                {
+                    // Contract of GetPeopleNamesByItems: items with no matching people are omitted.
+                    // A defensive check in case a Jellyfin implementation returns an empty list here.
+                    continue;
+                }
+
+                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var name in kvp.Value)
+                {
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        names.Add(name);
+                    }
+                }
+
+                if (names.Count > 0)
+                {
+                    lookup[kvp.Key] = names;
+                }
+            }
+
+            return lookup;
+        }
+        catch (OperationCanceledException)
+        {
+            throw; // Do not swallow cancellation - propagate to caller
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(
+                    ex,
+                    "Batch people lookup via GetPeopleNamesByItems failed, falling back to per-item GetPeople.");
+            }
+
+            return null;
+        }
+    }
+
+    /// <summary>
+    ///     Per-item people lookup — the pre-Jellyfin-12 implementation.
+    ///     Used as a fallback when <see cref="TryBuildPeopleLookupBatch"/> fails.
+    /// </summary>
+    /// <param name="candidates">The candidate items.</param>
+    /// <returns>A dictionary mapping item IDs to case-insensitive name sets.</returns>
+    private Dictionary<Guid, HashSet<string>> BuildPeopleLookupPerItem(List<BaseItem> candidates)
     {
         var lookup = new Dictionary<Guid, HashSet<string>>(candidates.Count);
 
@@ -94,11 +213,6 @@ internal sealed class SimilarityComputer
                 }
             }
         }
-
-        _pluginLog.LogDebug(
-            "Recommendations",
-            $"Built people lookup for {lookup.Count}/{candidates.Count} candidates.",
-            _logger);
 
         return lookup;
     }
