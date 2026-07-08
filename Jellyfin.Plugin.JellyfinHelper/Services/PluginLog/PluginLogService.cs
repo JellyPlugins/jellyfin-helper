@@ -56,7 +56,11 @@ public class PluginLogService : IPluginLogService
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
     public void LogDebug(string source, string message, ILogger? logger = null)
     {
-        logger?.LogDebug("[{Source}] {Message}", source, message);
+        if (logger is not null && logger.IsEnabled(LogLevel.Debug))
+        {
+            logger.LogDebug("[{Source}] {Message}", source, message);
+        }
+
         AddEntry("DEBUG", source, message, null);
     }
 
@@ -68,7 +72,11 @@ public class PluginLogService : IPluginLogService
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
     public void LogInfo(string source, string message, ILogger? logger = null)
     {
-        logger?.LogInformation("[{Source}] {Message}", source, message);
+        if (logger is not null && logger.IsEnabled(LogLevel.Information))
+        {
+            logger.LogInformation("[{Source}] {Message}", source, message);
+        }
+
         AddEntry("INFO", source, message, null);
     }
 

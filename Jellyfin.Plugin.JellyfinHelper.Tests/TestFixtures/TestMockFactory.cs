@@ -50,11 +50,31 @@ public static class TestMockFactory
 
     // ===== Logger Mocks =====
 
-    /// <summary>Creates a new <see cref="Mock{ILogger}"/> (non-generic).</summary>
-    public static Mock<ILogger> CreateLogger() => new();
+    /// <summary>
+    /// Creates a new <see cref="Mock{ILogger}"/> (non-generic).
+    /// <c>IsEnabled(...)</c> is set up to return <c>true</c> for all log levels so that
+    /// production code guarded by <c>logger.IsEnabled(...)</c> checks (see CA1873 fixes)
+    /// still executes the underlying <c>Log(...)</c> call under test.
+    /// </summary>
+    public static Mock<ILogger> CreateLogger()
+    {
+        var mock = new Mock<ILogger>();
+        mock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+        return mock;
+    }
 
-    /// <summary>Creates a new <see cref="Mock{T}"/> for a typed logger.</summary>
-    public static Mock<ILogger<T>> CreateLogger<T>() => new();
+    /// <summary>
+    /// Creates a new <see cref="Mock{T}"/> for a typed logger.
+    /// <c>IsEnabled(...)</c> is set up to return <c>true</c> for all log levels so that
+    /// production code guarded by <c>logger.IsEnabled(...)</c> checks (see CA1873 fixes)
+    /// still executes the underlying <c>Log(...)</c> call under test.
+    /// </summary>
+    public static Mock<ILogger<T>> CreateLogger<T>()
+    {
+        var mock = new Mock<ILogger<T>>();
+        mock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+        return mock;
+    }
 
     // ===== Other Mocks =====
 

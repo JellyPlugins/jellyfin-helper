@@ -723,20 +723,23 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             }
 
             // Log training quality metrics including trend
-            _logger?.LogInformation(
-                "Training complete: examples={ExampleCount}, valLoss={ValidationLoss:F6}, P@{K}={PrecisionAtK:F3}, R@{K2}={RecallAtK:F3}, NDCG@{K3}={NdcgAtK:F3}, qualityGate={QualityGate}, alpha={Alpha:F4}, neuralBeta={NeuralBeta:F4}, trend={Trend}",
-                examples.Count,
-                validationLoss,
-                RankingMetrics.DefaultK,
-                _learned.LastPrecisionAtK,
-                RankingMetrics.DefaultK,
-                _learned.LastRecallAtK,
-                RankingMetrics.DefaultK,
-                _learned.LastNdcgAtK,
-                qualityGatePassed ? "passed" : "dampened",
-                _alpha,
-                _neuralBeta,
-                trend);
+            if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+            {
+                _logger.LogInformation(
+                    "Training complete: examples={ExampleCount}, valLoss={ValidationLoss:F6}, P@{K}={PrecisionAtK:F3}, R@{K2}={RecallAtK:F3}, NDCG@{K3}={NdcgAtK:F3}, qualityGate={QualityGate}, alpha={Alpha:F4}, neuralBeta={NeuralBeta:F4}, trend={Trend}",
+                    examples.Count,
+                    validationLoss,
+                    RankingMetrics.DefaultK,
+                    _learned.LastPrecisionAtK,
+                    RankingMetrics.DefaultK,
+                    _learned.LastRecallAtK,
+                    RankingMetrics.DefaultK,
+                    _learned.LastNdcgAtK,
+                    qualityGatePassed ? "passed" : "dampened",
+                    _alpha,
+                    _neuralBeta,
+                    trend);
+            }
 
             TrySaveState();
         }
@@ -859,11 +862,14 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                         MaxMidpointShift);
                 }
 
-                _logger?.LogInformation(
-                    "Cohort feedback: explore-high ({HighRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
-                    highRate,
-                    controlRate,
-                    _sigmoidMidpointOffset);
+                if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation(
+                        "Cohort feedback: explore-high ({HighRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
+                        highRate,
+                        controlRate,
+                        _sigmoidMidpointOffset);
+                }
 
                 TrySaveState();
                 return;
@@ -884,11 +890,14 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                         MaxMidpointShift);
                 }
 
-                _logger?.LogInformation(
-                    "Cohort feedback: explore-low ({LowRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
-                    lowRate,
-                    controlRate,
-                    _sigmoidMidpointOffset);
+                if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation(
+                        "Cohort feedback: explore-low ({LowRate:P1}) > control ({ControlRate:P1}) → midpoint offset adjusted to {Offset:F1}",
+                        lowRate,
+                        controlRate,
+                        _sigmoidMidpointOffset);
+                }
 
                 TrySaveState();
                 return;
@@ -896,9 +905,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
 
         // Control is optimal - no adaptation needed
-        _logger?.LogDebug(
-            "Cohort feedback: control ({ControlRate:P1}) is optimal, no midpoint adaptation",
-            controlRate);
+        if (_logger is not null && _logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug(
+                "Cohort feedback: control ({ControlRate:P1}) is optimal, no midpoint adaptation",
+                controlRate);
+        }
     }
 
     /// <summary>

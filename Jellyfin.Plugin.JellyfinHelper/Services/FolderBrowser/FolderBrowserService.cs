@@ -60,7 +60,10 @@ public class FolderBrowserService : IFolderBrowserService
                         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                                        or SecurityException)
                         {
-                            _logger.LogDebug(ex, "Could not read volume label for drive {Drive}", baseName);
+                            if (_logger.IsEnabled(LogLevel.Debug))
+                            {
+                                _logger.LogDebug(ex, "Could not read volume label for drive {Drive}", baseName);
+                            }
                         }
 
                         var displayName = string.IsNullOrWhiteSpace(volumeLabel)
@@ -189,14 +192,21 @@ public class FolderBrowserService : IFolderBrowserService
                                                    or SecurityException)
                     {
                         // Skip individual directories we cannot access
-                        _logger.LogDebug(ex, "Skipping inaccessible directory {Dir}", subdir.FullName);
+                        if (_logger.IsEnabled(LogLevel.Debug))
+                        {
+                            _logger.LogDebug(ex, "Skipping inaccessible directory {Dir}", subdir.FullName);
+                        }
                     }
                 }
             }
             catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
                                            or SecurityException)
             {
-                _logger.LogDebug(ex, "Cannot enumerate children of {Path}", normalizedPath);
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug(ex, "Cannot enumerate children of {Path}", normalizedPath);
+                }
+
                 return new FolderBrowseResult
                 {
                     CurrentPath = normalizedPath,
@@ -292,7 +302,11 @@ public class FolderBrowserService : IFolderBrowserService
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException
                                        or PathTooLongException or SecurityException)
         {
-            _logger.LogDebug(ex, "Invalid folder-browse path {Path}", path);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(ex, "Invalid folder-browse path {Path}", path);
+            }
+
             return "Invalid path.";
         }
 

@@ -262,8 +262,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         try
         {
             var indexPath = IndexHtmlPath;
-            _logger.LogDebug("[Discovery Sidebar] WebPath = {WebPath}", _applicationPaths.WebPath);
-            _logger.LogDebug("[Discovery Sidebar] IndexHtmlPath = {IndexPath}", indexPath);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("[Discovery Sidebar] WebPath = {WebPath}", _applicationPaths.WebPath);
+                _logger.LogDebug("[Discovery Sidebar] IndexHtmlPath = {IndexPath}", indexPath);
+            }
 
             if (!File.Exists(indexPath))
             {

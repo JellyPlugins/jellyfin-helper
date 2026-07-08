@@ -36,16 +36,18 @@ public class HelperCleanupTaskTests : IDisposable
         _testDataPath = Path.Join(Path.GetTempPath(), "JellyfinHelperTests_Data_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_testDataPath);
         var loggerFactoryMock = new Mock<ILoggerFactory>();
-        _loggerMock = new Mock<ILogger<HelperCleanupTask>>();
+        _loggerMock = TestMockFactory.CreateLogger<HelperCleanupTask>();
 
-        // Setup logger factory to return loggers for all required types
+        // Setup logger factory to return loggers for all required types.
+        // Fallback loggers use TestMockFactory.CreateLogger() so IsEnabled(...) returns true —
+        // matching production behavior and ensuring guarded Log(...) calls still execute in tests.
         loggerFactoryMock
             .Setup(f => f.CreateLogger(It.IsAny<string>()))
             .Returns((string categoryName) =>
             {
                 if (categoryName.Contains("HelperCleanupTask")) return _loggerMock.Object;
 
-                return new Mock<ILogger>().Object;
+                return TestMockFactory.CreateLogger().Object;
             });
 
         // Default: empty libraries so sub-tasks finish quickly

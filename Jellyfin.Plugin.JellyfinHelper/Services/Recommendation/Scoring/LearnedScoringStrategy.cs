@@ -326,9 +326,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             {
                 _weights = DefaultWeights.CreateWeightArray();
                 _bias = DefaultWeights.Bias;
-                _logger?.LogInformation(
-                    "LearnedScoringStrategy: Reset weights to defaults after standardization mode change (generation {Gen})",
-                    _trainingGeneration);
+                if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogInformation(
+                        "LearnedScoringStrategy: Reset weights to defaults after standardization mode change (generation {Gen})",
+                        _trainingGeneration);
+                }
             }
 
             // Use a varying seed based on training generation to avoid always placing

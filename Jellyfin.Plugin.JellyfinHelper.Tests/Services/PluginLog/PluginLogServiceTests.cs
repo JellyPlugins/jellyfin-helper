@@ -1,4 +1,4 @@
-using Jellyfin.Plugin.JellyfinHelper.Configuration;
+﻿using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -124,7 +124,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogDebug_ForwardsToILogger()
     {
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
 
         _sut.LogDebug("__PLT_Fwd__", "Msg", mockLogger.Object);
 
@@ -235,7 +235,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogInfo_ForwardsToILogger()
     {
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
 
         _sut.LogInfo("__PLT_Fwd__", "InfoMsg", mockLogger.Object);
 
@@ -332,7 +332,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogWarning_ForwardsToILogger_WithoutException()
     {
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
 
         _sut.LogWarning("__PLT__", "WarnMsg", logger: mockLogger.Object);
 
@@ -352,7 +352,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogWarning_ForwardsToILogger_WithException()
     {
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
         var exception = new InvalidOperationException("test");
 
         _sut.LogWarning("__PLT__", "WarnMsg", exception, mockLogger.Object);
@@ -424,7 +424,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogError_ForwardsToILogger_WithoutException()
     {
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
 
         _sut.LogError("__PLT__", "ErrMsg", logger: mockLogger.Object);
 
@@ -444,7 +444,7 @@ public class PluginLogServiceTests : IDisposable
     [Fact]
     public void LogError_ForwardsToILogger_WithException()
     {
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
         var exception = new InvalidOperationException("fatal");
 
         _sut.LogError("__PLT__", "ErrMsg", exception, mockLogger.Object);
@@ -561,7 +561,7 @@ public class PluginLogServiceTests : IDisposable
     {
         const string src = "__PLT_FwdFiltered__";
         _sut.TestMinLevelOverride = "ERROR"; // DEBUG won't be stored in buffer
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
 
         _sut.LogDebug(src, "Filtered debug msg", mockLogger.Object);
 
@@ -588,7 +588,7 @@ public class PluginLogServiceTests : IDisposable
     {
         const string src = "__PLT_FwdInfoFilt__";
         _sut.TestMinLevelOverride = "ERROR";
-        var mockLogger = new Mock<ILogger>();
+        var mockLogger = TestMockFactory.CreateLogger();
 
         _sut.LogInfo(src, "Filtered info", mockLogger.Object);
 

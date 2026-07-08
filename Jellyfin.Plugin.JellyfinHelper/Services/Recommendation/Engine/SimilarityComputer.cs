@@ -88,7 +88,10 @@ internal sealed class SimilarityComputer
             {
                 // Graceful fallback: skip this candidate's people data rather than failing the entire lookup.
                 // Some item types or corrupted metadata may cause GetPeople to throw.
-                _logger.LogDebug(ex, "Failed to load people for candidate {ItemId}, skipping", candidate.Id);
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug(ex, "Failed to load people for candidate {ItemId}, skipping", candidate.Id);
+                }
             }
         }
 
