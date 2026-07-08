@@ -67,6 +67,11 @@ public class UserActivityInsightsService : IUserActivityInsightsService
             $"Scanning {allItems.Count} items across {users.Count} users",
             _logger);
 
+        // Pre-fetch user data in one batch per user (Jellyfin 12+ API) to avoid N×M database
+        // roundtrips. Falls back to per-item lookup for a user if the batch call fails, so
+        // that the report never regresses to worse behavior than the pre-batch implementation.
+        var userDataByUser = BuildUserDataLookup(users, allItems);
+
         // Build per-item summaries with all user interactions
         var summaries = new Dictionary<Guid, UserActivitySummary>();
         long totalPlayCount = 0;
@@ -84,7 +89,19 @@ public class UserActivityInsightsService : IUserActivityInsightsService
             {
                 try
                 {
-                    var userData = _userDataManager.GetUserData(user, item);
+                    // O(1) lookup from the pre-fetched batch dictionary; falls back to
+                    // per-item GetUserData for this user if the batch load failed earlier
+                    // (BuildUserDataLookup returns null for that user in the outer dict).
+                    UserItemData? userData;
+                    if (userDataByUser.TryGetValue(user.Id, out var userLookup) && userLookup is not null)
+                    {
+                        userLookup.TryGetValue(item.Id, out userData);
+                    }
+                    else
+                    {
+                        userData = _userDataManager.GetUserData(user, item);
+                    }
+
                     if (userData is null)
                     {
                         continue;
@@ -247,5 +264,52 @@ public class UserActivityInsightsService : IUserActivityInsightsService
 
         var percent = (double)positionTicks / runtimeTicks * 100.0;
         return Math.Min(Math.Round(percent, 1), 100.0);
+    }
+
+    /// <summary>
+    ///     Pre-fetches user data for every (user, item) pair in one batch call per user
+    ///     using <c>IUserDataManager.GetUserDataBatch</c> (Jellyfin 12+).
+    ///     Falls back to a null entry for users whose batch load throws — the caller
+    ///     then reverts to per-item <c>GetUserData</c> for that user only, preserving the
+    ///     pre-batch behavior.
+    /// </summary>
+    /// <param name="users">The users to pre-load data for.</param>
+    /// <param name="allItems">The library items to load user data against.</param>
+    /// <returns>
+    ///     A dictionary keyed by user ID. The inner dictionary maps item ID to its
+    ///     <see cref="UserItemData"/>. A null inner value signals batch failure for that user.
+    /// </returns>
+    private Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?> BuildUserDataLookup(
+        List<Jellyfin.Database.Implementations.Entities.User> users,
+        IReadOnlyList<BaseItem> allItems)
+    {
+        var result = new Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?>(users.Count);
+        foreach (var user in users)
+        {
+            try
+            {
+                var batch = _userDataManager.GetUserDataBatch(allItems, user);
+                // Materialize into an IReadOnlyDictionary regardless of the concrete return type
+                // returned by Jellyfin (the interface promises "a dictionary mapping item IDs
+                // to user data" — Dictionary<>, IDictionary<>, and IReadOnlyDictionary<>
+                // all satisfy this contract). Using IReadOnlyDictionary avoids leaking mutation
+                // rights and stays contract-agnostic across Jellyfin patch versions.
+                result[user.Id] = batch as IReadOnlyDictionary<Guid, UserItemData>
+                                  ?? (batch is null
+                                      ? null
+                                      : new Dictionary<Guid, UserItemData>(batch));
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                _pluginLog.LogWarning(
+                    "UserActivity",
+                    $"Batch user-data load failed for user '{user.Username}'; falling back to per-item lookup for this user.",
+                    ex,
+                    _logger);
+                result[user.Id] = null;
+            }
+        }
+
+        return result;
     }
 }
