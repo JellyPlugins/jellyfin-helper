@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/JellyPlugins/jellyfin-helper/main/media/logo.png",
     "versions": [
       {
+        "version": "3.0.0.0",
+        "changelog": "v3.0.0.0: Compatible with Jellyfin 12.0. Upgraded to .NET 10 and Jellyfin.Controller/Model 12.0.0-rc2. Adopted .NET 10 CA1873 pattern (guarded logging) for all diagnostic hot paths. Requires Jellyfin 12.0+; users on Jellyfin 10.x should stay on v2.1.0.5. 2318 tests.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/3.0.0.0/JellyfinHelper_3.0.0.0.zip",
+        "checksum": "0000000000000000000000000000000000000000",
+        "timestamp": "2026-07-08T10:00:00Z"
+      },
+      {
         "version": "2.1.0.5",
         "changelog": "v2.1.0.5: Fix StackOverflow on circular symlinks in directory scan. Fix IOException on long trash path names. Added Swedish (sv) language. Exclude Libraries multi-select dropdown. Trash folder browser. Trash path change dialog (move/delete content on path change). Enhanced trash path validation. Upgraded to Jellyfin 10.11.10. 2318 tests.",
         "targetAbi": "10.11.10.0",

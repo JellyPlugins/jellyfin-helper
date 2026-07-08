@@ -16,7 +16,7 @@ permissions:
 
 env:
   PLUGIN_NAME: JellyfinHelper
-  TARGET_ABI: "10.11.9.0"
+  TARGET_ABI: "12.0.0.0"
 
 jobs:
   security-audit:
@@ -32,7 +32,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v5
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
 
     - name: Restore
       run: dotnet restore
@@ -93,7 +93,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v5
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
 
     - name: Restore
       run: dotnet restore
@@ -146,7 +146,7 @@ jobs:
       if: env.TAG_EXISTS == 'false'
       uses: actions/setup-dotnet@v5
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
 
     - name: Restore
       if: env.TAG_EXISTS == 'false'
@@ -361,7 +361,7 @@ jobs:
         yq eval -i '
           .version = strenv(VERSION) |
           .targetAbi = strenv(TARGET_ABI) |
-          .framework = "net9.0" |
+          .framework = "net10.0" |
           .changelog = strenv(CHANGELOG)
         ' build.yaml
 

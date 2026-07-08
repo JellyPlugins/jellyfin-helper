@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [3.0.0.0] - 2026-07-08
+
+### Changed
+- **Jellyfin 12.0 Compatibility** - Upgraded to `Jellyfin.Controller` and `Jellyfin.Model` **12.0.0-rc2**. All ~15 core Jellyfin APIs used by the plugin (`ILibraryManager`, `IUserManager`, `IUserDataManager`, `IPlaylistManager`, `InternalItemsQuery`, `BaseItem`, etc.) proved to be source-compatible between JF 10.11 and JF 12.0 - no code changes were required for the API surface.
+- **.NET 10** - Migrated target framework from `net9.0` to `net10.0`. The `global.json` SDK pin was raised to `10.0.9` with `rollForward: latestFeature`. All CI workflows (`release.yml`, `pr.yml`, `codeql.yml`) and build metadata (`build.yaml`, `generate-meta.ps1`, `manifest.json`) were updated accordingly.
+- **Guarded Logging (CA1873)** - Introduced `logger.IsEnabled(...)` guards around 14 diagnostic log calls in `Plugin.cs`, `PluginLogService.cs`, `FolderBrowserService.cs`, `SimilarityComputer.cs`, `LearnedScoringStrategy.cs`, and `EnsembleScoringStrategy.cs`. This adopts the recommended .NET 10 pattern for hot paths where log-argument evaluation could otherwise trigger expensive property access even when the level is filtered out.
+- **Test Fixtures** - `TestMockFactory.CreateLogger()` now pre-configures `IsEnabled(...)` to return `true` for every log level, so `Log(...)` verifications continue to observe every `_logger.LogXxx(...)` call in tests. Direct `new Mock<ILogger>()` usages in `HelperCleanupTaskTests` and `PluginLogServiceTests` were migrated to the factory to keep behavior consistent.
+
+### Breaking
+- **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. Users on Jellyfin 10.x should stay on v2.1.0.5, which remains served from the same plugin repository (`targetAbi: 10.11.10.0`) - Jellyfin filters versions by ABI automatically.
+
+### Tests
+- Total: **2318 tests** (unchanged - the migration is source-compatible).
+
+---
+
 ## [2.1.0.5] - 2026-05-26
 
 ### Fixed
