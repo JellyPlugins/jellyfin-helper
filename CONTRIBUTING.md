@@ -101,71 +101,72 @@ Tests mirror the source structure:
 
 ```text
 Jellyfin.Plugin.JellyfinHelper.Tests/
-â”œâ”€â”€ Api/                           # Controller tests
-â”‚   â”œâ”€â”€ DiscoveryControllerTests.cs
-â”‚   â”œâ”€â”€ UserDiscoveryControllerTests.cs
-â”‚   â”œâ”€â”€ RecommendationControllerTests.cs
-â”‚   â”œâ”€â”€ UserActivityControllerTests.cs
-â”‚   â”œâ”€â”€ TrashControllerTests.cs
-â”‚   â””â”€â”€ ...
-â”œâ”€â”€ Configuration/                 # Config serialization tests
-â”‚   â”œâ”€â”€ PluginConfigurationSerializationTests.cs
-â”‚   â””â”€â”€ TaskModeTests.cs
-â”œâ”€â”€ PluginPages/                   # HTML composition tests
-â”‚   â”œâ”€â”€ ConfigPageTestBase.cs      # Shared base loading configPage.html
-â”‚   â”œâ”€â”€ DiscoverHtmlTests.cs       # Recommendations tab HTML tests
-â”‚   â””â”€â”€ ...
-â”œâ”€â”€ ScheduledTasks/                # Task execution tests
-â”‚   â”œâ”€â”€ CleanTrickplayTrashExclusionTests.cs  # Trash folder exclusion from recursive scan
-â”‚   â”œâ”€â”€ RecommendationsTaskTests.cs
-â”‚   â”œâ”€â”€ UserActivityUpdateTaskTests.cs
-â”‚   â””â”€â”€ ...
-â”œâ”€â”€ Services/
-â”‚   â”œâ”€â”€ Activity/                  # User activity service tests
-â”‚   â”œâ”€â”€ Arr/                       # Arr integration tests
-â”‚   â”œâ”€â”€ Backup/                    # Backup/restore tests
-â”‚   â”œâ”€â”€ Cleanup/                   # Cleanup task tests
-â”‚   â”‚   â”œâ”€â”€ TrashControllerAccessTests.cs  # CheckAccess API endpoint tests (permission probing)
-â”‚   â”‚   â”œâ”€â”€ TrashControllerRelocateTests.cs # Trash path relocation API endpoint tests
-â”‚   â”‚   â”œâ”€â”€ TrashServiceAccessTests.cs     # CheckPathAccess permission probing tests
-â”‚   â”‚   â”œâ”€â”€ TrashServiceGuardTests.cs      # Defense-in-depth: prevent re-trashing items already in trash
-â”‚   â”‚   â”œâ”€â”€ TrashServicePathLengthTests.cs # ResolveCollision stays within OS MAX_PATH (Windows 259 / Linux 4095)
-â”‚   â”‚   â””â”€â”€ TrashServiceRelocateTests.cs   # RelocateTrashContents unit tests (move, collision, safety)
-â”‚   â”œâ”€â”€ ConfigAccess/              # Configuration access tests
-â”‚   â”œâ”€â”€ Link/                      # Link repair tests
-â”‚   â”œâ”€â”€ PluginLog/                 # Plugin log tests
-â”‚   â”œâ”€â”€ Seerr/                     # Seerr integration tests
-â”‚   â”‚   â”œâ”€â”€ SeerrIntegrationServiceTests.cs
-â”‚   â”‚   â”œâ”€â”€ SeerrMediaDetailsTests.cs
-â”‚   â”‚   â””â”€â”€ Discovery/            # Seerr Discovery tests
-â”‚   â”‚       â”œâ”€â”€ DiscoveryFeedbackStoreTests.cs
-â”‚   â”‚       â”œâ”€â”€ DiscoveryRegressionTests.cs  # v2.1.0.3 regression tests (ServerId=0, profile dedup, MissingMethodException)
-â”‚   â”‚       â”œâ”€â”€ SeerrDiscoveryServiceTests.cs
-â”‚   â”‚       â””â”€â”€ ParentalRatingHelperTests.cs
-â”‚   â”œâ”€â”€ Statistics/                # Statistics service tests
-â”‚   â”œâ”€â”€ Timeline/                  # Growth timeline tests
-â”‚   â”‚   â””â”€â”€ GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks/junctions
-â”‚   â””â”€â”€ Recommendation/            # Recommendation engine tests
-â”‚       â”œâ”€â”€ Engine/                # Core engine logic tests
-â”‚       â”‚   â”œâ”€â”€ CollaborativeFilterTests.cs
-â”‚       â”‚   â”œâ”€â”€ ContentScoringTests.cs
-â”‚       â”‚   â””â”€â”€ PreferenceBuilderTests.cs
-â”‚       â”œâ”€â”€ Playlist/              # Playlist sync tests
-â”‚       â”‚   â””â”€â”€ RecommendationPlaylistServiceTests.cs
-â”‚       â”œâ”€â”€ Scoring/               # Strategy-specific tests
-â”‚       â”‚   â”œâ”€â”€ ScoringStrategyTests.cs
-â”‚       â”‚   â”œâ”€â”€ NeuralScoringStrategyTests.cs
-â”‚       â”‚   â”œâ”€â”€ ScoreExplanationTests.cs
-â”‚       â”‚   â”œâ”€â”€ TrainingExampleTests.cs
-â”‚       â”‚   â””â”€â”€ RankingMetricsTests.cs
-â”‚       â”œâ”€â”€ WatchHistory/          # Watch history service tests
-â”‚       â”‚   â”œâ”€â”€ LanguageAffinityTests.cs
-â”‚       â”‚   â”œâ”€â”€ WatchHistoryCompatTests.cs  # IUserManager API compatibility (MissingMethodException handling)
-â”‚       â”‚   â””â”€â”€ WatchHistoryServiceTests.cs
-â”‚       â”œâ”€â”€ RecommendationCacheServiceTests.cs
-â”‚       â”œâ”€â”€ RecommendationDtoTests.cs
-â”‚       â””â”€â”€ RecommendationEngineTests.cs
-â””â”€â”€ TestFixtures/                  # Shared test helpers
+├── Api/                           # Controller tests
+│   ├── DiscoveryControllerTests.cs
+│   ├── UserDiscoveryControllerTests.cs
+│   ├── RecommendationControllerTests.cs
+│   ├── UserActivityControllerTests.cs
+│   ├── TrashControllerTests.cs
+│   └── ...
+├── Configuration/                 # Config serialization tests
+│   ├── PluginConfigurationSerializationTests.cs
+│   └── TaskModeTests.cs
+├── PluginPages/                   # HTML composition tests
+│   ├── ConfigPageTestBase.cs      # Shared base loading configPage.html
+│   ├── DiscoverHtmlTests.cs       # Recommendations tab HTML tests
+│   └── ...
+├── ScheduledTasks/                # Task execution tests
+│   ├── CleanTrickplayTrashExclusionTests.cs  # Trash folder exclusion from recursive scan
+│   ├── RecommendationsTaskTests.cs
+│   ├── UserActivityUpdateTaskTests.cs
+│   └── ...
+├── Services/
+│   ├── Activity/                  # User activity service tests
+│   ├── Arr/                       # Arr integration tests
+│   ├── Backup/                    # Backup/restore tests
+│   ├── Cleanup/                   # Cleanup task tests
+│   │   ├── TrashControllerAccessTests.cs  # CheckAccess API endpoint tests (permission probing)
+│   │   ├── TrashControllerRelocateTests.cs # Trash path relocation API endpoint tests
+│   │   ├── TrashServiceAccessTests.cs     # CheckPathAccess permission probing tests
+│   │   ├── TrashServiceGuardTests.cs      # Defense-in-depth: prevent re-trashing items already in trash
+│   │   ├── TrashServicePathLengthTests.cs # ResolveCollision stays within OS MAX_PATH (Windows 259 / Linux 4095)
+│   │   └── TrashServiceRelocateTests.cs   # RelocateTrashContents unit tests (move, collision, safety)
+│   ├── ConfigAccess/              # Configuration access tests
+│   ├── Link/                      # Link repair tests
+│   ├── PluginLog/                 # Plugin log tests
+│   ├── Seerr/                     # Seerr integration tests
+│   │   ├── SeerrIntegrationServiceTests.cs
+│   │   ├── SeerrMediaDetailsTests.cs
+│   │   └── Discovery/            # Seerr Discovery tests
+│   │       ├── DiscoveryFeedbackStoreTests.cs
+│   │       ├── DiscoveryRegressionTests.cs  # v2.1.0.3 regression tests (ServerId=0, profile dedup, MissingMethodException)
+│   │       ├── SeerrDiscoveryServiceTests.cs
+│   │       └── ParentalRatingHelperTests.cs
+│   ├── Statistics/                # Statistics service tests
+│   ├── Timeline/                  # Growth timeline tests
+│   │   └── GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks/junctions
+│   └── Recommendation/            # Recommendation engine tests
+│       ├── Engine/                # Core engine logic tests
+│       │   ├── CollaborativeFilterTests.cs
+│       │   ├── ContentScoringTests.cs
+│       │   ├── PreferenceBuilderTests.cs
+│       │   └── SimilarityComputerTests.cs   # People-batch (GetPeopleNamesByItems) + per-item fallback
+│       ├── Playlist/              # Playlist sync tests
+│       │   └── RecommendationPlaylistServiceTests.cs
+│       ├── Scoring/               # Strategy-specific tests
+│       │   ├── ScoringStrategyTests.cs
+│       │   ├── NeuralScoringStrategyTests.cs
+│       │   ├── ScoreExplanationTests.cs
+│       │   ├── TrainingExampleTests.cs
+│       │   └── RankingMetricsTests.cs
+│       ├── WatchHistory/          # Watch history service tests
+│       │   ├── LanguageAffinityTests.cs
+│       │   ├── WatchHistoryCompatTests.cs  # IUserManager API compatibility (MissingMethodException handling)
+│       │   └── WatchHistoryServiceTests.cs
+│       ├── RecommendationCacheServiceTests.cs
+│       ├── RecommendationDtoTests.cs
+│       └── RecommendationEngineTests.cs
+└── TestFixtures/                  # Shared test helpers
 ```
 
 ### Test Guidelines
@@ -173,7 +174,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 - Use `Moq` for mocking Jellyfin interfaces
 - Test both happy path and edge cases
 - Scheduled task tests should verify all three modes: Activate, DryRun, Deactivate
-- Backup tests should cover round-trip (create â†’ serialize â†’ deserialize â†’ restore)
+- Backup tests should cover round-trip (create → serialize → deserialize → restore)
 - Recommendation tests should verify scoring determinism and feature vector consistency
 
 ## Architecture Overview
@@ -182,178 +183,178 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 
 ```text
 Jellyfin.Plugin.JellyfinHelper/
-â”œâ”€â”€ BuildTasks/
-â”‚   â””â”€â”€ ComposeConfigPage.cs     # MSBuild task for config page composition
-â”œâ”€â”€ i18n/                        # Internationalization files (en, de, fr, es, pt, sv, zh, tr)
-â”œâ”€â”€ Plugin.cs                    # Entry point, web page registration, script injection
-â”œâ”€â”€ PluginServiceRegistrator.cs  # DI registration for all services
-â”œâ”€â”€ MediaExtensions.cs           # Extension methods for media analysis
-â”œâ”€â”€ js/
-â”‚   â””â”€â”€ discovery-sidebar.js     # Discovery Custom Tab + sidebar script (embedded resource, injected into index.html)
-â”œâ”€â”€ Api/
-â”‚   â”œâ”€â”€ ArrIntegrationController.cs      # Radarr/Sonarr integration API
-â”‚   â”œâ”€â”€ BackupController.cs              # Backup/restore API
-â”‚   â”œâ”€â”€ CleanupStatisticsController.cs   # Cleanup statistics API
-â”‚   â”œâ”€â”€ ConfigurationController.cs       # Plugin configuration API
-â”‚   â”œâ”€â”€ DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
-â”‚   â”œâ”€â”€ UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
-â”‚   â”œâ”€â”€ DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
-â”‚   â”œâ”€â”€ DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId, MediaType)
-â”‚   â”œâ”€â”€ FolderBrowserController.cs       # Folder browser API (server-side directory listing)
-â”‚   â”œâ”€â”€ RequestResult.cs                 # Generic success/failure response model
-â”‚   â”œâ”€â”€ GrowthTimelineController.cs      # Library growth timeline API
-â”‚   â”œâ”€â”€ LibraryInsightsController.cs     # Library insights API
-â”‚   â”œâ”€â”€ LogsController.cs               # Plugin logs API
-â”‚   â”œâ”€â”€ MediaStatisticsController.cs     # Media statistics API
-â”‚   â”œâ”€â”€ RecommendationController.cs      # ML recommendations API
-â”‚   â”œâ”€â”€ SeerrController.cs              # Jellyseerr/Overseerr integration API
-â”‚   â”œâ”€â”€ TranslationsController.cs        # i18n translations API
-â”‚   â”œâ”€â”€ TrashController.cs               # Trash bin API
-â”‚   â”œâ”€â”€ TrashPathQueryRequest.cs         # DTO for querying trash folders at a specific path
-â”‚   â”œâ”€â”€ TrashRelocateRequest.cs          # DTO for relocating trash between paths
-â”‚   â””â”€â”€ UserActivityController.cs        # User activity insights API
-â”œâ”€â”€ Configuration/
-â”‚   â”œâ”€â”€ PluginConfiguration.cs   # All config properties with defaults
-â”‚   â”œâ”€â”€ TaskMode.cs              # Deactivate / DryRun / Activate enum
-â”‚   â””â”€â”€ ArrInstanceConfig.cs     # Per-instance Arr configuration
-â”œâ”€â”€ Services/
-â”‚   â”œâ”€â”€ Activity/                    # User watch activity tracking
-â”‚   â”‚   â”œâ”€â”€ IUserActivityInsightsService.cs
-â”‚   â”‚   â”œâ”€â”€ UserActivityInsightsService.cs
-â”‚   â”‚   â”œâ”€â”€ IUserActivityCacheService.cs
-â”‚   â”‚   â”œâ”€â”€ UserActivityCacheService.cs
-â”‚   â”‚   â”œâ”€â”€ UserActivityResult.cs
-â”‚   â”‚   â”œâ”€â”€ UserActivitySummary.cs
-â”‚   â”‚   â””â”€â”€ UserItemActivity.cs
-â”‚   â”œâ”€â”€ Backup/
-â”‚   â”‚   â”œâ”€â”€ BackupData.cs        # Backup data model
-â”‚   â”‚   â”œâ”€â”€ BackupService.cs     # Create/restore backup
-â”‚   â”‚   â”œâ”€â”€ BackupValidator.cs   # Comprehensive input validation
-â”‚   â”‚   â””â”€â”€ BackupSanitizer.cs   # Clamp/normalize values
-â”‚   â”œâ”€â”€ FolderBrowser/               # Server-side folder browsing
-â”‚   â”‚   â”œâ”€â”€ IFolderBrowserService.cs # Interface for folder listing
-â”‚   â”‚   â”œâ”€â”€ FolderBrowserService.cs  # Implementation: lists directories with safety guards
-â”‚   â”‚   â”œâ”€â”€ FolderBrowseResult.cs    # Browse result container (entries + current path)
-â”‚   â”‚   â””â”€â”€ FolderEntry.cs           # Single folder/file entry DTO
-â”‚   â”œâ”€â”€ Recommendation/              # ML recommendation system
-â”‚   â”‚   â”œâ”€â”€ Engine/                  # Core recommendation logic
-â”‚   â”‚   â”‚   â”œâ”€â”€ Engine.cs            # Orchestrator: profiles â†’ candidates â†’ scoring â†’ results
-â”‚   â”‚   â”‚   â”œâ”€â”€ TrainingService.cs   # Implicit feedback training pipeline
-â”‚   â”‚   â”‚   â”œâ”€â”€ Training/            # Training sub-components (refactored from TrainingService)
-â”‚   â”‚   â”‚   â”‚   â”œâ”€â”€ TrainingDataBuilder.cs      # Builds labeled training examples from watch history
-â”‚   â”‚   â”‚   â”‚   â”œâ”€â”€ TrainingFeatureComputer.cs  # Computes feature vectors for training candidates
-â”‚   â”‚   â”‚   â”‚   â””â”€â”€ DiscoveryFeedbackExampleBuilder.cs # Phase 4: training from discovery interactions
-â”‚   â”‚   â”‚   â”œâ”€â”€ PreferenceBuilder.cs # Genre/studio/tag/people preference extraction
-â”‚   â”‚   â”‚   â”œâ”€â”€ DiversityReranker.cs # MMR-based diversity reranking
-â”‚   â”‚   â”‚   â”œâ”€â”€ TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
-â”‚   â”‚   â”‚   â”œâ”€â”€ ReasonResolver.cs    # Human-readable recommendation explanations
-â”‚   â”‚   â”‚   â”œâ”€â”€ SimilarityComputer.cs # Genre/people/tag similarity
-â”‚   â”‚   â”‚   â”œâ”€â”€ CollaborativeFilter.cs # Jaccard + IDF co-occurrence
-â”‚   â”‚   â”‚   â”œâ”€â”€ ContentScoring.cs    # Recency, rating, engagement scoring
-â”‚   â”‚   â”‚   â””â”€â”€ EngineConstants.cs   # Shared constants (thresholds, windows)
-â”‚   â”‚   â”œâ”€â”€ Scoring/                 # Pluggable scoring strategies
-â”‚   â”‚   â”‚   â”œâ”€â”€ IScoringStrategy.cs
-â”‚   â”‚   â”‚   â”œâ”€â”€ ITrainableStrategy.cs
-â”‚   â”‚   â”‚   â”œâ”€â”€ HeuristicScoringStrategy.cs  # Fixed weights (rule-based)
-â”‚   â”‚   â”‚   â”œâ”€â”€ LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
-â”‚   â”‚   â”‚   â”œâ”€â”€ NeuralScoringStrategy.cs     # MLP with Adam optimizer
-â”‚   â”‚   â”‚   â”œâ”€â”€ EnsembleScoringStrategy.cs   # Blends heuristic + learned + neural
-â”‚   â”‚   â”‚   â”œâ”€â”€ StrategySelector.cs          # A/B testing: deterministic userâ†’strategy routing
-â”‚   â”‚   â”‚   â”œâ”€â”€ NeuralFeatureImportance.cs   # Permutation-based feature importance for MLP
-â”‚   â”‚   â”‚   â”œâ”€â”€ CandidateFeatures.cs         # 31-feature vector with FeatureIndex enum
-â”‚   â”‚   â”‚   â”œâ”€â”€ DefaultWeights.cs            # Centralized default weights
-â”‚   â”‚   â”‚   â”œâ”€â”€ ScoringHelper.cs             # Shared scoring utilities
-â”‚   â”‚   â”‚   â”œâ”€â”€ ScoreExplanation.cs          # Per-feature score breakdown
-â”‚   â”‚   â”‚   â”œâ”€â”€ TrainingExample.cs           # Training data container
-â”‚   â”‚   â”‚   â””â”€â”€ RankingMetrics.cs            # P@K, R@K, NDCG@K evaluation
-â”‚   â”‚   â”œâ”€â”€ WatchHistory/            # User watch profile building
-â”‚   â”‚   â”‚   â”œâ”€â”€ IWatchHistoryService.cs
-â”‚   â”‚   â”‚   â”œâ”€â”€ WatchHistoryService.cs
-â”‚   â”‚   â”‚   â”œâ”€â”€ UserWatchProfile.cs
-â”‚   â”‚   â”‚   â”œâ”€â”€ LanguageAffinity.cs
-â”‚   â”‚   â”‚   â””â”€â”€ WatchedItemInfo.cs
-â”‚   â”‚   â”œâ”€â”€ Playlist/                # Recommendation â†’ Jellyfin playlist sync
-â”‚   â”‚   â”‚   â”œâ”€â”€ IRecommendationPlaylistService.cs
-â”‚   â”‚   â”‚   â”œâ”€â”€ RecommendationPlaylistService.cs
-â”‚   â”‚   â”‚   â””â”€â”€ PlaylistSyncResult.cs
-â”‚   â”‚   â”œâ”€â”€ IRecommendationEngine.cs
-â”‚   â”‚   â”œâ”€â”€ IRecommendationCacheService.cs
-â”‚   â”‚   â”œâ”€â”€ RecommendationCacheService.cs
-â”‚   â”‚   â”œâ”€â”€ RecommendedItem.cs
-â”‚   â”‚   â””â”€â”€ RecommendationResult.cs
-â”‚   â”œâ”€â”€ Arr/                     # Radarr/Sonarr integration
-â”‚   â”œâ”€â”€ Cleanup/                 # File cleanup services
-â”‚   â”‚   â”œâ”€â”€ ITrashService.cs            # Trash bin interface (move, purge, relocate, access check)
-â”‚   â”‚   â”œâ”€â”€ TrashService.cs             # Trash bin implementation
-â”‚   â”‚   â”œâ”€â”€ TrashItemInfo.cs            # Trash item metadata DTO
-â”‚   â”‚   â”œâ”€â”€ TrashPathAccessResult.cs    # Permission check result (read/write/exists)
-â”‚   â”‚   â”œâ”€â”€ ICleanupConfigHelper.cs     # Cleanup configuration interface
-â”‚   â”‚   â”œâ”€â”€ CleanupConfigHelper.cs      # Library filtering, trash path resolution
-â”‚   â”‚   â”œâ”€â”€ ICleanupTrackingService.cs  # Cleanup statistics tracking interface
-â”‚   â”‚   â””â”€â”€ CleanupTrackingService.cs   # Persists bytes-freed/items-deleted counters
-â”‚   â”œâ”€â”€ ConfigAccess/            # Plugin configuration access
-â”‚   â”œâ”€â”€ Link/                    # .strm/symlink repair
-â”‚   â”œâ”€â”€ PluginLog/               # Structured plugin logging
-â”‚   â”œâ”€â”€ FileTransformation/      # File Transformation plugin integration
-â”‚   â”‚   â”œâ”€â”€ DiscoveryScriptTag.cs     # Shared script tag builder + removal regex (single source of truth)
-â”‚   â”‚   â”œâ”€â”€ PatchRequestPayload.cs    # Payload model for transformation callbacks
-â”‚   â”‚   â””â”€â”€ TransformationPatches.cs  # index.html script injection (on-the-fly via File Transformation plugin)
-â”‚   â”œâ”€â”€ Seerr/                   # Jellyseerr/Overseerr integration
-â”‚   â”‚   â”œâ”€â”€ ISeerrIntegrationService.cs   # Seerr cleanup (request removal)
-â”‚   â”‚   â”œâ”€â”€ SeerrIntegrationService.cs
-â”‚   â”‚   â””â”€â”€ Discovery/               # Seerr Discovery (external recommendations)
-â”‚   â”‚       â”œâ”€â”€ ISeerrDiscoveryService.cs
-â”‚   â”‚       â”œâ”€â”€ SeerrDiscoveryService.cs  # Orchestrator: profiles â†’ TMDb query â†’ scoring â†’ results
-â”‚   â”‚       â”œâ”€â”€ DiscoveryCacheService.cs  # Disk + memory persistence
-â”‚   â”‚       â”œâ”€â”€ ExternalCandidateFeatureBuilder.cs  # Builds 31-feature vector for TMDb items
-â”‚   â”‚       â”œâ”€â”€ NullableDateTimeConverter.cs  # Graceful DateTime? JSON deserialization (handles empty strings from TMDb)
-â”‚   â”‚       â”œâ”€â”€ ParentalRatingHelper.cs   # Child-safe content filtering
-â”‚   â”‚       â”œâ”€â”€ TmdbGenreMap.cs           # Jellyfin â†” TMDb genre ID mapping
-â”‚   â”‚       â”œâ”€â”€ TmdbDiscoverItem.cs       # TMDb candidate DTO
-â”‚   â”‚       â”œâ”€â”€ TmdbDiscoverResponse.cs   # TMDb API page response
-â”‚   â”‚       â”œâ”€â”€ DiscoveryResult.cs        # Per-user result container
-â”‚   â”‚       â”œâ”€â”€ DiscoveryRecommendation.cs # Single recommendation DTO
-â”‚   â”‚       â”œâ”€â”€ SeerrUser.cs             # Seerr user model (with JellyfinUserId mapping + Permissions)
-â”‚   â”‚       â”œâ”€â”€ SeerrUserPage.cs         # Paginated user list response
-â”‚   â”‚       â”œâ”€â”€ SeerrPermissions.cs      # [Flags] enum of all Overseerr/Jellyseerr permission bits
-â”‚   â”‚       â”œâ”€â”€ SeerrPermissionExtensions.cs # Permission evaluation (HasPermission, CanRequest, CanSelectQualityProfile)
-â”‚   â”‚       â”œâ”€â”€ UserRequestPermissionResult.cs # Permission check result (CanRequest + allowed profiles)
-â”‚   â”‚       â”œâ”€â”€ AllowedQualityProfile.cs # Single quality profile the user may select
-â”‚   â”‚       â”œâ”€â”€ SeerrServiceInfo.cs      # Radarr/Sonarr service config from Seerr
-â”‚   â”‚       â”œâ”€â”€ SeerrQualityProfile.cs   # Quality profile DTO
-â”‚   â”‚       â”œâ”€â”€ SeerrRootFolder.cs       # Root folder DTO
-â”‚   â”‚       â”œâ”€â”€ SeerrCredits.cs          # TMDb credits response (cast + crew)
-â”‚   â”‚       â”œâ”€â”€ SeerrCastMember.cs       # Cast member DTO
-â”‚   â”‚       â”œâ”€â”€ SeerrCrewMember.cs       # Crew member DTO
-â”‚   â”‚       â”œâ”€â”€ SeerrMediaDetailResponse.cs # Detailed media info from Seerr
-â”‚   â”‚       â”œâ”€â”€ IDiscoveryFeedbackStore.cs  # Training feedback persistence interface
-â”‚   â”‚       â”œâ”€â”€ DiscoveryFeedbackStore.cs   # File-based feedback store (shown/dismissed/requested/watched)
-â”‚   â”‚       â”œâ”€â”€ DiscoveryFeedbackEntry.cs   # Per-item interaction tracking model
-â”‚   â”‚       â”œâ”€â”€ DiscoveryFeedbackResult.cs  # Per-user feedback container
-â”‚   â”‚       â””â”€â”€ DiscoveryInteractionStatus.cs # Enum: Shown/Dismissed/Requested/RequestedAndWatched
-â”‚   â”œâ”€â”€ Statistics/              # Media statistics
-â”‚   â””â”€â”€ Timeline/                # Library growth tracking
-â”œâ”€â”€ ScheduledTasks/
-â”‚   â”œâ”€â”€ HelperCleanupTask.cs         # Main orchestrator task
-â”‚   â”œâ”€â”€ CleanTrickplayTask.cs
-â”‚   â”œâ”€â”€ CleanEmptyMediaFoldersTask.cs
-â”‚   â”œâ”€â”€ CleanOrphanedSubtitlesTask.cs
-â”‚   â”œâ”€â”€ RepairLinksTask.cs            # Repairs broken .strm/symlink references
-â”‚   â”œâ”€â”€ RecommendationsTask.cs        # ML recommendation generation sub-task
-â”‚   â””â”€â”€ UserActivityUpdateTask.cs     # User activity aggregation sub-task
-â””â”€â”€ PluginPages/
-    â”œâ”€â”€ configPage.template.html # HTML shell (build-time composition)
-    â”œâ”€â”€ configPage.html          # Generated output (do not edit)
-    â”œâ”€â”€ css/                     # Per-tab CSS modules
-    â”‚   â”œâ”€â”€ Shared.css, Overview.css, Codecs.css, Health.css
-    â”‚   â”œâ”€â”€ Trends.css, Settings.css, ArrIntegration.css, Logs.css
-    â”‚   â””â”€â”€ Recommendations.css  # Discover tab styles
-    â””â”€â”€ js/                      # Per-tab JS modules + .eslintrc.json
-        â”œâ”€â”€ Shared.js, Overview.js, Codecs.js, Health.js
-        â”œâ”€â”€ Trends.js, Settings.js, ArrIntegration.js, Logs.js
-        â”œâ”€â”€ Recommendations.js    # Discover tab logic
-        â”œâ”€â”€ FolderBrowser.js      # Folder browser UI (path picker for settings)
-        â””â”€â”€ Main.js               # Tab routing, IIFE close
+├── BuildTasks/
+│   └── ComposeConfigPage.cs     # MSBuild task for config page composition
+├── i18n/                        # Internationalization files (en, de, fr, es, pt, sv, zh, tr)
+├── Plugin.cs                    # Entry point, web page registration, script injection
+├── PluginServiceRegistrator.cs  # DI registration for all services
+├── MediaExtensions.cs           # Extension methods for media analysis
+├── js/
+│   └── discovery-sidebar.js     # Discovery Custom Tab + sidebar script (embedded resource, injected into index.html)
+├── Api/
+│   ├── ArrIntegrationController.cs      # Radarr/Sonarr integration API
+│   ├── BackupController.cs              # Backup/restore API
+│   ├── CleanupStatisticsController.cs   # Cleanup statistics API
+│   ├── ConfigurationController.cs       # Plugin configuration API
+│   ├── DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
+│   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
+│   ├── DiscoveryRequestDto.cs           # Request submission DTO (TmdbId, MediaType, overrides)
+│   ├── DiscoveryDismissDto.cs           # Dismiss request DTO (TmdbId, MediaType)
+│   ├── FolderBrowserController.cs       # Folder browser API (server-side directory listing)
+│   ├── RequestResult.cs                 # Generic success/failure response model
+│   ├── GrowthTimelineController.cs      # Library growth timeline API
+│   ├── LibraryInsightsController.cs     # Library insights API
+│   ├── LogsController.cs               # Plugin logs API
+│   ├── MediaStatisticsController.cs     # Media statistics API
+│   ├── RecommendationController.cs      # ML recommendations API
+│   ├── SeerrController.cs              # Jellyseerr/Overseerr integration API
+│   ├── TranslationsController.cs        # i18n translations API
+│   ├── TrashController.cs               # Trash bin API
+│   ├── TrashPathQueryRequest.cs         # DTO for querying trash folders at a specific path
+│   ├── TrashRelocateRequest.cs          # DTO for relocating trash between paths
+│   └── UserActivityController.cs        # User activity insights API
+├── Configuration/
+│   ├── PluginConfiguration.cs   # All config properties with defaults
+│   ├── TaskMode.cs              # Deactivate / DryRun / Activate enum
+│   └── ArrInstanceConfig.cs     # Per-instance Arr configuration
+├── Services/
+│   ├── Activity/                    # User watch activity tracking
+│   │   ├── IUserActivityInsightsService.cs
+│   │   ├── UserActivityInsightsService.cs
+│   │   ├── IUserActivityCacheService.cs
+│   │   ├── UserActivityCacheService.cs
+│   │   ├── UserActivityResult.cs
+│   │   ├── UserActivitySummary.cs
+│   │   └── UserItemActivity.cs
+│   ├── Backup/
+│   │   ├── BackupData.cs        # Backup data model
+│   │   ├── BackupService.cs     # Create/restore backup
+│   │   ├── BackupValidator.cs   # Comprehensive input validation
+│   │   └── BackupSanitizer.cs   # Clamp/normalize values
+│   ├── FolderBrowser/               # Server-side folder browsing
+│   │   ├── IFolderBrowserService.cs # Interface for folder listing
+│   │   ├── FolderBrowserService.cs  # Implementation: lists directories with safety guards
+│   │   ├── FolderBrowseResult.cs    # Browse result container (entries + current path)
+│   │   └── FolderEntry.cs           # Single folder/file entry DTO
+│   ├── Recommendation/              # ML recommendation system
+│   │   ├── Engine/                  # Core recommendation logic
+│   │   │   ├── Engine.cs            # Orchestrator: profiles → candidates → scoring → results
+│   │   │   ├── TrainingService.cs   # Implicit feedback training pipeline
+│   │   │   ├── Training/            # Training sub-components (refactored from TrainingService)
+│   │   │   │   ├── TrainingDataBuilder.cs      # Builds labeled training examples from watch history
+│   │   │   │   ├── TrainingFeatureComputer.cs  # Computes feature vectors for training candidates
+│   │   │   │   └── DiscoveryFeedbackExampleBuilder.cs # Phase 4: training from discovery interactions
+│   │   │   ├── PreferenceBuilder.cs # Genre/studio/tag/people preference extraction
+│   │   │   ├── DiversityReranker.cs # MMR-based diversity reranking
+│   │   │   ├── TemporalFeatures.cs  # Day-of-week/hour-of-day affinity computation
+│   │   │   ├── ReasonResolver.cs    # Human-readable recommendation explanations
+│   │   │   ├── SimilarityComputer.cs # Genre/people/tag similarity
+│   │   │   ├── CollaborativeFilter.cs # Jaccard + IDF co-occurrence
+│   │   │   ├── ContentScoring.cs    # Recency, rating, engagement scoring
+│   │   │   └── EngineConstants.cs   # Shared constants (thresholds, windows)
+│   │   ├── Scoring/                 # Pluggable scoring strategies
+│   │   │   ├── IScoringStrategy.cs
+│   │   │   ├── ITrainableStrategy.cs
+│   │   │   ├── HeuristicScoringStrategy.cs  # Fixed weights (rule-based)
+│   │   │   ├── LearnedScoringStrategy.cs    # Adaptive ML (SGD linear)
+│   │   │   ├── NeuralScoringStrategy.cs     # MLP with Adam optimizer
+│   │   │   ├── EnsembleScoringStrategy.cs   # Blends heuristic + learned + neural
+│   │   │   ├── StrategySelector.cs          # A/B testing: deterministic user→strategy routing
+│   │   │   ├── NeuralFeatureImportance.cs   # Permutation-based feature importance for MLP
+│   │   │   ├── CandidateFeatures.cs         # 31-feature vector with FeatureIndex enum
+│   │   │   ├── DefaultWeights.cs            # Centralized default weights
+│   │   │   ├── ScoringHelper.cs             # Shared scoring utilities
+│   │   │   ├── ScoreExplanation.cs          # Per-feature score breakdown
+│   │   │   ├── TrainingExample.cs           # Training data container
+│   │   │   └── RankingMetrics.cs            # P@K, R@K, NDCG@K evaluation
+│   │   ├── WatchHistory/            # User watch profile building
+│   │   │   ├── IWatchHistoryService.cs
+│   │   │   ├── WatchHistoryService.cs
+│   │   │   ├── UserWatchProfile.cs
+│   │   │   ├── LanguageAffinity.cs
+│   │   │   └── WatchedItemInfo.cs
+│   │   ├── Playlist/                # Recommendation → Jellyfin playlist sync
+│   │   │   ├── IRecommendationPlaylistService.cs
+│   │   │   ├── RecommendationPlaylistService.cs
+│   │   │   └── PlaylistSyncResult.cs
+│   │   ├── IRecommendationEngine.cs
+│   │   ├── IRecommendationCacheService.cs
+│   │   ├── RecommendationCacheService.cs
+│   │   ├── RecommendedItem.cs
+│   │   └── RecommendationResult.cs
+│   ├── Arr/                     # Radarr/Sonarr integration
+│   ├── Cleanup/                 # File cleanup services
+│   │   ├── ITrashService.cs            # Trash bin interface (move, purge, relocate, access check)
+│   │   ├── TrashService.cs             # Trash bin implementation
+│   │   ├── TrashItemInfo.cs            # Trash item metadata DTO
+│   │   ├── TrashPathAccessResult.cs    # Permission check result (read/write/exists)
+│   │   ├── ICleanupConfigHelper.cs     # Cleanup configuration interface
+│   │   ├── CleanupConfigHelper.cs      # Library filtering, trash path resolution
+│   │   ├── ICleanupTrackingService.cs  # Cleanup statistics tracking interface
+│   │   └── CleanupTrackingService.cs   # Persists bytes-freed/items-deleted counters
+│   ├── ConfigAccess/            # Plugin configuration access
+│   ├── Link/                    # .strm/symlink repair
+│   ├── PluginLog/               # Structured plugin logging
+│   ├── FileTransformation/      # File Transformation plugin integration
+│   │   ├── DiscoveryScriptTag.cs     # Shared script tag builder + removal regex (single source of truth)
+│   │   ├── PatchRequestPayload.cs    # Payload model for transformation callbacks
+│   │   └── TransformationPatches.cs  # index.html script injection (on-the-fly via File Transformation plugin)
+│   ├── Seerr/                   # Jellyseerr/Overseerr integration
+│   │   ├── ISeerrIntegrationService.cs   # Seerr cleanup (request removal)
+│   │   ├── SeerrIntegrationService.cs
+│   │   └── Discovery/               # Seerr Discovery (external recommendations)
+│   │       ├── ISeerrDiscoveryService.cs
+│   │       ├── SeerrDiscoveryService.cs  # Orchestrator: profiles → TMDb query → scoring → results
+│   │       ├── DiscoveryCacheService.cs  # Disk + memory persistence
+│   │       ├── ExternalCandidateFeatureBuilder.cs  # Builds 31-feature vector for TMDb items
+│   │       ├── NullableDateTimeConverter.cs  # Graceful DateTime? JSON deserialization (handles empty strings from TMDb)
+│   │       ├── ParentalRatingHelper.cs   # Child-safe content filtering
+│   │       ├── TmdbGenreMap.cs           # Jellyfin ↔ TMDb genre ID mapping
+│   │       ├── TmdbDiscoverItem.cs       # TMDb candidate DTO
+│   │       ├── TmdbDiscoverResponse.cs   # TMDb API page response
+│   │       ├── DiscoveryResult.cs        # Per-user result container
+│   │       ├── DiscoveryRecommendation.cs # Single recommendation DTO
+│   │       ├── SeerrUser.cs             # Seerr user model (with JellyfinUserId mapping + Permissions)
+│   │       ├── SeerrUserPage.cs         # Paginated user list response
+│   │       ├── SeerrPermissions.cs      # [Flags] enum of all Overseerr/Jellyseerr permission bits
+│   │       ├── SeerrPermissionExtensions.cs # Permission evaluation (HasPermission, CanRequest, CanSelectQualityProfile)
+│   │       ├── UserRequestPermissionResult.cs # Permission check result (CanRequest + allowed profiles)
+│   │       ├── AllowedQualityProfile.cs # Single quality profile the user may select
+│   │       ├── SeerrServiceInfo.cs      # Radarr/Sonarr service config from Seerr
+│   │       ├── SeerrQualityProfile.cs   # Quality profile DTO
+│   │       ├── SeerrRootFolder.cs       # Root folder DTO
+│   │       ├── SeerrCredits.cs          # TMDb credits response (cast + crew)
+│   │       ├── SeerrCastMember.cs       # Cast member DTO
+│   │       ├── SeerrCrewMember.cs       # Crew member DTO
+│   │       ├── SeerrMediaDetailResponse.cs # Detailed media info from Seerr
+│   │       ├── IDiscoveryFeedbackStore.cs  # Training feedback persistence interface
+│   │       ├── DiscoveryFeedbackStore.cs   # File-based feedback store (shown/dismissed/requested/watched)
+│   │       ├── DiscoveryFeedbackEntry.cs   # Per-item interaction tracking model
+│   │       ├── DiscoveryFeedbackResult.cs  # Per-user feedback container
+│   │       └── DiscoveryInteractionStatus.cs # Enum: Shown/Dismissed/Requested/RequestedAndWatched
+│   ├── Statistics/              # Media statistics
+│   └── Timeline/                # Library growth tracking
+├── ScheduledTasks/
+│   ├── HelperCleanupTask.cs         # Main orchestrator task
+│   ├── CleanTrickplayTask.cs
+│   ├── CleanEmptyMediaFoldersTask.cs
+│   ├── CleanOrphanedSubtitlesTask.cs
+│   ├── RepairLinksTask.cs            # Repairs broken .strm/symlink references
+│   ├── RecommendationsTask.cs        # ML recommendation generation sub-task
+│   └── UserActivityUpdateTask.cs     # User activity aggregation sub-task
+└── PluginPages/
+    ├── configPage.template.html # HTML shell (build-time composition)
+    ├── configPage.html          # Generated output (do not edit)
+    ├── css/                     # Per-tab CSS modules
+    │   ├── Shared.css, Overview.css, Codecs.css, Health.css
+    │   ├── Trends.css, Settings.css, ArrIntegration.css, Logs.css
+    │   └── Recommendations.css  # Discover tab styles
+    └── js/                      # Per-tab JS modules + .eslintrc.json
+        ├── Shared.js, Overview.js, Codecs.js, Health.js
+        ├── Trends.js, Settings.js, ArrIntegration.js, Logs.js
+        ├── Recommendations.js    # Discover tab logic
+        ├── FolderBrowser.js      # Folder browser UI (path picker for settings)
+        └── Main.js               # Tab routing, IIFE close
 ```
 
 ### Service Registration
@@ -391,22 +392,22 @@ Each task receives its mode from `PluginConfiguration` and logs differently base
 The ML recommendation system uses a layered scoring approach:
 
 ```text
-User Watch History â†’ Feature Extraction (31 features) â†’ Scoring Strategy â†’ Ranked Results
-                                                              â†‘
-                                                    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-                                                    â”‚  EnsembleScoringStrategy  â”‚
-                                                    â”‚                          â”‚
-                                                    â”‚  Î± Ã— Learned (SGD)       â”‚
-                                                    â”‚  + (1-Î±) Ã— Heuristic     â”‚
-                                                    â”‚  + Î² Ã— Neural (MLP)      â”‚
-                                                    â”‚  Ã— genre penalty          â”‚
-                                                    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+User Watch History → Feature Extraction (31 features) → Scoring Strategy → Ranked Results
+                                                              ↑
+                                                    ┌─────────┴──────────┐
+                                                    │  EnsembleScoringStrategy  │
+                                                    │                          │
+                                                    │  α × Learned (SGD)       │
+                                                    │  + (1-α) × Heuristic     │
+                                                    │  + β × Neural (MLP)      │
+                                                    │  × genre penalty          │
+                                                    └──────────────────────────┘
 ```
 
 - **HeuristicScoringStrategy**: Fixed hand-tuned weights, always available
 - **LearnedScoringStrategy**: Linear model trained via SGD on implicit feedback
-- **NeuralScoringStrategy**: 4-hidden-layer MLP (31â†’48â†’24â†’12â†’6â†’1) with Adam optimizer
-- **EnsembleScoringStrategy**: Blends all three with dynamic Î±/Î² weighting
+- **NeuralScoringStrategy**: 4-hidden-layer MLP (31→48→24→12→6→1) with Adam optimizer
+- **EnsembleScoringStrategy**: Blends all three with dynamic α/β weighting
 
 Training uses implicit feedback: previously recommended items are compared against current watch data to generate labeled training examples. The EnsembleScoringStrategy records a rolling history of training quality metrics (validation loss, P@K, R@K, NDCG@K) that are persisted across server restarts for future trend analysis.
 
@@ -415,19 +416,19 @@ Training uses implicit feedback: previously recommended items are compared again
 Seerr Discovery extends the recommendation system to suggest external (not-yet-in-library) content by querying the configured Overseerr/Jellyseerr instance:
 
 ```text
-UserWatchProfiles â†’ Genre/People/Language preferences
-                         â†“
+UserWatchProfiles → Genre/People/Language preferences
+                         ↓
          TMDb Discovery via Seerr API (genre + language endpoints)
-                         â†“
+                         ↓
          Deduplication + Parental Rating Filter + Arr Exclusion
-                         â†“
+                         ↓
          Phase 1: Pre-score all candidates (genre/rating/recency only)
-                         â†“
+                         ↓
          Phase 2: Enrich top-20 with credits (actors/directors via Seerr)
-                         â†“
+                         ↓
          Phase 3: Final score with EnsembleScoringStrategy (full 31 features)
-                         â†“
-         Top-10 per user â†’ DiscoveryCacheService â†’ Frontend
+                         ↓
+         Top-10 per user → DiscoveryCacheService → Frontend
 ```
 
 - Coupled to **Seerr configuration** (URL + API Key) - independent of Seerr Cleanup task mode
@@ -441,16 +442,16 @@ UserWatchProfiles â†’ Genre/People/Language preferences
 Discovery results are also displayed on the Jellyfin home screen via a separate script (`js/discovery-sidebar.js`) that is injected into Jellyfin's `index.html`:
 
 ```text
-Plugin starts â†’ Plugin.InjectScript()
-                    â†“
-    â”Œâ”€â”€â”€ File Transformation plugin available? â”€â”€â”€â”
-    â”‚ YES                                         â”‚ NO
-    â”‚ Register callback via reflection            â”‚ Direct index.html write
-    â”‚ (no filesystem write needed)                â”‚ (requires writable filesystem)
-    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                    â†“
+Plugin starts → Plugin.InjectScript()
+                    ↓
+    ┌─── File Transformation plugin available? ───┐
+    │ YES                                         │ NO
+    │ Register callback via reflection            │ Direct index.html write
+    │ (no filesystem write needed)                │ (requires writable filesystem)
+    └─────────────────────────────────────────────┘
+                    ↓
     index.html serves <script src="/JellyfinHelper/Discovery/My/script">
-                    â†“
+                    ↓
     discovery-sidebar.js runs in browser:
       1. Waits for ApiClient to be available
       2. Loads i18n strings from /JellyfinHelper/Translations
@@ -473,7 +474,7 @@ Plugin starts â†’ Plugin.InjectScript()
 | Neither plugin installed | Script injection writes to `index.html` (requires writable filesystem); sidebar link navigates to fallback page URL |
 | Read-only filesystem + no File Transformation | Script injection fails silently (logged at Debug level); Discovery is still accessible via direct URL `/JellyfinHelper/discoveryPage` but no automatic injection occurs |
 
-**Task Mode Coupling:** Discovery generation shares the `RecommendationsTaskMode` setting â€” there is no separate toggle. When `RecommendationsTaskMode` is set to `Deactivate`, no Discovery recommendations are generated. This is intentional: Discovery depends on the same watch profile data that the Recommendations engine produces.
+**Task Mode Coupling:** Discovery generation shares the `RecommendationsTaskMode` setting — there is no separate toggle. When `RecommendationsTaskMode` is set to `Deactivate`, no Discovery recommendations are generated. This is intentional: Discovery depends on the same watch profile data that the Recommendations engine produces.
 
 The File Transformation registration uses reflection to avoid a hard dependency - the plugin loads the assembly at runtime and constructs a Newtonsoft.Json `JObject` payload with `id`, `fileNamePattern`, `callbackAssembly`, `callbackClass`, and `callbackMethod`.
 
@@ -500,17 +501,17 @@ The plugin's configuration page is a **single HTML file** (`configPage.html`) th
 
 ```text
 configPage.template.html (shell with placeholders)
-    â”œâ”€â”€ css/*.css           â†’ injected into <style> block
-    â””â”€â”€ js/*.js             â†’ injected into <script> block
-    â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    â†’ configPage.html       (generated, do not edit directly)
+    ├── css/*.css           → injected into <style> block
+    └── js/*.js             → injected into <script> block
+    ═══════════════════════
+    → configPage.html       (generated, do not edit directly)
 ```
 
 The `ComposeConfigPage` MSBuild task (`BuildTasks/ComposeConfigPage.cs`) runs during build:
 
 1. Reads `configPage.template.html`
-2. Finds `/* __CSS_MODULES__ */` placeholder â†’ injects all CSS files (ordered)
-3. Finds `/* __JS_MODULES__ */` placeholder â†’ injects all JS files (ordered)
+2. Finds `/* __CSS_MODULES__ */` placeholder → injects all CSS files (ordered)
+3. Finds `/* __JS_MODULES__ */` placeholder → injects all JS files (ordered)
 4. Writes the composed `configPage.html`
 
 ### File Ordering

@@ -5,7 +5,7 @@
 A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks, media library statistics, ML-powered smart recommendations, user activity insights, health checks, and Arr stack integration - all from a single, multi-tab dashboard.
 
 [![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square)](https://github.com/JellyPlugins/jellyfin-helper/releases)
-[![Tests](https://img.shields.io/badge/tests-2318%20passed-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
+[![Tests](https://img.shields.io/badge/tests-2375%20passed-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
 [![Jellyfin](https://img.shields.io/badge/Jellyfin-12.0+-00A4DC?style=flat-square&logo=jellyfin&logoColor=white)](https://jellyfin.org/)
 [![License](https://img.shields.io/github/license/JellyPlugins/jellyfin-helper?style=flat-square)](LICENSE)
@@ -51,7 +51,7 @@ All tasks default to **Dry Run** mode - nothing is deleted until you explicitly 
 
 **Compatibility:** Jellyfin **12.0+** · .NET **10.0**
 
-> **Using Jellyfin 10.x?** Stay on plugin version **v2.1.0.5**, which remains available in the repository and installs automatically on Jellyfin 10.x. Version 3.x targets Jellyfin 12.0 and will not install on older servers.
+> **Using Jellyfin 10.x?** Stay on plugin version **v2.1.0.5**, which remains available in the repository. Version 3.x targets Jellyfin 12.0 and will not install on older servers.
 
 ---
 
@@ -97,7 +97,8 @@ All tasks default to **Dry Run** mode - nothing is deleted until you explicitly 
 
 ## Origin
 
-Based on [jellyfin-trickplay-folder-cleaner](https://github.com/Noir1992/jellyfin-trickplay-folder-cleaner) by [@Noir1992](https://github.com/Noir1992), inspired by [this community script](https://github.com/jellyfin/jellyfin/issues/12818#issuecomment-2712783498). This fork evolved into an independent project with significant additions.
+Based on [jellyfin-trickplay-folder-cleaner](https://github.com/Noir1992/jellyfin-trickplay-folder-cleaner) by [@Noir1992](https://github.com/Noir1992), which was inspired by [this community script](https://github.com/jellyfin/jellyfin/issues/12818#issuecomment-2712783498) by [@S2ciOnur](https://github.com/S2ciOnur). 
+This fork evolved into an independent project with significant additions.
 
 ## License
 
@@ -105,8 +106,7 @@ GNU General Public License v3.0 - see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-| Who                                          | Contribution                                                                                          |
-|----------------------------------------------|-------------------------------------------------------------------------------------------------------|
-| [@Noir1992](https://github.com/Noir1992)     | Original plugin author                                                                                |
-| [@K-Money](https://github.com/K-Money)       | Initial testing                                                                                       |
-| [@n00bcodr](https://github.com/n00bcodr)     | [Jellyfin-Enhanced](https://github.com/n00bcodr/Jellyfin-Enhanced) – inspiration for plugin features  |
+| Who                                          | Contribution                                                                                                                              |
+|----------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| [@Noir1992](https://github.com/Noir1992)     | Original plugin author & Contributor - [jellyfin-trickplay-folder-cleaner](https://github.com/Noir1992/jellyfin-trickplay-folder-cleaner) |
+| [@n00bcodr](https://github.com/n00bcodr)     | Inspiration for plugin features - [Jellyfin-Enhanced](https://github.com/n00bcodr/Jellyfin-Enhanced)                                      |
