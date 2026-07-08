@@ -123,12 +123,9 @@ internal sealed class SimilarityComputer
                 }
 
                 var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var name in kvp.Value)
+                foreach (var name in kvp.Value.Where(static n => !string.IsNullOrWhiteSpace(n)))
                 {
-                    if (!string.IsNullOrWhiteSpace(name))
-                    {
-                        names.Add(name);
-                    }
+                    names.Add(name);
                 }
 
                 if (names.Count > 0)

@@ -87,8 +87,7 @@ public sealed class SimilarityComputerTests
 
         var result = computer.BuildCandidatePeopleLookup([candidate]);
 
-        Assert.True(result.ContainsKey(candidate.Id));
-        var names = result[candidate.Id];
+        Assert.True(result.TryGetValue(candidate.Id, out var names));
         Assert.Contains("Actor Alice", names);
         Assert.Contains("Director Bob", names);
         Assert.Equal(2, names.Count);
@@ -112,8 +111,7 @@ public sealed class SimilarityComputerTests
 
         var result = computer.BuildCandidatePeopleLookup([candidate]);
 
-        Assert.True(result.ContainsKey(candidate.Id));
-        var names = result[candidate.Id];
+        Assert.True(result.TryGetValue(candidate.Id, out var names));
         Assert.Contains("Actor Alice", names);
         Assert.DoesNotContain("Writer Carol", names);
         Assert.DoesNotContain("Producer Dan", names);
@@ -156,8 +154,7 @@ public sealed class SimilarityComputerTests
 
         var result = computer.BuildCandidatePeopleLookup([candidate]);
 
-        Assert.True(result.ContainsKey(candidate.Id));
-        var names = result[candidate.Id];
+        Assert.True(result.TryGetValue(candidate.Id, out var names));
         Assert.Single(names);
         Assert.Contains("Actor Valid", names);
     }
@@ -177,8 +174,8 @@ public sealed class SimilarityComputerTests
 
         var result = computer.BuildCandidatePeopleLookup([candidate]);
 
-        Assert.True(result.ContainsKey(candidate.Id));
-        Assert.Single(result[candidate.Id]);
+        Assert.True(result.TryGetValue(candidate.Id, out var names));
+        Assert.Single(names);
     }
 
     [Fact]
@@ -194,8 +191,7 @@ public sealed class SimilarityComputerTests
 
         var result = computer.BuildCandidatePeopleLookup([candidate]);
 
-        Assert.True(result.ContainsKey(candidate.Id));
-        var names = result[candidate.Id];
+        Assert.True(result.TryGetValue(candidate.Id, out var names));
         Assert.Contains("alice", names);   // lower-case lookup must match
         Assert.Contains("ALICE", names);   // upper-case lookup must match
         Assert.Contains("Alice", names);   // canonical
@@ -236,8 +232,8 @@ public sealed class SimilarityComputerTests
 
         var result = computer.BuildCandidatePeopleLookup([good, bad]);
 
-        Assert.True(result.ContainsKey(good.Id));
-        Assert.Contains("Alice", result[good.Id]);
+        Assert.True(result.TryGetValue(good.Id, out var goodPeople));
+        Assert.Contains("Alice", goodPeople);
         Assert.False(result.ContainsKey(bad.Id));
     }
 
@@ -321,9 +317,9 @@ public sealed class SimilarityComputerTests
 
         var result = computer.BuildCandidatePeopleLookup([candidate]);
 
-        Assert.True(result.ContainsKey(candidate.Id));
-        Assert.Equal(2, result[candidate.Id].Count); // Alice (dedup) + Bob
-        Assert.Contains("alice", result[candidate.Id]); // case-insensitive lookup still works
+        Assert.True(result.TryGetValue(candidate.Id, out var people));
+        Assert.Equal(2, people.Count); // Alice (dedup) + Bob
+        Assert.Contains("alice", people); // case-insensitive lookup still works
     }
 
     [Fact]
@@ -362,8 +358,8 @@ public sealed class SimilarityComputerTests
 
         var result = computer.BuildCandidatePeopleLookup([candidate]);
 
-        Assert.True(result.ContainsKey(candidate.Id));
-        Assert.Contains("FallbackActor", result[candidate.Id]);
+        Assert.True(result.TryGetValue(candidate.Id, out var names));
+        Assert.Contains("FallbackActor", names);
         library.Verify(l => l.GetPeople(candidate), Times.Once);
     }
 
