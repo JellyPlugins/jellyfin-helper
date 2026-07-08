@@ -17,9 +17,9 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
-using IFileSystem = MediaBrowser.Model.IO.IFileSystem;
 
 namespace Jellyfin.Plugin.JellyfinHelper.ScheduledTasks;
 
