@@ -151,9 +151,15 @@ public sealed class WatchHistoryService : IWatchHistoryService
         var ratingCount = 0;
         var watchedSeriesIds = new HashSet<Guid>();
 
+        // Pre-fetch user data for every video item in one batch call (Jellyfin 12+ API).
+        // Falls back to null on any exception; the per-item lookup below then reverts to
+        // the pre-batch code path via _userDataManager.GetUserData, so the profile never
+        // regresses to worse behavior than before this optimization.
+        var itemUserDataLookup = TryLoadUserDataBatch(user, allItems);
+
         foreach (var item in allItems)
         {
-            var userData = _userDataManager.GetUserData(user, item);
+            var userData = LookupUserData(itemUserDataLookup, item, user);
             if (userData is null)
             {
                 continue;
@@ -249,9 +255,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // itself, not on individual episodes.
         allSeries ??= LoadAllSeriesItems();
 
+        // Second batch call for the (usually much smaller) series list.
+        var seriesUserDataLookup = TryLoadUserDataBatch(user, allSeries);
+
         foreach (var series in allSeries)
         {
-            var seriesUserData = _userDataManager.GetUserData(user, series);
+            var seriesUserData = LookupUserData(seriesUserDataLookup, series, user);
             if (seriesUserData is not null && seriesUserData.IsFavorite)
             {
                 profile.FavoriteSeriesIds.Add(series.Id);
@@ -300,7 +309,8 @@ public sealed class WatchHistoryService : IWatchHistoryService
         // Build audio + subtitle language profiles in a single pass over allItems.
         // Previously these were two separate methods each iterating allItems and calling
         // GetUserData per item, causing 2× the UserData lookups.
-        BuildLanguageProfiles(profile, user, allItems);
+        // Reuses the already-fetched itemUserDataLookup to avoid a third pass.
+        BuildLanguageProfiles(profile, user, allItems, itemUserDataLookup);
 
         // Build people (actors/directors) profile from BaseItem.People metadata
         BuildPeopleProfile(profile, user, allItems, allSeries);
@@ -329,14 +339,20 @@ public sealed class WatchHistoryService : IWatchHistoryService
     /// <param name="profile">The user profile to populate with language data.</param>
     /// <param name="user">The Jellyfin user entity.</param>
     /// <param name="allItems">Pre-loaded video items from the library.</param>
+    /// <param name="itemUserDataLookup">
+    ///     Pre-fetched batch dictionary from <see cref="TryLoadUserDataBatch"/>, or <c>null</c>
+    ///     if the batch call failed. When <c>null</c>, this method falls back to per-item
+    ///     <c>GetUserData</c> calls via <see cref="LookupUserData"/>.
+    /// </param>
     private void BuildLanguageProfiles(
         UserWatchProfile profile,
         Jellyfin.Database.Implementations.Entities.User user,
-        IReadOnlyList<BaseItem> allItems)
+        IReadOnlyList<BaseItem> allItems,
+        IReadOnlyDictionary<Guid, UserItemData>? itemUserDataLookup)
     {
         foreach (var item in allItems)
         {
-            var userData = _userDataManager.GetUserData(user, item);
+            var userData = LookupUserData(itemUserDataLookup, item, user);
             if (userData is null || (!userData.Played && userData.PlaybackPositionTicks <= 0))
             {
                 continue;
@@ -689,5 +705,78 @@ public sealed class WatchHistoryService : IWatchHistoryService
             _ when lower.Length == 2 => lower, // Already ISO 639-1
             _ => lower // Keep unmapped 3-letter codes as-is
         };
+    }
+
+    /// <summary>
+    ///     Attempts to load user data for the given items in a single batch call
+    ///     (Jellyfin 12+ <c>IUserDataManager.GetUserDataBatch</c>). Returns <c>null</c>
+    ///     on any exception; callers must then fall back to per-item lookups.
+    ///     Wrapping the batch call in a broad catch prevents a single failing item
+    ///     (e.g. a database migration mid-flight) from aborting the entire profile build.
+    /// </summary>
+    /// <param name="user">The Jellyfin user.</param>
+    /// <param name="items">The items to fetch user data for.</param>
+    /// <returns>A dictionary keyed by item ID, or <c>null</c> if the batch call threw.</returns>
+    private IReadOnlyDictionary<Guid, UserItemData>? TryLoadUserDataBatch(
+        Jellyfin.Database.Implementations.Entities.User user,
+        IReadOnlyList<BaseItem> items)
+    {
+        if (items.Count == 0)
+        {
+            // Nothing to load - return an empty read-only dictionary so callers can still
+            // treat this as "batch succeeded, no results" instead of "batch failed, fall back".
+            return new Dictionary<Guid, UserItemData>();
+        }
+
+        try
+        {
+            var batch = _userDataManager.GetUserDataBatch(items, user);
+            if (batch is null)
+            {
+                return null;
+            }
+
+            // Accept any dictionary shape returned by the Jellyfin API.
+            if (batch is IReadOnlyDictionary<Guid, UserItemData> readOnly)
+            {
+                return readOnly;
+            }
+
+            return new Dictionary<Guid, UserItemData>(batch);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            _pluginLog.LogWarning(
+                "WatchHistory",
+                $"Batch user-data load failed for user '{user.Username}'; falling back to per-item lookup.",
+                ex,
+                _logger);
+            return null;
+        }
+    }
+
+    /// <summary>
+    ///     Looks up user data for a single item, preferring the pre-fetched batch dictionary
+    ///     but falling back to a per-item <c>GetUserData</c> call when the batch was not
+    ///     available for this user (batch returned <c>null</c> due to an exception upstream).
+    ///     A missing entry in a valid batch is treated as "no user data" — identical to
+    ///     the pre-batch behavior of <c>GetUserData</c> returning <c>null</c>.
+    /// </summary>
+    /// <param name="lookup">The batch lookup, or <c>null</c> if the batch failed.</param>
+    /// <param name="item">The item whose user data to fetch.</param>
+    /// <param name="user">The Jellyfin user (used only for the fallback path).</param>
+    /// <returns>The user's data for the item, or <c>null</c> when unavailable.</returns>
+    private UserItemData? LookupUserData(
+        IReadOnlyDictionary<Guid, UserItemData>? lookup,
+        BaseItem item,
+        Jellyfin.Database.Implementations.Entities.User user)
+    {
+        if (lookup is not null)
+        {
+            lookup.TryGetValue(item.Id, out var found);
+            return found;
+        }
+
+        return _userDataManager.GetUserData(user, item);
     }
 }

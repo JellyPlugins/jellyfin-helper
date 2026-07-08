@@ -326,6 +326,124 @@ public sealed class WatchHistoryServiceTests
         Assert.Equal(0, profile.WatchedMovieCount);
     }
 
+    // --- Series-level favorites (BuildProfile line 254) ---
+    // Series items are queried separately from video items and their UserData is fetched
+    // per-series. Batch fetching (Jellyfin 12+) must preserve these behaviors:
+    //   1. A favorited series adds a synthetic WatchedItemInfo whose Genres feed into
+    //      the profile's GenreDistribution
+    //   2. The series' ID is added to FavoriteSeriesIds
+    //   3. FavoriteCount is incremented
+    //   4. Non-favorited series are ignored even if UserData exists
+
+    [Fact]
+    public void BuildProfile_FavoriteSeries_AddsSyntheticWatchedItemAndFavoriteId()
+    {
+        var user = CreateTestUser("alice");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+
+        var series = new Series
+        {
+            Id = Guid.NewGuid(),
+            Name = "Fav Show",
+            Genres = new[] { "Sci-Fi", "Drama" },
+            ProductionYear = 2020,
+            CommunityRating = 8.5f
+        };
+
+        // First call: video items (empty)
+        // Second call: series items (returns favorited series)
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem>())          // video items
+            .Returns(new List<BaseItem> { series }); // series items
+
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, series))
+            .Returns(new UserItemData
+            {
+                Key = "series-fav-key",
+                Played = false,
+                PlayCount = 0,
+                IsFavorite = true
+            });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        Assert.Contains(series.Id, profile!.FavoriteSeriesIds);
+        Assert.Equal(1, profile.FavoriteCount);
+        Assert.Contains(profile.WatchedItems, w => w.ItemId == series.Id && w.IsFavorite);
+        Assert.Equal(1, profile.GenreDistribution["Sci-Fi"]);
+        Assert.Equal(1, profile.GenreDistribution["Drama"]);
+    }
+
+    [Fact]
+    public void BuildProfile_NonFavoriteSeries_IsIgnored()
+    {
+        var user = CreateTestUser("bob");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+
+        var series = new Series
+        {
+            Id = Guid.NewGuid(),
+            Name = "Just A Show",
+            Genres = new[] { "Comedy" }
+        };
+
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem>())
+            .Returns(new List<BaseItem> { series });
+
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, series))
+            .Returns(new UserItemData
+            {
+                Key = "series-key",
+                Played = false,
+                PlayCount = 0,
+                IsFavorite = false
+            });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        Assert.Empty(profile!.FavoriteSeriesIds);
+        Assert.Equal(0, profile.FavoriteCount);
+        Assert.DoesNotContain(profile.WatchedItems, w => w.ItemId == series.Id);
+    }
+
+    [Fact]
+    public void BuildProfile_NullSeriesUserData_IsIgnored()
+    {
+        // Contract for batch refactor: missing UserData in the batch dict (which manifests as null)
+        // must produce the exact same skip-behavior as the pre-batch GetUserData returning null.
+        var user = CreateTestUser("charlie");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+
+        var series = new Series
+        {
+            Id = Guid.NewGuid(),
+            Name = "Ghost Show",
+            Genres = new[] { "Horror" }
+        };
+
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem>())
+            .Returns(new List<BaseItem> { series });
+
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, series))
+            .Returns((UserItemData?)null);
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        Assert.Empty(profile!.FavoriteSeriesIds);
+        Assert.Equal(0, profile.FavoriteCount);
+    }
+
     // --- Helpers ---
 
     private static Jellyfin.Database.Implementations.Entities.User CreateTestUser(string username)
