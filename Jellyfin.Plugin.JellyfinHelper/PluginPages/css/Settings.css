@@ -395,13 +395,17 @@
     -webkit-backdrop-filter: blur(6px);
 }
 
-
 /* noinspection CssUnusedSymbol */
 .settings-toolbar-actions {
     display: flex;
     align-items: center;
     gap: 0.6em;
     flex-wrap: wrap;
+    /* Anchor the Save button to the right edge even when the status chip on the
+       left is hidden (display:none removes it as a flex item, so space-between
+       alone would otherwise pull the button left). On mobile the width:100%
+       rule below neutralises this, preserving the existing stacked layout. */
+    margin-left: auto;
 }
 
 /* Inline the sticky Save button so it stays compact */
