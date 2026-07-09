@@ -27,6 +27,25 @@
     box-sizing: border-box;
 }
 
+/* ── Sticky Save toolbar via a bounded local scroll area ──
+   Page-level position:sticky is unreliable inside Jellyfin's config-page scroll
+   ancestry (any ancestor with overflow breaks it). Making the Settings form its
+   own scroll container — the same proven pattern the Logs table uses — gives the
+   sticky .settings-toolbar a real scroll context to pin to, so it stays fixed at
+   the top while the cards scroll underneath.
+   Desktop only: on mobile (<=600px) natural page scrolling is kept (responsive).
+   The max-height here is a safe fallback; updateSettingsScrollHeight() in
+   Settings.js refines it at runtime to fill exactly down to the viewport bottom. */
+@media (min-width: 601px) {
+    /* noinspection CssUnusedSymbol */
+    #settingsForm {
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
+        max-height: calc(100vh - 8.5em);
+    }
+}
+
 .settings-form label {
     display: block;
     margin-top: 1em;

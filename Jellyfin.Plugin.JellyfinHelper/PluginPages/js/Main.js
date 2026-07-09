@@ -58,6 +58,9 @@ function doTabSwitch(clickedBtn, tabId) {
     if (tabId === 'logs' && typeof initLogsTab === 'function') {
         initLogsTab();
     }
+    if (tabId === 'settings' && typeof onSettingsTabShown === 'function') {
+        onSettingsTabShown();
+    }
 }
 
 // formatTimeAgo is now in Shared.js
