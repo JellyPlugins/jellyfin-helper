@@ -96,6 +96,14 @@ function updateSeerrUIState(isConfigured) {
 // Dirty-tracking: snapshot of settings payload after load/save
 var _settingsSnapshot = '';
 
+// True once the user has made at least one change since the form was (re)loaded.
+// The saved/unsaved chip stays hidden until this becomes true, so a freshly
+// loaded, untouched form shows no indicator (per product decision).
+var _settingsInteracted = false;
+
+// Timer handle for the delayed fade-out of the "All changes saved" chip.
+var _settingsSavedHideTimer = null;
+
 function takeSettingsSnapshot() {
     try {
         _settingsSnapshot = JSON.stringify(buildSettingsPayload());
@@ -116,37 +124,95 @@ function hasUnsavedSettings() {
 }
 
 /**
- * Updates the sticky-toolbar dirty indicator to reflect the current
- * unsaved-changes state derived from _settingsSnapshot. Safe to call
- * even when the indicator element is absent from the DOM.
+ * Updates the sticky-toolbar dirty indicator.
+ *
+ * Visibility rules (per product decision):
+ *   • Freshly loaded / untouched form   → hidden (no indicator at all)
+ *   • First unsaved change              → "Unsaved changes" (stays until saved)
+ *   • Just saved (after an interaction) → "All changes saved", then fades out
+ *                                         after a few seconds until the next change
+ *
+ * Safe to call even when the indicator element is absent from the DOM.
  */
 function updateSettingsDirtyIndicator() {
     var el = document.getElementById('settingsDirtyIndicator');
     if (!el) return;
-    var dirty = false;
+
+    var dirty;
     try { dirty = hasUnsavedSettings(); } catch (_e) { dirty = false; }
+
+    // No baseline yet — keep hidden to avoid a flash on first render.
     if (!_settingsSnapshot) {
-        // No baseline yet — hide indicator to avoid a flash on first render.
-        el.style.display = 'none';
-        el.classList.remove('is-dirty', 'is-clean');
+        hideSettingsDirtyIndicator(el);
         return;
     }
-    el.style.display = '';
+
     if (dirty) {
+        // The user changed something — reveal the chip and remember the interaction.
+        _settingsInteracted = true;
+        if (_settingsSavedHideTimer) {
+            clearTimeout(_settingsSavedHideTimer);
+            _settingsSavedHideTimer = null;
+        }
+        el.style.display = '';
         el.classList.add('is-dirty');
-        el.classList.remove('is-clean');
+        el.classList.remove('is-clean', 'is-hiding');
         var dirtyLabel = T('settingsUnsavedChanges', 'Unsaved changes');
         el.setAttribute('title', dirtyLabel);
         el.setAttribute('aria-label', dirtyLabel);
         el.innerHTML = '<span class="status-dot" aria-hidden="true"></span><span>' + escHtml(dirtyLabel) + '</span>';
-    } else {
-        el.classList.add('is-clean');
-        el.classList.remove('is-dirty');
-        var savedLabel = T('settingsAllSaved', 'All changes saved');
-        el.setAttribute('title', savedLabel);
-        el.setAttribute('aria-label', savedLabel);
-        el.innerHTML = mi('check_circle') + '<span>' + escHtml(savedLabel) + '</span>';
+        return;
     }
+
+    // Clean state. Only show the "saved" confirmation if the user actually
+    // changed something first; an untouched form shows nothing.
+    if (!_settingsInteracted) {
+        hideSettingsDirtyIndicator(el);
+        return;
+    }
+
+    el.style.display = '';
+    el.classList.add('is-clean');
+    el.classList.remove('is-dirty', 'is-hiding');
+    var savedLabel = T('settingsAllSaved', 'All changes saved');
+    el.setAttribute('title', savedLabel);
+    el.setAttribute('aria-label', savedLabel);
+    el.innerHTML = mi('check_circle') + '<span>' + escHtml(savedLabel) + '</span>';
+
+    // Fade the confirmation out after a short delay, then reset the interaction
+    // flag so the chip stays hidden until the next change.
+    if (_settingsSavedHideTimer) clearTimeout(_settingsSavedHideTimer);
+    _settingsSavedHideTimer = setTimeout(function () {
+        _settingsSavedHideTimer = null;
+        var elNow = document.getElementById('settingsDirtyIndicator');
+        // Abort if the user started editing again in the meantime.
+        if (!elNow || elNow.classList.contains('is-dirty')) return;
+        elNow.classList.add('is-hiding');
+        _settingsInteracted = false;
+        // After the CSS opacity transition completes, remove it from layout.
+        setTimeout(function () {
+            var elDone = document.getElementById('settingsDirtyIndicator');
+            if (elDone && elDone.classList.contains('is-hiding')) {
+                elDone.style.display = 'none';
+                elDone.classList.remove('is-clean', 'is-hiding');
+            }
+        }, 400);
+    }, 2500);
+}
+
+/**
+ * Hides the dirty indicator and clears all of its transient state classes
+ * and any pending fade-out timer.
+ * @param {HTMLElement} el - The indicator element.
+ */
+function hideSettingsDirtyIndicator(el) {
+    if (!el) return;
+    if (_settingsSavedHideTimer) {
+        clearTimeout(_settingsSavedHideTimer);
+        _settingsSavedHideTimer = null;
+    }
+    el.style.display = 'none';
+    el.classList.remove('is-dirty', 'is-clean', 'is-hiding');
 }
 
 /**
@@ -231,9 +297,62 @@ function rebuildUI() {
     if (settingsBtn) settingsBtn.click();
 }
 
+// ── Sticky Save toolbar: bounded scroll-area height management ──
+// See Settings.css (#settingsForm scroll rules). We size the Settings form so it
+// fills from its top edge down to just above the viewport bottom, giving the
+// sticky toolbar a real scroll container to pin to. Recomputed when the Settings
+// tab is shown and on window resize; disabled on mobile (natural page scrolling).
+var _settingsScrollResizeBound = false;
+var _settingsScrollResizeTimer = null;
+
+function updateSettingsScrollHeight() {
+    var form = document.getElementById('settingsForm');
+    if (!form) return;
+    if (window.innerWidth <= 600) {
+        // Mobile: natural page scrolling, no bounded box.
+        form.style.maxHeight = '';
+        form.style.overflowY = '';
+        return;
+    }
+    var rect = form.getBoundingClientRect();
+    // Skip while the tab is hidden (getBoundingClientRect is 0 -> not measurable).
+    if (rect.height === 0 && rect.top === 0) return;
+    var bottomGap = 20;   // breathing room above the viewport bottom
+    var minHeight = 240;  // never collapse to an unusably small box
+    var avail = window.innerHeight - rect.top - bottomGap;
+    form.style.overflowY = 'auto';
+    form.style.maxHeight = Math.max(minHeight, Math.round(avail)) + 'px';
+}
+
+// Invoked from Main.js doTabSwitch() when the Settings tab becomes visible.
+function onSettingsTabShown() {
+    // Defer one frame so display:block has applied and layout has settled.
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(updateSettingsScrollHeight);
+    } else {
+        setTimeout(updateSettingsScrollHeight, 0);
+    }
+}
+
+function bindSettingsScrollResize() {
+    if (_settingsScrollResizeBound) return;
+    _settingsScrollResizeBound = true;
+    window.addEventListener('resize', function () {
+        if (_settingsScrollResizeTimer) clearTimeout(_settingsScrollResizeTimer);
+        _settingsScrollResizeTimer = setTimeout(updateSettingsScrollHeight, 120);
+    });
+}
+
 function loadSettings() {
     var form = document.getElementById('settingsForm');
     if (!form) return;
+    // Reset dirty-indicator state on every (re)load so the saved/unsaved chip
+    // stays hidden until the user makes the first change on the fresh form.
+    _settingsInteracted = false;
+    if (_settingsSavedHideTimer) {
+        clearTimeout(_settingsSavedHideTimer);
+        _settingsSavedHideTimer = null;
+    }
     apiGet('JellyfinHelper/Configuration', function (cfg) {
         // Remember the current language for change detection
         _currentLang = cfg.Language || 'en';
@@ -251,9 +370,8 @@ function loadSettings() {
         // #settingsMsg follows immediately so save-status feedback stays anchored
         // near the button, regardless of scroll position.
         h += '<div class="settings-toolbar" role="region" aria-label="' + escAttr(T('settingsToolbarLabel', 'Settings actions')) + '">';
-        h += '<span class="settings-toolbar-title">' + mi('settings') + '<span>' + T('tabSettings', 'Settings') + '</span></span>';
-        h += '<div class="settings-toolbar-actions">';
         h += '<span class="settings-toolbar-status" id="settingsDirtyIndicator" style="display:none;"></span>';
+        h += '<div class="settings-toolbar-actions">';
         h += '<button type="button" class="action-btn" id="btnSaveSettings">' + mi('save') + T('saveSettings', 'Save Settings') + '</button>';
         h += '</div>';
         h += '</div>';
@@ -472,6 +590,10 @@ function loadSettings() {
 
         // Take snapshot after settings are fully rendered
         setTimeout(takeSettingsSnapshot, 0);
+
+        // Size the sticky-toolbar scroll area (idempotent resize binding + initial measure)
+        bindSettingsScrollResize();
+        setTimeout(updateSettingsScrollHeight, 0);
     }, function () {
         form.innerHTML = '<div class="error-msg">' + T('settingsLoadError', 'Failed to load settings.') + '</div>';
     });

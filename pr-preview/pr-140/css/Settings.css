@@ -1,7 +1,49 @@
 
     /* Settings form styles */
 .settings-form {
-    max-width: 640px;
+    /* Fill the container width (max 960 px via .stats-container) so the Settings tab
+       matches the responsive behaviour of the other tabs (Overview, Discover, etc.).
+       Individual inputs / selects still use width:100% so nothing overflows. */
+    max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Guarantee the Settings tab spans the full width of the centered page
+   container. These id-scoped rules (Settings tab only — they cannot affect
+   any other tab) use id specificity to override any narrower max-width that
+   Jellyfin core might apply to inner config-page content. box-sizing keeps
+   fields from overflowing on small / mobile screens. */
+/* noinspection CssUnusedSymbol */
+#tab-settings {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+#settingsForm {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/* ── Sticky Save toolbar via a bounded local scroll area ──
+   Page-level position:sticky is unreliable inside Jellyfin's config-page scroll
+   ancestry (any ancestor with overflow breaks it). Making the Settings form its
+   own scroll container — the same proven pattern the Logs table uses — gives the
+   sticky .settings-toolbar a real scroll context to pin to, so it stays fixed at
+   the top while the cards scroll underneath.
+   Desktop only: on mobile (<=600px) natural page scrolling is kept (responsive).
+   The max-height here is a safe fallback; updateSettingsScrollHeight() in
+   Settings.js refines it at runtime to fill exactly down to the viewport bottom. */
+@media (min-width: 601px) {
+    /* noinspection CssUnusedSymbol */
+    #settingsForm {
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
+        max-height: calc(100vh - 8.5em);
+    }
 }
 
 .settings-form label {
@@ -361,7 +403,10 @@
     gap: 0.6em;
     flex-wrap: wrap;
     padding: 0.55em 0.8em;
-    margin: -0.2em -0.2em 1em -0.2em;
+    /* No negative side margins: the toolbar must be exactly as wide as the
+       .settings-card blocks below it (previously it overhung by 0.2em on each
+       side, making the top "card" look larger than the rest). */
+    margin: 0 0 1em 0;
     background: var(--color-surface-sticky);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
@@ -370,21 +415,16 @@
 }
 
 /* noinspection CssUnusedSymbol */
-.settings-toolbar-title {
-    font-weight: 600;
-    font-size: 0.95em;
-    opacity: 0.85;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35em;
-}
-
-/* noinspection CssUnusedSymbol */
 .settings-toolbar-actions {
     display: flex;
     align-items: center;
     gap: 0.6em;
     flex-wrap: wrap;
+    /* Anchor the Save button to the right edge even when the status chip on the
+       left is hidden (display:none removes it as a flex item, so space-between
+       alone would otherwise pull the button left). On mobile the width:100%
+       rule below neutralises this, preserving the existing stacked layout. */
+    margin-left: auto;
 }
 
 /* Inline the sticky Save button so it stays compact */
@@ -401,6 +441,7 @@
     font-size: 0.82em;
     opacity: 0.75;
     white-space: nowrap;
+    transition: opacity 0.35s ease;
 }
 
 /* noinspection CssUnusedSymbol */
@@ -413,6 +454,14 @@
 .settings-toolbar-status.is-clean {
     color: var(--color-success);
     opacity: 0.85;
+}
+
+/* Fade-out state: a few seconds after a successful save the
+   "All changes saved" chip fades away until the next change. */
+/* noinspection CssUnusedSymbol */
+.settings-toolbar-status.is-hiding {
+    opacity: 0;
+    pointer-events: none;
 }
 
 /* noinspection CssUnusedSymbol */
