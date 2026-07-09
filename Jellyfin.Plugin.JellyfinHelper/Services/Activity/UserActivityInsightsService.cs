@@ -299,6 +299,12 @@ public class UserActivityInsightsService : IUserActivityInsightsService
                                       ? null
                                       : new Dictionary<Guid, UserItemData>(batch));
             }
+            catch (OperationCanceledException)
+            {
+                // Cooperative cancellation must propagate — never degrade to a warning + fallback.
+                // Mirrors SimilarityComputer.TryBuildPeopleLookupBatch and WatchHistoryService.TryLoadUserDataBatch.
+                throw;
+            }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
                 _pluginLog.LogWarning(

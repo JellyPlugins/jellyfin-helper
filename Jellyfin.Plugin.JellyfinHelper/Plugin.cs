@@ -98,11 +98,18 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             // Without this, upgrading from fallback to FileTransformation would leave the old
             // <script> tag in index.html, causing the sidebar script to load twice.
             UpdateIndexHtml(false);
-            _logger.LogDebug("[Discovery Sidebar] Registered with File Transformation plugin — no direct file write needed");
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("[Discovery Sidebar] Registered with File Transformation plugin — no direct file write needed");
+            }
         }
         else
         {
-            _logger.LogDebug("[Discovery Sidebar] File Transformation plugin not found, using fallback (direct index.html write)");
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("[Discovery Sidebar] File Transformation plugin not found, using fallback (direct index.html write)");
+            }
+
             UpdateIndexHtml(true);
         }
     }
@@ -231,7 +238,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
 
             unregisterMethod.Invoke(null, new object[] { Id.ToString() });
-            _logger.LogDebug("[Discovery Sidebar] Unregistered from File Transformation plugin");
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("[Discovery Sidebar] Unregistered from File Transformation plugin");
+            }
         }
         catch (Exception ex) when (ex is IOException
                                    or UnauthorizedAccessException
@@ -247,7 +257,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                                    or MethodAccessException
                                    or MemberAccessException)
         {
-            _logger.LogDebug(ex, "[Discovery Sidebar] Failed to unregister from File Transformation plugin (best-effort)");
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(ex, "[Discovery Sidebar] Failed to unregister from File Transformation plugin (best-effort)");
+            }
         }
     }
 
@@ -274,7 +287,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return;
             }
 
-            _logger.LogDebug("[Discovery Sidebar] index.html found, reading content...");
+            // CA1873: guard every LogDebug in this method consistently.
+            // These particular calls use constant messages (no expensive argument evaluation),
+            // so the runtime win is negligible — the value of the guard here is _consistency_:
+            // it prevents future maintainers from adding a parameterized LogDebug to this
+            // block and accidentally regressing the CA1873 pattern the class opted into.
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("[Discovery Sidebar] index.html found, reading content...");
+            }
+
             var originalContent = File.ReadAllText(indexPath);
             var content = originalContent;
             var scriptTag = DiscoveryScriptTag.Build(Version.ToString());
@@ -289,7 +311,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 if (closingBodyIndex >= 0)
                 {
                     content = content.Insert(closingBodyIndex, scriptTag + "\n");
-                    _logger.LogDebug("[Discovery Sidebar] Script tag injected successfully before </body>");
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                    {
+                        _logger.LogDebug("[Discovery Sidebar] Script tag injected successfully before </body>");
+                    }
                 }
                 else
                 {
@@ -297,7 +322,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     return;
                 }
             }
-            else
+            else if (_logger.IsEnabled(LogLevel.Debug))
             {
                 _logger.LogDebug("[Discovery Sidebar] Removing script tag from index.html");
             }
@@ -309,7 +334,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 {
                     File.WriteAllText(tempPath, content);
                     File.Move(tempPath, indexPath, overwrite: true);
-                    _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                    {
+                        _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
+                    }
                 }
                 finally
                 {
@@ -328,7 +356,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     }
                 }
             }
-            else
+            else if (_logger.IsEnabled(LogLevel.Debug))
             {
                 _logger.LogDebug("[Discovery Sidebar] index.html already up to date; skipping write");
             }

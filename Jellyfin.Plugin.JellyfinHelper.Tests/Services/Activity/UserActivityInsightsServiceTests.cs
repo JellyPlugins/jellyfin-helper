@@ -370,4 +370,50 @@ public class UserActivityInsightsServiceTests
         Assert.Single(s.UserActivities);
         Assert.Equal(alice.Id, s.UserActivities[0].UserId);
     }
+
+    // === Batch user-data fallback contract (Jellyfin 12+ GetUserDataBatch) ===
+    // Locks in the same contract that SimilarityComputerTests enforces for
+    // GetPeopleNamesByItems: non-cancellation failures degrade gracefully to
+    // per-item GetUserData, but OperationCanceledException must propagate.
+
+    [Fact]
+    public void BuildActivityReport_BatchApiThrows_FallsBackToPerItemGetUserData()
+    {
+        // If GetUserDataBatch throws a non-cancellation exception, the service must
+        // fall back to per-item GetUserData for that user so the report still succeeds.
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movie = NewMovie("BatchThrows");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+          .Throws(new InvalidOperationException("batch API unavailable"));
+        ud.Setup(m => m.GetUserData(alice, movie)).Returns(Played(count: 1));
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Single(r.Items);
+        Assert.Equal(1, r.Items.Single().TotalPlayCount);
+        // Fallback path was exercised: per-item GetUserData was called for the affected user.
+        ud.Verify(m => m.GetUserData(alice, movie), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public void BuildActivityReport_BatchApiCancelled_PropagatesWithoutFallback()
+    {
+        // OperationCanceledException from GetUserDataBatch must propagate to the caller
+        // without triggering per-item fallback. Cancellation is a stop signal, not a
+        // degradable error. Mirrors SimilarityComputer.BuildCandidatePeopleLookup.
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movie = NewMovie("BatchCancelled");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+          .Throws(new OperationCanceledException());
+
+        Assert.Throws<OperationCanceledException>(() => svc.BuildActivityReport());
+        // Per-item fallback must NOT have been invoked once cancellation was requested.
+        ud.Verify(m => m.GetUserData(It.IsAny<Jellyfin.Database.Implementations.Entities.User>(), It.IsAny<BaseItem>()), Times.Never);
+    }
 }

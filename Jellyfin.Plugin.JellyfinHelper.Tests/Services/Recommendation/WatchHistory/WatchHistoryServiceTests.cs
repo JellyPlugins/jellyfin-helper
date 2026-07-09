@@ -444,6 +444,82 @@ public sealed class WatchHistoryServiceTests
         Assert.Equal(0, profile.FavoriteCount);
     }
 
+    // --- Batch user-data fallback contract (Jellyfin 12+ GetUserDataBatch) ---
+    // Locks in the same contract that SimilarityComputerTests enforces for
+    // GetPeopleNamesByItems: non-cancellation failures degrade gracefully to
+    // per-item GetUserData, but OperationCanceledException must propagate.
+
+    [Fact]
+    public void GetUserWatchProfile_BatchApiThrows_FallsBackToPerItemGetUserData()
+    {
+        // If GetUserDataBatch throws a non-cancellation exception (e.g. an obscure
+        // Jellyfin runtime error), the profile build must fall back to per-item
+        // GetUserData so it never regresses below the pre-batch baseline.
+        var user = CreateTestUser("alice");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+
+        var movie = new Movie
+        {
+            Id = Guid.NewGuid(),
+            Name = "BatchThrowsMovie",
+            RunTimeTicks = TimeSpan.FromMinutes(90).Ticks,
+            Genres = ["Drama"]
+        };
+
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { movie })
+            .Returns(new List<BaseItem>());
+
+        _mockUserDataManager
+            .Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user))
+            .Throws(new InvalidOperationException("batch API unavailable"));
+
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, movie))
+            .Returns(new UserItemData
+            {
+                Key = Guid.NewGuid().ToString("N"),
+                Played = true,
+                PlayCount = 1,
+                LastPlayedDate = DateTime.UtcNow
+            });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+        Assert.Equal(1, profile!.WatchedMovieCount);
+        // Fallback path was exercised: per-item GetUserData was called.
+        _mockUserDataManager.Verify(m => m.GetUserData(user, movie), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public void GetUserWatchProfile_BatchApiCancelled_PropagatesWithoutFallback()
+    {
+        // OperationCanceledException from GetUserDataBatch must propagate to the caller.
+        // Per-item fallback must NOT be invoked once cancellation was requested.
+        // Mirrors SimilarityComputer.BuildCandidatePeopleLookup contract.
+        var user = CreateTestUser("alice");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+
+        var movie = new Movie { Id = Guid.NewGuid(), Name = "CancelledMovie" };
+
+        _mockLibraryManager
+            .Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { movie });
+
+        _mockUserDataManager
+            .Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user))
+            .Throws(new OperationCanceledException());
+
+        Assert.Throws<OperationCanceledException>(() => _service.GetUserWatchProfile(user.Id));
+
+        // Per-item fallback must NOT have been invoked once cancellation was signalled.
+        _mockUserDataManager.Verify(
+            m => m.GetUserData(It.IsAny<Jellyfin.Database.Implementations.Entities.User>(), It.IsAny<BaseItem>()),
+            Times.Never);
+    }
+
     // --- Helpers ---
 
     private static Jellyfin.Database.Implementations.Entities.User CreateTestUser(string username)

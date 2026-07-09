@@ -744,6 +744,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
             return new Dictionary<Guid, UserItemData>(batch);
         }
+        catch (OperationCanceledException)
+        {
+            // Cooperative cancellation must propagate — never degrade to a warning + fallback.
+            // Mirrors SimilarityComputer.TryBuildPeopleLookupBatch.
+            throw;
+        }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             _pluginLog.LogWarning(

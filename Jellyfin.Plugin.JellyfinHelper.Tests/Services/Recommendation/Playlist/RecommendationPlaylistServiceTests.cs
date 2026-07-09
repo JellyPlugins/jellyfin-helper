@@ -57,15 +57,14 @@ public class RecommendationPlaylistServiceTests
         };
     }
 
-    private void SetupPlaylistQuery()
-    {
-        _libraryManagerMock
-            .Setup(m => m.GetItemList(It.Is<InternalItemsQuery>(q =>
-                q.IncludeItemTypes != null &&
-                q.IncludeItemTypes.Length == 1 &&
-                q.IncludeItemTypes[0] == BaseItemKind.Playlist)))
-            .Returns(new List<BaseItem>());
-    }
+    /// <summary>
+    ///     Convenience wrapper: sets up the playlist-lookup query to return an empty list.
+    ///     Equivalent to <c>SetupPlaylistLookup(Array.Empty&lt;BaseItem&gt;())</c>. Kept as a
+    ///     named helper because "no pre-existing managed playlists" is the far more common
+    ///     setup across tests, and reading <c>SetupPlaylistQuery()</c> at the call site is
+    ///     clearer than the empty-array variant.
+    /// </summary>
+    private void SetupPlaylistQuery() => SetupPlaylistLookup(Array.Empty<BaseItem>());
 
     private void SetupEpisodeResolution(Dictionary<Guid, Guid>? seriesEpisodeMap = null)
     {
@@ -418,12 +417,7 @@ public class RecommendationPlaylistServiceTests
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Alice");
         var managed = BuildFakePlaylist(RecommendationPlaylistService.BuildPlaylistName("Alice"));
-        _libraryManagerMock
-            .Setup(m => m.GetItemList(It.Is<InternalItemsQuery>(q =>
-                q.IncludeItemTypes != null &&
-                q.IncludeItemTypes.Length == 1 &&
-                q.IncludeItemTypes[0] == BaseItemKind.Playlist)))
-            .Returns(new List<BaseItem> { managed });
+        SetupPlaylistLookup(new[] { managed });
 
         var sut = CreateSut();
         var removed = await sut.RemoveAllRecommendationPlaylistsAsync(CancellationToken.None);
@@ -444,12 +438,7 @@ public class RecommendationPlaylistServiceTests
         var expected = RecommendationPlaylistService.BuildPlaylistName("Alice");
         var suffix1 = BuildFakePlaylist(expected + "1");
         var suffix42 = BuildFakePlaylist(expected + "42");
-        _libraryManagerMock
-            .Setup(m => m.GetItemList(It.Is<InternalItemsQuery>(q =>
-                q.IncludeItemTypes != null &&
-                q.IncludeItemTypes.Length == 1 &&
-                q.IncludeItemTypes[0] == BaseItemKind.Playlist)))
-            .Returns(new List<BaseItem> { suffix1, suffix42 });
+        SetupPlaylistLookup(new[] { suffix1, suffix42 });
 
         var sut = CreateSut();
         var removed = await sut.RemoveAllRecommendationPlaylistsAsync(CancellationToken.None);
@@ -469,12 +458,7 @@ public class RecommendationPlaylistServiceTests
         var expected = RecommendationPlaylistService.BuildPlaylistName("Alice");
         var manual = BuildFakePlaylist(expected + "_ManualCopy");
         var alsoManual = BuildFakePlaylist(expected + " Extra");
-        _libraryManagerMock
-            .Setup(m => m.GetItemList(It.Is<InternalItemsQuery>(q =>
-                q.IncludeItemTypes != null &&
-                q.IncludeItemTypes.Length == 1 &&
-                q.IncludeItemTypes[0] == BaseItemKind.Playlist)))
-            .Returns(new List<BaseItem> { manual, alsoManual });
+        SetupPlaylistLookup(new[] { manual, alsoManual });
 
         var sut = CreateSut();
         var removed = await sut.RemoveAllRecommendationPlaylistsAsync(CancellationToken.None);
@@ -495,12 +479,7 @@ public class RecommendationPlaylistServiceTests
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Alice");
         var otherUsersPlaylist = BuildFakePlaylist(RecommendationPlaylistService.BuildPlaylistName("Al"));
-        _libraryManagerMock
-            .Setup(m => m.GetItemList(It.Is<InternalItemsQuery>(q =>
-                q.IncludeItemTypes != null &&
-                q.IncludeItemTypes.Length == 1 &&
-                q.IncludeItemTypes[0] == BaseItemKind.Playlist)))
-            .Returns(new List<BaseItem> { otherUsersPlaylist });
+        SetupPlaylistLookup(new[] { otherUsersPlaylist });
 
         var sut = CreateSut();
         var removed = await sut.RemoveAllRecommendationPlaylistsAsync(CancellationToken.None);
@@ -518,12 +497,7 @@ public class RecommendationPlaylistServiceTests
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Alice");
         var unrelated = BuildFakePlaylist("My Favorite 80s Movies");
-        _libraryManagerMock
-            .Setup(m => m.GetItemList(It.Is<InternalItemsQuery>(q =>
-                q.IncludeItemTypes != null &&
-                q.IncludeItemTypes.Length == 1 &&
-                q.IncludeItemTypes[0] == BaseItemKind.Playlist)))
-            .Returns(new List<BaseItem> { unrelated });
+        SetupPlaylistLookup(new[] { unrelated });
 
         var sut = CreateSut();
         var removed = await sut.RemoveAllRecommendationPlaylistsAsync(CancellationToken.None);
@@ -569,12 +543,7 @@ public class RecommendationPlaylistServiceTests
         var manualCopy = BuildFakePlaylist(expected + "_Copy");
         var unrelated = BuildFakePlaylist("Weekend Watchlist");
 
-        _libraryManagerMock
-            .Setup(m => m.GetItemList(It.Is<InternalItemsQuery>(q =>
-                q.IncludeItemTypes != null &&
-                q.IncludeItemTypes.Length == 1 &&
-                q.IncludeItemTypes[0] == BaseItemKind.Playlist)))
-            .Returns(new List<BaseItem> { managedExact, managedNumeric, otherUser, manualCopy, unrelated });
+        SetupPlaylistLookup(new BaseItem[] { managedExact, managedNumeric, otherUser, manualCopy, unrelated });
 
         var sut = CreateSut();
         var removed = await sut.RemoveAllRecommendationPlaylistsAsync(CancellationToken.None);
@@ -997,12 +966,7 @@ public class RecommendationPlaylistServiceTests
 
         // The library query is called once per user; return the full set both times and
         // let the SUT filter by each user's expected name.
-        _libraryManagerMock
-            .Setup(m => m.GetItemList(It.Is<InternalItemsQuery>(q =>
-                q.IncludeItemTypes != null &&
-                q.IncludeItemTypes.Length == 1 &&
-                q.IncludeItemTypes[0] == BaseItemKind.Playlist)))
-            .Returns(new List<BaseItem> { alicePlaylist, bobPlaylist });
+        SetupPlaylistLookup(new BaseItem[] { alicePlaylist, bobPlaylist });
 
         var sut = CreateSut();
         var removed = await sut.RemoveAllRecommendationPlaylistsAsync(CancellationToken.None);
@@ -1026,12 +990,7 @@ public class RecommendationPlaylistServiceTests
         _userManagerMock.Setup(m => m.GetUserById(bobId)).Returns(bob);
 
         var bobPlaylist = BuildFakePlaylist(RecommendationPlaylistService.BuildPlaylistName("Bob"));
-        _libraryManagerMock
-            .Setup(m => m.GetItemList(It.Is<InternalItemsQuery>(q =>
-                q.IncludeItemTypes != null &&
-                q.IncludeItemTypes.Length == 1 &&
-                q.IncludeItemTypes[0] == BaseItemKind.Playlist)))
-            .Returns(new List<BaseItem> { bobPlaylist });
+        SetupPlaylistLookup(new BaseItem[] { bobPlaylist });
 
         var sut = CreateSut();
         var removed = await sut.RemoveAllRecommendationPlaylistsAsync(CancellationToken.None);

@@ -605,6 +605,65 @@ public class PluginLogServiceTests : IDisposable
             Times.Once);
     }
 
+    // ===== IsEnabled Guard (CA1873) =====
+    // These lock in the contract of the IsEnabled(...) guards introduced with Jellyfin 12+
+    // and .NET 10 CA1873. When the ILogger reports the level as disabled, no forwarding
+    // occurs even though the in-memory buffer still stores the entry. Without these tests
+    // the guard could be silently removed without any assertion failing.
+
+    /// <summary>
+    ///     Verifies that LogDebug does NOT forward to ILogger when IsEnabled(Debug) is false,
+    ///     but the entry is still added to the in-memory buffer.
+    /// </summary>
+    [Fact]
+    public void LogDebug_DoesNotForwardToILogger_WhenIsEnabledReturnsFalse()
+    {
+        const string src = "__PLT_NoFwdDebug__";
+        var mockLogger = new Mock<ILogger>();
+        mockLogger.Setup(l => l.IsEnabled(LogLevel.Debug)).Returns(false);
+
+        _sut.LogDebug(src, "Should not forward", mockLogger.Object);
+
+        mockLogger.Verify(
+            l => l.Log(
+                LogLevel.Debug,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
+
+        // In-memory buffer still receives the entry (independent of ILogger filtering).
+        var entries = _sut.GetEntries(source: src);
+        Assert.Single(entries);
+    }
+
+    /// <summary>
+    ///     Verifies that LogInfo does NOT forward to ILogger when IsEnabled(Information) is false,
+    ///     but the entry is still added to the in-memory buffer.
+    /// </summary>
+    [Fact]
+    public void LogInfo_DoesNotForwardToILogger_WhenIsEnabledReturnsFalse()
+    {
+        const string src = "__PLT_NoFwdInfo__";
+        var mockLogger = new Mock<ILogger>();
+        mockLogger.Setup(l => l.IsEnabled(LogLevel.Information)).Returns(false);
+
+        _sut.LogInfo(src, "Should not forward", mockLogger.Object);
+
+        mockLogger.Verify(
+            l => l.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
+
+        var entries = _sut.GetEntries(source: src);
+        Assert.Single(entries);
+    }
+
     // ===== GetConfiguredMinLevel =====
 
     /// <summary>

@@ -9,7 +9,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Changed
 - **Jellyfin 12.0 Compatibility** - Upgraded to `Jellyfin.Controller` and `Jellyfin.Model` **12.0.0-rc2**. All ~15 core Jellyfin APIs used by the plugin (`ILibraryManager`, `IUserManager`, `IUserDataManager`, `IPlaylistManager`, `InternalItemsQuery`, `BaseItem`, etc.) proved to be source-compatible between JF 10.11 and JF 12.0 - no code changes were required for the API surface.
-- **.NET 10** - Migrated target framework from `net9.0` to `net10.0`. The `global.json` SDK pin was raised to `10.0.9` with `rollForward: latestFeature`. All CI workflows (`release.yml`, `pr.yml`, `codeql.yml`) and build metadata (`build.yaml`, `generate-meta.ps1`, `manifest.json`) were updated accordingly.
+- **.NET 10** - Migrated target framework from `net9.0` to `net10.0`. The `global.json` SDK pin was raised to `10.0.0` with `rollForward: latestFeature` (which auto-rolls forward to the latest 10.0.x patch). All CI workflows (`release.yml`, `pr.yml`, `codeql.yml`) and build metadata (`build.yaml`, `generate-meta.ps1`, `manifest.json`) were updated accordingly.
 - **Guarded Logging (CA1873)** - Introduced `logger.IsEnabled(...)` guards around 14 diagnostic log calls in `Plugin.cs`, `PluginLogService.cs`, `FolderBrowserService.cs`, `SimilarityComputer.cs`, `LearnedScoringStrategy.cs`, and `EnsembleScoringStrategy.cs`. This adopts the recommended .NET 10 pattern for hot paths where log-argument evaluation could otherwise trigger expensive property access even when the level is filtered out.
 - **Test Fixtures** - `TestMockFactory.CreateLogger()` now pre-configures `IsEnabled(...)` to return `true` for every log level, so `Log(...)` verifications continue to observe every `_logger.LogXxx(...)` call in tests. Direct `new Mock<ILogger>()` usages in `HelperCleanupTaskTests` and `PluginLogServiceTests` were migrated to the factory to keep behavior consistent.
 
@@ -22,7 +22,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. Users on Jellyfin 10.x should stay on v2.1.0.5, which remains served from the same plugin repository (`targetAbi: 10.11.10.0`).
 
 ### Tests
-- Total: **2375 tests** (+57 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths, `SimilarityComputer` people-batch behavior, expanded `RecommendationPlaylistService` coverage (managed-name detection incl. numeric-suffix guard, side-effect ordering of create→delete, stale-playlist cleanup with zero recommendations, cancellation, and multi-user aggregation), and `UpdatePlaylists_WithSeriesRecommendations_ResolvesToEpisodes`.
+- Total: **2381 tests** (+63 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths (with distinct contracts for non-cancellation failures vs. `OperationCanceledException` in `SimilarityComputer`, `UserActivityInsightsService`, and `WatchHistoryService`), the `IsEnabled(...)` CA1873 guard in `PluginLogService` (verifies no ILogger forwarding when the level is disabled), expanded `RecommendationPlaylistService` coverage (managed-name detection incl. numeric-suffix guard, side-effect ordering of create→delete, stale-playlist cleanup with zero recommendations, cancellation, and multi-user aggregation), and `UpdatePlaylists_WithSeriesRecommendations_ResolvesToEpisodes`.
 
 ---
 

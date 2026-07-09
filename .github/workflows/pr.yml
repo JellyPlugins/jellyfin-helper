@@ -162,6 +162,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # The preview publisher (rossjrw/pr-preview-action) uses ${{ secrets.GITHUB_TOKEN }}
+          # explicitly; do not persist the token in local git config to reduce blast radius
+          # of the repo-controlled PowerShell demo-site prep step.
+          persist-credentials: false
 
       - name: Prepare demo site
         shell: pwsh
