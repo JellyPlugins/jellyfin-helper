@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -267,17 +268,17 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     }
 
     /// <summary>
-    ///     Pre-fetches user data for every (user, item) pair in one batch call per user
-    ///     using <c>IUserDataManager.GetUserDataBatch</c> (Jellyfin 12+).
-    ///     Falls back to a null entry for users whose batch load throws — the caller
-    ///     then reverts to per-item <c>GetUserData</c> for that user only, preserving the
-    ///     pre-batch behavior.
+    ///     Runs one batch call per user to pre-load their user data for every library item.
+    ///     If a user's batch call fails, we record <c>null</c> in the outer dictionary as a
+    ///     "please fall back to per-item lookup for this user" marker — the caller checks
+    ///     for this on every row. Cancellation propagation is handled by
+    ///     <see cref="BatchFallbackHelper"/> to keep parity with the other batch call sites.
     /// </summary>
     /// <param name="users">The users to pre-load data for.</param>
     /// <param name="allItems">The library items to load user data against.</param>
     /// <returns>
-    ///     A dictionary keyed by user ID. The inner dictionary maps item ID to its
-    ///     <see cref="UserItemData"/>. A null inner value signals batch failure for that user.
+    ///     A dictionary keyed by user ID. A <c>null</c> inner value signals batch failure
+    ///     for that user — the caller then falls back to per-item <c>GetUserData</c>.
     /// </returns>
     private Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?> BuildUserDataLookup(
         List<Jellyfin.Database.Implementations.Entities.User> users,
@@ -286,34 +287,34 @@ public class UserActivityInsightsService : IUserActivityInsightsService
         var result = new Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?>(users.Count);
         foreach (var user in users)
         {
-            try
-            {
-                var batch = _userDataManager.GetUserDataBatch(allItems, user);
-                // Materialize into an IReadOnlyDictionary regardless of the concrete return type
-                // returned by Jellyfin (the interface promises "a dictionary mapping item IDs
-                // to user data" — Dictionary<>, IDictionary<>, and IReadOnlyDictionary<>
-                // all satisfy this contract). Using IReadOnlyDictionary avoids leaking mutation
-                // rights and stays contract-agnostic across Jellyfin patch versions.
-                result[user.Id] = batch as IReadOnlyDictionary<Guid, UserItemData>
-                                  ?? (batch is null
-                                      ? null
-                                      : new Dictionary<Guid, UserItemData>(batch));
-            }
-            catch (OperationCanceledException)
-            {
-                // Cooperative cancellation must propagate — never degrade to a warning + fallback.
-                // Mirrors SimilarityComputer.TryBuildPeopleLookupBatch and WatchHistoryService.TryLoadUserDataBatch.
-                throw;
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-            {
-                _pluginLog.LogWarning(
+            // We deliberately do the batch call per-user (not per-library) because
+            // GetUserDataBatch is keyed on a single user. A failure for one user must not
+            // block the others, which is why the fallback marker is stored per-user.
+            var perUser = user;
+            var lookup = BatchFallbackHelper.TryRunBatch<IReadOnlyDictionary<Guid, UserItemData>?>(
+                batchCall: () =>
+                {
+                    var batch = _userDataManager.GetUserDataBatch(allItems, perUser);
+                    if (batch is null)
+                    {
+                        return null;
+                    }
+
+                    // Accept any dictionary shape Jellyfin returns (Dictionary<>, IDictionary<>,
+                    // IReadOnlyDictionary<>). Returning IReadOnlyDictionary means the caller
+                    // can't accidentally mutate the batch and we don't lock ourselves to a
+                    // specific concrete return type across Jellyfin patch versions.
+                    return batch as IReadOnlyDictionary<Guid, UserItemData>
+                           ?? new Dictionary<Guid, UserItemData>(batch);
+                },
+                fallbackValue: null,
+                onFailure: ex => _pluginLog.LogWarning(
                     "UserActivity",
-                    $"Batch user-data load failed for user '{user.Username}'; falling back to per-item lookup for this user.",
+                    $"Batch user-data load failed for user '{perUser.Username}'; falling back to per-item lookup for this user.",
                     ex,
-                    _logger);
-                result[user.Id] = null;
-            }
+                    _logger));
+
+            result[user.Id] = lookup;
         }
 
         return result;

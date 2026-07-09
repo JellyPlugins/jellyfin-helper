@@ -1,0 +1,62 @@
+using System;
+
+namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
+
+/// <summary>
+///     Shared helper for the "try batch, fall back per-item" pattern that shows up in
+///     <see cref="Recommendation.Engine.SimilarityComputer"/>,
+///     <see cref="Recommendation.WatchHistory.WatchHistoryService"/> and
+///     <see cref="Activity.UserActivityInsightsService"/>. Each of them wraps a Jellyfin 12+
+///     batch API and needs to gracefully degrade to per-item calls when the batch fails.
+///     Keeping the try/catch shape here means we can't accidentally forget to re-throw
+///     <see cref="OperationCanceledException"/> at one of the call sites again (which is
+///     exactly what happened in two of them before this got centralised).
+/// </summary>
+internal static class BatchFallbackHelper
+{
+    /// <summary>
+    ///     Runs <paramref name="batchCall"/> and returns its result. If it throws a
+    ///     non-fatal, non-cancellation exception, the callback fires (for logging) and
+    ///     <paramref name="fallbackValue"/> comes back so the caller can switch to the
+    ///     slower per-item path.
+    ///     <para>
+    ///         Cancellation is deliberately not caught – if someone cancelled us, they
+    ///         want us to stop, not to slow-path through thousands of items. Same story
+    ///         for OOM / stack overflow: no point pretending we can recover.
+    ///     </para>
+    /// </summary>
+    /// <typeparam name="T">Return type of the batch call.</typeparam>
+    /// <param name="batchCall">The batch operation to run.</param>
+    /// <param name="fallbackValue">What to return when the batch fails non-fatally.</param>
+    /// <param name="onFailure">Diagnostic callback (typically a <c>LogWarning</c>).</param>
+    /// <returns>The batch result on success, otherwise <paramref name="fallbackValue"/>.</returns>
+    /// <exception cref="ArgumentNullException">
+    ///     If <paramref name="batchCall"/> or <paramref name="onFailure"/> is null.
+    /// </exception>
+    /// <exception cref="OperationCanceledException">Rethrown as-is (cancellation is a stop signal, not a degradable error).</exception>
+    /// <exception cref="OutOfMemoryException">Not caught – process is likely already unrecoverable.</exception>
+    /// <exception cref="StackOverflowException">Not caught – process is already terminating by the time this would be reachable.</exception>
+    internal static T TryRunBatch<T>(
+        Func<T> batchCall,
+        T fallbackValue,
+        Action<Exception> onFailure)
+    {
+        ArgumentNullException.ThrowIfNull(batchCall);
+        ArgumentNullException.ThrowIfNull(onFailure);
+
+        try
+        {
+            return batchCall();
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation must propagate, not fall through to the slow path.
+            throw;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            onFailure(ex);
+            return fallbackValue;
+        }
+    }
+}

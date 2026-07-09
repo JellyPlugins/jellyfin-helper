@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -364,6 +365,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
             {
                 allStreams = item.GetMediaStreams()?.ToList();
             }
+            catch (OperationCanceledException)
+            {
+                // Cancellation is a stop signal — propagate instead of skipping items silently.
+                // Same contract as BatchFallbackHelper enforces for the batch call sites above.
+                throw;
+            }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
                 // Graceful: skip items where stream lookup fails (e.g. corrupted metadata)
@@ -589,6 +596,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
         {
             people = _libraryManager.GetPeople(item);
         }
+        catch (OperationCanceledException)
+        {
+            // Cancellation must propagate — skipping the item silently would defeat
+            // any cooperative cancellation the caller relies on.
+            throw;
+        }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // Graceful: skip items where people lookup fails
@@ -708,57 +721,46 @@ public sealed class WatchHistoryService : IWatchHistoryService
     }
 
     /// <summary>
-    ///     Attempts to load user data for the given items in a single batch call
-    ///     (Jellyfin 12+ <c>IUserDataManager.GetUserDataBatch</c>). Returns <c>null</c>
-    ///     on any exception; callers must then fall back to per-item lookups.
-    ///     Wrapping the batch call in a broad catch prevents a single failing item
-    ///     (e.g. a database migration mid-flight) from aborting the entire profile build.
+    ///     Fetches user data for many items in one shot via the Jellyfin 12+
+    ///     <c>IUserDataManager.GetUserDataBatch</c> call. Returns <c>null</c> on failure so
+    ///     the caller can fall back to per-item lookups. An empty <paramref name="items"/>
+    ///     list short-circuits with an empty dictionary — treated as "batch succeeded, no
+    ///     results" rather than "batch failed, fall back".
+    ///     The try/catch shape is delegated to <see cref="BatchFallbackHelper"/> so the
+    ///     three batch call sites in the plugin can't drift apart on cancellation handling.
     /// </summary>
-    /// <param name="user">The Jellyfin user.</param>
-    /// <param name="items">The items to fetch user data for.</param>
-    /// <returns>A dictionary keyed by item ID, or <c>null</c> if the batch call threw.</returns>
     private IReadOnlyDictionary<Guid, UserItemData>? TryLoadUserDataBatch(
         Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem> items)
     {
         if (items.Count == 0)
         {
-            // Nothing to load - return an empty read-only dictionary so callers can still
-            // treat this as "batch succeeded, no results" instead of "batch failed, fall back".
             return new Dictionary<Guid, UserItemData>();
         }
 
-        try
-        {
-            var batch = _userDataManager.GetUserDataBatch(items, user);
-            if (batch is null)
+        return BatchFallbackHelper.TryRunBatch<IReadOnlyDictionary<Guid, UserItemData>?>(
+            batchCall: () =>
             {
-                return null;
-            }
+                var batch = _userDataManager.GetUserDataBatch(items, user);
+                if (batch is null)
+                {
+                    return null;
+                }
 
-            // Accept any dictionary shape returned by the Jellyfin API.
-            if (batch is IReadOnlyDictionary<Guid, UserItemData> readOnly)
-            {
-                return readOnly;
-            }
+                // Accept whatever dictionary shape Jellyfin hands back.
+                if (batch is IReadOnlyDictionary<Guid, UserItemData> readOnly)
+                {
+                    return readOnly;
+                }
 
-            return new Dictionary<Guid, UserItemData>(batch);
-        }
-        catch (OperationCanceledException)
-        {
-            // Cooperative cancellation must propagate — never degrade to a warning + fallback.
-            // Mirrors SimilarityComputer.TryBuildPeopleLookupBatch.
-            throw;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-        {
-            _pluginLog.LogWarning(
+                return new Dictionary<Guid, UserItemData>(batch);
+            },
+            fallbackValue: null,
+            onFailure: ex => _pluginLog.LogWarning(
                 "WatchHistory",
                 $"Batch user-data load failed for user '{user.Username}'; falling back to per-item lookup.",
                 ex,
-                _logger);
-            return null;
-        }
+                _logger));
     }
 
     /// <summary>

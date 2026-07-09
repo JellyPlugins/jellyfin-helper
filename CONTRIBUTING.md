@@ -131,6 +131,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── TrashServiceGuardTests.cs      # Defense-in-depth: prevent re-trashing items already in trash
 │   │   ├── TrashServicePathLengthTests.cs # ResolveCollision stays within OS MAX_PATH (Windows 259 / Linux 4095)
 │   │   └── TrashServiceRelocateTests.cs   # RelocateTrashContents unit tests (move, collision, safety)
+│   ├── Common/                    # Shared cross-service helper tests
+│   │   └── BatchFallbackHelperTests.cs    # try-batch/fall-back contract: cancellation propagates, non-fatal exceptions degrade to fallback
 │   ├── ConfigAccess/              # Configuration access tests
 │   ├── Link/                      # Link repair tests
 │   ├── PluginLog/                 # Plugin log tests
@@ -231,6 +233,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── BackupService.cs     # Create/restore backup
 │   │   ├── BackupValidator.cs   # Comprehensive input validation
 │   │   └── BackupSanitizer.cs   # Clamp/normalize values
+│   ├── Common/                      # Shared cross-service helpers
+│   │   └── BatchFallbackHelper.cs   # try-batch/fall-back-per-item wrapper (Jellyfin 12+ batch APIs)
 │   ├── FolderBrowser/               # Server-side folder browsing
 │   │   ├── IFolderBrowserService.cs # Interface for folder listing
 │   │   ├── FolderBrowserService.cs  # Implementation: lists directories with safety guards

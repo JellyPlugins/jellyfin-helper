@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -85,72 +86,64 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Attempts to build the people lookup via the Jellyfin 12+
-    ///     <see cref="ILibraryManager.GetPeopleNamesByItems"/> batch API.
-    ///     Returns <c>null</c> if the API is unavailable, throws, or returns null so that
-    ///     <see cref="BuildCandidatePeopleLookup"/> can fall back to the per-item path.
-    ///     <see cref="OperationCanceledException"/> is propagated (never swallowed) to preserve
-    ///     cooperative cancellation semantics.
+    ///     Tries the Jellyfin 12+ <see cref="ILibraryManager.GetPeopleNamesByItems"/> batch API.
+    ///     Returns <c>null</c> on failure so the caller falls back to per-item lookups; on an
+    ///     empty candidate list we short-circuit with an empty dictionary (nothing to do).
+    ///     The try/catch is delegated to <see cref="BatchFallbackHelper"/> so cancellation
+    ///     propagation stays in sync with the other batch call sites.
     /// </summary>
-    /// <param name="candidates">The candidate items to fetch people for.</param>
-    /// <returns>A dictionary mapping item IDs to case-insensitive name sets, or <c>null</c> on failure.</returns>
     private Dictionary<Guid, HashSet<string>>? TryBuildPeopleLookupBatch(List<BaseItem> candidates)
     {
         if (candidates.Count == 0)
         {
-            // Return an empty dictionary rather than null so the fast path is still taken -
-            // there is no work to fall back to.
+            // Nothing to look up — return empty so the "fast path" branch is still taken.
             return new Dictionary<Guid, HashSet<string>>();
         }
 
-        try
-        {
-            var itemIds = candidates.Select(c => c.Id).ToList();
-            var batch = _libraryManager.GetPeopleNamesByItems(itemIds, RelevantPersonTypeStrings);
-            if (batch is null)
+        return BatchFallbackHelper.TryRunBatch<Dictionary<Guid, HashSet<string>>?>(
+            batchCall: () =>
             {
-                return null;
-            }
-
-            var lookup = new Dictionary<Guid, HashSet<string>>(batch.Count);
-            foreach (var kvp in batch)
-            {
-                if (kvp.Value is null || kvp.Value.Count == 0)
+                var itemIds = candidates.Select(c => c.Id).ToList();
+                var batch = _libraryManager.GetPeopleNamesByItems(itemIds, RelevantPersonTypeStrings);
+                if (batch is null)
                 {
-                    // Contract of GetPeopleNamesByItems: items with no matching people are omitted.
-                    // A defensive check in case a Jellyfin implementation returns an empty list here.
-                    continue;
+                    return null;
                 }
 
-                var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var name in kvp.Value.Where(static n => !string.IsNullOrWhiteSpace(n)))
+                var lookup = new Dictionary<Guid, HashSet<string>>(batch.Count);
+                foreach (var kvp in batch)
                 {
-                    names.Add(name);
+                    // GetPeopleNamesByItems is documented to omit items with no matches,
+                    // but be defensive in case an implementation returns an empty list.
+                    if (kvp.Value is null || kvp.Value.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var name in kvp.Value.Where(static n => !string.IsNullOrWhiteSpace(n)))
+                    {
+                        names.Add(name);
+                    }
+
+                    if (names.Count > 0)
+                    {
+                        lookup[kvp.Key] = names;
+                    }
                 }
 
-                if (names.Count > 0)
-                {
-                    lookup[kvp.Key] = names;
-                }
-            }
-
-            return lookup;
-        }
-        catch (OperationCanceledException)
-        {
-            throw; // Do not swallow cancellation - propagate to caller
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-        {
-            if (_logger.IsEnabled(LogLevel.Debug))
+                return lookup;
+            },
+            fallbackValue: null,
+            onFailure: ex =>
             {
-                _logger.LogDebug(
-                    ex,
-                    "Batch people lookup via GetPeopleNamesByItems failed, falling back to per-item GetPeople.");
-            }
-
-            return null;
-        }
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug(
+                        ex,
+                        "Batch people lookup via GetPeopleNamesByItems failed, falling back to per-item GetPeople.");
+                }
+            });
     }
 
     /// <summary>
@@ -200,10 +193,13 @@ internal sealed class SimilarityComputer
             {
                 throw; // Do not swallow cancellation - propagate to caller
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
                 // Graceful fallback: skip this candidate's people data rather than failing the entire lookup.
                 // Some item types or corrupted metadata may cause GetPeople to throw.
+                // OOM / stack overflow are excluded from the filter so they can propagate up as
+                // process-fatal errors instead of being silently absorbed here — matches the
+                // contract enforced centrally by BatchFallbackHelper for the batch path above.
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
                     _logger.LogDebug(ex, "Failed to load people for candidate {ItemId}, skipping", candidate.Id);

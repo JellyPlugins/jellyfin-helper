@@ -218,4 +218,148 @@ public class PluginConfigurationSerializationTests
         Assert.Equal("Radarr", restored3.RadarrInstances[0].Name);
         Assert.Equal("Radarr 4K", restored3.RadarrInstances[1].Name);
     }
+
+    // === Complete property surface round-trip ===
+    // The tests above cover Arr instances plus a mixed subset of settings. What they miss is
+    // "did every single property survive a round-trip at its default?" and "does a fully
+    // non-default configuration round-trip without dropping / renaming any property?". The
+    // three tests below close that gap so a future property rename in PluginConfiguration
+    // can't silently break existing user configs.
+
+    [Fact]
+    public void XmlRoundTrip_DefaultConfiguration_AllPropertiesUnchanged()
+    {
+        var original = new PluginConfiguration();
+        var restored = RoundTrip(original);
+
+        // String defaults
+        Assert.Equal(string.Empty, restored.ExcludedLibraries);
+        Assert.Equal(string.Empty, restored.SeerrUrl);
+        Assert.Equal(string.Empty, restored.SeerrApiKey);
+        Assert.Equal(".jellyfin-trash", restored.TrashFolderPath);
+        Assert.Equal("en", restored.Language);
+        Assert.Equal("INFO", restored.PluginLogLevel);
+
+        // Numeric defaults
+        Assert.Equal(0, restored.OrphanMinAgeDays);
+        Assert.Equal(365, restored.SeerrCleanupAgeDays);
+        Assert.Equal(0, restored.ConfigVersion);
+        Assert.Equal(30, restored.TrashRetentionDays);
+        Assert.Equal(20, restored.MaxRecommendationsPerUser);
+        Assert.Equal(0.3, restored.EnsembleAlphaMin);
+        Assert.Equal(0.75, restored.EnsembleAlphaMax);
+        Assert.Equal(0.10, restored.EnsembleGenrePenaltyFloor);
+        Assert.Equal(0L, restored.TotalBytesFreed);
+        Assert.Equal(0, restored.TotalItemsDeleted);
+
+        // Boolean defaults
+        Assert.False(restored.DiscoveryUserAccessEnabled);
+        Assert.False(restored.UseTrash);
+        Assert.False(restored.SyncRecommendationsToPlaylist);
+
+        // TaskMode defaults
+        Assert.Equal(TaskMode.DryRun, restored.TrickplayTaskMode);
+        Assert.Equal(TaskMode.DryRun, restored.EmptyMediaFolderTaskMode);
+        Assert.Equal(TaskMode.DryRun, restored.OrphanedSubtitleTaskMode);
+        Assert.Equal(TaskMode.DryRun, restored.LinkRepairTaskMode);
+        Assert.Equal(TaskMode.Deactivate, restored.SeerrCleanupTaskMode);
+        Assert.Equal(TaskMode.DryRun, restored.RecommendationsTaskMode);
+
+        // Collections default to empty
+        Assert.Empty(restored.RadarrInstances);
+        Assert.Empty(restored.SonarrInstances);
+    }
+
+    [Fact]
+    public void XmlRoundTrip_AllPropertiesNonDefault_AllValuesPreserved()
+    {
+        // Every property set to a value distinct from its default. If any property is
+        // silently dropped or misspelled during (de)serialization, one of the asserts below
+        // will fire.
+        var original = new PluginConfiguration
+        {
+            ExcludedLibraries = "Music,Home Videos",
+            OrphanMinAgeDays = 42,
+            TrickplayTaskMode = TaskMode.Activate,
+            EmptyMediaFolderTaskMode = TaskMode.Activate,
+            OrphanedSubtitleTaskMode = TaskMode.Activate,
+            LinkRepairTaskMode = TaskMode.Activate,
+            SeerrCleanupTaskMode = TaskMode.Activate,
+            SeerrCleanupAgeDays = 90,
+            SeerrUrl = "http://seerr.local:5055",
+            SeerrApiKey = "seerr-key",
+            DiscoveryUserAccessEnabled = true,
+            ConfigVersion = 3,
+            UseTrash = true,
+            TrashFolderPath = "/mnt/trash",
+            TrashRetentionDays = 14,
+            Language = "de",
+            RecommendationsTaskMode = TaskMode.Activate,
+            MaxRecommendationsPerUser = 50,
+            SyncRecommendationsToPlaylist = true,
+            EnsembleAlphaMin = 0.4,
+            EnsembleAlphaMax = 0.6,
+            EnsembleGenrePenaltyFloor = 0.2,
+            PluginLogLevel = "DEBUG",
+            TotalBytesFreed = 123_456_789L,
+            TotalItemsDeleted = 42
+        };
+        original.RadarrInstances.Add(new ArrInstanceConfig { Name = "R", Url = "http://r", ApiKey = "rk" });
+        original.SonarrInstances.Add(new ArrInstanceConfig { Name = "S", Url = "http://s", ApiKey = "sk" });
+
+        var restored = RoundTrip(original);
+
+        Assert.Equal("Music,Home Videos", restored.ExcludedLibraries);
+        Assert.Equal(42, restored.OrphanMinAgeDays);
+        Assert.Equal(TaskMode.Activate, restored.TrickplayTaskMode);
+        Assert.Equal(TaskMode.Activate, restored.EmptyMediaFolderTaskMode);
+        Assert.Equal(TaskMode.Activate, restored.OrphanedSubtitleTaskMode);
+        Assert.Equal(TaskMode.Activate, restored.LinkRepairTaskMode);
+        Assert.Equal(TaskMode.Activate, restored.SeerrCleanupTaskMode);
+        Assert.Equal(90, restored.SeerrCleanupAgeDays);
+        Assert.Equal("http://seerr.local:5055", restored.SeerrUrl);
+        Assert.Equal("seerr-key", restored.SeerrApiKey);
+        Assert.True(restored.DiscoveryUserAccessEnabled);
+        Assert.Equal(3, restored.ConfigVersion);
+        Assert.True(restored.UseTrash);
+        Assert.Equal("/mnt/trash", restored.TrashFolderPath);
+        Assert.Equal(14, restored.TrashRetentionDays);
+        Assert.Equal("de", restored.Language);
+        Assert.Equal(TaskMode.Activate, restored.RecommendationsTaskMode);
+        Assert.Equal(50, restored.MaxRecommendationsPerUser);
+        Assert.True(restored.SyncRecommendationsToPlaylist);
+        Assert.Equal(0.4, restored.EnsembleAlphaMin);
+        Assert.Equal(0.6, restored.EnsembleAlphaMax);
+        Assert.Equal(0.2, restored.EnsembleGenrePenaltyFloor);
+        Assert.Equal("DEBUG", restored.PluginLogLevel);
+        Assert.Equal(123_456_789L, restored.TotalBytesFreed);
+        Assert.Equal(42, restored.TotalItemsDeleted);
+        Assert.Single(restored.RadarrInstances);
+        Assert.Single(restored.SonarrInstances);
+    }
+
+    [Fact]
+    public void XmlRoundTrip_OutOfRangeNumericProperties_AreClampedOnDeserialization()
+    {
+        // The clamping setters (OrphanMinAgeDays, MaxRecommendationsPerUser, EnsembleAlpha*,
+        // EnsembleGenrePenaltyFloor) apply when values come in via property assignment,
+        // which is exactly what happens during XmlSerializer.Deserialize. Verify the invariant
+        // holds after a round-trip so a hand-edited config file with bad values self-heals.
+        var original = new PluginConfiguration
+        {
+            OrphanMinAgeDays = 10_000,          // clamped to 3650
+            MaxRecommendationsPerUser = 999,    // clamped to 100
+            EnsembleAlphaMin = -0.5,            // clamped to 0.0
+            EnsembleAlphaMax = 2.0,             // clamped to 1.0
+            EnsembleGenrePenaltyFloor = 5.0     // clamped to 1.0
+        };
+
+        var restored = RoundTrip(original);
+
+        Assert.Equal(3650, restored.OrphanMinAgeDays);
+        Assert.Equal(100, restored.MaxRecommendationsPerUser);
+        Assert.Equal(0.0, restored.EnsembleAlphaMin);
+        Assert.Equal(1.0, restored.EnsembleAlphaMax);
+        Assert.Equal(1.0, restored.EnsembleGenrePenaltyFloor);
+    }
 }
