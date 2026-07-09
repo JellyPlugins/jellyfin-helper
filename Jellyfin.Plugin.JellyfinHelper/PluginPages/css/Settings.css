@@ -1,7 +1,12 @@
 
     /* Settings form styles */
 .settings-form {
-    max-width: 640px;
+    /* Fill the container width (max 960 px via .stats-container) so the Settings tab
+       matches the responsive behaviour of the other tabs (Overview, Discover, etc.).
+       Individual inputs / selects still use width:100% so nothing overflows. */
+    max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .settings-form label {
