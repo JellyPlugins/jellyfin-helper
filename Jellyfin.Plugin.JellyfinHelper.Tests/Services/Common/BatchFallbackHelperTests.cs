@@ -184,4 +184,37 @@ public sealed class BatchFallbackHelperTests
         Assert.Equal("fallback", result);
         Assert.Equal(new[] { "batch", "callback" }, order);
     }
+
+    // === Callback exception safety ===
+    // The whole point of BatchFallbackHelper is that the caller ALWAYS gets fallbackValue
+    // back on non-cancellation failures. If a broken logger inside onFailure threw and
+    // propagated, the graceful-degradation contract would be gone. Lock that down.
+
+    [Fact]
+    public void TryRunBatch_OnFailureThrows_FallbackValueStillReturned()
+    {
+        // Simulates the "logger blew up" case: the primary batch call fails, then the
+        // diagnostic callback also fails. The helper must still hand back the fallback.
+        var result = BatchFallbackHelper.TryRunBatch<string?>(
+            batchCall: () => throw new InvalidOperationException("primary failure"),
+            fallbackValue: "fallback",
+            onFailure: _ => throw new InvalidOperationException("logger failure"));
+
+        Assert.Equal("fallback", result);
+    }
+
+    [Fact]
+    public void TryRunBatch_OnFailureThrows_ExceptionDoesNotPropagate()
+    {
+        // A callback exception must be swallowed silently — otherwise the caller sees
+        // an unexpected exception type (the logger's) instead of getting fallbackValue.
+        // Verified by Record.Exception returning null.
+        var thrown = Record.Exception(() =>
+            BatchFallbackHelper.TryRunBatch<string?>(
+                batchCall: () => throw new InvalidOperationException(),
+                fallbackValue: null,
+                onFailure: _ => throw new ApplicationException("callback boom")));
+
+        Assert.Null(thrown);
+    }
 }

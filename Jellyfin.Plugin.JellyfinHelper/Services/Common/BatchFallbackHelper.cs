@@ -55,7 +55,20 @@ internal static class BatchFallbackHelper
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            onFailure(ex);
+            // The whole reason this helper exists is that callers always get fallbackValue
+            // back on non-cancellation failures. If onFailure itself throws (e.g. a
+            // logging provider blew up), swallow it — a broken logger must not break
+            // the graceful-degradation contract that all three call sites rely on.
+            try
+            {
+                onFailure(ex);
+            }
+            catch (Exception callbackEx) when (callbackEx is not OutOfMemoryException and not StackOverflowException)
+            {
+                // Intentionally swallowed. There's nothing sensible we can do with an
+                // exception thrown by the diagnostic callback itself.
+            }
+
             return fallbackValue;
         }
     }

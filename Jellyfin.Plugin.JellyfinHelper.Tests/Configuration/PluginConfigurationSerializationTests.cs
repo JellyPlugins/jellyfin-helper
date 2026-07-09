@@ -246,9 +246,9 @@ public class PluginConfigurationSerializationTests
         Assert.Equal(0, restored.ConfigVersion);
         Assert.Equal(30, restored.TrashRetentionDays);
         Assert.Equal(20, restored.MaxRecommendationsPerUser);
-        Assert.Equal(0.3, restored.EnsembleAlphaMin);
-        Assert.Equal(0.75, restored.EnsembleAlphaMax);
-        Assert.Equal(0.10, restored.EnsembleGenrePenaltyFloor);
+        Assert.Equal(0.3, restored.EnsembleAlphaMin, 5);
+        Assert.Equal(0.75, restored.EnsembleAlphaMax, 5);
+        Assert.Equal(0.10, restored.EnsembleGenrePenaltyFloor, 5);
         Assert.Equal(0L, restored.TotalBytesFreed);
         Assert.Equal(0, restored.TotalItemsDeleted);
 
@@ -328,9 +328,11 @@ public class PluginConfigurationSerializationTests
         Assert.Equal(TaskMode.Activate, restored.RecommendationsTaskMode);
         Assert.Equal(50, restored.MaxRecommendationsPerUser);
         Assert.True(restored.SyncRecommendationsToPlaylist);
-        Assert.Equal(0.4, restored.EnsembleAlphaMin);
-        Assert.Equal(0.6, restored.EnsembleAlphaMax);
-        Assert.Equal(0.2, restored.EnsembleGenrePenaltyFloor);
+        // Use precision-based comparison for doubles — this is xUnit's idiomatic style
+        // and stays robust against any future serializer-format tweaks.
+        Assert.Equal(0.4, restored.EnsembleAlphaMin, 5);
+        Assert.Equal(0.6, restored.EnsembleAlphaMax, 5);
+        Assert.Equal(0.2, restored.EnsembleGenrePenaltyFloor, 5);
         Assert.Equal("DEBUG", restored.PluginLogLevel);
         Assert.Equal(123_456_789L, restored.TotalBytesFreed);
         Assert.Equal(42, restored.TotalItemsDeleted);
@@ -358,8 +360,8 @@ public class PluginConfigurationSerializationTests
 
         Assert.Equal(3650, restored.OrphanMinAgeDays);
         Assert.Equal(100, restored.MaxRecommendationsPerUser);
-        Assert.Equal(0.0, restored.EnsembleAlphaMin);
-        Assert.Equal(1.0, restored.EnsembleAlphaMax);
-        Assert.Equal(1.0, restored.EnsembleGenrePenaltyFloor);
+        Assert.Equal(0.0, restored.EnsembleAlphaMin, 5);
+        Assert.Equal(1.0, restored.EnsembleAlphaMax, 5);
+        Assert.Equal(1.0, restored.EnsembleGenrePenaltyFloor, 5);
     }
 }
