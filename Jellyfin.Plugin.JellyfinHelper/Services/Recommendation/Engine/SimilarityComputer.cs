@@ -135,15 +135,15 @@ internal sealed class SimilarityComputer
                 return lookup;
             },
             fallbackValue: null,
-            onFailure: ex =>
-            {
-                if (_logger.IsEnabled(LogLevel.Debug))
-                {
-                    _logger.LogDebug(
-                        ex,
-                        "Batch people lookup via GetPeopleNamesByItems failed, falling back to per-item GetPeople.");
-                }
-            });
+            // Log at Warning via _pluginLog for parity with the sibling batch call sites
+            // (WatchHistoryService.TryLoadUserDataBatch and UserActivityInsightsService.BuildUserDataLookup).
+            // A raw _logger.LogDebug here would silently disappear at the default production
+            // log level, so an admin would never notice the batch API fell back to per-item.
+            onFailure: ex => _pluginLog.LogWarning(
+                "Recommendations",
+                "Batch people lookup via GetPeopleNamesByItems failed, falling back to per-item GetPeople.",
+                ex,
+                _logger));
     }
 
     /// <summary>

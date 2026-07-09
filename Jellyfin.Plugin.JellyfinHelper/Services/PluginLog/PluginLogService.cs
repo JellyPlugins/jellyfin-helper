@@ -89,13 +89,18 @@ public class PluginLogService : IPluginLogService
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
     public void LogWarning(string source, string message, Exception? exception = null, ILogger? logger = null)
     {
-        if (exception != null)
+        // Guard the forwarding call for parity with LogDebug/LogInfo above (CA1873).
+        // The null-check on logger is preserved because it is an optional dependency.
+        if (logger is not null && logger.IsEnabled(LogLevel.Warning))
         {
-            logger?.LogWarning(exception, "[{Source}] {Message}", source, message);
-        }
-        else
-        {
-            logger?.LogWarning("[{Source}] {Message}", source, message);
+            if (exception != null)
+            {
+                logger.LogWarning(exception, "[{Source}] {Message}", source, message);
+            }
+            else
+            {
+                logger.LogWarning("[{Source}] {Message}", source, message);
+            }
         }
 
         AddEntry("WARN", source, message, exception);
@@ -110,13 +115,18 @@ public class PluginLogService : IPluginLogService
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
     public void LogError(string source, string message, Exception? exception = null, ILogger? logger = null)
     {
-        if (exception != null)
+        // Guard the forwarding call for parity with LogDebug/LogInfo above (CA1873).
+        // The null-check on logger is preserved because it is an optional dependency.
+        if (logger is not null && logger.IsEnabled(LogLevel.Error))
         {
-            logger?.LogError(exception, "[{Source}] {Message}", source, message);
-        }
-        else
-        {
-            logger?.LogError("[{Source}] {Message}", source, message);
+            if (exception != null)
+            {
+                logger.LogError(exception, "[{Source}] {Message}", source, message);
+            }
+            else
+            {
+                logger.LogError("[{Source}] {Message}", source, message);
+            }
         }
 
         AddEntry("ERROR", source, message, exception);

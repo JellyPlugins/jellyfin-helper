@@ -343,10 +343,11 @@ public class PluginConfigurationSerializationTests
     [Fact]
     public void XmlRoundTrip_OutOfRangeNumericProperties_AreClampedOnDeserialization()
     {
-        // The clamping setters (OrphanMinAgeDays, MaxRecommendationsPerUser, EnsembleAlpha*,
-        // EnsembleGenrePenaltyFloor) apply when values come in via property assignment,
-        // which is exactly what happens during XmlSerializer.Deserialize. Verify the invariant
-        // holds after a round-trip so a hand-edited config file with bad values self-heals.
+        // Setter-time clamping check: values assigned via property are clamped BEFORE
+        // serialization. This is one half of the "hand-edited config self-heals" story —
+        // it proves the setter contract. The complementary
+        // Deserialize_HandEditedXmlWithOutOfRangeValues_ClampsOnLoad test below covers
+        // the other half: what happens when the XML itself already contains bad values.
         var original = new PluginConfiguration
         {
             OrphanMinAgeDays = 10_000,          // clamped to 3650
@@ -357,6 +358,33 @@ public class PluginConfigurationSerializationTests
         };
 
         var restored = RoundTrip(original);
+
+        Assert.Equal(3650, restored.OrphanMinAgeDays);
+        Assert.Equal(100, restored.MaxRecommendationsPerUser);
+        Assert.Equal(0.0, restored.EnsembleAlphaMin, 5);
+        Assert.Equal(1.0, restored.EnsembleAlphaMax, 5);
+        Assert.Equal(1.0, restored.EnsembleGenrePenaltyFloor, 5);
+    }
+
+    [Fact]
+    public void Deserialize_HandEditedXmlWithOutOfRangeValues_ClampsOnLoad()
+    {
+        // Simulates the real-world case: an admin hand-edits the plugin config XML file
+        // and puts values outside the valid ranges. The XmlSerializer must run every
+        // setter (which is where the clamping lives), so the loaded configuration should
+        // come back with values pinned to the documented bounds — no exceptions, no
+        // corrupt state.
+        const string xml = @"<?xml version=""1.0"" encoding=""utf-16""?>
+<PluginConfiguration xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" xmlns:xsd=""http://www.w3.org/2001/XMLSchema"">
+  <OrphanMinAgeDays>99999</OrphanMinAgeDays>
+  <MaxRecommendationsPerUser>500</MaxRecommendationsPerUser>
+  <EnsembleAlphaMin>-1.5</EnsembleAlphaMin>
+  <EnsembleAlphaMax>2.5</EnsembleAlphaMax>
+  <EnsembleGenrePenaltyFloor>10.0</EnsembleGenrePenaltyFloor>
+</PluginConfiguration>";
+
+        using var reader = new StringReader(xml);
+        var restored = (PluginConfiguration)Serializer.Deserialize(reader)!;
 
         Assert.Equal(3650, restored.OrphanMinAgeDays);
         Assert.Equal(100, restored.MaxRecommendationsPerUser);
