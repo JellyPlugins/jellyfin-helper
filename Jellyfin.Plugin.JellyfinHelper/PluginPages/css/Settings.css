@@ -341,3 +341,184 @@
     margin-left: 0.3em;
     vertical-align: middle;
 }
+
+/* ============================================================
+   Settings redesign — cards + sticky toolbar + responsive grid.
+   All rules below are ADDITIVE. No pre-existing selector changes
+   its behaviour, so autosave overlays, folder browser positioning,
+   and every existing event handler continue to work as before.
+   ============================================================ */
+
+/* ── Sticky action toolbar (Save button + dirty indicator) ── */
+/* noinspection CssUnusedSymbol */
+.settings-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6em;
+    flex-wrap: wrap;
+    padding: 0.55em 0.8em;
+    margin: -0.2em -0.2em 1em -0.2em;
+    background: var(--color-surface-sticky);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-toolbar-title {
+    font-weight: 600;
+    font-size: 0.95em;
+    opacity: 0.85;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    flex-wrap: wrap;
+}
+
+/* Inline the sticky Save button so it stays compact */
+/* noinspection CssUnusedSymbol */
+.settings-toolbar #btnSaveSettings {
+    margin: 0;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-toolbar-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    font-size: 0.82em;
+    opacity: 0.75;
+    white-space: nowrap;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-toolbar-status.is-dirty {
+    color: var(--color-warning);
+    opacity: 1;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-toolbar-status.is-clean {
+    color: var(--color-success);
+    opacity: 0.85;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-toolbar-status .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-toolbar-status.is-dirty .status-dot {
+    animation: settings-dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes settings-dot-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* noinspection CssUnusedSymbol */
+    .settings-toolbar-status.is-dirty .status-dot {
+        animation: none;
+    }
+}
+
+/* Compact toolbar on very small screens */
+@media (max-width: 560px) {
+    /* noinspection CssUnusedSymbol */
+    .settings-toolbar {
+        padding: 0.5em 0.6em;
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .settings-toolbar-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+/* ── Settings cards ── */
+/* noinspection CssUnusedSymbol */
+.settings-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 0.8em 1.1em 1.1em 1.1em;
+    margin-top: 1.2em;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-card:first-of-type {
+    margin-top: 0.4em;
+}
+
+/* Inside a card, the section-title acts as the card header — kill the
+   huge default top margin the section-title uses. */
+/* noinspection CssUnusedSymbol */
+.settings-card > .section-title:first-child {
+    margin-top: 0 !important;
+    margin-bottom: 0.6em;
+}
+
+@media (max-width: 500px) {
+    /* noinspection CssUnusedSymbol */
+    .settings-card {
+        padding: 0.6em 0.8em 0.9em 0.8em;
+    }
+}
+
+/* ── Responsive 2-column grid for cleanup task selects ── */
+/* noinspection CssUnusedSymbol */
+.task-mode-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.1em 1.2em;
+    margin-top: 0.4em;
+}
+
+@media (min-width: 720px) {
+    /* noinspection CssUnusedSymbol */
+    .task-mode-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+/* Each grid cell holds one label + select */
+/* noinspection CssUnusedSymbol */
+.task-mode-grid > .task-mode-cell {
+    display: block;
+    min-width: 0;
+}
+
+/* ── Subgroup title used inside cards for "Recycle Bin" etc. ── */
+/* noinspection CssUnusedSymbol */
+.settings-subgroup-title {
+    margin-top: 1.4em;
+    padding-top: 0.9em;
+    border-top: 1px dashed var(--color-border);
+    font-weight: 600;
+    font-size: 0.92em;
+    opacity: 0.9;
+    display: flex;
+    align-items: center;
+    gap: 0.35em;
+}

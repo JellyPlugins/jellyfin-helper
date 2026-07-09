@@ -102,6 +102,8 @@ function takeSettingsSnapshot() {
     } catch (e) {
         _settingsSnapshot = '';
     }
+    // Reflect the (now clean) state in the sticky-toolbar indicator, if present.
+    updateSettingsDirtyIndicator();
 }
 
 function hasUnsavedSettings() {
@@ -111,6 +113,61 @@ function hasUnsavedSettings() {
     } catch (e) {
         return false;
     }
+}
+
+/**
+ * Updates the sticky-toolbar dirty indicator to reflect the current
+ * unsaved-changes state derived from _settingsSnapshot. Safe to call
+ * even when the indicator element is absent from the DOM.
+ */
+function updateSettingsDirtyIndicator() {
+    var el = document.getElementById('settingsDirtyIndicator');
+    if (!el) return;
+    var dirty = false;
+    try { dirty = hasUnsavedSettings(); } catch (_e) { dirty = false; }
+    if (!_settingsSnapshot) {
+        // No baseline yet — hide indicator to avoid a flash on first render.
+        el.style.display = 'none';
+        el.classList.remove('is-dirty', 'is-clean');
+        return;
+    }
+    el.style.display = '';
+    if (dirty) {
+        el.classList.add('is-dirty');
+        el.classList.remove('is-clean');
+        var dirtyLabel = T('settingsUnsavedChanges', 'Unsaved changes');
+        el.setAttribute('title', dirtyLabel);
+        el.setAttribute('aria-label', dirtyLabel);
+        el.innerHTML = '<span class="status-dot" aria-hidden="true"></span><span>' + escHtml(dirtyLabel) + '</span>';
+    } else {
+        el.classList.add('is-clean');
+        el.classList.remove('is-dirty');
+        var savedLabel = T('settingsAllSaved', 'All changes saved');
+        el.setAttribute('title', savedLabel);
+        el.setAttribute('aria-label', savedLabel);
+        el.innerHTML = mi('check_circle') + '<span>' + escHtml(savedLabel) + '</span>';
+    }
+}
+
+/**
+ * Debounced dirty-check listener attached to the settings form.
+ * Only wires up input/change events; each rendered form gets a fresh
+ * listener because the form element is replaced (not just re-populated)
+ * by loadSettings().
+ */
+var _dirtyDebounceTimer = null;
+
+function attachDirtyTracking() {
+    var form = document.getElementById('settingsForm');
+    if (!form) return;
+    var handler = function () {
+        if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);
+        _dirtyDebounceTimer = setTimeout(updateSettingsDirtyIndicator, 120);
+    };
+    // Reset any legacy handlers before attaching (defence in depth against
+    // duplicate registration when loadSettings is called multiple times).
+    form.addEventListener('input', handler);
+    form.addEventListener('change', handler);
 }
 
 // Show unsaved-changes dialog, then call onProceed() or stay
@@ -188,6 +245,22 @@ function loadSettings() {
         // Remember trash path for relocation dialog
         _previousTrashPath = cfg.TrashFolderPath || '.jellyfin-trash';
         var h = '';
+
+        // ── Sticky toolbar (Save button + unsaved-changes indicator) ──
+        // Single source of truth: the primary and only Save button lives here.
+        // #settingsMsg follows immediately so save-status feedback stays anchored
+        // near the button, regardless of scroll position.
+        h += '<div class="settings-toolbar" role="region" aria-label="' + escAttr(T('settingsToolbarLabel', 'Settings actions')) + '">';
+        h += '<span class="settings-toolbar-title">' + mi('settings') + '<span>' + T('tabSettings', 'Settings') + '</span></span>';
+        h += '<div class="settings-toolbar-actions">';
+        h += '<span class="settings-toolbar-status" id="settingsDirtyIndicator" style="display:none;"></span>';
+        h += '<button type="button" class="action-btn" id="btnSaveSettings">' + mi('save') + T('saveSettings', 'Save Settings') + '</button>';
+        h += '</div>';
+        h += '</div>';
+        h += '<div id="settingsMsg" style="margin-top:0.5em;"></div>';
+
+        // ── Card 1: General ──
+        h += '<div class="settings-card">';
         h += '<div class="section-title">' + T('settingsGeneralTitle', 'General settings') + '</div>';
 
         h += '<label>' + T('excludedLibraries', 'Excluded Libraries') + '</label>';
@@ -204,7 +277,10 @@ function loadSettings() {
             h += '<option value="' + langs[i][0] + '"' + (cfg.Language === langs[i][0] ? ' selected' : '') + '>' + langs[i][1] + '</option>';
         }
         h += '</select>';
+        h += '</div>'; // /Card 1 (General)
 
+        // ── Card 2: Task settings (cleanup tasks + trash + recommendations chain) ──
+        h += '<div class="settings-card">';
         h += '<div class="section-title">' + T('settingsTaskTitle', 'Task settings') + '</div>';
         h += '<div style="font-weight:600;font-size:0.9em;margin-top:0.5em;">' + T('taskModeTitle', 'Task Mode (per Task)') + '</div>';
         h += '<div class="help-text">' + T('taskModeHelp', 'Choose whether each task is active, runs in dry-run mode (only logs), or is deactivated.') + '</div>';
@@ -223,10 +299,14 @@ function loadSettings() {
             return s;
         }
 
-        h += renderTaskModeSelect('cfgTrickplayMode', T('trickplayFolderCleaner', 'Trickplay Folder Cleaner'), cfg.TrickplayTaskMode || 'DryRun');
-        h += renderTaskModeSelect('cfgEmptyFolderMode', T('emptyMediaFolderCleaner', 'Empty Media Folder Cleaner'), cfg.EmptyMediaFolderTaskMode || 'DryRun');
-        h += renderTaskModeSelect('cfgSubtitleMode', T('orphanedSubtitleCleaner', 'Orphaned Subtitle Cleaner'), cfg.OrphanedSubtitleTaskMode || 'DryRun');
-        h += renderTaskModeSelect('cfgLinkMode', T('linkRepair', 'Link Repair'), cfg.LinkRepairTaskMode || 'DryRun');
+        // Cleanup task selects render in a responsive 2-column grid on wide screens.
+        h += '<div class="task-mode-grid">';
+        h += '<div class="task-mode-cell">' + renderTaskModeSelect('cfgTrickplayMode', T('trickplayFolderCleaner', 'Trickplay Folder Cleaner'), cfg.TrickplayTaskMode || 'DryRun') + '</div>';
+        h += '<div class="task-mode-cell">' + renderTaskModeSelect('cfgEmptyFolderMode', T('emptyMediaFolderCleaner', 'Empty Media Folder Cleaner'), cfg.EmptyMediaFolderTaskMode || 'DryRun') + '</div>';
+        h += '<div class="task-mode-cell">' + renderTaskModeSelect('cfgSubtitleMode', T('orphanedSubtitleCleaner', 'Orphaned Subtitle Cleaner'), cfg.OrphanedSubtitleTaskMode || 'DryRun') + '</div>';
+        h += '<div class="task-mode-cell">' + renderTaskModeSelect('cfgLinkMode', T('linkRepair', 'Link Repair'), cfg.LinkRepairTaskMode || 'DryRun') + '</div>';
+        h += '</div>';
+        // Recommendations select stays full-width because it is followed by its own toggle+hint block.
         h += renderTaskModeSelect('cfgRecommendationsMode', T('recommendations', 'Recommendations'), cfg.RecommendationsTaskMode || 'DryRun');
 
         // Playlist sync toggle - greyed out if Recommendations is not Activate
@@ -268,7 +348,11 @@ function loadSettings() {
         h += '<div class="help-text seerr-not-configured-hint" style="' + (seerrConfigured ? 'display:none;' : '') + '">' + T('seerrNotConfigured', 'Configure Seerr below to enable this task.') + '</div>';
         h += '</div>';
 
-        h += '<div class="section-title">' + T('settingsTrashTitle', 'Trash settings') + '</div>';
+        // Trash / Recycle Bin lives inside the Task card because it is exclusively
+        // used by the cleanup tasks configured above. We keep the original
+        // "Trash settings" section-title token (i18n key preserved for tests) but
+        // style it as a subgroup divider via the additional class.
+        h += '<div class="section-title settings-subgroup-title">' + mi('delete') + T('settingsTrashTitle', 'Trash settings') + '</div>';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label for="cfgTrash">' + T('useTrash', 'Use Trash (Recycle Bin)') + '</label></div>';
 
         h += '<fieldset id="trashSettingsWrapper" ' + (!cfg.UseTrash ? 'disabled ' : '') + 'style="border:0;padding:0;margin:0;min-inline-size:0;' + (!cfg.UseTrash ? 'opacity:0.5;' : '') + '">';
@@ -283,6 +367,10 @@ function loadSettings() {
         h += '<input type="number" id="cfgTrashDays" min="0" max="3650" step="1" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
         h += '</div>';
         h += '</fieldset>';
+        h += '</div>'; // /Card 2 (Task settings + Trash)
+
+        // ── Card 3: Integrations (Seerr, Radarr, Sonarr) ──
+        h += '<div class="settings-card">';
 
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
             var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');var ex=p.classList.contains(\'arr-expanded\');this.setAttribute(\'aria-expanded\',ex?\'true\':\'false\');var b=p.querySelector(\'.arr-collapsible-body\');if(b)b.setAttribute(\'aria-hidden\',ex?\'false\':\'true\')">';
@@ -331,11 +419,10 @@ function loadSettings() {
         h += '<div class="arr-collapsible-body" aria-hidden="' + (sonarrCount === 0 ? 'false' : 'true') + '">';
         h += renderArrInstances('Sonarr', sonarrInstances);
         h += '</div></div>';
+        h += '</div>'; // /Card 3 (Integrations)
 
-        h += '<div style="margin-top:2em;"><button class="action-btn" id="btnSaveSettings">' + T('saveSettings', 'Save Settings') + '</button></div>';
-        h += '<div id="settingsMsg" style="margin-top:0.5em;"></div>';
-
-        // --- Backup Section ---
+        // ── Card 4: Backup & Restore ──
+        h += '<div class="settings-card">';
         h += '<div class="section-title">' + T('settingsBackupTitle', 'Backup & Restore') + '</div>';
         h += '<div class="help-text">' + T('settingsBackupHelp', 'Export your settings, Arr integrations, and trend data for backup. Import to restore on a fresh installation.') + '</div>';
         h += '<div class="export-import-button-container">';
@@ -344,6 +431,7 @@ function loadSettings() {
         h += '<input type="file" id="btnBackupImportFile" accept=".json,application/json" style="display:none;">';
         h += '</div>';
         h += '<div id="backupMsg" style="margin-top:0.5em;"></div>';
+        h += '</div>'; // /Card 4 (Backup)
 
         form.innerHTML = h;
         document.getElementById('btnSaveSettings').addEventListener('click', saveSettings);
@@ -375,6 +463,12 @@ function loadSettings() {
 
         // Show/hide Recommendations tab based on task mode
         updateRecsTabVisibility(cfg.RecommendationsTaskMode || 'DryRun');
+
+        // Delegated dirty-check on the form: keeps the sticky-toolbar indicator
+        // in sync with any DOM edit — including auto-save fields (they trigger the
+        // change event which the debounced handler picks up, then re-renders the
+        // indicator to "clean" after the snapshot is refreshed by takeSettingsSnapshot).
+        attachDirtyTracking();
 
         // Take snapshot after settings are fully rendered
         setTimeout(takeSettingsSnapshot, 0);
