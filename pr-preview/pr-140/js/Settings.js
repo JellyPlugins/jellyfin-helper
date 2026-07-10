@@ -97,12 +97,14 @@ function updateSeerrUIState(isConfigured) {
 var _settingsSnapshot = '';
 
 // True once the user has made at least one change since the form was (re)loaded.
-// The saved/unsaved chip stays hidden until this becomes true, so a freshly
-// loaded, untouched form shows no indicator (per product decision).
+// The save band stays hidden until this becomes true, so a freshly loaded,
+// untouched form shows nothing.
 var _settingsInteracted = false;
 
-// Timer handle for the delayed fade-out of the "All changes saved" chip.
-var _settingsSavedHideTimer = null;
+// Timer handles / flags for the floating save band.
+var _settingsSavedHideTimer = null; // delayed fade-out of the "saved" confirmation
+var _saveBandRevealTimer = null;    // debounced reveal of the "unsaved" prompt
+var _saveBandSaving = false;        // true while a manual save is in flight
 
 function takeSettingsSnapshot() {
     try {
@@ -110,8 +112,8 @@ function takeSettingsSnapshot() {
     } catch (e) {
         _settingsSnapshot = '';
     }
-    // Reflect the (now clean) state in the sticky-toolbar indicator, if present.
-    updateSettingsDirtyIndicator();
+    // Reflect the (now clean) state in the floating save band.
+    refreshSaveBand();
 }
 
 function hasUnsavedSettings() {
@@ -123,97 +125,121 @@ function hasUnsavedSettings() {
     }
 }
 
+function getSaveBand() {
+    return document.getElementById('settingsSaveBand');
+}
+
+function cancelSaveBandReveal() {
+    if (_saveBandRevealTimer) {
+        clearTimeout(_saveBandRevealTimer);
+        _saveBandRevealTimer = null;
+    }
+}
+
 /**
- * Updates the sticky-toolbar dirty indicator.
- *
- * Visibility rules (per product decision):
- *   • Freshly loaded / untouched form   → hidden (no indicator at all)
- *   • First unsaved change              → "Unsaved changes" (stays until saved)
- *   • Just saved (after an interaction) → "All changes saved", then fades out
- *                                         after a few seconds until the next change
- *
- * Safe to call even when the indicator element is absent from the DOM.
+ * Renders the floating save band in a specific visual state.
+ * @param {'hidden'|'unsaved'|'saving'|'saved'|'error'} kind
  */
-function updateSettingsDirtyIndicator() {
-    var el = document.getElementById('settingsDirtyIndicator');
-    if (!el) return;
+function renderSaveBand(kind) {
+    var band = getSaveBand();
+    if (!band) return;
+    var icon = band.querySelector('.settings-save-band-icon');
+    var text = band.querySelector('.settings-save-band-text');
+
+    band.classList.remove('is-unsaved', 'is-saving', 'is-saved', 'is-error', 'is-visible');
+    // Cancel a pending fade-out unless we're (re)entering the saved state.
+    if (kind !== 'saved' && _settingsSavedHideTimer) {
+        clearTimeout(_settingsSavedHideTimer);
+        _settingsSavedHideTimer = null;
+    }
+
+    if (kind === 'hidden') {
+        band.setAttribute('aria-hidden', 'true');
+        if (icon) icon.innerHTML = '';
+        if (text) text.textContent = '';
+        return; // stays transparent (no is-visible class)
+    }
+
+    band.setAttribute('aria-hidden', 'false');
+    band.classList.add('is-visible');
+
+    if (kind === 'unsaved') {
+        band.classList.add('is-unsaved');
+        if (icon) icon.innerHTML = '<span class="settings-save-band-dot" aria-hidden="true"></span>';
+        if (text) text.textContent = T('settingsUnsavedChanges', 'Unsaved changes');
+    } else if (kind === 'saving') {
+        band.classList.add('is-saving');
+        if (icon) icon.innerHTML = '<span class="btn-spinner"></span>';
+        if (text) text.textContent = T('savingSettings', 'Saving Settings...');
+    } else if (kind === 'saved') {
+        band.classList.add('is-saved');
+        if (icon) icon.innerHTML = mi('check_circle');
+        if (text) text.textContent = T('settingsAllSaved', 'All changes saved');
+    } else if (kind === 'error') {
+        band.classList.add('is-error');
+        if (icon) icon.innerHTML = mi('error');
+        if (text) text.textContent = T('settingsError', 'Failed to save settings.');
+    }
+}
+
+/**
+ * Drives the floating save band from the current dirty state.
+ *
+ * Rules:
+ *   • Untouched form / clean & never changed → hidden (transparent).
+ *   • Unsaved change → "Unsaved changes" + Save button, revealed after a short
+ *     debounce so quick auto-saves flip straight to "saved" without flashing.
+ *   • Just saved (after an interaction) → "All changes saved", auto-fades.
+ * A manual save in flight (_saveBandSaving) is left untouched; a transient error
+ * stays until the next change or save.
+ */
+function refreshSaveBand() {
+    var band = getSaveBand();
+    if (!band) return;
+    if (_saveBandSaving) return; // don't override an in-progress manual save
 
     var dirty;
     try { dirty = hasUnsavedSettings(); } catch (_e) { dirty = false; }
 
-    // No baseline yet — keep hidden to avoid a flash on first render.
     if (!_settingsSnapshot) {
-        hideSettingsDirtyIndicator(el);
+        cancelSaveBandReveal();
+        renderSaveBand('hidden');
         return;
     }
 
     if (dirty) {
-        // The user changed something — reveal the chip and remember the interaction.
         _settingsInteracted = true;
-        if (_settingsSavedHideTimer) {
-            clearTimeout(_settingsSavedHideTimer);
-            _settingsSavedHideTimer = null;
-        }
-        el.style.display = '';
-        el.classList.add('is-dirty');
-        el.classList.remove('is-clean', 'is-hiding');
-        var dirtyLabel = T('settingsUnsavedChanges', 'Unsaved changes');
-        el.setAttribute('title', dirtyLabel);
-        el.setAttribute('aria-label', dirtyLabel);
-        el.innerHTML = '<span class="status-dot" aria-hidden="true"></span><span>' + escHtml(dirtyLabel) + '</span>';
+        // Already showing the prompt, or a reveal is already pending → nothing to do.
+        if (band.classList.contains('is-unsaved') || _saveBandRevealTimer) return;
+        _saveBandRevealTimer = setTimeout(function () {
+            _saveBandRevealTimer = null;
+            if (_saveBandSaving) return;
+            var stillDirty;
+            try { stillDirty = hasUnsavedSettings(); } catch (_e) { stillDirty = false; }
+            if (stillDirty) renderSaveBand('unsaved');
+        }, 600);
         return;
     }
 
-    // Clean state. Only show the "saved" confirmation if the user actually
-    // changed something first; an untouched form shows nothing.
+    // Clean.
+    cancelSaveBandReveal();
     if (!_settingsInteracted) {
-        hideSettingsDirtyIndicator(el);
+        renderSaveBand('hidden');
         return;
     }
-
-    el.style.display = '';
-    el.classList.add('is-clean');
-    el.classList.remove('is-dirty', 'is-hiding');
-    var savedLabel = T('settingsAllSaved', 'All changes saved');
-    el.setAttribute('title', savedLabel);
-    el.setAttribute('aria-label', savedLabel);
-    el.innerHTML = mi('check_circle') + '<span>' + escHtml(savedLabel) + '</span>';
-
-    // Fade the confirmation out after a short delay, then reset the interaction
-    // flag so the chip stays hidden until the next change.
+    // Show the confirmation, then fade it out after a short delay.
+    renderSaveBand('saved');
     if (_settingsSavedHideTimer) clearTimeout(_settingsSavedHideTimer);
     _settingsSavedHideTimer = setTimeout(function () {
         _settingsSavedHideTimer = null;
-        var elNow = document.getElementById('settingsDirtyIndicator');
-        // Abort if the user started editing again in the meantime.
-        if (!elNow || elNow.classList.contains('is-dirty')) return;
-        elNow.classList.add('is-hiding');
-        _settingsInteracted = false;
-        // After the CSS opacity transition completes, remove it from layout.
-        setTimeout(function () {
-            var elDone = document.getElementById('settingsDirtyIndicator');
-            if (elDone && elDone.classList.contains('is-hiding')) {
-                elDone.style.display = 'none';
-                elDone.classList.remove('is-clean', 'is-hiding');
-            }
-        }, 400);
+        var b = getSaveBand();
+        if (b && b.classList.contains('is-saved')) {
+            renderSaveBand('hidden');
+            _settingsInteracted = false;
+        }
     }, 2500);
 }
 
-/**
- * Hides the dirty indicator and clears all of its transient state classes
- * and any pending fade-out timer.
- * @param {HTMLElement} el - The indicator element.
- */
-function hideSettingsDirtyIndicator(el) {
-    if (!el) return;
-    if (_settingsSavedHideTimer) {
-        clearTimeout(_settingsSavedHideTimer);
-        _settingsSavedHideTimer = null;
-    }
-    el.style.display = 'none';
-    el.classList.remove('is-dirty', 'is-clean', 'is-hiding');
-}
 
 /**
  * Debounced dirty-check listener attached to the settings form.
@@ -228,7 +254,7 @@ function attachDirtyTracking() {
     if (!form) return;
     var handler = function () {
         if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);
-        _dirtyDebounceTimer = setTimeout(updateSettingsDirtyIndicator, 120);
+        _dirtyDebounceTimer = setTimeout(refreshSaveBand, 120);
     };
     // Reset any legacy handlers before attaching (defence in depth against
     // duplicate registration when loadSettings is called multiple times).
@@ -301,12 +327,17 @@ function rebuildUI() {
 function loadSettings() {
     var form = document.getElementById('settingsForm');
     if (!form) return;
-    // Reset dirty-indicator state on every (re)load so the saved/unsaved chip
-    // stays hidden until the user makes the first change on the fresh form.
+    // Reset save-band state on every (re)load so the band stays hidden until the
+    // user makes the first change on the fresh form.
     _settingsInteracted = false;
+    _saveBandSaving = false;
     if (_settingsSavedHideTimer) {
         clearTimeout(_settingsSavedHideTimer);
         _settingsSavedHideTimer = null;
+    }
+    if (_saveBandRevealTimer) {
+        clearTimeout(_saveBandRevealTimer);
+        _saveBandRevealTimer = null;
     }
     apiGet('JellyfinHelper/Configuration', function (cfg) {
         // Remember the current language for change detection
@@ -320,16 +351,9 @@ function loadSettings() {
         _previousTrashPath = cfg.TrashFolderPath || '.jellyfin-trash';
         var h = '';
 
-        // ── Action row (Save button + unsaved-changes indicator) ──
-        // Borderless, right-aligned cluster: the indicator sits directly left of
-        // the (primary and only) Save button, so the row never looks like a large
-        // empty card when idle. #settingsMsg follows immediately for save feedback.
-        h += '<div class="settings-toolbar" role="region" aria-label="' + escAttr(T('settingsToolbarLabel', 'Settings actions')) + '">';
-        h += '<div class="settings-toolbar-actions">';
-        h += '<span class="settings-toolbar-status" id="settingsDirtyIndicator" style="display:none;"></span>';
-        h += '<button type="button" class="action-btn" id="btnSaveSettings">' + mi('save') + T('saveSettings', 'Save Settings') + '</button>';
-        h += '</div>';
-        h += '</div>';
+        // Message area for longer operation feedback (e.g. trash folder actions).
+        // The Save button + save-state now live in the floating band rendered at
+        // the end of the form (see #settingsSaveBand below).
         h += '<div id="settingsMsg" style="margin-top:0.5em;"></div>';
 
         // ── Card 1: General ──
@@ -506,6 +530,16 @@ function loadSettings() {
         h += '<div id="backupMsg" style="margin-top:0.5em;"></div>';
         h += '</div>'; // /Card 4 (Backup)
 
+        // ── Floating save band (fixed, bottom-centre) ──
+        // Always in the viewport regardless of scroll position. Transparent/idle by
+        // default; shows "unsaved" (with the Save button), a spinner while saving,
+        // "saved" (auto-fades), or an error. The button keeps id=btnSaveSettings so
+        // all existing save logic keeps working unchanged.
+        h += '<div class="settings-save-band" id="settingsSaveBand" role="status" aria-live="polite" aria-hidden="true">';
+        h += '<span class="settings-save-band-status"><span class="settings-save-band-icon" aria-hidden="true"></span><span class="settings-save-band-text"></span></span>';
+        h += '<button type="button" class="action-btn settings-save-band-btn" id="btnSaveSettings">' + mi('save') + T('saveSettings', 'Save Settings') + '</button>';
+        h += '</div>';
+
         form.innerHTML = h;
         document.getElementById('btnSaveSettings').addEventListener('click', saveSettings);
         attachRemoveHandlers();
@@ -643,7 +677,9 @@ function doSaveSettings(payload, options) {
     _trashPathChangeHandled = false;
 
     if (!quiet) {
-        btn.innerHTML = '<span class="btn-spinner"></span>' + T('savingSettings', 'Saving Settings...');
+        _saveBandSaving = true;
+        if (btn) btn.disabled = true;
+        renderSaveBand('saving');
     }
 
     apiPost('JellyfinHelper/Configuration', payload, function (response) {
@@ -662,8 +698,11 @@ function doSaveSettings(payload, options) {
         if (quiet) {
             showAutoSaveIndicatorOverlay(indicatorEl, true);
         } else {
-            btn.disabled = false;
-            showButtonFeedback(btn, true, T('settingsSaved', 'Settings saved!'), T('saveSettings', 'Save Settings'));
+            // Clear the in-flight guard first, then let the band reflect the now
+            // clean state ("All changes saved", which auto-fades).
+            _saveBandSaving = false;
+            if (btn) btn.disabled = false;
+            refreshSaveBand();
         }
 
         initArrButtons(payload);
@@ -686,12 +725,14 @@ function doSaveSettings(payload, options) {
         } catch (_e) { /* ignore parse errors */ }
         if (quiet) {
             showAutoSaveIndicatorOverlay(indicatorEl, false);
+            renderSaveBand('error');
             if (options && typeof options.onError === 'function') {
                 options.onError(errorMsg);
             }
         } else {
-            btn.disabled = false;
-            showButtonFeedback(btn, false, T('settingsError', 'Failed to save settings.'), T('saveSettings', 'Save Settings'));
+            _saveBandSaving = false;
+            if (btn) btn.disabled = false;
+            renderSaveBand('error');
         }
     });
 }
