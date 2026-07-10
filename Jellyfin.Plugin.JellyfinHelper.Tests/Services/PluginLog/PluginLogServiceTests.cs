@@ -664,6 +664,60 @@ public class PluginLogServiceTests : IDisposable
         Assert.Single(entries);
     }
 
+    /// <summary>
+    ///     Verifies that LogWarning does NOT forward to ILogger when IsEnabled(Warning) is false,
+    ///     but the entry is still added to the in-memory buffer.
+    /// </summary>
+    [Fact]
+    public void LogWarning_DoesNotForwardToILogger_WhenIsEnabledReturnsFalse()
+    {
+        const string src = "__PLT_NoFwdWarn__";
+        var mockLogger = new Mock<ILogger>();
+        mockLogger.Setup(l => l.IsEnabled(LogLevel.Warning)).Returns(false);
+
+        // Named 'logger:' argument because LogWarning's third positional parameter is Exception?.
+        _sut.LogWarning(src, "Should not forward", logger: mockLogger.Object);
+
+        mockLogger.Verify(
+            l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
+
+        var entries = _sut.GetEntries(source: src);
+        Assert.Single(entries);
+    }
+
+    /// <summary>
+    ///     Verifies that LogError does NOT forward to ILogger when IsEnabled(Error) is false,
+    ///     but the entry is still added to the in-memory buffer.
+    /// </summary>
+    [Fact]
+    public void LogError_DoesNotForwardToILogger_WhenIsEnabledReturnsFalse()
+    {
+        const string src = "__PLT_NoFwdErr__";
+        var mockLogger = new Mock<ILogger>();
+        mockLogger.Setup(l => l.IsEnabled(LogLevel.Error)).Returns(false);
+
+        // Named 'logger:' argument because LogError's third positional parameter is Exception?.
+        _sut.LogError(src, "Should not forward", logger: mockLogger.Object);
+
+        mockLogger.Verify(
+            l => l.Log(
+                LogLevel.Error,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
+
+        var entries = _sut.GetEntries(source: src);
+        Assert.Single(entries);
+    }
+
     // ===== GetConfiguredMinLevel =====
 
     /// <summary>

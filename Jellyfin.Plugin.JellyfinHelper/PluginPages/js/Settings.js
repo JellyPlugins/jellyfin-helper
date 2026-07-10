@@ -96,12 +96,24 @@ function updateSeerrUIState(isConfigured) {
 // Dirty-tracking: snapshot of settings payload after load/save
 var _settingsSnapshot = '';
 
+// True once the user has made at least one change since the form was (re)loaded.
+// The save band stays hidden until this becomes true, so a freshly loaded,
+// untouched form shows nothing.
+var _settingsInteracted = false;
+
+// Timer handles / flags for the floating save band.
+var _settingsSavedHideTimer = null; // delayed fade-out of the "saved" confirmation
+var _saveBandRevealTimer = null;    // debounced reveal of the "unsaved" prompt
+var _saveBandSaving = false;        // true while a manual save is in flight
+
 function takeSettingsSnapshot() {
     try {
         _settingsSnapshot = JSON.stringify(buildSettingsPayload());
     } catch (e) {
         _settingsSnapshot = '';
     }
+    // Reflect the (now clean) state in the floating save band.
+    refreshSaveBand();
 }
 
 function hasUnsavedSettings() {
@@ -111,6 +123,143 @@ function hasUnsavedSettings() {
     } catch (e) {
         return false;
     }
+}
+
+function getSaveBand() {
+    return document.getElementById('settingsSaveBand');
+}
+
+function cancelSaveBandReveal() {
+    if (_saveBandRevealTimer) {
+        clearTimeout(_saveBandRevealTimer);
+        _saveBandRevealTimer = null;
+    }
+}
+
+/**
+ * Renders the floating save band in a specific visual state.
+ * @param {'hidden'|'unsaved'|'saving'|'saved'|'error'} kind
+ */
+function renderSaveBand(kind) {
+    var band = getSaveBand();
+    if (!band) return;
+    var icon = band.querySelector('.settings-save-band-icon');
+    var text = band.querySelector('.settings-save-band-text');
+
+    band.classList.remove('is-unsaved', 'is-saving', 'is-saved', 'is-error', 'is-visible');
+    // Cancel a pending fade-out unless we're (re)entering the saved state.
+    if (kind !== 'saved' && _settingsSavedHideTimer) {
+        clearTimeout(_settingsSavedHideTimer);
+        _settingsSavedHideTimer = null;
+    }
+
+    if (kind === 'hidden') {
+        band.setAttribute('aria-hidden', 'true');
+        if (icon) icon.innerHTML = '';
+        if (text) text.textContent = '';
+        return; // stays transparent (no is-visible class)
+    }
+
+    band.setAttribute('aria-hidden', 'false');
+    band.classList.add('is-visible');
+
+    if (kind === 'unsaved') {
+        band.classList.add('is-unsaved');
+        if (icon) icon.innerHTML = '<span class="settings-save-band-dot" aria-hidden="true"></span>';
+        if (text) text.textContent = T('settingsUnsavedChanges', 'Unsaved changes');
+    } else if (kind === 'saving') {
+        band.classList.add('is-saving');
+        if (icon) icon.innerHTML = '<span class="btn-spinner"></span>';
+        if (text) text.textContent = T('savingSettings', 'Saving Settings...');
+    } else if (kind === 'saved') {
+        band.classList.add('is-saved');
+        if (icon) icon.innerHTML = mi('check_circle');
+        if (text) text.textContent = T('settingsAllSaved', 'All changes saved');
+    } else if (kind === 'error') {
+        band.classList.add('is-error');
+        if (icon) icon.innerHTML = mi('error');
+        if (text) text.textContent = T('settingsError', 'Failed to save settings.');
+    }
+}
+
+/**
+ * Drives the floating save band from the current dirty state.
+ *
+ * Rules:
+ *   • Untouched form / clean & never changed → hidden (transparent).
+ *   • Unsaved change → "Unsaved changes" + Save button, revealed after a short
+ *     debounce so quick auto-saves flip straight to "saved" without flashing.
+ *   • Just saved (after an interaction) → "All changes saved", auto-fades.
+ * A manual save in flight (_saveBandSaving) is left untouched; a transient error
+ * stays until the next change or save.
+ */
+function refreshSaveBand() {
+    var band = getSaveBand();
+    if (!band) return;
+    if (_saveBandSaving) return; // don't override an in-progress manual save
+
+    var dirty;
+    try { dirty = hasUnsavedSettings(); } catch (_e) { dirty = false; }
+
+    if (!_settingsSnapshot) {
+        cancelSaveBandReveal();
+        renderSaveBand('hidden');
+        return;
+    }
+
+    if (dirty) {
+        _settingsInteracted = true;
+        // Already showing the prompt, or a reveal is already pending → nothing to do.
+        if (band.classList.contains('is-unsaved') || _saveBandRevealTimer) return;
+        _saveBandRevealTimer = setTimeout(function () {
+            _saveBandRevealTimer = null;
+            if (_saveBandSaving) return;
+            var stillDirty;
+            try { stillDirty = hasUnsavedSettings(); } catch (_e) { stillDirty = false; }
+            if (stillDirty) renderSaveBand('unsaved');
+        }, 600);
+        return;
+    }
+
+    // Clean.
+    cancelSaveBandReveal();
+    if (!_settingsInteracted) {
+        renderSaveBand('hidden');
+        return;
+    }
+    // Show the confirmation, then fade it out after a short delay.
+    renderSaveBand('saved');
+    if (_settingsSavedHideTimer) clearTimeout(_settingsSavedHideTimer);
+    _settingsSavedHideTimer = setTimeout(function () {
+        _settingsSavedHideTimer = null;
+        var b = getSaveBand();
+        if (b && b.classList.contains('is-saved')) {
+            renderSaveBand('hidden');
+            _settingsInteracted = false;
+        }
+    }, 2500);
+}
+
+
+/**
+ * Debounced dirty-check listener attached to the settings form.
+ * Only wires up input/change events; each rendered form gets a fresh
+ * listener because the form element is replaced (not just re-populated)
+ * by loadSettings().
+ */
+var _dirtyDebounceTimer = null;
+
+function attachDirtyTracking() {
+    var form = document.getElementById('settingsForm');
+    if (!form) return;
+    var handler = function () {
+        if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);
+        _dirtyDebounceTimer = setTimeout(refreshSaveBand, 120);
+    };
+    // Reset any legacy handlers before attaching (defence in depth against
+    // duplicate registration when loadSettings is called multiple times).
+    form.addEventListener('input', handler);
+    form.addEventListener('change', handler);
 }
 
 // Show unsaved-changes dialog, then call onProceed() or stay
@@ -174,9 +323,22 @@ function rebuildUI() {
     if (settingsBtn) settingsBtn.click();
 }
 
+
 function loadSettings() {
     var form = document.getElementById('settingsForm');
     if (!form) return;
+    // Reset save-band state on every (re)load so the band stays hidden until the
+    // user makes the first change on the fresh form.
+    _settingsInteracted = false;
+    _saveBandSaving = false;
+    if (_settingsSavedHideTimer) {
+        clearTimeout(_settingsSavedHideTimer);
+        _settingsSavedHideTimer = null;
+    }
+    if (_saveBandRevealTimer) {
+        clearTimeout(_saveBandRevealTimer);
+        _saveBandRevealTimer = null;
+    }
     apiGet('JellyfinHelper/Configuration', function (cfg) {
         // Remember the current language for change detection
         _currentLang = cfg.Language || 'en';
@@ -188,6 +350,14 @@ function loadSettings() {
         // Remember trash path for relocation dialog
         _previousTrashPath = cfg.TrashFolderPath || '.jellyfin-trash';
         var h = '';
+
+        // Message area for longer operation feedback (e.g. trash folder actions).
+        // The Save button + save-state now live in the floating band rendered at
+        // the end of the form (see #settingsSaveBand below).
+        h += '<div id="settingsMsg" style="margin-top:0.5em;"></div>';
+
+        // ── Card 1: General ──
+        h += '<div class="settings-card">';
         h += '<div class="section-title">' + T('settingsGeneralTitle', 'General settings') + '</div>';
 
         h += '<label>' + T('excludedLibraries', 'Excluded Libraries') + '</label>';
@@ -204,7 +374,10 @@ function loadSettings() {
             h += '<option value="' + langs[i][0] + '"' + (cfg.Language === langs[i][0] ? ' selected' : '') + '>' + langs[i][1] + '</option>';
         }
         h += '</select>';
+        h += '</div>'; // /Card 1 (General)
 
+        // ── Card 2: Task settings (cleanup tasks + trash + recommendations chain) ──
+        h += '<div class="settings-card">';
         h += '<div class="section-title">' + T('settingsTaskTitle', 'Task settings') + '</div>';
         h += '<div style="font-weight:600;font-size:0.9em;margin-top:0.5em;">' + T('taskModeTitle', 'Task Mode (per Task)') + '</div>';
         h += '<div class="help-text">' + T('taskModeHelp', 'Choose whether each task is active, runs in dry-run mode (only logs), or is deactivated.') + '</div>';
@@ -223,10 +396,14 @@ function loadSettings() {
             return s;
         }
 
-        h += renderTaskModeSelect('cfgTrickplayMode', T('trickplayFolderCleaner', 'Trickplay Folder Cleaner'), cfg.TrickplayTaskMode || 'DryRun');
-        h += renderTaskModeSelect('cfgEmptyFolderMode', T('emptyMediaFolderCleaner', 'Empty Media Folder Cleaner'), cfg.EmptyMediaFolderTaskMode || 'DryRun');
-        h += renderTaskModeSelect('cfgSubtitleMode', T('orphanedSubtitleCleaner', 'Orphaned Subtitle Cleaner'), cfg.OrphanedSubtitleTaskMode || 'DryRun');
-        h += renderTaskModeSelect('cfgLinkMode', T('linkRepair', 'Link Repair'), cfg.LinkRepairTaskMode || 'DryRun');
+        // Cleanup task selects render in a responsive 2-column grid on wide screens.
+        h += '<div class="task-mode-grid">';
+        h += '<div class="task-mode-cell">' + renderTaskModeSelect('cfgTrickplayMode', T('trickplayFolderCleaner', 'Trickplay Folder Cleaner'), cfg.TrickplayTaskMode || 'DryRun') + '</div>';
+        h += '<div class="task-mode-cell">' + renderTaskModeSelect('cfgEmptyFolderMode', T('emptyMediaFolderCleaner', 'Empty Media Folder Cleaner'), cfg.EmptyMediaFolderTaskMode || 'DryRun') + '</div>';
+        h += '<div class="task-mode-cell">' + renderTaskModeSelect('cfgSubtitleMode', T('orphanedSubtitleCleaner', 'Orphaned Subtitle Cleaner'), cfg.OrphanedSubtitleTaskMode || 'DryRun') + '</div>';
+        h += '<div class="task-mode-cell">' + renderTaskModeSelect('cfgLinkMode', T('linkRepair', 'Link Repair'), cfg.LinkRepairTaskMode || 'DryRun') + '</div>';
+        h += '</div>';
+        // Recommendations select stays full-width because it is followed by its own toggle+hint block.
         h += renderTaskModeSelect('cfgRecommendationsMode', T('recommendations', 'Recommendations'), cfg.RecommendationsTaskMode || 'DryRun');
 
         // Playlist sync toggle - greyed out if Recommendations is not Activate
@@ -268,7 +445,11 @@ function loadSettings() {
         h += '<div class="help-text seerr-not-configured-hint" style="' + (seerrConfigured ? 'display:none;' : '') + '">' + T('seerrNotConfigured', 'Configure Seerr below to enable this task.') + '</div>';
         h += '</div>';
 
-        h += '<div class="section-title">' + T('settingsTrashTitle', 'Trash settings') + '</div>';
+        // Trash / Recycle Bin lives inside the Task card because it is exclusively
+        // used by the cleanup tasks configured above. We keep the original
+        // "Trash settings" section-title token (i18n key preserved for tests) but
+        // style it as a subgroup divider via the additional class.
+        h += '<div class="section-title settings-subgroup-title">' + mi('delete') + T('settingsTrashTitle', 'Trash settings') + '</div>';
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgTrash"' + (cfg.UseTrash ? ' checked' : '') + '><label for="cfgTrash">' + T('useTrash', 'Use Trash (Recycle Bin)') + '</label></div>';
 
         h += '<fieldset id="trashSettingsWrapper" ' + (!cfg.UseTrash ? 'disabled ' : '') + 'style="border:0;padding:0;margin:0;min-inline-size:0;' + (!cfg.UseTrash ? 'opacity:0.5;' : '') + '">';
@@ -283,6 +464,10 @@ function loadSettings() {
         h += '<input type="number" id="cfgTrashDays" min="0" max="3650" step="1" value="' + (cfg.TrashRetentionDays != null ? cfg.TrashRetentionDays : 30) + '">';
         h += '</div>';
         h += '</fieldset>';
+        h += '</div>'; // /Card 2 (Task settings + Trash)
+
+        // ── Card 3: Integrations (Seerr, Radarr, Sonarr) ──
+        h += '<div class="settings-card">';
 
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
             var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');var ex=p.classList.contains(\'arr-expanded\');this.setAttribute(\'aria-expanded\',ex?\'true\':\'false\');var b=p.querySelector(\'.arr-collapsible-body\');if(b)b.setAttribute(\'aria-hidden\',ex?\'false\':\'true\')">';
@@ -331,11 +516,10 @@ function loadSettings() {
         h += '<div class="arr-collapsible-body" aria-hidden="' + (sonarrCount === 0 ? 'false' : 'true') + '">';
         h += renderArrInstances('Sonarr', sonarrInstances);
         h += '</div></div>';
+        h += '</div>'; // /Card 3 (Integrations)
 
-        h += '<div style="margin-top:2em;"><button class="action-btn" id="btnSaveSettings">' + T('saveSettings', 'Save Settings') + '</button></div>';
-        h += '<div id="settingsMsg" style="margin-top:0.5em;"></div>';
-
-        // --- Backup Section ---
+        // ── Card 4: Backup & Restore ──
+        h += '<div class="settings-card">';
         h += '<div class="section-title">' + T('settingsBackupTitle', 'Backup & Restore') + '</div>';
         h += '<div class="help-text">' + T('settingsBackupHelp', 'Export your settings, Arr integrations, and trend data for backup. Import to restore on a fresh installation.') + '</div>';
         h += '<div class="export-import-button-container">';
@@ -344,6 +528,17 @@ function loadSettings() {
         h += '<input type="file" id="btnBackupImportFile" accept=".json,application/json" style="display:none;">';
         h += '</div>';
         h += '<div id="backupMsg" style="margin-top:0.5em;"></div>';
+        h += '</div>'; // /Card 4 (Backup)
+
+        // ── Floating save band (fixed, bottom-centre) ──
+        // Always in the viewport regardless of scroll position. Transparent/idle by
+        // default; shows "unsaved" (with the Save button), a spinner while saving,
+        // "saved" (auto-fades), or an error. The button keeps id=btnSaveSettings so
+        // all existing save logic keeps working unchanged.
+        h += '<div class="settings-save-band" id="settingsSaveBand" role="status" aria-live="polite" aria-hidden="true">';
+        h += '<span class="settings-save-band-status"><span class="settings-save-band-icon" aria-hidden="true"></span><span class="settings-save-band-text"></span></span>';
+        h += '<button type="button" class="action-btn settings-save-band-btn" id="btnSaveSettings">' + mi('save') + T('saveSettings', 'Save Settings') + '</button>';
+        h += '</div>';
 
         form.innerHTML = h;
         document.getElementById('btnSaveSettings').addEventListener('click', saveSettings);
@@ -375,6 +570,12 @@ function loadSettings() {
 
         // Show/hide Recommendations tab based on task mode
         updateRecsTabVisibility(cfg.RecommendationsTaskMode || 'DryRun');
+
+        // Delegated dirty-check on the form: keeps the sticky-toolbar indicator
+        // in sync with any DOM edit — including auto-save fields (they trigger the
+        // change event which the debounced handler picks up, then re-renders the
+        // indicator to "clean" after the snapshot is refreshed by takeSettingsSnapshot).
+        attachDirtyTracking();
 
         // Take snapshot after settings are fully rendered
         setTimeout(takeSettingsSnapshot, 0);
@@ -476,7 +677,9 @@ function doSaveSettings(payload, options) {
     _trashPathChangeHandled = false;
 
     if (!quiet) {
-        btn.innerHTML = '<span class="btn-spinner"></span>' + T('savingSettings', 'Saving Settings...');
+        _saveBandSaving = true;
+        if (btn) btn.disabled = true;
+        renderSaveBand('saving');
     }
 
     apiPost('JellyfinHelper/Configuration', payload, function (response) {
@@ -495,8 +698,11 @@ function doSaveSettings(payload, options) {
         if (quiet) {
             showAutoSaveIndicatorOverlay(indicatorEl, true);
         } else {
-            btn.disabled = false;
-            showButtonFeedback(btn, true, T('settingsSaved', 'Settings saved!'), T('saveSettings', 'Save Settings'));
+            // Clear the in-flight guard first, then let the band reflect the now
+            // clean state ("All changes saved", which auto-fades).
+            _saveBandSaving = false;
+            if (btn) btn.disabled = false;
+            refreshSaveBand();
         }
 
         initArrButtons(payload);
@@ -519,12 +725,14 @@ function doSaveSettings(payload, options) {
         } catch (_e) { /* ignore parse errors */ }
         if (quiet) {
             showAutoSaveIndicatorOverlay(indicatorEl, false);
+            renderSaveBand('error');
             if (options && typeof options.onError === 'function') {
                 options.onError(errorMsg);
             }
         } else {
-            btn.disabled = false;
-            showButtonFeedback(btn, false, T('settingsError', 'Failed to save settings.'), T('saveSettings', 'Save Settings'));
+            _saveBandSaving = false;
+            if (btn) btn.disabled = false;
+            renderSaveBand('error');
         }
     });
 }
