@@ -373,90 +373,101 @@
    and every existing event handler continue to work as before.
    ============================================================ */
 
-/* ── Action row (Save button + dirty indicator) ──
-   Borderless, right-aligned cluster (no card box) so the row never looks like a
-   large empty card when the status chip is hidden. The indicator + Save button
-   sit together on the right; when idle only the button shows. */
+/* ── Floating save band (fixed, bottom-centre) ──
+   The single save/status affordance for the Settings tab. It floats above the
+   viewport bottom via position:fixed (no scroll container needed → no scrollbar,
+   works on mobile). Transparent & non-interactive when idle; slides up to show an
+   amber "unsaved" prompt with the Save button, a spinner while saving, a green
+   "saved" confirmation that auto-fades, or a red error. */
 /* noinspection CssUnusedSymbol */
-.settings-toolbar {
+.settings-save-band {
+    position: fixed;
+    left: 50%;
+    bottom: 1.2em;
+    z-index: 60;
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: 0.6em;
-    flex-wrap: wrap;
-    margin: 0 0 1em 0;
-}
-
-/* noinspection CssUnusedSymbol */
-.settings-toolbar-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.6em;
-    flex-wrap: wrap;
-}
-
-/* Inline the sticky Save button so it stays compact */
-/* noinspection CssUnusedSymbol */
-.settings-toolbar #btnSaveSettings {
-    margin: 0;
-}
-
-/* noinspection CssUnusedSymbol */
-.settings-toolbar-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35em;
-    font-size: 0.82em;
-    opacity: 0.75;
-    white-space: nowrap;
-    transition: opacity 0.35s ease;
-}
-
-/* noinspection CssUnusedSymbol */
-.settings-toolbar-status.is-dirty {
-    color: var(--color-warning);
-    opacity: 1;
-}
-
-/* noinspection CssUnusedSymbol */
-.settings-toolbar-status.is-clean {
-    color: var(--color-success);
-    opacity: 0.85;
-}
-
-/* Fade-out state: a few seconds after a successful save the
-   "All changes saved" chip fades away until the next change. */
-/* noinspection CssUnusedSymbol */
-.settings-toolbar-status.is-hiding {
+    gap: 0.7em;
+    max-width: calc(100vw - 2em);
+    padding: 0.45em 0.55em 0.45em 0.95em;
+    border-radius: 999px;
+    background: var(--color-surface-sticky);
+    border: 1px solid var(--color-border);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     opacity: 0;
     pointer-events: none;
+    transform: translateX(-50%) translateY(0.8em);
+    transition: opacity 0.28s ease, transform 0.28s ease;
 }
 
 /* noinspection CssUnusedSymbol */
-.settings-toolbar-status .status-dot {
-    display: inline-block;
+.settings-save-band.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    font-size: 0.86em;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band-icon {
+    display: inline-flex;
+    align-items: center;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band.is-unsaved .settings-save-band-status { color: var(--color-warning); }
+/* noinspection CssUnusedSymbol */
+.settings-save-band.is-saved .settings-save-band-status { color: var(--color-success); }
+/* noinspection CssUnusedSymbol */
+.settings-save-band.is-error .settings-save-band-status { color: var(--color-danger); }
+/* noinspection CssUnusedSymbol */
+.settings-save-band.is-saving .settings-save-band-status { opacity: 0.85; }
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background: currentcolor;
     flex-shrink: 0;
+    animation: settings-band-pulse 1.6s ease-in-out infinite;
 }
 
-/* noinspection CssUnusedSymbol */
-.settings-toolbar-status.is-dirty .status-dot {
-    animation: settings-dot-pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes settings-dot-pulse {
+@keyframes settings-band-pulse {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.35; }
 }
 
+/* The Save button lives inside the band; shown for unsaved/error, hidden otherwise. */
+/* noinspection CssUnusedSymbol */
+.settings-save-band-btn {
+    margin: 0;
+    padding: 0.3em 0.9em;
+    flex-shrink: 0;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band.is-saving .settings-save-band-btn,
+.settings-save-band.is-saved .settings-save-band-btn {
+    display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
     /* noinspection CssUnusedSymbol */
-    .settings-toolbar-status.is-dirty .status-dot {
-        animation: none;
-    }
+    .settings-save-band { transition: opacity 0.28s ease; }
+    /* noinspection CssUnusedSymbol */
+    .settings-save-band-dot { animation: none; }
 }
 
 
