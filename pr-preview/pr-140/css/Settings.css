@@ -373,27 +373,18 @@
    and every existing event handler continue to work as before.
    ============================================================ */
 
-/* ── Sticky action toolbar (Save button + dirty indicator) ── */
+/* ── Action row (Save button + dirty indicator) ──
+   Borderless, right-aligned cluster (no card box) so the row never looks like a
+   large empty card when the status chip is hidden. The indicator + Save button
+   sit together on the right; when idle only the button shows. */
 /* noinspection CssUnusedSymbol */
 .settings-toolbar {
-    position: sticky;
-    top: 0;
-    z-index: 50;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 0.6em;
     flex-wrap: wrap;
-    padding: 0.55em 0.8em;
-    /* No negative side margins: the toolbar must be exactly as wide as the
-       .settings-card blocks below it (previously it overhung by 0.2em on each
-       side, making the top "card" look larger than the rest). */
     margin: 0 0 1em 0;
-    background: var(--color-surface-sticky);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
 }
 
 /* noinspection CssUnusedSymbol */
@@ -402,11 +393,6 @@
     align-items: center;
     gap: 0.6em;
     flex-wrap: wrap;
-    /* Anchor the Save button to the right edge even when the status chip on the
-       left is hidden (display:none removes it as a flex item, so space-between
-       alone would otherwise pull the button left). On mobile the width:100%
-       rule below neutralises this, preserving the existing stacked layout. */
-    margin-left: auto;
 }
 
 /* Inline the sticky Save button so it stays compact */
@@ -473,19 +459,6 @@
     }
 }
 
-/* Compact toolbar on very small screens */
-@media (max-width: 560px) {
-    /* noinspection CssUnusedSymbol */
-    .settings-toolbar {
-        padding: 0.5em 0.6em;
-    }
-
-    /* noinspection CssUnusedSymbol */
-    .settings-toolbar-actions {
-        width: 100%;
-        justify-content: space-between;
-    }
-}
 
 /* ── Settings cards ── */
 /* noinspection CssUnusedSymbol */

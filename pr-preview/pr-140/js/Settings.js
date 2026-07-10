@@ -320,13 +320,13 @@ function loadSettings() {
         _previousTrashPath = cfg.TrashFolderPath || '.jellyfin-trash';
         var h = '';
 
-        // ── Sticky toolbar (Save button + unsaved-changes indicator) ──
-        // Single source of truth: the primary and only Save button lives here.
-        // #settingsMsg follows immediately so save-status feedback stays anchored
-        // near the button, regardless of scroll position.
+        // ── Action row (Save button + unsaved-changes indicator) ──
+        // Borderless, right-aligned cluster: the indicator sits directly left of
+        // the (primary and only) Save button, so the row never looks like a large
+        // empty card when idle. #settingsMsg follows immediately for save feedback.
         h += '<div class="settings-toolbar" role="region" aria-label="' + escAttr(T('settingsToolbarLabel', 'Settings actions')) + '">';
-        h += '<span class="settings-toolbar-status" id="settingsDirtyIndicator" style="display:none;"></span>';
         h += '<div class="settings-toolbar-actions">';
+        h += '<span class="settings-toolbar-status" id="settingsDirtyIndicator" style="display:none;"></span>';
         h += '<button type="button" class="action-btn" id="btnSaveSettings">' + mi('save') + T('saveSettings', 'Save Settings') + '</button>';
         h += '</div>';
         h += '</div>';
