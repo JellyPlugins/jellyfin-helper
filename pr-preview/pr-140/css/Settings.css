@@ -387,9 +387,9 @@
     z-index: 60;
     display: flex;
     align-items: center;
-    gap: 0.7em;
-    max-width: calc(100vw - 2em);
-    padding: 0.45em 0.55em 0.45em 0.95em;
+    gap: 0.55em;
+    max-width: calc(100vw - 1.5em);
+    padding: 0.4em 0.7em;
     border-radius: 999px;
     background: var(--color-surface-sticky);
     border: 1px solid var(--color-border);
@@ -411,18 +411,26 @@
 
 /* noinspection CssUnusedSymbol */
 .settings-save-band-status {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 0.4em;
-    font-size: 0.86em;
+    min-width: 0; /* allow the label to shrink instead of overflowing the pill */
+    font-size: 0.85em;
     font-weight: 600;
-    white-space: nowrap;
 }
 
 /* noinspection CssUnusedSymbol */
 .settings-save-band-icon {
     display: inline-flex;
     align-items: center;
+    flex-shrink: 0;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* noinspection CssUnusedSymbol */
@@ -449,12 +457,16 @@
     50%      { opacity: 0.35; }
 }
 
-/* The Save button lives inside the band; shown for unsaved/error, hidden otherwise. */
+/* The Save button lives inside the band; shown for unsaved/error, hidden otherwise.
+   It stays compact (proportional to the status text) and never shrinks, so on
+   narrow screens the label truncates and the button never breaks out of the pill. */
 /* noinspection CssUnusedSymbol */
 .settings-save-band-btn {
     margin: 0;
-    padding: 0.3em 0.9em;
+    padding: 0.45em 0.95em;
+    font-size: 0.85em;
     flex-shrink: 0;
+    white-space: nowrap;
 }
 
 /* noinspection CssUnusedSymbol */
