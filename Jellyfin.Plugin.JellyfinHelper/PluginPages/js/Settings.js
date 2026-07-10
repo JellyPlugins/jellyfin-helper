@@ -297,6 +297,52 @@ function rebuildUI() {
     if (settingsBtn) settingsBtn.click();
 }
 
+// ── Sticky Save toolbar: bounded scroll-area height management ──
+// See Settings.css (#settingsForm scroll rules). We size the Settings form so it
+// fills from its top edge down to just above the viewport bottom, giving the
+// sticky toolbar a real scroll container to pin to. Recomputed when the Settings
+// tab is shown and on window resize; disabled on mobile (natural page scrolling).
+var _settingsScrollResizeBound = false;
+var _settingsScrollResizeTimer = null;
+
+function updateSettingsScrollHeight() {
+    var form = document.getElementById('settingsForm');
+    if (!form) return;
+    if (window.innerWidth <= 600) {
+        // Mobile: natural page scrolling, no bounded box.
+        form.style.maxHeight = '';
+        form.style.overflowY = '';
+        return;
+    }
+    var rect = form.getBoundingClientRect();
+    // Skip while the tab is hidden (getBoundingClientRect is 0 -> not measurable).
+    if (rect.height === 0 && rect.top === 0) return;
+    var bottomGap = 20;   // breathing room above the viewport bottom
+    var minHeight = 240;  // never collapse to an unusably small box
+    var avail = window.innerHeight - rect.top - bottomGap;
+    form.style.overflowY = 'auto';
+    form.style.maxHeight = Math.max(minHeight, Math.round(avail)) + 'px';
+}
+
+// Invoked from Main.js doTabSwitch() when the Settings tab becomes visible.
+function onSettingsTabShown() {
+    // Defer one frame so display:block has applied and layout has settled.
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(updateSettingsScrollHeight);
+    } else {
+        setTimeout(updateSettingsScrollHeight, 0);
+    }
+}
+
+function bindSettingsScrollResize() {
+    if (_settingsScrollResizeBound) return;
+    _settingsScrollResizeBound = true;
+    window.addEventListener('resize', function () {
+        if (_settingsScrollResizeTimer) clearTimeout(_settingsScrollResizeTimer);
+        _settingsScrollResizeTimer = setTimeout(updateSettingsScrollHeight, 120);
+    });
+}
+
 function loadSettings() {
     var form = document.getElementById('settingsForm');
     if (!form) return;
@@ -544,6 +590,10 @@ function loadSettings() {
 
         // Take snapshot after settings are fully rendered
         setTimeout(takeSettingsSnapshot, 0);
+
+        // Size the sticky-toolbar scroll area (idempotent resize binding + initial measure)
+        bindSettingsScrollResize();
+        setTimeout(updateSettingsScrollHeight, 0);
     }, function () {
         form.innerHTML = '<div class="error-msg">' + T('settingsLoadError', 'Failed to load settings.') + '</div>';
     });
