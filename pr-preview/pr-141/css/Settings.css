@@ -1,0 +1,551 @@
+
+    /* Settings form styles */
+.settings-form {
+    /* Fill the container width (max 960 px via .stats-container) so the Settings tab
+       matches the responsive behaviour of the other tabs (Overview, Discover, etc.).
+       Individual inputs / selects still use width:100% so nothing overflows. */
+    max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Guarantee the Settings tab spans the full width of the centered page
+   container. These id-scoped rules (Settings tab only — they cannot affect
+   any other tab) use id specificity to override any narrower max-width that
+   Jellyfin core might apply to inner config-page content. box-sizing keeps
+   fields from overflowing on small / mobile screens. */
+/* noinspection CssUnusedSymbol */
+#tab-settings {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+#settingsForm {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+
+.settings-form label {
+    display: block;
+    margin-top: 1em;
+    font-weight: 600;
+    font-size: 0.9em;
+}
+
+.settings-form input[type="text"],
+.settings-form input[type="number"],
+.settings-form input[type="password"],
+.settings-form select {
+    width: 100%;
+    padding: 0.5em;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.05);
+    color: inherit;
+    font-size: 0.95em;
+    margin-top: 0.3em;
+    box-sizing: border-box;
+    color-scheme: light dark;
+}
+
+.settings-form select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    padding-right: 2.2em;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='rgba(255,255,255,0.8)'%3E%3Cpath d='M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5em center;
+    background-size: 1.3em;
+}
+
+.settings-form select option {
+    background: #2b2b2b;
+    color: #e0e0e0;
+}
+
+@media (prefers-color-scheme: light) {
+    .settings-form select {
+        background-color: rgba(0, 0, 0, 0.05);
+        border-color: rgba(0, 0, 0, 0.15);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='rgba(0,0,0,0.6)'%3E%3Cpath d='M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z'/%3E%3C/svg%3E");
+    }
+
+    .settings-form select option {
+        background: #ffffff;
+        color: #111111;
+    }
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-form .help-text {
+    font-size: 0.8em;
+    opacity: 0.5;
+    margin-top: 0.2em;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-form .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    margin-top: 1em;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-form .checkbox-row input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--color-primary);
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-form .checkbox-row label {
+    margin: 0;
+    font-weight: 400;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-form label.action-btn {
+    display: inline-flex;
+    margin-top: 0;
+    font-size: 0.95em;
+    font-weight: normal;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-form .section-divider {
+    border-top: 1px solid var(--color-border);
+    margin-top: 1.5em;
+    padding-top: 0.5em;
+}
+
+/* Collapsible Arr instance sections */
+/* noinspection CssUnusedSymbol */
+.arr-collapsible {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    margin-top: 0.8em;
+    overflow: hidden;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-collapsible-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0.6em 1em;
+    cursor: pointer;
+    user-select: none;
+    background: rgba(255, 255, 255, 0.03);
+    transition: background 0.2s;
+    width: 100%;
+    border: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    border-radius: 0;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-collapsible-header:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-collapsible-header:focus-visible {
+    outline: 2px solid var(--color-primary, #00a4dc);
+    outline-offset: -2px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-collapsible-header .arr-chevron {
+    display: inline-block;
+    transition: transform 0.25s ease;
+    font-size: 0.75em;
+    margin-right: 0.5em;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-collapsible.arr-expanded > .arr-collapsible-header .arr-chevron {
+    transform: rotate(90deg);
+}
+
+.arr-collapsible-header svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-collapsible-header .arr-instance-count {
+    font-size: 0.8em;
+    opacity: 0.55;
+    margin-left: 0.4em;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-collapsible-header .help-text {
+    margin-left: auto;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-collapsible.arr-expanded > .arr-collapsible-header .help-text {
+    display: none;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-collapsible-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease, padding 0.3s ease;
+    padding: 0 1em;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-collapsible.arr-expanded > .arr-collapsible-body {
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 0.5em 1em 1em;
+}
+
+@media (max-width: 500px) {
+    .arr-collapsible-header .help-text {
+        display: none;
+    }
+}
+
+.export-import-button-container {
+    display: flex;
+    gap: 0.8em;
+    flex-wrap: wrap;
+    margin: 1em 0;
+}
+
+.export-import-button {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5em 1.2em;
+    cursor: pointer;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.export-import-button:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.export-import-button:focus-visible {
+    outline: 2px solid var(--color-primary, #00a4dc);
+    outline-offset: -2px;
+}
+
+.export-import-button:active {
+    background: rgba(255, 255, 255, 0.09);
+}
+
+/* ===== Library Multi-Select Widget ===== */
+.library-multiselect-wrapper {
+    margin-top: 0.3em;
+}
+
+.library-multiselect {
+    position: relative;
+}
+
+.library-multiselect-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5em 0.7em;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.05);
+    color: inherit;
+    font-size: 0.9em;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.2s;
+}
+
+.library-multiselect-toggle:hover {
+    border-color: var(--color-primary, #00a4dc);
+}
+
+.library-multiselect-summary {
+    opacity: 0.85;
+}
+
+.library-multiselect-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3em;
+    opacity: 1;
+    color: rgba(255, 255, 255, 0.8);
+    flex-shrink: 0;
+    transition: opacity 0.3s;
+}
+
+@media (prefers-color-scheme: light) {
+    .library-multiselect-chevron {
+        color: rgba(0, 0, 0, 0.6);
+    }
+}
+
+.library-multiselect-panel {
+    margin-top: 0.3em;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    background: rgba(30, 30, 30, 0.95);
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 0.3em 0;
+}
+
+@media (prefers-color-scheme: light) {
+    .library-multiselect-panel {
+        background: #ffffff;
+        border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    .library-multiselect-item:hover {
+        background: rgba(0, 0, 0, 0.04);
+    }
+
+    .library-type-badge {
+        background: rgba(0, 0, 0, 0.06);
+        opacity: 0.7;
+    }
+}
+
+.library-multiselect-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    padding: 0.35em 0.7em;
+    transition: background 0.15s;
+}
+
+.library-multiselect-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.library-multiselect-item input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    accent-color: var(--color-primary, #00a4dc);
+}
+
+.library-multiselect-item label {
+    display: inline;
+    margin: 0;
+    font-weight: normal;
+    font-size: 0.88em;
+    cursor: pointer;
+    flex: 1;
+}
+
+.library-type-badge {
+    display: inline-block;
+    font-size: 0.75em;
+    opacity: 0.5;
+    padding: 0.1em 0.4em;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    margin-left: 0.3em;
+    vertical-align: middle;
+}
+
+/* ============================================================
+   Settings redesign — cards + sticky toolbar + responsive grid.
+   All rules below are ADDITIVE. No pre-existing selector changes
+   its behaviour, so autosave overlays, folder browser positioning,
+   and every existing event handler continue to work as before.
+   ============================================================ */
+
+/* ── Floating save band (fixed, bottom-centre) ──
+   The single save/status affordance for the Settings tab. It floats above the
+   viewport bottom via position:fixed (no scroll container needed → no scrollbar,
+   works on mobile). Transparent & non-interactive when idle; slides up to show an
+   amber "unsaved" prompt with the Save button, a spinner while saving, a green
+   "saved" confirmation that auto-fades, or a red error. */
+/* noinspection CssUnusedSymbol */
+.settings-save-band {
+    position: fixed;
+    left: 50%;
+    bottom: 1.2em;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 0.55em;
+    max-width: calc(100vw - 1.5em);
+    padding: 0.4em 0.7em;
+    border-radius: 999px;
+    background: var(--color-surface-sticky);
+    border: 1px solid var(--color-border);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-50%) translateY(0.8em);
+    transition: opacity 0.28s ease, transform 0.28s ease;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band-status {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    min-width: 0; /* allow the label to shrink instead of overflowing the pill */
+    font-size: 0.85em;
+    font-weight: 600;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band-icon {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band.is-unsaved .settings-save-band-status { color: var(--color-warning); }
+/* noinspection CssUnusedSymbol */
+.settings-save-band.is-saved .settings-save-band-status { color: var(--color-success); }
+/* noinspection CssUnusedSymbol */
+.settings-save-band.is-error .settings-save-band-status { color: var(--color-danger); }
+/* noinspection CssUnusedSymbol */
+.settings-save-band.is-saving .settings-save-band-status { opacity: 0.85; }
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentcolor;
+    flex-shrink: 0;
+    animation: settings-band-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes settings-band-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+}
+
+/* The Save button lives inside the band; shown for unsaved/error, hidden otherwise.
+   It stays compact (proportional to the status text) and never shrinks, so on
+   narrow screens the label truncates and the button never breaks out of the pill. */
+/* noinspection CssUnusedSymbol */
+.settings-save-band-btn {
+    margin: 0;
+    padding: 0.45em 0.95em;
+    font-size: 0.85em;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-save-band.is-saving .settings-save-band-btn,
+.settings-save-band.is-saved .settings-save-band-btn {
+    display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* noinspection CssUnusedSymbol */
+    .settings-save-band { transition: opacity 0.28s ease; }
+    /* noinspection CssUnusedSymbol */
+    .settings-save-band-dot { animation: none; }
+}
+
+
+/* ── Settings cards ── */
+/* noinspection CssUnusedSymbol */
+.settings-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 0.8em 1.1em 1.1em 1.1em;
+    margin-top: 1.2em;
+}
+
+/* noinspection CssUnusedSymbol */
+.settings-card:first-of-type {
+    margin-top: 0.4em;
+}
+
+/* Inside a card, the section-title acts as the card header — kill the
+   huge default top margin the section-title uses. */
+/* noinspection CssUnusedSymbol */
+.settings-card > .section-title:first-child {
+    margin-top: 0 !important;
+    margin-bottom: 0.6em;
+}
+
+@media (max-width: 500px) {
+    /* noinspection CssUnusedSymbol */
+    .settings-card {
+        padding: 0.6em 0.8em 0.9em 0.8em;
+    }
+}
+
+/* ── Responsive 2-column grid for cleanup task selects ── */
+/* noinspection CssUnusedSymbol */
+.task-mode-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.1em 1.2em;
+    margin-top: 0.4em;
+}
+
+@media (min-width: 720px) {
+    /* noinspection CssUnusedSymbol */
+    .task-mode-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+/* Each grid cell holds one label + select */
+/* noinspection CssUnusedSymbol */
+.task-mode-grid > .task-mode-cell {
+    display: block;
+    min-width: 0;
+}
+
+/* ── Subgroup title used inside cards for "Recycle Bin" etc. ── */
+/* noinspection CssUnusedSymbol */
+.settings-subgroup-title {
+    margin-top: 1.4em;
+    padding-top: 0.9em;
+    border-top: 1px dashed var(--color-border);
+    font-weight: 600;
+    font-size: 0.92em;
+    opacity: 0.9;
+    display: flex;
+    align-items: center;
+    gap: 0.35em;
+}
