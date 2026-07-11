@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -1471,9 +1472,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             };
             var json = JsonSerializer.Serialize(data, SerializerOptions);
 
-            var tempPath = _weightsPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            File.WriteAllText(tempPath, json);
-            File.Move(tempPath, _weightsPath, overwrite: true);
+            // Use AtomicFile so a transient Windows AV/indexer sharing violation on the
+            // final File.Move gets a bounded retry instead of silently dropping the save.
+            // AtomicFile also handles temp-file cleanup internally.
+            AtomicFile.WriteAllText(_weightsPath, json);
         }
         catch (IOException ex)
         {

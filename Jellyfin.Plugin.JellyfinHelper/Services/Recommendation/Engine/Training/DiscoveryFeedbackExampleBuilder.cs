@@ -198,8 +198,17 @@ internal static class DiscoveryFeedbackExampleBuilder
                 entry.KnownPeople, preferredPeople);
         }
 
-        // Popularity proxy from TMDb rating + score
-        var popularityScore = Math.Clamp(entry.Score, 0.0, 1.0);
+        // Popularity feature: reconstruct the EXACT value used at inference time
+        // (ExternalCandidateFeatureBuilder.NormalizePopularity) from the raw TMDb popularity
+        // recorded when the item was shown. This eliminates the previous train/serve skew and
+        // target leak, where the model's own past output (entry.Score) was fed back as the
+        // PopularityScore feature during training but Popularity/200 was used at inference.
+        // Legacy entries persisted before the Popularity field existed have entry.Popularity == 0;
+        // for those we fall back to the historical entry.Score proxy so no old feedback is
+        // invalidated and their training contribution stays exactly as before.
+        var popularityScore = entry.Popularity > 0
+            ? ExternalCandidateFeatureBuilder.NormalizePopularity(entry.Popularity)
+            : Math.Clamp(entry.Score, 0.0, 1.0);
 
         var isSeries = string.Equals(entry.MediaType, "tv", StringComparison.OrdinalIgnoreCase);
 

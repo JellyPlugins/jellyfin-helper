@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
@@ -47,7 +47,6 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
 
         lock (_fileLock)
         {
-            var tempFilePath = _cacheFilePath + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
             try
             {
                 var directory = Path.GetDirectoryName(_cacheFilePath);
@@ -57,8 +56,11 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
                 }
 
                 var json = JsonSerializer.Serialize(results, JsonOptions);
-                File.WriteAllText(tempFilePath, json);
-                File.Move(tempFilePath, _cacheFilePath, true);
+
+                // Use AtomicFile so a transient Windows AV/indexer sharing violation on the
+                // final File.Move gets a bounded retry instead of silently dropping the save.
+                // AtomicFile also handles temp-file cleanup internally.
+                AtomicFile.WriteAllText(_cacheFilePath, json);
 
                 _pluginLog.LogDebug(
                     "RecommendationCache",
@@ -67,15 +69,6 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
-                try
-                {
-                    File.Delete(tempFilePath);
-                }
-                catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
-                {
-                    // best effort
-                }
-
                 _pluginLog.LogWarning(
                     "RecommendationCache",
                     $"Could not save recommendation results to {_cacheFilePath}",

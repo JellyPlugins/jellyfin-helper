@@ -146,6 +146,12 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                         modified = true;
                     }
 
+                    if (existing.Popularity == 0 && item.Popularity > 0)
+                    {
+                        existing.Popularity = item.Popularity;
+                        modified = true;
+                    }
+
                     if ((existing.KnownPeople is null || existing.KnownPeople.Count == 0) && item.KnownPeople is { Count: > 0 })
                     {
                         existing.KnownPeople = item.KnownPeople.ToList();
@@ -163,6 +169,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     Year = item.Year,
                     Genres = item.Genres?.ToArray() ?? [],
                     TmdbRating = item.TmdbRating,
+                    Popularity = item.Popularity,
                     Score = item.Score,
                     ShownAtUtc = now,
                     KnownPeople = item.KnownPeople?.ToList() ?? []

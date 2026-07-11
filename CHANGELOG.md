@@ -7,6 +7,10 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ## [3.0.0.0] - 2026-07-08
 
+### Fixed
+- **Discovery Recommendations – Genre-Exposure Train/Serve Skew** - The three genre-exposure features were computed during **training** on discovery feedback but left at `0.0`.
+- **Discovery Recommendations – Popularity Train/Serve Skew & Target Leak** - At inference the `PopularityScore` feature used the raw TMDb popularity (`popularity / 200`), but at training it reused the item's own **past ensemble score** (`entry.Score`).
+
 ### Changed
 - **Jellyfin 12.0 Compatibility** - Upgraded to Jellyfin 12.0 (`Jellyfin.Controller`/`Jellyfin.Model` 12.0.0-rc2) and migrated to **.NET 10**.
 - **Guarded Logging** - Adopted the .NET 10 `logger.IsEnabled(...)` pattern on hot paths to avoid unnecessary log-argument evaluation.
@@ -19,7 +23,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. Users on Jellyfin 10.x should stay on v2.1.0.5, which remains served from the same plugin repository (`targetAbi: 10.11.10.0`).
 
 ### Tests
-- Total: **2400 tests** (+82 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths.
+- Total: **2413 tests** (+95 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths.
 
 ---
 

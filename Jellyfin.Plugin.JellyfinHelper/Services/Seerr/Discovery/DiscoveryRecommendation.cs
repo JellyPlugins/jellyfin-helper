@@ -12,6 +12,7 @@ public sealed class DiscoveryRecommendation
 {
     private double _score;
     private double _tmdbRating;
+    private double _popularity;
 
     /// <summary>
     ///     Gets or sets the TMDb ID of the recommended item.
@@ -95,4 +96,19 @@ public sealed class DiscoveryRecommendation
     /// </summary>
     [JsonIgnore]
     public IReadOnlyList<string>? KnownPeople { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the raw TMDb popularity value at the time of discovery.
+    ///     Excluded from JSON serialization to the frontend (not needed for display), but
+    ///     carried in-memory to <c>DiscoveryFeedbackStore.RecordShown</c> so the training
+    ///     pipeline can reconstruct the exact <c>PopularityScore</c> feature used at inference
+    ///     via <c>ExternalCandidateFeatureBuilder.NormalizePopularity</c>. Non-finite values
+    ///     are coerced to 0 to keep the persisted feedback store clean.
+    /// </summary>
+    [JsonIgnore]
+    public double Popularity
+    {
+        get => _popularity;
+        set => _popularity = double.IsFinite(value) && value > 0 ? value : 0.0;
+    }
 }

@@ -1177,6 +1177,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         var avgYear = ContentScoring.ComputeAverageYear(profile);
         var preferredPeople = BuildPreferredPeopleSet(profile);
+
+        // Pre-build the genre exposure analysis ONCE per user. It is passed into every
+        // ExternalCandidateFeatureBuilder.Build call below so the GenreUnderexposure /
+        // GenreDominanceRatio / GenreAffinityGap features are computed identically to the
+        // discovery TRAINING pipeline (DiscoveryFeedbackExampleBuilder). Without this, those
+        // three features stayed at 0.0 during inference while the model was trained on their
+        // real values — a train/serve skew that suppressed the intended core-taste boost.
+        var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, profile);
+
         var isChildAccount = profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value <= ChildAccountMaxParentalRating;
 
         // Determine user's primary language for language-based discovery
@@ -1348,7 +1357,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             foreach (var candidate in uniqueCandidates)
             {
                 var features = ExternalCandidateFeatureBuilder.Build(
-                    candidate, genrePreferences, preferredPeople, avgYear);
+                    candidate, genrePreferences, preferredPeople, avgYear, genreExposure);
                 var score = _ensemble.Score(features);
                 preScored.Add((candidate, score));
             }
@@ -1378,7 +1387,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             foreach (var candidate in enrichmentCandidates)
             {
                 var features = ExternalCandidateFeatureBuilder.Build(
-                    candidate, genrePreferences, preferredPeople, avgYear);
+                    candidate, genrePreferences, preferredPeople, avgYear, genreExposure);
                 var score = _ensemble.Score(features);
                 scored.Add((candidate, features, score));
             }
@@ -1408,6 +1417,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     RelatedInfo = relatedInfo,
                     Genres = genres,
                     TmdbRating = item.VoteAverage,
+                    // Raw TMDb popularity carried through so RecordShown can persist it for
+                    // training. This lets DiscoveryFeedbackExampleBuilder reconstruct the exact
+                    // PopularityScore used at inference (NormalizePopularity) instead of the
+                    // previous entry.Score proxy, which was a train/serve skew + target leak.
+                    Popularity = item.Popularity,
                     PosterPath = item.PosterPath,
                     Overview = item.Overview,
                     AlreadyRequested = false,

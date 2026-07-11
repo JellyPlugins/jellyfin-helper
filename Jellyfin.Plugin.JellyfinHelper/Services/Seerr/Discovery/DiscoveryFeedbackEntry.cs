@@ -49,6 +49,17 @@ public sealed class DiscoveryFeedbackEntry
     public double TmdbRating { get; set; }
 
     /// <summary>
+    ///     Gets or sets the raw TMDb popularity value at the time of discovery.
+    ///     Persisted so the training pipeline can reconstruct the exact
+    ///     <c>PopularityScore</c> feature used at inference via
+    ///     <c>ExternalCandidateFeatureBuilder.NormalizePopularity</c>.
+    ///     Legacy entries written before this field existed deserialize to 0; the training
+    ///     builder treats a non-positive value as "not recorded" and falls back to the prior
+    ///     behavior for those entries, so no historical data is invalidated.
+    /// </summary>
+    public double Popularity { get; set; }
+
+    /// <summary>
     ///     Gets or sets the recommendation score that was computed when this item was shown.
     /// </summary>
     public double Score { get; set; }

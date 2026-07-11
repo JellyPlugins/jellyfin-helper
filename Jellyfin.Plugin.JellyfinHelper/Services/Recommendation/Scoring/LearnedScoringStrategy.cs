@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -925,32 +926,10 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 json = JsonSerializer.Serialize(data, SerializerOptions);
             }
 
-            var tempPath = _weightsPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
-            {
-                File.WriteAllText(tempPath, json);
-                File.Move(tempPath, _weightsPath, overwrite: true);
-            }
-            catch
-            {
-                try
-                {
-                    if (File.Exists(tempPath))
-                    {
-                        File.Delete(tempPath);
-                    }
-                }
-                catch (IOException)
-                {
-                    // best effort - temp file cleanup is non-critical
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    // best effort - temp file cleanup is non-critical
-                }
-
-                throw;
-            }
+            // Use AtomicFile so a transient Windows AV/indexer sharing violation on the
+            // final File.Move gets a bounded retry instead of silently dropping the save.
+            // AtomicFile also handles temp-file cleanup internally.
+            AtomicFile.WriteAllText(_weightsPath, json);
         }
         catch (IOException ex)
         {
