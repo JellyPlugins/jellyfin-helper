@@ -10,6 +10,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ### Fixed
 - **Discovery Recommendations – Genre-Exposure Train/Serve Skew** - The three genre-exposure features were computed during **training** on discovery feedback but left at `0.0`.
 - **Discovery Recommendations – Popularity Train/Serve Skew & Target Leak** - At inference the `PopularityScore` feature used the raw TMDb popularity (`popularity / 200`), but at training it reused the item's own **past ensemble score** (`entry.Score`).
+- **Atomic Persistence – Silent Save Losses** - All plugin cache/state writes now go through the new shared `AtomicFile.WriteAllText` helper. It performs the temp-write + rename atomically with a bounded retry on transient `IOException`/`UnauthorizedAccessException` from Windows AV scanners or the Search indexer holding the target briefly.
 
 ### Changed
 - **Jellyfin 12.0 Compatibility** - Upgraded to Jellyfin 12.0 (`Jellyfin.Controller`/`Jellyfin.Model` 12.0.0-rc2) and migrated to **.NET 10**.

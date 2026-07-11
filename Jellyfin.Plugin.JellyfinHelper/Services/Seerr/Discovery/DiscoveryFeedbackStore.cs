@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
@@ -476,7 +477,6 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         // Remove users with zero entries after eviction
         data.RemoveAll(r => r.Entries.Count == 0);
 
-        var tempFilePath = _filePath + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
         try
         {
             var directory = Path.GetDirectoryName(_filePath);
@@ -486,15 +486,18 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             }
 
             var json = JsonSerializer.Serialize(data, JsonOptions);
-            File.WriteAllText(tempFilePath, json);
-            File.Move(tempFilePath, _filePath, overwrite: true);
+
+            // Use AtomicFile so a transient sharing violation on the final File.Move
+            // (typical when an AV scanner or the Search indexer briefly holds the file
+            // handle) gets a bounded retry with backoff. AtomicFile also handles
+            // temp-file cleanup internally.
+            AtomicFile.WriteAllText(_filePath, json);
 
             // Update memory cache
             _memoryCache = data;
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
-            TryDeleteTempFile(tempFilePath);
             // Invalidate the in-memory cache so the next LoadInternal() re-reads from disk.
             _memoryCache = null;
             _pluginLog.LogWarning(
@@ -573,18 +576,6 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Best effort
-        }
-    }
-
-    private static void TryDeleteTempFile(string tempFilePath)
-    {
-        try
-        {
-            File.Delete(tempFilePath);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            // Best effort cleanup
         }
     }
 }

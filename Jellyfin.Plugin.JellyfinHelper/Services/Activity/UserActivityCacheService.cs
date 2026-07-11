@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
@@ -55,9 +56,12 @@ public sealed class UserActivityCacheService : IUserActivityCacheService
                 }
 
                 var json = JsonSerializer.Serialize(result, JsonOptions);
-                var tempFilePath = _cacheFilePath + ".tmp";
-                File.WriteAllText(tempFilePath, json);
-                File.Move(tempFilePath, _cacheFilePath, true);
+
+                // Use AtomicFile so a transient sharing violation on the final File.Move
+                // (typical when an AV scanner or the Search indexer briefly holds the file
+                // handle) gets a bounded retry with backoff. AtomicFile also handles
+                // temp-file cleanup internally.
+                AtomicFile.WriteAllText(_cacheFilePath, json);
 
                 _pluginLog.LogDebug(
                     "UserActivityCache",
@@ -66,15 +70,6 @@ public sealed class UserActivityCacheService : IUserActivityCacheService
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
-                try
-                {
-                    File.Delete(_cacheFilePath + ".tmp");
-                }
-                catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
-                {
-                    // best effort
-                }
-
                 _pluginLog.LogWarning(
                     "UserActivityCache",
                     $"Could not save activity result to {_cacheFilePath}",

@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
@@ -369,7 +370,6 @@ public class BackupService : IBackupService
 
     private bool SaveJsonFile<T>(string filePath, T data)
     {
-        var tempPath = filePath + ".tmp";
         try
         {
             var directory = Path.GetDirectoryName(filePath);
@@ -380,24 +380,16 @@ public class BackupService : IBackupService
 
             var json = JsonSerializer.Serialize(data, JsonOptions);
 
-            // Atomic write: write to a temporary file first, then rename.
-            // This prevents data corruption if the process crashes mid-write.
-            File.WriteAllText(tempPath, json);
-            File.Move(tempPath, filePath, true);
+            // Use AtomicFile so a transient sharing violation on the final File.Move
+            // (typical when an AV scanner or the Search indexer briefly holds the file
+            // handle) gets a bounded retry with backoff. AtomicFile also handles
+            // temp-file cleanup internally.
+            AtomicFile.WriteAllText(filePath, json);
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _pluginLog.LogError("Backup", $"Could not save {filePath} during restore", ex, _logger);
-            try
-            {
-                File.Delete(tempPath);
-            }
-            catch (Exception)
-            {
-                // best-effort cleanup
-            }
-
             return false;
         }
     }

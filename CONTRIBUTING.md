@@ -235,6 +235,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── BackupValidator.cs   # Comprehensive input validation
 │   │   └── BackupSanitizer.cs   # Clamp/normalize values
 │   ├── Common/                      # Shared cross-service helpers
+│   │   ├── AtomicFile.cs            # Atomic text-file write (temp+move) with bounded retry on transient AV/indexer sharing violations
 │   │   └── BatchFallbackHelper.cs   # try-batch/fall-back-per-item wrapper (Jellyfin 12+ batch APIs)
 │   ├── FolderBrowser/               # Server-side folder browsing
 │   │   ├── IFolderBrowserService.cs # Interface for folder listing

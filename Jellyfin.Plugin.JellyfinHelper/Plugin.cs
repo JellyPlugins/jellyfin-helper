@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using MediaBrowser.Common.Configuration;
@@ -329,31 +330,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             if (!string.Equals(content, originalContent, StringComparison.Ordinal))
             {
-                var tempPath = indexPath + ".jfh.tmp";
-                try
+                // Use AtomicFile so a transient sharing violation on the final File.Move
+                // (typical when Jellyfin's web server or an AV scanner briefly holds the
+                // file handle) gets a bounded retry with backoff. AtomicFile also handles
+                // temp-file cleanup internally, so no finally block is required here.
+                AtomicFile.WriteAllText(indexPath, content);
+                if (_logger.IsEnabled(LogLevel.Debug))
                 {
-                    File.WriteAllText(tempPath, content);
-                    File.Move(tempPath, indexPath, overwrite: true);
-                    if (_logger.IsEnabled(LogLevel.Debug))
-                    {
-                        _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
-                    }
-                }
-                finally
-                {
-                    // Clean up the temp file if File.Move() failed (e.g., permission flap, lock).
-                    // Without this, stale .jfh.tmp files accumulate in WebPath across restarts.
-                    if (File.Exists(tempPath))
-                    {
-                        try
-                        {
-                            File.Delete(tempPath);
-                        }
-                        catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
-                        {
-                            // Best-effort cleanup — file may still be locked.
-                        }
-                    }
+                    _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
                 }
             }
             else if (_logger.IsEnabled(LogLevel.Debug))

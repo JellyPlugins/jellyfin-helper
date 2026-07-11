@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
@@ -55,9 +56,12 @@ public class StatisticsCacheService : IStatisticsCacheService
                 }
 
                 var json = JsonSerializer.Serialize(result, JsonOptions);
-                var tempFilePath = _latestResultFilePath + ".tmp";
-                File.WriteAllText(tempFilePath, json);
-                File.Move(tempFilePath, _latestResultFilePath, true);
+
+                // Use AtomicFile so a transient sharing violation on the final File.Move
+                // (typical when an AV scanner or the Search indexer briefly holds the file
+                // handle) gets a bounded retry with backoff. AtomicFile also handles
+                // temp-file cleanup internally.
+                AtomicFile.WriteAllText(_latestResultFilePath, json);
 
                 _pluginLog.LogDebug(
                     "StatisticsCache",
