@@ -152,6 +152,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
 │       │   ├── ContentScoringTests.cs
+│       │   ├── DiversityRerankerTests.cs
 │       │   ├── PreferenceBuilderTests.cs
 │       │   └── SimilarityComputerTests.cs   # People-batch (GetPeopleNamesByItems) + per-item fallback
 │       ├── Playlist/              # Playlist sync tests

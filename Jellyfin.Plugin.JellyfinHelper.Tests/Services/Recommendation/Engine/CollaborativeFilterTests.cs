@@ -276,4 +276,79 @@ public class CollaborativeFilterTests
         Assert.True(map.ContainsKey(uniqueItem),
             "Favorited items should count as overlap for collaborative filtering");
     }
+
+    // === Neighbour trust weighting ===
+    // A neighbour with very small watch history reaches high Jaccard trivially,
+    // but the signal is statistically fragile. BuildCollaborativeMap applies a
+    // trust weight (min(1, otherWatchCount / 20)) so sparse neighbours contribute
+    // proportionally less. A neighbour with ≥ 20 watches is unaffected.
+
+    [Fact]
+    public void BuildCollaborativeMap_TrustWeight_HighHistoryNeighbourStillContributes()
+    {
+        // Neighbour with 20+ watches → trust = 1.0 → weight identical to pre-fix behaviour.
+        var shared = new[]
+        {
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(),
+        };
+        var recommendedItem = Guid.NewGuid();
+
+        var user = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo>(
+                shared.Select(id => new WatchedItemInfo { ItemId = id, Played = true }).ToList())
+        };
+        var richNeighbourIds = shared
+            .Concat(new[] { recommendedItem })
+            .Concat(Enumerable.Range(0, 20).Select(_ => Guid.NewGuid()))
+            .ToArray();
+        var richNeighbour = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo>(
+                richNeighbourIds.Select(id => new WatchedItemInfo { ItemId = id, Played = true }).ToList())
+        };
+
+        var allProfiles = new Collection<UserWatchProfile> { user, richNeighbour };
+        var precomputed = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
+        var map = CollaborativeFilter.BuildCollaborativeMap(user, allProfiles, precomputed);
+
+        Assert.True(map.TryGetValue(recommendedItem, out var score));
+        Assert.True(score > 0.0, "Rich-history neighbour should contribute a positive collaborative score");
+    }
+
+    [Fact]
+    public void BuildCollaborativeMap_TrustWeight_LowHistoryNeighbourStillContributes()
+    {
+        // A sparse-history neighbour (5 watches, below the 20-watch trust ceiling) is
+        // down-weighted to 25% of full trust but must still produce a positive score
+        // — we do not want to silently drop legitimate signal, only to attenuate it.
+        var shared = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        var unique = Guid.NewGuid();
+
+        var user = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo>(
+                shared.Concat(Enumerable.Range(0, 20).Select(_ => Guid.NewGuid()))
+                    .Select(id => new WatchedItemInfo { ItemId = id, Played = true })
+                    .ToList())
+        };
+        var sparseNeighbour = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo>(
+                shared.Concat(new[] { unique })
+                    .Select(id => new WatchedItemInfo { ItemId = id, Played = true })
+                    .ToList())
+        };
+
+        var allProfiles = new Collection<UserWatchProfile> { user, sparseNeighbour };
+        var precomputed = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
+        var map = CollaborativeFilter.BuildCollaborativeMap(user, allProfiles, precomputed);
+
+        Assert.True(map.TryGetValue(unique, out var score));
+        Assert.True(score > 0.0, "Sparse-history neighbour should still contribute a (down-weighted) positive score");
+    }
 }

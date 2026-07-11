@@ -84,8 +84,10 @@ public sealed class Engine : IRecommendationEngine
 
         if (userProfile.WatchedItems.Count == 0)
         {
-            // Cold-start: user exists but has no watch history - return popular/trending items
-            // Reuse cached candidates from the last batch run if available to avoid redundant library queries
+            // Cold-start: user exists but has no watch history - return popular/trending items.
+            // Reuse cached candidates from the last batch run if available to avoid redundant library queries.
+            // On-demand single-user path does not have access to a community-popularity map,
+            // so cold-start falls back to the classic rating + recency formula automatically.
             return GenerateColdStartRecommendations(
                 userId,
                 maxResults,
@@ -93,7 +95,8 @@ public sealed class Engine : IRecommendationEngine
                 _cachedSnapshot?.Candidates,
                 userProfile.MaxParentalRating,
                 userProfile,
-                cancellationToken);
+                communityPopularity: null,
+                cancellationToken: cancellationToken);
         }
 
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
@@ -205,6 +208,26 @@ public sealed class Engine : IRecommendationEngine
         // Reduces O(U²×M) to O(U×M) by sharing sets across BuildCollaborativeMap calls.
         var precomputedUserSets = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
 
+        // Cold-start prior: build a community popularity map (itemId → watch count)
+        // from the precomputed user sets. Passed to cold-start scoring so that new users
+        // benefit from the collective "wisdom of the crowd" rather than only static
+        // metadata (rating + release date). Items that many active users have watched
+        // are more likely to be broadly appealing to newcomers.
+        // Only built once per batch run — reused across all cold-start users.
+        Dictionary<Guid, int>? communityPopularity = null;
+        if (precomputedUserSets.Count > 1)
+        {
+            communityPopularity = new Dictionary<Guid, int>();
+            foreach (var userSet in precomputedUserSets.Values)
+            {
+                foreach (var itemId in userSet)
+                {
+                    communityPopularity.TryGetValue(itemId, out var count);
+                    communityPopularity[itemId] = count + 1;
+                }
+            }
+        }
+
         _pluginLog.LogInfo(
             "Recommendations",
             $"Starting recommendation generation for {allProfiles.Count} users using strategy '{_strategy.Name}'...",
@@ -234,6 +257,7 @@ public sealed class Engine : IRecommendationEngine
                             candidates,
                             profile.MaxParentalRating,
                             profile,
+                            communityPopularity,
                             cancellationToken)
                         : GenerateForUser(
                             profile,
@@ -292,6 +316,14 @@ public sealed class Engine : IRecommendationEngine
     ///     for consistency with <see cref="GenerateForUser" />. Cold-start users have empty
     ///     WatchedItems but their profile still carries UserId, UserName, MaxParentalRating etc.
     /// </param>
+    /// <param name="communityPopularity">
+    ///     Optional community popularity map (itemId → number of active users who have watched it),
+    ///     built from all users' watch profiles in the batch path. When provided, the cold-start
+    ///     formula becomes 40% rating + 30% recency + 30% community-popularity, letting new users
+    ///     benefit from collective viewing signals. When null (on-demand single-user path or when
+    ///     there is only one user in the system), the classic 60% rating + 40% recency formula
+    ///     is used unchanged to preserve backward compatibility for isolated deployments.
+    /// </param>
     /// <param name="cancellationToken">Token for cooperative cancellation during large candidate scans.</param>
     /// <returns>A recommendation result with popular/trending items.</returns>
     private RecommendationResult GenerateColdStartRecommendations(
@@ -301,9 +333,28 @@ public sealed class Engine : IRecommendationEngine
         List<BaseItem>? preloadedCandidates = null,
         int? maxParentalRating = null,
         UserWatchProfile? userProfile = null,
+        IReadOnlyDictionary<Guid, int>? communityPopularity = null,
         CancellationToken cancellationToken = default)
     {
         var candidates = preloadedCandidates ?? LoadCandidateItems();
+
+        // Pre-compute the max community-popularity for normalization to [0, 1].
+        // Using log1p compression so a single item watched by 100 users doesn't overshadow
+        // items watched by 5-10 users — we want a smooth gradient, not a winner-take-all signal.
+        // Falls back gracefully when community data is unavailable (single-user deployments).
+        var useCommunityPrior = communityPopularity is { Count: > 0 };
+        var maxLogPopularity = 0.0;
+        if (useCommunityPrior)
+        {
+            foreach (var count in communityPopularity!.Values)
+            {
+                var logValue = Math.Log(1.0 + count);
+                if (logValue > maxLogPopularity)
+                {
+                    maxLogPopularity = logValue;
+                }
+            }
+        }
 
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
         var candidateIndex = 0;
@@ -325,8 +376,27 @@ public sealed class Engine : IRecommendationEngine
                 candidate.CommunityRating,
                 candidate.CriticRating);
             var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? candidate.DateCreated);
-            // Cold-start formula: 60% rating, 40% recency - prioritize quality + freshness
-            var score = (0.6 * combinedCriticScore) + (0.4 * recencyScore);
+
+            double score;
+            if (useCommunityPrior && maxLogPopularity > 0.0)
+            {
+                // Enhanced cold-start formula with community popularity prior.
+                // Weights: 40% rating (quality), 30% recency (freshness), 30% community-popularity (social proof).
+                // Community-popularity uses log1p compression to smooth long-tail distribution.
+                var communityScore = 0.0;
+                if (communityPopularity!.TryGetValue(candidate.Id, out var watchCount) && watchCount > 0)
+                {
+                    communityScore = Math.Clamp(Math.Log(1.0 + watchCount) / maxLogPopularity, 0.0, 1.0);
+                }
+
+                score = (0.4 * combinedCriticScore) + (0.3 * recencyScore) + (0.3 * communityScore);
+            }
+            else
+            {
+                // Classic formula (single-user deployments or on-demand path).
+                score = (0.6 * combinedCriticScore) + (0.4 * recencyScore);
+            }
+
             scored.Add((candidate, score, "Popular and highly rated", "reasonPopular", null));
         }
 
@@ -808,10 +878,15 @@ public sealed class Engine : IRecommendationEngine
             PopularityScore = popularityScore,
             DayOfWeekAffinity = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, userProfile),
             HourOfDayAffinity = TemporalFeatures.ComputeHourOfDayAffinity(candidate, userProfile),
-            // TODO: IsWeekend uses server UTC time, not the user's local calendar.
-            // Jellyfin does not expose per-user timezone, so this is the best available approximation.
-            // Users in distant timezones will see the weekend signal flip several hours early or late.
-            IsWeekend = DateTime.UtcNow.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
+            // IsWeekend uses the user's LastActivityDate as reference (falling back to UtcNow when
+            // the user has no history yet). This aligns with the training-time semantics where
+            // IsWeekend is derived from the watched item's LastPlayedDate rather than DateTime.UtcNow.
+            // For active users (LastActivityDate close to now) this is functionally identical to
+            // DateTime.UtcNow. For inactive users we anchor the weekend flag to their last real
+            // interaction so that the ML model sees consistent train/serve semantics, eliminating
+            // the previously observed skew where training reflected historical calendar context
+            // but scoring reflected server clock at request time.
+            IsWeekend = (userProfile.LastActivityDate ?? DateTime.UtcNow).DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
             TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags),
             LibraryAddedRecency = libraryAddedRecency,
             // Content-based nearest-neighbor: composite item-to-item similarity (genre 50%, people 30%, studio 20%)

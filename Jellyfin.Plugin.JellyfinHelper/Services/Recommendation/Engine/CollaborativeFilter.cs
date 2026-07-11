@@ -151,13 +151,33 @@ internal static class CollaborativeFilter
             var union = userCombinedIds.Count + otherCombinedIds.Count - overlap;
             var jaccardWeight = union > 0 ? (double)overlap / union : 0.0;
 
+            // Trust weight: down-weight neighbours whose overall history is very small.
+            // A neighbour with only 5 watches sharing 3 items has extremely high Jaccard
+            // (0.6) but the signal is statistically weak because it saturates trivially.
+            // Formula: linearly ramp up trust from 0.0 (0 watches) to 1.0 (>= TrustWatchCeiling)
+            // where TrustWatchCeiling = 20. Applied multiplicatively to jaccardWeight so the
+            // Jaccard interpretation is preserved; a full-history neighbour is unaffected.
+            //
+            // Rationale: For a Jaccard-similar power user (100+ watches) trust=1.0 → weight unchanged.
+            // For a barely-active user (5 watches) trust=0.25 → weight scaled to 25%.
+            // This eliminates the previously observed "one-shot recommendation storms" from
+            // sparse-history users whose Jaccard artificially inflated.
+            const double trustWatchCeiling = 20.0;
+            var neighbourTrust = Math.Clamp(otherCombinedIds.Count / trustWatchCeiling, 0.0, 1.0);
+            var trustedJaccardWeight = jaccardWeight * neighbourTrust;
+
+            if (trustedJaccardWeight <= 0.0)
+            {
+                continue;
+            }
+
             // Accumulate Jaccard-weighted co-occurrence for items the other user watched but we haven't.
             // This includes both episode IDs AND series IDs, so series candidates get collaborative scores.
             // When item popularity is available, apply IDF boost: niche items shared by few users
             // produce stronger signals than mainstream items everyone has watched.
             foreach (var itemId in otherCombinedIds.Where(itemId => !userCombinedIds.Contains(itemId)))
             {
-                var weight = jaccardWeight;
+                var weight = trustedJaccardWeight;
 
                 // IDF boost: weight × (1 / log2(1 + userCount))
                 // log2(1+1)=1.0 (unique), log2(1+5)=2.58, log2(1+50)=5.67

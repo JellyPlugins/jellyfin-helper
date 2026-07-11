@@ -797,6 +797,35 @@ internal static class TrainingDataBuilder
                     watchedStudioSetsNeg.Add(studioSetN);
                 }
 
+                // Build a per-user watchedBoxSetCounts lookup for CollectionProgressionBoost parity.
+                // Skew fix: previously Phase 3 used a flat 0/0.3/0.5 heuristic while inference used a
+                // diminishing-returns formula (0.3 + (n-1)*0.2). This caused the neural network to see
+                // two systematically different distributions for the same feature between train and serve.
+                // We now scan the flat allRecommendedItems list once per user, resolve which recommendations
+                // this user actually watched (via userWatchedIds + userWatchedSeriesIds), and accumulate
+                // BoxSet membership counts identically to Engine.BuildWatchedBoxSetCounts + Phase 1.
+                var watchedBoxSetCountsNeg = new Dictionary<Guid, int>();
+                foreach (var rec in allRecommendedItems)
+                {
+                    if (rec.BoxSetIds.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    var isWatchedByUser = userWatchedIds.Contains(rec.ItemId)
+                                          || (userWatchedSeriesIds?.Contains(rec.ItemId) ?? false);
+                    if (!isWatchedByUser)
+                    {
+                        continue;
+                    }
+
+                    foreach (var boxSetId in rec.BoxSetIds)
+                    {
+                        watchedBoxSetCountsNeg.TryGetValue(boxSetId, out var count);
+                        watchedBoxSetCountsNeg[boxSetId] = count + 1;
+                    }
+                }
+
                 // Collect candidate negatives: items recommended to others but not interacted with by this user
                 var candidateNegatives = new List<RecommendedItem>();
                 foreach (var rec in allRecommendedItems)
@@ -880,7 +909,14 @@ internal static class TrainingDataBuilder
                             watchedPeopleSetsNeg,
                             watchedStudioSetsNeg),
                         LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(neg.AudioLanguages, userProfile),
-                        CollectionProgressionBoost = ComputeCollectionProgressionBoostFromCache(neg.BoxSetIds, userWatchedIds),
+                        // Skew fix: use the same diminishing-returns formula as inference
+                        // (Engine.ComputeCollectionProgressionBoostLive) by leveraging the per-user
+                        // watchedBoxSetCountsNeg dictionary built above. This eliminates the previous
+                        // train/serve divergence where Phase 3 emitted 0.0/0.3/0.5 while inference
+                        // emitted 0.3/0.5/0.7/0.9. Falls back to the legacy flat heuristic only when
+                        // no watched BoxSet counts exist for the user (empty dictionary → 0.0 from
+                        // ComputeCollectionProgressionBoostWithCounts, which is the correct signal).
+                        CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(neg.BoxSetIds, watchedBoxSetCountsNeg),
                         SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(neg.SubtitleLanguages, userProfile)
                     };
 

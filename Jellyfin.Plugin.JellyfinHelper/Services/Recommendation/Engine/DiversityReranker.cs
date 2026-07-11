@@ -79,7 +79,16 @@ internal static class DiversityReranker
         // gives MMR more diversity headroom in large libraries without a config knob.
         var remaining = candidates.OrderByDescending(c => c.Score).Take(count * 5).ToList();
 
+        // Multi-dimensional similarity caches: genre (50% weight), studio (30% weight), production year (20% weight).
+        // Previously MMR looked at genres only, which meant it would happily surface two Marvel superhero
+        // movies (same genre set but same studio and same era). By blending studio and era similarity
+        // we now diversify along multiple axes without over-penalising true content variety.
+        // Note: we intentionally do NOT diversify by people/cast because a single actor commonly
+        // appears in wildly different genres (Christopher Nolan does thrillers AND sci-fi), and
+        // penalising same-actor picks would exclude legitimately diverse recommendations.
         var genreSetCache = new Dictionary<Guid, HashSet<string>>();
+        var studioSetCache = new Dictionary<Guid, HashSet<string>>();
+        var yearCache = new Dictionary<Guid, int?>();
 
         HashSet<string> GetOrCreateGenreSet(BaseItem item)
         {
@@ -92,6 +101,55 @@ internal static class DiversityReranker
             }
 
             return set;
+        }
+
+        HashSet<string> GetOrCreateStudioSet(BaseItem item)
+        {
+            if (!studioSetCache.TryGetValue(item.Id, out var set))
+            {
+                set = item.Studios is { Length: > 0 }
+                    ? new HashSet<string>(item.Studios, StringComparer.OrdinalIgnoreCase)
+                    : [];
+                studioSetCache[item.Id] = set;
+            }
+
+            return set;
+        }
+
+        int? GetOrCreateYear(BaseItem item)
+        {
+            if (!yearCache.TryGetValue(item.Id, out var y))
+            {
+                y = item.ProductionYear;
+                yearCache[item.Id] = y;
+            }
+
+            return y;
+        }
+
+        // Multi-dimensional similarity between two items:
+        // 50% genre-Jaccard + 30% studio-Jaccard + 20% era-similarity (Gaussian with σ=10yr).
+        // Returns 0-1 where higher = more similar (should be diversified against).
+        static double ComputeItemSimilarity(
+            HashSet<string> genreA,
+            HashSet<string> genreB,
+            HashSet<string> studioA,
+            HashSet<string> studioB,
+            int? yearA,
+            int? yearB)
+        {
+            var genreSim = SimilarityComputer.ComputeJaccardFromSets(genreA, genreB);
+            var studioSim = studioA.Count > 0 && studioB.Count > 0
+                ? SimilarityComputer.ComputeJaccardFromSets(studioA, studioB)
+                : 0.0;
+            var yearSim = 0.0;
+            if (yearA.HasValue && yearB.HasValue)
+            {
+                var diff = Math.Abs(yearA.Value - yearB.Value);
+                yearSim = Math.Exp(-diff * diff / EngineConstants.YearProximityDenominator);
+            }
+
+            return (0.5 * genreSim) + (0.3 * studioSim) + (0.2 * yearSim);
         }
 
         // Fill most slots via MMR, reserving the last ExplorationSlotCount slots
@@ -109,13 +167,23 @@ internal static class DiversityReranker
             for (var i = 0; i < remaining.Count; i++)
             {
                 var relevance = remaining[i].Score;
-                var candidateSet = GetOrCreateGenreSet(remaining[i].Item);
+                var candidateGenres = GetOrCreateGenreSet(remaining[i].Item);
+                var candidateStudios = GetOrCreateStudioSet(remaining[i].Item);
+                var candidateYear = GetOrCreateYear(remaining[i].Item);
 
                 var maxSimilarity = 0.0;
                 foreach (var selectedEntry in selected)
                 {
-                    var selectedSet = GetOrCreateGenreSet(selectedEntry.Item);
-                    var sim = SimilarityComputer.ComputeJaccardFromSets(candidateSet, selectedSet);
+                    var selectedGenres = GetOrCreateGenreSet(selectedEntry.Item);
+                    var selectedStudios = GetOrCreateStudioSet(selectedEntry.Item);
+                    var selectedYear = GetOrCreateYear(selectedEntry.Item);
+                    var sim = ComputeItemSimilarity(
+                        candidateGenres,
+                        selectedGenres,
+                        candidateStudios,
+                        selectedStudios,
+                        candidateYear,
+                        selectedYear);
                     if (sim > maxSimilarity)
                     {
                         maxSimilarity = sim;

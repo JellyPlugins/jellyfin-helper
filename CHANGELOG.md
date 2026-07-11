@@ -10,6 +10,8 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ### Fixed
 - **Discovery Recommendations – Genre-Exposure Train/Serve Skew** - The three genre-exposure features were computed during **training** on discovery feedback but left at `0.0`.
 - **Discovery Recommendations – Popularity Train/Serve Skew & Target Leak** - At inference the `PopularityScore` feature used the raw TMDb popularity (`popularity / 200`), but at training it reused the item's own **past ensemble score** (`entry.Score`).
+- **Recommendations – IsWeekend Train/Serve Skew** - Live scoring used `DateTime.UtcNow.DayOfWeek` while training used `LastPlayedDate.DayOfWeek`. Live now anchors to `LastActivityDate` (fallback `UtcNow`) so both paths share identical semantics; functionally unchanged for active users.
+- **Recommendations – CollectionProgressionBoost Train/Serve Parity** - Phase 3 cross-user negatives used a flat `0/0.3/0.5` heuristic while inference used `clamp(0.3 + (n-1)×0.2, 0, 1)`. Training now builds per-user `watchedBoxSetCounts` from cached recommendations and applies the identical diminishing-returns formula.
 - **Atomic Persistence – Silent Save Losses** - All plugin cache/state writes now go through the new shared `AtomicFile.WriteAllText` helper. It performs the temp-write + rename atomically with a bounded retry on transient `IOException`/`UnauthorizedAccessException` from Windows AV scanners or the Search indexer holding the target briefly.
 
 ### Changed
@@ -18,13 +20,16 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Improved
 - **Faster Recommendation & Activity Scans** - Switched to the new JF12 batch APIs (`GetUserDataBatch`, `GetPeopleNamesByItems`) so watch-history, activity, and recommendation scans need dramatically fewer database roundtrips on large libraries. Falls back to the old per-item path if the batch call throws, so behaviour never regresses.
+- **Recommendations – Collaborative Filter Neighbour Trust** - `BuildCollaborativeMap` scales Jaccard weight by `min(1, otherWatchCount / 20)` so sparse-history neighbours contribute proportionally. Prevents recommendation storms from newly-registered users; power users (≥20 watches) unaffected.
+- **Recommendations – Cold-Start Community Priors** - When ≥2 active users exist, cold-start scoring blends `0.4 × rating + 0.3 × recency + 0.3 × log1p(community-popularity)`; single-user deployments keep the classic `0.6 × rating + 0.4 × recency`.
+- **Recommendations – Multi-Dimensional Diversity Reranking** - MMR item similarity now blends `0.5 × genre-Jaccard + 0.3 × studio-Jaccard + 0.2 × era-Gaussian(σ=10y)` instead of genre-only, breaking tight studio/era clusters without penalising cross-genre directors.
 - **Settings Page Redesign** - Reorganised the Settings tab into four cards (General, Task settings + Recycle Bin, Integrations, Backup & Restore) with a sticky Save toolbar and an unsaved-changes indicator. Cleanup task selects now use a responsive 2-column grid on wide screens. All existing IDs, i18n keys, and autosave feedback behaviour are preserved.
 
 ### Breaking
 - **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. Users on Jellyfin 10.x should stay on v2.1.0.5, which remains served from the same plugin repository (`targetAbi: 10.11.10.0`).
 
 ### Tests
-- Total: **2413 tests** (+95 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths.
+- Total: **2417 tests** (+99 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths.
 
 ---
 
