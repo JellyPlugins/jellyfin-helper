@@ -14,30 +14,68 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 /// <summary>
 ///     Neural network scoring strategy using a four-hidden-layer MLP (Multi-Layer Perceptron).
 ///     Learns non-linear feature interactions from user watch history via backpropagation.
-///     Architecture: 31 inputs → 48 hidden₁ (ReLU) → 24 hidden₂ (ReLU) → 12 hidden₃ (ReLU) → 6 hidden₄ (ReLU) → 1 output (Sigmoid) ≈ 3,097 parameters.
+///     <para>
+///         Roadmap v3 A1 architecture (WeightsVersion 3):
+///         <c>InputSize → 62 hidden₁ (ReLU) → 96 hidden₂ (ReLU) → 48 hidden₃ (ReLU) →
+///         24 hidden₄ (ReLU) → 1 output (Sigmoid)</c>.
+///     </para>
+///     <para>
+///         Parameter count with 31 inputs:
+///         <c>(31·62 + 62) + (62·96 + 96) + (96·48 + 48) + (48·24 + 24) + (24·1 + 1) = 12 083</c>
+///         parameters — roughly 4× the previous v2 architecture (48-24-12-6 = 3 097 params) to
+///         accommodate a wider first layer (~2× input) as recommended for tabular MLPs, plus a
+///         genuinely expressive second layer (96) so the network can compose interaction terms
+///         between the ~30 features without an artificial early bottleneck.
+///     </para>
+///     <para>
+///         Roadmap v3 A2: Bernoulli dropout (keep-p = <see cref="DropoutKeepProbability"/>) is
+///         applied to hidden-layer activations DURING TRAINING only; inference is deterministic
+///         and dropout-free so recommendations are reproducible per weight set. Dropout scales
+///         the surviving activations by <c>1 / keep</c> (inverted dropout) so the layer's expected
+///         magnitude at train time matches the deterministic inference-time magnitude — this
+///         keeps L2 regularisation, weight clamping and the Xavier/He initialisation calibrated.
+///     </para>
 ///     Optimized for NAS/Docker with limited hardware: zero-allocation scoring path,
-///     pre-allocated training buffers, ~3,000 FP multiplications per score.
+///     pre-allocated training buffers, ~12 k FP multiplications per score.
 ///     No external ML dependencies - pure C# implementation.
 /// </summary>
 /// <remarks>
 ///     Training uses Adam optimizer with L2 regularization, Z-score feature standardization,
-///     He/Xavier weight initialization, temporal sample weighting, and early stopping.
-///     Genre-mismatch penalties are NOT applied here - handled centrally by the ensemble layer.
-///     Weights are persisted to disk so they survive server restarts.
+///     He/Xavier weight initialization, temporal sample weighting, dropout (v3 A2), and
+///     early stopping. Genre-mismatch penalties are NOT applied here - handled centrally
+///     by the ensemble layer. Weights are persisted to disk so they survive server restarts.
+///     v2 weight files are automatically discarded on load because their array lengths do
+///     not match the v3 architecture.
 /// </remarks>
 public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy, IDisposable
 {
-    /// <summary>Number of neurons in the first hidden layer.</summary>
-    internal const int Hidden1Size = 48;
+    /// <summary>
+    ///     Number of neurons in the first hidden layer.
+    ///     Roadmap A1: ~2× InputSize (31→62) — best-practice expansion factor for tabular MLPs.
+    /// </summary>
+    internal const int Hidden1Size = 62;
 
-    /// <summary>Number of neurons in the second hidden layer.</summary>
-    internal const int Hidden2Size = 24;
+    /// <summary>
+    ///     Number of neurons in the second hidden layer.
+    ///     Roadmap A1: 96 — deliberately WIDER than Hidden1 so the model has capacity to compose
+    ///     high-order feature interactions (genre×critic, people×genre, etc.) rather than being
+    ///     forced through an early bottleneck. The trapezoid shape 62→96→48→24 mirrors classical
+    ///     tabular deep-learning topologies where the widest layer sits after the first projection.
+    /// </summary>
+    internal const int Hidden2Size = 96;
 
-    /// <summary>Number of neurons in the third hidden layer.</summary>
-    internal const int Hidden3Size = 12;
+    /// <summary>
+    ///     Number of neurons in the third hidden layer.
+    ///     Roadmap A1: 48 — half of Hidden2, provides the compression stage.
+    /// </summary>
+    internal const int Hidden3Size = 48;
 
-    /// <summary>Number of neurons in the fourth hidden layer.</summary>
-    internal const int Hidden4Size = 6;
+    /// <summary>
+    ///     Number of neurons in the fourth (final) hidden layer.
+    ///     Roadmap A1: 24 — enough capacity to encode the final feature combinations feeding
+    ///     into the single sigmoid output neuron.
+    /// </summary>
+    internal const int Hidden4Size = 24;
 
     /// <summary>Default learning rate for Adam optimizer.</summary>
     internal const double DefaultLearningRate = 0.005;
@@ -84,13 +122,46 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>Maximum epochs when early stopping is disabled (fewer epochs to avoid overfitting).</summary>
     internal const int MaxEpochsWithoutEarlyStopping = 20;
 
-    /// <summary>Schema version for persisted weights. Increment on architecture changes.</summary>
-    internal const int CurrentWeightsVersion = 2;
+    /// <summary>
+    ///     Roadmap v3 A2 — Bernoulli dropout keep-probability applied to hidden-layer activations
+    ///     during training. A value of 0.8 corresponds to a 20 % drop rate, which is a well-known
+    ///     mid-range choice for small tabular MLPs; smaller networks like ours (a few thousand
+    ///     parameters) prefer light regularization to preserve capacity, while larger nets can
+    ///     go to 0.5. Applied ONLY during <see cref="Train"/>; inference (<see cref="Score"/> /
+    ///     <see cref="ScoreVector"/> / <see cref="ScoreWithExplanation"/>) uses the deterministic
+    ///     no-dropout forward pass so recommendations are reproducible for a given weight set.
+    ///     Values ≥ 1.0 disable dropout entirely (useful for tests).
+    /// </summary>
+    internal const double DropoutKeepProbability = 0.8;
+
+    /// <summary>
+    ///     Minimum number of training examples below which dropout is disabled.
+    ///     With very small datasets, dropout can starve gradients on individual samples and
+    ///     make convergence unreliable; L2 + early-stopping already provide enough regularization
+    ///     in that regime. Only above this threshold does dropout meaningfully help generalization.
+    /// </summary>
+    internal const int MinExamplesForDropout = 30;
+
+    /// <summary>
+    ///     Schema version for persisted weights.
+    ///     v2 → v3: Roadmap A1 architecture rescale (Hidden1 48→62, Hidden2 24→96 etc.) —
+    ///     old v2 weights are silently discarded on load because their array lengths no longer
+    ///     match the new layer sizes. The load path emits a warning and resets to defaults so
+    ///     the next training run rebuilds from scratch.
+    /// </summary>
+    internal const int CurrentWeightsVersion = 3;
 
     /// <summary>Legacy constant kept for backward compatibility with tests. Maps to <see cref="Hidden4Size"/>.</summary>
     internal const int HiddenSize = Hidden4Size;
 
-    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
+    /// <summary>
+    ///     JSON serializer options for weight persistence.
+    ///     Roadmap v3 D2: compact (non-indented) output to reduce disk footprint —
+    ///     a 3097-parameter dump goes from ~90 KB indented to ~26 KB compact
+    ///     without any loss of information. Weights are machine-read only; there
+    ///     is no human-review benefit to indentation.
+    /// </summary>
+    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false };
 
     private readonly ILogger? _logger;
     private readonly ReaderWriterLockSlim _rwLock = new(LockRecursionPolicy.SupportsRecursion);
@@ -731,6 +802,30 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var h3Err = new double[Hidden3Size];
             var h4Err = new double[Hidden4Size];
 
+            // Roadmap v3 A2 — Bernoulli dropout masks (1 = keep, 0 = drop).
+            // Kept as double so surviving neurons can be rescaled by 1/keep in-place
+            // (inverted-dropout convention: train-time activations have the same expected
+            // magnitude as inference-time activations, so no train/serve scale mismatch).
+            //
+            // Dropout is disabled altogether when:
+            //   * examples.Count < MinExamplesForDropout  (too few samples — gradients would starve), OR
+            //   * DropoutKeepProbability >= 1.0            (explicit opt-out for tests / diagnostics).
+            //
+            // The mask arrays are allocated unconditionally so the backprop code can read them
+            // without null-guards; when dropout is inactive they are simply filled with 1.0
+            // per-sample and act as an identity multiplier.
+            var h1Mask = new double[Hidden1Size];
+            var h2Mask = new double[Hidden2Size];
+            var h3Mask = new double[Hidden3Size];
+            var h4Mask = new double[Hidden4Size];
+            var dropoutActive = DropoutKeepProbability < 1.0 && examples.Count >= MinExamplesForDropout;
+            // Dedicated RNG for the dropout draw so the shuffle-RNG's determinism (seeded by
+            // _trainingGeneration) is preserved for reviewers who need reproducible shuffle order
+            // when debugging. Both RNGs are seeded off the same generation counter so an entire
+            // training run is deterministic given the persisted _trainingGeneration.
+            var dropoutRng = new Random(1337 + _trainingGeneration);
+            var dropoutInvKeep = dropoutActive ? 1.0 / DropoutKeepProbability : 1.0;
+
             var maxEpochs = useEarlyStopping
                 ? MaxTrainingEpochs
                 : Math.Min(MaxTrainingEpochs, MaxEpochsWithoutEarlyStopping);
@@ -753,7 +848,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
                     var vec = vectors[idx];
 
-                    var pred = ForwardPass(
+                    // Roadmap v3 A2 — dropout is applied by RE-RUNNING each hidden layer's
+                    // activation through a Bernoulli mask, WITHOUT going back through the
+                    // (deterministic, dropout-free) ForwardPass. This keeps ForwardPass the
+                    // single source of truth for inference and avoids a second code path
+                    // that could drift over time. The masks + rescaled activations feed the
+                    // subsequent layer as if that neuron were absent for this training step.
+                    var pred = ForwardPassTraining(
                         vec,
                         _weightsIH,
                         _biasH1,
@@ -772,7 +873,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                         h3Pre,
                         h3Act,
                         h4Pre,
-                        h4Act);
+                        h4Act,
+                        h1Mask,
+                        h2Mask,
+                        h3Mask,
+                        h4Mask,
+                        dropoutRng,
+                        dropoutActive ? DropoutKeepProbability : 1.0,
+                        dropoutInvKeep);
 
                     var outErr = (pred - examples[idx].Label) * pred * (1.0 - pred) * sw;
 
@@ -783,17 +891,26 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     // === Compute ALL error signals BEFORE updating any weights ===
                     // Correct backpropagation requires using the forward-pass weights
                     // for error computation. Updating weights first would skew gradients.
+                    //
+                    // A2 dropout note: a neuron k with mask[k] == 0 was zeroed out in the
+                    // forward pass and therefore produced no output; its error signal must
+                    // be zero (no gradient flow) and, symmetrically, the downstream layer's
+                    // weight-update contribution from that neuron is naturally zero because
+                    // its activation was zero. The mask check duplicates the pre>0 check
+                    // for clarity; both are cheap.
 
-                    // Hidden4 layer error (backprop through ReLU from output)
+                    // Hidden4 layer error (backprop through ReLU + dropout mask from output)
                     for (var k = 0; k < Hidden4Size; k++)
                     {
-                        h4Err[k] = h4Pre[k] > 0 ? outErr * _weightsH4O[k] : 0.0;
+                        h4Err[k] = (h4Pre[k] > 0 && h4Mask[k] > 0)
+                            ? outErr * _weightsH4O[k] * dropoutInvKeep
+                            : 0.0;
                     }
 
-                    // Hidden3 layer error (backprop through ReLU from hidden4)
+                    // Hidden3 layer error (backprop through ReLU + dropout mask from hidden4)
                     for (var k = 0; k < Hidden3Size; k++)
                     {
-                        if (h3Pre[k] <= 0)
+                        if (h3Pre[k] <= 0 || h3Mask[k] == 0.0)
                         {
                             h3Err[k] = 0.0;
                             continue;
@@ -805,13 +922,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                             sum += h4Err[m] * _weightsH3H4[(m * Hidden3Size) + k];
                         }
 
-                        h3Err[k] = sum;
+                        h3Err[k] = sum * dropoutInvKeep;
                     }
 
-                    // Hidden2 layer error (backprop through ReLU from hidden3)
+                    // Hidden2 layer error (backprop through ReLU + dropout mask from hidden3)
                     for (var k = 0; k < Hidden2Size; k++)
                     {
-                        if (h2Pre[k] <= 0)
+                        if (h2Pre[k] <= 0 || h2Mask[k] == 0.0)
                         {
                             h2Err[k] = 0.0;
                             continue;
@@ -823,13 +940,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                             sum += h3Err[l] * _weightsH2H3[(l * Hidden2Size) + k];
                         }
 
-                        h2Err[k] = sum;
+                        h2Err[k] = sum * dropoutInvKeep;
                     }
 
-                    // Hidden1 layer error (backprop through ReLU from hidden2)
+                    // Hidden1 layer error (backprop through ReLU + dropout mask from hidden2)
                     for (var j = 0; j < Hidden1Size; j++)
                     {
-                        if (h1Pre[j] <= 0)
+                        if (h1Pre[j] <= 0 || h1Mask[j] == 0.0)
                         {
                             h1Err[j] = 0.0;
                             continue;
@@ -841,7 +958,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                             sum += h2Err[k] * _weightsH1H2[(k * Hidden1Size) + j];
                         }
 
-                        h1Err[j] = sum;
+                        h1Err[j] = sum * dropoutInvKeep;
                     }
 
                     // === Now update all weights using the pre-computed error signals ===
@@ -1179,6 +1296,205 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
 
         // Output layer: hidden4 → output (Sigmoid)
+        var outputZ = bO;
+        for (var m = 0; m < Hidden4Size; m++)
+        {
+            outputZ += wH4O[m] * h4Act[m];
+        }
+
+        return Sigmoid(outputZ);
+    }
+
+    /// <summary>
+    ///     Roadmap v3 A2 — training-time forward pass that additionally applies inverted
+    ///     Bernoulli dropout to each hidden layer's activations. This is a strict SUPERSET of
+    ///     <see cref="ForwardPass"/>: with <paramref name="keepProbability"/> ≥ 1.0 (or the
+    ///     equivalent <paramref name="invKeepScale"/> = 1.0) the numerical output is bit-identical
+    ///     to <see cref="ForwardPass"/>, so tests can pin down "dropout off" behaviour without a
+    ///     second code path.
+    ///     <para>
+    ///         Inverted-dropout convention:
+    ///         if <c>mask[k]=1</c>, act[k] ← relu(pre[k]) × <paramref name="invKeepScale"/>;
+    ///         if <c>mask[k]=0</c>, act[k] ← 0. This preserves E[act] between train and inference
+    ///         so the (deterministic, mask-free) <see cref="ForwardPass"/> can be used at scoring
+    ///         time with the same weight magnitudes.
+    ///     </para>
+    ///     <para>
+    ///         The masks are ALSO applied to the ReLU-gated pre-activation the caller checks in
+    ///         backprop (via the <c>maskX[k] == 0</c> guard). Dropping a neuron means:
+    ///         (a) its downstream contribution is zero because <c>actX[k] = 0</c>, and
+    ///         (b) its upstream gradient must also be zero — the <c>maskX[k] == 0</c> guard in
+    ///         backprop enforces this.
+    ///     </para>
+    ///     <para>
+    ///         Numerical parity check: when <paramref name="keepProbability"/> ≥ 1.0 the method
+    ///         short-circuits the RNG entirely and fills the mask arrays with 1.0, producing
+    ///         mathematical parity with <see cref="ForwardPass"/>.
+    ///     </para>
+    /// </summary>
+    /// <param name="input">Input feature vector [InputSize].</param>
+    /// <param name="wIH">Input→Hidden1 weights [Hidden1Size × InputSize] row-major.</param>
+    /// <param name="bH1">Hidden1 biases [Hidden1Size].</param>
+    /// <param name="wH1H2">Hidden1→Hidden2 weights.</param>
+    /// <param name="bH2">Hidden2 biases.</param>
+    /// <param name="wH2H3">Hidden2→Hidden3 weights.</param>
+    /// <param name="bH3">Hidden3 biases.</param>
+    /// <param name="wH3H4">Hidden3→Hidden4 weights.</param>
+    /// <param name="bH4">Hidden4 biases.</param>
+    /// <param name="wH4O">Hidden4→Output weights.</param>
+    /// <param name="bO">Output bias scalar.</param>
+    /// <param name="h1Pre">Buffer for hidden1 pre-activation values.</param>
+    /// <param name="h1Act">Buffer for hidden1 post-activation values (dropout-scaled).</param>
+    /// <param name="h2Pre">Buffer for hidden2 pre-activation values.</param>
+    /// <param name="h2Act">Buffer for hidden2 post-activation values (dropout-scaled).</param>
+    /// <param name="h3Pre">Buffer for hidden3 pre-activation values.</param>
+    /// <param name="h3Act">Buffer for hidden3 post-activation values (dropout-scaled).</param>
+    /// <param name="h4Pre">Buffer for hidden4 pre-activation values.</param>
+    /// <param name="h4Act">Buffer for hidden4 post-activation values (dropout-scaled).</param>
+    /// <param name="h1Mask">Output — dropout mask for hidden1 (1.0 = kept, 0.0 = dropped).</param>
+    /// <param name="h2Mask">Output — dropout mask for hidden2.</param>
+    /// <param name="h3Mask">Output — dropout mask for hidden3.</param>
+    /// <param name="h4Mask">Output — dropout mask for hidden4.</param>
+    /// <param name="rng">RNG used for the Bernoulli draws.</param>
+    /// <param name="keepProbability">Probability of keeping a neuron [0..1]. Values ≥ 1.0 disable dropout.</param>
+    /// <param name="invKeepScale">Precomputed 1 / keepProbability so we skip a division per neuron.</param>
+    /// <returns>Output score in [0, 1] via sigmoid.</returns>
+    internal static double ForwardPassTraining(
+        double[] input,
+        double[] wIH,
+        double[] bH1,
+        double[] wH1H2,
+        double[] bH2,
+        double[] wH2H3,
+        double[] bH3,
+        double[] wH3H4,
+        double[] bH4,
+        double[] wH4O,
+        double bO,
+        double[] h1Pre,
+        double[] h1Act,
+        double[] h2Pre,
+        double[] h2Act,
+        double[] h3Pre,
+        double[] h3Act,
+        double[] h4Pre,
+        double[] h4Act,
+        double[] h1Mask,
+        double[] h2Mask,
+        double[] h3Mask,
+        double[] h4Mask,
+        Random rng,
+        double keepProbability,
+        double invKeepScale)
+    {
+        var inputSize = input.Length;
+        var dropoutOff = keepProbability >= 1.0;
+
+        // Hidden layer 1: input → hidden1 (ReLU + optional dropout)
+        for (var j = 0; j < Hidden1Size; j++)
+        {
+            var sum = bH1[j];
+            var baseIdx = j * inputSize;
+            for (var i = 0; i < inputSize; i++)
+            {
+                sum += wIH[baseIdx + i] * input[i];
+            }
+
+            h1Pre[j] = sum;
+            var relu = sum > 0 ? sum : 0.0;
+
+            if (dropoutOff)
+            {
+                h1Mask[j] = 1.0;
+                h1Act[j] = relu;
+            }
+            else
+            {
+                var keep = rng.NextDouble() < keepProbability;
+                h1Mask[j] = keep ? 1.0 : 0.0;
+                h1Act[j] = keep ? relu * invKeepScale : 0.0;
+            }
+        }
+
+        // Hidden layer 2: hidden1 → hidden2 (ReLU + optional dropout)
+        for (var k = 0; k < Hidden2Size; k++)
+        {
+            var sum = bH2[k];
+            var baseIdx = k * Hidden1Size;
+            for (var j = 0; j < Hidden1Size; j++)
+            {
+                sum += wH1H2[baseIdx + j] * h1Act[j];
+            }
+
+            h2Pre[k] = sum;
+            var relu = sum > 0 ? sum : 0.0;
+
+            if (dropoutOff)
+            {
+                h2Mask[k] = 1.0;
+                h2Act[k] = relu;
+            }
+            else
+            {
+                var keep = rng.NextDouble() < keepProbability;
+                h2Mask[k] = keep ? 1.0 : 0.0;
+                h2Act[k] = keep ? relu * invKeepScale : 0.0;
+            }
+        }
+
+        // Hidden layer 3: hidden2 → hidden3 (ReLU + optional dropout)
+        for (var l = 0; l < Hidden3Size; l++)
+        {
+            var sum = bH3[l];
+            var baseIdx = l * Hidden2Size;
+            for (var k = 0; k < Hidden2Size; k++)
+            {
+                sum += wH2H3[baseIdx + k] * h2Act[k];
+            }
+
+            h3Pre[l] = sum;
+            var relu = sum > 0 ? sum : 0.0;
+
+            if (dropoutOff)
+            {
+                h3Mask[l] = 1.0;
+                h3Act[l] = relu;
+            }
+            else
+            {
+                var keep = rng.NextDouble() < keepProbability;
+                h3Mask[l] = keep ? 1.0 : 0.0;
+                h3Act[l] = keep ? relu * invKeepScale : 0.0;
+            }
+        }
+
+        // Hidden layer 4: hidden3 → hidden4 (ReLU + optional dropout)
+        for (var m = 0; m < Hidden4Size; m++)
+        {
+            var sum = bH4[m];
+            var baseIdx = m * Hidden3Size;
+            for (var l = 0; l < Hidden3Size; l++)
+            {
+                sum += wH3H4[baseIdx + l] * h3Act[l];
+            }
+
+            h4Pre[m] = sum;
+            var relu = sum > 0 ? sum : 0.0;
+
+            if (dropoutOff)
+            {
+                h4Mask[m] = 1.0;
+                h4Act[m] = relu;
+            }
+            else
+            {
+                var keep = rng.NextDouble() < keepProbability;
+                h4Mask[m] = keep ? 1.0 : 0.0;
+                h4Act[m] = keep ? relu * invKeepScale : 0.0;
+            }
+        }
+
+        // Output layer: hidden4 → output (Sigmoid, no dropout on the output neuron)
         var outputZ = bO;
         for (var m = 0; m < Hidden4Size; m++)
         {

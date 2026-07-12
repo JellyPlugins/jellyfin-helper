@@ -6,8 +6,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
 ///     Tests for <see cref="NeuralScoringStrategy"/>: Forward-Pass, Backprop/Training,
-///     Adam optimizer, Weight Persistence, Xavier initialization, Sigmoid.
-///     Architecture: <see cref="CandidateFeatures.FeatureCount"/> inputs → 48 hidden₁ → 24 hidden₂ → 12 hidden₃ → 6 hidden₄ → 1 output.
+///     Adam optimizer, Weight Persistence, Xavier initialization, Sigmoid, Dropout.
+///     Architecture (roadmap v3 A1, WeightsVersion 3):
+///     <see cref="CandidateFeatures.FeatureCount"/> inputs → 62 hidden₁ → 96 hidden₂ →
+///     48 hidden₃ → 24 hidden₄ → 1 output.
 /// </summary>
 public sealed class NeuralScoringStrategyTests : IDisposable
 {
@@ -687,9 +689,14 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     // ============================================================
 
     [Fact]
-    public void HiddenSize_Is6()
+    public void HiddenSize_MatchesFinalHiddenLayer()
     {
-        Assert.Equal(6, NeuralScoringStrategy.HiddenSize);
+        // Roadmap v3 A1: legacy HiddenSize alias now tracks Hidden4Size (the last hidden layer)
+        // which is 24 in the wider v3 architecture (was 6 in v2). Keeping the alias in place
+        // means older external references keep compiling — they now report the correct final
+        // hidden width rather than the outdated v2 value.
+        Assert.Equal(NeuralScoringStrategy.Hidden4Size, NeuralScoringStrategy.HiddenSize);
+        Assert.Equal(24, NeuralScoringStrategy.HiddenSize);
     }
 
     [Fact]
@@ -797,27 +804,39 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     // ============================================================
 
     [Fact]
-    public void Hidden1Size_Is48()
+    public void Hidden1Size_IsV3Value()
     {
-        Assert.Equal(48, NeuralScoringStrategy.Hidden1Size);
+        // Roadmap v3 A1: 48 → 62 (≈ 2× InputSize expansion factor for tabular MLPs).
+        Assert.Equal(62, NeuralScoringStrategy.Hidden1Size);
     }
 
     [Fact]
-    public void Hidden2Size_Is24()
+    public void Hidden2Size_IsV3Value()
     {
-        Assert.Equal(24, NeuralScoringStrategy.Hidden2Size);
+        // Roadmap v3 A1: 24 → 96 (widest layer; feature-interaction composition capacity).
+        Assert.Equal(96, NeuralScoringStrategy.Hidden2Size);
     }
 
     [Fact]
-    public void Hidden3Size_Is12()
+    public void Hidden3Size_IsV3Value()
     {
-        Assert.Equal(12, NeuralScoringStrategy.Hidden3Size);
+        // Roadmap v3 A1: 12 → 48 (half of Hidden2; compression stage).
+        Assert.Equal(48, NeuralScoringStrategy.Hidden3Size);
     }
 
     [Fact]
-    public void CurrentWeightsVersion_Is2()
+    public void Hidden4Size_IsV3Value()
     {
-        Assert.Equal(2, NeuralScoringStrategy.CurrentWeightsVersion);
+        // Roadmap v3 A1: 6 → 24 (final layer feeding the sigmoid output).
+        Assert.Equal(24, NeuralScoringStrategy.Hidden4Size);
+    }
+
+    [Fact]
+    public void CurrentWeightsVersion_IsV3()
+    {
+        // Roadmap v3 A1: version bump 2 → 3 signals to persistence-loaders that the
+        // stored array shapes no longer match; a v2 file will be discarded on load.
+        Assert.Equal(3, NeuralScoringStrategy.CurrentWeightsVersion);
     }
 
     [Fact]
@@ -848,6 +867,335 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     public void EarlyStoppingPatience_Is6()
     {
         Assert.Equal(6, NeuralScoringStrategy.EarlyStoppingPatience);
+    }
+
+    // ============================================================
+    // Dropout Tests (Roadmap v3 A2)
+    // ============================================================
+
+    [Fact]
+    public void DropoutKeepProbability_Is080()
+    {
+        // Roadmap v3 A2: mid-range 20% drop rate for small tabular MLPs.
+        Assert.Equal(0.8, NeuralScoringStrategy.DropoutKeepProbability);
+    }
+
+    [Fact]
+    public void MinExamplesForDropout_ExceedsMinTrainingExamples()
+    {
+        // Contract: dropout only kicks in when there are enough examples that
+        // per-sample gradient starvation is unlikely. Requiring it to be strictly
+        // greater than MinTrainingExamples ensures a training run that JUST hits
+        // MinTrainingExamples runs WITHOUT dropout — a safer default for cold start.
+        Assert.True(
+            NeuralScoringStrategy.MinExamplesForDropout > NeuralScoringStrategy.MinTrainingExamples,
+            $"MinExamplesForDropout ({NeuralScoringStrategy.MinExamplesForDropout}) must be greater than "
+            + $"MinTrainingExamples ({NeuralScoringStrategy.MinTrainingExamples}) so the minimum-training case is dropout-free");
+    }
+
+    [Fact]
+    public void ForwardPassTraining_KeepProbabilityOne_MatchesForwardPass()
+    {
+        // Contract: with keep-probability >= 1.0 the training-time forward pass must be
+        // bit-identical to the deterministic inference-time forward pass. This is the
+        // safety net that lets tests / diagnostics compare training vs. serving paths
+        // without any tolerance windows.
+        var inputSize = CandidateFeatures.FeatureCount;
+        var rng = new Random(7);
+        var input = new double[inputSize];
+        for (var i = 0; i < inputSize; i++)
+        {
+            input[i] = rng.NextDouble();
+        }
+
+        // Realistic non-zero weights so the ReLU path is actually exercised in both directions.
+        var wIH = new double[NeuralScoringStrategy.Hidden1Size * inputSize];
+        for (var i = 0; i < wIH.Length; i++)
+        {
+            wIH[i] = (rng.NextDouble() - 0.5) * 2.0;
+        }
+
+        var bH1 = new double[NeuralScoringStrategy.Hidden1Size];
+        var wH1H2 = new double[NeuralScoringStrategy.Hidden2Size * NeuralScoringStrategy.Hidden1Size];
+        for (var i = 0; i < wH1H2.Length; i++)
+        {
+            wH1H2[i] = (rng.NextDouble() - 0.5) * 2.0;
+        }
+
+        var bH2 = new double[NeuralScoringStrategy.Hidden2Size];
+        var wH2H3 = new double[NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size];
+        for (var i = 0; i < wH2H3.Length; i++)
+        {
+            wH2H3[i] = (rng.NextDouble() - 0.5) * 2.0;
+        }
+
+        var bH3 = new double[NeuralScoringStrategy.Hidden3Size];
+        var wH3H4 = new double[NeuralScoringStrategy.Hidden4Size * NeuralScoringStrategy.Hidden3Size];
+        for (var i = 0; i < wH3H4.Length; i++)
+        {
+            wH3H4[i] = (rng.NextDouble() - 0.5) * 2.0;
+        }
+
+        var bH4 = new double[NeuralScoringStrategy.Hidden4Size];
+        var wH4O = new double[NeuralScoringStrategy.Hidden4Size];
+        for (var i = 0; i < wH4O.Length; i++)
+        {
+            wH4O[i] = (rng.NextDouble() - 0.5) * 2.0;
+        }
+
+        var h1PreA = new double[NeuralScoringStrategy.Hidden1Size];
+        var h1ActA = new double[NeuralScoringStrategy.Hidden1Size];
+        var h2PreA = new double[NeuralScoringStrategy.Hidden2Size];
+        var h2ActA = new double[NeuralScoringStrategy.Hidden2Size];
+        var h3PreA = new double[NeuralScoringStrategy.Hidden3Size];
+        var h3ActA = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4PreA = new double[NeuralScoringStrategy.Hidden4Size];
+        var h4ActA = new double[NeuralScoringStrategy.Hidden4Size];
+
+        var expected = NeuralScoringStrategy.ForwardPass(
+            input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3H4, bH4, wH4O, 0.0,
+            h1PreA, h1ActA, h2PreA, h2ActA, h3PreA, h3ActA, h4PreA, h4ActA);
+
+        var h1PreB = new double[NeuralScoringStrategy.Hidden1Size];
+        var h1ActB = new double[NeuralScoringStrategy.Hidden1Size];
+        var h2PreB = new double[NeuralScoringStrategy.Hidden2Size];
+        var h2ActB = new double[NeuralScoringStrategy.Hidden2Size];
+        var h3PreB = new double[NeuralScoringStrategy.Hidden3Size];
+        var h3ActB = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4PreB = new double[NeuralScoringStrategy.Hidden4Size];
+        var h4ActB = new double[NeuralScoringStrategy.Hidden4Size];
+        var h1Mask = new double[NeuralScoringStrategy.Hidden1Size];
+        var h2Mask = new double[NeuralScoringStrategy.Hidden2Size];
+        var h3Mask = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4Mask = new double[NeuralScoringStrategy.Hidden4Size];
+
+        var actual = NeuralScoringStrategy.ForwardPassTraining(
+            input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3H4, bH4, wH4O, 0.0,
+            h1PreB, h1ActB, h2PreB, h2ActB, h3PreB, h3ActB, h4PreB, h4ActB,
+            h1Mask, h2Mask, h3Mask, h4Mask,
+            new Random(0), // seed irrelevant when dropout is off
+            keepProbability: 1.0,
+            invKeepScale: 1.0);
+
+        // Bit-identical output, and every mask value must be 1.0
+        Assert.Equal(expected, actual, 15);
+        Assert.All(h1Mask, m => Assert.Equal(1.0, m));
+        Assert.All(h2Mask, m => Assert.Equal(1.0, m));
+        Assert.All(h3Mask, m => Assert.Equal(1.0, m));
+        Assert.All(h4Mask, m => Assert.Equal(1.0, m));
+
+        // And every buffer must match ForwardPass exactly (activations, pre-activations).
+        for (var j = 0; j < NeuralScoringStrategy.Hidden1Size; j++)
+        {
+            Assert.Equal(h1PreA[j], h1PreB[j], 15);
+            Assert.Equal(h1ActA[j], h1ActB[j], 15);
+        }
+
+        for (var j = 0; j < NeuralScoringStrategy.Hidden4Size; j++)
+        {
+            Assert.Equal(h4PreA[j], h4PreB[j], 15);
+            Assert.Equal(h4ActA[j], h4ActB[j], 15);
+        }
+    }
+
+    [Fact]
+    public void ForwardPassTraining_DropoutActive_ProducesZeroMaskEntries()
+    {
+        // Contract: with keep-p = 0.5 and a fair RNG, over Hidden2Size draws we expect
+        // roughly half the neurons to be dropped. We assert only the weaker claim that
+        // *some* neurons are dropped so the test is not flaky.
+        var inputSize = CandidateFeatures.FeatureCount;
+        var input = new double[inputSize];
+        for (var i = 0; i < inputSize; i++)
+        {
+            input[i] = 1.0; // uniform input so every neuron would otherwise fire
+        }
+
+        var wIH = new double[NeuralScoringStrategy.Hidden1Size * inputSize];
+        // Positive weights so every ReLU pre-activation is positive → dropout is the only zero source.
+        for (var i = 0; i < wIH.Length; i++)
+        {
+            wIH[i] = 0.1;
+        }
+
+        var bH1 = new double[NeuralScoringStrategy.Hidden1Size];
+        var wH1H2 = new double[NeuralScoringStrategy.Hidden2Size * NeuralScoringStrategy.Hidden1Size];
+        for (var i = 0; i < wH1H2.Length; i++)
+        {
+            wH1H2[i] = 0.1;
+        }
+
+        var bH2 = new double[NeuralScoringStrategy.Hidden2Size];
+        var wH2H3 = new double[NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size];
+        for (var i = 0; i < wH2H3.Length; i++)
+        {
+            wH2H3[i] = 0.1;
+        }
+
+        var bH3 = new double[NeuralScoringStrategy.Hidden3Size];
+        var wH3H4 = new double[NeuralScoringStrategy.Hidden4Size * NeuralScoringStrategy.Hidden3Size];
+        for (var i = 0; i < wH3H4.Length; i++)
+        {
+            wH3H4[i] = 0.1;
+        }
+
+        var bH4 = new double[NeuralScoringStrategy.Hidden4Size];
+        var wH4O = new double[NeuralScoringStrategy.Hidden4Size];
+
+        var h1Pre = new double[NeuralScoringStrategy.Hidden1Size];
+        var h1Act = new double[NeuralScoringStrategy.Hidden1Size];
+        var h2Pre = new double[NeuralScoringStrategy.Hidden2Size];
+        var h2Act = new double[NeuralScoringStrategy.Hidden2Size];
+        var h3Pre = new double[NeuralScoringStrategy.Hidden3Size];
+        var h3Act = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4Pre = new double[NeuralScoringStrategy.Hidden4Size];
+        var h4Act = new double[NeuralScoringStrategy.Hidden4Size];
+        var h1Mask = new double[NeuralScoringStrategy.Hidden1Size];
+        var h2Mask = new double[NeuralScoringStrategy.Hidden2Size];
+        var h3Mask = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4Mask = new double[NeuralScoringStrategy.Hidden4Size];
+
+        // Fixed seed so the test is deterministic. Random(0) with keep-p=0.5 produces
+        // a well-mixed sequence over Hidden4Size=24 draws; empirically several neurons
+        // ARE dropped and several are kept.
+        var result = NeuralScoringStrategy.ForwardPassTraining(
+            input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3H4, bH4, wH4O, 0.0,
+            h1Pre, h1Act, h2Pre, h2Act, h3Pre, h3Act, h4Pre, h4Act,
+            h1Mask, h2Mask, h3Mask, h4Mask,
+            new Random(0),
+            keepProbability: 0.5,
+            invKeepScale: 2.0);
+
+        Assert.InRange(result, 0.0, 1.0);
+
+        // With keep-p = 0.5 across 24 + 48 + 96 + 62 = 230 Bernoulli draws, the probability
+        // of getting all-ones OR all-zeros is astronomically small (~ 2^-230). We assert the
+        // strictly weaker property that AT LEAST ONE neuron in Hidden4 is dropped AND at
+        // least one is kept. The chance of this failing due to bad luck is ~ 2 × (0.5)^24
+        // ≈ 1.2 × 10^-7 (still deterministic here thanks to the fixed seed).
+        Assert.Contains(h4Mask, m => m == 0.0);
+        Assert.Contains(h4Mask, m => m == 1.0);
+        // Each mask entry must be exactly 0.0 or 1.0 — never in between.
+        Assert.All(h4Mask, m => Assert.True(m == 0.0 || m == 1.0, $"Mask entry {m} is neither 0 nor 1"));
+        Assert.All(h1Mask, m => Assert.True(m == 0.0 || m == 1.0));
+        Assert.All(h2Mask, m => Assert.True(m == 0.0 || m == 1.0));
+        Assert.All(h3Mask, m => Assert.True(m == 0.0 || m == 1.0));
+
+        // Where a neuron was dropped, its activation must be exactly 0 regardless of
+        // pre-activation magnitude. Where it was kept, activation = relu(pre) * 2.0.
+        for (var k = 0; k < NeuralScoringStrategy.Hidden4Size; k++)
+        {
+            if (h4Mask[k] == 0.0)
+            {
+                Assert.Equal(0.0, h4Act[k]);
+            }
+            else
+            {
+                var expectedRelu = h4Pre[k] > 0 ? h4Pre[k] : 0.0;
+                Assert.Equal(expectedRelu * 2.0, h4Act[k], 10);
+            }
+        }
+    }
+
+    [Fact]
+    public void ForwardPassTraining_ExpectedActivationMagnitudeMatchesForwardPass()
+    {
+        // Contract: inverted dropout preserves E[activation] across a Bernoulli mask.
+        // Averaging many training-time forward passes with dropout ON should converge
+        // to the deterministic dropout-OFF forward pass. We run 4 000 samples with
+        // keep-p=0.8, take the mean output, and assert it lies within a tight band
+        // around the deterministic score. Because keep-p=0.8 gives a very small
+        // Bernoulli variance per neuron and outputs get squashed through a sigmoid,
+        // the mean converges quickly to the deterministic value.
+        var inputSize = CandidateFeatures.FeatureCount;
+        var input = new double[inputSize];
+        var rng = new Random(101);
+        for (var i = 0; i < inputSize; i++)
+        {
+            input[i] = rng.NextDouble();
+        }
+
+        var wIH = new double[NeuralScoringStrategy.Hidden1Size * inputSize];
+        for (var i = 0; i < wIH.Length; i++)
+        {
+            wIH[i] = (rng.NextDouble() - 0.5) * 0.5;
+        }
+
+        var bH1 = new double[NeuralScoringStrategy.Hidden1Size];
+        var wH1H2 = new double[NeuralScoringStrategy.Hidden2Size * NeuralScoringStrategy.Hidden1Size];
+        for (var i = 0; i < wH1H2.Length; i++)
+        {
+            wH1H2[i] = (rng.NextDouble() - 0.5) * 0.5;
+        }
+
+        var bH2 = new double[NeuralScoringStrategy.Hidden2Size];
+        var wH2H3 = new double[NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size];
+        for (var i = 0; i < wH2H3.Length; i++)
+        {
+            wH2H3[i] = (rng.NextDouble() - 0.5) * 0.5;
+        }
+
+        var bH3 = new double[NeuralScoringStrategy.Hidden3Size];
+        var wH3H4 = new double[NeuralScoringStrategy.Hidden4Size * NeuralScoringStrategy.Hidden3Size];
+        for (var i = 0; i < wH3H4.Length; i++)
+        {
+            wH3H4[i] = (rng.NextDouble() - 0.5) * 0.5;
+        }
+
+        var bH4 = new double[NeuralScoringStrategy.Hidden4Size];
+        var wH4O = new double[NeuralScoringStrategy.Hidden4Size];
+        for (var i = 0; i < wH4O.Length; i++)
+        {
+            wH4O[i] = (rng.NextDouble() - 0.5) * 0.5;
+        }
+
+        // Deterministic reference (dropout OFF).
+        var h1PreRef = new double[NeuralScoringStrategy.Hidden1Size];
+        var h1ActRef = new double[NeuralScoringStrategy.Hidden1Size];
+        var h2PreRef = new double[NeuralScoringStrategy.Hidden2Size];
+        var h2ActRef = new double[NeuralScoringStrategy.Hidden2Size];
+        var h3PreRef = new double[NeuralScoringStrategy.Hidden3Size];
+        var h3ActRef = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4PreRef = new double[NeuralScoringStrategy.Hidden4Size];
+        var h4ActRef = new double[NeuralScoringStrategy.Hidden4Size];
+        var reference = NeuralScoringStrategy.ForwardPass(
+            input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3H4, bH4, wH4O, 0.0,
+            h1PreRef, h1ActRef, h2PreRef, h2ActRef, h3PreRef, h3ActRef, h4PreRef, h4ActRef);
+
+        // Now average many dropout-ON runs.
+        var dropoutRng = new Random(777);
+        var sum = 0.0;
+        const int samples = 4000;
+        var h1Pre = new double[NeuralScoringStrategy.Hidden1Size];
+        var h1Act = new double[NeuralScoringStrategy.Hidden1Size];
+        var h2Pre = new double[NeuralScoringStrategy.Hidden2Size];
+        var h2Act = new double[NeuralScoringStrategy.Hidden2Size];
+        var h3Pre = new double[NeuralScoringStrategy.Hidden3Size];
+        var h3Act = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4Pre = new double[NeuralScoringStrategy.Hidden4Size];
+        var h4Act = new double[NeuralScoringStrategy.Hidden4Size];
+        var h1Mask = new double[NeuralScoringStrategy.Hidden1Size];
+        var h2Mask = new double[NeuralScoringStrategy.Hidden2Size];
+        var h3Mask = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4Mask = new double[NeuralScoringStrategy.Hidden4Size];
+
+        for (var s = 0; s < samples; s++)
+        {
+            sum += NeuralScoringStrategy.ForwardPassTraining(
+                input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3H4, bH4, wH4O, 0.0,
+                h1Pre, h1Act, h2Pre, h2Act, h3Pre, h3Act, h4Pre, h4Act,
+                h1Mask, h2Mask, h3Mask, h4Mask,
+                dropoutRng,
+                keepProbability: 0.8,
+                invKeepScale: 1.25);
+        }
+
+        var mean = sum / samples;
+
+        // With 4 000 samples the mean should be very close to the deterministic reference.
+        // We use a tolerance of 0.05 which is generous (equivalent to a ~5-percentage-point
+        // band on a [0, 1] sigmoid output).
+        Assert.InRange(mean, reference - 0.05, reference + 0.05);
     }
 
     // ============================================================
