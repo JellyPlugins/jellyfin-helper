@@ -20,6 +20,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ### Improved
 - **Faster Recommendation & Activity Scans** - Switched to the new JF12 batch APIs (`GetUserDataBatch`, `GetPeopleNamesByItems`) so watch-history, activity, and recommendation scans need dramatically fewer database roundtrips on large libraries. Falls back to the old per-item path if the batch call throws, so behaviour never regresses.
+- **Recommendations – Genre / TopPeople / Collection Progression** - Genre-preference weight uses `log1p(playCount)` (ceiling 2.0 → PlayCount 30 delivers ≈ 50 % of the favorite additive) for measurable re-watch signal. `PeopleSimilarity` uses a frequency-weighted-budget overload consistently across live scoring and all training phases, fixing sparse-user overshoot and rich-user ceiling-compression that treated dominant collaborators identically to cameo overlaps. The diminishing-returns collection-progression scale (`0.3 + (n-1) × 0.2, clamp [0, 1]`) is centralised as `EngineConstants.ComputeCollectionProgressionBoost(int)` so inference and training share one implementation, guarded by 16 dedicated formula-contract tests (`CollectionProgressionBoostTests`) that protect both call sites against copy-drift.
 - **Recommendations – Collaborative Filter Neighbour Trust** - `BuildCollaborativeMap` scales Jaccard weight by `min(1, otherWatchCount / 20)` so sparse-history neighbours contribute proportionally. Prevents recommendation storms from newly-registered users; power users (≥20 watches) unaffected.
 - **Recommendations – Cold-Start Community Priors** - When ≥2 active users exist, cold-start scoring blends `0.4 × rating + 0.3 × recency + 0.3 × log1p(community-popularity)`; single-user deployments keep the classic `0.6 × rating + 0.4 × recency`.
 - **Recommendations – Multi-Dimensional Diversity Reranking** - MMR item similarity now blends `0.5 × genre-Jaccard + 0.3 × studio-Jaccard + 0.2 × era-Gaussian(σ=10y)` instead of genre-only, breaking tight studio/era clusters without penalising cross-genre directors.
@@ -29,7 +30,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. Users on Jellyfin 10.x should stay on v2.1.0.5, which remains served from the same plugin repository (`targetAbi: 10.11.10.0`).
 
 ### Tests
-- Total: **2417 tests** (+99 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths.
+- Total: **2442 tests** (+124 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths, weighted `PeopleSimilarity`, and the 16-Fact `CollectionProgressionBoostTests` locking the shared `0.3 + (n-1) × 0.2` progression formula.
 
 ---
 

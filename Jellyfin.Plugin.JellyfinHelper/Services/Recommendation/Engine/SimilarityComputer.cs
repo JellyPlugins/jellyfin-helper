@@ -335,6 +335,112 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
+    ///     Weighted variant of <see cref="ComputePeopleSimilarity(HashSet{string}, HashSet{string})"/>
+    ///     that scores candidates based on how much of the user's <b>weight mass</b> they carry,
+    ///     rather than raw set membership. Roadmap v3 (C2 hardening pass) — used at inference by
+    ///     <c>Engine.ScoreCandidate</c> and consistently across all training phases in
+    ///     <c>TrainingDataBuilder</c> so the ML feature has identical semantics on both sides.
+    ///     <para>
+    ///         <b>Active formula</b> (weighted-budget, clamped [0, 1]):
+    ///         <code>
+    ///             score = clamp( matchedWeight
+    ///                          / max( |candidate| × avg(preferredWeight),
+    ///                                 <see cref="EngineConstants.WeightedPeopleSimilarityMinDenominator"/> ),
+    ///                          0, 1 )
+    ///         </code>
+    ///         where <c>avg(preferredWeight)</c> is computed over positive-weight entries only.
+    ///         The floor guards two failure modes (sparse-user overshoot and empty-preferred short-
+    ///         circuit stability) — see the floor constant's XML doc for the full rationale.
+    ///     </para>
+    ///     <para>
+    ///         <b>Intuition</b>: the candidate-budget <c>|candidate| × avg</c> is the expected matched
+    ///         weight if the candidate's cast were composed entirely of "average preferred" people.
+    ///         A candidate that delivers exactly that budget scores 1.0; delivering less scores
+    ///         proportionally lower. The monotone ordering (more matched weight → strictly higher
+    ///         score, up to the clamp) is what the downstream neural ranking head needs to learn
+    ///         person-similarity as a meaningful signal.
+    ///     </para>
+    ///     <para>
+    ///         <b>Design history</b>: an earlier iteration used the naive
+    ///         <c>matchedWeight / min(|candidate|, totalPreferredWeight)</c>. That formula
+    ///         (a) collapsed all rich-profile candidates to 1.0 as soon as matched-weight exceeded
+    ///         |candidate| (ceiling-compression) and (b) let a single heavy-weight match on a sparse
+    ///         profile lift the score all the way to 1.0 (sparse-user overshoot). The weighted-budget
+    ///         formula addresses both, with explicit regression tests in <c>SimilarityComputerTests</c>.
+    ///     </para>
+    ///     <para>
+    ///         Empty-input contract mirrors <see cref="ComputePeopleSimilarity(HashSet{string},HashSet{string})"/>:
+    ///         zero on either empty candidate or empty weights, so train/serve parity is preserved.
+    ///     </para>
+    /// </summary>
+    /// <param name="candidatePeople">The candidate item's person names.</param>
+    /// <param name="preferredPeopleWeights">
+    ///     The user's preferred people with per-name weights (typically the count of items each person
+    ///     appears on across the user's watch history). Weights must be non-negative; zero or negative
+    ///     entries are treated as absent.
+    /// </param>
+    /// <returns>A weighted-budget people-similarity score between 0 and 1.</returns>
+    internal static double ComputePeopleSimilarity(
+        HashSet<string> candidatePeople,
+        IReadOnlyDictionary<string, double> preferredPeopleWeights)
+    {
+        if (candidatePeople.Count == 0 || preferredPeopleWeights.Count == 0)
+        {
+            return 0;
+        }
+
+        var matchedWeight = 0.0;
+        var totalPreferredWeight = 0.0;
+        var positiveEntryCount = 0;
+
+        foreach (var kvp in preferredPeopleWeights)
+        {
+            if (kvp.Value <= 0.0)
+            {
+                continue;
+            }
+
+            positiveEntryCount++;
+            totalPreferredWeight += kvp.Value;
+
+            if (candidatePeople.Contains(kvp.Key))
+            {
+                matchedWeight += kvp.Value;
+            }
+        }
+
+        if (positiveEntryCount == 0 || totalPreferredWeight <= 0.0 || matchedWeight <= 0.0)
+        {
+            // No positive-weight overlap → cannot produce a meaningful score even with the floor.
+            // Early return also avoids emitting a small positive score for zero-match candidates
+            // just because the floor would otherwise appear in the denominator.
+            return 0;
+        }
+
+        // Weighted candidate budget: |candidate| × avg(preferredWeight). This is the expected
+        // matched-weight if the candidate's cast were composed entirely of "average" preferred
+        // people. A candidate that delivers exactly this budget scores 1.0; less scores lower.
+        // The floor prevents pathological sparse-profile scores.
+        //
+        // Example — sparse user, 1 heavy-hitter (weight 8), candidate with 10-person cast, 1 match:
+        //   avg = 8 / 1 = 8; budget = 10 × 8 = 80; floor(5) ignored.
+        //   score = 8 / 80 = 0.10. Reasonable — one match out of ten possible slots.
+        //
+        // Example — rich user, avg weight = 3, 200 people, candidate cast = 10, 2 heavy matches (8+5=13):
+        //   budget = 10 × 3 = 30; floor(5) ignored.
+        //   score = 13 / 30 ≈ 0.43. Old min-formula gave clamped 1.0 for the same input.
+        //
+        // Example — cold user, 1 person weight 2, candidate cast = 10, 1 match (weight 2):
+        //   avg = 2; budget = 10 × 2 = 20; floor(5) ignored.
+        //   score = 2 / 20 = 0.10. Old min-formula gave 1.0 (Rev 2 bug), now correctly damped.
+        var averagePreferredWeight = totalPreferredWeight / positiveEntryCount;
+        var candidateBudget = candidatePeople.Count * averagePreferredWeight;
+        var denominator = Math.Max(candidateBudget, EngineConstants.WeightedPeopleSimilarityMinDenominator);
+
+        return Math.Clamp(matchedWeight / denominator, 0.0, 1.0);
+    }
+
+    /// <summary>
     ///     Computes tag similarity between a candidate item's tags and the user's preferred tag set
     ///     using Jaccard similarity: |A ∩ B| / |A ∪ B|.
     ///     Returns 0 if either set is empty (no tags available).

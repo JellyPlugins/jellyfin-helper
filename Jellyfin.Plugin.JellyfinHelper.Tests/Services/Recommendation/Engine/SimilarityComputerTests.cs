@@ -14,7 +14,8 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Baseline behavioral tests for <see cref="SimilarityComputer.BuildCandidatePeopleLookup"/>.
+///     Baseline behavioral tests for <see cref="SimilarityComputer.BuildCandidatePeopleLookup"/>
+///     and the weighted <c>ComputePeopleSimilarity</c> overload.
 ///     Locks in the observable contract of the people-lookup so that the internal fetch path
 ///     (per-item <c>GetPeople</c> vs. Jellyfin-12+ batch <c>GetPeopleNamesByItems</c>) can be
 ///     swapped without changing the assertions below.
@@ -122,8 +123,6 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void BuildCandidatePeopleLookup_OnlyIrrelevantRoles_ItemIsOmitted()
     {
-        // A candidate that has people, but none of them are Actor or Director, must not
-        // appear in the lookup at all (matching the empty-people behavior).
         var (computer, library) = CreateSut();
         var candidate = NewCandidate("Only Writers");
         library.Setup(l => l.GetPeople(candidate)).Returns(new List<PersonInfo>
@@ -162,14 +161,13 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void BuildCandidatePeopleLookup_DuplicateNames_AreDeduplicated()
     {
-        // HashSet<string> with OrdinalIgnoreCase must collapse duplicates.
         var (computer, library) = CreateSut();
         var candidate = NewCandidate("Duplicates");
         library.Setup(l => l.GetPeople(candidate)).Returns(new List<PersonInfo>
         {
             Person("John Doe", PersonKind.Actor),
-            Person("John Doe", PersonKind.Director),  // same name, different role
-            Person("JOHN DOE", PersonKind.Actor)       // same name, different case
+            Person("John Doe", PersonKind.Director),
+            Person("JOHN DOE", PersonKind.Actor)
         });
 
         var result = computer.BuildCandidatePeopleLookup([candidate]);
@@ -181,7 +179,6 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void BuildCandidatePeopleLookup_CaseInsensitiveLookup_MatchesBothCases()
     {
-        // Contract: the HashSet backing the name set uses OrdinalIgnoreCase.
         var (computer, library) = CreateSut();
         var candidate = NewCandidate("Case Test");
         library.Setup(l => l.GetPeople(candidate)).Returns(new List<PersonInfo>
@@ -192,9 +189,9 @@ public sealed class SimilarityComputerTests
         var result = computer.BuildCandidatePeopleLookup([candidate]);
 
         Assert.True(result.TryGetValue(candidate.Id, out var names));
-        Assert.Contains("alice", names);   // lower-case lookup must match
-        Assert.Contains("ALICE", names);   // upper-case lookup must match
-        Assert.Contains("Alice", names);   // canonical
+        Assert.Contains("alice", names);
+        Assert.Contains("ALICE", names);
+        Assert.Contains("Alice", names);
     }
 
     // === Multi-candidate ===
@@ -222,8 +219,6 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void BuildCandidatePeopleLookup_GetPeopleThrows_CandidateIsSkippedOthersRemain()
     {
-        // Per-candidate exception must not abort the whole lookup — the failing candidate
-        // is silently skipped and the rest still populates the dictionary.
         var (computer, library) = CreateSut();
         var good = NewCandidate("Good");
         var bad = NewCandidate("Bad");
@@ -250,9 +245,6 @@ public sealed class SimilarityComputerTests
     }
 
     // === Batch fast-path (Jellyfin 12+ GetPeopleNamesByItems) ===
-    // These tests exercise the fast path where the library manager exposes the batch API.
-    // The batch-first strategy in BuildCandidatePeopleLookup should short-circuit and
-    // never touch GetPeople(BaseItem) when the batch call succeeds.
 
     [Fact]
     public void BuildCandidatePeopleLookup_BatchApiReturnsData_UsesBatchPathAndSkipsPerItemFallback()
@@ -277,16 +269,12 @@ public sealed class SimilarityComputerTests
         Assert.Contains("Alice", result[a.Id]);
         Assert.Contains("Bob", result[a.Id]);
         Assert.Contains("Carol", result[b.Id]);
-        // Fast-path used → per-item GetPeople(BaseItem) must never have been invoked
         library.Verify(l => l.GetPeople(It.IsAny<BaseItem>()), Times.Never);
     }
 
     [Fact]
     public void BuildCandidatePeopleLookup_BatchApiPassesRelevantPersonTypes()
     {
-        // The batch API must be called with the string names of PersonKind.Actor and .Director,
-        // so that server-side type filtering yields the same set as the client-side filter
-        // used in the per-item path (EngineConstants.RelevantPersonKinds).
         var (computer, library) = CreateSut();
         var candidate = NewCandidate("A");
         IReadOnlyList<string>? capturedTypes = null;
@@ -318,20 +306,18 @@ public sealed class SimilarityComputerTests
         var result = computer.BuildCandidatePeopleLookup([candidate]);
 
         Assert.True(result.TryGetValue(candidate.Id, out var people));
-        Assert.Equal(2, people.Count); // Alice (dedup) + Bob
-        Assert.Contains("alice", people); // case-insensitive lookup still works
+        Assert.Equal(2, people.Count);
+        Assert.Contains("alice", people);
     }
 
     [Fact]
     public void BuildCandidatePeopleLookup_BatchApiReturnsEmptyNamesForItem_ItemIsOmitted()
     {
-        // Contract: a candidate whose batch value is an empty list must be omitted from the result,
-        // matching the per-item path's "no names → skip candidate" behavior.
         var (computer, library) = CreateSut();
         var candidate = NewCandidate("EmptyBatch");
         var batch = new Dictionary<Guid, IReadOnlyList<string>>
         {
-            [candidate.Id] = new List<string>() // batch present but empty
+            [candidate.Id] = new List<string>()
         };
         library
             .Setup(l => l.GetPeopleNamesByItems(It.IsAny<IReadOnlyList<Guid>>(), It.IsAny<IReadOnlyList<string>>()))
@@ -345,8 +331,6 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void BuildCandidatePeopleLookup_BatchApiThrows_FallsBackToPerItemPath()
     {
-        // If the batch call fails, the per-item fallback path must complete successfully
-        // and produce the same lookup as the pre-Jellyfin-12 code would.
         var (computer, library) = CreateSut();
         var candidate = NewCandidate("Fallback");
         library
@@ -366,8 +350,6 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void BuildCandidatePeopleLookup_BatchApiCancelled_PropagatesWithoutFallback()
     {
-        // OperationCanceledException from the batch call must propagate to the caller
-        // without triggering the per-item fallback (cancellation is a stop signal).
         var (computer, library) = CreateSut();
         var candidate = NewCandidate("CancelledBatch");
         library
@@ -376,5 +358,208 @@ public sealed class SimilarityComputerTests
 
         Assert.Throws<OperationCanceledException>(() => computer.BuildCandidatePeopleLookup([candidate]));
         library.Verify(l => l.GetPeople(It.IsAny<BaseItem>()), Times.Never);
+    }
+
+    // === Roadmap v3 (C2): weighted ComputePeopleSimilarity overload ===
+    // These tests exercise the weighted-budget denominator introduced in the C2 hardening
+    // pass: matched-weight / max(|candidate| × avg(preferredWeight), MinDenominatorFloor).
+    // See SimilarityComputer.WeightedPeopleSimilarityMinDenominator for the floor rationale.
+
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_EmptyCandidate_ReturnsZero()
+    {
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { { "Nolan", 8.0 } };
+
+        var result = SimilarityComputer.ComputePeopleSimilarity(candidate, weights);
+
+        Assert.Equal(0.0, result);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_EmptyWeights_ReturnsZero()
+    {
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Nolan" };
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+        var result = SimilarityComputer.ComputePeopleSimilarity(candidate, weights);
+
+        Assert.Equal(0.0, result);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_NoOverlap_ReturnsZero()
+    {
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Alice", "Bob" };
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Carol", 5.0 },
+            { "Dave", 3.0 }
+        };
+
+        var result = SimilarityComputer.ComputePeopleSimilarity(candidate, weights);
+
+        Assert.Equal(0.0, result);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_HeavyCollaboratorMatch_OutscoresRareCameo()
+    {
+        // Core roadmap v3 (C2) contract: a candidate featuring the user's dominant collaborator
+        // (weight 8) must score STRICTLY higher than a candidate featuring only a rare cameo
+        // person (weight 1). The unweighted overlap coefficient would treat both as identical.
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Christopher Nolan", 8.0 },
+            { "Random Cameo", 1.0 }
+        };
+
+        var candidateWithHeavyHitter = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Christopher Nolan", "Some Newcomer"
+        };
+        var candidateWithRareCameo = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Random Cameo", "Some Newcomer"
+        };
+
+        var heavyScore = SimilarityComputer.ComputePeopleSimilarity(candidateWithHeavyHitter, weights);
+        var rareScore = SimilarityComputer.ComputePeopleSimilarity(candidateWithRareCameo, weights);
+
+        Assert.True(heavyScore > rareScore,
+            $"Heavy collaborator match should outscore rare cameo (heavy={heavyScore:F4}, rare={rareScore:F4})");
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_HighMatchedShareOfBudget_HitsCeiling()
+    {
+        // Rich preferred profile that fully overlaps the candidate cast should hit the 1.0
+        // ceiling. avg = 6/3 = 2.0; budget = 2 × 2.0 = 4.0; floor(5) → denom=5.0
+        // matched = 3 + 2 = 5.0 → score = 5.0/5.0 = 1.0.
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Alice", 3.0 },
+            { "Bob", 2.0 },
+            { "Carol", 1.0 }
+        };
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Alice", "Bob" };
+
+        var result = SimilarityComputer.ComputePeopleSimilarity(candidate, weights);
+
+        Assert.Equal(1.0, result, 10);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_NonPositiveWeights_AreIgnored()
+    {
+        // Weight entries with zero or negative values must be excluded from BOTH the matched
+        // weight sum AND the positive-entry count that feeds avg(). Otherwise pathological
+        // training data (from cache-serialisation bugs) could poison the denominator.
+        // With only Alice as positive: positive=1, total=5.0, avg=5.0.
+        // |candidate|=3, budget=3×5.0=15.0 (>floor). matched=5.0 → score = 5/15 ≈ 0.333.
+        // The old min-based formula produced 1.0 here (bug); the new weighted-budget formula
+        // correctly reflects that only 1 out of 3 candidate slots is a positive match.
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Alice", 5.0 },
+            { "Bob", 0.0 },
+            { "Carol", -1.0 }
+        };
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Alice", "Bob", "Carol" };
+
+        var result = SimilarityComputer.ComputePeopleSimilarity(candidate, weights);
+
+        Assert.InRange(result, 0.30, 0.35);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_CaseInsensitiveKeyLookup()
+    {
+        // |candidate|=1, positive=1, total=4.0, avg=4.0. budget=1×4.0=4.0 < floor(5) → denom=5.
+        // matched=4 → 4/5 = 0.8.
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Tom Hanks", 4.0 }
+        };
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "TOM HANKS" };
+
+        var result = SimilarityComputer.ComputePeopleSimilarity(candidate, weights);
+
+        Assert.Equal(0.8, result, 10);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_SparseProfileSingleMatch_DoesNotOvershoot()
+    {
+        // v3 C2 hardening pass — Sparse-user overshoot fix.
+        // Old min-based formula: preferred={Alice=2}, |candidate|=10, matched=2
+        //   → min(10, 2)=2 → 2/2 = 1.0 !  A brand-new profile with a single 2-weight entry could
+        //   ride any single match to a perfect score, making every candidate that shared one
+        //   cast member look like a top pick.
+        // New weighted-budget: avg=2/1=2.0, budget=10×2.0=20.0, floor(5) → denom=20. matched=2
+        //   → score = 2/20 = 0.10. Correctly damped.
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Alice", 2.0 }
+        };
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Alice", "B", "C", "D", "E", "F", "G", "H", "I", "J"
+        };
+
+        var result = SimilarityComputer.ComputePeopleSimilarity(candidate, weights);
+
+        Assert.InRange(result, 0.08, 0.12);
+    }
+
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_RichProfileMultipleHeavyMatches_PreservesMonotonicOrdering()
+    {
+        // v3 C2 hardening pass — Ceiling-compression fix.
+        // The old min-based formula collapsed all candidates whose matched-weight exceeded
+        // |candidate| onto the same 1.0 clamp, so a 2-match and a 5-match candidate scored
+        // identically and became indistinguishable to the ML feature. The weighted-budget
+        // formula preserves a monotone ordering: more matched weight → strictly higher score
+        // (until the actual candidate budget is saturated).
+        //
+        // Rich user: 200 imaginary preferred people modelled as avg-weight-3.0 (total 600).
+        // For the tests we only feed the entries that actually match — the rest expand the
+        // total/avg via a controlled inflator.
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < 200; i++)
+        {
+            weights[$"filler_{i}"] = 3.0;
+        }
+
+        weights["HeavyDirector"] = 8.0;
+        weights["HeavyActor"] = 5.0;
+        weights["MidActor"] = 3.0;
+        weights["MinorActor"] = 2.0;
+        weights["Cameo"] = 1.0;
+
+        // avg = (200×3 + 8 + 5 + 3 + 2 + 1) / 205 ≈ 3.02, |candidate|=10 → budget ≈ 30.2.
+        var castTwoHeavies = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "HeavyDirector", "HeavyActor",
+            "u1", "u2", "u3", "u4", "u5", "u6", "u7", "u8"
+        };
+        var castFiveHitters = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "HeavyDirector", "HeavyActor", "MidActor", "MinorActor", "Cameo",
+            "u1", "u2", "u3", "u4", "u5"
+        };
+
+        var twoHeaviesScore = SimilarityComputer.ComputePeopleSimilarity(castTwoHeavies, weights);
+        var fiveHittersScore = SimilarityComputer.ComputePeopleSimilarity(castFiveHitters, weights);
+
+        // Monotone ordering: adding more matched weight must produce a strictly higher score,
+        // NOT collapse to the same 1.0 ceiling as the old min-formula would have done.
+        Assert.True(fiveHittersScore > twoHeaviesScore,
+            $"Five-match candidate must outscore two-match candidate (5-hit={fiveHittersScore:F4}, 2-hit={twoHeaviesScore:F4})");
+
+        // Both scores must remain within [0, 1] and neither should hit exactly 1.0 with these
+        // inputs (13 vs 19 matched weight, ~30.2 budget).
+        Assert.InRange(twoHeaviesScore, 0.35, 0.50);
+        Assert.InRange(fiveHittersScore, 0.55, 0.75);
     }
 }

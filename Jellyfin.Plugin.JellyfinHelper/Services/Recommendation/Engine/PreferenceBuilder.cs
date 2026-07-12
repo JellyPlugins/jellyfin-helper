@@ -18,8 +18,57 @@ internal static class PreferenceBuilder
     /// </summary>
     private const double GenreDecayHalfLifeDays = 180.0;
 
+    /// <summary>
+    ///     Upper cap for the raw <c>PlayCount</c> value fed into the log1p transform.
+    ///     Guards against pathological metadata (e.g. stuck counters) that would otherwise
+    ///     let a single genre balloon its raw weight before normalization.
+    ///     <para>
+    ///         Modeled as an <see cref="int"/> because <c>WatchedItemInfo.PlayCount</c> is also
+    ///         an <see cref="int"/>. Keeping the type identity explicit prevents a double→int→double
+    ///         round-trip when clamping and makes the "PlayCount is a counter" invariant obvious.
+    ///     </para>
+    /// </summary>
+    private const int PlayCountMaxForLog1p = 100;
+
+    /// <summary>
+    ///     Target maximum contribution of the PlayCount log1p boost, chosen so that heavy
+    ///     re-watchers produce a meaningful signal that is <b>not</b> drowned out by the
+    ///     favorite additive (<see cref="EngineConstants.FavoriteGenreBoostFactor"/> = 3.0)
+    ///     while still remaining sub-favorite so that an explicit favorite click always
+    ///     outweighs a pure re-watching pattern.
+    ///     <para>
+    ///         Rationale for 2.0 (v3 C1 hardening pass): the original v3 C1 scale (1.0) was
+    ///         calibrated to match the pre-v3 linear cap (<c>min(PlayCount, 5) × 0.2 = 1.0</c>),
+    ///         which - combined with the +3.0 favorite additive - meant that a single ⭐ click
+    ///         outweighed 100 re-watches by a factor of 3×. Detailed component analysis of the
+    ///         weight formula
+    ///         <c>weight = temporalWeight + playCountBoost + (fav ? 3.0 : 0)</c>
+    ///         showed that PlayCount 5 vs. PlayCount 30 differed by only 4-13% of the total
+    ///         weight for favorited items, effectively making the log1p refinement invisible
+    ///         to the ML feature.  Raising the ceiling to 2.0 gives PlayCount 30 a ~1.5 boost
+    ///         (≈50% of the favorite additive) so re-watching signals become measurable
+    ///         without inverting the favorite/re-watch ordering.
+    ///     </para>
+    /// </summary>
+    private const double PlayCountLog1pCeiling = 2.0;
+
     /// <summary>Decay constant derived from half-life: ln(2) / halfLife.</summary>
     private static readonly double GenreDecayConstant = Math.Log(2.0) / GenreDecayHalfLifeDays;
+
+    /// <summary>
+    ///     Scale factor for the log1p PlayCount contribution. Calibrated so a fully-capped
+    ///     PlayCount (100) contributes exactly <see cref="PlayCountLog1pCeiling"/> (2.0),
+    ///     placing heavy re-watchers roughly halfway to the favorite additive so re-watching
+    ///     patterns are visible to the downstream ML feature without dominating explicit
+    ///     favorite signals. Approximate contributions with this scale:
+    ///     <list type="bullet">
+    ///         <item><description>PlayCount 1 → 0.30 (baseline single-watch weight)</description></item>
+    ///         <item><description>PlayCount 5 → 0.78 (comparable to a fresh 1-day-old temporalWeight)</description></item>
+    ///         <item><description>PlayCount 30 → 1.49 (dedicated re-watcher signal, ≈50% of favorite additive)</description></item>
+    ///         <item><description>PlayCount 100 → 2.00 (theoretical ceiling; clamp beyond)</description></item>
+    ///     </list>
+    /// </summary>
+    private static readonly double PlayCountLog1pScale = PlayCountLog1pCeiling / Math.Log(1.0 + PlayCountMaxForLog1p);
 
     /// <summary>
     ///     Builds a normalized genre preference vector from the user's watch history.
@@ -75,8 +124,20 @@ internal static class PreferenceBuilder
                 temporalWeight = Math.Exp(-GenreDecayConstant * 365.0);
             }
 
-            // PlayCount boost: re-watched items signal stronger preference
-            var playCountBoost = Math.Clamp(item.PlayCount, 0, 5) * 0.2; // max 1.0 extra from re-watches
+            // PlayCount boost: re-watched items signal stronger preference.
+            // Roadmap v3 (C1) with hardening pass: switched from linear
+            // (min(PlayCount,5) × 0.2, capped at 1.0) to log1p so that a 30×-rewatched
+            // item does not linearly dominate the genre vector, then raised the ceiling
+            // to 2.0 so the signal survives the +3.0 favorite additive further below.
+            // Approximate contributions (see PlayCountLog1pCeiling constant for rationale):
+            //   PlayCount  1 → 0.30
+            //   PlayCount  5 → 0.78
+            //   PlayCount 30 → 1.49
+            //   PlayCount 100 → 2.00 (theoretical ceiling; clamp beyond)
+            // Clamp at 100 to prevent pathological metadata (e.g. stuck play counters) from
+            // producing unbounded weights before final normalization.
+            var clampedPlayCount = Math.Clamp(item.PlayCount, 0, PlayCountMaxForLog1p);
+            var playCountBoost = Math.Log(1.0 + clampedPlayCount) * PlayCountLog1pScale;
             var weight = temporalWeight + playCountBoost;
 
             // Favorite boost
@@ -365,6 +426,84 @@ internal static class PreferenceBuilder
         }
 
         return people;
+    }
+
+    /// <summary>
+    ///     Builds a weighted preference map of person names (actors/directors) from the user's watched
+    ///     and favorited items. Each person's weight equals the number of DISTINCT watched/favorited items
+    ///     they appear on, i.e. an "Actor X" that shows up in 8 different Nolan films gets weight 8, while
+    ///     an actor from a single one-off watch gets weight 1.
+    ///     <para>
+    ///         Roadmap v3 (C2): the previous <see cref="BuildPeoplePreferenceSet"/> flattens all people
+    ///         into a HashSet, giving a one-off appearance the same influence as a director the user
+    ///         has watched dozens of times. This weighted variant preserves the frequency signal so
+    ///         <see cref="SimilarityComputer.ComputePeopleSimilarity(System.Collections.Generic.HashSet{string},System.Collections.Generic.IReadOnlyDictionary{string,double})"/>
+    ///         can score candidates against a user's dominant collaborators much higher than random cameo overlaps.
+    ///     </para>
+    ///     <para>
+    ///         Uses the SAME source data as <see cref="BuildPeoplePreferenceSet"/> (watched-or-favorited
+    ///         items × <paramref name="peopleLookup"/>) rather than <see cref="UserWatchProfile.PeopleProfile"/>,
+    ///         because the two pipelines are populated at different points in the plugin lifecycle and can
+    ///         drift; keeping the same source guarantees the weighted map is a strict super-set of the
+    ///         unweighted HashSet (same keys, plus counts).
+    ///     </para>
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile.</param>
+    /// <param name="peopleLookup">Pre-built candidate people lookup (item ID → person names).</param>
+    /// <returns>
+    ///     A case-insensitive dictionary mapping person names to their occurrence count across the user's
+    ///     watched/favorited items. Empty when the user has no eligible history.
+    /// </returns>
+    internal static Dictionary<string, double> BuildPeoplePreferenceWeights(
+        UserWatchProfile userProfile,
+        Dictionary<Guid, HashSet<string>> peopleLookup)
+    {
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var w in userProfile.WatchedItems)
+        {
+            // Include items that are played OR favorited — same eligibility rule as BuildPeoplePreferenceSet.
+            if (w is { Played: false, IsFavorite: false })
+            {
+                continue;
+            }
+
+            // Merge people from the item itself AND its parent series (episodes → series).
+            // De-duplicate per watched row so the same person on the same item is not
+            // double-counted just because both item-level and series-level lookups return them.
+            HashSet<string>? perRowPeople = null;
+
+            if (peopleLookup.TryGetValue(w.ItemId, out var itemPeople) && itemPeople.Count > 0)
+            {
+                perRowPeople = new HashSet<string>(
+                    itemPeople.Where(static p => !string.IsNullOrWhiteSpace(p)),
+                    StringComparer.OrdinalIgnoreCase);
+            }
+
+            if (w.SeriesId.HasValue
+                && peopleLookup.TryGetValue(w.SeriesId.Value, out var seriesPeople)
+                && seriesPeople.Count > 0)
+            {
+                perRowPeople ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var name in seriesPeople.Where(static p => !string.IsNullOrWhiteSpace(p)))
+                {
+                    perRowPeople.Add(name);
+                }
+            }
+
+            if (perRowPeople is null || perRowPeople.Count == 0)
+            {
+                continue;
+            }
+
+            foreach (var name in perRowPeople)
+            {
+                weights.TryGetValue(name, out var current);
+                weights[name] = current + 1.0;
+            }
+        }
+
+        return weights;
     }
 
     /// <summary>

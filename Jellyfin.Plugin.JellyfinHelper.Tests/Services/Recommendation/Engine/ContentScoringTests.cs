@@ -1,12 +1,19 @@
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
-using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for <see cref="ContentScoring"/> static helper methods
-///     and <see cref="TrainingDataBuilder.ComputeCollectionProgressionBoostFromCache"/>.
+///     Tests for <see cref="ContentScoring"/> static helper methods.
+///     <para>
+///         Roadmap v3 (C3): the previously-tested
+///         <c>TrainingDataBuilder.ComputeCollectionProgressionBoostFromCache</c> legacy method
+///         was removed because it was dead code — only reflection-based tests referenced it and
+///         its 0.0/0.3/0.5 flat heuristic had already been superseded by the diminishing-returns
+///         <c>ComputeCollectionProgressionBoostWithCounts</c> used in both Phase 1 and Phase 3
+///         of <c>TrainingDataBuilder</c>. The remaining formula is covered end-to-end via the
+///         Phase 1 / Phase 3 training paths, which exercise the same math with real BoxSet inputs.
+///     </para>
 /// </summary>
 public sealed class ContentScoringTests
 {
@@ -85,94 +92,5 @@ public sealed class ContentScoringTests
             var result = ContentScoring.ComputePopularityScore(collab, critic);
             Assert.InRange(result, 0.0, 1.0);
         }
-    }
-
-    // ============================================================
-    // ComputeCollectionProgressionBoostFromCache Tests
-    // (via reflection since it's private static — tested through internal access)
-    // ============================================================
-
-    [Fact]
-    public void CollectionProgressionBoost_EmptyBoxSetIds_ReturnsZero()
-    {
-        var boxSetIds = new List<Guid>();
-        var watchedIds = new HashSet<Guid> { Guid.NewGuid() };
-
-        var result = InvokeComputeCollectionProgressionBoostFromCache(boxSetIds, watchedIds);
-        Assert.Equal(0.0, result, 10);
-    }
-
-    [Fact]
-    public void CollectionProgressionBoost_BoxSetIdInWatchedIds_ReturnsHalf()
-    {
-        var boxSetId = Guid.NewGuid();
-        var boxSetIds = new List<Guid> { boxSetId };
-        var watchedIds = new HashSet<Guid> { boxSetId }; // User watched the BoxSet itself
-
-        var result = InvokeComputeCollectionProgressionBoostFromCache(boxSetIds, watchedIds);
-        Assert.Equal(0.5, result, 10);
-    }
-
-    [Fact]
-    public void CollectionProgressionBoost_BoxSetIdNotInWatchedIds_ReturnsBaseBoost()
-    {
-        var boxSetId = Guid.NewGuid();
-        var boxSetIds = new List<Guid> { boxSetId };
-        var watchedIds = new HashSet<Guid> { Guid.NewGuid() }; // Different item
-
-        var result = InvokeComputeCollectionProgressionBoostFromCache(boxSetIds, watchedIds);
-        Assert.Equal(0.3, result, 10);
-    }
-
-    [Fact]
-    public void CollectionProgressionBoost_MultipleBoxSets_FirstMatchWins()
-    {
-        var boxSet1 = Guid.NewGuid();
-        var boxSet2 = Guid.NewGuid();
-        var boxSetIds = new List<Guid> { boxSet1, boxSet2 };
-        var watchedIds = new HashSet<Guid> { boxSet2 }; // Second BoxSet is watched
-
-        var result = InvokeComputeCollectionProgressionBoostFromCache(boxSetIds, watchedIds);
-        Assert.Equal(0.5, result, 10);
-    }
-
-    [Fact]
-    public void CollectionProgressionBoost_MultipleBoxSets_NoneWatched_ReturnsBaseBoost()
-    {
-        var boxSetIds = new List<Guid> { Guid.NewGuid(), Guid.NewGuid() };
-        var watchedIds = new HashSet<Guid> { Guid.NewGuid() };
-
-        var result = InvokeComputeCollectionProgressionBoostFromCache(boxSetIds, watchedIds);
-        Assert.Equal(0.3, result, 10);
-    }
-
-    [Fact]
-    public void CollectionProgressionBoost_EmptyWatchedIds_ReturnsBaseBoost()
-    {
-        var boxSetIds = new List<Guid> { Guid.NewGuid() };
-        var watchedIds = new HashSet<Guid>();
-
-        var result = InvokeComputeCollectionProgressionBoostFromCache(boxSetIds, watchedIds);
-        Assert.Equal(0.3, result, 10);
-    }
-
-    /// <summary>
-    ///     Invokes the private static method via reflection for testing.
-    ///     The method is private to TrainingDataBuilder but accessible via InternalsVisibleTo + reflection.
-    /// </summary>
-    private static double InvokeComputeCollectionProgressionBoostFromCache(
-        IReadOnlyList<Guid> boxSetIds,
-        HashSet<Guid> watchedIds)
-    {
-        var method = typeof(TrainingDataBuilder).GetMethod(
-            "ComputeCollectionProgressionBoostFromCache",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-
-        Assert.NotNull(method);
-
-        var result = method!.Invoke(null, [boxSetIds, watchedIds]);
-        Assert.NotNull(result);
-
-        return (double)result!;
     }
 }

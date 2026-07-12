@@ -621,7 +621,14 @@ public sealed class Engine : IRecommendationEngine
         var collaborativeMax = coOccurrence.Count > 0 ? coOccurrence.Values.Max() : 0;
         var averageYear = ContentScoring.ComputeAverageYear(userProfile);
         var preferredStudios = PreferenceBuilder.BuildStudioPreferenceSet(userProfile, candidateLookup);
+        // preferredPeople (HashSet): used by ReasonResolver to surface a concrete matched-person name
+        // in recommendation reasons. Kept as an unweighted set for readable UI output.
         var preferredPeople = PreferenceBuilder.BuildPeoplePreferenceSet(userProfile, peopleLookup);
+        // preferredPeopleWeights: v3 (C2) frequency-aware weighting for the ML PeopleSimilarity
+        // feature. Keys are always a superset-parity match with preferredPeople (same eligibility rule),
+        // but per-key weights reflect how many watched items each person appears on, so dominant
+        // collaborators (e.g. a director watched 8 times) drive similarity more than one-off cameos.
+        var preferredPeopleWeights = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, peopleLookup);
         var preferredTags = PreferenceBuilder.BuildTagPreferenceSet(userProfile, candidateLookup);
         var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile);
 
@@ -706,6 +713,7 @@ public sealed class Engine : IRecommendationEngine
                     seriesEpisodeLookup,
                     preferredStudios,
                     preferredPeople,
+                    preferredPeopleWeights,
                     preferredTags,
                     peopleLookup,
                     genreExposure,
@@ -782,6 +790,7 @@ public sealed class Engine : IRecommendationEngine
         Dictionary<Guid, List<WatchedItemInfo>> seriesEpisodeLookup,
         HashSet<string> preferredStudios,
         HashSet<string> preferredPeople,
+        IReadOnlyDictionary<string, double> preferredPeopleWeights,
         HashSet<string> preferredTags,
         Dictionary<Guid, HashSet<string>> peopleLookup,
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
@@ -830,8 +839,12 @@ public sealed class Engine : IRecommendationEngine
 
         var studioMatch = candidate.Studios is { Length: > 0 } &&
                           candidate.Studios.Any(s => preferredStudios.Contains(s));
+        // Roadmap v3 (C2): use the weighted overload so a candidate carrying the user's
+        // heavy-hitter collaborators (e.g. a director the user has watched 8 times) drives
+        // similarity more than one-off cameo appearances that both the unweighted HashSet
+        // and the previous overlap coefficient would treat identically.
         var peopleSimilarity = peopleLookup.TryGetValue(candidate.Id, out var candidatePeople)
-            ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeople)
+            ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights)
             : 0.0;
 
         // Series progression boost: usually 0.0 at inference time.
@@ -1249,8 +1262,16 @@ public sealed class Engine : IRecommendationEngine
     /// <summary>
     ///     Computes the CollectionProgressionBoost for a candidate during live inference scoring.
     ///     Uses the pre-computed <paramref name="watchedBoxSetCounts"/> dictionary for O(1) lookup
-    ///     instead of per-candidate parent traversal + child enumeration.
-    ///     Returns a progression ratio proportional to how many collection siblings are already watched.
+    ///     instead of per-candidate parent traversal + child enumeration. Returns a progression
+    ///     ratio proportional to how many collection siblings are already watched.
+    ///     <para>
+    ///         Roadmap v3 (C3.1): the diminishing-returns scale (<c>0.3 + (n-1) × 0.2, clamped [0,1]</c>)
+    ///         lives centrally in <see cref="EngineConstants.ComputeCollectionProgressionBoost(int)"/> so
+    ///         that this live path and the training-time
+    ///         <c>TrainingDataBuilder.ComputeCollectionProgressionBoostWithCounts</c> can never drift.
+    ///         The 16 formula-contract tests in <c>CollectionProgressionBoostTests</c> exercise the
+    ///         shared helper directly and therefore guard both call sites simultaneously.
+    ///     </para>
     /// </summary>
     /// <param name="candidateBoxSetIds">Pre-resolved BoxSet IDs for the candidate (from ResolveBoxSetIds).</param>
     /// <param name="watchedBoxSetCounts">Pre-computed BoxSet ID → watched member count mapping.</param>
@@ -1259,26 +1280,26 @@ public sealed class Engine : IRecommendationEngine
         List<Guid> candidateBoxSetIds,
         Dictionary<Guid, int> watchedBoxSetCounts)
     {
-        if (watchedBoxSetCounts.Count == 0)
+        if (watchedBoxSetCounts.Count == 0 || candidateBoxSetIds.Count == 0)
         {
             return 0.0;
         }
 
-        if (candidateBoxSetIds.Count == 0)
-        {
-            return 0.0;
-        }
-
-        // Find the best progression signal across all BoxSets the candidate belongs to
+        // Find the best progression signal across all BoxSets the candidate belongs to.
+        // The formula itself is delegated to EngineConstants so the training path uses
+        // exactly the same implementation — guaranteeing train/serve parity by construction.
         var bestBoost = 0.0;
         foreach (var boxSetId in candidateBoxSetIds)
         {
-            if (watchedBoxSetCounts.TryGetValue(boxSetId, out var watchedCount) && watchedCount > 0)
+            if (!watchedBoxSetCounts.TryGetValue(boxSetId, out var watchedCount))
             {
-                // Scale: 1 watched sibling = 0.3, 2 = 0.5, 3+ = 0.7+
-                // Uses diminishing returns formula to avoid over-boosting large collections
-                var boost = Math.Clamp(0.3 + ((watchedCount - 1) * 0.2), 0.0, 1.0);
-                bestBoost = Math.Max(bestBoost, boost);
+                continue;
+            }
+
+            var boost = EngineConstants.ComputeCollectionProgressionBoost(watchedCount);
+            if (boost > bestBoost)
+            {
+                bestBoost = boost;
             }
         }
 

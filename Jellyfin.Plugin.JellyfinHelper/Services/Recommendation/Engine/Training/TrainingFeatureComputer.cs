@@ -191,7 +191,7 @@ internal static class TrainingFeatureComputer
         double avgYear,
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
         Dictionary<Guid, HashSet<string>> cachedPeopleLookup,
-        HashSet<string> preferredPeople,
+        IReadOnlyDictionary<string, double> preferredPeopleWeights,
         Dictionary<Guid, IReadOnlyList<string>> itemStudiosLookup,
         HashSet<string> preferredStudios,
         Dictionary<Guid, IReadOnlyList<string>> itemTagsLookup,
@@ -233,9 +233,10 @@ internal static class TrainingFeatureComputer
             seriesProgressionBoost = ratio < 0.9 ? Math.Clamp(ratio * 1.2, 0.0, 1.0) : 0.2;
         }
 
-        // PeopleSimilarity: try seriesId first (most likely hit for series-level metadata)
+        // PeopleSimilarity: try seriesId first (most likely hit for series-level metadata).
+        // Roadmap v3 (C2): weighted overload for train/serve parity with Engine.ScoreCandidate.
         var peopleSimilarity = cachedPeopleLookup.TryGetValue(seriesId, out var seriesPeople)
-            ? SimilarityComputer.ComputePeopleSimilarity(seriesPeople, preferredPeople)
+            ? SimilarityComputer.ComputePeopleSimilarity(seriesPeople, preferredPeopleWeights)
             : 0.0;
 
         // StudioMatch and TagSimilarity: look up by seriesId
