@@ -5,40 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
-## [Unreleased] - Recommendations v3 Roadmap: A1 + A2 + D2
-
-### Changed
-- **Recommendations – Neural MLP Architecture (Roadmap A1)** - Widened the four-hidden-layer MLP from `48-24-12-6` (~3 097 parameters) to `62-96-48-24` (~12 083 parameters). Hidden₁ now sits at ≈ 2× input size (best-practice tabular-MLP expansion), Hidden₂ is deliberately the widest layer so the model has capacity to compose interaction terms (genre×critic, people×genre, etc.) before compression through Hidden₃ (48) and Hidden₄ (24). `CurrentWeightsVersion` bumped from 2 → 3; previously persisted v2 weight files are silently discarded on load because their array lengths no longer match — the next scheduled training run rebuilds from scratch. All layer-size + array-length invariants remain constant-driven (single point of change) and every existing test that references those constants tracks automatically.
-- **Recommendations – Neural Dropout Regularisation (Roadmap A2)** - Added Bernoulli dropout with keep-probability 0.8 to every hidden-layer activation during training only. Uses the inverted-dropout convention (surviving activations scaled by `1 / keep`) so the deterministic inference-time `ForwardPass` remains mask-free and bit-identical to inference on the persisted weight file. A dedicated `ForwardPassTraining` static method centralises the mask draw + activation rescale so the deterministic `ForwardPass` (used by `Score`, `ScoreVector`, `ScoreWithExplanation`, `ComputeMseLoss`, and `NeuralFeatureImportance`) stays the single source of truth for serving — with `keepProbability ≥ 1.0` `ForwardPassTraining` is mathematically identical to `ForwardPass`, which the new `ForwardPassTraining_KeepProbabilityOne_MatchesForwardPass` contract test locks in place. Dropout is auto-disabled when the training set is smaller than `MinExamplesForDropout` (30) so cold-start users never lose gradient signal to sample-starved masks. Back-propagation gates on the mask (a dropped neuron's gradient is zero) and rescales the hidden-layer error by `1 / keep` to match the forward-pass rescaling.
-- **Recommendations – Compact Weight Persistence (Roadmap D2)** - `NeuralScoringStrategy`, `LearnedScoringStrategy`, and `EnsembleScoringStrategy` now serialise their persisted state with `WriteIndented = false`. The 12 083-parameter neural dump shrinks from ~350 KB indented to ~90 KB compact with no loss of information (files are machine-read only). Verified deserialisation round-trip parity via existing `PersistsWeights_ToFile` / `LoadsWeights_FromFile` / `LoadedWeights_ProduceSameScore` tests, which key on property presence rather than layout.
-
-### Tests
-- New: `Hidden1Size_IsV3Value` / `Hidden2Size_IsV3Value` / `Hidden3Size_IsV3Value` / `Hidden4Size_IsV3Value` (roadmap-value pin-tests), `CurrentWeightsVersion_IsV3`, `HiddenSize_MatchesFinalHiddenLayer` (legacy alias contract).
-- New: `DropoutKeepProbability_Is080`, `MinExamplesForDropout_ExceedsMinTrainingExamples` (dropout constant contracts), `ForwardPassTraining_KeepProbabilityOne_MatchesForwardPass` (bit-identical parity), `ForwardPassTraining_DropoutActive_ProducesZeroMaskEntries` (Bernoulli mask correctness), `ForwardPassTraining_ExpectedActivationMagnitudeMatchesForwardPass` (4 000-sample Monte-Carlo E[act] convergence within 0.05 of the deterministic reference).
-
 ## [3.0.0.0] - 2026-07-08
 
-### Fixed
-- **Discovery Recommendations – Genre-Exposure Train/Serve Skew** - The three genre-exposure features were computed during **training** on discovery feedback but left at `0.0`.
-- **Discovery Recommendations – Popularity Train/Serve Skew & Target Leak** - At inference the `PopularityScore` feature used the raw TMDb popularity (`popularity / 200`), but at training it reused the item's own **past ensemble score** (`entry.Score`).
-- **Recommendations – IsWeekend Train/Serve Skew** - Live scoring used `DateTime.UtcNow.DayOfWeek` while training used `LastPlayedDate.DayOfWeek`. Live now anchors to `LastActivityDate` (fallback `UtcNow`) so both paths share identical semantics; functionally unchanged for active users.
-- **Recommendations – CollectionProgressionBoost Train/Serve Parity** - Phase 3 cross-user negatives used a flat `0/0.3/0.5` heuristic while inference used `clamp(0.3 + (n-1)×0.2, 0, 1)`. Training now builds per-user `watchedBoxSetCounts` from cached recommendations and applies the identical diminishing-returns formula.
-- **Atomic Persistence – Silent Save Losses** - All plugin cache/state writes now go through the new shared `AtomicFile.WriteAllText` helper. It performs the temp-write + rename atomically with a bounded retry on transient `IOException`/`UnauthorizedAccessException` from Windows AV scanners or the Search indexer holding the target briefly.
-
-### Changed
-- **Jellyfin 12.0 Compatibility** - Upgraded to Jellyfin 12.0 (`Jellyfin.Controller`/`Jellyfin.Model` 12.0.0-rc2) and migrated to **.NET 10**.
-- **Guarded Logging** - Adopted the .NET 10 `logger.IsEnabled(...)` pattern on hot paths to avoid unnecessary log-argument evaluation.
+### Added
+- **Smarter recommendation engine** - The neural network behind your recommendations is now four times bigger and uses dropout regularisation, so it learns your taste more reliably and generalises better beyond what you've already watched.
 
 ### Improved
-- **Faster Recommendation & Activity Scans** - Switched to the new JF12 batch APIs (`GetUserDataBatch`, `GetPeopleNamesByItems`) so watch-history, activity, and recommendation scans need dramatically fewer database roundtrips on large libraries. Falls back to the old per-item path if the batch call throws, so behaviour never regresses.
-- **Recommendations – Genre / TopPeople / Collection Progression** - Genre-preference weight uses `log1p(playCount)` (ceiling 2.0 → PlayCount 30 delivers ≈ 50 % of the favorite additive) for measurable re-watch signal. `PeopleSimilarity` uses a frequency-weighted-budget overload consistently across live scoring and all training phases, fixing sparse-user overshoot and rich-user ceiling-compression that treated dominant collaborators identically to cameo overlaps. The diminishing-returns collection-progression scale (`0.3 + (n-1) × 0.2, clamp [0, 1]`) is centralised as `EngineConstants.ComputeCollectionProgressionBoost(int)` so inference and training share one implementation, guarded by 16 dedicated formula-contract tests (`CollectionProgressionBoostTests`) that protect both call sites against copy-drift.
-- **Recommendations – Collaborative Filter Neighbour Trust** - `BuildCollaborativeMap` scales Jaccard weight by `min(1, otherWatchCount / 20)` so sparse-history neighbours contribute proportionally. Prevents recommendation storms from newly-registered users; power users (≥20 watches) unaffected.
-- **Recommendations – Cold-Start Community Priors** - When ≥2 active users exist, cold-start scoring blends `0.4 × rating + 0.3 × recency + 0.3 × log1p(community-popularity)`; single-user deployments keep the classic `0.6 × rating + 0.4 × recency`.
-- **Recommendations – Multi-Dimensional Diversity Reranking** - MMR item similarity now blends `0.5 × genre-Jaccard + 0.3 × studio-Jaccard + 0.2 × era-Gaussian(σ=10y)` instead of genre-only, breaking tight studio/era clusters without penalising cross-genre directors.
-- **Settings Page Redesign** - Reorganised the Settings tab into four cards (General, Task settings + Recycle Bin, Integrations, Backup & Restore) with a sticky Save toolbar and an unsaved-changes indicator. Cleanup task selects now use a responsive 2-column grid on wide screens. All existing IDs, i18n keys, and autosave feedback behaviour are preserved.
+- **Better recommendations from day one** - Re-watching a favourite nudges the algorithm noticeably now. Actors and directors you love outrank cameo overlaps. Box-set suggestions ("finish the trilogy") stay consistent between what you see and what the model learned from.
+- **Fairer cold-start** - Brand-new users get community-blended suggestions (top-rated + trending) instead of pure recency, so the first list feels curated rather than random.
+- **More diverse top picks** - Ranking now balances genre, studio and release era — no more ten Marvel films in a row.
+- **Faster scans on big libraries** - Watch-history and recommendation scans use Jellyfin 12's batch APIs; on large libraries this shaves seconds off every scheduled run.
+- **Cleaner Settings page** - Reorganised into four clear cards (General, Tasks & Trash, Integrations, Backup) with a sticky save bar and an unsaved-changes indicator, so nothing gets lost.
+- **Smaller weight files** - Persisted recommendation weights are ~75 % smaller on disk with no loss of information.
+
+### Fixed
+- **Recommendations sometimes silently drifted** - Four subtle bugs where training and live scoring used slightly different formulas (weekend detection, popularity, box-set progression, discovery feedback). Your recommendations are now trained on exactly the same signals they're scored on.
+- **Rare "lost save" on Windows** - Cache and state files could occasionally be dropped when an antivirus scanner briefly held the target file. All writes now retry automatically.
 
 ### Breaking
-- **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. Users on Jellyfin 10.x should stay on v2.1.0.5, which remains served from the same plugin repository (`targetAbi: 10.11.10.0`).
+- **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.5 (served from the same plugin repository).
 
 ### Tests
 - Total: **2442 tests** (+124 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths, weighted `PeopleSimilarity`, and the 16-Fact `CollectionProgressionBoostTests` locking the shared `0.3 + (n-1) × 0.2` progression formula.
