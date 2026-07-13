@@ -293,7 +293,9 @@ internal static class TrainingFeatureComputer
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
             DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: true),
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: false),
-            IsWeekend = mostRecent?.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
+            // Shared IsWeekend resolver: user-anchored, falls back to the most recently played
+            // episode's LastPlayedDate when the profile carries no anchor yet. See FIX-1.
+            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, mostRecent?.LastPlayedDate),
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency = episodes
                 .Select(e => e.DateCreated)

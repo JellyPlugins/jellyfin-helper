@@ -365,7 +365,9 @@ internal static class TrainingDataBuilder
                         rec.Genres,
                         userProfile,
                         isDay: false),
-                    IsWeekend = watchedItemForRec?.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
+                    // Shared IsWeekend resolver: user's LastActivityDate wins, falls back to the
+                    // per-item LastPlayedDate when the profile carries no anchor yet. See FIX-1.
+                    IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, watchedItemForRec?.LastPlayedDate),
                     TagSimilarity = tagSimilarity,
                     LibraryAddedRecency = rec.DateCreated.HasValue
                         ? ContentScoring.ComputeRecencyScore(rec.DateCreated.Value)
@@ -682,7 +684,8 @@ internal static class TrainingDataBuilder
                     PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
                     DayOfWeekAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenres, userProfile, isDay: true),
                     HourOfDayAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenres, userProfile, isDay: false),
-                    IsWeekend = w.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
+                    // Shared IsWeekend resolver: user-anchored, falls back to organic LastPlayedDate. See FIX-1.
+                    IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, w.LastPlayedDate),
                     TagSimilarity = tagSimilarity,
                     LibraryAddedRecency = w.DateCreated.HasValue
                         ? ContentScoring.ComputeRecencyScore(w.DateCreated.Value)
@@ -906,7 +909,9 @@ internal static class TrainingDataBuilder
                         PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
                         DayOfWeekAffinity = 0.5,
                         HourOfDayAffinity = 0.5,
-                        IsWeekend = false,
+                        // Shared IsWeekend resolver: cross-user random negatives have no per-item
+                        // interaction, so we anchor purely on the user's LastActivityDate. See FIX-1.
+                        IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile),
                         TagSimilarity = negTagSimilarity,
                         LibraryAddedRecency = neg.DateCreated.HasValue
                             ? ContentScoring.ComputeRecencyScore(neg.DateCreated.Value)

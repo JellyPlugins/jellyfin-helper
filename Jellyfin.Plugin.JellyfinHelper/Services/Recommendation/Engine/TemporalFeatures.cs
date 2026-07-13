@@ -153,4 +153,50 @@ internal static class TemporalFeatures
         < 18 => 2,
         _ => 3
     };
+
+    /// <summary>
+    ///     Resolves the IsWeekend flag consistently across all feature-vector construction paths
+    ///     (live scoring, Phase 1 recommendation-history examples, Phase 2 organic watches,
+    ///     Phase 3 random negatives, and aggregated series examples).
+    ///     <para>
+    ///         Precedence:
+    ///         <list type="number">
+    ///             <item>
+    ///                 <description>
+    ///                     User anchor: <see cref="UserWatchProfile.LastActivityDate"/> if available.
+    ///                     Ties the flag to the user's actual viewing context so a single user gets
+    ///                     the same IsWeekend value on every feature row within one train/serve cycle.
+    ///                 </description>
+    ///             </item>
+    ///             <item>
+    ///                 <description>
+    ///                     Explicit override: caller-supplied <paramref name="referenceOverride"/>
+    ///                     (e.g., a watched item's LastPlayedDate) when no user anchor exists.
+    ///                 </description>
+    ///             </item>
+    ///             <item>
+    ///                 <description>
+    ///                     Last-resort fallback: <see cref="DateTime.UtcNow"/>. Only reached for
+    ///                     brand-new users on random negatives.
+    ///                 </description>
+    ///             </item>
+    ///         </list>
+    ///     </para>
+    ///     <para>
+    ///         Consolidates the five previously divergent semantics documented in v3-fix-plan.md
+    ///         (FIX-1) to guarantee train/serve parity for the IsWeekend feature.
+    ///     </para>
+    /// </summary>
+    /// <param name="userProfile">The user's watch profile. Must not be null.</param>
+    /// <param name="referenceOverride">
+    ///     Optional fallback timestamp used when the profile has no <see cref="UserWatchProfile.LastActivityDate"/>.
+    /// </param>
+    /// <returns><c>true</c> if the resolved reference falls on a Saturday or Sunday; otherwise <c>false</c>.</returns>
+    internal static bool ResolveIsWeekend(UserWatchProfile userProfile, DateTime? referenceOverride = null)
+    {
+        ArgumentNullException.ThrowIfNull(userProfile);
+
+        var reference = userProfile.LastActivityDate ?? referenceOverride ?? DateTime.UtcNow;
+        return reference.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+    }
 }

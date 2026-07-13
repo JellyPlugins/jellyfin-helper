@@ -905,15 +905,10 @@ public sealed class Engine : IRecommendationEngine
             PopularityScore = popularityScore,
             DayOfWeekAffinity = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, userProfile),
             HourOfDayAffinity = TemporalFeatures.ComputeHourOfDayAffinity(candidate, userProfile),
-            // IsWeekend uses the user's LastActivityDate as reference (falling back to UtcNow when
-            // the user has no history yet). This aligns with the training-time semantics where
-            // IsWeekend is derived from the watched item's LastPlayedDate rather than DateTime.UtcNow.
-            // For active users (LastActivityDate close to now) this is functionally identical to
-            // DateTime.UtcNow. For inactive users we anchor the weekend flag to their last real
-            // interaction so that the ML model sees consistent train/serve semantics, eliminating
-            // the previously observed skew where training reflected historical calendar context
-            // but scoring reflected server clock at request time.
-            IsWeekend = (userProfile.LastActivityDate ?? DateTime.UtcNow).DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
+            // IsWeekend is resolved through TemporalFeatures.ResolveIsWeekend so that every
+            // feature-vector construction site (live scoring + all four training phases) shares
+            // the exact same user-anchored precedence. See v3-fix-plan.md FIX-1.
+            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile),
             TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags),
             LibraryAddedRecency = libraryAddedRecency,
             // Content-based nearest-neighbor: composite item-to-item similarity (genre 50%, people 30%, studio 20%)
