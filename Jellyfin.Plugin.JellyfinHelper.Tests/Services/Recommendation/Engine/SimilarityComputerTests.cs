@@ -562,4 +562,34 @@ public sealed class SimilarityComputerTests
         Assert.InRange(twoHeaviesScore, 0.35, 0.50);
         Assert.InRange(fiveHittersScore, 0.55, 0.75);
     }
+
+    [Fact]
+    public void ComputePeopleSimilarityWeighted_TopKAveraging_KeepsGranularityForHeavyHitters()
+    {
+        // Asymmetric preferred profile: 95 one-off cameos (weight 1) and 5 heavy hitters (weight 8).
+        // With averaging over the whole set, avg ≈ 1.35, budget ≈ 13.5. Two heavy matches (weight 16)
+        // would clamp at 1.0 and lose granularity. Top-K averaging anchors the denominator to the
+        // heavy hitters, so the same two-match candidate stays well below the ceiling.
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < 95; i++)
+        {
+            weights[$"cameo_{i}"] = 1.0;
+        }
+
+        for (var i = 0; i < 5; i++)
+        {
+            weights[$"heavy_{i}"] = 8.0;
+        }
+
+        var candidate = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "heavy_0", "heavy_1", "u1", "u2", "u3", "u4", "u5", "u6", "u7", "u8"
+        };
+
+        var result = SimilarityComputer.ComputePeopleSimilarity(candidate, weights);
+
+        // Top-20 sorted descending: 5×8 + 15×1 = 55. avg = 55/20 = 2.75. Budget = 10 × 2.75 = 27.5.
+        // Matched = 8+8 = 16. Score = 16/27.5 ≈ 0.582. Two heavy matches must not clamp to 1.0.
+        Assert.InRange(result, 0.5, 0.7);
+    }
 }

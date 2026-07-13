@@ -390,8 +390,7 @@ internal sealed class SimilarityComputer
         }
 
         var matchedWeight = 0.0;
-        var totalPreferredWeight = 0.0;
-        var positiveEntryCount = 0;
+        var positiveEntries = new List<double>(preferredPeopleWeights.Count);
 
         foreach (var kvp in preferredPeopleWeights)
         {
@@ -400,8 +399,7 @@ internal sealed class SimilarityComputer
                 continue;
             }
 
-            positiveEntryCount++;
-            totalPreferredWeight += kvp.Value;
+            positiveEntries.Add(kvp.Value);
 
             if (candidatePeople.Contains(kvp.Key))
             {
@@ -409,7 +407,7 @@ internal sealed class SimilarityComputer
             }
         }
 
-        if (positiveEntryCount == 0 || totalPreferredWeight <= 0.0 || matchedWeight <= 0.0)
+        if (positiveEntries.Count == 0 || matchedWeight <= 0.0)
         {
             // No positive-weight overlap → cannot produce a meaningful score even with the floor.
             // Early return also avoids emitting a small positive score for zero-match candidates
@@ -417,23 +415,25 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        // Weighted candidate budget: |candidate| × avg(preferredWeight). This is the expected
-        // matched-weight if the candidate's cast were composed entirely of "average" preferred
-        // people. A candidate that delivers exactly this budget scores 1.0; less scores lower.
-        // The floor prevents pathological sparse-profile scores.
+        // Weighted candidate budget: |candidate| × avg(top-K preferred weights). Averaging over
+        // the whole preferred set dilutes heavy signals with one-off cameos, so a 100-person
+        // profile dominated by 5 collaborators would yield an average near 1 and let two
+        // heavy-hitter matches saturate the score at 1.0. Restricting the average to the top-K
+        // heavy hitters anchors the denominator to the people who actually drive the user's
+        // preference structure and preserves granularity when several heavy matches align.
         //
-        // Example — sparse user, 1 heavy-hitter (weight 8), candidate with 10-person cast, 1 match:
-        //   avg = 8 / 1 = 8; budget = 10 × 8 = 80; floor(5) ignored.
-        //   score = 8 / 80 = 0.10. Reasonable — one match out of ten possible slots.
-        //
-        // Example — rich user, avg weight = 3, 200 people, candidate cast = 10, 2 heavy matches (8+5=13):
-        //   budget = 10 × 3 = 30; floor(5) ignored.
-        //   score = 13 / 30 ≈ 0.43. Old min-formula gave clamped 1.0 for the same input.
-        //
-        // Example — cold user, 1 person weight 2, candidate cast = 10, 1 match (weight 2):
-        //   avg = 2; budget = 10 × 2 = 20; floor(5) ignored.
-        //   score = 2 / 20 = 0.10. Old min-formula gave 1.0 (Rev 2 bug), now correctly damped.
-        var averagePreferredWeight = totalPreferredWeight / positiveEntryCount;
+        // Sparse profiles (positiveEntries.Count < K) fall back to the full set, so the previous
+        // behaviour for low-cardinality preferences is unchanged and the floor still guards
+        // pathological sparse-profile scores.
+        var sampleSize = Math.Min(positiveEntries.Count, EngineConstants.WeightedPeopleSimilarityTopK);
+        positiveEntries.Sort((a, b) => b.CompareTo(a));
+        var topKSum = 0.0;
+        for (var i = 0; i < sampleSize; i++)
+        {
+            topKSum += positiveEntries[i];
+        }
+
+        var averagePreferredWeight = topKSum / sampleSize;
         var candidateBudget = candidatePeople.Count * averagePreferredWeight;
         var denominator = Math.Max(candidateBudget, EngineConstants.WeightedPeopleSimilarityMinDenominator);
 

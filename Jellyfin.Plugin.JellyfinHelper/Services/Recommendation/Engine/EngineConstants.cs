@@ -243,6 +243,17 @@ internal static class EngineConstants
     internal const double CollectionProgressionIncrement = 0.2;
 
     /// <summary>
+    ///     Number of heavy-hitter preferred people used to compute the average weight that
+    ///     drives the weighted-people-similarity denominator. Averaging over the whole
+    ///     preferred set dilutes heavy signals with one-off cameos (a 100-person profile
+    ///     dominated by 5 collaborators produces an average close to 1, so candidates that
+    ///     match those 5 collaborators saturate the score at 1.0 and lose granularity).
+    ///     Taking the top-K by weight keeps the denominator anchored to the collaborators
+    ///     that actually drive the user's preference structure.
+    /// </summary>
+    internal const int WeightedPeopleSimilarityTopK = 20;
+
+    /// <summary>
     ///     Weighted-people-similarity denominator floor.
     ///     Guards two failure modes documented in the v3 C2 hardening pass:
     ///     <list type="bullet">
