@@ -35,6 +35,28 @@ internal static class CollaborativeFilter
     }
 
     /// <summary>
+    ///     Materialises watch sets for every profile on the single-user (on-demand) code path.
+    ///     Structurally identical to <see cref="PrecomputeUserWatchSets"/> but named separately
+    ///     so the intent is obvious at the call site: batch mode receives its dictionary from
+    ///     the caller, single-user mode builds a private one so that the two loops inside
+    ///     <see cref="BuildCollaborativeMap"/> both hit an O(1) lookup instead of rebuilding a
+    ///     neighbour's watch set twice.
+    /// </summary>
+    /// <param name="allProfiles">All user watch profiles.</param>
+    /// <returns>A dictionary mapping user ID to their combined watched-item set.</returns>
+    private static Dictionary<Guid, HashSet<Guid>> BuildAllWatchSetsForSingleUserPath(
+        Collection<UserWatchProfile> allProfiles)
+    {
+        var result = new Dictionary<Guid, HashSet<Guid>>(allProfiles.Count);
+        foreach (var profile in allProfiles)
+        {
+            result[profile.UserId] = BuildCombinedWatchSet(profile);
+        }
+
+        return result;
+    }
+
+    /// <summary>
     ///     Builds a combined watch set (item IDs + series IDs) for a single user profile.
     ///     Used as fallback in single-user mode when precomputed sets are not available.
     ///     Includes favorited items for the same reasons as <see cref="PrecomputeUserWatchSets" />.
@@ -85,11 +107,17 @@ internal static class CollaborativeFilter
     {
         var coOccurrence = new Dictionary<Guid, double>();
 
+        // When precomputedUserSets is null (single-user on-demand path) we would otherwise call
+        // BuildCombinedWatchSet(profile) both in the cold-start gate loop and again in the main
+        // co-occurrence loop below — the same allocation-heavy work twice per neighbour. Build a
+        // local materialisation once here so both loops share it. In batch mode the caller already
+        // supplied a precomputed dictionary and this fast-path is a no-op assignment.
+        var userSets = precomputedUserSets ?? BuildAllWatchSetsForSingleUserPath(allProfiles);
+
         // Resolve the current user's combined watch set
-        var userCombinedIds =
-            precomputedUserSets is not null && precomputedUserSets.TryGetValue(userProfile.UserId, out var precomputed)
-                ? precomputed
-                : BuildCombinedWatchSet(userProfile); // Fallback: build on-the-fly (single-user mode)
+        var userCombinedIds = userSets.TryGetValue(userProfile.UserId, out var precomputed)
+            ? precomputed
+            : BuildCombinedWatchSet(userProfile);
 
         if (userCombinedIds.Count == 0)
         {
@@ -110,10 +138,9 @@ internal static class CollaborativeFilter
                 continue;
             }
 
-            var otherCount = precomputedUserSets is not null &&
-                             precomputedUserSets.TryGetValue(profile.UserId, out var otherSet)
+            var otherCount = userSets.TryGetValue(profile.UserId, out var otherSet)
                 ? otherSet.Count
-                : BuildCombinedWatchSet(profile).Count;
+                : 0;
             if (otherCount >= EngineConstants.CollaborativeTrustWatchCeiling)
             {
                 trustGateActive = true;
@@ -148,13 +175,11 @@ internal static class CollaborativeFilter
                 continue;
             }
 
-            // Resolve the other user's combined watch set
-            var otherCombinedIds =
-                precomputedUserSets is not null && precomputedUserSets.TryGetValue(
-                    otherProfile.UserId,
-                    out var otherPrecomputed)
-                    ? otherPrecomputed
-                    : BuildCombinedWatchSet(otherProfile); // Fallback: build on-the-fly
+            // Resolve the other user's combined watch set (uses the shared local materialisation
+            // in single-user mode so we do not rebuild this set on every iteration).
+            var otherCombinedIds = userSets.TryGetValue(otherProfile.UserId, out var otherPrecomputed)
+                ? otherPrecomputed
+                : BuildCombinedWatchSet(otherProfile);
 
             if (otherCombinedIds.Count == 0)
             {

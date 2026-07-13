@@ -251,7 +251,18 @@ internal static class TrainingDataBuilder
 
                 var isSeries = string.Equals(rec.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
 
-                // Compute user-specific signals matching Engine.ScoreCandidate() logic
+                // Compute user-specific signals matching Engine.ScoreCandidate() logic.
+                // Train/serve parity: a Series that a user meaningfully interacted with is filtered
+                // out of the live candidate pool by GenerateForUser's watchedSeriesIds check, so it
+                // never reaches ScoreCandidate. Feeding real per-episode averages here trained
+                // signals the inference path never sees; those channels are now neutralised. The
+                // "series was recommended and later watched" signal survives via the positive
+                // wasWatched label below and via CompletionRatio, which the neural model consumes
+                // as an engagement magnitude rather than a user-interaction gate.
+                //
+                // We still resolve watchedItemForRec from the most recent episode so that temporal
+                // features (DayOfWeek/HourOfDay/IsWeekend) — which do have real inference-time
+                // signal from user-anchored watch times — stay grounded.
                 double userRatingScore;
                 double completionRatio;
                 bool hasUserInteraction;
@@ -260,18 +271,15 @@ internal static class TrainingDataBuilder
                 {
                     case true when seriesEpisodeLookup.TryGetValue(rec.ItemId, out var episodesForScoring):
                         {
-                            // For series, watchedItemLookup is keyed by episode IDs so rec.ItemId (series ID)
-                            // usually misses. Use the most-recently-watched episode so temporal features get real timestamps.
                             watchedItemForRec = episodesForScoring
                                 .OrderByDescending(e => e.LastPlayedDate)
                                 .FirstOrDefault();
 
-                            hasUserInteraction = true;
-                            var ratedEpisodes = episodesForScoring.Where(e => e.UserRating is > 0).ToList();
-                            userRatingScore = ratedEpisodes.Count > 0
-                                ? Math.Clamp(ratedEpisodes.Average(e => e.UserRating!.Value) / 10.0, 0.0, 1.0)
-                                : 0.5;
-                            // Average per-episode completion ratios
+                            // Neutralise the user-interaction channels; keep the aggregated
+                            // completion ratio as a graded engagement magnitude, matching
+                            // ComputeCompletionRatio(null) → 0.5 for unwatched at inference.
+                            hasUserInteraction = false;
+                            userRatingScore = 0.5;
                             completionRatio = episodesForScoring.Count > 0
                                 ? Math.Clamp(
                                     episodesForScoring.Average(ContentScoring.ComputeCompletionRatio),
@@ -282,12 +290,13 @@ internal static class TrainingDataBuilder
                         }
 
                     case true when wasWatched && watchedItemForRec is null:
-                        // Series-level favorite without watched episodes: the user favorited
-                        // the series itself but hasn't played any episodes yet.
-                        // Treat as explicit positive interaction with favorite-appropriate defaults.
-                        hasUserInteraction = true;
+                        // Series-level favorite without watched episodes. The live path never sees
+                        // this series (favorite pushes it into watchedSeriesIds), so all user-
+                        // interaction features must be neutral. The positive intent still flows
+                        // through the label branch below.
+                        hasUserInteraction = false;
                         userRatingScore = 0.5;
-                        completionRatio = 0.0;
+                        completionRatio = 0.5;
                         break;
                     default:
                         hasUserInteraction = watchedItemForRec is not null;
@@ -306,17 +315,12 @@ internal static class TrainingDataBuilder
                     ContentScoring.ComputeCombinedCriticScore(rec.CommunityRating, rec.CriticRating);
                 var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);
 
-                // Series progression boost
-                var seriesProgressionBoost = 0.0;
-                if (isSeries && seriesEpisodeLookup.TryGetValue(rec.ItemId, out var progressionEps))
-                {
-                    var playedEps = progressionEps.Count(e => e.Played);
-                    if (progressionEps.Count > 0)
-                    {
-                        var ratio = (double)playedEps / progressionEps.Count;
-                        seriesProgressionBoost = ratio < 0.9 ? Math.Clamp(ratio * 1.2, 0.0, 1.0) : 0.2;
-                    }
-                }
+                // Series progression boost: hardcoded 0.0 to mirror inference. The live path in
+                // Engine.ScoreCandidate now writes a constant 0.0 for this channel because the
+                // watchedSeriesIds filter upstream removes any series with meaningful interaction
+                // from the candidate pool before scoring. Emitting a non-zero value here would
+                // reintroduce the train/serve skew Option A of Finding #3 was designed to close.
+                const double seriesProgressionBoost = 0.0;
 
                 // Compute PeopleSimilarity from cached data using the weighted overload
                 // (Roadmap v3 C2) - matches Engine.ScoreCandidate() live logic for train/serve parity.
@@ -645,18 +649,12 @@ internal static class TrainingDataBuilder
                     tagSimilarity = TrainingFeatureComputer.ComputeTagSimilarityFromCache(organicTags, preferredTagsOrganic);
                 }
 
-                // Series progression boost: for standalone items without SeriesId,
-                // use ItemId for the lookup (actual series rows from favorites).
-                var seriesProgressionBoost = 0.0;
-                if (isSeries && seriesEpisodeLookupOrganic.TryGetValue(w.ItemId, out var organicEps))
-                {
-                    var playedEps = organicEps.Count(e => e.Played);
-                    if (organicEps.Count > 0)
-                    {
-                        var ratio = (double)playedEps / organicEps.Count;
-                        seriesProgressionBoost = ratio < 0.9 ? Math.Clamp(ratio * 1.2, 0.0, 1.0) : 0.2;
-                    }
-                }
+                // Series progression boost: hardcoded 0.0. Standalone organic series rows never
+                // re-enter the live candidate pool (watchedSeriesIds pushes them out in
+                // Engine.GenerateForUser), so any non-zero value here would produce a
+                // distribution the neural network never sees at inference. Kept as a named local
+                // to preserve the surrounding assignment shape.
+                const double seriesProgressionBoost = 0.0;
 
                 // Null-safe genre access for deserialized cache objects
                 var wGenres = w.Genres ?? Array.Empty<string>();
@@ -675,8 +673,14 @@ internal static class TrainingDataBuilder
                     YearProximityScore = ContentScoring.ComputeYearProximity(w.Year, avgYear),
                     GenreCount = wGenres.Count,
                     IsSeries = isSeries,
-                    UserRatingScore = ContentScoring.ComputeUserRatingScore(w),
-                    HasUserInteraction = true,
+                    // Train/serve parity: at inference time these organic items appear as unwatched
+                    // candidates (candidate.Id is not in watchedItemLookup) so UserRatingScore is the
+                    // neutral 0.5 default returned by ComputeUserRatingScore(null) and HasUserInteraction
+                    // is false. Feeding the real w.UserRating / true here creates a feature-distribution
+                    // skew because the "user liked this" signal is already carried by the positive Label
+                    // computed below from completionRatio (or the 0.65 favorite-only branch).
+                    UserRatingScore = 0.5,
+                    HasUserInteraction = false,
                     CompletionRatio = completionRatio,
                     PeopleSimilarity = peopleSimilarity,
                     StudioMatch = studioMatch,

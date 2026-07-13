@@ -1752,7 +1752,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
     }
 
-    /// <summary>Persists current weights to disk atomically. Must be called under write lock or during init.</summary>
+    /// <summary>
+    ///     Persists current weights to disk atomically. Safe to call from any thread: the
+    ///     weight-field snapshot is cloned under a Read lock so concurrent Score() calls (also
+    ///     Read lock) are not blocked while disk I/O runs outside the lock. A future concurrent
+    ///     Train() (Write lock) is blocked only for the O(weights.Length) copy — not for
+    ///     serialization or file I/O — and cannot interleave partially-updated weights into the
+    ///     persisted JSON.
+    /// </summary>
     private void TrySaveWeights()
     {
         if (string.IsNullOrEmpty(_weightsPath))
@@ -1768,24 +1775,37 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 Directory.CreateDirectory(dir);
             }
 
-            var data = new NeuralWeightsData
+            NeuralWeightsData data;
+            _rwLock.EnterReadLock();
+            try
             {
-                WeightsIH = (double[])_weightsIH.Clone(),
-                BiasH1 = (double[])_biasH1.Clone(),
-                WeightsH1H2 = (double[])_weightsH1H2.Clone(),
-                BiasH2 = (double[])_biasH2.Clone(),
-                WeightsH2H3 = (double[])_weightsH2H3.Clone(),
-                BiasH3 = (double[])_biasH3.Clone(),
-                WeightsH3H4 = (double[])_weightsH3H4.Clone(),
-                BiasH4 = (double[])_biasH4.Clone(),
-                WeightsH4O = (double[])_weightsH4O.Clone(),
-                BiasOutput = _biasOutput,
-                FeatureMeans = _featureMeans is not null ? (double[])_featureMeans.Clone() : null,
-                FeatureStdDevs = _featureStdDevs is not null ? (double[])_featureStdDevs.Clone() : null,
-                TrainingGeneration = _trainingGeneration,
-                UpdatedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
-                Version = CurrentWeightsVersion
-            };
+                data = new NeuralWeightsData
+                {
+                    WeightsIH = (double[])_weightsIH.Clone(),
+                    BiasH1 = (double[])_biasH1.Clone(),
+                    WeightsH1H2 = (double[])_weightsH1H2.Clone(),
+                    BiasH2 = (double[])_biasH2.Clone(),
+                    WeightsH2H3 = (double[])_weightsH2H3.Clone(),
+                    BiasH3 = (double[])_biasH3.Clone(),
+                    WeightsH3H4 = (double[])_weightsH3H4.Clone(),
+                    BiasH4 = (double[])_biasH4.Clone(),
+                    WeightsH4O = (double[])_weightsH4O.Clone(),
+                    BiasOutput = _biasOutput,
+                    FeatureMeans = _featureMeans is not null ? (double[])_featureMeans.Clone() : null,
+                    FeatureStdDevs = _featureStdDevs is not null ? (double[])_featureStdDevs.Clone() : null,
+                    TrainingGeneration = _trainingGeneration,
+                    UpdatedAt = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                    Version = CurrentWeightsVersion
+                };
+            }
+            finally
+            {
+                if (_rwLock.IsReadLockHeld)
+                {
+                    _rwLock.ExitReadLock();
+                }
+            }
+
             var json = JsonSerializer.Serialize(data, SerializerOptions);
 
             // Use AtomicFile so a transient Windows AV/indexer sharing violation on the

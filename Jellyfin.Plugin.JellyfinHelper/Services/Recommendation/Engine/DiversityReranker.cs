@@ -291,6 +291,12 @@ internal static class DiversityReranker
                 // FIX-3: seedable RNG. Callers pass HashCode.Combine(userId, batchGenerationCounter)
                 // for offline batches or HashCode.Combine(userId, DayNumber) for live requests, so
                 // exploration picks are reproducible per user/context and unit tests can pin behaviour.
+                //
+                // The Random.Shared fallback is a deliberate opt-in to non-deterministic exploration
+                // — callers that omit the seed argument (currently only exists for callers outside
+                // the recommendation engine's own two paths, which both pass a seed) are announcing
+                // they want fresh randomness on every invocation. If you introduce a new caller and
+                // want reproducibility, thread a seed through instead of relying on this fallback.
                 var rng = seed.HasValue ? new Random(seed.Value) : Random.Shared;
                 var explorationCount = Math.Min(count - selected.Count, explorationPool.Count);
                 for (var e = 0; e < explorationCount; e++)

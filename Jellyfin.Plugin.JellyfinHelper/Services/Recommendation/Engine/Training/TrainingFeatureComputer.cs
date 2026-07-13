@@ -225,13 +225,12 @@ internal static class TrainingFeatureComputer
         var collabScore = ContentScoring.ComputeCollaborativeScore(seriesId, coOccurrence, collaborativeMax);
         var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(mostRecent?.CommunityRating, null);
 
-        // Series progression boost (same formula as Engine.ScoreCandidate)
-        var seriesProgressionBoost = 0.0;
-        if (episodes.Count > 0)
-        {
-            var ratio = (double)playedEps / episodes.Count;
-            seriesProgressionBoost = ratio < 0.9 ? Math.Clamp(ratio * 1.2, 0.0, 1.0) : 0.2;
-        }
+        // Series progression boost: hardcoded 0.0 to mirror the live inference path
+        // (Engine.ScoreCandidate writes a constant 0.0 for this channel). Aggregated series
+        // examples describe series the user has already interacted with meaningfully, so the
+        // watchedSeriesIds filter permanently excludes them from live candidate scoring —
+        // emitting a graded value here would train a signal the network can never observe.
+        const double seriesProgressionBoost = 0.0;
 
         // PeopleSimilarity: try seriesId first (most likely hit for series-level metadata).
         // Roadmap v3 (C2): weighted overload for train/serve parity with Engine.ScoreCandidate.
@@ -284,8 +283,13 @@ internal static class TrainingFeatureComputer
             YearProximityScore = ContentScoring.ComputeYearProximity(representativeYear, avgYear),
             GenreCount = genreList.Count,
             IsSeries = true,
-            UserRatingScore = userRatingScore,
-            HasUserInteraction = true,
+            // Train/serve parity: aggregated series examples are excluded from live scoring by the
+            // watchedSeriesIds filter in Engine.GenerateForUser (a series with meaningful episode
+            // interaction never re-enters the candidate pool). Feeding real per-episode averages
+            // for UserRatingScore / HasUserInteraction therefore trains signals the model can
+            // never see at inference. The engagement label below still carries the positive signal.
+            UserRatingScore = 0.5,
+            HasUserInteraction = false,
             CompletionRatio = completionRatio,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
