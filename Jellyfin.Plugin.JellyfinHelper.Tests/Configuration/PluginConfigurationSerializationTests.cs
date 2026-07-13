@@ -341,13 +341,11 @@ public class PluginConfigurationSerializationTests
     }
 
     [Fact]
-    public void XmlRoundTrip_OutOfRangeNumericProperties_AreClampedOnDeserialization()
+    public void XmlRoundTrip_OutOfRangeNumericProperties_AreClampedBySetter()
     {
-        // Setter-time clamping check: values assigned via property are clamped BEFORE
-        // serialization. This is one half of the "hand-edited config self-heals" story —
-        // it proves the setter contract. The complementary
-        // Deserialize_HandEditedXmlWithOutOfRangeValues_ClampsOnLoad test below covers
-        // the other half: what happens when the XML itself already contains bad values.
+        // Values assigned via property are clamped BEFORE serialization, so the XML
+        // never contains out-of-range values. The Deserialize_HandEditedXmlWithOutOfRangeValues_ClampsOnLoad
+        // test below covers the complementary case: XML that already contains bad values.
         var original = new PluginConfiguration
         {
             OrphanMinAgeDays = 10_000,          // clamped to 3650

@@ -373,12 +373,10 @@
    and every existing event handler continue to work as before.
    ============================================================ */
 
-/* ── Floating save band (fixed, bottom-centre) ──
-   The single save/status affordance for the Settings tab. It floats above the
-   viewport bottom via position:fixed (no scroll container needed → no scrollbar,
-   works on mobile). Transparent & non-interactive when idle; slides up to show an
-   amber "unsaved" prompt with the Save button, a spinner while saving, a green
-   "saved" confirmation that auto-fades, or a red error. */
+/* Floating save band (fixed, bottom-centre). Shows "unsaved" (with Save button),
+   "saving", "saved" (auto-fades), or "error". visibility:hidden im idle-Zustand
+   nimmt den Save-Button aus der Tab-Reihenfolge und verhindert einen "nackten
+   Button"-Zwischenframe beim Ausblenden. */
 /* noinspection CssUnusedSymbol */
 .settings-save-band {
     position: fixed;
@@ -389,24 +387,27 @@
     align-items: center;
     gap: 0.55em;
     max-width: calc(100vw - 1.5em);
-    padding: 0.4em 0.7em;
-    border-radius: 999px;
+    padding: 0.5em 0.85em;
+    border-radius: var(--radius-lg);
     background: var(--color-surface-sticky);
     border: 1px solid var(--color-border);
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     opacity: 0;
+    visibility: hidden;
     pointer-events: none;
     transform: translateX(-50%) translateY(0.8em);
-    transition: opacity 0.28s ease, transform 0.28s ease;
+    transition: opacity 0.28s ease, transform 0.28s ease, visibility 0s linear 0.28s;
 }
 
 /* noinspection CssUnusedSymbol */
 .settings-save-band.is-visible {
     opacity: 1;
+    visibility: visible;
     pointer-events: auto;
     transform: translateX(-50%) translateY(0);
+    transition: opacity 0.28s ease, transform 0.28s ease, visibility 0s linear 0s;
 }
 
 /* noinspection CssUnusedSymbol */
