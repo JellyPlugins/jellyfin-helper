@@ -374,9 +374,9 @@
    ============================================================ */
 
 /* Floating save band (fixed, bottom-centre). Shows "unsaved" (with Save button),
-   "saving", "saved" (auto-fades), or "error". visibility:hidden im idle-Zustand
-   nimmt den Save-Button aus der Tab-Reihenfolge und verhindert einen "nackten
-   Button"-Zwischenframe beim Ausblenden. */
+   "saving", "saved" (auto-fades), or "error". visibility:hidden in the idle state
+   removes the Save button from the tab order and prevents a "bare button"
+   intermediate frame when hiding. */
 /* noinspection CssUnusedSymbol */
 .settings-save-band {
     position: fixed;
