@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  v3.0.0.0: Compatible with Jellyfin 12.0. Users on Jellyfin 10.x should stay on v2.1.0.5. Settings page redesigned. 2468 tests.
+  v3.0.0.0: Recommendation engine upgraded (4x larger neural net + dropout, train/serve skew fixes, community-blended cold-start, weighted people similarity). Compatible with Jellyfin 12.0 - users on Jellyfin 10.x should stay on v2.1.0.5. Settings page redesigned. 2468 tests.

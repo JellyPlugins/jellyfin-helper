@@ -443,10 +443,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
         finally
         {
-            if (_rwLock.IsReadLockHeld)
-            {
-                _rwLock.ExitReadLock();
-            }
+            ReleaseReadLockSafely();
         }
     }
 
@@ -519,10 +516,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
         finally
         {
-            if (_rwLock.IsReadLockHeld)
-            {
-                _rwLock.ExitReadLock();
-            }
+            ReleaseReadLockSafely();
         }
     }
 
@@ -682,10 +676,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         }
         finally
         {
-            if (_rwLock.IsReadLockHeld)
-            {
-                _rwLock.ExitReadLock();
-            }
+            ReleaseReadLockSafely();
         }
     }
 
@@ -1894,6 +1885,42 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _disposed = true;
         _rwLock.Dispose();
     }
+
+    /// <summary>
+    ///     Releases the read lock in a way that tolerates the plugin being disposed while a
+    ///     scoring call is still in flight. <see cref="Dispose"/> can fire on plugin unload
+    ///     while another thread is mid-<see cref="Score"/>; when that happens the outer catch
+    ///     in the scoring method has already returned the neutral 0.5 fallback but the
+    ///     finally block still has to unwind — a naked <c>ExitReadLock()</c> would then throw
+    ///     <see cref="ObjectDisposedException"/> and propagate up through <c>Parallel.ForEach</c>
+    ///     in the engine, showing as a spurious "Failed to generate recommendations" warning.
+    ///     Absorbing that single exception keeps the batch loop healthy without hiding real bugs.
+    ///     <para>
+    ///         The lock release is intentionally NOT wrapped in a try/finally: we own the entire
+    ///         critical section here and there is no code path between the <c>IsReadLockHeld</c>
+    ///         check and <c>ExitReadLock</c> that could throw, so the analyzer's finally-block
+    ///         requirement (MT1013) would only add noise. The outer method's own finally block
+    ///         already guarantees this helper is invoked exactly once per lock acquisition.
+    ///     </para>
+    /// </summary>
+#pragma warning disable MT1013 // Releasing lock should always be wrapped in finally block
+    private void ReleaseReadLockSafely()
+    {
+        if (!_rwLock.IsReadLockHeld)
+        {
+            return;
+        }
+
+        try
+        {
+            _rwLock.ExitReadLock();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Lock was disposed while we still held the read handle; nothing left to release.
+        }
+    }
+#pragma warning restore MT1013
 
     /// <summary>Serializable container for persisted neural network weights.</summary>
     internal sealed class NeuralWeightsData

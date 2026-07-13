@@ -365,6 +365,20 @@ internal static class PreferenceBuilder
     /// <summary>
     ///     Builds a set of studio names the user prefers, derived from their watched and favorited items.
     ///     Looks up the actual BaseItem objects from the candidate lookup to access Studios metadata.
+    ///     <para>
+    ///         Asymmetric weighting vs. genre/people: this method returns an unweighted
+    ///         <see cref="HashSet{T}"/> — a studio that appeared in a series with 2/30 watched episodes
+    ///         contributes exactly the same as a studio accumulated across 20 fully-watched series.
+    ///         Genre and people preferences apply the same progression multiplier that
+    ///         <see cref="BuildGenrePreferenceVector"/> and <see cref="BuildPeoplePreferenceWeights"/>
+    ///         use, but studios stay flat because the downstream consumer is a binary
+    ///         <c>StudioMatch</c> feature (<c>candidate.Studios.Any(preferredStudios.Contains)</c>)
+    ///         and a weighted set adds no value to a boolean comparison. Feature-importance reports
+    ///         consistently rank <c>StudioMatch</c> below <c>GenreSimilarity</c> and
+    ///         <c>PeopleSimilarity</c>, so the modelling cost/benefit of turning this into a weighted
+    ///         dictionary is not justified as of v3.0.0.0. Revisit if a future importance report
+    ///         shows Studio contributing meaningfully.
+    ///     </para>
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="candidateLookup">Pre-built candidate lookup by item ID (shared across calls for performance).</param>
