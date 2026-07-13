@@ -191,28 +191,39 @@ internal static class CollaborativeFilter
             var neighbourTrust = trustGateActive
                 ? 1.0 - Math.Exp(-otherCombinedIds.Count / EngineConstants.CollaborativeTrustScale)
                 : 1.0;
-            var trustedJaccardWeight = jaccardWeight * neighbourTrust;
 
-            if (trustedJaccardWeight <= 0.0)
+            if (neighbourTrust <= 0.0)
             {
                 continue;
             }
 
             // Accumulate Jaccard-weighted co-occurrence for items the other user watched but we haven't.
             // This includes both episode IDs AND series IDs, so series candidates get collaborative scores.
-            // When item popularity is available, apply IDF boost: niche items shared by few users
-            // produce stronger signals than mainstream items everyone has watched.
+            // The geometric mean lives in <c>[min(a,b), max(a,b)]</c>, so it cannot fall below the
+            // smaller of the two factors — a mathematically cleaner "combined damping" that
+            // preserves the ordering guarantees of both factors:
+            //   • trust=1.0, idf=1.0 → modifier=1.0                       (rich neighbour, niche item)
+            //   • trust=0.86, idf=0.18 → modifier=0.394 (was 0.155)       (~2.5× stronger signal)
+            //   • trust=0.39, idf=1.0 → modifier=0.628 (was 0.39)         (sparse neighbour keeps its unique-item boost)
+            //
+            // Ordering-preserving properties verified via the existing IDF and cold-start-gate tests:
+            //   niche > mainstream                     ← IDF direction preserved: √(t·1) > √(t·<1)
+            //   coldStartScore > controlScore          ← Trust direction preserved: √(1·i) > √(<1·i)
             foreach (var itemId in otherCombinedIds.Where(itemId => !userCombinedIds.Contains(itemId)))
             {
-                var weight = trustedJaccardWeight;
+                var idfFactor = 1.0;
 
-                // IDF boost: weight × (1 / log2(1 + userCount))
+                // IDF boost: 1 / log2(1 + userCount)
                 // log2(1+1)=1.0 (unique), log2(1+5)=2.58, log2(1+50)=5.67
                 if (itemPopularity is not null && itemPopularity.TryGetValue(itemId, out var userCount) &&
                     userCount > 1)
                 {
-                    weight *= 1.0 / Math.Log2(1.0 + userCount);
+                    idfFactor = 1.0 / Math.Log2(1.0 + userCount);
                 }
+
+                // Geometric mean of trust and IDF — one combined damping instead of stacking two.
+                var combinedModifier = Math.Sqrt(neighbourTrust * idfFactor);
+                var weight = jaccardWeight * combinedModifier;
 
                 coOccurrence.TryGetValue(itemId, out var current);
                 coOccurrence[itemId] = current + weight;

@@ -31,6 +31,26 @@ internal static class PreferenceBuilder
     private const int PlayCountMaxForLog1p = 100;
 
     /// <summary>
+    ///     Lower bound of the progression multiplier: even an abandoned series must still
+    ///     contribute a fraction of its signal so users with mostly-abandoned watch history
+    ///     don't end up with an empty preference vector.
+    /// </summary>
+    private const double ProgressionFloor = 0.3;
+
+    /// <summary>
+    ///     Upper bound of the progression multiplier: a fully-completed series gets a modest
+    ///     boost above the baseline "1.0" for movies, so binge-watched shows shape preferences
+    ///     more strongly than a single played row. Kept below <c>2.0</c> so the multiplier
+    ///     cannot overpower the additive favorite boost of <c>3.0</c>.
+    /// </summary>
+    private const double ProgressionCeiling = 1.5;
+
+    /// <summary>
+    ///     Linear span from floor to ceiling, i.e. how much the raw ratio moves the multiplier.
+    /// </summary>
+    private const double ProgressionSpan = ProgressionCeiling - ProgressionFloor;
+
+    /// <summary>
     ///     Target maximum contribution of the PlayCount log1p boost, chosen so that heavy
     ///     re-watchers produce a meaningful signal that is <b>not</b> drowned out by the
     ///     favorite additive (<see cref="EngineConstants.FavoriteGenreBoostFactor"/> = 3.0)
@@ -79,14 +99,44 @@ internal static class PreferenceBuilder
     ///     explicitly expressed interest, so their genres should influence preferences.
     /// </summary>
     /// <param name="profile">The user's watch profile.</param>
-    /// <returns>A dictionary mapping genre names to normalized weights (0–1).</returns>
-    internal static Dictionary<string, double> BuildGenrePreferenceVector(UserWatchProfile profile)
+    /// <param name="seriesEpisodeCounts">
+    ///     Optional map <c>seriesId → totalEpisodeCount</c> supplied by the caller (typically
+    ///     built once in <c>Engine.LoadCandidateItems</c>). When provided, episode rows are
+    ///     weighted by <c>ProgressionMultiplier(playedInSeries / totalEpisodes)</c> so a
+    ///     series watched to completion drives genre preferences more strongly than a series
+    ///     the user abandoned after two episodes. When null, all episode rows keep their raw
+    ///     weight (backward compatible).
+    /// </param>
+    /// <returns>A dictionary mapping genre names to normalized weights (0-1).</returns>
+    internal static Dictionary<string, double> BuildGenrePreferenceVector(
+        UserWatchProfile profile,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts = null)
     {
         var vector = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
         if (profile.WatchedItems.Count == 0 && profile.GenreDistribution.Count == 0)
         {
             return vector;
+        }
+
+        // Pre-aggregate how many episodes of each series the user has meaningfully engaged with.
+        // Used together with seriesEpisodeCounts to derive a per-row progression multiplier below.
+        // Built lazily and only when both callers-side data is available; single-user scenarios
+        // without a seriesEpisodeCounts map fall through to the pre-existing weight formula.
+        Dictionary<Guid, int>? watchedEpisodesPerSeries = null;
+        if (seriesEpisodeCounts is { Count: > 0 })
+        {
+            watchedEpisodesPerSeries = new Dictionary<Guid, int>();
+            foreach (var row in profile.WatchedItems)
+            {
+                if (row.SeriesId is not { } sid || !row.HasPlaybackActivity())
+                {
+                    continue;
+                }
+
+                watchedEpisodesPerSeries.TryGetValue(sid, out var c);
+                watchedEpisodesPerSeries[sid] = c + 1;
+            }
         }
 
         // Build genre preferences with temporal decay - recent watches count more
@@ -138,9 +188,22 @@ internal static class PreferenceBuilder
             // producing unbounded weights before final normalization.
             var clampedPlayCount = Math.Clamp(item.PlayCount, 0, PlayCountMaxForLog1p);
             var playCountBoost = Math.Log(1.0 + clampedPlayCount) * PlayCountLog1pScale;
-            var weight = temporalWeight + playCountBoost;
 
-            // Favorite boost
+            // Progression multiplier: for episode rows (item.SeriesId set), dampen or amplify
+            // the implicit temporal+playCount signal by how much of the series the user has
+            // actually consumed. The FAVORITE additive stays independent (an explicit ⭐ click
+            // must not be diluted by an abandoned series) and is added after multiplication.
+            //
+            // Formula: clamp(0.3 + rawRatio * 1.2, 0.3, 1.5), see ComputeProgressionMultiplier
+            // for the full rationale.
+            var progressionMultiplier = ComputeProgressionMultiplier(
+                item,
+                seriesEpisodeCounts,
+                watchedEpisodesPerSeries);
+            var weight = (temporalWeight + playCountBoost) * progressionMultiplier;
+
+            // Favorite boost - additive, never touched by the progression multiplier so an
+            // explicit favorite click always outweighs a mediocre re-watch pattern.
             if (item.IsFavorite)
             {
                 weight += EngineConstants.FavoriteGenreBoostFactor;
@@ -453,15 +516,45 @@ internal static class PreferenceBuilder
     /// </summary>
     /// <param name="userProfile">The user's watch profile.</param>
     /// <param name="peopleLookup">Pre-built candidate people lookup (item ID → person names).</param>
+    /// <param name="seriesEpisodeCounts">
+    ///     Optional map <c>seriesId → totalEpisodeCount</c>. When provided, episode rows
+    ///     contribute <c>ProgressionMultiplier(playedInSeries / totalEpisodes)</c> to each
+    ///     person's weight instead of a flat 1.0, so people from series watched to completion
+    ///     get a higher weight than people from series the user abandoned early.
+    ///     Kept in perfect symmetry with the same parameter on
+    ///     <see cref="BuildGenrePreferenceVector"/>, guaranteeing that the People- and
+    ///     Genre-similarity feature see the same underlying "how much did the user actually
+    ///     engage with this series" signal.
+    /// </param>
     /// <returns>
-    ///     A case-insensitive dictionary mapping person names to their occurrence count across the user's
-    ///     watched/favorited items. Empty when the user has no eligible history.
+    ///     A case-insensitive dictionary mapping person names to their weighted occurrence
+    ///     across the user's watched/favorited items. Empty when the user has no eligible history.
     /// </returns>
     internal static Dictionary<string, double> BuildPeoplePreferenceWeights(
         UserWatchProfile userProfile,
-        Dictionary<Guid, HashSet<string>> peopleLookup)
+        Dictionary<Guid, HashSet<string>> peopleLookup,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts = null)
     {
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+        // Same per-series played counter as in BuildGenrePreferenceVector so the two feature
+        // pipelines see identical progression ratios. Built lazily; skipped entirely when the
+        // caller did not supply seriesEpisodeCounts (backward-compatible path).
+        Dictionary<Guid, int>? watchedEpisodesPerSeries = null;
+        if (seriesEpisodeCounts is { Count: > 0 })
+        {
+            watchedEpisodesPerSeries = new Dictionary<Guid, int>();
+            foreach (var row in userProfile.WatchedItems)
+            {
+                if (row.SeriesId is not { } sid || !row.HasPlaybackActivity())
+                {
+                    continue;
+                }
+
+                watchedEpisodesPerSeries.TryGetValue(sid, out var c);
+                watchedEpisodesPerSeries[sid] = c + 1;
+            }
+        }
 
         foreach (var w in userProfile.WatchedItems)
         {
@@ -499,10 +592,18 @@ internal static class PreferenceBuilder
                 continue;
             }
 
+            // Progression multiplier: episodes contribute proportionally to how much of the
+            // series the user has actually watched. Favorites are their own row and keep the
+            // full weight (the multiplier degrades gracefully to 1.0 for non-series rows).
+            var progressionMultiplier = ComputeProgressionMultiplier(
+                w,
+                seriesEpisodeCounts,
+                watchedEpisodesPerSeries);
+
             foreach (var name in perRowPeople)
             {
                 weights.TryGetValue(name, out var current);
-                weights[name] = current + 1.0;
+                weights[name] = current + progressionMultiplier;
             }
         }
 
@@ -653,6 +754,59 @@ internal static class PreferenceBuilder
             Math.Clamp(underexposure, 0.0, 1.0),
             Math.Clamp(dominanceRatio, 0.0, 1.0),
             Math.Clamp(affinityGap, 0.0, 1.0));
+    }
+
+    /// <summary>
+    ///     Derives the per-row progression multiplier for a watched item.
+    ///     Non-episode rows and rows without accompanying series-episode metadata get a
+    ///     neutral multiplier of <c>1.0</c> (identical to the pre-progression weight).
+    ///     Episode rows return <c>clamp(ProgressionFloor + rawRatio * ProgressionSpan, ProgressionFloor, ProgressionCeiling)</c>
+    ///     where <c>rawRatio = playedInSeries / totalEpisodes</c>.
+    ///     <para>
+    ///         Design intent: a series watched to completion should have its genres, studios and
+    ///         collaborators drive user preferences <b>more</b> than a series abandoned after two
+    ///         episodes. A hard 0.0 floor for abandoned series would completely erase genre signals
+    ///         from users with mostly-abandoned watch history, which is worse than a mildly damped
+    ///         signal — we choose a floor of <c>0.3</c> so the abandoned-series signal is still
+    ///         audible but clearly weaker than a completed watch (multiplier <c>1.5</c>).
+    ///     </para>
+    /// </summary>
+    /// <param name="item">The watched item row currently being weighted.</param>
+    /// <param name="seriesEpisodeCounts">Optional per-series total-episode map from the caller.</param>
+    /// <param name="watchedEpisodesPerSeries">Pre-aggregated per-series watched counter.</param>
+    /// <returns>A multiplier in <c>[ProgressionFloor, ProgressionCeiling]</c> or <c>1.0</c> when no data.</returns>
+    private static double ComputeProgressionMultiplier(
+        WatchedItemInfo item,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
+        Dictionary<Guid, int>? watchedEpisodesPerSeries)
+    {
+        // No series context or caller opted out (null map) → neutral, preserves pre-existing weight.
+        if (item.SeriesId is not { } sid
+            || seriesEpisodeCounts is null
+            || watchedEpisodesPerSeries is null)
+        {
+            return 1.0;
+        }
+
+        if (!seriesEpisodeCounts.TryGetValue(sid, out var totalEps) || totalEps <= 0)
+        {
+            return 1.0;
+        }
+
+        if (!watchedEpisodesPerSeries.TryGetValue(sid, out var playedEps) || playedEps <= 0)
+        {
+            return 1.0;
+        }
+
+        // Ratio guarded against pathological metadata where playedEps > totalEps.
+        var rawRatio = Math.Min(1.0, (double)playedEps / totalEps);
+
+        // Map ratio in [0,1] to multiplier in [ProgressionFloor, ProgressionCeiling].
+        // rawRatio=0 → ProgressionFloor (0.3), rawRatio=0.5 → 0.9, rawRatio=1 → 1.5.
+        return Math.Clamp(
+            ProgressionFloor + (rawRatio * ProgressionSpan),
+            ProgressionFloor,
+            ProgressionCeiling);
     }
 
     /// <summary>

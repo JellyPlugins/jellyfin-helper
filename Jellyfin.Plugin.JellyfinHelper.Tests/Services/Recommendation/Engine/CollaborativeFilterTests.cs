@@ -353,6 +353,89 @@ public class CollaborativeFilterTests
     }
 
     [Fact]
+    public void BuildCollaborativeMap_GeometricMean_MainstreamItemGetsMoreSignalThanProductStacking()
+    {
+        // The test locks the qualitative property (score ~2.4× larger under the geometric
+        // mean) rather than a rigid absolute value, so future re-tuning of the trust curve
+        // won't cause a flake. The lower bound of 0.20 is well above the old product's
+        // 0.1271 while giving headroom below the theoretical geometric-mean value.
+        WatchedItemInfo P(Guid id) => new() { ItemId = id, Played = true };
+
+        var shared1 = Guid.NewGuid();
+        var shared2 = Guid.NewGuid();
+        var shared3 = Guid.NewGuid();
+        var mainstreamItem = Guid.NewGuid();
+
+        var user = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo> { P(shared1), P(shared2), P(shared3) }
+        };
+
+        // Sparse neighbour: 5 watches total, 3 shared with user + mainstreamItem + one filler
+        var sparseNeighbour = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo>
+            {
+                P(shared1), P(shared2), P(shared3), P(mainstreamItem), P(Guid.NewGuid())
+            }
+        };
+
+        // Power user with 25 watches so the trust gate flips to active
+        var powerUserItems = new List<WatchedItemInfo>();
+        for (var i = 0; i < 25; i++)
+        {
+            powerUserItems.Add(P(Guid.NewGuid()));
+        }
+
+        var powerUser = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo>(powerUserItems)
+        };
+
+        // Two extra users bumping mainstreamItem's popularity to userCount = 4 (sparse + 3 extras).
+        // Each has 2 unrelated watches so they don't create collaborative overlap with `user`.
+        var extraOne = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo> { P(mainstreamItem), P(Guid.NewGuid()) }
+        };
+        var extraTwo = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo> { P(mainstreamItem), P(Guid.NewGuid()) }
+        };
+        var extraThree = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo> { P(mainstreamItem), P(Guid.NewGuid()) }
+        };
+
+        var profiles = new Collection<UserWatchProfile>
+        {
+            user, sparseNeighbour, powerUser, extraOne, extraTwo, extraThree
+        };
+        var precomputed = CollaborativeFilter.PrecomputeUserWatchSets(profiles);
+        var map = CollaborativeFilter.BuildCollaborativeMap(user, profiles, precomputed);
+
+        Assert.True(map.TryGetValue(mainstreamItem, out var score));
+
+        // Old product-stacking upper bound would have been ~0.13. The geometric mean must
+        // exceed that comfortably (~0.31 in this construction). The 0.20 threshold sits
+        // safely between the two so accidental reversion to the old formula would fail here.
+        Assert.True(score > 0.20,
+            $"Geometric-mean modifier should keep the collaborative signal well above the old " +
+            $"product-stacking ceiling for sparse-deployment / mainstream-item pairs, got {score:F4}");
+
+        // Sanity ceiling: the geometric mean must still be strictly less than the raw
+        // Jaccard weight (0.75), otherwise the modifier isn't actually damping anything.
+        Assert.True(score < 0.75,
+            $"Geometric-mean modifier must still damp the raw Jaccard weight, got {score:F4}");
+    }
+
+    [Fact]
     public void BuildCollaborativeMap_ColdStartGate_ReleasesTrustWhenAllNeighboursSparse()
     {
         // Deployment scenario: five users, each with 5-6 watches. Without the cold-start gate

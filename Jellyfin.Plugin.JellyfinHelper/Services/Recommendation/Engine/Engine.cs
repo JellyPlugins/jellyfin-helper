@@ -113,7 +113,18 @@ public sealed class Engine : IRecommendationEngine
 
         // Reuse cached candidates/people/boxSets from last batch run if available, otherwise load fresh
         var snapshot = _cachedSnapshot;
-        var candidates = snapshot?.Candidates ?? LoadCandidateItems();
+        List<BaseItem> candidates;
+        Dictionary<Guid, int> seriesEpisodeCounts;
+        if (snapshot is not null)
+        {
+            candidates = snapshot.Candidates;
+            seriesEpisodeCounts = snapshot.SeriesEpisodeCounts;
+        }
+        else
+        {
+            (candidates, seriesEpisodeCounts) = LoadCandidateItems();
+        }
+
         var peopleLookup = snapshot?.PeopleLookup ?? _similarityComputer.BuildCandidatePeopleLookup(candidates);
         var boxSetLookup = snapshot?.CandidateBoxSetLookup ?? BuildCandidateBoxSetLookupFresh(candidates);
         var alphaOffset = _strategySelector.GetAlphaOffset(userProfile.UserId);
@@ -123,6 +134,7 @@ public sealed class Engine : IRecommendationEngine
             candidates,
             peopleLookup,
             boxSetLookup,
+            seriesEpisodeCounts,
             maxResults,
             _strategy,
             null,
@@ -202,7 +214,7 @@ public sealed class Engine : IRecommendationEngine
         var batchGeneration = Interlocked.Increment(ref _batchGeneration);
 
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
-        var candidates = LoadCandidateItems();
+        var (candidates, seriesEpisodeCounts) = LoadCandidateItems();
         var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
 
         // Pre-compute BoxSet membership for all candidates once (shared across all users).
@@ -218,7 +230,7 @@ public sealed class Engine : IRecommendationEngine
         }
 
         // Cache for on-demand single-user calls that may follow
-        _cachedSnapshot = new CandidateSnapshot(candidates, peopleLookup, candidateBoxSetLookup);
+        _cachedSnapshot = new CandidateSnapshot(candidates, peopleLookup, candidateBoxSetLookup, seriesEpisodeCounts);
 
         // Pre-compute all user watched-item sets ONCE for collaborative filtering.
         // Reduces O(U²×M) to O(U×M) by sharing sets across BuildCollaborativeMap calls.
@@ -299,6 +311,7 @@ public sealed class Engine : IRecommendationEngine
                             candidates,
                             peopleLookup,
                             candidateBoxSetLookup,
+                            seriesEpisodeCounts,
                             maxResultsPerUser,
                             _strategy,
                             precomputedUserSets,
@@ -375,7 +388,9 @@ public sealed class Engine : IRecommendationEngine
         int? explorationSeed = null,
         CancellationToken cancellationToken = default)
     {
-        var candidates = preloadedCandidates ?? LoadCandidateItems();
+        // Cold start does not need the SeriesEpisodeCounts map (progression signals require
+        // watch history, which cold-start users lack by definition). Discard it explicitly.
+        var candidates = preloadedCandidates ?? LoadCandidateItems().Candidates;
 
         // Pre-compute the max community-popularity for normalization to [0, 1].
         // Using log1p compression so a single item watched by 100 users doesn't overshadow
@@ -483,10 +498,16 @@ public sealed class Engine : IRecommendationEngine
     }
 
     /// <summary>
-    ///     Loads all candidate items (movies and series) from the library.
+    ///     Loads all candidate items (movies and series) from the library, together with a
+    ///     per-series episode count map derived from the same episode query used for the
+    ///     empty-series filter (no extra DB round-trip).
     /// </summary>
-    /// <returns>A list of candidate base items.</returns>
-    private List<BaseItem> LoadCandidateItems()
+    /// <returns>
+    ///     Candidates and a <c>seriesId → totalEpisodeCount</c> map. The map only contains
+    ///     series with at least one playable episode; consumers must treat missing keys as
+    ///     "no progression signal available".
+    /// </returns>
+    private (List<BaseItem> Candidates, Dictionary<Guid, int> SeriesEpisodeCounts) LoadCandidateItems()
     {
         var movies = _libraryManager.GetItemList(
             new InternalItemsQuery
@@ -535,17 +556,25 @@ public sealed class Engine : IRecommendationEngine
                 IsFolder = false
             });
 
-        var seriesIdsWithEpisodes = allEpisodes
-            .OfType<Episode>()
-            .Where(episode => !string.IsNullOrEmpty(episode.Path))
-            .Select(episode => episode.SeriesId)
-            .Where(seriesId => seriesId != Guid.Empty)
-            .ToHashSet();
+        // Single pass: build both the "series has episodes" filter set AND the per-series
+        // total episode count needed for the progression multiplier in PreferenceBuilder.
+        // Only playable episodes (non-empty Path) are counted to keep the ratio meaningful.
+        var seriesEpisodeCounts = new Dictionary<Guid, int>();
+        foreach (var episode in allEpisodes.OfType<Episode>())
+        {
+            if (string.IsNullOrEmpty(episode.Path) || episode.SeriesId == Guid.Empty)
+            {
+                continue;
+            }
+
+            seriesEpisodeCounts.TryGetValue(episode.SeriesId, out var count);
+            seriesEpisodeCounts[episode.SeriesId] = count + 1;
+        }
 
         var skippedSeries = 0;
         foreach (var s in series)
         {
-            if (!seriesIdsWithEpisodes.Contains(s.Id))
+            if (!seriesEpisodeCounts.ContainsKey(s.Id))
             {
                 skippedSeries++;
                 continue;
@@ -570,7 +599,7 @@ public sealed class Engine : IRecommendationEngine
                 logger: _logger);
         }
 
-        return candidates;
+        return (candidates, seriesEpisodeCounts);
     }
 
     /// <summary>
@@ -581,6 +610,11 @@ public sealed class Engine : IRecommendationEngine
     /// <param name="allCandidates">Pre-loaded candidate items from the library.</param>
     /// <param name="peopleLookup">Pre-built people lookup (item ID → person names).</param>
     /// <param name="candidateBoxSetLookup">Pre-resolved BoxSet IDs per candidate (sparse: only items in BoxSets).</param>
+    /// <param name="seriesEpisodeCounts">
+    ///     Per-series total episode count (from <see cref="LoadCandidateItems"/>) used by
+    ///     <see cref="PreferenceBuilder"/> to weight watched-episode signals by the fraction
+    ///     of the series the user has actually seen. Missing keys treated as "no signal".
+    /// </param>
     /// <param name="maxResults">Maximum number of recommendations to return.</param>
     /// <param name="strategy">The scoring strategy to use.</param>
     /// <param name="precomputedUserSets">
@@ -601,6 +635,7 @@ public sealed class Engine : IRecommendationEngine
         List<BaseItem> allCandidates,
         Dictionary<Guid, HashSet<string>> peopleLookup,
         Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
+        IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
         int maxResults,
         IScoringStrategy strategy,
         Dictionary<Guid, HashSet<Guid>>? precomputedUserSets,
@@ -652,7 +687,10 @@ public sealed class Engine : IRecommendationEngine
             watchedSeriesIds.Add(favSeriesId);
         }
 
-        var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(userProfile);
+        // seriesEpisodeCounts is forwarded so PreferenceBuilder can weight each episode row by
+        // the fraction of the series the user has actually watched. Movies and standalone rows
+        // ignore the map (missing SeriesId), so the effect is scoped to TV series preferences.
+        var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(userProfile, seriesEpisodeCounts);
 
         // Build O(1) candidate lookup by ID - shared across studio/tag preference building
         var candidateLookup = new Dictionary<Guid, BaseItem>(allCandidates.Count);
@@ -673,7 +711,10 @@ public sealed class Engine : IRecommendationEngine
         // feature. Keys are always a superset-parity match with preferredPeople (same eligibility rule),
         // but per-key weights reflect how many watched items each person appears on, so dominant
         // collaborators (e.g. a director watched 8 times) drive similarity more than one-off cameos.
-        var preferredPeopleWeights = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, peopleLookup);
+        // seriesEpisodeCounts is forwarded so people from a fully-watched series contribute more
+        // weight than people from a series the user abandoned after two episodes, mirroring the
+        // exact same progression multiplier applied to genre preferences above.
+        var preferredPeopleWeights = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, peopleLookup, seriesEpisodeCounts);
         var preferredTags = PreferenceBuilder.BuildTagPreferenceSet(userProfile, candidateLookup);
         var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile);
 
@@ -1564,8 +1605,14 @@ public sealed class Engine : IRecommendationEngine
     ///     to avoid redundant parent-hierarchy traversals across multiple users.
     ///     Only candidates that belong to at least one BoxSet are stored (sparse).
     /// </param>
+    /// <param name="SeriesEpisodeCounts">
+    ///     Per-series total episode count derived from the same episode query used for the
+    ///     empty-series filter. Consumed by <see cref="PreferenceBuilder"/> to weight
+    ///     watched-episode signals by the fraction of the series the user has actually seen.
+    /// </param>
     private sealed record CandidateSnapshot(
         List<BaseItem> Candidates,
         Dictionary<Guid, HashSet<string>> PeopleLookup,
-        Dictionary<Guid, List<Guid>> CandidateBoxSetLookup);
+        Dictionary<Guid, List<Guid>> CandidateBoxSetLookup,
+        Dictionary<Guid, int> SeriesEpisodeCounts);
 }
