@@ -214,8 +214,22 @@ public sealed class Engine : IRecommendationEngine
         // metadata (rating + release date). Items that many active users have watched
         // are more likely to be broadly appealing to newcomers.
         // Only built once per batch run — reused across all cold-start users.
+        //
+        // Guard on non-empty sets: PrecomputeUserWatchSets keeps empty profiles, so a
+        // simple .Count > 1 check would enable the community prior even when only a
+        // single user has any watch data (that user's own set would be "the community").
+        // We require at least two users with actual watch data before the prior kicks in.
         Dictionary<Guid, int>? communityPopularity = null;
-        if (precomputedUserSets.Count > 1)
+        var usersWithHistory = 0;
+        foreach (var userSet in precomputedUserSets.Values)
+        {
+            if (userSet.Count > 0 && ++usersWithHistory >= 2)
+            {
+                break;
+            }
+        }
+
+        if (usersWithHistory >= 2)
         {
             communityPopularity = new Dictionary<Guid, int>();
             foreach (var userSet in precomputedUserSets.Values)

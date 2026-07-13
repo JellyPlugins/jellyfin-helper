@@ -30,9 +30,17 @@ public class DiversityRerankerTests
     [Fact]
     public void ApplyDiversityReranking_ZeroCount_ReturnsEmpty()
     {
-        var result = DiversityReranker.ApplyDiversityReranking(
-            new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>(),
-            0);
+        // Use a non-empty candidate list so we actually exercise the count <= 0 guard.
+        // With an empty list the method would return empty regardless of the guard, which
+        // means removing the guard could regress silently. Access to (BaseItem)null! is
+        // safe here because the guard returns before any Item field is dereferenced.
+        var candidates = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>
+        {
+            (null!, 1.0, string.Empty, string.Empty, null)
+        };
+
+        var result = DiversityReranker.ApplyDiversityReranking(candidates, 0);
+
         Assert.Empty(result);
     }
 }

@@ -127,8 +127,16 @@ internal static class DiversityReranker
             return y;
         }
 
-        // Multi-dimensional similarity between two items:
-        // 50% genre-Jaccard + 30% studio-Jaccard + 20% era-similarity (Gaussian with σ=10yr).
+        // Multi-dimensional similarity between two items.
+        // Dimensions: genre (50%), studio (30%), era (20%, Gaussian with σ=10yr).
+        // Weights are renormalized over the dimensions that are actually available on
+        // BOTH items. Without renormalization, two items with identical genres but no
+        // studio/year metadata would cap at similarity=0.5, letting MMR treat them as
+        // only "half similar" — a bug that surfaced for sparse-metadata libraries
+        // (custom items, home videos) where near-duplicates could slip through diversity
+        // re-ranking. Items with rich metadata (typical TMDb-sourced content) are
+        // unaffected: their availableWeight always equals 1.0 so the computation is
+        // bit-identical to the previous formula.
         // Returns 0-1 where higher = more similar (should be diversified against).
         static double ComputeItemSimilarity(
             HashSet<string> genreA,
@@ -138,18 +146,31 @@ internal static class DiversityReranker
             int? yearA,
             int? yearB)
         {
-            var genreSim = SimilarityComputer.ComputeJaccardFromSets(genreA, genreB);
-            var studioSim = studioA.Count > 0 && studioB.Count > 0
-                ? SimilarityComputer.ComputeJaccardFromSets(studioA, studioB)
-                : 0.0;
-            var yearSim = 0.0;
+            var weightedSimilarity = 0.0;
+            var availableWeight = 0.0;
+
+            if (genreA.Count > 0 && genreB.Count > 0)
+            {
+                weightedSimilarity += 0.5 * SimilarityComputer.ComputeJaccardFromSets(genreA, genreB);
+                availableWeight += 0.5;
+            }
+
+            if (studioA.Count > 0 && studioB.Count > 0)
+            {
+                weightedSimilarity += 0.3 * SimilarityComputer.ComputeJaccardFromSets(studioA, studioB);
+                availableWeight += 0.3;
+            }
+
             if (yearA.HasValue && yearB.HasValue)
             {
                 var diff = Math.Abs(yearA.Value - yearB.Value);
-                yearSim = Math.Exp(-diff * diff / EngineConstants.YearProximityDenominator);
+                var yearSim = Math.Exp(-diff * diff / EngineConstants.YearProximityDenominator);
+                weightedSimilarity += 0.2 * yearSim;
+                availableWeight += 0.2;
             }
 
-            return (0.5 * genreSim) + (0.3 * studioSim) + (0.2 * yearSim);
+            // No shared dimensions → not enough data to judge similarity, treat as unrelated.
+            return availableWeight > 0.0 ? weightedSimilarity / availableWeight : 0.0;
         }
 
         // Fill most slots via MMR, reserving the last ExplorationSlotCount slots

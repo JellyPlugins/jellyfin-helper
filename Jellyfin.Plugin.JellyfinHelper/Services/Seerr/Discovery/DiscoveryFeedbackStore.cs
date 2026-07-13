@@ -384,6 +384,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 Year = e.Year,
                 Genres = e.Genres?.ToArray() ?? [],
                 TmdbRating = e.TmdbRating,
+                Popularity = e.Popularity,
                 Score = e.Score,
                 KnownPeople = e.KnownPeople?.ToList() ?? [],
                 ShownAtUtc = e.ShownAtUtc,
