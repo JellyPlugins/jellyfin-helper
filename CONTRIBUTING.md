@@ -155,6 +155,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── DiversityRerankerTests.cs
 │       │   ├── PreferenceBuilderTests.cs
 │       │   ├── SimilarityComputerTests.cs   # People-batch (GetPeopleNamesByItems) + per-item fallback; weighted PeopleSimilarity overload (Roadmap v3 C2)
+│       │   ├── TemporalFeaturesTests.cs     # Day-of-week / hour-of-day / weekend affinity computation
 │       │   └── Training/
 │       │       └── CollectionProgressionBoostTests.cs # Locks the diminishing-returns formula 0.3+(n-1)×0.2 (Roadmap v3 C3) - guards train/serve parity
 │       ├── Playlist/              # Playlist sync tests
