@@ -95,20 +95,28 @@ internal static class DiscoveryFeedbackExampleBuilder
                 var status = entry.GetStatus();
                 var label = GetLabelForStatus(status);
 
-                // Build feature vector from discovery metadata
+                // Build feature vector from discovery metadata.
+                // hasLegacyPopularity signals that the original TMDb popularity was not persisted
+                // (entry.Popularity <= 0), so PopularityScore fell back to a neutral placeholder.
+                // We halve the sample weight in that case to reflect the reduced feature quality.
                 var features = BuildFeaturesFromEntry(
                     entry,
                     genrePreferences,
                     preferredPeople,
                     avgYear,
-                    genreExposure);
+                    genreExposure,
+                    out var hasLegacyPopularity);
+
+                var sampleWeight = hasLegacyPopularity
+                    ? EngineConstants.DiscoveryFeedbackSampleWeight * 0.5
+                    : EngineConstants.DiscoveryFeedbackSampleWeight;
 
                 examples.Add(new TrainingExample
                 {
                     Features = features,
                     Label = label,
                     GeneratedAtUtc = GetLatestInteractionUtc(entry),
-                    SampleWeight = EngineConstants.DiscoveryFeedbackSampleWeight
+                    SampleWeight = sampleWeight
                 });
             }
         }
@@ -167,7 +175,8 @@ internal static class DiscoveryFeedbackExampleBuilder
         Dictionary<string, double> genrePreferences,
         HashSet<string> preferredPeople,
         double avgYear,
-        PreferenceBuilder.GenreExposureAnalysis genreExposure)
+        PreferenceBuilder.GenreExposureAnalysis genreExposure,
+        out bool hasLegacyPopularity)
     {
         // Null-safe genre access
         var genres = entry.Genres ?? Array.Empty<string>();
@@ -200,15 +209,17 @@ internal static class DiscoveryFeedbackExampleBuilder
 
         // Popularity feature: reconstruct the EXACT value used at inference time
         // (ExternalCandidateFeatureBuilder.NormalizePopularity) from the raw TMDb popularity
-        // recorded when the item was shown. This eliminates the previous train/serve skew and
-        // target leak, where the model's own past output (entry.Score) was fed back as the
-        // PopularityScore feature during training but Popularity/200 was used at inference.
-        // Legacy entries persisted before the Popularity field existed have entry.Popularity == 0;
-        // for those we fall back to the historical entry.Score proxy so no old feedback is
-        // invalidated and their training contribution stays exactly as before.
+        // recorded when the item was shown, avoiding train/serve skew and target leak.
+        //
+        // Legacy entries persisted before the Popularity field existed have entry.Popularity == 0.
+        // The previous fallback used entry.Score, which is the model's own past prediction and
+        // creates an auto-regression loop: the model trains on its own output. We now emit a
+        // neutral 0.5 for those legacy rows and lower the sample weight in the caller so the
+        // reduced feature quality does not distort the gradient.
         var popularityScore = entry.Popularity > 0
             ? ExternalCandidateFeatureBuilder.NormalizePopularity(entry.Popularity)
-            : Math.Clamp(entry.Score, 0.0, 1.0);
+            : 0.5;
+        hasLegacyPopularity = entry.Popularity <= 0;
 
         var isSeries = string.Equals(entry.MediaType, "tv", StringComparison.OrdinalIgnoreCase);
 

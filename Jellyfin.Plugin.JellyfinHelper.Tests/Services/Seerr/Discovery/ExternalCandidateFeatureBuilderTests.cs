@@ -235,11 +235,13 @@ public sealed class ExternalCandidateFeatureBuilderTests
     }
 
     [Fact]
-    public void TrainingBuilder_LegacyEntryWithoutPopularity_FallsBackToScore()
+    public void TrainingBuilder_LegacyEntryWithoutPopularity_NeutralAndDownweighted()
     {
         // Entries persisted before the Popularity field existed have Popularity == 0.
-        // For those, training must preserve the historical behavior (clamp of entry.Score)
-        // so no old feedback is silently invalidated.
+        // The previous fallback used entry.Score (the model's own past prediction), which
+        // introduced an auto-regression target leak. The new behaviour emits a neutral 0.5
+        // for PopularityScore and halves the sample weight so the reduced feature quality
+        // is reflected in the gradient without silently invalidating old feedback.
         var userId = Guid.NewGuid();
         var profile = BuildActionHeavyProfile(userId);
 
@@ -264,7 +266,47 @@ public sealed class ExternalCandidateFeatureBuilderTests
             CancellationToken.None);
 
         Assert.Equal(1, count);
-        Assert.Equal(0.42, examples[0].Features.PopularityScore, 6);
+        Assert.Equal(0.5, examples[0].Features.PopularityScore, 6);
+        Assert.Equal(
+            EngineConstants.DiscoveryFeedbackSampleWeight * 0.5,
+            examples[0].SampleWeight,
+            6);
+    }
+
+    [Fact]
+    public void TrainingBuilder_ModernEntryWithPopularity_UsesFullSampleWeight()
+    {
+        // Contract counterpart to the legacy-fallback test: entries WITH a persisted popularity
+        // must retain the full DiscoveryFeedbackSampleWeight and use the normalized popularity.
+        var userId = Guid.NewGuid();
+        var profile = BuildActionHeavyProfile(userId);
+
+        var feedback = new DiscoveryFeedbackResult { UserId = userId };
+        feedback.Entries.Add(new DiscoveryFeedbackEntry
+        {
+            TmdbId = 605,
+            MediaType = "movie",
+            Title = "Modern",
+            Year = 2020,
+            Genres = [ActionGenre],
+            TmdbRating = 7.5,
+            Popularity = 120.0,
+            Score = 0.9,
+            ShownAtUtc = DateTime.UtcNow
+        });
+
+        var profileById = new Dictionary<Guid, UserWatchProfile> { [userId] = profile };
+        var (examples, count) = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(
+            [feedback],
+            profileById,
+            CancellationToken.None);
+
+        Assert.Equal(1, count);
+        Assert.Equal(
+            ExternalCandidateFeatureBuilder.NormalizePopularity(120.0),
+            examples[0].Features.PopularityScore,
+            6);
+        Assert.Equal(EngineConstants.DiscoveryFeedbackSampleWeight, examples[0].SampleWeight, 6);
     }
 
     /// <summary>

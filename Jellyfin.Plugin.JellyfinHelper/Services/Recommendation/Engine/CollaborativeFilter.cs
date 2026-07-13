@@ -96,6 +96,31 @@ internal static class CollaborativeFilter
             return coOccurrence;
         }
 
+        // Cold-start guard: when every neighbour in the deployment is below the trust ceiling,
+        // the neighbour trust factor would collapse the entire collaborative signal to a tiny
+        // fraction (stacked with IDF that can be < 0.2 for 50-user mainstream items). Detect the
+        // uniformly-sparse case and disable trust scaling so that early deployments still get
+        // meaningful collaborative recommendations. Once at least one user crosses the ceiling
+        // the trust factor kicks back in and protects against sparse-history over-weighting.
+        var trustGateActive = false;
+        foreach (var profile in allProfiles)
+        {
+            if (profile.UserId == userProfile.UserId)
+            {
+                continue;
+            }
+
+            var otherCount = precomputedUserSets is not null &&
+                             precomputedUserSets.TryGetValue(profile.UserId, out var otherSet)
+                ? otherSet.Count
+                : profile.WatchedItems.Count;
+            if (otherCount >= EngineConstants.CollaborativeTrustWatchCeiling)
+            {
+                trustGateActive = true;
+                break;
+            }
+        }
+
         // Compute item popularity (how many users watched each item) for IDF weighting.
         // Items watched by many users contribute less to co-occurrence - a shared niche taste
         // is a stronger signal of real similarity than both watching a mainstream blockbuster.
@@ -151,19 +176,21 @@ internal static class CollaborativeFilter
             var union = userCombinedIds.Count + otherCombinedIds.Count - overlap;
             var jaccardWeight = union > 0 ? (double)overlap / union : 0.0;
 
-            // Trust weight: down-weight neighbours whose overall history is very small.
-            // A neighbour with only 5 watches sharing 3 items has extremely high Jaccard
-            // (0.6) but the signal is statistically weak because it saturates trivially.
-            // Formula: linearly ramp up trust from 0.0 (0 watches) to 1.0 (>= TrustWatchCeiling)
-            // where TrustWatchCeiling = 20. Applied multiplicatively to jaccardWeight so the
-            // Jaccard interpretation is preserved; a full-history neighbour is unaffected.
+            // Trust weight: down-weight neighbours whose overall history is very small so
+            // sparse users cannot dominate through a trivially high Jaccard on a handful of
+            // items. Uses a saturating exponential curve so the ramp is gentle at the low end
+            // (5 watches → ~0.39) and reaches near-full trust well before the ceiling
+            // (20 watches → ~0.86, 30 → ~0.95), avoiding the linear cliff of the previous
+            // formula that quartered a 5-watch neighbour to 25%.
             //
-            // Rationale: For a Jaccard-similar power user (100+ watches) trust=1.0 → weight unchanged.
-            // For a barely-active user (5 watches) trust=0.25 → weight scaled to 25%.
-            // This eliminates the previously observed "one-shot recommendation storms" from
-            // sparse-history users whose Jaccard artificially inflated.
-            const double trustWatchCeiling = 20.0;
-            var neighbourTrust = Math.Clamp(otherCombinedIds.Count / trustWatchCeiling, 0.0, 1.0);
+            // Cold-start gate: when the whole deployment is below the ceiling (early rollout
+            // with a couple of low-history users), trust would still collapse the signal to a
+            // few percent even against the least-sparse neighbour. In that case we release
+            // the trust factor entirely so the collaborative branch produces meaningful
+            // recommendations from day one.
+            var neighbourTrust = trustGateActive
+                ? 1.0 - Math.Exp(-otherCombinedIds.Count / EngineConstants.CollaborativeTrustScale)
+                : 1.0;
             var trustedJaccardWeight = jaccardWeight * neighbourTrust;
 
             if (trustedJaccardWeight <= 0.0)

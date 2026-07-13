@@ -322,7 +322,7 @@ public class CollaborativeFilterTests
     public void BuildCollaborativeMap_TrustWeight_LowHistoryNeighbourStillContributes()
     {
         // A sparse-history neighbour (5 watches, below the 20-watch trust ceiling) is
-        // down-weighted to 25% of full trust but must still produce a positive score
+        // down-weighted but must still produce a positive score
         // — we do not want to silently drop legitimate signal, only to attenuate it.
         var shared = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
         var unique = Guid.NewGuid();
@@ -350,5 +350,69 @@ public class CollaborativeFilterTests
 
         Assert.True(map.TryGetValue(unique, out var score));
         Assert.True(score > 0.0, "Sparse-history neighbour should still contribute a (down-weighted) positive score");
+    }
+
+    [Fact]
+    public void BuildCollaborativeMap_ColdStartGate_ReleasesTrustWhenAllNeighboursSparse()
+    {
+        // Deployment scenario: five users, each with 5-6 watches. Without the cold-start gate
+        // the trust factor would multiply the collaborative signal by ~0.4 and, combined with
+        // IDF, collapse it to a few percent. The gate detects that no neighbour reaches the
+        // trust ceiling and releases the trust factor to 1.0, so recommendations still form.
+        //
+        // The test compares two runs of the same graph:
+        //   1) The natural cold-start run (all sparse neighbours, gate open).
+        //   2) A "control" run where a single power user is added (gate active, trust damps sparse
+        //      contributions).
+        // The unique-item score in the cold-start run must exceed the score in the control run,
+        // proving the gate is doing real work rather than being a no-op.
+        var overlapA = Guid.NewGuid();
+        var overlapB = Guid.NewGuid();
+        var overlapC = Guid.NewGuid();
+        var uniqueItem = Guid.NewGuid();
+
+        WatchedItemInfo P(Guid id) => new() { ItemId = id, Played = true };
+
+        var user = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo> { P(overlapA), P(overlapB), P(overlapC) }
+        };
+        var sparseNeighbour = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo>
+            {
+                P(overlapA), P(overlapB), P(overlapC), P(uniqueItem), P(Guid.NewGuid())
+            }
+        };
+
+        var coldStartProfiles = new Collection<UserWatchProfile> { user, sparseNeighbour };
+        var coldStartPrecomputed = CollaborativeFilter.PrecomputeUserWatchSets(coldStartProfiles);
+        var coldStartMap = CollaborativeFilter.BuildCollaborativeMap(user, coldStartProfiles, coldStartPrecomputed);
+
+        Assert.True(coldStartMap.TryGetValue(uniqueItem, out var coldStartScore));
+        Assert.True(coldStartScore > 0.0);
+
+        // Control: add a power user with >= 20 watches so the trust gate flips to active.
+        var powerUserItems = new List<WatchedItemInfo> { P(overlapA), P(overlapB), P(overlapC), P(Guid.NewGuid()) };
+        for (var i = 0; i < 25; i++)
+        {
+            powerUserItems.Add(P(Guid.NewGuid()));
+        }
+
+        var powerUser = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo>(powerUserItems)
+        };
+        var controlProfiles = new Collection<UserWatchProfile> { user, sparseNeighbour, powerUser };
+        var controlPrecomputed = CollaborativeFilter.PrecomputeUserWatchSets(controlProfiles);
+        var controlMap = CollaborativeFilter.BuildCollaborativeMap(user, controlProfiles, controlPrecomputed);
+
+        Assert.True(controlMap.TryGetValue(uniqueItem, out var controlScore));
+        Assert.True(controlScore > 0.0);
+        Assert.True(coldStartScore > controlScore,
+            $"Cold-start gate should release the trust factor, so uniqueItem's score is higher when all neighbours are sparse (cold={coldStartScore:F4}, control={controlScore:F4})");
     }
 }

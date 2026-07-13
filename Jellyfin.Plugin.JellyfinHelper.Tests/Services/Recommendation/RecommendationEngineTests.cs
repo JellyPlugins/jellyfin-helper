@@ -358,10 +358,11 @@ public class RecommendationEngineTests
         var map = CollaborativeFilter.BuildCollaborativeMap(user, [user, other]);
         Assert.Single(map);
         // Jaccard similarity: overlap=3, union=3+4-3=4, base Jaccard = 3/4 = 0.75.
-        // Trust weight (v3.0.0.0): neighbour has 4 watches → trust = 4 / 20 = 0.2.
-        // Effective weight = 0.75 × 0.2 = 0.15. Sparse-history neighbours are proportionally
-        // down-weighted so a brand-new user cannot dominate collaborative signals.
-        Assert.Equal(0.15, map[uniqueToOther], 4);
+        // Cold-start gate: neither user reaches the trust ceiling (20 watches), so the trust
+        // factor is released to 1.0 and the raw Jaccard score is used unchanged. Sparse-history
+        // neighbours are still attenuated by the exponential trust curve once at least one
+        // power user joins the deployment (covered separately in CollaborativeFilterTests).
+        Assert.Equal(0.75, map[uniqueToOther], 4);
     }
 
     [Fact]
@@ -654,13 +655,13 @@ public class RecommendationEngineTests
 
         var map = CollaborativeFilter.BuildCollaborativeMap(user, [user, other1, other2]);
 
-        // uniqueItem accumulates trust-weighted Jaccard from both other users.
-        // Each other user has 4 watches → trust = 4 / 20 = 0.2; base Jaccard = 3/4 = 0.75.
-        // Per-user weight = 0.75 × 0.2 = 0.15; total from two contributors = 0.30.
-        // Verifies that (a) accumulation across neighbours still happens, and
-        // (b) the v3.0.0.0 trust weight is applied per-contributor before summation.
+        // uniqueItem accumulates Jaccard from both other users. Cold-start gate is open (no
+        // neighbour reaches the 20-watch trust ceiling), so trust=1.0 and the raw Jaccard is used.
+        // Per-user Jaccard = 3/4 = 0.75, sum across two contributors = 1.5. This test locks the
+        // accumulation contract, the sparse-neighbour attenuation is exercised separately in
+        // CollaborativeFilterTests once a power user is present.
         Assert.True(map.TryGetValue(uniqueItem, out var uniqueItemScore));
-        Assert.Equal(0.30, uniqueItemScore, 4);
+        Assert.Equal(1.5, uniqueItemScore, 4);
     }
 
     // -- PeopleSimilarity Tests ----------------------------------------------

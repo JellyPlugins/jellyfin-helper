@@ -17,6 +17,23 @@ internal static class EngineConstants
     internal const int MinCollaborativeOverlap = 3;
 
     /// <summary>
+    ///     Watch-count threshold above which a neighbour is treated as fully trusted
+    ///     in collaborative filtering. A neighbour with at least this many watched items
+    ///     has enough statistical mass that a high Jaccard cannot be a trivial artefact.
+    ///     Also used as the cold-start gate: if no neighbour reaches this ceiling, the
+    ///     trust factor is released entirely (see <see cref="CollaborativeFilter"/>).
+    /// </summary>
+    internal const int CollaborativeTrustWatchCeiling = 20;
+
+    /// <summary>
+    ///     Scale for the saturating exponential trust curve
+    ///     <c>1 - exp(-otherCount / scale)</c>. A scale of 10 yields ~0.63 trust at 10 watches
+    ///     and ~0.86 at 20 watches, so partially active neighbours are damped gently instead
+    ///     of the sharp linear cliff of the previous formula.
+    /// </summary>
+    internal const double CollaborativeTrustScale = 10.0;
+
+    /// <summary>
     ///     Minimum weighted contribution before a specific reason (genre, collaborative) is shown.
     ///     Must be low enough to work across strategies whose weights differ
     ///     (e.g. collaborative weight 0.12–0.15 → max contribution 0.12–0.15).
