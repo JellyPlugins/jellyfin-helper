@@ -615,4 +615,48 @@ public class PreferenceBuilderTests
         Assert.Equal(0.0, underexposure);
         Assert.Equal(1.0, dominance);
     }
+
+    // === BuildGenrePreferenceVector: normalization after proximity expansion ===
+
+    [Fact]
+    public void BuildGenrePreferenceVector_ProximityExpansion_StaysNormalized()
+    {
+        // Ten watched items with overlapping genre pairs so ExpandGenreProximity actually fires:
+        // 10 items >= threshold (WatchedItems.Count >= 10) and Action co-occurs with Adventure
+        // often enough to trigger the proximity derivation for a third genre never watched directly.
+        var profile = new UserWatchProfile();
+        var baseDate = DateTime.UtcNow.AddDays(-10);
+        for (var i = 0; i < 10; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                Played = true,
+                LastPlayedDate = baseDate.AddHours(-i),
+                Genres = ["Action", "Adventure"]
+            });
+        }
+
+        // Add a couple of items that co-occur Adventure with SciFi so SciFi becomes a proximity target.
+        for (var i = 0; i < 3; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                Played = true,
+                LastPlayedDate = baseDate.AddHours(-100 - i),
+                Genres = ["Adventure", "SciFi"]
+            });
+        }
+
+        var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+
+        Assert.NotEmpty(vector);
+        var max = vector.Values.Max();
+        Assert.InRange(max, 0.999, 1.0001);
+        foreach (var weight in vector.Values)
+        {
+            Assert.InRange(weight, 0.0, 1.0);
+        }
+    }
 }

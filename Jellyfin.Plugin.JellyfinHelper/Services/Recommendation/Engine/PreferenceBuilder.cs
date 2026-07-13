@@ -175,11 +175,16 @@ internal static class PreferenceBuilder
             }
         }
 
-        // Normalize to 0–1 range
         if (vector.Count == 0)
         {
             return vector;
         }
+
+        // Expand first, normalize afterwards so proximity-derived weights participate in
+        // the same max-normalization pass as the base entries. Doing it in the other order
+        // would leave secondary genres in `[0, 0.15]` while primary genres are in `[0, 1]`,
+        // producing a non-normalized vector that drifts SimilarityComputer's `userNorm`.
+        ExpandGenreProximity(vector, profile);
 
         var maxWeight = vector.Values.Max();
         if (maxWeight <= 0)
@@ -191,8 +196,6 @@ internal static class PreferenceBuilder
         {
             vector[genre] /= maxWeight;
         }
-
-        ExpandGenreProximity(vector, profile);
 
         return vector;
     }
