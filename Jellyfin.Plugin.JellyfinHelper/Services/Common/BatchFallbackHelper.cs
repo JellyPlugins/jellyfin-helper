@@ -63,10 +63,14 @@ internal static class BatchFallbackHelper
             {
                 onFailure(ex);
             }
-            catch (Exception callbackEx) when (callbackEx is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception callbackEx) when (callbackEx is not OperationCanceledException
+                                                and not OutOfMemoryException
+                                                and not StackOverflowException)
             {
                 // Intentionally swallowed. There's nothing sensible we can do with an
-                // exception thrown by the diagnostic callback itself.
+                // exception thrown by the diagnostic callback itself. Cancellation is
+                // deliberately excluded — a callback that observes cancellation must be
+                // allowed to bubble the signal out of the graceful-degradation path.
             }
 
             return fallbackValue;

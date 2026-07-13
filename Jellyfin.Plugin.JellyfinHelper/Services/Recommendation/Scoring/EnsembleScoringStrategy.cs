@@ -1063,6 +1063,20 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 {
                     _neuralBeta = data.NeuralBeta;
                 }
+                else if (_neural is not null && data.NeuralBeta > NeuralMaxBetaFraction &&
+                         _logger is not null && _logger.IsEnabled(LogLevel.Information))
+                {
+                    // A persisted NeuralBeta above the current ceiling usually means the ceiling
+                    // was lowered in an update. Keep _neuralBeta at its default (0) so the ramp
+                    // in Train() drives it back up from scratch, and log once so operators can
+                    // see this happened rather than silently discarding state. The IsEnabled
+                    // guard mirrors the rest of this class and keeps CA1873 happy for the
+                    // structured-log arguments.
+                    _logger.LogInformation(
+                        "EnsembleScoringStrategy: discarded persisted NeuralBeta={PersistedBeta:F3} (exceeds NeuralMaxBetaFraction={Ceiling:F3}). Ramp will restart from 0.",
+                        data.NeuralBeta,
+                        NeuralMaxBetaFraction);
+                }
 
                 // Restore adaptive sigmoid midpoint offset (clamped to valid range).
                 if (Math.Abs(data.SigmoidMidpointOffset) <= MaxMidpointShift)

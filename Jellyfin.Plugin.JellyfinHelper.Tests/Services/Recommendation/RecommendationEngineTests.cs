@@ -655,13 +655,16 @@ public class RecommendationEngineTests
 
         var map = CollaborativeFilter.BuildCollaborativeMap(user, [user, other1, other2]);
 
-        // uniqueItem accumulates Jaccard from both other users. Cold-start gate is open (no
-        // neighbour reaches the 20-watch trust ceiling), so trust=1.0 and the raw Jaccard is used.
-        // Per-user Jaccard = 3/4 = 0.75, sum across two contributors = 1.5. This test locks the
-        // accumulation contract, the sparse-neighbour attenuation is exercised separately in
+        // uniqueItem accumulates from both other users. Cold-start gate is open (no neighbour
+        // reaches the 20-watch trust ceiling), so trust=1.0. Both neighbours watched uniqueItem,
+        // so its IDF factor is 1/log2(1+2) = 0.6309 and the geometric-mean modifier is
+        // sqrt(1.0 * 0.6309) ≈ 0.7943. Per-user weight = 0.75 * 0.7943 ≈ 0.5957, and the sum
+        // across two contributors is ≈ 1.1915. This test locks the accumulation contract with
+        // IDF applied — sparse-neighbour attenuation is exercised separately in
         // CollaborativeFilterTests once a power user is present.
         Assert.True(map.TryGetValue(uniqueItem, out var uniqueItemScore));
-        Assert.Equal(1.5, uniqueItemScore, 4);
+        var expectedPerUser = 0.75 * Math.Sqrt(1.0 / Math.Log2(3.0));
+        Assert.Equal(2.0 * expectedPerUser, uniqueItemScore, 4);
     }
 
     // -- PeopleSimilarity Tests ----------------------------------------------

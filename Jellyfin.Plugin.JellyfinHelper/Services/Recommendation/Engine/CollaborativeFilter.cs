@@ -151,19 +151,17 @@ internal static class CollaborativeFilter
         // Compute item popularity (how many users watched each item) for IDF weighting.
         // Items watched by many users contribute less to co-occurrence - a shared niche taste
         // is a stronger signal of real similarity than both watching a mainstream blockbuster.
-        // Only computed when precomputedUserSets is available (batch mode); in single-user mode
-        // the overhead of a full scan isn't justified.
-        Dictionary<Guid, int>? itemPopularity = null;
-        if (precomputedUserSets is not null)
+        // Computed unconditionally from `userSets` (which is now materialised in both batch and
+        // single-user mode above at line 115), so on-demand recommendations receive the same IDF
+        // treatment as training/batch scoring — closes a train/serve skew where the neural
+        // CollaborativeScore feature saw two different distributions.
+        var itemPopularity = new Dictionary<Guid, int>(userSets.Count);
+        foreach (var userSet in userSets.Values)
         {
-            itemPopularity = new Dictionary<Guid, int>();
-            foreach (var userSet in precomputedUserSets.Values)
+            foreach (var itemId in userSet)
             {
-                foreach (var itemId in userSet)
-                {
-                    itemPopularity.TryGetValue(itemId, out var count);
-                    itemPopularity[itemId] = count + 1;
-                }
+                itemPopularity.TryGetValue(itemId, out var count);
+                itemPopularity[itemId] = count + 1;
             }
         }
 
@@ -240,8 +238,7 @@ internal static class CollaborativeFilter
 
                 // IDF boost: 1 / log2(1 + userCount)
                 // log2(1+1)=1.0 (unique), log2(1+5)=2.58, log2(1+50)=5.67
-                if (itemPopularity is not null && itemPopularity.TryGetValue(itemId, out var userCount) &&
-                    userCount > 1)
+                if (itemPopularity.TryGetValue(itemId, out var userCount) && userCount > 1)
                 {
                     idfFactor = 1.0 / Math.Log2(1.0 + userCount);
                 }

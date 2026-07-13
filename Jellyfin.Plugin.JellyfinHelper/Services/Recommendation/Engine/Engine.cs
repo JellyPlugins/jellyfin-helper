@@ -124,8 +124,13 @@ public sealed class Engine : IRecommendationEngine
         {
             // Cold-start: user exists but has no watch history - return popular/trending items.
             // Reuse cached candidates from the last batch run if available to avoid redundant library queries.
-            // On-demand single-user path does not have access to a community-popularity map,
-            // so cold-start falls back to the classic rating + recency formula automatically.
+            // Community-popularity prior is built on-demand here from the current watch profiles
+            // so a brand-new user's first "Recommendations" request (typically before the scheduled
+            // batch has run) gets the same community-blended cold-start ranking as the batch path
+            // would have produced. When there are fewer than two users with any watch history the
+            // helper returns null and GenerateColdStartRecommendations falls back to the classic
+            // rating + recency formula unchanged.
+            var communityPopularity = BuildCommunityPopularityForColdStart();
             return GenerateColdStartRecommendations(
                 userId,
                 maxResults,
@@ -133,7 +138,7 @@ public sealed class Engine : IRecommendationEngine
                 snapshot?.Candidates,
                 userProfile.MaxParentalRating,
                 userProfile,
-                communityPopularity: null,
+                communityPopularity: communityPopularity,
                 explorationSeed: liveSeed,
                 cancellationToken: cancellationToken);
         }
@@ -1520,6 +1525,52 @@ public sealed class Engine : IRecommendationEngine
                 $"Discovery watched-status update failed (non-critical): {ex.Message}",
                 _logger);
         }
+    }
+
+    /// <summary>
+    ///     Builds the community-popularity map (itemId → number of users who have watched it)
+    ///     used by <see cref="GenerateColdStartRecommendations"/> from the current watch profiles.
+    ///     Matches the exact logic and two-user gate applied by
+    ///     <see cref="GetAllRecommendations"/> so on-demand cold-start requests get the same
+    ///     community-blended ranking that the batch path would have produced.
+    ///     Returns null when fewer than two users have any watch history — callers then fall
+    ///     back to the classic rating + recency formula unchanged.
+    /// </summary>
+    private Dictionary<Guid, int>? BuildCommunityPopularityForColdStart()
+    {
+        var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+        if (allProfiles.Count < 2)
+        {
+            return null;
+        }
+
+        var userSets = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
+
+        var usersWithHistory = 0;
+        foreach (var userSet in userSets.Values)
+        {
+            if (userSet.Count > 0 && ++usersWithHistory >= 2)
+            {
+                break;
+            }
+        }
+
+        if (usersWithHistory < 2)
+        {
+            return null;
+        }
+
+        var popularity = new Dictionary<Guid, int>();
+        foreach (var userSet in userSets.Values)
+        {
+            foreach (var itemId in userSet)
+            {
+                popularity.TryGetValue(itemId, out var count);
+                popularity[itemId] = count + 1;
+            }
+        }
+
+        return popularity;
     }
 
     /// <summary>

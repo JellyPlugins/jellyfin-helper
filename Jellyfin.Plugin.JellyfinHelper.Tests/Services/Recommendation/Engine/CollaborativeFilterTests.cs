@@ -206,6 +206,59 @@ public class CollaborativeFilterTests
     }
 
     [Fact]
+    public void BuildCollaborativeMap_SingleUserMode_AppliesIdfForNicheItems()
+    {
+        // Regression: without a precomputed dictionary the single-user (on-demand) path used to
+        // skip IDF entirely, so mainstream items outranked niche items even though the training
+        // and batch paths damped them. Both branches must now produce the same ordering.
+        WatchedItemInfo P(Guid id) => new() { ItemId = id, Played = true };
+        var shared1 = Guid.NewGuid();
+        var shared2 = Guid.NewGuid();
+        var shared3 = Guid.NewGuid();
+        var mainstreamItem = Guid.NewGuid();
+        var nicheItem = Guid.NewGuid();
+
+        var user = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo> { P(shared1), P(shared2), P(shared3) }
+        };
+
+        // Single overlap neighbour carrying both candidate items.
+        var neighbour = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo>
+            {
+                P(shared1), P(shared2), P(shared3), P(mainstreamItem), P(nicheItem)
+            }
+        };
+
+        // Extra viewers of mainstreamItem inflate its popularity but do not overlap enough with
+        // user to reach the MinCollaborativeOverlap gate, so they only affect the IDF count.
+        var extraOne = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo> { P(mainstreamItem), P(Guid.NewGuid()) }
+        };
+        var extraTwo = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo> { P(mainstreamItem), P(Guid.NewGuid()) }
+        };
+
+        var profiles = new Collection<UserWatchProfile> { user, neighbour, extraOne, extraTwo };
+
+        // On-demand path: no precomputedUserSets passed in.
+        var map = CollaborativeFilter.BuildCollaborativeMap(user, profiles);
+
+        Assert.True(map.TryGetValue(nicheItem, out var nicheScore));
+        Assert.True(map.TryGetValue(mainstreamItem, out var mainstreamScore));
+        Assert.True(nicheScore > mainstreamScore,
+            $"IDF must dampen mainstream items in single-user mode too (niche={nicheScore:F4}, mainstream={mainstreamScore:F4})");
+    }
+
+    [Fact]
     public void BuildCollaborativeMap_EmptyUser_ReturnsEmpty()
     {
         var user = new UserWatchProfile { UserId = Guid.NewGuid(), WatchedItems = [] };

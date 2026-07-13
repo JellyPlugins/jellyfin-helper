@@ -217,4 +217,22 @@ public sealed class BatchFallbackHelperTests
 
         Assert.Null(thrown);
     }
+
+    [Fact]
+    public void TryRunBatch_OnFailureThrowsOperationCanceledException_PropagatesToCaller()
+    {
+        // Regression: the outer catch turns any non-cancellation batch exception into a
+        // graceful fallback, so if the callback then observes cancellation the signal
+        // must still bubble out — otherwise a batch that gets cancelled during logging
+        // silently degrades to fallback instead of stopping. The inner filter used to
+        // swallow OCE here, which broke the graceful-degradation contract's promise
+        // that cancellation is always a stop signal.
+        var thrown = Record.Exception(() =>
+            BatchFallbackHelper.TryRunBatch<string?>(
+                batchCall: () => throw new InvalidOperationException("primary failure"),
+                fallbackValue: "fallback",
+                onFailure: _ => throw new OperationCanceledException()));
+
+        Assert.IsAssignableFrom<OperationCanceledException>(thrown);
+    }
 }
