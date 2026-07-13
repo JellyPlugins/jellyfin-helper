@@ -751,22 +751,48 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
         else
         {
-            // Learned training failed (insufficient data). Decay neuralBeta to prevent
-            // a stale high value from persisting when the neural strategy may have
-            // outdated weights. This ensures cold-start scenarios don't over-weight
-            // a potentially unreliable neural model.
+            // Learned training failed (insufficient data). We still record a placeholder
+            // metrics snapshot so the exploration gate (StrategySelector.IsExplorationActive,
+            // requires MetricsHistoryCount >= 2) can eventually flip to true even when the
+            // very first training runs have too few examples to succeed. Without this the
+            // cold-start path was self-locking: no successful Train → no snapshot → no
+            // exploration → no cohort feedback → no midpoint adaptation.
+            //
+            // ValidationLoss is NaN to mark the row as a cold-start placeholder. AnalyzeTrend
+            // needs TrendMinSnapshots (5) real rows before it does anything, and NaN comparisons
+            // silently fall through to MetricsTrend.Stable, so the placeholder cannot poison
+            // trend detection either.
             var stateChanged = false;
             lock (_syncRoot)
             {
+                _metricsHistory.Add(
+                    new MetricsSnapshot
+                    {
+                        Timestamp = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                        ValidationLoss = double.NaN,
+                        PrecisionAtK = 0.0,
+                        RecallAtK = 0.0,
+                        NdcgAtK = 0.0,
+                        ExampleCount = examples.Count
+                    });
+                const int maxHistory = 10;
+                if (_metricsHistory.Count > maxHistory)
+                {
+                    _metricsHistory.RemoveRange(0, _metricsHistory.Count - maxHistory);
+                }
+
+                stateChanged = true;
+
                 if (_neuralBeta > 0)
                 {
+                    // Decay neuralBeta to prevent a stale high value from persisting when
+                    // the neural strategy may have outdated weights. This ensures cold-start
+                    // scenarios don't over-weight a potentially unreliable neural model.
                     _neuralBeta *= 0.5;
                     if (_neuralBeta < NeuralBetaMinFloor)
                     {
                         _neuralBeta = 0.0;
                     }
-
-                    stateChanged = true;
                 }
             }
 
