@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     Neural network scoring strategy using a four-hidden-layer MLP (Multi-Layer Perceptron).
 ///     Learns non-linear feature interactions from user watch history via backpropagation.
 ///     <para>
-///         Roadmap v3 A1 architecture (WeightsVersion 3):
+///         Architecture (WeightsVersion 3):
 ///         <c>InputSize → 62 hidden₁ (ReLU) → 96 hidden₂ (ReLU) → 48 hidden₃ (ReLU) →
 ///         24 hidden₄ (ReLU) → 1 output (Sigmoid)</c>.
 ///     </para>
@@ -28,7 +28,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///         between the ~30 features without an artificial early bottleneck.
 ///     </para>
 ///     <para>
-///         Roadmap v3 A2: Bernoulli dropout (keep-p = <see cref="DropoutKeepProbability"/>) is
+///         Bernoulli dropout (keep-p = <see cref="DropoutKeepProbability"/>) is
 ///         applied to hidden-layer activations DURING TRAINING only; inference is deterministic
 ///         and dropout-free so recommendations are reproducible per weight set. Dropout scales
 ///         the surviving activations by <c>1 / keep</c> (inverted dropout) so the layer's expected
@@ -51,13 +51,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 {
     /// <summary>
     ///     Number of neurons in the first hidden layer.
-    ///     Roadmap A1: ~2× InputSize (31→62) — best-practice expansion factor for tabular MLPs.
+    ///     ~2× InputSize (31→62) — best-practice expansion factor for tabular MLPs.
     /// </summary>
     internal const int Hidden1Size = 62;
 
     /// <summary>
     ///     Number of neurons in the second hidden layer.
-    ///     Roadmap A1: 96 — deliberately WIDER than Hidden1 so the model has capacity to compose
+    ///     96 — deliberately WIDER than Hidden1 so the model has capacity to compose
     ///     high-order feature interactions (genre×critic, people×genre, etc.) rather than being
     ///     forced through an early bottleneck. The trapezoid shape 62→96→48→24 mirrors classical
     ///     tabular deep-learning topologies where the widest layer sits after the first projection.
@@ -66,13 +66,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
     /// <summary>
     ///     Number of neurons in the third hidden layer.
-    ///     Roadmap A1: 48 — half of Hidden2, provides the compression stage.
+    ///     48 — half of Hidden2, provides the compression stage.
     /// </summary>
     internal const int Hidden3Size = 48;
 
     /// <summary>
     ///     Number of neurons in the fourth (final) hidden layer.
-    ///     Roadmap A1: 24 — enough capacity to encode the final feature combinations feeding
+    ///     24 — enough capacity to encode the final feature combinations feeding
     ///     into the single sigmoid output neuron.
     /// </summary>
     internal const int Hidden4Size = 24;
@@ -123,7 +123,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     internal const int MaxEpochsWithoutEarlyStopping = 20;
 
     /// <summary>
-    ///     Roadmap v3 A2 — Bernoulli dropout keep-probability applied to hidden-layer activations
+    ///     Bernoulli dropout keep-probability applied to hidden-layer activations
     ///     during training. A value of 0.8 corresponds to a 20 % drop rate, which is a well-known
     ///     mid-range choice for small tabular MLPs; smaller networks like ours (a few thousand
     ///     parameters) prefer light regularization to preserve capacity, while larger nets can
@@ -144,7 +144,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
     /// <summary>
     ///     Schema version for persisted weights.
-    ///     v2 → v3: Roadmap A1 architecture rescale (Hidden1 48→62, Hidden2 24→96 etc.) —
+    ///     Architecture rescale (Hidden1 48→62, Hidden2 24→96 etc.)
     ///     old v2 weights are silently discarded on load because their array lengths no longer
     ///     match the new layer sizes. The load path emits a warning and resets to defaults so
     ///     the next training run rebuilds from scratch.
@@ -156,7 +156,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
     /// <summary>
     ///     JSON serializer options for weight persistence.
-    ///     Roadmap v3 D2: compact (non-indented) output to reduce disk footprint —
+    ///     Compact (non-indented) output to reduce disk footprint —
     ///     a 3097-parameter dump goes from ~90 KB indented to ~26 KB compact
     ///     without any loss of information. Weights are machine-read only; there
     ///     is no human-review benefit to indentation.
@@ -802,7 +802,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var h3Err = new double[Hidden3Size];
             var h4Err = new double[Hidden4Size];
 
-            // Roadmap v3 A2 — Bernoulli dropout masks (1 = keep, 0 = drop).
+            // Bernoulli dropout masks (1 = keep, 0 = drop).
             // Kept as double so surviving neurons can be rescaled by 1/keep in-place
             // (inverted-dropout convention: train-time activations have the same expected
             // magnitude as inference-time activations, so no train/serve scale mismatch).
@@ -848,7 +848,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
                     var vec = vectors[idx];
 
-                    // Roadmap v3 A2 — dropout is applied by RE-RUNNING each hidden layer's
+                    // Dropout is applied by RE-RUNNING each hidden layer's
                     // activation through a Bernoulli mask, WITHOUT going back through the
                     // (deterministic, dropout-free) ForwardPass. This keeps ForwardPass the
                     // single source of truth for inference and avoids a second code path
@@ -1306,7 +1306,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     }
 
     /// <summary>
-    ///     Roadmap v3 A2 — training-time forward pass that additionally applies inverted
+    ///     Training-time forward pass that additionally applies inverted
     ///     Bernoulli dropout to each hidden layer's activations. This is a strict SUPERSET of
     ///     <see cref="ForwardPass"/>: with <paramref name="keepProbability"/> ≥ 1.0 (or the
     ///     equivalent <paramref name="invKeepScale"/> = 1.0) the numerical output is bit-identical

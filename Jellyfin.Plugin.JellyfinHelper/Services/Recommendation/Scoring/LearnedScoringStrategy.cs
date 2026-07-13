@@ -86,7 +86,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Cached JSON serializer options for weight persistence.
-    ///     Roadmap v3 D2: compact (non-indented) output — the file is machine-read
+    ///     Compact (non-indented) output — the file is machine-read
     ///     only and roughly halves in size (~1.5 KB vs ~3 KB) with no loss of information.
     /// </summary>
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false };

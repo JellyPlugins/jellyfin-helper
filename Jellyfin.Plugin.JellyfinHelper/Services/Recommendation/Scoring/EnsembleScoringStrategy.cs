@@ -146,7 +146,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
     /// <summary>
     ///     Cached JSON serializer options for ensemble state persistence.
-    ///     Roadmap v3 D2: compact (non-indented) output. The ensemble state file is
+    ///     Compact (non-indented) output. The ensemble state file is
     ///     small already (~400 bytes with defaults) but the file is machine-read only
     ///     — indentation adds no operational value.
     /// </summary>
