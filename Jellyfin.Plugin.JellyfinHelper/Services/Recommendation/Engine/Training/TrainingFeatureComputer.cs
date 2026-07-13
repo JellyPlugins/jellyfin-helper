@@ -294,7 +294,7 @@ internal static class TrainingFeatureComputer
             DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: true),
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: false),
             // Shared IsWeekend resolver: user-anchored, falls back to the most recently played
-            // episode's LastPlayedDate when the profile carries no anchor yet. See FIX-1.
+            // episode's LastPlayedDate when the profile carries no anchor yet.
             IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, mostRecent?.LastPlayedDate),
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency = episodes

@@ -7,8 +7,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
 ///     Tests for <see cref="TemporalFeatures.ResolveIsWeekend"/>, the shared helper that
-///     eliminates the five previously divergent IsWeekend semantics documented in
-///     v3-fix-plan.md (FIX-1). Verifies user-anchored precedence, per-item override, and
+///     eliminates the five previously divergent IsWeekend semantics. Verifies user-anchored precedence, per-item override, and
 ///     UtcNow last-resort behavior across all training + inference call sites.
 /// </summary>
 public class TemporalFeaturesTests

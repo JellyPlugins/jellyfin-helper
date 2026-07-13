@@ -59,10 +59,22 @@ internal static class DiversityReranker
         return result;
     }
 
+    /// <summary>
+    ///     Runs MMR-based diversity re-ranking on the top scored candidates and reserves the tail
+    ///     slots for exploration picks drawn from a widened low-relevance pool.
+    /// </summary>
+    /// <param name="candidates">The scored candidate list.</param>
+    /// <param name="count">The target number of recommendations.</param>
+    /// <param name="seed">
+    ///     Optional deterministic seed for the exploration sampler.
+    ///     Callers should combine user + batch/day identifiers via <see cref="HashCode.Combine{T1,T2}"/>.
+    /// </param>
+    /// <returns>The diversified selection of at most <paramref name="count"/> scored candidates.</returns>
     internal static List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>
         ApplyDiversityReranking(
             List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)> candidates,
-            int count)
+            int count,
+            int? seed = null)
     {
         if (count <= 0)
         {
@@ -75,9 +87,15 @@ internal static class DiversityReranker
         }
 
         var selected = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>(count);
-        // Take top count*5 candidates as the MMR selection pool. A larger pool
-        // gives MMR more diversity headroom in large libraries without a config knob.
-        var remaining = candidates.OrderByDescending(c => c.Score).Take(count * 5).ToList();
+        // Rank the entire candidate list once and split into two disjoint pools:
+        //   * mmrPool: top count·5 for the diversity-aware relevance selection.
+        //   * explorationPool: everything up to count·20 excluding the mmrPool head, so exploration
+        //     can inject picks from ranks 5·count … 20·count that MMR would never see.
+        // resampled the MMR cluster, defeating its stated purpose of gathering signal from the long tail.
+        var ranked = candidates.OrderByDescending(c => c.Score).ToList();
+        var mmrPoolSize = Math.Min(ranked.Count, count * 5);
+        var explorationPoolSize = Math.Min(ranked.Count, count * 20);
+        var remaining = ranked.Take(mmrPoolSize).ToList();
 
         // Multi-dimensional similarity caches: genre (50% weight), studio (30% weight), production year (20% weight).
         // Previously MMR looked at genres only, which meant it would happily surface two Marvel superhero
@@ -238,25 +256,57 @@ internal static class DiversityReranker
             }
         }
 
-        // Fill exploration slots with random picks from remaining candidates.
-        // These slots occupy the tail of the list (lowest-visibility positions)
-        // so high-relevance MMR picks are unaffected.
-        if (remaining.Count > 0 && selected.Count < count)
+        // Build the disjoint exploration pool:
+        //   * Start with the widened band ranks[mmrPoolSize .. explorationPoolSize].
+        //   * Add the MMR-pool leftovers (not selected by MMR) so we do not lose valid picks
+        //     when the widened band is smaller than the exploration slot count.
+        //   * Skip anything MMR already committed to, to avoid duplicate selections.
+        // This is the concrete implementation of FIX-2: exploration reaches beyond the MMR cluster.
+        if (selected.Count < count)
         {
-            var rng = Random.Shared;
-            var explorationCount = Math.Min(count - selected.Count, remaining.Count);
-            for (var e = 0; e < explorationCount; e++)
+            var mmrSelectedIds = new HashSet<Guid>(selected.Count);
+            foreach (var s in selected)
             {
-                var randIdx = rng.Next(remaining.Count);
-                selected.Add(remaining[randIdx]);
+                mmrSelectedIds.Add(s.Item.Id);
+            }
 
-                var lastIdx = remaining.Count - 1;
-                if (randIdx < lastIdx)
+            var explorationPool = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
+            for (var i = mmrPoolSize; i < explorationPoolSize; i++)
+            {
+                explorationPool.Add(ranked[i]);
+            }
+
+            // Fall back to the MMR-pool leftovers when the widened band is exhausted so that
+            // small libraries still get exploration signal (this preserves the previous behaviour
+            // as a floor rather than as the only source).
+            foreach (var entry in remaining)
+            {
+                if (!mmrSelectedIds.Contains(entry.Item.Id))
                 {
-                    remaining[randIdx] = remaining[lastIdx];
+                    explorationPool.Add(entry);
                 }
+            }
 
-                remaining.RemoveAt(lastIdx);
+            if (explorationPool.Count > 0)
+            {
+                // FIX-3: seedable RNG. Callers pass HashCode.Combine(userId, batchGenerationCounter)
+                // for offline batches or HashCode.Combine(userId, DayNumber) for live requests, so
+                // exploration picks are reproducible per user/context and unit tests can pin behaviour.
+                var rng = seed.HasValue ? new Random(seed.Value) : Random.Shared;
+                var explorationCount = Math.Min(count - selected.Count, explorationPool.Count);
+                for (var e = 0; e < explorationCount; e++)
+                {
+                    var randIdx = rng.Next(explorationPool.Count);
+                    selected.Add(explorationPool[randIdx]);
+
+                    var lastIdx = explorationPool.Count - 1;
+                    if (randIdx < lastIdx)
+                    {
+                        explorationPool[randIdx] = explorationPool[lastIdx];
+                    }
+
+                    explorationPool.RemoveAt(lastIdx);
+                }
             }
         }
 

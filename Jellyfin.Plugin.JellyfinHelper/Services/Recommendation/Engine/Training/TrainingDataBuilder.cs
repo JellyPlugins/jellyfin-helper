@@ -366,7 +366,7 @@ internal static class TrainingDataBuilder
                         userProfile,
                         isDay: false),
                     // Shared IsWeekend resolver: user's LastActivityDate wins, falls back to the
-                    // per-item LastPlayedDate when the profile carries no anchor yet. See FIX-1.
+                    // per-item LastPlayedDate when the profile carries no anchor yet.
                     IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, watchedItemForRec?.LastPlayedDate),
                     TagSimilarity = tagSimilarity,
                     LibraryAddedRecency = rec.DateCreated.HasValue

@@ -38,6 +38,11 @@ public sealed class Engine : IRecommendationEngine
     // Stored as a single immutable snapshot to prevent concurrent readers from mixing data across batches.
     private volatile CandidateSnapshot? _cachedSnapshot;
 
+    // Monotonic counter incremented once per GetAllRecommendations invocation. Snapshotted before the
+    // parallel scoring loop so every user in the same batch shares the same batchGeneration value,
+    // making the exploration seed deterministic per (user, batch) pair.
+    private int _batchGeneration;
+
     /// <summary>Initializes a new instance of the <see cref="Engine" /> class.</summary>
     /// <param name="watchHistoryService">The watch history service.</param>
     /// <param name="libraryManager">The Jellyfin library manager.</param>
@@ -82,6 +87,10 @@ public sealed class Engine : IRecommendationEngine
             return null;
         }
 
+        // Live requests get an exploration seed keyed to (userId, current UTC day). This keeps
+        // successive same-day requests deterministic without freezing exploration across days.
+        var liveSeed = HashCode.Combine(userId, DateOnly.FromDateTime(DateTime.UtcNow).DayNumber);
+
         if (userProfile.WatchedItems.Count == 0)
         {
             // Cold-start: user exists but has no watch history - return popular/trending items.
@@ -96,6 +105,7 @@ public sealed class Engine : IRecommendationEngine
                 userProfile.MaxParentalRating,
                 userProfile,
                 communityPopularity: null,
+                explorationSeed: liveSeed,
                 cancellationToken: cancellationToken);
         }
 
@@ -117,6 +127,7 @@ public sealed class Engine : IRecommendationEngine
             _strategy,
             null,
             alphaOffset,
+            liveSeed,
             cancellationToken);
     }
 
@@ -185,6 +196,11 @@ public sealed class Engine : IRecommendationEngine
     {
         cancellationToken.ThrowIfCancellationRequested();
         maxResultsPerUser = Math.Clamp(maxResultsPerUser, 1, EngineConstants.MaxRecommendationsPerUserLimit);
+
+        // Bump the batch counter once per invocation and snapshot the value so every user in this
+        // batch shares the same exploration seed context.
+        var batchGeneration = Interlocked.Increment(ref _batchGeneration);
+
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
         var candidates = LoadCandidateItems();
         var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
@@ -263,6 +279,9 @@ public sealed class Engine : IRecommendationEngine
             {
                 try
                 {
+                    // Combine the per-user id with the shared batch generation counter so every
+                    // batch produces a fresh but user-stable exploration seed.
+                    var batchSeed = HashCode.Combine(profile.UserId, batchGeneration);
                     var result = profile.WatchedItems.Count == 0
                         ? GenerateColdStartRecommendations(
                             profile.UserId,
@@ -272,7 +291,8 @@ public sealed class Engine : IRecommendationEngine
                             profile.MaxParentalRating,
                             profile,
                             communityPopularity,
-                            cancellationToken)
+                            explorationSeed: batchSeed,
+                            cancellationToken: cancellationToken)
                         : GenerateForUser(
                             profile,
                             allProfiles,
@@ -283,6 +303,7 @@ public sealed class Engine : IRecommendationEngine
                             _strategy,
                             precomputedUserSets,
                             _strategySelector.GetAlphaOffset(profile.UserId),
+                            batchSeed,
                             cancellationToken);
                     concurrentResults.Add(result);
                 }
@@ -338,6 +359,9 @@ public sealed class Engine : IRecommendationEngine
     ///     there is only one user in the system), the classic 60% rating + 40% recency formula
     ///     is used unchanged to preserve backward compatibility for isolated deployments.
     /// </param>
+    /// <param name="explorationSeed">
+    ///     Optional deterministic seed forwarded to <see cref="DiversityReranker.ApplyDiversityReranking"/>.
+    /// </param>
     /// <param name="cancellationToken">Token for cooperative cancellation during large candidate scans.</param>
     /// <returns>A recommendation result with popular/trending items.</returns>
     private RecommendationResult GenerateColdStartRecommendations(
@@ -348,6 +372,7 @@ public sealed class Engine : IRecommendationEngine
         int? maxParentalRating = null,
         UserWatchProfile? userProfile = null,
         IReadOnlyDictionary<Guid, int>? communityPopularity = null,
+        int? explorationSeed = null,
         CancellationToken cancellationToken = default)
     {
         var candidates = preloadedCandidates ?? LoadCandidateItems();
@@ -414,7 +439,7 @@ public sealed class Engine : IRecommendationEngine
             scored.Add((candidate, score, "Popular and highly rated", "reasonPopular", null));
         }
 
-        var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults)
+        var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed)
             .Select(s => new RecommendedItem
             {
                 ItemId = s.Item.Id,
@@ -563,6 +588,11 @@ public sealed class Engine : IRecommendationEngine
     ///     Pass null for single-user mode (sets will be built on-the-fly).
     /// </param>
     /// <param name="alphaOffset">Alpha offset for cohort-based exploration (0.0 = control group).</param>
+    /// <param name="explorationSeed">
+    ///     Optional deterministic seed for the diversity exploration RNG. Live requests pass
+    ///     <c>HashCode.Combine(userId, DateOnly.FromDateTime(DateTime.UtcNow).DayNumber)</c>,
+    ///     batch runs pass <c>HashCode.Combine(userId, batchGeneration)</c>.
+    /// </param>
     /// <param name="ct">Cancellation token for cooperative cancellation.</param>
     /// <returns>A recommendation result for the user.</returns>
     private RecommendationResult GenerateForUser(
@@ -575,6 +605,7 @@ public sealed class Engine : IRecommendationEngine
         IScoringStrategy strategy,
         Dictionary<Guid, HashSet<Guid>>? precomputedUserSets,
         double alphaOffset = 0.0,
+        int? explorationSeed = null,
         CancellationToken ct = default)
     {
         // Build a lookup of watched items by ID for O(1) access in scoring methods
@@ -741,7 +772,7 @@ public sealed class Engine : IRecommendationEngine
 
         scored = DiversityReranker.DeduplicateSeries(scored);
 
-        var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults)
+        var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed)
             .Select(s => new RecommendedItem
             {
                 ItemId = s.Item.Id,
@@ -907,7 +938,7 @@ public sealed class Engine : IRecommendationEngine
             HourOfDayAffinity = TemporalFeatures.ComputeHourOfDayAffinity(candidate, userProfile),
             // IsWeekend is resolved through TemporalFeatures.ResolveIsWeekend so that every
             // feature-vector construction site (live scoring + all four training phases) shares
-            // the exact same user-anchored precedence. See v3-fix-plan.md FIX-1.
+            // the exact same user-anchored precedence.
             IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile),
             TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags),
             LibraryAddedRecency = libraryAddedRecency,
