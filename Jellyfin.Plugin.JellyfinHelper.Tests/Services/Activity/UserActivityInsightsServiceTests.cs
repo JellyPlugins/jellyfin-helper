@@ -416,4 +416,40 @@ public class UserActivityInsightsServiceTests
         // Per-item fallback must NOT have been invoked once cancellation was requested.
         ud.Verify(m => m.GetUserData(It.IsAny<Jellyfin.Database.Implementations.Entities.User>(), It.IsAny<BaseItem>()), Times.Never);
     }
+
+    [Fact]
+    public void BuildActivityReport_BatchApiHappyPath_ConsumesBatchAndSkipsPerItemLookup()
+    {
+        // Happy path: a populated batch dictionary must be consumed via the O(1) lookup,
+        // and per-item GetUserData must not be touched. This locks in the core batch optimisation.
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movieA = NewMovie("Alpha");
+        var movieB = NewMovie("Beta");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movieA, movieB]);
+
+        var lastPlayedA = new DateTime(2026, 4, 1, 12, 0, 0, DateTimeKind.Utc);
+        var lastPlayedB = new DateTime(2026, 4, 2, 18, 30, 0, DateTimeKind.Utc);
+        var batchData = new Dictionary<Guid, UserItemData>
+        {
+            [movieA.Id] = Played(count: 4, at: lastPlayedA),
+            [movieB.Id] = Played(count: 2, at: lastPlayedB)
+        };
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+          .Returns(batchData);
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Equal(2, r.Items.Count);
+        Assert.Equal(6L, r.TotalPlayCount);
+        var alpha = r.Items.Single(i => i.ItemName == "Alpha");
+        var beta = r.Items.Single(i => i.ItemName == "Beta");
+        Assert.Equal(4, alpha.TotalPlayCount);
+        Assert.Equal(2, beta.TotalPlayCount);
+        Assert.Equal(lastPlayedA, alpha.MostRecentWatch);
+        Assert.Equal(lastPlayedB, beta.MostRecentWatch);
+        ud.Verify(m => m.GetUserData(alice, It.IsAny<BaseItem>()), Times.Never);
+        ud.Verify(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice), Times.Once);
+    }
 }
