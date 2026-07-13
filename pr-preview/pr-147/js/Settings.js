@@ -713,6 +713,28 @@ function doSaveSettings(payload, options) {
         renderSaveBand('saving');
     }
 
+    // Race fix: PluginLogLevel is owned by the Logs tab but Settings still round-trips the value
+    // it captured at page load. Without a fresh GET, saving Settings after an admin toggled the
+    // log level in the Logs tab (or in another browser tab) would silently roll it back. Fetch
+    // the current server value first and merge it into the payload; on GET failure we fall back
+    // to the cached _currentLogLevel to keep saves resilient when the API is briefly unreachable.
+    apiGet('JellyfinHelper/Configuration', function (freshCfg) {
+        if (freshCfg && typeof freshCfg.PluginLogLevel === 'string' && freshCfg.PluginLogLevel) {
+            payload.PluginLogLevel = freshCfg.PluginLogLevel;
+            _currentLogLevel = freshCfg.PluginLogLevel;
+        }
+        postSettingsPayload(payload, quiet, indicatorEl, btn, options);
+    }, function () {
+        postSettingsPayload(payload, quiet, indicatorEl, btn, options);
+    });
+}
+
+/**
+ * Internal: performs the actual POST after the log-level merge (see #13 race-fix comment above).
+ * Extracted from doSaveSettings so both the successful and failed GET paths converge on the same
+ * apiPost call site.
+ */
+function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
     apiPost('JellyfinHelper/Configuration', payload, function (response) {
         var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled;
         _wasTrashEnabled = payload.UseTrash;
