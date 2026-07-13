@@ -91,7 +91,6 @@ internal static class DiversityReranker
         //   * mmrPool: top count·5 for the diversity-aware relevance selection.
         //   * explorationPool: everything up to count·20 excluding the mmrPool head, so exploration
         //     can inject picks from ranks 5·count … 20·count that MMR would never see.
-        // resampled the MMR cluster, defeating its stated purpose of gathering signal from the long tail.
         var ranked = candidates.OrderByDescending(c => c.Score).ToList();
         var mmrPoolSize = Math.Min(ranked.Count, count * 5);
         var explorationPoolSize = Math.Min(ranked.Count, count * 20);

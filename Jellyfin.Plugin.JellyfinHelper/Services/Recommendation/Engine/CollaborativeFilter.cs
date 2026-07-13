@@ -113,7 +113,7 @@ internal static class CollaborativeFilter
             var otherCount = precomputedUserSets is not null &&
                              precomputedUserSets.TryGetValue(profile.UserId, out var otherSet)
                 ? otherSet.Count
-                : profile.WatchedItems.Count;
+                : BuildCombinedWatchSet(profile).Count;
             if (otherCount >= EngineConstants.CollaborativeTrustWatchCeiling)
             {
                 trustGateActive = true;

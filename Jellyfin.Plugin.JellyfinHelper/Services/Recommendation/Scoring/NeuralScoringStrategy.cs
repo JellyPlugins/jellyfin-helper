@@ -21,8 +21,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     </para>
 ///     <para>
 ///         Parameter count with 31 inputs:
-///         <c>(31·62 + 62) + (62·96 + 96) + (96·48 + 48) + (48·24 + 24) + (24·1 + 1) = 12 083</c>
-///         parameters — roughly 4× the previous v2 architecture (48-24-12-6 = 3 097 params) to
+///         <c>(31·62 + 62) + (62·96 + 96) + (96·48 + 48) + (48·24 + 24) + (24·1 + 1) = 13 889</c>
+///         parameters — roughly 4.5× the previous v2 architecture (48-24-12-6 = 3 097 params) to
 ///         accommodate a wider first layer (~2× input) as recommended for tabular MLPs, plus a
 ///         genuinely expressive second layer (96) so the network can compose interaction terms
 ///         between the ~30 features without an artificial early bottleneck.
@@ -36,7 +36,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///         keeps L2 regularisation, weight clamping and the Xavier/He initialisation calibrated.
 ///     </para>
 ///     Optimized for NAS/Docker with limited hardware: zero-allocation scoring path,
-///     pre-allocated training buffers, ~12 k FP multiplications per score.
+///     pre-allocated training buffers, ~14 k FP multiplications per score.
 ///     No external ML dependencies - pure C# implementation.
 /// </summary>
 /// <remarks>
@@ -157,7 +157,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>
     ///     JSON serializer options for weight persistence.
     ///     Compact (non-indented) output to reduce disk footprint —
-    ///     a 3097-parameter dump goes from ~90 KB indented to ~26 KB compact
+    ///     a 13889-parameter dump goes from ~410 KB indented to ~120 KB compact
     ///     without any loss of information. Weights are machine-read only; there
     ///     is no human-review benefit to indentation.
     /// </summary>
