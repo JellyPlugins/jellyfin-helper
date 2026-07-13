@@ -26,7 +26,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.5 (served from the same plugin repository).
 
 ### Tests
-- Total: **2442 tests** (+124 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths, weighted `PeopleSimilarity`, and the 16-Fact `CollectionProgressionBoostTests` locking the shared `0.3 + (n-1) × 0.2` progression formula.
+- Total: **2466 tests** (+148 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths, weighted `PeopleSimilarity`, and the 16-Fact `CollectionProgressionBoostTests` locking the shared `0.3 + (n-1) × 0.2` progression formula.
 
 ---
 
