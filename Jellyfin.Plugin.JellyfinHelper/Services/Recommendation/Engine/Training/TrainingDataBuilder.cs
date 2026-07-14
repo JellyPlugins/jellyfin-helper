@@ -93,11 +93,14 @@ internal static class TrainingDataBuilder
             }
         }
 
-        // Pre-compute itemId ? studios and itemId ? tags lookups ONCE from all previous results.
+        // Pre-compute itemId ? studios / tags / BoxSet lookups ONCE from all previous results.
         // This avoids O(users × results × recommendations) rescanning in BuildStudioPreferenceSetFromCache
         // and BuildTagPreferenceSetFromCache - each user's preference set is now O(watchedItems) instead.
+        // The BoxSet lookup mirrors the shape of Engine's live candidateBoxSetLookup so training and
+        // inference can iterate watched items (organic or recommended) through the same helper.
         var itemStudiosLookup = new Dictionary<Guid, IReadOnlyList<string>>();
         var itemTagsLookup = new Dictionary<Guid, IReadOnlyList<string>>();
+        var itemBoxSetIdsLookup = new Dictionary<Guid, IReadOnlyList<Guid>>();
         foreach (var prevResult in previousResults)
         {
             foreach (var rec in prevResult.Recommendations)
@@ -110,6 +113,11 @@ internal static class TrainingDataBuilder
                 if (!itemTagsLookup.ContainsKey(rec.ItemId) && rec.Tags.Count > 0)
                 {
                     itemTagsLookup[rec.ItemId] = rec.Tags;
+                }
+
+                if (!itemBoxSetIdsLookup.ContainsKey(rec.ItemId) && rec.BoxSetIds.Count > 0)
+                {
+                    itemBoxSetIdsLookup[rec.ItemId] = rec.BoxSetIds;
                 }
             }
         }
@@ -221,21 +229,27 @@ internal static class TrainingDataBuilder
                 watchedStudioSets.Add(studioSet);
             }
 
-            // Build per-user watchedBoxSetCounts from cached recommendations (mirrors Engine.BuildWatchedBoxSetCounts).
-            // For each recommendation that the user actually watched, accumulate its BoxSet membership counts.
-            // This enables ComputeCollectionProgressionBoostFromCache to use the same diminishing-returns
-            // formula as ComputeCollectionProgressionBoostLive, achieving training/inference parity.
-            var watchedBoxSetCounts = new Dictionary<Guid, int>();
-            foreach (var rec in prevResult.Recommendations)
+            // Build per-user watchedBoxSetCounts by iterating the user's watched items directly,
+            // matching Engine.BuildWatchedBoxSetCounts. Uses the global itemBoxSetIdsLookup so
+            // organic watches (items the user found on their own, never recommended to them) also
+            // contribute BoxSet membership when the item was recommended to at least one other user
+            // and thus has BoxSet metadata cached. Previously only recommendations for THIS user
+            // were considered, systematically under-counting BoxSet progression at training time.
+            var watchedForBoxSetsPhase1 = new HashSet<Guid>(watchedIds);
+            if (watchedSeriesIds is not null)
             {
-                var isWatched = watchedIds.Contains(rec.ItemId)
-                                || (watchedSeriesIds?.Contains(rec.ItemId) ?? false);
-                if (!isWatched || rec.BoxSetIds.Count == 0)
+                watchedForBoxSetsPhase1.UnionWith(watchedSeriesIds);
+            }
+
+            var watchedBoxSetCounts = new Dictionary<Guid, int>();
+            foreach (var watchedId in watchedForBoxSetsPhase1)
+            {
+                if (!itemBoxSetIdsLookup.TryGetValue(watchedId, out var watchedBoxSetIds))
                 {
                     continue;
                 }
 
-                foreach (var boxSetId in rec.BoxSetIds)
+                foreach (var boxSetId in watchedBoxSetIds)
                 {
                     watchedBoxSetCounts.TryGetValue(boxSetId, out var count);
                     watchedBoxSetCounts[boxSetId] = count + 1;
@@ -813,29 +827,27 @@ internal static class TrainingDataBuilder
                     watchedStudioSetsNeg.Add(studioSetN);
                 }
 
-                // Build a per-user watchedBoxSetCounts lookup for CollectionProgressionBoost parity.
-                // Skew fix: previously Phase 3 used a flat 0/0.3/0.5 heuristic while inference used a
-                // diminishing-returns formula (0.3 + (n-1)*0.2). This caused the neural network to see
-                // two systematically different distributions for the same feature between train and serve.
-                // We now scan the flat allRecommendedItems list once per user, resolve which recommendations
-                // this user actually watched (via userWatchedIds + userWatchedSeriesIds), and accumulate
-                // BoxSet membership counts identically to Engine.BuildWatchedBoxSetCounts + Phase 1.
-                var watchedBoxSetCountsNeg = new Dictionary<Guid, int>();
-                foreach (var rec in allRecommendedItems)
+                // Build a per-user watchedBoxSetCounts lookup by iterating this user's watched items
+                // directly and resolving BoxSet membership through the global itemBoxSetIdsLookup.
+                // Matches Engine.BuildWatchedBoxSetCounts so organic watches also contribute counts
+                // whenever the item was recommended to at least one other user (so we have BoxSet
+                // metadata for it). This closes the earlier train/serve gap where Phase 3 only saw
+                // items recommended to this user's neighbours in the recommendation set.
+                var watchedForBoxSetsNeg = new HashSet<Guid>(userWatchedIds);
+                if (userWatchedSeriesIds is not null)
                 {
-                    if (rec.BoxSetIds.Count == 0)
+                    watchedForBoxSetsNeg.UnionWith(userWatchedSeriesIds);
+                }
+
+                var watchedBoxSetCountsNeg = new Dictionary<Guid, int>();
+                foreach (var watchedId in watchedForBoxSetsNeg)
+                {
+                    if (!itemBoxSetIdsLookup.TryGetValue(watchedId, out var negBoxSetIds))
                     {
                         continue;
                     }
 
-                    var isWatchedByUser = userWatchedIds.Contains(rec.ItemId)
-                                          || (userWatchedSeriesIds?.Contains(rec.ItemId) ?? false);
-                    if (!isWatchedByUser)
-                    {
-                        continue;
-                    }
-
-                    foreach (var boxSetId in rec.BoxSetIds)
+                    foreach (var boxSetId in negBoxSetIds)
                     {
                         watchedBoxSetCountsNeg.TryGetValue(boxSetId, out var count);
                         watchedBoxSetCountsNeg[boxSetId] = count + 1;
@@ -984,8 +996,8 @@ internal static class TrainingDataBuilder
     /// <summary>
     ///     Computes CollectionProgressionBoost using the same diminishing-returns formula as
     ///     <see cref="Engine.ComputeCollectionProgressionBoostLive"/>. Uses a pre-built
-    ///     <paramref name="watchedBoxSetCounts"/> dictionary (built once per user from cached
-    ///     recommendations) to achieve training/inference parity.
+    ///     <paramref name="watchedBoxSetCounts"/> dictionary (built once per user by iterating
+    ///     the user's watched items through the global BoxSet lookup) to achieve training/inference parity.
     ///     <para>
     ///         Roadmap v3 (C3): visibility raised from <c>private</c> to <c>internal</c> so the
     ///         test assembly (via <c>InternalsVisibleTo</c>) can call it directly, without reflection.
