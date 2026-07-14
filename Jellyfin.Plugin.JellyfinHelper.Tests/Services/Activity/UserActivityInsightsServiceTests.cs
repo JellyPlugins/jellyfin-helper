@@ -418,6 +418,32 @@ public class UserActivityInsightsServiceTests
     }
 
     [Fact]
+    public void BuildActivityReport_BatchApiCancelledOnSecondUser_PropagatesWithoutPartialReport()
+    {
+        // Multi-user variant of BuildActivityReport_BatchApiCancelled_PropagatesWithoutFallback.
+        // Locks in the invariant documented on BuildUserDataLookup: cancellation mid-scan aborts
+        // the entire report; no caller ever observes a partial result even when earlier users
+        // already had their batch loaded successfully.
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var bob = User("bob");
+        var movie = NewMovie("Shared");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice, bob });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+
+        // Alice's batch succeeds; Bob's batch is cancelled.
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+          .Returns(new Dictionary<Guid, UserItemData> { [movie.Id] = Played(count: 1) });
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), bob))
+          .Throws(new OperationCanceledException());
+
+        Assert.Throws<OperationCanceledException>(() => svc.BuildActivityReport());
+        // Neither user is allowed to trigger the per-item fallback once cancellation was requested,
+        // and no partially-scored summary ever reaches the caller.
+        ud.Verify(m => m.GetUserData(It.IsAny<Jellyfin.Database.Implementations.Entities.User>(), It.IsAny<BaseItem>()), Times.Never);
+    }
+
+    [Fact]
     public void BuildActivityReport_BatchApiHappyPath_ConsumesBatchAndSkipsPerItemLookup()
     {
         // Happy path: a populated batch dictionary must be consumed via the O(1) lookup,
