@@ -1086,7 +1086,8 @@ public sealed class Engine : IRecommendationEngine
             genrePreferences,
             preferredPeople,
             preferredStudios,
-            peopleLookup);
+            peopleLookup,
+            preferredPeopleWeights);
 
         return (candidate, explanation.FinalScore, reason, reasonKey, relatedItem);
     }
