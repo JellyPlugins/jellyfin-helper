@@ -217,7 +217,11 @@ internal sealed class TrainingService
             heldOutSplit = [];
         }
 
-        var trained = (strategy is ITrainableStrategy trainable) && trainable.Train(trainSplit);
+        // Pass the held-out slice into the strategy so the metrics it publishes (used by the
+        // ensemble's quality gate + trend analyser) come from the same out-of-sample set the
+        // log line below reports. This keeps the two sources of truth in sync.
+        var trained = strategy is ITrainableStrategy trainable
+            && trainable.Train(trainSplit, heldOutSplit.Count >= 2 ? heldOutSplit : null);
 
         if (trained)
         {

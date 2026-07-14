@@ -42,7 +42,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>L2 regularization strength (weight decay).</summary>
     internal const double L2Lambda = 0.001;
 
-    /// <summary>Maximum number of training epochs per <see cref="Train"/> call.</summary>
+    /// <summary>Maximum number of training epochs per <see cref="Train(IReadOnlyList{TrainingExample})"/> call.</summary>
     internal const int MaxTrainingEpochs = 30;
 
     /// <summary>Minimum number of training examples required before training runs.</summary>
@@ -291,7 +291,10 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <returns>True if training was performed, false if insufficient data.</returns>
-    public bool Train(IReadOnlyList<TrainingExample> examples)
+    public bool Train(IReadOnlyList<TrainingExample> examples) => Train(examples, heldOutForMetrics: null);
+
+    /// <inheritdoc />
+    public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
     {
         if (examples.Count < MinTrainingExamples)
         {
@@ -476,7 +479,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         // which acquires _syncRoot. While Monitor is reentrant (no deadlock), holding the lock
         // during the entire scoring loop unnecessarily blocks all concurrent Score() callers.
         // This mirrors the pattern used by NeuralScoringStrategy.Train().
-        var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(examples, this);
+        //
+        // Prefer the caller-supplied held-out slice so the ensemble's quality snapshot reports
+        // out-of-sample numbers. If the caller passed nothing (or too little to be meaningful)
+        // we fall back to fit-on-training so metrics are still populated.
+        var metricsSource = heldOutForMetrics is { Count: >= 2 } ? heldOutForMetrics : examples;
+        var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
         lock (_syncRoot)
         {
             _lastPrecisionAtK = pAtK;

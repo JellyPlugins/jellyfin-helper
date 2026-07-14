@@ -46,4 +46,20 @@ public interface ITrainableStrategy
     /// <param name="examples">Training examples (features + positive/negative label).</param>
     /// <returns>True if training was performed, false if insufficient data.</returns>
     bool Train(IReadOnlyList<TrainingExample> examples);
+
+    /// <summary>
+    ///     Train the strategy on <paramref name="examples"/> and publish ranking metrics computed
+    ///     on <paramref name="heldOutForMetrics"/>. This lets the caller (TrainingService) reserve
+    ///     a genuine out-of-sample slice once and have every strategy report P@K/R@K/NDCG on the
+    ///     same set the caller uses for its own log line, so the ensemble's quality snapshot and
+    ///     the outer training log never disagree.
+    /// </summary>
+    /// <param name="examples">Training examples the strategy is free to fit on.</param>
+    /// <param name="heldOutForMetrics">
+    ///     Optional held-out slice used only for ranking-metric computation.
+    ///     When <c>null</c> or too small, implementations fall back to their previous behaviour.
+    /// </param>
+    /// <returns>True if training was performed, false if insufficient data.</returns>
+    bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
+        => Train(examples);
 }

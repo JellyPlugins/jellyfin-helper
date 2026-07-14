@@ -92,7 +92,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// <summary>Adam ε for numerical stability.</summary>
     internal const double AdamEpsilon = 1e-8;
 
-    /// <summary>Maximum training epochs per <see cref="Train"/> call.</summary>
+    /// <summary>Maximum training epochs per <see cref="Train(IReadOnlyList{TrainingExample})"/> call.</summary>
     internal const int MaxTrainingEpochs = 50;
 
     /// <summary>Minimum training examples required before training runs. Higher due to increased model capacity.</summary>
@@ -127,7 +127,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     ///     during training. A value of 0.8 corresponds to a 20 % drop rate, which is a well-known
     ///     mid-range choice for small tabular MLPs; smaller networks like ours (a few thousand
     ///     parameters) prefer light regularization to preserve capacity, while larger nets can
-    ///     go to 0.5. Applied ONLY during <see cref="Train"/>; inference (<see cref="Score"/> /
+    ///     go to 0.5. Applied ONLY during <see cref="Train(IReadOnlyList{TrainingExample})"/>; inference (<see cref="Score"/> /
     ///     <see cref="ScoreVector"/> / <see cref="ScoreWithExplanation"/>) uses the deterministic
     ///     no-dropout forward pass so recommendations are reproducible for a given weight set.
     ///     Values ≥ 1.0 disable dropout entirely (useful for tests).
@@ -685,7 +685,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <returns>True if training was performed, false if insufficient data.</returns>
-    public bool Train(IReadOnlyList<TrainingExample> examples)
+    public bool Train(IReadOnlyList<TrainingExample> examples) => Train(examples, heldOutForMetrics: null);
+
+    /// <inheritdoc />
+    public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
     {
         if (examples.Count < MinTrainingExamples)
         {
@@ -1162,7 +1165,11 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         TrySaveWeights();
 
         // Compute ranking metrics outside the write lock (Score() needs read lock).
-        var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(examples, this);
+        // Prefer the caller-supplied held-out slice so P@K/R@K/NDCG are genuine out-of-sample
+        // numbers instead of training-set fit. Falls back to training set only when no held-out
+        // slice was passed or it's too small to be meaningful.
+        var metricsSource = heldOutForMetrics is { Count: >= 2 } ? heldOutForMetrics : examples;
+        var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
         lock (_syncRoot)
         {
             _lastPrecisionAtK = pAtK;

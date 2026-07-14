@@ -151,7 +151,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     ///     defaults) and machine-read only, so indentation adds no operational value.
     ///     <para>
     ///         <see cref="JsonNumberHandling.AllowNamedFloatingPointLiterals"/> is required
-    ///         because the cold-start placeholder in <see cref="Train"/> persists
+    ///         because the cold-start placeholder in <see cref="Train(IReadOnlyList{TrainingExample})"/> persists
     ///         <c>ValidationLoss = double.NaN</c>. With the default handling
     ///         <see cref="JsonSerializer.Serialize{TValue}(TValue, JsonSerializerOptions)"/>
     ///         would throw <see cref="ArgumentException"/> on <c>NaN</c>/<c>±Infinity</c>,
@@ -598,12 +598,16 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <returns>True if training was performed, false if insufficient data.</returns>
-    public bool Train(IReadOnlyList<TrainingExample> examples)
+    public bool Train(IReadOnlyList<TrainingExample> examples) => Train(examples, heldOutForMetrics: null);
+
+    /// <inheritdoc />
+    public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
     {
-        var result = _learned.Train(examples);
+        var result = ((ITrainableStrategy)_learned).Train(examples, heldOutForMetrics);
 
         // Also train neural strategy if available (independent of learned success)
-        var neuralTrained = _neural is not null && _neural.Train(examples);
+        var neuralTrained = _neural is not null
+            && ((ITrainableStrategy)_neural).Train(examples, heldOutForMetrics);
 
         if (result)
         {
@@ -1130,8 +1134,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <summary>
     ///     Tries to persist current ensemble state to disk.
     ///     Snapshot and serialization are performed under lock to ensure consistency
-    ///     with concurrent <see cref="Train"/> calls (analogous to
-    ///     <see cref="LearnedScoringStrategy.TrySaveWeights"/>).
+    ///     with concurrent <see cref="Train(IReadOnlyList{TrainingExample})"/> calls (analogous to
+    ///     <c>LearnedScoringStrategy.TrySaveWeights</c>).
     /// </summary>
     private void TrySaveState()
     {
