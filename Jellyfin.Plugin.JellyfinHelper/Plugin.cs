@@ -37,6 +37,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Instance = this;
         _applicationPaths = applicationPaths;
         _logger = logger;
+        ReportClampedConfigValues();
         InjectScript();
     }
 
@@ -84,6 +85,49 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 EmbeddedResourcePath = GetType().Namespace + ".PluginPages.configPage.html"
             },
         ];
+    }
+
+    /// <summary>
+    ///     Surfaces any config values that were clamped during XML deserialization as a single
+    ///     warning line per affected property. Fixes the previous silent-clamp behaviour where a
+    ///     hand-edited value outside the accepted range would be quietly narrowed with no
+    ///     feedback to the operator.
+    /// </summary>
+    private void ReportClampedConfigValues()
+    {
+        // BasePlugin<T>.Configuration is lazily materialised — in the real host it is populated
+        // before this ctor runs, but tests spin up a bare Plugin instance without a serializer
+        // wiring, so Configuration may still be null here. Skip silently in that case.
+        PluginConfiguration? config = null;
+        try
+        {
+            config = Configuration;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or NullReferenceException or IOException)
+        {
+            _logger.LogDebug(ex, "[Configuration] Configuration unavailable at startup; skipping clamp report");
+            return;
+        }
+
+        if (config is null)
+        {
+            return;
+        }
+
+        var reports = config.DrainClampReports();
+        if (reports.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var entry in reports)
+        {
+            _logger.LogWarning(
+                "[Configuration] Value for {Property} was outside its accepted range and was clamped: {Raw} -> {Clamped}",
+                entry.PropertyName,
+                entry.RawValue,
+                entry.ClampedValue);
+        }
     }
 
     /// <summary>

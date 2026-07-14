@@ -222,6 +222,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   └── UserActivityController.cs        # User activity insights API
 ├── Configuration/
 │   ├── PluginConfiguration.cs   # All config properties with defaults
+│   ├── ClampReportEntry.cs      # Record for reporting clamped config values at startup
 │   ├── TaskMode.cs              # Deactivate / DryRun / Activate enum
 │   └── ArrInstanceConfig.cs     # Per-instance Arr configuration
 ├── Services/
