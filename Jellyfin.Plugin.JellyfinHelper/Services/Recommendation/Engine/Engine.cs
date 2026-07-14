@@ -143,13 +143,15 @@ public sealed class Engine : IRecommendationEngine
         {
             // Cold-start: user exists but has no watch history - return popular/trending items.
             // Reuse cached candidates from the last batch run if available to avoid redundant library queries.
-            // Community-popularity prior is built on-demand here from the current watch profiles
-            // so a brand-new user's first "Recommendations" request (typically before the scheduled
-            // batch has run) gets the same community-blended cold-start ranking as the batch path
-            // would have produced. When there are fewer than two users with any watch history the
-            // helper returns null and GenerateColdStartRecommendations falls back to the classic
-            // rating + recency formula unchanged.
-            var communityPopularity = BuildCommunityPopularityForColdStart();
+            // Prefer the community-popularity map already computed by the last batch run (or the
+            // previous live path if it walked this branch first) — that keeps live cold-start hits
+            // out of GetAllUserWatchProfiles + PrecomputeUserWatchSets, which used to run per HTTP
+            // request. Only when the snapshot has no popularity attached (very first hit after
+            // startup, single-user deployment) do we build it on-demand so the user still gets the
+            // community-blended ranking. Fewer than two users with watch history → helper returns
+            // null and GenerateColdStartRecommendations falls back to the classic rating + recency
+            // formula unchanged.
+            var communityPopularity = snapshot.CommunityPopularity ?? BuildCommunityPopularityForColdStart();
             return GenerateColdStartRecommendations(
                 userId,
                 maxResults,
@@ -284,7 +286,15 @@ public sealed class Engine : IRecommendationEngine
         // CreatedAtUtc drives the CandidateSnapshotMaxAge check in GetRecommendations so that a
         // long gap between scheduled batches never lets the live path serve arbitrarily stale
         // BaseItem references (which JF's metadata refresh may mutate in-place).
-        _cachedSnapshot = new CandidateSnapshot(candidates, peopleLookup, candidateBoxSetLookup, seriesEpisodeCounts, DateTime.UtcNow);
+        // The snapshot is republished a few lines below with the community-popularity map filled in,
+        // so live cold-start requests can reuse it instead of re-scanning every user's watch history.
+        _cachedSnapshot = new CandidateSnapshot(
+            candidates,
+            peopleLookup,
+            candidateBoxSetLookup,
+            seriesEpisodeCounts,
+            null,
+            DateTime.UtcNow);
 
         // Pre-compute all user watched-item sets ONCE for collaborative filtering.
         // Reduces O(U²×M) to O(U×M) by sharing sets across BuildCollaborativeMap calls.
@@ -331,6 +341,18 @@ public sealed class Engine : IRecommendationEngine
                 }
             }
         }
+
+        // Republish the snapshot with the community-popularity map filled in. Live cold-start
+        // requests that arrive between batch runs can now read this map directly instead of
+        // re-computing it (which required GetAllUserWatchProfiles + PrecomputeUserWatchSets on
+        // every hit — an O(U×M) scan for every single new-user request).
+        _cachedSnapshot = new CandidateSnapshot(
+            candidates,
+            peopleLookup,
+            candidateBoxSetLookup,
+            seriesEpisodeCounts,
+            communityPopularity,
+            DateTime.UtcNow);
 
         _pluginLog.LogInfo(
             "Recommendations",
@@ -1446,6 +1468,7 @@ public sealed class Engine : IRecommendationEngine
                 peopleLookup,
                 boxSetLookup,
                 seriesEpisodeCounts,
+                null,
                 DateTime.UtcNow);
 
             // Republish so subsequent live requests hit the fresh cache without re-entering
@@ -1738,6 +1761,13 @@ public sealed class Engine : IRecommendationEngine
     ///     empty-series filter. Consumed by <see cref="PreferenceBuilder"/> to weight
     ///     watched-episode signals by the fraction of the series the user has actually seen.
     /// </param>
+    /// <param name="CommunityPopularity">
+    ///     Optional community-popularity map (itemId → number of users who watched it) computed
+    ///     once per batch and republished onto the snapshot so live cold-start requests reuse it
+    ///     instead of re-scanning every user's watch history on every hit. Null on the initial
+    ///     snapshot from <see cref="GetOrRefreshLiveSnapshot"/> (which does not have all-user data)
+    ///     and on batches with fewer than two users with any watch history.
+    /// </param>
     /// <param name="CreatedAtUtc">
     ///     UTC timestamp at which this snapshot was published. Used together with
     ///     <see cref="CandidateSnapshotMaxAge"/> to bound the reuse window for the on-demand
@@ -1750,5 +1780,6 @@ public sealed class Engine : IRecommendationEngine
         Dictionary<Guid, HashSet<string>> PeopleLookup,
         Dictionary<Guid, List<Guid>> CandidateBoxSetLookup,
         Dictionary<Guid, int> SeriesEpisodeCounts,
+        Dictionary<Guid, int>? CommunityPopularity,
         DateTime CreatedAtUtc);
 }
