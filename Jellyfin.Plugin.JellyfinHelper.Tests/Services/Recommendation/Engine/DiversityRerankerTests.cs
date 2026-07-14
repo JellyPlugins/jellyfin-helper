@@ -98,7 +98,8 @@ public class DiversityRerankerTests
         // so a rank ≥ 100 pick was impossible.
         var candidates = BuildLinearlyDecreasingCandidates(400);
         const int count = 20;
-        const int mmrPoolSize = count * 5; // 100
+        // Reference the shared constant so any future retune touches a single line.
+        var mmrPoolSize = count * DiversityReranker.MmrPoolFactor;
 
         var reachedWidenedBand = false;
         for (var seed = 0; seed < 40 && !reachedWidenedBand; seed++)
@@ -117,6 +118,28 @@ public class DiversityRerankerTests
 
         Assert.True(reachedWidenedBand,
             "Exploration must be able to reach picks from the widened band (rank ≥ count·5).");
+    }
+
+    [Fact]
+    public void ApplyDiversityReranking_NullSeed_UsesRandomSharedFallback()
+    {
+        // Locks in the documented "opt-in to non-deterministic exploration" fallback: when the
+        // caller passes seed=null (the default), the method must still return a valid, complete
+        // recommendation list rather than throwing. Two runs are almost certain to differ in the
+        // tail because Random.Shared is not deterministic across invocations. We only assert the
+        // fallback is reachable and produces valid output — the "does the shape differ" check
+        // is intentionally loose because process-wide entropy could theoretically produce a
+        // collision (extremely unlikely with 320-element pools).
+        var candidates = BuildLinearlyDecreasingCandidates(400);
+        const int count = 20;
+
+        var runA = DiversityReranker.ApplyDiversityReranking(candidates, count);
+        var runB = DiversityReranker.ApplyDiversityReranking(candidates, count);
+
+        Assert.Equal(count, runA.Count);
+        Assert.Equal(count, runB.Count);
+        Assert.Equal(runA.Count, runA.Select(x => x.Item.Id).Distinct().Count());
+        Assert.Equal(runB.Count, runB.Select(x => x.Item.Id).Distinct().Count());
     }
 
     [Fact]

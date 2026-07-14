@@ -13,6 +13,21 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 internal static class DiversityReranker
 {
     /// <summary>
+    ///     Multiplier that widens the MMR candidate pool relative to the requested result count.
+    ///     For <c>count = 20</c> the top <c>20 × 5 = 100</c> candidates feed MMR's diversity-aware
+    ///     relevance selection. Kept here (not in EngineConstants) because the exploration-pool
+    ///     factor is tightly coupled to it and both are internal to this reranker.
+    /// </summary>
+    internal const int MmrPoolFactor = 5;
+
+    /// <summary>
+    ///     Multiplier for the wider "exploration" candidate band. For <c>count = 20</c> the widened
+    ///     band spans ranks <c>20 × MmrPoolFactor</c> .. <c>20 × ExplorationPoolFactor</c> — i.e.
+    ///     100..400 — so exploration picks can reach beyond MMR's cluster.
+    /// </summary>
+    internal const int ExplorationPoolFactor = 20;
+
+    /// <summary>
     ///     Deduplicates series entries: when episodes or seasons from the same series
     ///     appear as separate candidates, keeps only the highest-scored entry per series.
     ///     Non-series items (movies, etc.) are passed through unchanged.
@@ -91,12 +106,14 @@ internal static class DiversityReranker
 
         var selected = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>(count);
         // Rank the entire candidate list once and split into two disjoint pools:
-        //   * mmrPool: top count·5 for the diversity-aware relevance selection.
-        //   * explorationPool: everything up to count·20 excluding the mmrPool head, so exploration
-        //     can inject picks from ranks 5·count … 20·count that MMR would never see.
+        //   * mmrPool: top count·MmrPoolFactor for the diversity-aware relevance selection.
+        //   * explorationPool: everything up to count·ExplorationPoolFactor excluding the mmrPool head,
+        //     so exploration can inject picks from ranks MmrPoolFactor·count … ExplorationPoolFactor·count
+        //     that MMR would never see. The two factors live as internal constants above so any future
+        //     retune touches a single line and the tests reference the same source of truth.
         var ranked = candidates.OrderByDescending(c => c.Score).ToList();
-        var mmrPoolSize = Math.Min(ranked.Count, count * 5);
-        var explorationPoolSize = Math.Min(ranked.Count, count * 20);
+        var mmrPoolSize = Math.Min(ranked.Count, count * MmrPoolFactor);
+        var explorationPoolSize = Math.Min(ranked.Count, count * ExplorationPoolFactor);
         var remaining = ranked.Take(mmrPoolSize).ToList();
 
         // Multi-dimensional similarity caches: genre (50% weight), studio (30% weight), production year (20% weight).
