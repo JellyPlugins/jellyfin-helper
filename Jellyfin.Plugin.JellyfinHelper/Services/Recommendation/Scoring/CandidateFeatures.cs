@@ -339,12 +339,16 @@ public sealed class CandidateFeatures
     ///     Gets or sets the library-added recency score (0-1).
     ///     How recently the item was added to the Jellyfin library (DateCreated).
     ///     Separate from RecencyScore which uses content release date (PremiereDate).
-    ///     Values are clamped to [0, 1]; NaN defaults to 0.
+    ///     Values are clamped to [0, 1]; NaN defaults to 0.5 (neutral / unknown), matching
+    ///     how other missing-data channels — e.g. <see cref="LanguageAffinity"/> — treat items
+    ///     that lack the underlying signal. Previously NaN collapsed to 0.0 which biased the
+    ///     network against candidates with incomplete metadata as if they were "very old", a
+    ///     penalty that had no basis in observed user preference.
     /// </summary>
     public double LibraryAddedRecency
     {
         get => _libraryAddedRecency;
-        set => _libraryAddedRecency = Clamp01(value);
+        set => _libraryAddedRecency = Clamp01(value, 0.5);
     }
 
     /// <summary>

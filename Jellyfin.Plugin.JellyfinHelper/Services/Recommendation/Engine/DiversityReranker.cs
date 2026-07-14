@@ -210,11 +210,24 @@ internal static class DiversityReranker
             return availableWeight > 0.0 ? weightedSimilarity / availableWeight : 0.0;
         }
 
-        // Fill most slots via MMR, reserving the last ExplorationSlotCount slots
-        // for random exploration picks. This guarantees the model receives diverse
-        // feedback even when MMR converges on a narrow genre cluster.
-        // Cap exploration at count-1 so small lists still get at least one relevance-driven pick.
-        var explorationSlots = Math.Min(EngineConstants.ExplorationSlotCount, Math.Max(0, count - 1));
+        // Fill most slots via MMR, reserving the last few slots for random exploration
+        // picks. This guarantees the model receives diverse feedback while keeping the
+        // list relevance-dominated.
+        //
+        // Slot-allocation strategy scales exploration with list size so admins who
+        // shrink MaxRecommendationsPerUser to 3-5 items don't end up with 50-66% random
+        // exploration. Previously the flat ExplorationSlotCount ceiling meant:
+        //   count=2 → 1 exploration + 1 MMR   (50% random)
+        //   count=3 → 2 exploration + 1 MMR   (66% random)
+        //   count>=10 → 2 exploration + rest MMR
+        // Now we cap exploration at max(1, count / ExplorationSlotDivisor) so exploration
+        // stays roughly ~10% of the list, matching what count=20 configurations always saw.
+        // For tiny lists (count < divisor) exploration is 1 slot; the ceiling is still
+        // ExplorationSlotCount so large lists behave identically to before.
+        var proportionalCap = Math.Max(1, count / EngineConstants.ExplorationSlotDivisor);
+        var explorationSlots = Math.Min(
+            EngineConstants.ExplorationSlotCount,
+            Math.Min(proportionalCap, Math.Max(0, count - 1)));
         var mmrSlotCount = count - explorationSlots;
 
         while (selected.Count < mmrSlotCount && remaining.Count > 0)

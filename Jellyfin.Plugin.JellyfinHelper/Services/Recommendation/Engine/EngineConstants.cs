@@ -187,6 +187,16 @@ internal static class EngineConstants
     internal const int ExplorationSlotCount = 2;
 
     /// <summary>
+    ///     Divisor for the proportional exploration-slot allocation. For lists smaller than
+    ///     the default <see cref="ExplorationSlotCount"/> ratio, exploration is capped at
+    ///     <c>Math.Max(1, count / ExplorationSlotDivisor)</c> so small
+    ///     <c>MaxRecommendationsPerUser</c> configurations (3-5 items) don't degenerate
+    ///     into 50-66% random picks. 10 keeps exploration at ~10% of the list — matching
+    ///     what count=20 configurations have always seen (2/20).
+    /// </summary>
+    internal const int ExplorationSlotDivisor = 10;
+
+    /// <summary>
     ///     Maximum number of random negative samples added per user during training.
     ///     These are items recommended to OTHER users that this user never interacted with,
     ///     providing the model with true "irrelevant" examples to sharpen the decision boundary.
