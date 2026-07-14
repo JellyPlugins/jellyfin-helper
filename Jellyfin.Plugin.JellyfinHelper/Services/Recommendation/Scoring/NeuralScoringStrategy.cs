@@ -1337,11 +1337,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
     /// <summary>
     ///     Training-time forward pass that additionally applies inverted
-    ///     Bernoulli dropout to each hidden layer's activations. This is a strict SUPERSET of
+    ///     Bernoulli dropout to each hidden layer's activations. Numerically a superset of
     ///     <see cref="ForwardPass"/>: with <paramref name="keepProbability"/> ≥ 1.0 (or the
-    ///     equivalent <paramref name="invKeepScale"/> = 1.0) the numerical output is bit-identical
-    ///     to <see cref="ForwardPass"/>, so tests can pin down "dropout off" behaviour without a
-    ///     second code path.
+    ///     equivalent <paramref name="invKeepScale"/> = 1.0) the mathematical output is
+    ///     bit-identical to <see cref="ForwardPass"/>, so tests can pin down "dropout off"
+    ///     behaviour without a second code path. The dropout-off path is a hair slower per
+    ///     neuron than pure <see cref="ForwardPass"/> because the per-neuron mask assignment
+    ///     and branch on <c>dropoutOff</c> still fire — the training loop is the only caller
+    ///     so that cost sits in the backprop budget, not the scoring hot path.
     ///     <para>
     ///         Inverted-dropout convention:
     ///         if <c>mask[k]=1</c>, act[k] ← relu(pre[k]) × <paramref name="invKeepScale"/>;
