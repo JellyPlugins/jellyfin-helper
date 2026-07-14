@@ -76,6 +76,32 @@ public static class TestMockFactory
         return mock;
     }
 
+    /// <summary>
+    /// Creates a new <see cref="Mock{ILogger}"/> where <c>IsEnabled(...)</c> always returns
+    /// <c>false</c>. Use this in tests that specifically want to exercise the
+    /// <c>logger.IsEnabled(...) == false</c> branch — for example to prove that a guarded
+    /// <c>Log(...)</c> call is skipped without side effects (an <c>ILoggerProvider</c> that
+    /// throws when disabled would surface here). The main <see cref="CreateLogger()"/>
+    /// helper deliberately returns <c>true</c> so the common test path exercises the
+    /// happy-log flow; this disabled variant is the complementary regression guard.
+    /// </summary>
+    public static Mock<ILogger> CreateDisabledLogger()
+    {
+        var mock = new Mock<ILogger>();
+        mock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(false);
+        return mock;
+    }
+
+    /// <summary>
+    /// Typed variant of <see cref="CreateDisabledLogger()"/>.
+    /// </summary>
+    public static Mock<ILogger<T>> CreateDisabledLogger<T>()
+    {
+        var mock = new Mock<ILogger<T>>();
+        mock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(false);
+        return mock;
+    }
+
     // ===== Other Mocks =====
 
     /// <summary>Creates a new <see cref="Mock{IHttpClientFactory}"/>.</summary>

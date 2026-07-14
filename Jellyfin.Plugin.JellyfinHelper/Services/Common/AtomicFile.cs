@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using System.Threading;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -7,6 +8,22 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 /// <summary>
 ///     Writes text files atomically (write-to-temp then move-over-target) with a small,
 ///     bounded retry on transient I/O failures.
+///     <para>
+///         <b>Threading:</b> The current implementation is synchronous and uses
+///         <see cref="Thread.Sleep(int)"/> between retry attempts, so a fully retrying call
+///         can block the caller for up to ~200 ms (20 ms + 40 ms + 60 ms + 80 ms with the
+///         default 5 attempts). This is safe for the current callers — every one of them
+///         runs on a background scheduled-task path (weight / state persistence) — but the
+///         method MUST NOT be invoked from an ASP.NET request handler or any other latency-
+///         sensitive context. If such a caller ever appears, add a
+///         <c>WriteAllTextAsync</c> overload that uses <c>await Task.Delay(...)</c>
+///         instead of <see cref="Thread.Sleep(int)"/>.
+///     </para>
+///     <para>
+///         <b>Encoding:</b> Files are written as UTF-8 <i>without</i> a byte-order mark, matching
+///         what <c>System.Text.Json</c> expects on read and staying compatible with external
+///         log/JSON tooling that treats a BOM as unexpected input.
+///     </para>
 /// </summary>
 internal static class AtomicFile
 {
@@ -17,11 +34,23 @@ internal static class AtomicFile
     private const int BaseBackoffMilliseconds = 20;
 
     /// <summary>
+    ///     UTF-8 encoding without a byte-order mark. Cached to avoid re-instantiating the
+    ///     encoder on every write; .NET's default <c>File.WriteAllText(path, contents)</c>
+    ///     uses UTF-8 <i>with</i> BOM which some downstream tools (JSON validators, log
+    ///     parsers) treat as an unexpected first character.
+    /// </summary>
+    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+
+    /// <summary>
     ///     Atomically writes <paramref name="contents"/> to <paramref name="path"/>.
     ///     Retries the temp-write-then-move on transient <see cref="IOException"/> /
     ///     <see cref="UnauthorizedAccessException"/> up to <paramref name="maxAttempts"/> times.
     ///     If every attempt fails, the last transient error propagates so the caller's existing
     ///     best-effort <c>try/catch</c> can log it — behavior is never worse than a single attempt.
+    ///     <para>
+    ///         Blocks the calling thread for up to ~200 ms across all retries with the default
+    ///         attempt count. See the class-level remarks for the constraint on caller contexts.
+    ///     </para>
     /// </summary>
     /// <param name="path">The destination file path.</param>
     /// <param name="contents">The text to write.</param>
@@ -45,7 +74,8 @@ internal static class AtomicFile
             var tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
-                File.WriteAllText(tempPath, contents);
+                // Explicit UTF-8 (no BOM) — see the class-level Encoding note.
+                File.WriteAllText(tempPath, contents, Utf8NoBom);
                 File.Move(tempPath, path, overwrite: true);
                 return;
             }
