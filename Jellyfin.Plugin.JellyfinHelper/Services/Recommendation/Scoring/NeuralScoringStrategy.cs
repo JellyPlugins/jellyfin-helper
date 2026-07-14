@@ -1136,12 +1136,46 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             // Use the early-stopping validation loss as the generalization estimate when
             // available — it was computed on a held-out split that the model never trained on,
             // making it a genuine out-of-sample loss.
+            //
+            // Three cases matter for the ensemble quality gate downstream:
+            //   1. useEarlyStopping = false            → truly no validation signal (dataset
+            //                                            too small to reserve a val split).
+            //                                            NaN maps to qualityFactor = 0.5 in
+            //                                            EnsembleScoringStrategy, i.e. half
+            //                                            progression. This is intentional
+            //                                            cold-start behaviour.
+            //   2. useEarlyStopping = true, bestLoss   → healthy training run. Report bestLoss;
+            //      < double.MaxValue                     the ensemble evaluates it against the
+            //                                            validation-loss threshold.
+            //   3. useEarlyStopping = true, bestLoss   → training ran full length but no epoch
+            //      == double.MaxValue                    ever produced an improved validation
+            //                                            loss. The model is actively degrading
+            //                                            (or the initial random weights already
+            //                                            beat every SGD step). Previously this
+            //                                            case also fell back to NaN, hiding a
+            //                                            degrading model behind the same 0.5
+            //                                            factor as the harmless cold-start
+            //                                            case. Now it reports the ceiling
+            //                                            (2× threshold) so the ensemble's
+            //                                            soft-damping formula naturally rolls
+            //                                            alpha back to alphaMin.
             // Published under _syncRoot to match the read path in LastValidationLoss getter.
             lock (_syncRoot)
             {
-                _lastValidationLoss = useEarlyStopping && bestLoss < double.MaxValue
-                    ? bestLoss
-                    : double.NaN;
+                if (!useEarlyStopping)
+                {
+                    _lastValidationLoss = double.NaN;
+                }
+                else if (bestLoss < double.MaxValue)
+                {
+                    _lastValidationLoss = bestLoss;
+                }
+                else
+                {
+                    // Training ran the full budget without ever improving val loss.
+                    // Publish a "definitely bad" number so downstream quality gates disengage.
+                    _lastValidationLoss = EnsembleScoringStrategy.ValidationLossCeiling;
+                }
             }
 
             _featureMeans = featureMeans;
