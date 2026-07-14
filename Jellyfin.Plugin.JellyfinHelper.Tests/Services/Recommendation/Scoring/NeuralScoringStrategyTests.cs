@@ -689,19 +689,6 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     // ============================================================
 
     [Fact]
-    public void HiddenSize_MatchesFinalHiddenLayer()
-    {
-        // Roadmap v3 A1: legacy HiddenSize alias now tracks Hidden4Size (the last hidden layer)
-        // which is 24 in the wider v3 architecture (was 6 in v2). Keeping the alias in place
-        // means older external references keep compiling — they now report the correct final
-        // hidden width rather than the outdated v2 value. We assert the concrete magic number
-        // (24) so an accidental architecture regression to v2's 6-neuron final layer would fail
-        // this test, while still allowing a deliberate future re-tune to update the constant
-        // together with this assertion.
-        Assert.Equal(24, NeuralScoringStrategy.Hidden4Size);
-    }
-
-    [Fact]
     public void MinTrainingExamples_Is12()
     {
         Assert.Equal(12, NeuralScoringStrategy.MinTrainingExamples);

@@ -74,14 +74,22 @@ internal static class BatchFallbackHelper
             {
                 onFailure(ex);
             }
-            catch (Exception callbackEx) when (callbackEx is not OperationCanceledException
-                                                and not OutOfMemoryException
+            catch (OperationCanceledException)
+            {
+                // Callback observed cancellation — must bubble out of the graceful-degradation path.
+                throw;
+            }
+            catch (AggregateException agg) when (ContainsOperationCanceled(agg))
+            {
+                // Async loggers can surface cancellation wrapped in AggregateException. Preserve
+                // the cancellation contract by unwrapping and rethrowing the inner OCE.
+                throw agg.Flatten().InnerExceptions.OfType<OperationCanceledException>().First();
+            }
+            catch (Exception callbackEx) when (callbackEx is not OutOfMemoryException
                                                 and not StackOverflowException)
             {
                 // Intentionally swallowed. There's nothing sensible we can do with an
-                // exception thrown by the diagnostic callback itself. Cancellation is
-                // deliberately excluded — a callback that observes cancellation must be
-                // allowed to bubble the signal out of the graceful-degradation path.
+                // exception thrown by the diagnostic callback itself.
             }
 
             return fallbackValue;
