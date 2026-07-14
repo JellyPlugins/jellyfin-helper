@@ -1789,6 +1789,24 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     ///     Train() (Write lock) is blocked only for the O(weights.Length) copy — not for
     ///     serialization or file I/O — and cannot interleave partially-updated weights into the
     ///     persisted JSON.
+    ///     <para>
+    ///         Weight mutation paths (for future maintainers):
+    ///         <list type="bullet">
+    ///             <item><see cref="InitializeWeights"/> — runs only from the constructor, before
+    ///                 any consumer can see the instance. No lock needed.</item>
+    ///             <item><see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>
+    ///                 — mutates every weight/bias field and the Adam moment arrays under the
+    ///                 <c>_rwLock</c> write lock, serialized further by the scheduled task's
+    ///                 <c>TrainGate</c> in <c>TrainingService</c>.</item>
+    ///             <item><see cref="EnsureAdamState"/> — reassigns Adam moment arrays; only called
+    ///                 from <see cref="Train(IReadOnlyList{TrainingExample},IReadOnlyList{TrainingExample}?)"/>
+    ///                 under the write lock.</item>
+    ///             <item><see cref="TryLoadWeights"/> — runs from the constructor, same ordering
+    ///                 guarantee as <see cref="InitializeWeights"/>.</item>
+    ///         </list>
+    ///         There is no other writer path. If a new one is added, it MUST acquire
+    ///         <c>_rwLock</c>'s write lock before touching any weight array.
+    ///     </para>
     /// </summary>
     private void TrySaveWeights()
     {
