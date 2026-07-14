@@ -564,14 +564,16 @@ public class PreferenceBuilderTests
         // BuildPeoplePreferenceWeights and BuildGenrePreferenceVector must use the SAME strict
         // completion predicate (Played || PlayCount>0) for the per-series progression counter.
         // If they diverge, the People-Similarity feature and the Genre-Similarity feature see
-        // contradictory progression signals for the same series — one seeing it as fully
-        // watched, the other as half-abandoned.
+        // contradictory progression signals for the same series.
         //
-        // Construction: 3 Played + 2 partial-start rows in a 5-episode series. All rows map
-        // to the same "Actor Z" via the series lookup. The strict counter gives 3/5 → mult
-        // ≈ 1.02, applied to each of the 3 eligible (Played) rows → total weight ≈ 3.06.
-        // The old (HasPlaybackActivity) counter would give 5/5 → mult 1.5 → weight 4.5.
-        // Asserting the weight sits in the strict range locks the semantics.
+        // Ordering-based construction: identical eligible Played rows (3) but different partial
+        // -start noise. Under the strict counter both profiles compute the same 3/5 ratio, so
+        // "Actor Z" ends up with the same weight. Under a regressed HasPlaybackActivity counter
+        // profile A would see 5/5 → mult 1.5 while profile B still sees 3/5 → mult 1.02, so
+        // A's Actor-Z weight would be strictly larger. Asserting equality (with a tiny epsilon
+        // for floating-point noise) is robust to any tuning of the ProgressionFloor / span
+        // constants because the two profiles walk through the same code path with the same
+        // input to the multiplier — they only differ in the count of noise rows.
         var series = Guid.NewGuid();
         var counts = new Dictionary<Guid, int> { { series, 5 } };
         var now = DateTime.UtcNow.AddDays(-1);
@@ -581,41 +583,36 @@ public class PreferenceBuilderTests
             { series, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor Z" } }
         };
 
-        var profile = new UserWatchProfile();
-        for (var i = 0; i < 3; i++)
+        WatchedItemInfo Played() => new()
         {
-            profile.WatchedItems.Add(new WatchedItemInfo
-            {
-                ItemId = Guid.NewGuid(),
-                SeriesId = series,
-                Played = true,
-                LastPlayedDate = now
-            });
-        }
+            ItemId = Guid.NewGuid(), SeriesId = series, Played = true, LastPlayedDate = now
+        };
 
-        for (var i = 0; i < 2; i++)
+        WatchedItemInfo PartialStart() => new()
         {
-            profile.WatchedItems.Add(new WatchedItemInfo
-            {
-                ItemId = Guid.NewGuid(),
-                SeriesId = series,
-                Played = false,
-                PlayCount = 0,
-                PlaybackPositionTicks = 5000,
-                LastPlayedDate = now
-            });
-        }
+            ItemId = Guid.NewGuid(),
+            SeriesId = series,
+            Played = false,
+            PlayCount = 0,
+            PlaybackPositionTicks = 5000,
+            LastPlayedDate = now
+        };
 
-        var weights = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup, counts);
+        var withPartials = new UserWatchProfile
+        {
+            WatchedItems = [Played(), Played(), Played(), PartialStart(), PartialStart()]
+        };
+        var withoutPartials = new UserWatchProfile
+        {
+            WatchedItems = [Played(), Played(), Played()]
+        };
 
-        Assert.True(weights.TryGetValue("Actor Z", out var w));
-        // Strict counter: rawRatio = 3/5 = 0.6 → multiplier = 0.3 + 0.6*1.2 = 1.02
-        // 3 eligible Played rows × 1.02 ≈ 3.06. Old counter would produce 3 * 1.5 = 4.5.
-        // Range [2.8, 3.4] is comfortably inside strict behaviour and clearly excludes the
-        // old counter's 4.5 output.
-        Assert.True(w >= 2.8 && w <= 3.4,
-            $"People weight must reflect strict progression counter (3/5 ratio → ~3.06), got {w:F4}. " +
-            $"A value near 4.5 indicates the counter regressed to HasPlaybackActivity.");
+        var wA = PreferenceBuilder.BuildPeoplePreferenceWeights(withPartials, lookup, counts);
+        var wB = PreferenceBuilder.BuildPeoplePreferenceWeights(withoutPartials, lookup, counts);
+
+        Assert.True(wA.TryGetValue("Actor Z", out var weightA));
+        Assert.True(wB.TryGetValue("Actor Z", out var weightB));
+        Assert.Equal(weightB, weightA, 9);
     }
 
     [Fact]
