@@ -108,7 +108,10 @@ public sealed class Engine : IRecommendationEngine
 
         // Live requests get an exploration seed keyed to (userId, current UTC day). This keeps
         // successive same-day requests deterministic without freezing exploration across days.
-        var liveSeed = HashCode.Combine(userId, DateOnly.FromDateTime(DateTime.UtcNow).DayNumber);
+        // Uses a stable, process-independent hash: System.HashCode is randomised per-process,
+        // so a Jellyfin restart within the same UTC day would otherwise reshuffle a user's
+        // exploration slot even though (userId, dayNumber) is unchanged.
+        var liveSeed = ComputeStableSeed(userId, DateOnly.FromDateTime(DateTime.UtcNow).DayNumber);
 
         // Read the snapshot once and expire it when it exceeds CandidateSnapshotMaxAge. Snapshot
         // fields reference JF domain objects whose Genres/Studios/CommunityRating may mutate via
@@ -329,8 +332,11 @@ public sealed class Engine : IRecommendationEngine
                 try
                 {
                     // Combine the per-user id with the shared batch generation counter so every
-                    // batch produces a fresh but user-stable exploration seed.
-                    var batchSeed = HashCode.Combine(profile.UserId, batchGeneration);
+                    // batch produces a fresh but user-stable exploration seed. Uses the same
+                    // ComputeStableSeed helper as the live path so the seed is process-independent —
+                    // a Jellyfin restart between two batches of the same generation counter would
+                    // otherwise reshuffle exploration outcomes.
+                    var batchSeed = ComputeStableSeed(profile.UserId, batchGeneration);
                     var result = profile.WatchedItems.Count == 0
                         ? GenerateColdStartRecommendations(
                             profile.UserId,
@@ -661,8 +667,10 @@ public sealed class Engine : IRecommendationEngine
     /// <param name="alphaOffset">Alpha offset for cohort-based exploration (0.0 = control group).</param>
     /// <param name="explorationSeed">
     ///     Optional deterministic seed for the diversity exploration RNG. Live requests pass
-    ///     <c>HashCode.Combine(userId, DateOnly.FromDateTime(DateTime.UtcNow).DayNumber)</c>,
-    ///     batch runs pass <c>HashCode.Combine(userId, batchGeneration)</c>.
+    ///     <c>ComputeStableSeed(userId, DateOnly.FromDateTime(DateTime.UtcNow).DayNumber)</c>,
+    ///     batch runs pass <c>ComputeStableSeed(userId, batchGeneration)</c>. The stable-seed
+    ///     helper is used instead of <see cref="HashCode.Combine{T1,T2}"/> so the value is
+    ///     process-independent — a Jellyfin restart does not reshuffle same-day exploration.
     /// </param>
     /// <param name="ct">Cancellation token for cooperative cancellation.</param>
     /// <returns>A recommendation result for the user.</returns>
@@ -1571,6 +1579,30 @@ public sealed class Engine : IRecommendationEngine
         }
 
         return popularity;
+    }
+
+    /// <summary>
+    ///     Deterministic, process-independent seed derived from a <see cref="Guid"/> and an
+    ///     integer suffix (e.g. UTC day number). <see cref="HashCode.Combine{T1,T2}"/> is
+    ///     randomised per-process, so the same (userId, day) tuple would map to a different
+    ///     seed after each Jellyfin restart. Diversity exploration would then reshuffle within
+    ///     the same day, defeating the purpose of the daily seed contract. This helper folds
+    ///     the Guid's 128 bits through a stable mix and combines them with the suffix using
+    ///     a fixed multiplier — no cryptographic strength required, only determinism.
+    /// </summary>
+    /// <param name="id">The user (or entity) identifier.</param>
+    /// <param name="suffix">A secondary integer key (UTC day number, batch generation, ...).</param>
+    /// <returns>A deterministic 32-bit seed for RNG consumers.</returns>
+    internal static int ComputeStableSeed(Guid id, int suffix)
+    {
+        // Guid.GetHashCode() is stable across processes (unlike System.HashCode.Combine).
+        // Fold with the suffix using an unchecked multiply-and-add so the combination
+        // spreads bits across the range without allocating an intermediate object.
+        unchecked
+        {
+            var h = id.GetHashCode();
+            return (h * 397) ^ suffix;
+        }
     }
 
     /// <summary>

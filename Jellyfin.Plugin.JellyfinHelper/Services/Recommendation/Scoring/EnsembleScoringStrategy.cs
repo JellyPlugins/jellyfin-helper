@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Microsoft.Extensions.Logging;
 
@@ -146,11 +147,25 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
     /// <summary>
     ///     Cached JSON serializer options for ensemble state persistence.
-    ///     Compact (non-indented) output. The ensemble state file is
-    ///     small already (~400 bytes with defaults) but the file is machine-read only
-    ///     — indentation adds no operational value.
+    ///     Compact (non-indented) output — the ensemble state file is small (~400 bytes with
+    ///     defaults) and machine-read only, so indentation adds no operational value.
+    ///     <para>
+    ///         <see cref="JsonNumberHandling.AllowNamedFloatingPointLiterals"/> is required
+    ///         because the cold-start placeholder in <see cref="Train"/> persists
+    ///         <c>ValidationLoss = double.NaN</c>. With the default handling
+    ///         <see cref="JsonSerializer.Serialize{TValue}(TValue, JsonSerializerOptions)"/>
+    ///         would throw <see cref="ArgumentException"/> on <c>NaN</c>/<c>±Infinity</c>,
+    ///         and (because the surrounding <c>try/catch</c> only handles I/O / JSON exceptions)
+    ///         the first failed training run would surface as an unhandled crash instead of
+    ///         silently persisting the placeholder. Applied to both save and load so that
+    ///         the NaN round-trips faithfully.
+    ///     </para>
     /// </summary>
-    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false };
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        WriteIndented = false,
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
+    };
 
     private readonly HeuristicScoringStrategy _heuristic;
     private readonly LearnedScoringStrategy _learned;
@@ -1038,7 +1053,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         try
         {
             var json = File.ReadAllText(_statePath);
-            var data = JsonSerializer.Deserialize<EnsembleStateData>(json);
+            // Use the same SerializerOptions as TrySaveState so a MetricsSnapshot row that
+            // was persisted with ValidationLoss = NaN (cold-start placeholder) round-trips
+            // cleanly. Without AllowNamedFloatingPointLiterals on the deserialiser, the
+            // "NaN" literal in the file would throw JsonException and lose the entire
+            // history — the exploration gate would then never open.
+            var data = JsonSerializer.Deserialize<EnsembleStateData>(json, SerializerOptions);
             if (data is null || data.TrainingExampleCount <= 0)
             {
                 return;

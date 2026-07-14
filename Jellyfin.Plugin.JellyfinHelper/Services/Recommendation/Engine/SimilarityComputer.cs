@@ -341,16 +341,22 @@ internal sealed class SimilarityComputer
     ///     <c>Engine.ScoreCandidate</c> and consistently across all training phases in
     ///     <c>TrainingDataBuilder</c> so the ML feature has identical semantics on both sides.
     ///     <para>
-    ///         <b>Active formula</b> (weighted-budget, clamped [0, 1]):
+    ///         <b>Active formula</b> (top-K weighted-budget, clamped [0, 1]):
     ///         <code>
     ///             score = clamp( matchedWeight
-    ///                          / max( |candidate| × avg(preferredWeight),
+    ///                          / max( |candidate| × avg(topK(preferredWeight)),
     ///                                 <see cref="EngineConstants.WeightedPeopleSimilarityMinDenominator"/> ),
     ///                          0, 1 )
     ///         </code>
-    ///         where <c>avg(preferredWeight)</c> is computed over positive-weight entries only.
-    ///         The floor guards two failure modes (sparse-user overshoot and empty-preferred short-
-    ///         circuit stability) — see the floor constant's XML doc for the full rationale.
+    ///         where <c>avg(topK(preferredWeight))</c> is the mean of the <see
+    ///         cref="EngineConstants.WeightedPeopleSimilarityTopK"/> largest positive weights (the
+    ///         full positive set when the user has fewer positive entries than <c>K</c>). Averaging
+    ///         only the heavy hitters keeps the denominator anchored to the collaborators who
+    ///         actually drive the user's preference structure — averaging over the full positive
+    ///         set would let two heavy-hitter matches saturate the score at 1.0 on 100-person
+    ///         profiles dominated by one-off cameos. The floor guards two additional failure modes
+    ///         (sparse-user overshoot and empty-preferred short-circuit stability) — see the floor
+    ///         constant's XML doc for the full rationale.
     ///     </para>
     ///     <para>
     ///         <b>Intuition</b>: the candidate-budget <c>|candidate| × avg</c> is the expected matched

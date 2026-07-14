@@ -374,7 +374,7 @@ public class CollaborativeFilterTests
     [Fact]
     public void BuildCollaborativeMap_TrustWeight_LowHistoryNeighbourStillContributes()
     {
-        // A sparse-history neighbour (5 watches, below the 20-watch trust ceiling) is
+        // A sparse-history neighbour (4 watches, below the 20-watch trust ceiling) is
         // down-weighted but must still produce a positive score
         // — we do not want to silently drop legitimate signal, only to attenuate it.
         var shared = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
@@ -403,6 +403,83 @@ public class CollaborativeFilterTests
 
         Assert.True(map.TryGetValue(unique, out var score));
         Assert.True(score > 0.0, "Sparse-history neighbour should still contribute a (down-weighted) positive score");
+    }
+
+    [Fact]
+    public void BuildCollaborativeMap_TrustWeight_SparseVsFullTrust_AttenuatesSignal()
+    {
+        // Regression guard for the trust factor being a real, measurable attenuator (not a no-op
+        // or, worse, an accidental *amplifier*). It is deliberately NOT a "rich vs sparse
+        // neighbour" comparison — such a comparison is confounded by the Jaccard denominator
+        // (a rich neighbour has a larger union, so its Jaccard is smaller, which reverses the
+        // score ordering independently of trust).
+        //
+        // Approach: hold the neighbour identity constant (same watched IDs, same Jaccard) and
+        // toggle the trust gate on/off by swapping the gatekeeper profile. When the gate is
+        // OFF (all-sparse deployment) trust=1.0. When the gate is ON (at least one rich profile
+        // exists) trust=1-exp(-4/CollaborativeTrustScale) — a large attenuation for a 4-watch
+        // neighbour. Anything else (score identical, or gated ≥ ungated) means the trust factor
+        // is broken.
+        var shared = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+        var recommendedItem = Guid.NewGuid();
+
+        WatchedItemInfo P(Guid id) => new() { ItemId = id, Played = true };
+
+        var userWatchedItems = new Collection<WatchedItemInfo>(
+            shared.Concat(Enumerable.Range(0, 25).Select(_ => Guid.NewGuid()))
+                .Select(id => new WatchedItemInfo { ItemId = id, Played = true })
+                .ToList());
+
+        // Identical sparse neighbour in both scenarios — same watched IDs, same total count (4).
+        // This means the Jaccard, overlap, and popularity contributions are byte-for-byte equal
+        // across the two BuildCollaborativeMap invocations; only the trust factor differs.
+        var sparseNeighbourIds = shared.Append(recommendedItem).ToArray();
+
+        var anchorUserId = Guid.NewGuid();
+        var sparseNeighbourUserId = Guid.NewGuid();
+
+        // Scenario A: cold-start gate ACTIVE (trust = 1.0) — only sparse profiles in deployment.
+        var userA = new UserWatchProfile { UserId = anchorUserId, WatchedItems = userWatchedItems };
+        var sparseNeighbourA = new UserWatchProfile
+        {
+            UserId = sparseNeighbourUserId,
+            WatchedItems = new Collection<WatchedItemInfo>(sparseNeighbourIds.Select(P).ToList())
+        };
+        var profilesA = new Collection<UserWatchProfile> { userA, sparseNeighbourA };
+        var mapA = CollaborativeFilter.BuildCollaborativeMap(
+            userA, profilesA, CollaborativeFilter.PrecomputeUserWatchSets(profilesA));
+
+        // Scenario B: cold-start gate INACTIVE (trust applies) — add a rich gatekeeper.
+        // The gatekeeper's watched IDs are all fresh Guids that don't overlap with `shared` or
+        // `recommendedItem`, so it can never contribute to co-occurrence with `userB`. Its only
+        // job is to flip the trust gate on by crossing CollaborativeTrustWatchCeiling.
+        var userB = new UserWatchProfile { UserId = anchorUserId, WatchedItems = userWatchedItems };
+        var sparseNeighbourB = new UserWatchProfile
+        {
+            UserId = sparseNeighbourUserId,
+            WatchedItems = new Collection<WatchedItemInfo>(sparseNeighbourIds.Select(P).ToList())
+        };
+        var gatekeeper = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems = new Collection<WatchedItemInfo>(
+                Enumerable.Range(0, 30)
+                    .Select(_ => P(Guid.NewGuid()))
+                    .ToList())
+        };
+        var profilesB = new Collection<UserWatchProfile> { userB, sparseNeighbourB, gatekeeper };
+        var mapB = CollaborativeFilter.BuildCollaborativeMap(
+            userB, profilesB, CollaborativeFilter.PrecomputeUserWatchSets(profilesB));
+
+        Assert.True(mapA.TryGetValue(recommendedItem, out var scoreA));
+        Assert.True(mapB.TryGetValue(recommendedItem, out var scoreB));
+        Assert.True(scoreA > 0.0, "Scenario A (gate active) score must be positive");
+        Assert.True(scoreB > 0.0, "Scenario B (gate inactive → trust applies) score must still be positive");
+        Assert.True(
+            scoreB < scoreA,
+            $"Trust factor must attenuate the sparse neighbour when the gate is active — " +
+            $"expected scoreB ({scoreB:F4}) < scoreA ({scoreA:F4}). If they're equal, trust is a no-op; " +
+            $"if scoreB > scoreA, the trust factor is inverted.");
     }
 
     [Fact]

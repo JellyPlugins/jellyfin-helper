@@ -36,24 +36,19 @@ internal static class CollaborativeFilter
 
     /// <summary>
     ///     Materialises watch sets for every profile on the single-user (on-demand) code path.
-    ///     Structurally identical to <see cref="PrecomputeUserWatchSets"/> but named separately
-    ///     so the intent is obvious at the call site: batch mode receives its dictionary from
-    ///     the caller, single-user mode builds a private one so that the two loops inside
+    ///     Delegates to <see cref="PrecomputeUserWatchSets"/> so any future change to the
+    ///     materialisation logic only has to happen once; the separate name is retained so
+    ///     the intent at the call site is obvious (batch mode receives its dictionary from the
+    ///     caller, single-user mode builds a private one so that the two loops inside
     ///     <see cref="BuildCollaborativeMap"/> both hit an O(1) lookup instead of rebuilding a
-    ///     neighbour's watch set twice.
+    ///     neighbour's watch set twice).
     /// </summary>
     /// <param name="allProfiles">All user watch profiles.</param>
     /// <returns>A dictionary mapping user ID to their combined watched-item set.</returns>
     private static Dictionary<Guid, HashSet<Guid>> BuildAllWatchSetsForSingleUserPath(
         Collection<UserWatchProfile> allProfiles)
     {
-        var result = new Dictionary<Guid, HashSet<Guid>>(allProfiles.Count);
-        foreach (var profile in allProfiles)
-        {
-            result[profile.UserId] = BuildCombinedWatchSet(profile);
-        }
-
-        return result;
+        return PrecomputeUserWatchSets(allProfiles);
     }
 
     /// <summary>
