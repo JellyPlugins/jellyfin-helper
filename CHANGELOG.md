@@ -16,7 +16,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **More diverse top picks** - Ranking now balances genre, studio and release era — no more ten Marvel films in a row.
 - **Faster scans on big libraries** - Watch-history and recommendation scans use Jellyfin 12's batch APIs; on large libraries this shaves seconds off every scheduled run.
 - **Cleaner Settings page** - Reorganised into four clear cards (General, Tasks & Trash, Integrations, Backup) with a sticky save bar and an unsaved-changes indicator, so nothing gets lost.
-- **Smaller weight files** - Persisted recommendation weights are ~75 % smaller on disk with no loss of information.
+- **Compact weight serialization** - Persisted recommendation weights now use compact (non-indented) JSON, roughly a third the size of the equivalent indented form. Note: the v3 neural architecture has ~4.5× more parameters than v2, so on-disk files are larger than v2 files even in compact form.
 
 ### Fixed
 - **Recommendations sometimes silently drifted** - Four subtle bugs where training and live scoring used slightly different formulas (weekend detection, popularity, box-set progression, discovery feedback). Your recommendations are now trained on exactly the same signals they're scored on.

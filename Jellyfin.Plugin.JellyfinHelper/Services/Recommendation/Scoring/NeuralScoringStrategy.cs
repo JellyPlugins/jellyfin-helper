@@ -155,10 +155,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
     /// <summary>
     ///     JSON serializer options for weight persistence.
-    ///     Compact (non-indented) output to reduce disk footprint —
-    ///     a 13889-parameter dump goes from ~410 KB indented to ~120 KB compact
-    ///     without any loss of information. Weights are machine-read only; there
-    ///     is no human-review benefit to indentation.
+    ///     Compact (non-indented) output cuts the file to roughly a third of the indented form
+    ///     for a 13889-parameter dump (~120 KB vs ~410 KB) with no loss of information.
+    ///     Weights are machine-read only, so indentation adds no operational value.
     /// </summary>
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false };
 

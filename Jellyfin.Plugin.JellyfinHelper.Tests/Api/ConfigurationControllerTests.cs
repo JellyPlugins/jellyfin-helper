@@ -85,13 +85,57 @@ public class ConfigurationControllerTests
     ///     session on save.
     /// </summary>
     [Fact]
-    public async Task UpdateConfiguration_PluginLogLevel_IsIgnoredByDesign()
+    public async Task UpdateConfiguration_PluginLogLevel_IsIgnoredByDesignAndSurfacesWarning()
     {
         _config.PluginLogLevel = "WARN";
         var request = new ConfigurationUpdateRequest { PluginLogLevel = "DEBUG" };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-        Assert.IsType<OkObjectResult>(result);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
         Assert.Equal("WARN", _config.PluginLogLevel);
+
+        // Silent drop is the worst option — the response must call out the ignored change so
+        // the client can surface it to the admin instead of pretending the save worked.
+        var payload = Assert.IsAssignableFrom<object>(ok.Value);
+        var warningsProp = payload.GetType().GetProperty("warnings");
+        Assert.NotNull(warningsProp);
+        var warnings = Assert.IsAssignableFrom<System.Collections.Generic.IEnumerable<string>>(warningsProp!.GetValue(payload));
+        Assert.Contains(warnings, w => w.Contains("PluginLogLevel", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_PluginLogLevel_MatchingCurrent_NoWarning()
+    {
+        _config.PluginLogLevel = "WARN";
+        var request = new ConfigurationUpdateRequest { PluginLogLevel = "warn" };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("WARN", _config.PluginLogLevel);
+
+        var payload = Assert.IsAssignableFrom<object>(ok.Value);
+        var warningsProp = payload.GetType().GetProperty("warnings");
+        Assert.NotNull(warningsProp);
+        var warnings = Assert.IsAssignableFrom<System.Collections.Generic.IEnumerable<string>>(warningsProp!.GetValue(payload));
+        Assert.DoesNotContain(warnings, w => w.Contains("PluginLogLevel", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_NullPluginLogLevel_NoWarning()
+    {
+        // Old clients that don't include the field at all must not trigger the warning.
+        _config.PluginLogLevel = "INFO";
+        var request = new ConfigurationUpdateRequest { PluginLogLevel = null };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("INFO", _config.PluginLogLevel);
+
+        var payload = Assert.IsAssignableFrom<object>(ok.Value);
+        var warningsProp = payload.GetType().GetProperty("warnings");
+        Assert.NotNull(warningsProp);
+        var warnings = Assert.IsAssignableFrom<System.Collections.Generic.IEnumerable<string>>(warningsProp!.GetValue(payload));
+        Assert.DoesNotContain(warnings, w => w.Contains("PluginLogLevel", StringComparison.Ordinal));
     }
 
     [Fact]

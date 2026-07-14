@@ -191,6 +191,7 @@ public class ConfigurationController : ControllerBase
 
         // Apply request values to the existing config (preserves accumulated statistics and internal state)
         var config = _configService.GetConfiguration();
+        var persistedLogLevel = config.PluginLogLevel;
 
         ApplyRequestToConfig(request, config);
         _configService.SaveConfiguration();
@@ -199,6 +200,21 @@ public class ConfigurationController : ControllerBase
 
         // After saving, test all configured instance connections and log warnings
         var warnings = await TestAllConnectionsAsync(request, cancellationToken).ConfigureAwait(false);
+
+        // Surface the dropped PluginLogLevel so the client doesn't think the change stuck.
+        // The Settings POST intentionally does not mutate the log level (owned by the Logs tab);
+        // callers that need to change it must use PUT /Configuration/LogLevel.
+        if (!string.IsNullOrWhiteSpace(request.PluginLogLevel))
+        {
+            var requested = request.PluginLogLevel.Trim().ToUpperInvariant();
+            if (!string.Equals(requested, persistedLogLevel, StringComparison.OrdinalIgnoreCase))
+            {
+                var warning = $"PluginLogLevel change ('{persistedLogLevel}' → '{requested}') was ignored by POST /Configuration. " +
+                              $"Use PUT /Configuration/LogLevel to change the log level.";
+                warnings.Add(warning);
+                _pluginLog.LogWarning("API", warning, logger: _logger);
+            }
+        }
 
         // Warn when a relative trash path would escape the library root at runtime (falls back silently).
         if (request.UseTrash)
