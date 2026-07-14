@@ -35,13 +35,56 @@ internal static class CollaborativeFilter
     }
 
     /// <summary>
+    ///     Pre-computes the batch-scoped <see cref="CollaborativeContext"/> in one pass over
+    ///     the provided user sets. Currently this materialises only the item-popularity map
+    ///     — the popularity IDF prior is a pure deployment-wide quantity (how many users
+    ///     have watched item X, deployment-wide) so folding it out of the per-user loop
+    ///     saves an O(U×M) pass on every downstream <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/>
+    ///     invocation.
+    ///     <para>
+    ///         The trust-gate decision is deliberately NOT precomputed here: it is a per-target-user
+    ///         question ("does the target's NEIGHBOURHOOD contain at least one rich profile?"),
+    ///         not a deployment-wide one. Excluding the target from the scan is essential —
+    ///         otherwise a 28-watch anchor with a 4-watch neighbour would flip its own trust
+    ///         gate on and dampen the sparse neighbour's contribution, which is the exact
+    ///         opposite of the "cold-start release" behaviour the gate exists for. The
+    ///         batch-overload of <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/> therefore keeps its own
+    ///         O(U) trust-gate scan, but that scan is proportional to the number of profiles,
+    ///         not to the candidate-set size, so it is a cheap constant per user.
+    ///     </para>
+    /// </summary>
+    /// <param name="userSets">
+    ///     User watch sets from <see cref="PrecomputeUserWatchSets"/>. Reused directly — the
+    ///     caller retains ownership so no defensive copy is made.
+    /// </param>
+    /// <returns>A batch-scoped aggregate context bundle.</returns>
+    internal static CollaborativeContext PrecomputeCollaborativeContext(
+        Dictionary<Guid, HashSet<Guid>> userSets)
+    {
+        // Item popularity: how many users have watched each item. Feeds the IDF factor in
+        // BuildCollaborativeMap (log2(1 + count)^-1) so shared niche watches contribute more
+        // than shared mainstream watches. Iterating userSets.Values is the same O(U×M) pass
+        // the previous per-user path performed — done once here, reused N times downstream.
+        var itemPopularity = new Dictionary<Guid, int>(userSets.Count);
+        foreach (var userSet in userSets.Values)
+        {
+            foreach (var itemId in userSet)
+            {
+                itemPopularity.TryGetValue(itemId, out var count);
+                itemPopularity[itemId] = count + 1;
+            }
+        }
+
+        return new CollaborativeContext(userSets, itemPopularity);
+    }
+
+    /// <summary>
     ///     Materialises watch sets for every profile on the single-user (on-demand) code path.
     ///     Delegates to <see cref="PrecomputeUserWatchSets"/> so any future change to the
     ///     materialisation logic only has to happen once; the separate name is retained so
     ///     the intent at the call site is obvious (batch mode receives its dictionary from the
-    ///     caller, single-user mode builds a private one so that the two loops inside
-    ///     <see cref="BuildCollaborativeMap"/> both hit an O(1) lookup instead of rebuilding a
-    ///     neighbour's watch set twice).
+    ///     caller, single-user mode builds a private one so that the neighbour-set lookup inside
+    ///     the co-occurrence loop is O(1) instead of rebuilding a neighbour's watch set twice).
     /// </summary>
     /// <param name="allProfiles">All user watch profiles.</param>
     /// <returns>A dictionary mapping user ID to their combined watched-item set.</returns>
@@ -87,6 +130,12 @@ internal static class CollaborativeFilter
     ///     When <paramref name="precomputedUserSets" /> is provided (batch mode),
     ///     uses those sets directly instead of rebuilding them per call - reducing
     ///     total complexity from O(U²×M) to O(U×M).
+    ///     <para>
+    ///         In hot batch loops prefer the <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/>
+    ///         overload which additionally reuses the popularity map and trust-gate decision so
+    ///         those O(U×M) / O(U) aggregates are computed exactly once per batch instead of
+    ///         once per user.
+    ///     </para>
     /// </summary>
     /// <param name="userProfile">The target user's watch profile.</param>
     /// <param name="allProfiles">All user watch profiles.</param>
@@ -100,16 +149,35 @@ internal static class CollaborativeFilter
         Collection<UserWatchProfile> allProfiles,
         Dictionary<Guid, HashSet<Guid>>? precomputedUserSets = null)
     {
-        var coOccurrence = new Dictionary<Guid, double>();
-
-        // When precomputedUserSets is null (single-user on-demand path) we would otherwise call
-        // BuildCombinedWatchSet(profile) both in the cold-start gate loop and again in the main
-        // co-occurrence loop below — the same allocation-heavy work twice per neighbour. Build a
-        // local materialisation once here so both loops share it. In batch mode the caller already
-        // supplied a precomputed dictionary and this fast-path is a no-op assignment.
+        // Single-user path (live requests + tests that construct only user sets): derive the
+        // aggregates locally so callers do not have to know about CollaborativeContext.
         var userSets = precomputedUserSets ?? BuildAllWatchSetsForSingleUserPath(allProfiles);
+        var context = PrecomputeCollaborativeContext(userSets);
+        return BuildCollaborativeMap(userProfile, allProfiles, context);
+    }
 
-        // Resolve the current user's combined watch set
+    /// <summary>
+    ///     Batch-mode overload of <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, Dictionary{Guid, HashSet{Guid}}?)"/>
+    ///     that takes a fully precomputed <see cref="CollaborativeContext"/> so the O(U×M)
+    ///     item-popularity scan and the O(U) trust-gate scan are shared across every user in
+    ///     the batch. This is the entry point the scheduled recommendation job should use
+    ///     after calling <see cref="PrecomputeCollaborativeContext"/> once at batch-init time.
+    /// </summary>
+    /// <param name="userProfile">The target user's watch profile.</param>
+    /// <param name="allProfiles">All user watch profiles.</param>
+    /// <param name="context">Batch-scoped aggregate state built once per batch.</param>
+    /// <returns>A dictionary mapping item IDs to accumulated Jaccard-weighted scores.</returns>
+    internal static Dictionary<Guid, double> BuildCollaborativeMap(
+        UserWatchProfile userProfile,
+        Collection<UserWatchProfile> allProfiles,
+        CollaborativeContext context)
+    {
+        var coOccurrence = new Dictionary<Guid, double>();
+        var userSets = context.UserSets;
+
+        // Resolve the current user's combined watch set. Falls back to on-the-fly build if the
+        // user is not present in the shared context (e.g. a freshly created user not yet in the
+        // batch snapshot).
         var userCombinedIds = userSets.TryGetValue(userProfile.UserId, out var precomputed)
             ? precomputed
             : BuildCombinedWatchSet(userProfile);
@@ -119,12 +187,13 @@ internal static class CollaborativeFilter
             return coOccurrence;
         }
 
-        // Cold-start guard: when every neighbour in the deployment is below the trust ceiling,
-        // the neighbour trust factor would collapse the entire collaborative signal to a tiny
-        // fraction (stacked with IDF that can be < 0.2 for 50-user mainstream items). Detect the
-        // uniformly-sparse case and disable trust scaling so that early deployments still get
-        // meaningful collaborative recommendations. Once at least one user crosses the ceiling
-        // the trust factor kicks back in and protects against sparse-history over-weighting.
+        var itemPopularity = context.ItemPopularity;
+
+        // Trust-gate is per-target-user (excludes the target from the scan). We intentionally
+        // do NOT precompute this in CollaborativeContext because the target's own watch count
+        // would flip its own gate on — the sparse-neighbour attenuation and cold-start release
+        // behaviours both hinge on the "NEIGHBOURS ONLY" restriction. The scan is O(profiles),
+        // dwarfed by the co-occurrence loop below, so keeping it per-user is essentially free.
         var trustGateActive = false;
         foreach (var profile in allProfiles)
         {
@@ -140,23 +209,6 @@ internal static class CollaborativeFilter
             {
                 trustGateActive = true;
                 break;
-            }
-        }
-
-        // Compute item popularity (how many users watched each item) for IDF weighting.
-        // Items watched by many users contribute less to co-occurrence - a shared niche taste
-        // is a stronger signal of real similarity than both watching a mainstream blockbuster.
-        // Computed unconditionally from `userSets` (which is now materialised in both batch and
-        // single-user mode above at line 115), so on-demand recommendations receive the same IDF
-        // treatment as training/batch scoring — closes a train/serve skew where the neural
-        // CollaborativeScore feature saw two different distributions.
-        var itemPopularity = new Dictionary<Guid, int>(userSets.Count);
-        foreach (var userSet in userSets.Values)
-        {
-            foreach (var itemId in userSet)
-            {
-                itemPopularity.TryGetValue(itemId, out var count);
-                itemPopularity[itemId] = count + 1;
             }
         }
 
@@ -249,4 +301,32 @@ internal static class CollaborativeFilter
 
         return coOccurrence;
     }
+
+    /// <summary>
+    ///     Batch-mode aggregate state shared across every
+    ///     <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/>
+    ///     invocation in a single scheduled run. Bundles the per-user watch sets with the
+    ///     precomputed item-popularity map (for IDF weighting) so the O(U×M) popularity scan
+    ///     is performed exactly once — not N times per user as it would be if it were rebuilt
+    ///     on every call.
+    ///     <para>
+    ///         The trust-gate decision is intentionally NOT part of this record because it is
+    ///         a per-target-user question (see the block comment inside
+    ///         <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/>
+    ///         for the full rationale). Precomputing it deployment-wide would incorrectly fold
+    ///         the current user's own watch count into the "do we have a rich neighbour?" answer
+    ///         and break the sparse-neighbour attenuation the gate exists for.
+    ///     </para>
+    ///     <para>
+    ///         Single-user (live) callers never construct one of these and let the
+    ///         <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, Dictionary{Guid, HashSet{Guid}}?)"/>
+    ///         overload derive itemPopularity on demand from the local <c>userSets</c>
+    ///         materialisation.
+    ///     </para>
+    /// </summary>
+    /// <param name="UserSets">Per-user combined watched-item sets (item IDs + series IDs).</param>
+    /// <param name="ItemPopularity">Item ID → number of users who have watched it (IDF prior).</param>
+    internal sealed record CollaborativeContext(
+        Dictionary<Guid, HashSet<Guid>> UserSets,
+        Dictionary<Guid, int> ItemPopularity);
 }

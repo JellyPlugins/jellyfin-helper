@@ -123,13 +123,23 @@ internal static class PreferenceBuilder
         // Used together with seriesEpisodeCounts to derive a per-row progression multiplier below.
         // Built lazily and only when both callers-side data is available; single-user scenarios
         // without a seriesEpisodeCounts map fall through to the pre-existing weight formula.
+        //
+        // Completion predicate (strict): only Played rows or rows with PlayCount > 0 count as
+        // "consumed episodes" for the progression multiplier. The previous predicate,
+        // WatchedItemInfo.HasPlaybackActivity(), also treats PlaybackPositionTicks > 0 as
+        // activity — which meant that briefly starting every episode (a 30-second click-through
+        // on each) would push playedEps up to totalEps, yielding rawRatio = 1 and the maximum
+        // 1.5 progression multiplier. That was a false positive: partial starts are noise, not
+        // completion. IsEpisodeCompletedForProgression() below encodes the stricter rule shared
+        // by BuildPeoplePreferenceWeights so both feature pipelines see the same
+        // "series watched to completion" signal.
         Dictionary<Guid, int>? watchedEpisodesPerSeries = null;
         if (seriesEpisodeCounts is { Count: > 0 })
         {
             watchedEpisodesPerSeries = new Dictionary<Guid, int>();
             foreach (var row in profile.WatchedItems)
             {
-                if (row.SeriesId is not { } sid || !row.HasPlaybackActivity())
+                if (row.SeriesId is not { } sid || !IsEpisodeCompletedForProgression(row))
                 {
                     continue;
                 }
@@ -554,13 +564,19 @@ internal static class PreferenceBuilder
         // Same per-series played counter as in BuildGenrePreferenceVector so the two feature
         // pipelines see identical progression ratios. Built lazily; skipped entirely when the
         // caller did not supply seriesEpisodeCounts (backward-compatible path).
+        //
+        // Completion predicate must match BuildGenrePreferenceVector exactly (see the
+        // IsEpisodeCompletedForProgression contract above). If the two pipelines used different
+        // "what counts as a watched episode" rules, the People- and Genre-Similarity features
+        // would receive contradictory progression signals for the same series — one seeing it
+        // as fully watched, the other as half-abandoned.
         Dictionary<Guid, int>? watchedEpisodesPerSeries = null;
         if (seriesEpisodeCounts is { Count: > 0 })
         {
             watchedEpisodesPerSeries = new Dictionary<Guid, int>();
             foreach (var row in userProfile.WatchedItems)
             {
-                if (row.SeriesId is not { } sid || !row.HasPlaybackActivity())
+                if (row.SeriesId is not { } sid || !IsEpisodeCompletedForProgression(row))
                 {
                     continue;
                 }
@@ -768,6 +784,32 @@ internal static class PreferenceBuilder
             Math.Clamp(underexposure, 0.0, 1.0),
             Math.Clamp(dominanceRatio, 0.0, 1.0),
             Math.Clamp(affinityGap, 0.0, 1.0));
+    }
+
+    /// <summary>
+    ///     Returns true when the watched-item row should count as a "completed episode"
+    ///     for the series-progression multiplier. Stricter than
+    ///     <see cref="WatchedItemInfo.HasPlaybackActivity"/>: PlaybackPositionTicks > 0
+    ///     alone is treated as a partial start and does NOT count, because a user briefly
+    ///     opening every episode of a series would otherwise inflate playedEps to totalEps
+    ///     and unlock the maximum <c>ProgressionCeiling</c> (1.5) even though no episode
+    ///     was actually finished.
+    ///     <para>
+    ///         The two eligible signals are:
+    ///         <list type="bullet">
+    ///             <item><description><c>Played</c> — Jellyfin's own "watched" flag, set on completion.</description></item>
+    ///             <item><description><c>PlayCount &gt; 0</c> — the user has finished the episode at least once.</description></item>
+    ///         </list>
+    ///         Favorites are explicitly excluded because favoriting an episode does not
+    ///         imply completion; the favorite additive is applied elsewhere as its own
+    ///         signal so it is not lost through this filter.
+    ///     </para>
+    /// </summary>
+    /// <param name="row">The watched-item row to classify.</param>
+    /// <returns>True when the row represents an actually-completed episode.</returns>
+    private static bool IsEpisodeCompletedForProgression(WatchedItemInfo row)
+    {
+        return row.Played || row.PlayCount > 0;
     }
 
     /// <summary>

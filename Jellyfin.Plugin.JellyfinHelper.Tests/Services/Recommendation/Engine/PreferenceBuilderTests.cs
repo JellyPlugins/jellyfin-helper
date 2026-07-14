@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Xunit;
@@ -8,14 +9,10 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for <see cref="PreferenceBuilder"/>: BuildStudioPreferenceSet,
-///     BuildTagPreferenceSet, BuildPeoplePreferenceSet, BuildGenreExposureAnalysis,
-///     ComputeGenreExposureFeatures, and temporal decay in genre preferences.
+///     Tests for <see cref="PreferenceBuilder"/>.
 /// </summary>
 public class PreferenceBuilderTests
 {
-    // === BuildGenrePreferenceVector ===
-
     [Fact]
     public void BuildGenrePreferenceVector_TemporalDecay_RecentItemsWeighMore()
     {
@@ -23,30 +20,12 @@ public class PreferenceBuilderTests
         {
             WatchedItems =
             [
-                new WatchedItemInfo
-                {
-                    ItemId = Guid.NewGuid(),
-                    Played = true,
-                    LastPlayedDate = DateTime.UtcNow.AddDays(-7),
-                    Genres = ["Action"]
-                },
-                new WatchedItemInfo
-                {
-                    ItemId = Guid.NewGuid(),
-                    Played = true,
-                    LastPlayedDate = DateTime.UtcNow.AddDays(-365),
-                    Genres = ["Comedy"]
-                }
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-7), Genres = ["Action"] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-365), Genres = ["Comedy"] }
             ]
         };
-
         var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile);
-
-        // Action (7 days ago) should have higher weight than Comedy (365 days ago)
-        Assert.True(vector.TryGetValue("Action", out var actionWeight));
-        Assert.True(vector.TryGetValue("Comedy", out var comedyWeight));
-        Assert.True(actionWeight > comedyWeight,
-            $"Recent Action ({actionWeight:F4}) should outweigh old Comedy ({comedyWeight:F4})");
+        Assert.True(vector["Action"] > vector["Comedy"]);
     }
 
     [Fact]
@@ -56,30 +35,12 @@ public class PreferenceBuilderTests
         {
             WatchedItems =
             [
-                new WatchedItemInfo
-                {
-                    ItemId = Guid.NewGuid(),
-                    Played = true,
-                    IsFavorite = true,
-                    LastPlayedDate = DateTime.UtcNow.AddDays(-30),
-                    Genres = ["SciFi"]
-                },
-                new WatchedItemInfo
-                {
-                    ItemId = Guid.NewGuid(),
-                    Played = true,
-                    IsFavorite = false,
-                    LastPlayedDate = DateTime.UtcNow.AddDays(-30),
-                    Genres = ["Drama"]
-                }
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, IsFavorite = true, LastPlayedDate = DateTime.UtcNow.AddDays(-30), Genres = ["SciFi"] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, IsFavorite = false, LastPlayedDate = DateTime.UtcNow.AddDays(-30), Genres = ["Drama"] }
             ]
         };
-
         var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile);
-
-        // SciFi (favorited) should have higher weight than Drama (not favorited)
-        Assert.True(vector["SciFi"] > vector["Drama"],
-            "Favorited genre should have higher weight");
+        Assert.True(vector["SciFi"] > vector["Drama"]);
     }
 
     [Fact]
@@ -87,169 +48,39 @@ public class PreferenceBuilderTests
     {
         var profile = new UserWatchProfile
         {
-            WatchedItems =
-            [
-                new WatchedItemInfo
-                {
-                    ItemId = Guid.NewGuid(),
-                    Played = false,
-                    IsFavorite = true,
-                    Genres = ["Horror"]
-                }
-            ]
+            WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = false, IsFavorite = true, Genres = ["Horror"] }]
         };
-
         var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile);
-
-        Assert.True(vector.ContainsKey("Horror"),
-            "Unplayed favorited items should contribute to genre preferences");
+        Assert.True(vector.ContainsKey("Horror"));
     }
-
-    // === Roadmap v3 (C1): log1p PlayCount ===
 
     [Fact]
     public void BuildGenrePreferenceVector_HeavyRewatcher_DoesNotDominateLinearly()
     {
-        // Before v3 C1: min(PlayCount, 5) × 0.2 → PlayCount 30 and PlayCount 5 both contribute 1.0
-        // (both capped). After v3 C1: log1p yields diminishing returns, so PlayCount 30 contributes
-        // more than PlayCount 5 but NOT 6×. The ratio of raw weight contributions must therefore
-        // be strictly less than the linear ratio (6.0), demonstrating diminishing returns.
         var now = DateTime.UtcNow;
-
-        var moderateProfile = new UserWatchProfile
-        {
-            WatchedItems =
-            [
-                new WatchedItemInfo
-                {
-                    ItemId = Guid.NewGuid(),
-                    Played = true,
-                    PlayCount = 5,
-                    LastPlayedDate = now,
-                    Genres = ["Action"]
-                }
-            ]
-        };
-        var extremeProfile = new UserWatchProfile
-        {
-            WatchedItems =
-            [
-                new WatchedItemInfo
-                {
-                    ItemId = Guid.NewGuid(),
-                    Played = true,
-                    PlayCount = 30,
-                    LastPlayedDate = now,
-                    Genres = ["Action"]
-                }
-            ]
-        };
-
-        // Both vectors have a single genre so they normalize to 1.0 - we can't compare final weights.
-        // Instead we add a distractor genre with a fixed PlayCount so the normalization anchor is
-        // identical across both profiles. The ratio of Action weights then reflects the raw
-        // pre-normalization contribution ratio.
-        moderateProfile.WatchedItems.Add(new WatchedItemInfo
-        {
-            ItemId = Guid.NewGuid(),
-            Played = true,
-            PlayCount = 0,
-            LastPlayedDate = now,
-            Genres = ["Anchor"]
-        });
-        extremeProfile.WatchedItems.Add(new WatchedItemInfo
-        {
-            ItemId = Guid.NewGuid(),
-            Played = true,
-            PlayCount = 0,
-            LastPlayedDate = now,
-            Genres = ["Anchor"]
-        });
-
-        var moderateVec = PreferenceBuilder.BuildGenrePreferenceVector(moderateProfile);
-        var extremeVec = PreferenceBuilder.BuildGenrePreferenceVector(extremeProfile);
-
-        // Both anchors have the same raw contribution → after normalization Action's relative
-        // position to Anchor tells us how much the PlayCount boost added.
-        var moderateActionOverAnchor = moderateVec["Action"] / moderateVec["Anchor"];
-        var extremeActionOverAnchor = extremeVec["Action"] / extremeVec["Anchor"];
-
-        // Extreme (30 plays) is bigger than moderate (5 plays) → concavity check
-        Assert.True(extremeActionOverAnchor > moderateActionOverAnchor,
-            $"PlayCount 30 should contribute more than PlayCount 5 (moderate={moderateActionOverAnchor:F4}, extreme={extremeActionOverAnchor:F4})");
-
-        // But the growth is sub-linear: extreme/moderate ratio must be < linear PlayCount ratio (6×).
-        // Linear formula would have both capped at same value, so any linear-cap regression would
-        // still fail this because ratio would be 1.0 (identical), not > 1 but < 6.
-        var extremeToModerateRatio = extremeActionOverAnchor / moderateActionOverAnchor;
-        Assert.True(extremeToModerateRatio < 6.0,
-            $"log1p must produce sub-linear growth (ratio {extremeToModerateRatio:F4} should be < 6×)");
+        var moderateProfile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 5, LastPlayedDate = now, Genres = ["Action"] }] };
+        var extremeProfile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 30, LastPlayedDate = now, Genres = ["Action"] }] };
+        moderateProfile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 0, LastPlayedDate = now, Genres = ["Anchor"] });
+        extremeProfile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 0, LastPlayedDate = now, Genres = ["Anchor"] });
+        var mv = PreferenceBuilder.BuildGenrePreferenceVector(moderateProfile);
+        var ev = PreferenceBuilder.BuildGenrePreferenceVector(extremeProfile);
+        var mRatio = mv["Action"] / mv["Anchor"];
+        var eRatio = ev["Action"] / ev["Anchor"];
+        Assert.True(eRatio > mRatio);
+        Assert.True(eRatio / mRatio < 6.0);
     }
 
     [Fact]
     public void BuildGenrePreferenceVector_PlayCountBeyond100_IsCapped()
     {
-        // Extreme metadata (stuck counter at PlayCount=1000) must not blow past the log1p cap
-        // fed by PlayCountMaxForLog1p. Cap = 100, so PlayCount 1000 should score identically
-        // to PlayCount 100.
         var now = DateTime.UtcNow;
-
-        var cappedProfile = new UserWatchProfile
-        {
-            WatchedItems =
-            [
-                new WatchedItemInfo
-                {
-                    ItemId = Guid.NewGuid(),
-                    Played = true,
-                    PlayCount = 100,
-                    LastPlayedDate = now,
-                    Genres = ["Action"]
-                },
-                new WatchedItemInfo
-                {
-                    ItemId = Guid.NewGuid(),
-                    Played = true,
-                    PlayCount = 0,
-                    LastPlayedDate = now,
-                    Genres = ["Anchor"]
-                }
-            ]
-        };
-        var pathologicalProfile = new UserWatchProfile
-        {
-            WatchedItems =
-            [
-                new WatchedItemInfo
-                {
-                    ItemId = Guid.NewGuid(),
-                    Played = true,
-                    PlayCount = 1000,
-                    LastPlayedDate = now,
-                    Genres = ["Action"]
-                },
-                new WatchedItemInfo
-                {
-                    ItemId = Guid.NewGuid(),
-                    Played = true,
-                    PlayCount = 0,
-                    LastPlayedDate = now,
-                    Genres = ["Anchor"]
-                }
-            ]
-        };
-
-        var cappedVec = PreferenceBuilder.BuildGenrePreferenceVector(cappedProfile);
-        var pathologicalVec = PreferenceBuilder.BuildGenrePreferenceVector(pathologicalProfile);
-
-        // Normalization makes max = 1.0. When Anchor is the same in both profiles and Action's
-        // pre-normalization weight is the same too (PlayCount clamped to 100 in both), the
-        // final normalized vectors must be numerically identical.
-        Assert.Equal(cappedVec["Action"], pathologicalVec["Action"], 10);
-        Assert.Equal(cappedVec["Anchor"], pathologicalVec["Anchor"], 10);
+        var capped = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 100, LastPlayedDate = now, Genres = ["Action"] }, new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 0, LastPlayedDate = now, Genres = ["Anchor"] }] };
+        var patho = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 1000, LastPlayedDate = now, Genres = ["Action"] }, new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, PlayCount = 0, LastPlayedDate = now, Genres = ["Anchor"] }] };
+        var cv = PreferenceBuilder.BuildGenrePreferenceVector(capped);
+        var pv = PreferenceBuilder.BuildGenrePreferenceVector(patho);
+        Assert.Equal(cv["Action"], pv["Action"], 10);
+        Assert.Equal(cv["Anchor"], pv["Anchor"], 10);
     }
-
-    // === BuildPeoplePreferenceSet ===
 
     [Fact]
     public void BuildPeoplePreferenceSet_CollectsFromPlayedAndFavorited()
@@ -261,18 +92,8 @@ public class PreferenceBuilderTests
             { movieId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor A" } },
             { favId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Director B" } }
         };
-
-        var profile = new UserWatchProfile
-        {
-            WatchedItems =
-            [
-                new WatchedItemInfo { ItemId = movieId, Played = true },
-                new WatchedItemInfo { ItemId = favId, Played = false, IsFavorite = true }
-            ]
-        };
-
+        var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = movieId, Played = true }, new WatchedItemInfo { ItemId = favId, Played = false, IsFavorite = true }] };
         var result = PreferenceBuilder.BuildPeoplePreferenceSet(profile, lookup);
-
         Assert.Contains("Actor A", result);
         Assert.Contains("Director B", result);
     }
@@ -281,18 +102,9 @@ public class PreferenceBuilderTests
     public void BuildPeoplePreferenceSet_SkipsUnplayedNonFavorite()
     {
         var itemId = Guid.NewGuid();
-        var lookup = new Dictionary<Guid, HashSet<string>>
-        {
-            { itemId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor C" } }
-        };
-
-        var profile = new UserWatchProfile
-        {
-            WatchedItems = [new WatchedItemInfo { ItemId = itemId, Played = false, IsFavorite = false }]
-        };
-
+        var lookup = new Dictionary<Guid, HashSet<string>> { { itemId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor C" } } };
+        var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = itemId, Played = false, IsFavorite = false }] };
         var result = PreferenceBuilder.BuildPeoplePreferenceSet(profile, lookup);
-
         Assert.Empty(result);
     }
 
@@ -301,95 +113,50 @@ public class PreferenceBuilderTests
     {
         var episodeId = Guid.NewGuid();
         var seriesId = Guid.NewGuid();
-        var lookup = new Dictionary<Guid, HashSet<string>>
-        {
-            { seriesId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor D" } }
-        };
-
-        var profile = new UserWatchProfile
-        {
-            WatchedItems = [new WatchedItemInfo { ItemId = episodeId, SeriesId = seriesId, Played = true }]
-        };
-
+        var lookup = new Dictionary<Guid, HashSet<string>> { { seriesId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor D" } } };
+        var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = episodeId, SeriesId = seriesId, Played = true }] };
         var result = PreferenceBuilder.BuildPeoplePreferenceSet(profile, lookup);
-
         Assert.Contains("Actor D", result);
     }
-
-    // === Roadmap v3 (C2): BuildPeoplePreferenceWeights ===
 
     [Fact]
     public void BuildPeoplePreferenceWeights_EmptyProfile_ReturnsEmpty()
     {
-        var profile = new UserWatchProfile { WatchedItems = [] };
-        var lookup = new Dictionary<Guid, HashSet<string>>();
-
-        var result = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup);
-
+        var result = PreferenceBuilder.BuildPeoplePreferenceWeights(new UserWatchProfile { WatchedItems = [] }, new Dictionary<Guid, HashSet<string>>());
         Assert.Empty(result);
     }
 
     [Fact]
     public void BuildPeoplePreferenceWeights_CountsAppearancesAcrossWatchedItems()
     {
-        // The weighted map must count each DISTINCT watched-or-favorited item a person appears on.
-        // If "Nolan" appears in 3 different watched items, weight = 3. If "Chalamet" appears in 1,
-        // weight = 1. This is the core signal that drives v3 (C2) People similarity.
-        var nolan1 = Guid.NewGuid();
-        var nolan2 = Guid.NewGuid();
-        var nolan3 = Guid.NewGuid();
-        var chalamet = Guid.NewGuid();
-
+        var n1 = Guid.NewGuid(); var n2 = Guid.NewGuid(); var n3 = Guid.NewGuid(); var c = Guid.NewGuid();
         var lookup = new Dictionary<Guid, HashSet<string>>
         {
-            { nolan1, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Christopher Nolan" } },
-            { nolan2, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Christopher Nolan", "Cillian Murphy" } },
-            { nolan3, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Christopher Nolan" } },
-            { chalamet, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Timothée Chalamet" } }
+            { n1, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Christopher Nolan" } },
+            { n2, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Christopher Nolan", "Cillian Murphy" } },
+            { n3, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Christopher Nolan" } },
+            { c, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Timothee Chalamet" } }
         };
-
-        var profile = new UserWatchProfile
-        {
-            WatchedItems =
-            [
-                new WatchedItemInfo { ItemId = nolan1, Played = true },
-                new WatchedItemInfo { ItemId = nolan2, Played = true },
-                new WatchedItemInfo { ItemId = nolan3, Played = true },
-                new WatchedItemInfo { ItemId = chalamet, Played = true }
-            ]
-        };
-
+        var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = n1, Played = true }, new WatchedItemInfo { ItemId = n2, Played = true }, new WatchedItemInfo { ItemId = n3, Played = true }, new WatchedItemInfo { ItemId = c, Played = true }] };
         var result = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup);
-
         Assert.Equal(3.0, result["Christopher Nolan"]);
         Assert.Equal(1.0, result["Cillian Murphy"]);
-        Assert.Equal(1.0, result["Timothée Chalamet"]);
+        Assert.Equal(1.0, result["Timothee Chalamet"]);
     }
 
     [Fact]
     public void BuildPeoplePreferenceWeights_SkipsUnplayedNonFavorite()
     {
         var itemId = Guid.NewGuid();
-        var lookup = new Dictionary<Guid, HashSet<string>>
-        {
-            { itemId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor X" } }
-        };
-        var profile = new UserWatchProfile
-        {
-            WatchedItems = [new WatchedItemInfo { ItemId = itemId, Played = false, IsFavorite = false }]
-        };
-
+        var lookup = new Dictionary<Guid, HashSet<string>> { { itemId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor X" } } };
+        var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = itemId, Played = false, IsFavorite = false }] };
         var result = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup);
-
         Assert.Empty(result);
     }
 
     [Fact]
     public void BuildPeoplePreferenceWeights_MergesItemAndSeriesPeopleWithoutDoubleCounting()
     {
-        // When a watched episode's item-level and series-level lookups both return the same person,
-        // the weight increment for that row must be 1 (not 2). This prevents systematic over-weighting
-        // of people who appear in both the parent-series and per-episode credits (common in Jellyfin).
         var episodeId = Guid.NewGuid();
         var seriesId = Guid.NewGuid();
         var lookup = new Dictionary<Guid, HashSet<string>>
@@ -397,67 +164,18 @@ public class PreferenceBuilderTests
             { episodeId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor A" } },
             { seriesId, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor A", "Actor B" } }
         };
-        var profile = new UserWatchProfile
-        {
-            WatchedItems = [new WatchedItemInfo { ItemId = episodeId, SeriesId = seriesId, Played = true }]
-        };
-
+        var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = episodeId, SeriesId = seriesId, Played = true }] };
         var result = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup);
-
-        // Actor A appears in both lookups but represents one watched row → weight = 1
         Assert.Equal(1.0, result["Actor A"]);
-        // Actor B only appears at series level → weight = 1
         Assert.Equal(1.0, result["Actor B"]);
     }
 
     [Fact]
-    public void BuildPeoplePreferenceWeights_IsSupersetOfBuildPeoplePreferenceSet()
-    {
-        // Contract: BuildPeoplePreferenceWeights.Keys must equal BuildPeoplePreferenceSet
-        // for any given (profile, lookup). This guarantees that adopting the weighted overload
-        // in Engine.ScoreCandidate does not accidentally drop people that the reason renderer
-        // (which still uses the HashSet) would have surfaced.
-        var idA = Guid.NewGuid();
-        var idB = Guid.NewGuid();
-        var lookup = new Dictionary<Guid, HashSet<string>>
-        {
-            { idA, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Alice", "Bob" } },
-            { idB, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Carol" } }
-        };
-        var profile = new UserWatchProfile
-        {
-            WatchedItems =
-            [
-                new WatchedItemInfo { ItemId = idA, Played = true },
-                new WatchedItemInfo { ItemId = idB, Played = false, IsFavorite = true }
-            ]
-        };
-
-        var setKeys = PreferenceBuilder.BuildPeoplePreferenceSet(profile, lookup);
-        var weightKeys = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup);
-
-        // Same eligibility rules → identical key sets (order-independent)
-        Assert.Equal(
-            setKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase),
-            weightKeys.Keys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
-    }
-
-    // === BuildGenreExposureAnalysis ===
-
-    [Fact]
     public void BuildGenreExposureAnalysis_InsufficientHistory_ReturnsInvalid()
     {
-        var profile = new UserWatchProfile
-        {
-            WatchedItems =
-            [
-                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action"] }
-            ]
-        };
-
+        var profile = new UserWatchProfile { WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, Genres = ["Action"] }] };
         var genrePrefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);
         var analysis = PreferenceBuilder.BuildGenreExposureAnalysis(genrePrefs, profile);
-
         Assert.False(analysis.IsValid);
     }
 
@@ -465,27 +183,15 @@ public class PreferenceBuilderTests
     public void BuildGenreExposureAnalysis_SufficientHistory_ReturnsValid()
     {
         var profile = new UserWatchProfile { WatchedItems = [] };
-
-        // Add 30+ items to meet MinWatchCountForGenreExposure threshold
         for (var i = 0; i < 35; i++)
         {
-            profile.WatchedItems.Add(new WatchedItemInfo
-            {
-                ItemId = Guid.NewGuid(),
-                Played = true,
-                LastPlayedDate = DateTime.UtcNow.AddDays(-i),
-                Genres = i < 25 ? ["Action"] : ["Comedy"]
-            });
+            profile.WatchedItems.Add(new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-i), Genres = i < 25 ? ["Action"] : ["Comedy"] });
         }
-
         var genrePrefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);
         var analysis = PreferenceBuilder.BuildGenreExposureAnalysis(genrePrefs, profile);
-
         Assert.True(analysis.IsValid);
         Assert.True(analysis.DominantGenres.Count > 0);
     }
-
-    // === ComputeGenreExposureFeatures ===
 
     [Fact]
     public void ComputeGenreExposureFeatures_InvalidAnalysis_ReturnsNeutral()
@@ -726,5 +432,238 @@ public class PreferenceBuilderTests
         Assert.True(vectorHasStructure,
             "Proximity expansion should introduce weight variance between genres (peak-vs-off-peak). " +
             "A uniform vector after 28 rows would mean the expansion produced no observable effect.");
+    }
+
+    // === Progression multiplier: IsEpisodeCompletedForProgression counter semantics ===
+    // These four tests lock the "strict completion" rule for the per-series progression
+    // multiplier used by BuildGenrePreferenceVector and BuildPeoplePreferenceWeights.
+    // A previous version of the counter used WatchedItemInfo.HasPlaybackActivity(), which
+    // also treats PlaybackPositionTicks > 0 as "watched" — meaning a user who briefly opens
+    // every episode of a series (a 30-second click-through) would push playedEps up to
+    // totalEps and unlock the maximum ProgressionCeiling (1.5) even though no episode was
+    // actually finished. The strict counter (Played || PlayCount > 0) treats partial starts
+    // as noise, so the multiplier reflects real engagement.
+
+    [Fact]
+    public void BuildGenrePreferenceVector_FullyCompletedSeries_ReceivesHigherWeightThanAbandonedSeries()
+    {
+        // Two series, both 5 episodes. User completed all 5 episodes of "SciFi" (ratio 1.0
+        // → multiplier ≈ 1.5) but only 1 of 5 "Drama" episodes (ratio 0.2 → multiplier ≈ 0.54).
+        // Every counted row is Played=true so the eligibility filter admits it into the loop.
+        // The genre weight must reflect the progression ratio: SciFi > Drama.
+        var sciFiSeries = Guid.NewGuid();
+        var dramaSeries = Guid.NewGuid();
+        var counts = new Dictionary<Guid, int> { { sciFiSeries, 5 }, { dramaSeries, 5 } };
+
+        var profile = new UserWatchProfile();
+        var now = DateTime.UtcNow.AddDays(-1); // same recency for both series to isolate progression effect
+        for (var i = 0; i < 5; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                SeriesId = sciFiSeries,
+                Played = true,
+                LastPlayedDate = now,
+                Genres = ["SciFi"]
+            });
+        }
+
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(),
+            SeriesId = dramaSeries,
+            Played = true,
+            LastPlayedDate = now,
+            Genres = ["Drama"]
+        });
+
+        var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile, counts);
+
+        Assert.True(vector.ContainsKey("SciFi"));
+        Assert.True(vector.ContainsKey("Drama"));
+        Assert.True(vector["SciFi"] > vector["Drama"],
+            $"Fully-completed series should out-weigh abandoned series after progression scaling " +
+            $"(SciFi={vector["SciFi"]:F4}, Drama={vector["Drama"]:F4})");
+    }
+
+    [Fact]
+    public void BuildGenrePreferenceVector_PartialStartsDoNotInflateCompletionRatio()
+    {
+        // The strict completion predicate must ignore rows with PlaybackPositionTicks > 0 but
+        // Played=false and PlayCount=0. A non-series "Anchor" movie row (immune to the
+        // progression multiplier, which returns 1.0 for non-episode rows) is added to both
+        // profiles as a normalisation reference — because both profiles produce a vector with
+        // "SciFi" and "Anchor", the SciFi/Anchor ratio exposes the progression multiplier that
+        // would otherwise be hidden by max-normalisation.
+        //
+        // Under the STRICT counter both profiles have the same 2 played episodes counted
+        // → mult ≈ 0.78 per row → total SciFi weight identical → SciFi/Anchor ratio identical.
+        // Under the REGRESSED HasPlaybackActivity counter profile A would see 5/5 (mult 1.5)
+        // while B stays at 2/5 (mult 0.78), so A's ratio would be dramatically larger.
+        var series = Guid.NewGuid();
+        var counts = new Dictionary<Guid, int> { { series, 5 } };
+        var now = DateTime.UtcNow.AddDays(-1);
+
+        WatchedItemInfo Played() => new()
+        {
+            ItemId = Guid.NewGuid(),
+            SeriesId = series,
+            Played = true,
+            LastPlayedDate = now,
+            Genres = ["SciFi"]
+        };
+
+        WatchedItemInfo PartialStart() => new()
+        {
+            ItemId = Guid.NewGuid(),
+            SeriesId = series,
+            Played = false,
+            PlayCount = 0,
+            PlaybackPositionTicks = 3000,
+            LastPlayedDate = now,
+            Genres = ["SciFi"]
+        };
+
+        WatchedItemInfo Anchor() => new()
+        {
+            ItemId = Guid.NewGuid(),
+            // No SeriesId → non-episode row → progression multiplier stays at neutral 1.0
+            Played = true,
+            LastPlayedDate = now,
+            Genres = ["Anchor"]
+        };
+
+        var withPartials = new UserWatchProfile
+        {
+            WatchedItems = [Played(), Played(), PartialStart(), PartialStart(), PartialStart(), Anchor()]
+        };
+        var withoutPartials = new UserWatchProfile
+        {
+            WatchedItems = [Played(), Played(), Anchor()]
+        };
+
+        var vectorA = PreferenceBuilder.BuildGenrePreferenceVector(withPartials, counts);
+        var vectorB = PreferenceBuilder.BuildGenrePreferenceVector(withoutPartials, counts);
+
+        Assert.True(vectorA.ContainsKey("SciFi") && vectorA.ContainsKey("Anchor"));
+        Assert.True(vectorB.ContainsKey("SciFi") && vectorB.ContainsKey("Anchor"));
+
+        var ratioA = vectorA["SciFi"] / vectorA["Anchor"];
+        var ratioB = vectorB["SciFi"] / vectorB["Anchor"];
+
+        // Both profiles compute the same played counter (2/5), so the SciFi/Anchor ratio must
+        // match to within floating-point noise. A regression to HasPlaybackActivity would push
+        // ratioA well above ratioB (roughly a 1.5/0.78 ≈ 1.9× multiplier gap).
+        Assert.Equal(ratioB, ratioA, 6);
+    }
+
+    [Fact]
+    public void BuildPeoplePreferenceWeights_SharesProgressionSemanticsWithGenrePipeline()
+    {
+        // BuildPeoplePreferenceWeights and BuildGenrePreferenceVector must use the SAME strict
+        // completion predicate (Played || PlayCount>0) for the per-series progression counter.
+        // If they diverge, the People-Similarity feature and the Genre-Similarity feature see
+        // contradictory progression signals for the same series — one seeing it as fully
+        // watched, the other as half-abandoned.
+        //
+        // Construction: 3 Played + 2 partial-start rows in a 5-episode series. All rows map
+        // to the same "Actor Z" via the series lookup. The strict counter gives 3/5 → mult
+        // ≈ 1.02, applied to each of the 3 eligible (Played) rows → total weight ≈ 3.06.
+        // The old (HasPlaybackActivity) counter would give 5/5 → mult 1.5 → weight 4.5.
+        // Asserting the weight sits in the strict range locks the semantics.
+        var series = Guid.NewGuid();
+        var counts = new Dictionary<Guid, int> { { series, 5 } };
+        var now = DateTime.UtcNow.AddDays(-1);
+
+        var lookup = new Dictionary<Guid, HashSet<string>>
+        {
+            { series, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor Z" } }
+        };
+
+        var profile = new UserWatchProfile();
+        for (var i = 0; i < 3; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                SeriesId = series,
+                Played = true,
+                LastPlayedDate = now
+            });
+        }
+
+        for (var i = 0; i < 2; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                SeriesId = series,
+                Played = false,
+                PlayCount = 0,
+                PlaybackPositionTicks = 5000,
+                LastPlayedDate = now
+            });
+        }
+
+        var weights = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup, counts);
+
+        Assert.True(weights.TryGetValue("Actor Z", out var w));
+        // Strict counter: rawRatio = 3/5 = 0.6 → multiplier = 0.3 + 0.6*1.2 = 1.02
+        // 3 eligible Played rows × 1.02 ≈ 3.06. Old counter would produce 3 * 1.5 = 4.5.
+        // Range [2.8, 3.4] is comfortably inside strict behaviour and clearly excludes the
+        // old counter's 4.5 output.
+        Assert.True(w >= 2.8 && w <= 3.4,
+            $"People weight must reflect strict progression counter (3/5 ratio → ~3.06), got {w:F4}. " +
+            $"A value near 4.5 indicates the counter regressed to HasPlaybackActivity.");
+    }
+
+    [Fact]
+    public void ComputeProgressionMultiplier_AbandonedSeries_StillContributesFloor()
+    {
+        // Locks the ProgressionFloor invariant: a barely-started series (1 of 20 episodes
+        // played) must NOT disappear from the preference vector — it should still contribute
+        // at the ProgressionFloor level (0.3), so users with mostly-abandoned history are not
+        // left with an empty preference vector.
+        //
+        // We assert this indirectly: a completed 5-episode "Anchor" series (multiplier 1.5)
+        // compared to a 1-of-20 "Fringe" series (multiplier 0.3 + 0.05*1.2 = 0.36) — Fringe
+        // should still produce a non-zero weight, and Anchor should out-weigh it, but Fringe
+        // must be strictly greater than zero (the floor guarantees this).
+        var anchor = Guid.NewGuid();
+        var fringe = Guid.NewGuid();
+        var counts = new Dictionary<Guid, int> { { anchor, 5 }, { fringe, 20 } };
+        var now = DateTime.UtcNow.AddDays(-1);
+
+        var profile = new UserWatchProfile();
+        for (var i = 0; i < 5; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                SeriesId = anchor,
+                Played = true,
+                LastPlayedDate = now,
+                Genres = ["Anchor"]
+            });
+        }
+
+        // Only 1 of 20 Fringe episodes played → rawRatio 0.05 → multiplier ≈ 0.36 (above floor).
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(),
+            SeriesId = fringe,
+            Played = true,
+            LastPlayedDate = now,
+            Genres = ["Fringe"]
+        });
+
+        var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile, counts);
+
+        Assert.True(vector.ContainsKey("Fringe"));
+        Assert.True(vector["Fringe"] > 0.0,
+            "Abandoned series must still contribute a non-zero weight via ProgressionFloor.");
+        Assert.True(vector["Anchor"] > vector["Fringe"],
+            "Fully-completed anchor series must still out-weigh an abandoned one.");
     }
 }

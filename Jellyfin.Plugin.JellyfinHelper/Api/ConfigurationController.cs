@@ -406,14 +406,25 @@ public class ConfigurationController : ControllerBase
             ? 0
             : Math.Clamp(request.SeerrCleanupAgeDays, 1, 3650);
 
-        // Validate and normalize log level (same rules as UpdateLogLevel endpoint)
+        // PluginLogLevel is owned by the Logs tab and mutated exclusively via PUT /Configuration/LogLevel.
+        // The Settings POST payload is intentionally IGNORED for this field to close a TOCTOU race
+        // where the Settings page had captured a stale value at page load, then overwrote a
+        // concurrently-changed level (from the Logs tab or another admin session) on save.
+        // Keeping the merge server-side eliminates the need for a client-side preflight GET and
+        // guarantees the invariant regardless of which caller sends the POST. Legacy configs that
+        // arrive with an invalid persisted level are normalised to "INFO" as a self-healing
+        // fallback so downstream log-filtering code never has to deal with garbage.
         var validLevels = new[] { "DEBUG", "INFO", "WARN", "ERROR" };
-        var normalizedLevel = string.IsNullOrWhiteSpace(request.PluginLogLevel)
-            ? "INFO"
-            : request.PluginLogLevel.Trim().ToUpperInvariant();
-        config.PluginLogLevel = Array.IndexOf(validLevels, normalizedLevel) >= 0
-            ? normalizedLevel
-            : "INFO";
+        if (string.IsNullOrWhiteSpace(config.PluginLogLevel)
+            || Array.IndexOf(validLevels, config.PluginLogLevel.Trim().ToUpperInvariant()) < 0)
+        {
+            config.PluginLogLevel = "INFO";
+        }
+        else
+        {
+            // Persist the canonical UPPER form even if the on-disk value has drifted casing.
+            config.PluginLogLevel = config.PluginLogLevel.Trim().ToUpperInvariant();
+        }
 
         // Update Radarr instances (clear + re-add from request)
         config.RadarrInstances.Clear();

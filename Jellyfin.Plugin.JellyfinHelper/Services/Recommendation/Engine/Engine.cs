@@ -52,6 +52,17 @@ public sealed class Engine : IRecommendationEngine
     // against whatever the snapshot currently holds, and expiring it forces a fresh library
     // scan on the next call — which is exactly the behaviour DryRun users want when they add
     // a new film and check "what would happen if I activated recommendations".
+    // Single-flight gate for on-demand snapshot rebuilds. When the cache is empty or expired
+    // several concurrent live requests would otherwise each trigger their own LoadCandidateItems /
+    // BuildCandidatePeopleLookup / BuildCandidateBoxSetLookupFresh pass, hammering the library
+    // manager in lock-step. The gate serialises the FIRST rebuild; every waiter that arrives while
+    // the winner is materialising reads the freshly published snapshot instead of doing its own
+    // scan. The scheduled batch path (GetAllRecommendations) intentionally bypasses this gate — it
+    // is the authoritative source of the snapshot and must not defer to a stale live-path build.
+    // Declared before _cachedSnapshot so StyleCop's readonly-fields-first ordering (SA1214) is
+    // satisfied — the two fields are semantically paired.
+    private readonly object _snapshotRefreshLock = new();
+
     // Stored as a single immutable snapshot to prevent concurrent readers from mixing data across batches.
     private volatile CandidateSnapshot? _cachedSnapshot;
 
@@ -117,11 +128,16 @@ public sealed class Engine : IRecommendationEngine
         // fields reference JF domain objects whose Genres/Studios/CommunityRating may mutate via
         // metadata refresh between batches, and new library additions would otherwise stay
         // invisible until the next scheduled run.
-        var snapshot = _cachedSnapshot;
-        if (snapshot is not null && DateTime.UtcNow - snapshot.CreatedAtUtc > CandidateSnapshotMaxAge)
-        {
-            snapshot = null;
-        }
+        //
+        // Single-flight refresh: when the cache is empty or expired, GetOrRefreshLiveSnapshot()
+        // serialises the FIRST rebuild through _snapshotRefreshLock and republishes the result
+        // to _cachedSnapshot so every concurrent live request that arrives during the rebuild
+        // reads the freshly published data instead of racing to re-scan the library. Without
+        // this gate a batch of near-simultaneous "GetRecommendations" calls right after TTL
+        // expiry would each run LoadCandidateItems + BuildCandidatePeopleLookup +
+        // BuildCandidateBoxSetLookupFresh in parallel — a "stampede" that lands N heavy library
+        // scans on the LibraryManager in lock-step.
+        var snapshot = GetOrRefreshLiveSnapshot();
 
         if (userProfile.WatchedItems.Count == 0)
         {
@@ -138,7 +154,7 @@ public sealed class Engine : IRecommendationEngine
                 userId,
                 maxResults,
                 userProfile.UserName,
-                snapshot?.Candidates,
+                snapshot.Candidates,
                 userProfile.MaxParentalRating,
                 userProfile,
                 communityPopularity: communityPopularity,
@@ -148,23 +164,20 @@ public sealed class Engine : IRecommendationEngine
 
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
 
-        // Reuse cached candidates/people/boxSets from last batch run if available and not expired,
-        // otherwise load fresh.
-        List<BaseItem> candidates;
-        Dictionary<Guid, int> seriesEpisodeCounts;
-        if (snapshot is not null)
-        {
-            candidates = snapshot.Candidates;
-            seriesEpisodeCounts = snapshot.SeriesEpisodeCounts;
-        }
-        else
-        {
-            (candidates, seriesEpisodeCounts) = LoadCandidateItems();
-        }
-
-        var peopleLookup = snapshot?.PeopleLookup ?? _similarityComputer.BuildCandidatePeopleLookup(candidates);
-        var boxSetLookup = snapshot?.CandidateBoxSetLookup ?? BuildCandidateBoxSetLookupFresh(candidates);
+        // Live path now always sees a valid, published snapshot (built either by the batch or by
+        // the single-flight refresh above). We can therefore skip the fall-back "load fresh"
+        // branches entirely.
+        var candidates = snapshot.Candidates;
+        var seriesEpisodeCounts = snapshot.SeriesEpisodeCounts;
+        var peopleLookup = snapshot.PeopleLookup;
+        var boxSetLookup = snapshot.CandidateBoxSetLookup;
         var alphaOffset = _strategySelector.GetAlphaOffset(userProfile.UserId);
+        // Live single-user path: no batch-scoped CollaborativeContext exists here (only the batch
+        // path builds one). We therefore pass null and let GenerateForUser derive the aggregates
+        // locally from precomputedUserSets (which is also null in the live path). The named
+        // `ct:` argument is used because CollaborativeContext? sits before the CancellationToken
+        // in the parameter list — CA1068 forces the CancellationToken to be the last positional
+        // parameter, but we want to skip the optional context, so named-arg it is.
         return GenerateForUser(
             userProfile,
             allProfiles,
@@ -177,7 +190,8 @@ public sealed class Engine : IRecommendationEngine
             null,
             alphaOffset,
             liveSeed,
-            cancellationToken);
+            collaborativeContext: null,
+            ct: cancellationToken);
     }
 
     /// <inheritdoc />
@@ -276,6 +290,14 @@ public sealed class Engine : IRecommendationEngine
         // Reduces O(U²×M) to O(U×M) by sharing sets across BuildCollaborativeMap calls.
         var precomputedUserSets = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
 
+        // Wrap the user sets in a CollaborativeContext so the itemPopularity map (O(U×M) scan)
+        // and the trust-gate decision (O(U) scan) are also shared across every per-user call
+        // to BuildCollaborativeMap. Without this bundle each user's invocation would re-derive
+        // both aggregates from the exact same input, effectively re-imposing an O(U²×M) cost
+        // that a previous review round had already flagged and reported fixed. Building the
+        // context once here keeps batch cost at O(U×M) + O(U×batch-loop-work).
+        var collaborativeContext = CollaborativeFilter.PrecomputeCollaborativeContext(precomputedUserSets);
+
         // Cold-start prior: build a community popularity map (itemId → watch count)
         // from the precomputed user sets. Passed to cold-start scoring so that new users
         // benefit from the collective "wisdom of the crowd" rather than only static
@@ -360,6 +382,7 @@ public sealed class Engine : IRecommendationEngine
                             precomputedUserSets,
                             _strategySelector.GetAlphaOffset(profile.UserId),
                             batchSeed,
+                            collaborativeContext,
                             cancellationToken);
                     concurrentResults.Add(result);
                 }
@@ -672,7 +695,15 @@ public sealed class Engine : IRecommendationEngine
     ///     helper is used instead of <see cref="HashCode.Combine{T1,T2}"/> so the value is
     ///     process-independent — a Jellyfin restart does not reshuffle same-day exploration.
     /// </param>
-    /// <param name="ct">Cancellation token for cooperative cancellation.</param>
+    /// <param name="collaborativeContext">
+    ///     Optional batch-scoped collaborative aggregates (item popularity + trust-gate flag)
+    ///     shared across every user in the same batch. When provided, this method uses the
+    ///     <see cref="CollaborativeFilter.BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeFilter.CollaborativeContext)"/>
+    ///     overload so those O(U×M) / O(U) aggregates are not recomputed per user. When null
+    ///     (single-user live path) the method falls back to the legacy overload which derives
+    ///     the aggregates locally from <paramref name="precomputedUserSets"/> or a fresh build.
+    /// </param>
+    /// <param name="ct">Cancellation token for cooperative cancellation. Kept last to satisfy CA1068.</param>
     /// <returns>A recommendation result for the user.</returns>
     private RecommendationResult GenerateForUser(
         UserWatchProfile userProfile,
@@ -686,6 +717,7 @@ public sealed class Engine : IRecommendationEngine
         Dictionary<Guid, HashSet<Guid>>? precomputedUserSets,
         double alphaOffset = 0.0,
         int? explorationSeed = null,
+        CollaborativeFilter.CollaborativeContext? collaborativeContext = null,
         CancellationToken ct = default)
     {
         // Build a lookup of watched items by ID for O(1) access in scoring methods
@@ -744,8 +776,14 @@ public sealed class Engine : IRecommendationEngine
             candidateLookup.TryAdd(c.Id, c);
         }
 
-        // Build the collaborative co-occurrence map (uses precomputed sets in batch mode)
-        var coOccurrence = CollaborativeFilter.BuildCollaborativeMap(userProfile, allProfiles, precomputedUserSets);
+        // Build the collaborative co-occurrence map.
+        //   • Batch mode: use the precomputed CollaborativeContext so itemPopularity and the
+        //     trust-gate decision are read from the shared record instead of being redone.
+        //   • Live single-user mode: caller passes collaborativeContext=null, we fall back to
+        //     the legacy overload which materialises the aggregates locally.
+        var coOccurrence = collaborativeContext is not null
+            ? CollaborativeFilter.BuildCollaborativeMap(userProfile, allProfiles, collaborativeContext)
+            : CollaborativeFilter.BuildCollaborativeMap(userProfile, allProfiles, precomputedUserSets);
         var collaborativeMax = coOccurrence.Count > 0 ? coOccurrence.Values.Max() : 0;
         var averageYear = ContentScoring.ComputeAverageYear(userProfile);
         var preferredStudios = PreferenceBuilder.BuildStudioPreferenceSet(userProfile, candidateLookup);
@@ -1354,6 +1392,67 @@ public sealed class Engine : IRecommendationEngine
         }
 
         return lookup;
+    }
+
+    /// <summary>
+    ///     Returns the current candidate snapshot, refreshing it under a single-flight gate
+    ///     when the cache is empty or has exceeded <see cref="CandidateSnapshotMaxAge"/>.
+    ///     <para>
+    ///         Concurrency contract: only ONE thread performs the heavy LibraryManager scan
+    ///         at any given time. All other threads that arrive during the rebuild block on
+    ///         <see cref="_snapshotRefreshLock"/> and, once the winner has published the new
+    ///         snapshot to <see cref="_cachedSnapshot"/>, read that fresh snapshot instead of
+    ///         doing their own scan. This closes the stampede window described in the class-
+    ///         level cache comment: without the gate, N live requests hitting an expired
+    ///         cache would trigger N parallel LoadCandidateItems + BuildCandidatePeopleLookup
+    ///         + BuildCandidateBoxSetLookupFresh runs, hammering the library manager and
+    ///         producing N transient snapshots (each candidate to be garbage-collected as
+    ///         soon as the next one overwrites <see cref="_cachedSnapshot"/>).
+    ///     </para>
+    ///     <para>
+    ///         Double-check inside the lock guards against the race where two threads read
+    ///         "cache is null/expired" from the volatile field simultaneously — the second
+    ///         thread must re-verify after acquiring the lock so that only the first one
+    ///         performs the rebuild.
+    ///     </para>
+    /// </summary>
+    /// <returns>A fresh (or still-valid) snapshot. Never returns null.</returns>
+    private CandidateSnapshot GetOrRefreshLiveSnapshot()
+    {
+        var snapshot = _cachedSnapshot;
+        if (snapshot is not null && DateTime.UtcNow - snapshot.CreatedAtUtc <= CandidateSnapshotMaxAge)
+        {
+            return snapshot;
+        }
+
+        lock (_snapshotRefreshLock)
+        {
+            // Re-check under the lock: a competing thread may already have completed a
+            // refresh while we were waiting. Publishing the winner's snapshot is what makes
+            // the rest of the batch a no-op — the "cost" of a stampede is paid at most once.
+            snapshot = _cachedSnapshot;
+            if (snapshot is not null && DateTime.UtcNow - snapshot.CreatedAtUtc <= CandidateSnapshotMaxAge)
+            {
+                return snapshot;
+            }
+
+            var (candidates, seriesEpisodeCounts) = LoadCandidateItems();
+            var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
+            var boxSetLookup = BuildCandidateBoxSetLookupFresh(candidates);
+
+            var fresh = new CandidateSnapshot(
+                candidates,
+                peopleLookup,
+                boxSetLookup,
+                seriesEpisodeCounts,
+                DateTime.UtcNow);
+
+            // Republish so subsequent live requests hit the fresh cache without re-entering
+            // this method's slow path. The scheduled batch still owns primary invalidation
+            // via its own unconditional overwrite of _cachedSnapshot in GetAllRecommendations.
+            _cachedSnapshot = fresh;
+            return fresh;
+        }
     }
 
     /// <summary>

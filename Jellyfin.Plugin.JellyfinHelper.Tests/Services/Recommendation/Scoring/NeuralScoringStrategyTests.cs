@@ -1097,19 +1097,32 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         Assert.All(h3Mask, m => Assert.True(m == 0.0 || m == 1.0));
 
         // Where a neuron was dropped, its activation must be exactly 0 regardless of
-        // pre-activation magnitude. Where it was kept, activation = relu(pre) * 2.0.
-        for (var k = 0; k < NeuralScoringStrategy.Hidden4Size; k++)
+        // pre-activation magnitude. Where it was kept, activation = relu(pre) * invKeepScale.
+        // Verified for EVERY hidden layer so a regression that records the mask but forgets
+        // to apply zeroing/scaling in an earlier layer still fails the test (a previous
+        // version only checked Hidden4 and would have missed a Hidden1/2/3-only regression).
+        static void AssertDropoutApplied(double[] pre, double[] act, double[] mask, double invKeepScale)
         {
-            if (h4Mask[k] == 0.0)
+            Assert.Equal(pre.Length, act.Length);
+            Assert.Equal(pre.Length, mask.Length);
+            for (var k = 0; k < mask.Length; k++)
             {
-                Assert.Equal(0.0, h4Act[k]);
-            }
-            else
-            {
-                var expectedRelu = h4Pre[k] > 0 ? h4Pre[k] : 0.0;
-                Assert.Equal(expectedRelu * 2.0, h4Act[k], 10);
+                if (mask[k] == 0.0)
+                {
+                    Assert.Equal(0.0, act[k]);
+                }
+                else
+                {
+                    var expectedRelu = pre[k] > 0 ? pre[k] : 0.0;
+                    Assert.Equal(expectedRelu * invKeepScale, act[k], 10);
+                }
             }
         }
+
+        AssertDropoutApplied(h1Pre, h1Act, h1Mask, 2.0);
+        AssertDropoutApplied(h2Pre, h2Act, h2Mask, 2.0);
+        AssertDropoutApplied(h3Pre, h3Act, h3Mask, 2.0);
+        AssertDropoutApplied(h4Pre, h4Act, h4Mask, 2.0);
     }
 
     [Fact]

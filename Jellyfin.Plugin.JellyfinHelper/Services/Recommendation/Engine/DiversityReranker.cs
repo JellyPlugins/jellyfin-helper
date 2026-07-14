@@ -67,7 +67,10 @@ internal static class DiversityReranker
     /// <param name="count">The target number of recommendations.</param>
     /// <param name="seed">
     ///     Optional deterministic seed for the exploration sampler.
-    ///     Callers should combine user + batch/day identifiers via <see cref="HashCode.Combine{T1,T2}"/>.
+    ///     Callers MUST use a process-stable hash (e.g. <c>Engine.ComputeStableSeed(userId, dayNumber)</c>
+    ///     or <c>Engine.ComputeStableSeed(userId, batchGeneration)</c>) — <see cref="HashCode.Combine{T1,T2}"/>
+    ///     is randomised per process and would reshuffle the same (userId, day) tuple after every
+    ///     Jellyfin restart, defeating the "stable within one day" contract exploration relies on.
     /// </param>
     /// <returns>The diversified selection of at most <paramref name="count"/> scored candidates.</returns>
     internal static List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>
@@ -288,9 +291,13 @@ internal static class DiversityReranker
 
             if (explorationPool.Count > 0)
             {
-                // FIX-3: seedable RNG. Callers pass HashCode.Combine(userId, batchGenerationCounter)
-                // for offline batches or HashCode.Combine(userId, DayNumber) for live requests, so
+                // FIX-3: seedable RNG. Callers pass Engine.ComputeStableSeed(userId, batchGenerationCounter)
+                // for offline batches or Engine.ComputeStableSeed(userId, DayNumber) for live requests, so
                 // exploration picks are reproducible per user/context and unit tests can pin behaviour.
+                // ComputeStableSeed is used instead of System.HashCode.Combine because HashCode.Combine is
+                // randomised per-process — the same (userId, day) tuple would hash to a different seed
+                // after each Jellyfin restart, which would reshuffle exploration within a day and break
+                // the "stable within one day" contract.
                 //
                 // The Random.Shared fallback is a deliberate opt-in to non-deterministic exploration
                 // — callers that omit the seed argument (currently only exists for callers outside
