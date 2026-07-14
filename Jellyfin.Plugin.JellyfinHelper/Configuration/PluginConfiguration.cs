@@ -325,9 +325,10 @@ public class PluginConfiguration : BasePluginConfiguration
 
     private double ClampAndReport(string propertyName, double raw, double min, double max)
     {
-        var clamped = Math.Clamp(raw, min, max);
-        // Doubles: NaN is neither < nor > so Clamp returns min. That IS a change, but the
-        // "raw" NaN would print as "NaN" in the report which is exactly the diagnostic we want.
+        // Math.Clamp passes NaN through unchanged, which would poison downstream consumers
+        // (ensemble alpha blend, genre penalty). Coerce NaN to the lower bound so the value
+        // is always finite. The raw NaN is still recorded in the report for diagnostics.
+        var clamped = double.IsNaN(raw) ? min : Math.Clamp(raw, min, max);
         if (Math.Abs(clamped - raw) > 1e-12 || double.IsNaN(raw))
         {
             _clampReports.Add(new ClampReportEntry(
