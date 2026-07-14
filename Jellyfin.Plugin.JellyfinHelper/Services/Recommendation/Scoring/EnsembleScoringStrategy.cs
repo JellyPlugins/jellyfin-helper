@@ -70,6 +70,15 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     internal const double MidpointAdaptationStep = 3.0;
 
     /// <summary>
+    ///     Multiplicative decay factor applied to the midpoint offset when neither exploration
+    ///     cohort beats control. Slowly pulls the offset back toward the default midpoint so a
+    ///     long streak of "control is optimal" doesn't leave the system permanently anchored at
+    ///     a shifted midpoint that reflects stale user behaviour. 0.98 loses about 2% per run,
+    ///     which decays a fully saturated ±20 offset back to ±10 over roughly 35 training runs.
+    /// </summary>
+    internal const double MidpointDecayFactor = 0.98;
+
+    /// <summary>
     ///     Genre similarity threshold below which the soft penalty ramps down.
     ///     Items above this threshold receive no penalty (multiplier = 1.0).
     ///     0.15 means items sharing at least ~15% of the user's preferred genres are unpenalized.
@@ -955,12 +964,36 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             }
         }
 
-        // Control is optimal - no adaptation needed
+        // Control is optimal - no cohort-driven adaptation, but apply a mild decay so a
+        // saturated offset from earlier runs drifts back toward the default midpoint over
+        // time. This acts as a slow anti-drift regulariser: if user behaviour has stabilised
+        // around the default, we shouldn't stay pinned at ±20 forever waiting for the
+        // opposite cohort to eventually win. If the offset is already at (near) zero the
+        // decay is a no-op.
+        var decayed = false;
+        double decayedOffset;
+        lock (_syncRoot)
+        {
+            if (Math.Abs(_sigmoidMidpointOffset) > 1e-6)
+            {
+                _sigmoidMidpointOffset *= MidpointDecayFactor;
+                decayed = true;
+            }
+
+            decayedOffset = _sigmoidMidpointOffset;
+        }
+
+        if (decayed)
+        {
+            TrySaveState();
+        }
+
         if (_logger is not null && _logger.IsEnabled(LogLevel.Debug))
         {
             _logger.LogDebug(
-                "Cohort feedback: control ({ControlRate:P1}) is optimal, no midpoint adaptation",
-                controlRate);
+                "Cohort feedback: control ({ControlRate:P1}) is optimal, midpoint offset decayed to {Offset:F2}",
+                controlRate,
+                decayedOffset);
         }
     }
 
