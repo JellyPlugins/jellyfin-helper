@@ -29,6 +29,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class ConfigurationController : ControllerBase
 {
+    // Single source of truth for accepted plugin log levels. Previously duplicated between
+    // UpdateLogLevel and ApplyRequestToConfig; hoisted to a shared constant so adding /
+    // removing a level touches one place instead of two that could silently drift.
+    private static readonly string[] ValidLogLevels = ["DEBUG", "INFO", "WARN", "ERROR"];
+
     private readonly IArrIntegrationService _arrService;
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IPluginConfigurationService _configService;
@@ -144,12 +149,11 @@ public class ConfigurationController : ControllerBase
 
         var config = _configService.GetConfiguration();
 
-        var validLevels = new[] { "DEBUG", "INFO", "WARN", "ERROR" };
         var level = string.IsNullOrWhiteSpace(request.PluginLogLevel)
             ? "INFO"
             : request.PluginLogLevel.Trim().ToUpperInvariant();
 
-        if (Array.IndexOf(validLevels, level) < 0)
+        if (Array.IndexOf(ValidLogLevels, level) < 0)
         {
             return BadRequest(
                 new { message = $"Invalid log level '{request.PluginLogLevel}'. Allowed: DEBUG, INFO, WARN, ERROR." });
@@ -430,9 +434,8 @@ public class ConfigurationController : ControllerBase
         // guarantees the invariant regardless of which caller sends the POST. Legacy configs that
         // arrive with an invalid persisted level are normalised to "INFO" as a self-healing
         // fallback so downstream log-filtering code never has to deal with garbage.
-        var validLevels = new[] { "DEBUG", "INFO", "WARN", "ERROR" };
         if (string.IsNullOrWhiteSpace(config.PluginLogLevel)
-            || Array.IndexOf(validLevels, config.PluginLogLevel.Trim().ToUpperInvariant()) < 0)
+            || Array.IndexOf(ValidLogLevels, config.PluginLogLevel.Trim().ToUpperInvariant()) < 0)
         {
             config.PluginLogLevel = "INFO";
         }

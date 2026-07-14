@@ -227,13 +227,18 @@ public sealed class BatchFallbackHelperTests
         // silently degrades to fallback instead of stopping. The inner filter used to
         // swallow OCE here, which broke the graceful-degradation contract's promise
         // that cancellation is always a stop signal.
+        //
+        // Assert.Same on the captured instance so a helper that rethrows via
+        // `throw new OperationCanceledException(...)` (losing the original cancellation
+        // token) would fail this test. Type-only assertions would silently accept that.
+        var expected = new OperationCanceledException();
         var thrown = Record.Exception(() =>
             BatchFallbackHelper.TryRunBatch<string?>(
                 batchCall: () => throw new InvalidOperationException("primary failure"),
                 fallbackValue: "fallback",
-                onFailure: _ => throw new OperationCanceledException()));
+                onFailure: _ => throw expected));
 
-        Assert.IsAssignableFrom<OperationCanceledException>(thrown);
+        Assert.Same(expected, thrown);
     }
 
     [Fact]
@@ -242,13 +247,17 @@ public sealed class BatchFallbackHelperTests
         // Async loggers can surface cancellation as AggregateException(OCE) via Task.Wait
         // or Task.Result. Without unwrapping in the inner catch the signal would be
         // silently swallowed and the caller would get the fallback instead of stopping.
+        //
+        // Assert.Same on the inner OCE so a helper that constructs a fresh OCE (dropping
+        // the token) fails the assertion. We rethrow the FIRST inner exception.
+        var innerOce = new OperationCanceledException();
         var thrown = Record.Exception(() =>
             BatchFallbackHelper.TryRunBatch<string?>(
                 batchCall: () => throw new InvalidOperationException("primary failure"),
                 fallbackValue: "fallback",
-                onFailure: _ => throw new AggregateException(new OperationCanceledException())));
+                onFailure: _ => throw new AggregateException(innerOce)));
 
-        Assert.IsAssignableFrom<OperationCanceledException>(thrown);
+        Assert.Same(innerOce, thrown);
     }
 
     [Fact]
@@ -256,13 +265,15 @@ public sealed class BatchFallbackHelperTests
     {
         // Companion contract: same unwrapping must apply to the primary batch call. If a
         // Task-based batch surfaces cancellation as AggregateException, the caller still
-        // sees an OCE (not the aggregate itself) so cancellation-token handling works.
+        // sees the exact same OCE instance (not a synthetic copy) so cancellation-token
+        // handling downstream keeps working.
+        var innerOce = new OperationCanceledException();
         var thrown = Record.Exception(() =>
             BatchFallbackHelper.TryRunBatch<string?>(
-                batchCall: () => throw new AggregateException(new OperationCanceledException()),
+                batchCall: () => throw new AggregateException(innerOce),
                 fallbackValue: "fallback",
                 onFailure: _ => Assert.Fail("Callback must not fire when cancellation propagates.")));
 
-        Assert.IsAssignableFrom<OperationCanceledException>(thrown);
+        Assert.Same(innerOce, thrown);
     }
 }

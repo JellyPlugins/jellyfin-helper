@@ -438,6 +438,12 @@ public class UserActivityInsightsServiceTests
           .Throws(new OperationCanceledException());
 
         Assert.Throws<OperationCanceledException>(() => svc.BuildActivityReport());
+        // Both users' batch calls must have fired exactly once so the assertion actually
+        // exercises "cancellation after a partial preload" — not the shortcut where the
+        // scan aborts before ever reaching Bob. Alice's successful batch proves the loop
+        // was already several iterations in before Bob's cancellation propagated.
+        ud.Verify(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice), Times.Once);
+        ud.Verify(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), bob), Times.Once);
         // Neither user is allowed to trigger the per-item fallback once cancellation was requested,
         // and no partially-scored summary ever reaches the caller.
         ud.Verify(m => m.GetUserData(It.IsAny<Jellyfin.Database.Implementations.Entities.User>(), It.IsAny<BaseItem>()), Times.Never);

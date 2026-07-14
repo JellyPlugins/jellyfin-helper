@@ -390,8 +390,10 @@ internal static class PreferenceBuilder
         // Collect studios from watched and favorited movies and series
         foreach (var w in userProfile.WatchedItems)
         {
-            // Include items that are played OR favorited
-            if (w is { Played: false, IsFavorite: false })
+            // Same eligibility rule as BuildGenrePreferenceVector so a PlayCount>0 row
+            // that contributes its genres also contributes its studios. Keeps the four
+            // preference builders (genre / studio / tag / people) internally consistent.
+            if (!IsEligibleForPreferenceWeighting(w))
             {
                 continue;
             }
@@ -437,8 +439,9 @@ internal static class PreferenceBuilder
 
         foreach (var w in userProfile.WatchedItems)
         {
-            // Include items that are played OR favorited
-            if (w is { Played: false, IsFavorite: false })
+            // Aligned with BuildGenrePreferenceVector — a PlayCount>0 row that contributes
+            // its genres should also contribute its tags for consistent similarity signals.
+            if (!IsEligibleForPreferenceWeighting(w))
             {
                 continue;
             }
@@ -484,8 +487,11 @@ internal static class PreferenceBuilder
 
         foreach (var w in userProfile.WatchedItems)
         {
-            // Include items that are played OR favorited
-            if (w is { Played: false, IsFavorite: false })
+            // Aligned with BuildGenrePreferenceVector so the unweighted set used for
+            // reason-display and the weighted set used for ML scoring cover exactly the
+            // same source rows — otherwise the Reason ("because you like <actor>") could
+            // reference an actor that never got ML weight, or vice-versa.
+            if (!IsEligibleForPreferenceWeighting(w))
             {
                 continue;
             }

@@ -68,7 +68,18 @@ public class StatisticsCacheService : IStatisticsCacheService
                     $"Saved latest statistics result to {_latestResultFilePath}",
                     _logger);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+            // Broader filter than plain IOException / UnauthorizedAccessException because
+            // AtomicFile.WriteAllText can also surface SecurityException, NotSupportedException,
+            // ArgumentException (malformed path characters from OS layer), and JsonException
+            // (serializer). Best-effort save must degrade gracefully for every one of those
+            // rather than crashing the scheduled task and taking the next scan down with it.
+            catch (Exception ex) when (ex is IOException
+                                        or UnauthorizedAccessException
+                                        or System.Security.SecurityException
+                                        or NotSupportedException
+                                        or ArgumentException
+                                        or JsonException)
             {
                 _pluginLog.LogWarning(
                     "StatisticsCache",
