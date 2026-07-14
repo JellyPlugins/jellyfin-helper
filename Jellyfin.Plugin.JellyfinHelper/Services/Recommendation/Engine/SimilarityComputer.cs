@@ -315,6 +315,14 @@ internal sealed class SimilarityComputer
     /// <param name="candidatePeople">The candidate item's person names.</param>
     /// <param name="preferredPeople">The user's preferred person names.</param>
     /// <returns>An overlap coefficient between 0 and 1.</returns>
+    /// <remarks>
+    ///     Retained for the legacy unit-test suite that pins the overlap-coefficient contract
+    ///     (see <c>RecommendationEngineTests.ComputePeopleSimilarity_*</c>). Production scoring
+    ///     paths — both live (<c>Engine.ScoreCandidate</c>) and training
+    ///     (<c>TrainingDataBuilder</c>, <c>TrainingFeatureComputer</c>) — call the WEIGHTED
+    ///     overload exclusively. Prefer that overload for any new call site; this one exists
+    ///     only so historical behavioural tests keep pinning the plain overlap semantics.
+    /// </remarks>
     internal static double ComputePeopleSimilarity(
         HashSet<string> candidatePeople,
         HashSet<string> preferredPeople)

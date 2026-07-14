@@ -150,9 +150,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     /// </summary>
     internal const int CurrentWeightsVersion = 3;
 
-    /// <summary>Legacy constant kept for backward compatibility with tests. Maps to <see cref="Hidden4Size"/>.</summary>
-    internal const int HiddenSize = Hidden4Size;
-
     /// <summary>
     ///     JSON serializer options for weight persistence.
     ///     Compact (non-indented) output cuts the file to roughly a third of the indented form
