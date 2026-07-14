@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// <summary>
 ///     Tests for <see cref="TemporalFeatures.ResolveIsWeekend"/>, the shared helper that
 ///     eliminates the five previously divergent IsWeekend semantics. Verifies user-anchored precedence, per-item override, and
-///     UtcNow last-resort behavior across all training + inference call sites.
+///     deterministic no-signal fallback across all training + inference call sites.
 /// </summary>
 public class TemporalFeaturesTests
 {
@@ -73,17 +73,13 @@ public class TemporalFeaturesTests
     }
 
     [Fact]
-    public void ResolveIsWeekend_NoAnchorAndNoOverride_UsesUtcNow()
+    public void ResolveIsWeekend_NoAnchorAndNoOverride_ReturnsFalseDeterministically()
     {
-        // Last-resort fallback path. We cannot assert a deterministic value here,
-        // but we can assert the helper does not throw and returns a bool consistent
-        // with the current UTC day (invariant on the current test host).
+        // No anchor + no override = no signal. The helper must return a fixed value so training
+        // rows and inference rows for the same user never diverge based on what day the task ran.
         var profile = new UserWatchProfile { LastActivityDate = null };
 
-        var result = TemporalFeatures.ResolveIsWeekend(profile);
-
-        var expected = DateTime.UtcNow.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
-        Assert.Equal(expected, result);
+        Assert.False(TemporalFeatures.ResolveIsWeekend(profile));
     }
 
     [Fact]

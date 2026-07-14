@@ -163,12 +163,22 @@ internal static class TemporalFeatures
     /// <param name="referenceOverride">
     ///     Optional fallback timestamp used when the profile has no <see cref="UserWatchProfile.LastActivityDate"/>.
     /// </param>
-    /// <returns><c>true</c> if the resolved reference falls on a Saturday or Sunday; otherwise <c>false</c>.</returns>
+    /// <returns>
+    ///     <c>true</c> if the resolved reference falls on a Saturday or Sunday; otherwise <c>false</c>.
+    ///     When neither the profile anchor nor an override is available, returns a deterministic <c>false</c>
+    ///     so the neural net never learns a signal tied to when the training task happened to run.
+    /// </returns>
     internal static bool ResolveIsWeekend(UserWatchProfile userProfile, DateTime? referenceOverride = null)
     {
         ArgumentNullException.ThrowIfNull(userProfile);
 
-        var reference = userProfile.LastActivityDate ?? referenceOverride ?? DateTime.UtcNow;
-        return reference.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+        // No anchor + no override = no signal. Emit false rather than UtcNow so train/serve rows stay identical.
+        var reference = userProfile.LastActivityDate ?? referenceOverride;
+        if (!reference.HasValue)
+        {
+            return false;
+        }
+
+        return reference.Value.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
     }
 }
