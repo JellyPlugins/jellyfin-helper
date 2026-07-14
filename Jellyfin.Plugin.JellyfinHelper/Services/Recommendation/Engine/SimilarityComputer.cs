@@ -403,39 +403,50 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
-        var matchedWeight = 0.0;
-        var positiveEntries = new List<double>(preferredPeopleWeights.Count);
+        // Delegates to the precomputed-context overload so the sorting cost is only paid once
+        // when a caller adopts the batched path. This overload keeps the eager compute for
+        // legacy call sites and unit tests that pass raw dictionaries.
+        var averagePreferredWeight = ComputeAveragePreferredWeight(preferredPeopleWeights);
+        return ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights, averagePreferredWeight);
+    }
 
+    /// <summary>
+    ///     Precomputes the top-K average preferred weight used as the denominator anchor in
+    ///     <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double})"/>.
+    ///     Callers that score many candidates against the SAME <paramref name="preferredPeopleWeights"/>
+    ///     (batched inference, training-data build) should call this once per user and pass the
+    ///     result into <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double}, double)"/>
+    ///     to skip the O(P log P) sort inside the per-candidate hot path.
+    ///     <para>
+    ///         Returns <c>0.0</c> when no positive-weight entries exist; the overload that consumes
+    ///         this value treats a zero average as "no meaningful preference structure" and yields
+    ///         the same result as the eager path.
+    ///     </para>
+    /// </summary>
+    /// <param name="preferredPeopleWeights">The user's weighted preferences.</param>
+    /// <returns>The mean of the top-<see cref="EngineConstants.WeightedPeopleSimilarityTopK"/> positive weights, or <c>0.0</c> if none.</returns>
+    internal static double ComputeAveragePreferredWeight(
+        IReadOnlyDictionary<string, double> preferredPeopleWeights)
+    {
+        if (preferredPeopleWeights.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var positiveEntries = new List<double>(preferredPeopleWeights.Count);
         foreach (var kvp in preferredPeopleWeights)
         {
-            if (kvp.Value <= 0.0)
+            if (kvp.Value > 0.0)
             {
-                continue;
-            }
-
-            positiveEntries.Add(kvp.Value);
-
-            if (candidatePeople.Contains(kvp.Key))
-            {
-                matchedWeight += kvp.Value;
+                positiveEntries.Add(kvp.Value);
             }
         }
 
-        if (positiveEntries.Count == 0 || matchedWeight <= 0.0)
+        if (positiveEntries.Count == 0)
         {
-            // No positive-weight overlap → cannot produce a meaningful score even with the floor.
-            // Early return also avoids emitting a small positive score for zero-match candidates
-            // just because the floor would otherwise appear in the denominator.
-            return 0;
+            return 0.0;
         }
 
-        // Weighted candidate budget: |candidate| × avg(top-K preferred weights). Averaging over
-        // the whole preferred set dilutes heavy signals with one-off cameos, so a 100-person
-        // profile dominated by 5 collaborators would yield an average near 1 and let two
-        // heavy-hitter matches saturate the score at 1.0. Restricting the average to the top-K
-        // heavy hitters anchors the denominator to the people who actually drive the user's
-        // preference structure and preserves granularity when several heavy matches align.
-        //
         // Sparse profiles (positiveEntries.Count < K) fall back to the full set, so the previous
         // behaviour for low-cardinality preferences is unchanged and the floor still guards
         // pathological sparse-profile scores.
@@ -447,7 +458,51 @@ internal sealed class SimilarityComputer
             topKSum += positiveEntries[i];
         }
 
-        var averagePreferredWeight = topKSum / sampleSize;
+        return topKSum / sampleSize;
+    }
+
+    /// <summary>
+    ///     Batched variant of <see cref="ComputePeopleSimilarity(HashSet{string}, IReadOnlyDictionary{string, double})"/>
+    ///     that takes a precomputed <paramref name="averagePreferredWeight"/> so the O(P log P) top-K
+    ///     sort does not run per candidate. Callers scoring N candidates for one user can pay the
+    ///     sort exactly once via <see cref="ComputeAveragePreferredWeight"/> and reuse the result.
+    ///     <para>
+    ///         Semantics are identical to the eager overload: matched-weight over
+    ///         <c>max( |candidate| × avg, floor )</c>, clamped to <c>[0, 1]</c>. Empty inputs (either
+    ///         candidate or weights) short-circuit to <c>0</c> just like the eager path.
+    ///     </para>
+    /// </summary>
+    /// <param name="candidatePeople">The candidate item's person names.</param>
+    /// <param name="preferredPeopleWeights">The user's weighted preferences (same dictionary passed to <see cref="ComputeAveragePreferredWeight"/>).</param>
+    /// <param name="averagePreferredWeight">Precomputed top-K average from <see cref="ComputeAveragePreferredWeight"/>.</param>
+    /// <returns>A weighted-budget people-similarity score between 0 and 1.</returns>
+    internal static double ComputePeopleSimilarity(
+        HashSet<string> candidatePeople,
+        IReadOnlyDictionary<string, double> preferredPeopleWeights,
+        double averagePreferredWeight)
+    {
+        if (candidatePeople.Count == 0 || preferredPeopleWeights.Count == 0 || averagePreferredWeight <= 0.0)
+        {
+            return 0;
+        }
+
+        var matchedWeight = 0.0;
+        foreach (var kvp in preferredPeopleWeights)
+        {
+            if (kvp.Value > 0.0 && candidatePeople.Contains(kvp.Key))
+            {
+                matchedWeight += kvp.Value;
+            }
+        }
+
+        if (matchedWeight <= 0.0)
+        {
+            // No positive-weight overlap → cannot produce a meaningful score even with the floor.
+            // Early return also avoids emitting a small positive score for zero-match candidates
+            // just because the floor would otherwise appear in the denominator.
+            return 0;
+        }
+
         var candidateBudget = candidatePeople.Count * averagePreferredWeight;
         var denominator = Math.Max(candidateBudget, EngineConstants.WeightedPeopleSimilarityMinDenominator);
 

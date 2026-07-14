@@ -834,6 +834,10 @@ public sealed class Engine : IRecommendationEngine
         // weight than people from a series the user abandoned after two episodes, mirroring the
         // exact same progression multiplier applied to genre preferences above.
         var preferredPeopleWeights = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, peopleLookup, seriesEpisodeCounts);
+        // Precompute the top-K average preferred weight ONCE per user so the O(P log P) sort
+        // inside ComputePeopleSimilarity does not re-run for every candidate. Cuts a heavy
+        // per-candidate cost down to a single per-user amortised call.
+        var averagePreferredPeopleWeight = SimilarityComputer.ComputeAveragePreferredWeight(preferredPeopleWeights);
         var preferredTags = PreferenceBuilder.BuildTagPreferenceSet(userProfile, candidateLookup);
         var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile);
 
@@ -919,6 +923,7 @@ public sealed class Engine : IRecommendationEngine
                     preferredStudios,
                     preferredPeople,
                     preferredPeopleWeights,
+                    averagePreferredPeopleWeight,
                     preferredTags,
                     peopleLookup,
                     genreExposure,
@@ -996,6 +1001,7 @@ public sealed class Engine : IRecommendationEngine
         HashSet<string> preferredStudios,
         HashSet<string> preferredPeople,
         IReadOnlyDictionary<string, double> preferredPeopleWeights,
+        double averagePreferredPeopleWeight,
         HashSet<string> preferredTags,
         Dictionary<Guid, HashSet<string>> peopleLookup,
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
@@ -1033,7 +1039,7 @@ public sealed class Engine : IRecommendationEngine
         // similarity more than one-off cameo appearances that both the unweighted HashSet
         // and the previous overlap coefficient would treat identically.
         var peopleSimilarity = peopleLookup.TryGetValue(candidate.Id, out var candidatePeople)
-            ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights)
+            ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights, averagePreferredPeopleWeight)
             : 0.0;
 
         // Series progression boost: hardcoded 0.0 at inference. Series with meaningful episode
