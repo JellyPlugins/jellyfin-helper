@@ -288,13 +288,21 @@ public sealed class Engine : IRecommendationEngine
         // BaseItem references (which JF's metadata refresh may mutate in-place).
         // The snapshot is republished a few lines below with the community-popularity map filled in,
         // so live cold-start requests can reuse it instead of re-scanning every user's watch history.
-        _cachedSnapshot = new CandidateSnapshot(
-            candidates,
-            peopleLookup,
-            candidateBoxSetLookup,
-            seriesEpisodeCounts,
-            null,
-            DateTime.UtcNow);
+        //
+        // Publish under _snapshotRefreshLock so a concurrent live rebuild (which also writes under
+        // this lock) cannot race with our publish and overwrite the newer batch snapshot with a
+        // stale live-derived one. The lock is held only for the reference swap, not for the heavy
+        // library scan above it — live requests never wait on this.
+        lock (_snapshotRefreshLock)
+        {
+            _cachedSnapshot = new CandidateSnapshot(
+                candidates,
+                peopleLookup,
+                candidateBoxSetLookup,
+                seriesEpisodeCounts,
+                null,
+                DateTime.UtcNow);
+        }
 
         // Pre-compute all user watched-item sets ONCE for collaborative filtering.
         // Reduces O(U²×M) to O(U×M) by sharing sets across BuildCollaborativeMap calls.
@@ -346,13 +354,19 @@ public sealed class Engine : IRecommendationEngine
         // requests that arrive between batch runs can now read this map directly instead of
         // re-computing it (which required GetAllUserWatchProfiles + PrecomputeUserWatchSets on
         // every hit — an O(U×M) scan for every single new-user request).
-        _cachedSnapshot = new CandidateSnapshot(
-            candidates,
-            peopleLookup,
-            candidateBoxSetLookup,
-            seriesEpisodeCounts,
-            communityPopularity,
-            DateTime.UtcNow);
+        //
+        // Also held under _snapshotRefreshLock so a live rebuild racing with this second publish
+        // cannot overwrite the community-popularity map with a stale live-derived snapshot.
+        lock (_snapshotRefreshLock)
+        {
+            _cachedSnapshot = new CandidateSnapshot(
+                candidates,
+                peopleLookup,
+                candidateBoxSetLookup,
+                seriesEpisodeCounts,
+                communityPopularity,
+                DateTime.UtcNow);
+        }
 
         _pluginLog.LogInfo(
             "Recommendations",
