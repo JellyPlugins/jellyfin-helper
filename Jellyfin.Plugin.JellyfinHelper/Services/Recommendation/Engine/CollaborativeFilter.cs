@@ -202,9 +202,15 @@ internal static class CollaborativeFilter
                 continue;
             }
 
+            // Fall back to BuildCombinedWatchSet when a profile is missing from userSets so
+            // this scan cannot silently treat an "unindexed" neighbour as size-zero (which
+            // would make the trust-gate under-count and the later co-occurrence loop
+            // over-count for the same profile). In practice userSets and allProfiles are
+            // built off the same list, so this fallback is defensive; the O(M) build cost
+            // fires at most once per stale profile.
             var otherCount = userSets.TryGetValue(profile.UserId, out var otherSet)
                 ? otherSet.Count
-                : 0;
+                : BuildCombinedWatchSet(profile).Count;
             if (otherCount >= EngineConstants.CollaborativeTrustWatchCeiling)
             {
                 trustGateActive = true;
