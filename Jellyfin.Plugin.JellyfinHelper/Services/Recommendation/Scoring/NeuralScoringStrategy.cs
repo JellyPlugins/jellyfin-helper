@@ -807,7 +807,11 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var h2Mask = new double[Hidden2Size];
             var h3Mask = new double[Hidden3Size];
             var h4Mask = new double[Hidden4Size];
-            var dropoutActive = DropoutKeepProbability < 1.0 && examples.Count >= MinExamplesForDropout;
+            // Gate on the actual training-split size, not on examples.Count. The validation
+            // slice is held out so its rows do not receive gradient updates; counting them
+            // toward MinExamplesForDropout would activate dropout on training splits below
+            // the documented starvation threshold.
+            var dropoutActive = DropoutKeepProbability < 1.0 && trainIdx.Length >= MinExamplesForDropout;
             // Dedicated RNG for the dropout draw so the shuffle-RNG's determinism (seeded by
             // _trainingGeneration) is preserved for reviewers who need reproducible shuffle order
             // when debugging. Both RNGs are seeded off the same generation counter so an entire
