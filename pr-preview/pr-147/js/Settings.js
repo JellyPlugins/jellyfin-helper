@@ -713,26 +713,20 @@ function doSaveSettings(payload, options) {
         renderSaveBand('saving');
     }
 
-    // Race fix: PluginLogLevel is owned by the Logs tab but Settings still round-trips the value
-    // it captured at page load. Without a fresh GET, saving Settings after an admin toggled the
-    // log level in the Logs tab (or in another browser tab) would silently roll it back. Fetch
-    // the current server value first and merge it into the payload; on GET failure we fall back
-    // to the cached _currentLogLevel to keep saves resilient when the API is briefly unreachable.
-    apiGet('JellyfinHelper/Configuration', function (freshCfg) {
-        if (freshCfg && typeof freshCfg.PluginLogLevel === 'string' && freshCfg.PluginLogLevel) {
-            payload.PluginLogLevel = freshCfg.PluginLogLevel;
-            _currentLogLevel = freshCfg.PluginLogLevel;
-        }
-        postSettingsPayload(payload, quiet, indicatorEl, btn, options);
-    }, function () {
-        postSettingsPayload(payload, quiet, indicatorEl, btn, options);
-    });
+    // PluginLogLevel used to be race-prone here: the Settings form captured it at page load, so a
+    // concurrent change from the Logs tab would be silently overwritten on save. That race is now
+    // closed on the SERVER (ConfigurationController.ApplyRequestToConfig ignores the field on POST;
+    // only PUT /Configuration/LogLevel mutates it). We therefore no longer need a preflight GET —
+    // whatever we send here is discarded server-side and the on-disk value is preserved.
+    postSettingsPayload(payload, quiet, indicatorEl, btn, options);
 }
 
 /**
- * Internal: performs the actual POST after the log-level merge (see #13 race-fix comment above).
- * Extracted from doSaveSettings so both the successful and failed GET paths converge on the same
- * apiPost call site.
+ * Internal: performs the actual POST once the caller has validated the payload. Extracted from
+ * doSaveSettings mainly to keep the trash-path / recursion guards separate from the network call.
+ * PluginLogLevel is intentionally NOT rewritten here — the server-side handler
+ * (ConfigurationController.ApplyRequestToConfig) ignores that field, so whatever the client sends
+ * is preserved server-side. See the block comment in doSaveSettings for the TOCTOU history.
  */
 function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
     apiPost('JellyfinHelper/Configuration', payload, function (response) {
