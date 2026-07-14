@@ -288,36 +288,35 @@ internal static class ContentScoring
         // training run for a single misconfigured user, and the neural pipeline would then
         // have no updated weights at all until a maintainer intervenes.
         //
-        // Fail-safe degradation: iterate up to the smallest common length instead of
-        // throwing. The remaining watched items simply do not contribute their people /
-        // studio dimension; the genre dimension keeps working. The condition is asserted
-        // in Debug so unit tests still surface the bug immediately, but Release builds
-        // degrade gracefully so a stray refactor cannot bring the whole scheduled task down.
-        var safeCount = Math.Min(
-            watchedGenreSets.Count,
-            Math.Min(watchedPeopleSets.Count, watchedStudioSets.Count));
+        // Fail-safe degradation: iterate the full genre list (the primary signal, 50% weight)
+        // and treat missing entries in the people / studio lists as unavailable rather than
+        // dropping the whole watched item. Debug asserts still surface the bug in unit tests;
+        // Release builds keep contributing the genre signal so a stray refactor cannot bring
+        // the whole scheduled task down or silently discard half the training signal.
         System.Diagnostics.Debug.Assert(
-            safeCount == watchedGenreSets.Count
-                && safeCount == watchedPeopleSets.Count
-                && safeCount == watchedStudioSets.Count,
+            watchedGenreSets.Count == watchedPeopleSets.Count
+                && watchedGenreSets.Count == watchedStudioSets.Count,
             $"Parallel array length mismatch: genres={watchedGenreSets.Count}, people={watchedPeopleSets.Count}, studios={watchedStudioSets.Count}. "
                 + "All three watched-item set lists must have the same length.");
 
         var maxComposite = 0.0;
 
-        for (var i = 0; i < safeCount; i++)
+        for (var i = 0; i < watchedGenreSets.Count; i++)
         {
             // Genre Jaccard (50% of composite)
             var genreJaccard = ComputeJaccard(candidateGenres, watchedGenreSets[i]);
 
-            // People Jaccard (30% of composite)
-            var peopleJaccard = candidatePeople is { Count: > 0 }
+            // People Jaccard (30% of composite). Missing parallel entry → 0 contribution
+            // but the genre dimension keeps working.
+            var peopleJaccard = candidatePeople is { Count: > 0 } && i < watchedPeopleSets.Count
                 ? ComputeJaccard(candidatePeople, watchedPeopleSets[i])
                 : 0.0;
 
             // Studio overlap (20% of composite) - binary: any shared studio = 1.0
             var studioOverlap = 0.0;
-            if (candidateStudios is { Count: > 0 } && watchedStudioSets[i].Count > 0)
+            if (candidateStudios is { Count: > 0 }
+                && i < watchedStudioSets.Count
+                && watchedStudioSets[i].Count > 0)
             {
                 studioOverlap = candidateStudios.Any(s => watchedStudioSets[i].Contains(s)) ? 1.0 : 0.0;
             }
