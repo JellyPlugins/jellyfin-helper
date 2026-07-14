@@ -522,9 +522,14 @@ public sealed class SimilarityComputerTests
         // formula preserves a monotone ordering: more matched weight → strictly higher score
         // (until the actual candidate budget is saturated).
         //
-        // Rich user: 200 imaginary preferred people modelled as avg-weight-3.0 (total 600).
-        // For the tests we only feed the entries that actually match — the rest expand the
-        // total/avg via a controlled inflator.
+        // Rich user: 200 filler people at weight 3.0 plus 5 named heavy hitters
+        // (weights 8, 5, 3, 2, 1), giving 205 positive-weight entries in total.
+        //
+        // ComputePeopleSimilarity averages over the top-K entries only
+        // (K = WeightedPeopleSimilarityTopK = 20), NOT the whole 205-entry set. Sorted
+        // descending, the top 20 are: HeavyDirector (8), HeavyActor (5), then 18 of the
+        // 200 filler-3.0 rows — sum = 8 + 5 + 18·3 = 67, average = 67/20 = 3.35.
+        // With |candidate| = 10 the weighted budget denominator is therefore ≈ 33.5.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < 200; i++)
         {
@@ -537,7 +542,6 @@ public sealed class SimilarityComputerTests
         weights["MinorActor"] = 2.0;
         weights["Cameo"] = 1.0;
 
-        // avg = (200×3 + 8 + 5 + 3 + 2 + 1) / 205 ≈ 3.02, |candidate|=10 → budget ≈ 30.2.
         var castTwoHeavies = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "HeavyDirector", "HeavyActor",
@@ -558,7 +562,8 @@ public sealed class SimilarityComputerTests
             $"Five-match candidate must outscore two-match candidate (5-hit={fiveHittersScore:F4}, 2-hit={twoHeaviesScore:F4})");
 
         // Both scores must remain within [0, 1] and neither should hit exactly 1.0 with these
-        // inputs (13 vs 19 matched weight, ~30.2 budget).
+        // inputs (matched weight 13 vs 19 against the ~33.5 top-K weighted budget).
+        // Expected: twoHeavies ≈ 13/33.5 ≈ 0.388, fiveHitters ≈ 19/33.5 ≈ 0.567.
         Assert.InRange(twoHeaviesScore, 0.35, 0.50);
         Assert.InRange(fiveHittersScore, 0.55, 0.75);
     }

@@ -1758,6 +1758,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             return;
         }
 
+        // Fast-path early exit if the strategy has already been disposed: this method can
+        // be invoked from a Train() call whose late tail races with plugin shutdown, at which
+        // point _rwLock has been disposed and EnterReadLock() would throw ObjectDisposedException.
+        if (_disposed)
+        {
+            return;
+        }
+
         try
         {
             var dir = Path.GetDirectoryName(_weightsPath);
@@ -1767,7 +1775,17 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             }
 
             NeuralWeightsData data;
-            _rwLock.EnterReadLock();
+            try
+            {
+                _rwLock.EnterReadLock();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Lock disposed between the _disposed check above and lock acquisition
+                // (plugin unload racing with a late Train() tail). Nothing to persist.
+                return;
+            }
+
             try
             {
                 data = new NeuralWeightsData
@@ -1791,10 +1809,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             }
             finally
             {
-                if (_rwLock.IsReadLockHeld)
-                {
-                    _rwLock.ExitReadLock();
-                }
+                ReleaseReadLockSafely();
             }
 
             var json = JsonSerializer.Serialize(data, SerializerOptions);
@@ -1804,6 +1819,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             // AtomicFile also handles temp-file cleanup internally.
             AtomicFile.WriteAllText(_weightsPath, json);
         }
+        catch (ObjectDisposedException ex)
+        {
+            // Extremely rare tail race: Dispose() fired between our early-exit check and any
+            // subsequent lock/IO operation. Non-critical because the whole point of save is
+            // "best effort persist next-training state" — a lost save on shutdown is acceptable.
+            _logger?.LogDebug(ex, "NeuralScoringStrategy: Save skipped, strategy disposed mid-flight");
+        }
         catch (IOException ex)
         {
             _logger?.LogWarning(ex, "NeuralScoringStrategy: Failed to save weights");
@@ -1811,6 +1833,22 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         catch (UnauthorizedAccessException ex)
         {
             _logger?.LogWarning(ex, "NeuralScoringStrategy: Failed to save weights (access denied)");
+        }
+        catch (System.Security.SecurityException ex)
+        {
+            // Non-critical - platform security policy denied write; nothing we can do here.
+            _logger?.LogWarning(ex, "NeuralScoringStrategy: Failed to save weights (security policy)");
+        }
+        catch (NotSupportedException ex)
+        {
+            // Non-critical - path/filesystem does not support the operation (e.g. reserved names).
+            _logger?.LogWarning(ex, "NeuralScoringStrategy: Failed to save weights (unsupported path)");
+        }
+        catch (ArgumentException ex)
+        {
+            // Non-critical - malformed path characters surfaced by the OS layer. Weight path is
+            // plugin-configured; this indicates a config error, not a runtime failure to recover from.
+            _logger?.LogWarning(ex, "NeuralScoringStrategy: Failed to save weights (invalid path)");
         }
         catch (JsonException ex)
         {

@@ -933,6 +933,13 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
             // Use AtomicFile so a transient Windows AV/indexer sharing violation on the
             // final File.Move gets a bounded retry instead of silently dropping the save.
             // AtomicFile also handles temp-file cleanup internally.
+            //
+            // Beyond the two "expected" exception paths (IOException / UnauthorizedAccessException)
+            // AtomicFile can also surface, on its final attempt: SecurityException (CAS / SELinux
+            // policy), NotSupportedException (invalid path characters on some file systems), and
+            // ArgumentException (e.g. reserved device names on Windows). All of these are treated
+            // the same way as the primary I/O errors: non-critical, logged, and swallowed so a
+            // failed weight save never brings down the (already best-effort) training pipeline.
             AtomicFile.WriteAllText(_weightsPath, json);
         }
         catch (IOException ex)
@@ -944,6 +951,22 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         {
             // Non-critical - log for diagnostics but don't fail
             _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to save weights (access denied)");
+        }
+        catch (System.Security.SecurityException ex)
+        {
+            // Non-critical - platform security policy denied write; nothing we can do here.
+            _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to save weights (security policy)");
+        }
+        catch (NotSupportedException ex)
+        {
+            // Non-critical - path/filesystem does not support the operation (e.g. reserved names).
+            _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to save weights (unsupported path)");
+        }
+        catch (ArgumentException ex)
+        {
+            // Non-critical - malformed path characters surfaced by the OS layer. Weight path is
+            // plugin-configured; this indicates a config error, not a runtime failure to recover from.
+            _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to save weights (invalid path)");
         }
         catch (JsonException ex)
         {

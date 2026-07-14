@@ -987,18 +987,17 @@ internal static class TrainingDataBuilder
     ///     <paramref name="watchedBoxSetCounts"/> dictionary (built once per user from cached
     ///     recommendations) to achieve training/inference parity.
     ///     <para>
-    ///         Roadmap v3 (C3): Sichtbarkeit von <c>private</c> auf <c>internal</c> gehoben,
-    ///         damit die Test-Assembly (via <c>InternalsVisibleTo</c>) sie direkt aufrufen kann,
-    ///         ohne Reflection.
+    ///         Roadmap v3 (C3): visibility raised from <c>private</c> to <c>internal</c> so the
+    ///         test assembly (via <c>InternalsVisibleTo</c>) can call it directly, without reflection.
     ///     </para>
     ///     <para>
-    ///         Roadmap v3 (C3.1 — "perfect" hardening pass): die eigentliche Formel
-    ///         <c>0.3 + (n-1) × 0.2, clamped [0,1]</c> lebt jetzt zentral in
-    ///         <see cref="EngineConstants.ComputeCollectionProgressionBoost(int)"/>. Sowohl dieser
-    ///         Trainings-Pfad als auch der Live-Inference-Pfad in
-    ///         <see cref="Engine.ComputeCollectionProgressionBoostLive"/> rufen denselben Helper auf,
-    ///         so dass ein Copy-Drift <b>architektonisch unmöglich</b> ist. Die 16 Formel-Tests in
-    ///         <c>CollectionProgressionBoostTests</c> schützen daher automatisch beide Aufrufer.
+    ///         Roadmap v3 (C3.1 - hardening pass): the actual formula
+    ///         <c>0.3 + (n-1) × 0.2, clamped [0,1]</c> now lives centrally in
+    ///         <see cref="EngineConstants.ComputeCollectionProgressionBoost(int)"/>. Both this
+    ///         training path and the live inference path in
+    ///         <see cref="Engine.ComputeCollectionProgressionBoostLive"/> call the same helper,
+    ///         making copy-drift <b>architecturally impossible</b>. The 16 formula tests in
+    ///         <c>CollectionProgressionBoostTests</c> therefore automatically protect both callers.
     ///     </para>
     /// </summary>
     /// <param name="boxSetIds">The cached BoxSet IDs for the candidate item.</param>
