@@ -161,8 +161,12 @@ internal static class PreferenceBuilder
         var now = DateTime.UtcNow;
         foreach (var item in profile.WatchedItems)
         {
-            // Include items that are played OR favorited - favorites signal explicit interest
-            if (item is { Played: false, IsFavorite: false })
+            // Eligibility must include PlayCount > 0 so the SAME rows that contribute to
+            // watchedEpisodesPerSeries above also contribute their genres here. Without this
+            // symmetry a series with several PlayCount>0 but Played=false episodes would
+            // inflate the progression multiplier for OTHER episodes without ever having its
+            // own genres counted — a genre-signal leak.
+            if (!IsEligibleForPreferenceWeighting(item))
             {
                 continue;
             }
@@ -596,8 +600,9 @@ internal static class PreferenceBuilder
 
         foreach (var w in userProfile.WatchedItems)
         {
-            // Include items that are played OR favorited — same eligibility rule as BuildPeoplePreferenceSet.
-            if (w is { Played: false, IsFavorite: false })
+            // Same eligibility as BuildGenrePreferenceVector so both feature pipelines see
+            // exactly the same "which rows contribute" answer for a given profile.
+            if (!IsEligibleForPreferenceWeighting(w))
             {
                 continue;
             }
@@ -818,6 +823,22 @@ internal static class PreferenceBuilder
     private static bool IsEpisodeCompletedForProgression(WatchedItemInfo row)
     {
         return row.Played || row.PlayCount > 0;
+    }
+
+    /// <summary>
+    ///     Eligibility predicate for the genre / people preference-weighting loops.
+    ///     Superset of <see cref="IsEpisodeCompletedForProgression"/>: any row that counts as
+    ///     a completed episode also contributes its genres and people, PLUS explicit favorites
+    ///     (which signal intent regardless of playback state). Guarantees that every row
+    ///     included in <c>watchedEpisodesPerSeries</c> also contributes its own signal, so a
+    ///     PlayCount>0 row cannot inflate the progression multiplier of another row while
+    ///     silently withholding its own genres — the signal-leak bug this predicate closes.
+    /// </summary>
+    /// <param name="row">The watched-item row to classify.</param>
+    /// <returns>True when the row is eligible for genre / people preference weighting.</returns>
+    private static bool IsEligibleForPreferenceWeighting(WatchedItemInfo row)
+    {
+        return row.IsFavorite || IsEpisodeCompletedForProgression(row);
     }
 
     /// <summary>
