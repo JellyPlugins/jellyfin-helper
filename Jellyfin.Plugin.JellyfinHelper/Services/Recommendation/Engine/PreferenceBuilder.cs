@@ -127,35 +127,11 @@ internal static class PreferenceBuilder
             return vector;
         }
 
-        // Pre-aggregate how many episodes of each series the user has meaningfully engaged with.
-        // Used together with seriesEpisodeCounts to derive a per-row progression multiplier below.
-        // Built lazily and only when both callers-side data is available; single-user scenarios
-        // without a seriesEpisodeCounts map fall through to the pre-existing weight formula.
-        //
-        // Completion predicate (strict): only Played rows or rows with PlayCount > 0 count as
-        // "consumed episodes" for the progression multiplier. The previous predicate,
-        // WatchedItemInfo.HasPlaybackActivity(), also treats PlaybackPositionTicks > 0 as
-        // activity — which meant that briefly starting every episode (a 30-second click-through
-        // on each) would push playedEps up to totalEps, yielding rawRatio = 1 and the maximum
-        // 1.5 progression multiplier. That was a false positive: partial starts are noise, not
-        // completion. IsEpisodeCompletedForProgression() below encodes the stricter rule shared
-        // by BuildPeoplePreferenceWeights so both feature pipelines see the same
-        // "series watched to completion" signal.
-        Dictionary<Guid, int>? watchedEpisodesPerSeries = null;
-        if (seriesEpisodeCounts is { Count: > 0 })
-        {
-            watchedEpisodesPerSeries = new Dictionary<Guid, int>();
-            foreach (var row in profile.WatchedItems)
-            {
-                if (row.SeriesId is not { } sid || !IsEpisodeCompletedForProgression(row))
-                {
-                    continue;
-                }
-
-                watchedEpisodesPerSeries.TryGetValue(sid, out var c);
-                watchedEpisodesPerSeries[sid] = c + 1;
-            }
-        }
+        // Shared helper builds the per-series played counter (see BuildWatchedEpisodesPerSeries).
+        // Both this method and BuildPeoplePreferenceWeights use the exact same aggregation, so
+        // extracting the loop guarantees train/serve parity between the Genre- and
+        // People-similarity features on the same profile.
+        var watchedEpisodesPerSeries = BuildWatchedEpisodesPerSeries(profile, seriesEpisodeCounts);
 
         // Build genre preferences with temporal decay - recent watches count more
         var now = DateTime.UtcNow;
@@ -573,30 +549,9 @@ internal static class PreferenceBuilder
     {
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
-        // Same per-series played counter as in BuildGenrePreferenceVector so the two feature
-        // pipelines see identical progression ratios. Built lazily; skipped entirely when the
-        // caller did not supply seriesEpisodeCounts (backward-compatible path).
-        //
-        // Completion predicate must match BuildGenrePreferenceVector exactly (see the
-        // IsEpisodeCompletedForProgression contract above). If the two pipelines used different
-        // "what counts as a watched episode" rules, the People- and Genre-Similarity features
-        // would receive contradictory progression signals for the same series — one seeing it
-        // as fully watched, the other as half-abandoned.
-        Dictionary<Guid, int>? watchedEpisodesPerSeries = null;
-        if (seriesEpisodeCounts is { Count: > 0 })
-        {
-            watchedEpisodesPerSeries = new Dictionary<Guid, int>();
-            foreach (var row in userProfile.WatchedItems)
-            {
-                if (row.SeriesId is not { } sid || !IsEpisodeCompletedForProgression(row))
-                {
-                    continue;
-                }
-
-                watchedEpisodesPerSeries.TryGetValue(sid, out var c);
-                watchedEpisodesPerSeries[sid] = c + 1;
-            }
-        }
+        // Shared helper — same aggregation as BuildGenrePreferenceVector so both feature
+        // pipelines receive identical progression ratios by construction, not by convention.
+        var watchedEpisodesPerSeries = BuildWatchedEpisodesPerSeries(userProfile, seriesEpisodeCounts);
 
         foreach (var w in userProfile.WatchedItems)
         {
@@ -839,6 +794,49 @@ internal static class PreferenceBuilder
     private static bool IsEligibleForPreferenceWeighting(WatchedItemInfo row)
     {
         return row.IsFavorite || IsEpisodeCompletedForProgression(row);
+    }
+
+    /// <summary>
+    ///     Pre-aggregates the number of completed episodes per series for the user, using the
+    ///     strict <see cref="IsEpisodeCompletedForProgression"/> predicate (Played or PlayCount &gt; 0).
+    ///     Returns <c>null</c> when the caller did not supply a <paramref name="seriesEpisodeCounts"/>
+    ///     map — signalling the downstream progression-multiplier helper to fall back to the neutral
+    ///     <c>1.0</c> weight instead of computing a ratio.
+    ///     <para>
+    ///         Extracted so <see cref="BuildGenrePreferenceVector"/> and
+    ///         <see cref="BuildPeoplePreferenceWeights"/> share <b>one</b> aggregation pass by construction.
+    ///         Any future tweak to the completion predicate now propagates to both feature pipelines
+    ///         automatically; the previous duplicated loops needed a code-review convention to stay in sync.
+    ///     </para>
+    /// </summary>
+    /// <param name="profile">The user watch profile whose rows we aggregate.</param>
+    /// <param name="seriesEpisodeCounts">Optional caller-supplied totals; <c>null</c> disables aggregation.</param>
+    /// <returns>
+    ///     A dictionary <c>seriesId → completedEpisodes</c>, or <c>null</c> when
+    ///     <paramref name="seriesEpisodeCounts"/> was <c>null</c> or empty.
+    /// </returns>
+    private static Dictionary<Guid, int>? BuildWatchedEpisodesPerSeries(
+        UserWatchProfile profile,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts)
+    {
+        if (seriesEpisodeCounts is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        var watched = new Dictionary<Guid, int>();
+        foreach (var row in profile.WatchedItems)
+        {
+            if (row.SeriesId is not { } sid || !IsEpisodeCompletedForProgression(row))
+            {
+                continue;
+            }
+
+            watched.TryGetValue(sid, out var c);
+            watched[sid] = c + 1;
+        }
+
+        return watched;
     }
 
     /// <summary>
