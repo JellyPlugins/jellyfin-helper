@@ -20,8 +20,8 @@ internal static class TrainingDataBuilder
     /// <param name="previousResults">The recommendation results from previous runs.</param>
     /// <param name="allProfiles">All user watch profiles.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
-    /// <returns>A tuple of training examples, organic count, and random negative count.</returns>
-    internal static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount) BuildExamples(
+    /// <returns>A tuple of training examples plus per-phase counts.</returns>
+    internal static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount, int DiscoveryCount) BuildExamples(
         IReadOnlyList<RecommendationResult> previousResults,
         Collection<UserWatchProfile> allProfiles,
         CancellationToken cancellationToken)
@@ -36,8 +36,15 @@ internal static class TrainingDataBuilder
     /// <param name="allProfiles">All user watch profiles.</param>
     /// <param name="discoveryFeedback">Optional discovery feedback data for Phase 4.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
-    /// <returns>A tuple of training examples, organic count, and random negative count.</returns>
-    internal static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount) BuildExamples(
+    /// <returns>
+    ///     A tuple with the training examples and three separate counters — organic watches
+    ///     (Phase 2), cross-user random negatives (Phase 3) and discovery interactions
+    ///     (Phase 4). Splitting the discovery counter out of <c>OrganicCount</c> lets
+    ///     operators tell at a glance whether the positive signal comes from actual
+    ///     consumption or external Seerr requests, which have very different implications
+    ///     for training-data health.
+    /// </returns>
+    internal static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount, int DiscoveryCount) BuildExamples(
         IReadOnlyList<RecommendationResult> previousResults,
         Collection<UserWatchProfile> allProfiles,
         IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback,
@@ -976,9 +983,14 @@ internal static class TrainingDataBuilder
         // Discovery items are external (not in library). Their interactions provide valuable
         // explicit signals: requests are strong positives, dismissals are negatives.
         // Only added when discovery feedback is available (non-null, non-empty).
+        // Kept as a separate counter (not folded into organicCount) so operators can see
+        // exactly how much of the positive training signal comes from external Seerr
+        // requests vs. actual watched consumption — the two mixed together used to make
+        // a "205 organic" log look healthy when in fact only 5 items were truly watched.
+        var discoveryCount = 0;
         if (discoveryFeedback is { Count: > 0 })
         {
-            var (discoveryExamples, discoveryCount) = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(
+            var (discoveryExamples, phase4Count) = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(
                 discoveryFeedback,
                 profileById,
                 cancellationToken);
@@ -986,11 +998,11 @@ internal static class TrainingDataBuilder
             if (discoveryExamples.Count > 0)
             {
                 examples.AddRange(discoveryExamples);
-                organicCount += discoveryCount; // Discovery examples counted alongside organic for unified reporting (see Phase 4 design note)
+                discoveryCount = phase4Count;
             }
         }
 
-        return (examples, organicCount, randomNegativeCount);
+        return (examples, organicCount, randomNegativeCount, discoveryCount);
     }
 
     /// <summary>

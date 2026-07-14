@@ -282,20 +282,30 @@ internal static class ContentScoring
             return 0.0;
         }
 
-        // Validate parallel-array invariant: all three lists must have the same length.
-        // They are built in a single loop in Engine.GenerateForUser(), so a mismatch indicates
-        // a future refactoring error that would silently produce incorrect similarity scores.
-        if (watchedPeopleSets.Count != watchedGenreSets.Count
-            || watchedStudioSets.Count != watchedGenreSets.Count)
-        {
-            throw new ArgumentException(
-                $"Parallel array length mismatch: genres={watchedGenreSets.Count}, people={watchedPeopleSets.Count}, studios={watchedStudioSets.Count}. " +
-                "All three watched-item set lists must have the same length.");
-        }
+        // Parallel-array invariant: all three lists MUST have the same length because they
+        // are populated in the same loop in Engine.GenerateForUser() and the training data
+        // builders. A mismatch is always a bug — but throwing here would abort an entire
+        // training run for a single misconfigured user, and the neural pipeline would then
+        // have no updated weights at all until a maintainer intervenes.
+        //
+        // Fail-safe degradation: iterate up to the smallest common length instead of
+        // throwing. The remaining watched items simply do not contribute their people /
+        // studio dimension; the genre dimension keeps working. The condition is asserted
+        // in Debug so unit tests still surface the bug immediately, but Release builds
+        // degrade gracefully so a stray refactor cannot bring the whole scheduled task down.
+        var safeCount = Math.Min(
+            watchedGenreSets.Count,
+            Math.Min(watchedPeopleSets.Count, watchedStudioSets.Count));
+        System.Diagnostics.Debug.Assert(
+            safeCount == watchedGenreSets.Count
+                && safeCount == watchedPeopleSets.Count
+                && safeCount == watchedStudioSets.Count,
+            $"Parallel array length mismatch: genres={watchedGenreSets.Count}, people={watchedPeopleSets.Count}, studios={watchedStudioSets.Count}. "
+                + "All three watched-item set lists must have the same length.");
 
         var maxComposite = 0.0;
 
-        for (var i = 0; i < watchedGenreSets.Count; i++)
+        for (var i = 0; i < safeCount; i++)
         {
             // Genre Jaccard (50% of composite)
             var genreJaccard = ComputeJaccard(candidateGenres, watchedGenreSets[i]);
