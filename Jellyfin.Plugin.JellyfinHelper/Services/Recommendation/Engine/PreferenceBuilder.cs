@@ -40,8 +40,16 @@ internal static class PreferenceBuilder
     /// <summary>
     ///     Upper bound of the progression multiplier: a fully-completed series gets a modest
     ///     boost above the baseline "1.0" for movies, so binge-watched shows shape preferences
-    ///     more strongly than a single played row. Kept below <c>2.0</c> so the multiplier
-    ///     cannot overpower the additive favorite boost of <c>3.0</c>.
+    ///     more strongly than a single played row.
+    ///     <para>
+    ///         Note on the ordering vs. the +3.0 favorite additive: the multiplier only acts on
+    ///         the (temporal + playCount) portion of the weight and is capped so it cannot invert
+    ///         a favorite decision. The reverse is also intentional — an explicit favorite click
+    ///         will outrank a watched-through non-favorite. That asymmetry is by design: a
+    ///         favorite is a direct user signal, progression is an inferred one. Callers who need
+    ///         the two to be comparable magnitudes should re-tune both constants together rather
+    ///         than folding progression into the favorite additive.
+    ///     </para>
     /// </summary>
     private const double ProgressionCeiling = 1.5;
 
