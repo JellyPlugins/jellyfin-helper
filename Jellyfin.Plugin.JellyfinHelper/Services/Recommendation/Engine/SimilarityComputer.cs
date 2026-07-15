@@ -486,12 +486,17 @@ internal sealed class SimilarityComputer
             return 0;
         }
 
+        // Iterate the (typically small) candidate cast rather than the full preference
+        // map: a movie has O(10) people while a user's preference map can hold hundreds
+        // of names. Both HashSet.Contains and Dictionary.TryGetValue are O(1), so
+        // iterating the smaller collection cuts this hot-path loop by an order of
+        // magnitude on realistic data.
         var matchedWeight = 0.0;
-        foreach (var kvp in preferredPeopleWeights)
+        foreach (var name in candidatePeople)
         {
-            if (kvp.Value > 0.0 && candidatePeople.Contains(kvp.Key))
+            if (preferredPeopleWeights.TryGetValue(name, out var weight) && weight > 0.0)
             {
-                matchedWeight += kvp.Value;
+                matchedWeight += weight;
             }
         }
 

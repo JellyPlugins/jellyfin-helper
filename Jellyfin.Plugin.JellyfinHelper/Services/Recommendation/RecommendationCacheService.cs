@@ -67,7 +67,18 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
                     $"Saved {results.Count} recommendation results to {_cacheFilePath}",
                     _logger);
             }
-            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+
+            // Broader filter than plain IOException / UnauthorizedAccessException / JsonException
+            // because AtomicFile.WriteAllText can also surface SecurityException,
+            // NotSupportedException and ArgumentException (malformed path characters from OS layer).
+            // Best-effort save must degrade gracefully for every one of those rather than crashing
+            // the scheduled task. Matches the filter used in StatisticsCacheService.
+            catch (Exception ex) when (ex is IOException
+                                        or UnauthorizedAccessException
+                                        or JsonException
+                                        or System.Security.SecurityException
+                                        or NotSupportedException
+                                        or ArgumentException)
             {
                 _pluginLog.LogWarning(
                     "RecommendationCache",

@@ -105,7 +105,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
         catch (Exception ex) when (ex is InvalidOperationException or NullReferenceException or IOException)
         {
-            _logger.LogDebug(ex, "[Configuration] Configuration unavailable at startup; skipping clamp report");
+            // Guarded like the rest of the LogDebug calls in this class so a future
+            // parameterized message does not accidentally regress the CA1873 pattern.
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(ex, "[Configuration] Configuration unavailable at startup; skipping clamp report");
+            }
+
             return;
         }
 

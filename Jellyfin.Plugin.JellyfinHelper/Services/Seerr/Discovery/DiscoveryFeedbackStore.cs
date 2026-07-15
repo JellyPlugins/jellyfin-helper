@@ -497,7 +497,18 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             // Update memory cache
             _memoryCache = data;
         }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+
+        // Broader filter than plain IOException / UnauthorizedAccessException / JsonException
+        // because AtomicFile.WriteAllText can also surface SecurityException,
+        // NotSupportedException and ArgumentException (malformed path characters from OS layer).
+        // Best-effort save must degrade gracefully for every one of those rather than crashing
+        // the calling task or request. Matches the filter used in StatisticsCacheService.
+        catch (Exception ex) when (ex is IOException
+                                    or UnauthorizedAccessException
+                                    or JsonException
+                                    or System.Security.SecurityException
+                                    or NotSupportedException
+                                    or ArgumentException)
         {
             // Invalidate the in-memory cache so the next LoadInternal() re-reads from disk.
             _memoryCache = null;
