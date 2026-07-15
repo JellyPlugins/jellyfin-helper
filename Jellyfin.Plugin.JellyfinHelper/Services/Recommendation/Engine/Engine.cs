@@ -296,21 +296,18 @@ public sealed class Engine : IRecommendationEngine
         // The snapshot is republished a few lines below with the community-popularity map filled in,
         // so live cold-start requests can reuse it instead of re-scanning every user's watch history.
         //
-        // Publish under _snapshotRefreshLock so a concurrent live rebuild (which also writes under
-        // this lock) cannot race with our publish and overwrite the newer batch snapshot with a
-        // stale live-derived one. The lock is held only for the reference swap, not for the heavy
-        // library scan above it — live requests never wait on this.
-        lock (_snapshotRefreshLock)
-        {
-            _cachedSnapshot = new CandidateSnapshot(
-                candidates,
-                peopleLookup,
-                candidateBoxSetLookup,
-                seriesEpisodeCounts,
-                null,
-                CommunityPopularityComputed: false, // filled in by the second publish once we have all-user aggregates
-                DateTime.UtcNow);
-        }
+        // Publish goes through TryPublishSnapshot which serializes writes under _snapshotRefreshLock
+        // AND rejects publishes from an older batch generation (an older overlapping batch that
+        // finishes after a newer one must NOT clobber the newer batch's cached data).
+        TryPublishSnapshot(new CandidateSnapshot(
+            candidates,
+            peopleLookup,
+            candidateBoxSetLookup,
+            seriesEpisodeCounts,
+            null,
+            CommunityPopularityComputed: false, // filled in by the second publish once we have all-user aggregates
+            BatchGeneration: batchGeneration,
+            DateTime.UtcNow));
 
         // Pre-compute all user watched-item sets ONCE for collaborative filtering.
         // Reduces O(U²×M) to O(U×M) by sharing sets across BuildCollaborativeMap calls.
@@ -331,51 +328,29 @@ public sealed class Engine : IRecommendationEngine
         // are more likely to be broadly appealing to newcomers.
         // Only built once per batch run — reused across all cold-start users.
         //
-        // Guard on non-empty sets: PrecomputeUserWatchSets keeps empty profiles, so a
-        // simple .Count > 1 check would enable the community prior even when only a
-        // single user has any watch data (that user's own set would be "the community").
-        // We require at least two users with actual watch data before the prior kicks in.
-        Dictionary<Guid, int>? communityPopularity = null;
-        var usersWithHistory = 0;
-        foreach (var userSet in precomputedUserSets.Values)
-        {
-            if (userSet.Count > 0 && ++usersWithHistory >= 2)
-            {
-                break;
-            }
-        }
-
-        if (usersWithHistory >= 2)
-        {
-            communityPopularity = new Dictionary<Guid, int>();
-            foreach (var userSet in precomputedUserSets.Values)
-            {
-                foreach (var itemId in userSet)
-                {
-                    communityPopularity.TryGetValue(itemId, out var count);
-                    communityPopularity[itemId] = count + 1;
-                }
-            }
-        }
+        // Delegated to BuildCommunityPopularityMap so the batch path (here) and the live
+        // cold-start path (BuildCommunityPopularityForColdStart) share ONE source of truth
+        // for the two-user gate and the counting loop. A previous duplication of this logic
+        // in two places already drifted once during a refactor; centralising it prevents a
+        // recurrence.
+        var communityPopularity = BuildCommunityPopularityMap(precomputedUserSets);
 
         // Republish the snapshot with the community-popularity map filled in. Live cold-start
         // requests that arrive between batch runs can now read this map directly instead of
         // re-computing it (which required GetAllUserWatchProfiles + PrecomputeUserWatchSets on
         // every hit — an O(U×M) scan for every single new-user request).
         //
-        // Also held under _snapshotRefreshLock so a live rebuild racing with this second publish
-        // cannot overwrite the community-popularity map with a stale live-derived snapshot.
-        lock (_snapshotRefreshLock)
-        {
-            _cachedSnapshot = new CandidateSnapshot(
-                candidates,
-                peopleLookup,
-                candidateBoxSetLookup,
-                seriesEpisodeCounts,
-                communityPopularity,
-                CommunityPopularityComputed: true, // batch path has executed the O(U×M) scan
-                DateTime.UtcNow);
-        }
+        // Again gated by TryPublishSnapshot so out-of-order batches (an older overlapping
+        // GetAllRecommendations finishing after this one) cannot clobber the newer data.
+        TryPublishSnapshot(new CandidateSnapshot(
+            candidates,
+            peopleLookup,
+            candidateBoxSetLookup,
+            seriesEpisodeCounts,
+            communityPopularity,
+            CommunityPopularityComputed: true, // batch path has executed the O(U×M) scan
+            BatchGeneration: batchGeneration,
+            DateTime.UtcNow));
 
         _pluginLog.LogInfo(
             "Recommendations",
@@ -1499,13 +1474,60 @@ public sealed class Engine : IRecommendationEngine
                 seriesEpisodeCounts,
                 null,
                 CommunityPopularityComputed: false, // live rebuild has no all-user data yet — first cold-start hit will fill this in
+                BatchGeneration: 0, // live-refresh writes carry BatchGeneration=0; TryPublishSnapshot never lets them win over batch writes
                 DateTime.UtcNow);
 
             // Republish so subsequent live requests hit the fresh cache without re-entering
-            // this method's slow path. The scheduled batch still owns primary invalidation
-            // via its own unconditional overwrite of _cachedSnapshot in GetAllRecommendations.
+            // this method's slow path. We're already inside the refresh lock; publishing the
+            // reference directly is safe. TryPublishSnapshot is intentionally NOT used here
+            // because we're already committed to this rebuild (we passed the double-check
+            // above) and want the freshly-built snapshot to win even against an older
+            // still-visible cached instance from a previous refresh.
             _cachedSnapshot = fresh;
             return fresh;
+        }
+    }
+
+    /// <summary>
+    ///     Publishes a snapshot to <see cref="_cachedSnapshot"/> while enforcing monotonic
+    ///     ordering by <see cref="CandidateSnapshot.BatchGeneration"/>. Rejects the write when
+    ///     the currently-cached snapshot originated from a strictly-newer batch, so an older
+    ///     overlapping <see cref="GetAllRecommendations"/> that finishes late cannot clobber
+    ///     the newer batch's cache.
+    ///     <para>
+    ///         Live-refresh writes (BatchGeneration=0) always yield to any batch-generated
+    ///         snapshot (BatchGeneration&gt;0) and to any other live-refresh already published
+    ///         within the TTL window. Batch writes yield only to strictly-larger batch
+    ///         generations — equal generations always win (they represent the second publish
+    ///         from the same batch, which carries additional community-popularity data).
+    ///     </para>
+    ///     <para>
+    ///         All writes serialise through <see cref="_snapshotRefreshLock"/> so this method
+    ///         is safe under concurrent calls from parallel batches or a live-refresh racing
+    ///         with the batch path.
+    ///     </para>
+    /// </summary>
+    /// <param name="candidate">The snapshot the caller would like to publish.</param>
+    /// <returns>
+    ///     True when the snapshot was actually published; false when a strictly-newer snapshot
+    ///     was already cached and this write was skipped. Callers currently ignore the return
+    ///     value (a rejected publish is silently correct behaviour) but the bool makes the
+    ///     contract testable and audit-friendly.
+    /// </returns>
+    private bool TryPublishSnapshot(CandidateSnapshot candidate)
+    {
+        lock (_snapshotRefreshLock)
+        {
+            var current = _cachedSnapshot;
+            if (current is not null && current.BatchGeneration > candidate.BatchGeneration)
+            {
+                // A newer batch has already published. Reject this publish so the older batch
+                // cannot roll the cache back to stale data.
+                return false;
+            }
+
+            _cachedSnapshot = candidate;
+            return true;
         }
     }
 
@@ -1756,6 +1778,11 @@ public sealed class Engine : IRecommendationEngine
     ///     community-blended ranking that the batch path would have produced.
     ///     Returns null when fewer than two users have any watch history — callers then fall
     ///     back to the classic rating + recency formula unchanged.
+    ///     <para>
+    ///         Only owns the "load profiles → precompute sets" step; the actual counting and
+    ///         two-user gate is delegated to <see cref="BuildCommunityPopularityMap"/> so the
+    ///         batch and live paths never drift on either the gate or the counting formula.
+    ///     </para>
     /// </summary>
     private Dictionary<Guid, int>? BuildCommunityPopularityForColdStart()
     {
@@ -1766,7 +1793,37 @@ public sealed class Engine : IRecommendationEngine
         }
 
         var userSets = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
+        return BuildCommunityPopularityMap(userSets);
+    }
 
+    /// <summary>
+    ///     Shared community-popularity computation used by both the batch path
+    ///     (<see cref="GetAllRecommendations"/>) and the live cold-start path
+    ///     (<see cref="BuildCommunityPopularityForColdStart"/>). Centralises the two-user gate
+    ///     and the item-counting loop so a future change to either rule automatically
+    ///     propagates to both callers — historically these two loops were duplicated inline
+    ///     and drifted at least once during refactoring.
+    ///     <para>
+    ///         Gate: at least two users must contribute at least one watched item each before
+    ///         the map is emitted. This prevents a single-user deployment from turning its own
+    ///         watch history into "the community", which would degenerate the cold-start
+    ///         blend into a self-fulfilling prophecy (recommendations weighted by the only
+    ///         user's own past picks).
+    ///     </para>
+    /// </summary>
+    /// <param name="userSets">Precomputed user watch sets (from <see cref="CollaborativeFilter.PrecomputeUserWatchSets"/>).</param>
+    /// <returns>
+    ///     The community-popularity map, or <c>null</c> when fewer than two users have any
+    ///     watch history. Callers treat <c>null</c> as "fall back to the classic rating +
+    ///     recency cold-start formula".
+    /// </returns>
+    private static Dictionary<Guid, int>? BuildCommunityPopularityMap(
+        IReadOnlyDictionary<Guid, HashSet<Guid>> userSets)
+    {
+        // Guard on non-empty sets: PrecomputeUserWatchSets keeps empty profiles, so a simple
+        // Count > 1 check on the outer dictionary would enable the community prior even when
+        // only one user has any watch data (that user's own set would be "the community").
+        // We require at least two users with actual watch data before the prior kicks in.
         var usersWithHistory = 0;
         foreach (var userSet in userSets.Values)
         {
@@ -1883,6 +1940,16 @@ public sealed class Engine : IRecommendationEngine
     ///     mutations between daily batch runs (new items, metadata refreshes) do not leave
     ///     the live path serving arbitrarily stale candidates.
     /// </param>
+    /// <param name="BatchGeneration">
+    ///     The <see cref="_batchGeneration"/> value at the time of publication, or <c>0</c>
+    ///     for snapshots produced by the live-refresh path (which is not part of any batch
+    ///     lineage). Monotonically increasing per batch. Used by <see cref="TryPublishSnapshot"/>
+    ///     to reject out-of-order writes: an older <see cref="GetAllRecommendations"/> that
+    ///     finishes late must not clobber a newer batch's publish, otherwise the live cache
+    ///     could serve stale candidates for up to <see cref="CandidateSnapshotMaxAge"/>.
+    ///     Live-refresh writes (BatchGeneration=0) always yield to any batch-generated
+    ///     snapshot, matching the pre-existing "batch owns primary invalidation" contract.
+    /// </param>
     private sealed record CandidateSnapshot(
         List<BaseItem> Candidates,
         Dictionary<Guid, HashSet<string>> PeopleLookup,
@@ -1890,5 +1957,6 @@ public sealed class Engine : IRecommendationEngine
         Dictionary<Guid, int> SeriesEpisodeCounts,
         Dictionary<Guid, int>? CommunityPopularity,
         bool CommunityPopularityComputed,
+        int BatchGeneration,
         DateTime CreatedAtUtc);
 }

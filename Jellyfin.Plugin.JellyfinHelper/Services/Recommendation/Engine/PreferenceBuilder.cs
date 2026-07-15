@@ -869,6 +869,37 @@ internal static class PreferenceBuilder
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         Dictionary<Guid, int>? watchedEpisodesPerSeries)
     {
+        // Explicit-favorite rows that are NOT themselves completed episodes bypass the
+        // progression scaling entirely. Rationale:
+        //
+        //   * BuildGenrePreferenceVector adds a separate FAVORITE additive (+3.0) after
+        //     the multiplier, so an unplayed-favorite MOVIE (SeriesId is null anyway) or
+        //     a favorite-but-not-completed EPISODE would otherwise have its temporal +
+        //     playCount weight scaled by the multiplier before the additive kicks in —
+        //     but for episode rows the multiplier is derived from OTHER episodes of the
+        //     same series, which the user did not necessarily engage with. A user who
+        //     favorited a single pilot episode of an otherwise-abandoned series would
+        //     see their favorite click dampened to ProgressionFloor (0.3) before the
+        //     additive is applied — silently contradicting the "favorite always keeps
+        //     full weight" invariant documented in BuildPeoplePreferenceWeights.
+        //
+        //   * BuildPeoplePreferenceWeights has NO separate favorite additive at all —
+        //     each row contributes exactly progressionMultiplier per person. Without
+        //     this guard an unplayed favorite episode of an abandoned series would
+        //     contribute only 0.3 per person, which is objectively wrong: the user's
+        //     explicit favorite click is a stronger intent signal than an abandoned
+        //     series' progression ratio.
+        //
+        // Guard: item is favorite AND does not qualify as a completed episode
+        // (via IsEpisodeCompletedForProgression). Completed favorites (Played or
+        // PlayCount > 0) go through the normal ratio path so their signal reflects
+        // both the favorite intent AND the completion state — that combination is
+        // strictly stronger than either alone.
+        if (item.IsFavorite && !IsEpisodeCompletedForProgression(item))
+        {
+            return 1.0;
+        }
+
         // No series context or caller opted out (null map) → neutral, preserves pre-existing weight.
         if (item.SeriesId is not { } sid
             || seriesEpisodeCounts is null

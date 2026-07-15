@@ -624,6 +624,88 @@ public class PreferenceBuilderTests
     }
 
     [Fact]
+    public void BuildPeoplePreferenceWeights_UnplayedFavoriteEpisode_KeepsFullWeightDespiteAbandonedSeries()
+    {
+        // Regression guard for the "favorite always keeps full weight" invariant advertised in
+        // BuildPeoplePreferenceWeights' XML doc. Before this fix, an unplayed-favorite EPISODE
+        // of an abandoned series inherited that series' ProgressionFloor (0.3), silently
+        // contradicting the invariant — BuildPeoplePreferenceWeights has no separate favorite
+        // additive, so the multiplier was the only signal per person and 0.3 is meaningfully
+        // weaker than the 1.0 an unplayed-favorite movie would produce.
+        //
+        // Construction:
+        //   * Two watched-item rows on the SAME series (5 total episodes):
+        //       - One PLAYED episode with people {"Actor A"}     → counts as completed
+        //       - One UNPLAYED FAVORITE episode with people {"Actor A", "Actor B"}
+        //         → NOT a completed episode; earlier code would have applied multiplier 0.3.
+        //   * The played row contributes multiplier ~0.54 (1/5 completed → ProgressionFloor +
+        //     0.2 × ProgressionSpan = 0.3 + 0.24 = 0.54) to Actor A.
+        //   * The unplayed favorite row must now contribute a FULL 1.0 to both Actor A and
+        //     Actor B (favorite bypass). Actor A's total therefore lands around 1.54, Actor B
+        //     at exactly 1.0.
+        //
+        // The critical assertion: Actor B — who ONLY appears on the unplayed favorite row —
+        // must have weight ≈ 1.0, not 0.3. A regression that reintroduced the multiplier for
+        // this row would drop Actor B to ~0.3, which the assertion below rejects.
+        var series = Guid.NewGuid();
+        var playedEpisode = Guid.NewGuid();
+        var favoriteEpisode = Guid.NewGuid();
+        var counts = new Dictionary<Guid, int> { { series, 5 } };
+
+        var lookup = new Dictionary<Guid, HashSet<string>>
+        {
+            { playedEpisode, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor A" } },
+            { favoriteEpisode, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Actor A", "Actor B" } }
+        };
+
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo
+                {
+                    ItemId = playedEpisode,
+                    SeriesId = series,
+                    Played = true,
+                    LastPlayedDate = DateTime.UtcNow.AddDays(-1)
+                },
+                new WatchedItemInfo
+                {
+                    // Unplayed favorite episode of the (mostly abandoned) same series.
+                    ItemId = favoriteEpisode,
+                    SeriesId = series,
+                    Played = false,
+                    PlayCount = 0,
+                    IsFavorite = true,
+                    LastPlayedDate = null
+                }
+            ]
+        };
+
+        var weights = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup, counts);
+
+        Assert.True(weights.TryGetValue("Actor B", out var actorBWeight));
+
+        // Actor B ONLY appears on the unplayed-favorite row. Its weight is therefore the
+        // single-row multiplier for that row. With the favorite-bypass fix that multiplier
+        // is 1.0. A regression to the abandoned-series path would drop this to ~0.3.
+        Assert.Equal(1.0, actorBWeight, 6);
+
+        // Sanity: Actor A appears on BOTH rows, so its weight is the sum of:
+        //   (a) played episode multiplier: rawRatio = 1/5 = 0.2 → ProgressionFloor + 0.2*Span
+        //       = 0.3 + 0.24 = 0.54
+        //   (b) unplayed favorite bypass: 1.0
+        // Total ≈ 1.54. Assert strictly greater than Actor B's 1.0, and greater than the
+        // sum of two multipliers if BOTH were bypassed (2.0) — the played row still uses the
+        // ratio, only the favorite gets bypassed.
+        Assert.True(weights.TryGetValue("Actor A", out var actorAWeight));
+        Assert.True(actorAWeight > actorBWeight,
+            $"Actor A appears on both rows and must out-weigh Actor B, got A={actorAWeight}, B={actorBWeight}");
+        Assert.True(actorAWeight < 2.0,
+            $"Actor A must not be treated as two bypasses; expected < 2.0, got {actorAWeight}");
+    }
+
+    [Fact]
     public void ComputeProgressionMultiplier_AbandonedSeries_StillContributesFloor()
     {
         // Locks the ProgressionFloor invariant: a barely-started series (1 of 20 episodes

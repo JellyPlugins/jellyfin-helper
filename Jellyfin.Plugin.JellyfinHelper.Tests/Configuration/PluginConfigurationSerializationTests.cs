@@ -251,6 +251,9 @@ public class PluginConfigurationSerializationTests
         Assert.Equal(0.10, restored.EnsembleGenrePenaltyFloor, 5);
         Assert.Equal(0L, restored.TotalBytesFreed);
         Assert.Equal(0, restored.TotalItemsDeleted);
+        // DateTime default: DateTime.MinValue means "no cleanup has ever run".
+        // Persisted so restart-after-first-run does not reset the metric to "unknown".
+        Assert.Equal(DateTime.MinValue, restored.LastCleanupTimestamp);
 
         // Boolean defaults
         Assert.False(restored.DiscoveryUserAccessEnabled);
@@ -302,7 +305,11 @@ public class PluginConfigurationSerializationTests
             EnsembleGenrePenaltyFloor = 0.2,
             PluginLogLevel = "DEBUG",
             TotalBytesFreed = 123_456_789L,
-            TotalItemsDeleted = 42
+            TotalItemsDeleted = 42,
+            // Any DateTime distinct from DateTime.MinValue proves the property was written.
+            // Kind=Utc + subseconds=0 avoids XML round-trip surprises (fractional seconds and
+            // local/UTC conversion are both silently lossy in some serializer configurations).
+            LastCleanupTimestamp = new DateTime(2026, 7, 9, 10, 17, 12, DateTimeKind.Utc)
         };
         original.RadarrInstances.Add(new ArrInstanceConfig { Name = "R", Url = "http://r", ApiKey = "rk" });
         original.SonarrInstances.Add(new ArrInstanceConfig { Name = "S", Url = "http://s", ApiKey = "sk" });
