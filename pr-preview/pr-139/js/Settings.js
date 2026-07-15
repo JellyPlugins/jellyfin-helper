@@ -272,25 +272,55 @@ function refreshSaveBand() {
 
 // Debounced dirty-check listener on the settings form. The form element itself
 // persists across loadSettings() calls (only innerHTML gets replaced), so we
-// abort previously registered listeners via AbortController before adding new
-// ones to avoid stacking handlers on repeated reloads.
+// remove previously registered listeners before adding new ones to avoid
+// stacking handlers on repeated reloads. Preferred path uses AbortController
+// (near-universal since ~2020), fallback keeps a reference to the previous
+// handler so removeEventListener can strip it on legacy browsers where
+// AbortController is missing.
 var _dirtyDebounceTimer = null;
 var _dirtyTrackingController = null;
+var _dirtyTrackingHandler = null;
+var _dirtyTrackingForm = null;
 
 function attachDirtyTracking() {
     var form = document.getElementById('settingsForm');
     if (!form) return;
+
+    // Detach previous listeners before wiring new ones. Whichever branch was
+    // used last time is cleaned up here so repeated loadSettings() calls do
+    // not accumulate handlers on the same <form> instance.
     if (_dirtyTrackingController && typeof _dirtyTrackingController.abort === 'function') {
         try { _dirtyTrackingController.abort(); } catch (_e) { /* ignore */ }
+        _dirtyTrackingController = null;
     }
-    _dirtyTrackingController = (typeof AbortController === 'function') ? new AbortController() : null;
+    if (_dirtyTrackingHandler && _dirtyTrackingForm) {
+        try {
+            _dirtyTrackingForm.removeEventListener('input', _dirtyTrackingHandler);
+            _dirtyTrackingForm.removeEventListener('change', _dirtyTrackingHandler);
+        } catch (_e) { /* ignore */ }
+    }
+    _dirtyTrackingHandler = null;
+    _dirtyTrackingForm = null;
+
     var handler = function () {
         if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);
         _dirtyDebounceTimer = setTimeout(refreshSaveBand, 120);
     };
-    var opts = _dirtyTrackingController ? { signal: _dirtyTrackingController.signal } : undefined;
-    form.addEventListener('input', handler, opts);
-    form.addEventListener('change', handler, opts);
+
+    if (typeof AbortController === 'function') {
+        _dirtyTrackingController = new AbortController();
+        var opts = { signal: _dirtyTrackingController.signal };
+        form.addEventListener('input', handler, opts);
+        form.addEventListener('change', handler, opts);
+    } else {
+        // Legacy fallback: no AbortController → track the handler + form so the
+        // next attachDirtyTracking() call can removeEventListener() it, keeping
+        // the "one active listener pair per form" invariant intact.
+        form.addEventListener('input', handler);
+        form.addEventListener('change', handler);
+        _dirtyTrackingHandler = handler;
+        _dirtyTrackingForm = form;
+    }
 }
 
 // Show unsaved-changes dialog, then call onProceed() or stay

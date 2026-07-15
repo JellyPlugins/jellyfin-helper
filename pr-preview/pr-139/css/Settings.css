@@ -494,8 +494,12 @@
     margin-top: 1.2em;
 }
 
+/* The first card in the settings page sits right after #settingsMsg (also a div),
+   so `.settings-card:first-of-type` never matched (the message div is the actual
+   div:first-of-type). Use the adjacent-sibling selector so the reduced top margin
+   is applied to whatever card follows the message row. */
 /* noinspection CssUnusedSymbol */
-.settings-card:first-of-type {
+#settingsMsg + .settings-card {
     margin-top: 0.4em;
 }
 
