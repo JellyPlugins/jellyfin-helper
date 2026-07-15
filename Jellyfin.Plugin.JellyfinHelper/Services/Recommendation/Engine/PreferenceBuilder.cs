@@ -264,8 +264,27 @@ internal static class PreferenceBuilder
     /// <summary>
     ///     Expands genre preferences with co-occurrence proximity weights.
     ///     Genres that frequently appear together on items in watch history
-    ///     get derived weights, enabling soft matching for related genres
-    ///     the user has not directly watched (e.g. Fantasy for a SciFi fan).
+    ///     reinforce each other: an existing entry gets an additive boost proportional
+    ///     to the strongest incoming co-occurrence path from other known genres,
+    ///     and genres that were absent from the direct preference vector but co-occur
+    ///     with known ones are introduced with a derived weight.
+    ///     <para>
+    ///         <b>Design rationale (v3 hardening pass):</b> the previous implementation
+    ///         only inserted <i>new</i> genres (guarded by <c>vector.ContainsKey</c>) and
+    ///         therefore did nothing for the overwhelmingly common case in which every
+    ///         co-occurrence neighbour was already a direct-watched genre — the expansion
+    ///         call was effectively a no-op for anything but very sparse profiles. The
+    ///         current implementation applies an <b>additive</b> boost (capped so it
+    ///         cannot exceed a fresh direct-watch signal) to existing entries so that
+    ///         a strongly co-occurring pair like Action↔Adventure reinforces both peers
+    ///         relative to a weakly co-occurring third genre. This makes the proximity
+    ///         signal observable in the final normalised vector, which is what
+    ///         <see cref="BuildGenrePreferenceVector"/>'s downstream ML feature relies on.
+    ///         The additive boost is kept below the raw direct-watch peer weight so an
+    ///         explicitly-watched genre always outranks a purely-inferred one — the
+    ///         same monotonicity guarantee the favorite additive maintains against
+    ///         re-watch signals elsewhere in this file.
+    ///     </para>
     /// </summary>
     /// <param name="vector">The genre preference vector to expand (modified in-place).</param>
     /// <param name="profile">The user watch profile for co-occurrence data.</param>
@@ -330,11 +349,27 @@ internal static class PreferenceBuilder
             }
         }
 
+        // proximityFactor caps every derived boost at 15% of the source genre's own weight,
+        // so a co-occurrence link can never lift a neighbour above the source itself.
+        // minCooccurrences filters one-off pairs that would otherwise inject noise from a
+        // single mis-tagged item.
         const double proximityFactor = 0.15;
         const int minCooccurrences = 2;
-        var expansions = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var (knownGenre, weight) in vector)
+        // Take a snapshot of the current (pre-expansion) weights so proximity boosts are
+        // computed from the direct-watch signal only. Reading from a mutating vector while
+        // iterating would let earlier boosts feed later ones, cascading a mild pair into a
+        // dominant signal.
+        var baseWeights = new Dictionary<string, double>(vector, StringComparer.OrdinalIgnoreCase);
+
+        // Aggregate the strongest incoming proximity contribution for each target genre.
+        // "Strongest" (Math.Max) rather than "sum": a genre that co-occurs with three known
+        // peers should not get triple-boosted — that would inflate hubs like "Drama" or
+        // "Action" purely by virtue of appearing on many multi-genre items. The strongest
+        // path already captures the reinforcement without double-counting overlapping evidence.
+        var proximityContributions = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (knownGenre, weight) in baseWeights)
         {
             if (!cooccurrence.TryGetValue(knownGenre, out var neighbors))
             {
@@ -343,20 +378,46 @@ internal static class PreferenceBuilder
 
             foreach (var (neighborGenre, count) in neighbors)
             {
-                if (count < minCooccurrences || vector.ContainsKey(neighborGenre))
+                if (count < minCooccurrences)
                 {
                     continue;
                 }
 
                 var derived = weight * proximityFactor * Math.Min(count / 5.0, 1.0);
-                expansions.TryGetValue(neighborGenre, out var existing);
-                expansions[neighborGenre] = Math.Max(existing, derived);
+                proximityContributions.TryGetValue(neighborGenre, out var existing);
+                if (derived > existing)
+                {
+                    proximityContributions[neighborGenre] = derived;
+                }
             }
         }
 
-        foreach (var (genre, derivedWeight) in expansions)
+        // Apply contributions.
+        //   * For genres already in the vector (direct-watch signal exists): ADD the derived
+        //     contribution to reinforce the existing weight. proximityFactor (0.15) caps the
+        //     reinforcement at 15 % of the source peer's weight, and the source peer's own
+        //     max weight in the vector is the direct-watch peak, so a reinforced genre can
+        //     never overtake a genre whose direct-watch signal is strictly stronger.
+        //   * For genres NOT in the vector (pure inference from co-occurrence): INSERT with
+        //     the derived weight so soft-related genres surface for candidates the user never
+        //     explicitly watched. This preserves the "expand into unseen genres" behaviour the
+        //     original implementation intended but never actually applied because of the
+        //     ContainsKey skip.
+        //
+        // Contributions are applied last (after the read snapshot) so the iteration order of
+        // baseWeights does not influence the final result — an important invariant for
+        // train/serve parity given that Dictionary enumeration order is not part of the
+        // .NET contract.
+        foreach (var (targetGenre, derivedWeight) in proximityContributions)
         {
-            vector[genre] = derivedWeight;
+            if (vector.TryGetValue(targetGenre, out var existingWeight))
+            {
+                vector[targetGenre] = existingWeight + derivedWeight;
+            }
+            else
+            {
+                vector[targetGenre] = derivedWeight;
+            }
         }
     }
 

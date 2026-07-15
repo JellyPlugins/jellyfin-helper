@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
@@ -9,15 +10,27 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 ///     Writes text files atomically (write-to-temp then move-over-target) with a small,
 ///     bounded retry on transient I/O failures.
 ///     <para>
-///         <b>Threading:</b> The current implementation is synchronous and uses
-///         <see cref="Thread.Sleep(int)"/> between retry attempts, so a fully retrying call
-///         can block the caller for up to ~200 ms (20 ms + 40 ms + 60 ms + 80 ms with the
-///         default 5 attempts). This is safe for the current callers — every one of them
-///         runs on a background scheduled-task path (weight / state persistence) — but the
-///         method MUST NOT be invoked from an ASP.NET request handler or any other latency-
-///         sensitive context. If such a caller ever appears, add a
-///         <c>WriteAllTextAsync</c> overload that uses <c>await Task.Delay(...)</c>
-///         instead of <see cref="Thread.Sleep(int)"/>.
+///         <b>Threading model:</b> Two entry points share the same retry contract:
+///         <list type="bullet">
+///             <item>
+///                 <description>
+///                     <see cref="WriteAllText"/> — synchronous, uses <see cref="Thread.Sleep(int)"/> for
+///                     retry backoff. A fully retrying call blocks the caller for up to ~200 ms with the
+///                     default 5 attempts (20 + 40 + 60 + 80 ms). Intended for background scheduled-task
+///                     paths where thread blocking is acceptable.
+///                 </description>
+///             </item>
+///             <item>
+///                 <description>
+///                     <see cref="WriteAllTextAsync"/> — asynchronous, uses
+///                     <see cref="Task.Delay(int, CancellationToken)"/> for backoff so the caller's request
+///                     thread is released while the retry sleeps. Required for ASP.NET request handlers
+///                     (e.g. discovery dismissal / requested-state persistence) which invoke this from
+///                     latency-sensitive contexts. Honours the passed <see cref="CancellationToken"/> so a
+///                     cancelled request stops retrying instead of blocking the thread pool.
+///                 </description>
+///             </item>
+///         </list>
 ///     </para>
 ///     <para>
 ///         <b>Encoding:</b> Files are written as UTF-8 <i>without</i> a byte-order mark, matching
@@ -85,6 +98,100 @@ internal static class AtomicFile
                 // briefly before retrying; the lock almost always clears within tens of ms.
                 TryDeleteQuietly(tempPath);
                 Thread.Sleep(BaseBackoffMilliseconds * attempt);
+            }
+            catch
+            {
+                // Final attempt, or a non-transient error: remove the orphan temp file and
+                // let the exception propagate to the caller's diagnostic handler.
+                TryDeleteQuietly(tempPath);
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Asynchronous counterpart of <see cref="WriteAllText"/> for request-driven callers.
+    ///     Uses <see cref="File.WriteAllTextAsync(string, string, System.Text.Encoding, CancellationToken)"/>
+    ///     for the actual write and <see cref="Task.Delay(int, CancellationToken)"/> for retry backoff
+    ///     so the caller's thread is released while the retry sleeps.
+    ///     <para>
+    ///         <b>Cancellation behaviour:</b> a signalled <paramref name="cancellationToken"/> stops
+    ///         further retries and propagates <see cref="OperationCanceledException"/>. Any orphaned
+    ///         temp file from the last attempt is cleaned up before propagation, mirroring the
+    ///         synchronous overload's "no orphans on the disk" invariant.
+    ///     </para>
+    ///     <para>
+    ///         <b>Semantic parity:</b> retry count, backoff schedule (20 / 40 / 60 / 80 ms), UTF-8
+    ///         no-BOM encoding, and the temp-then-move atomicity rule are identical to
+    ///         <see cref="WriteAllText"/>; the only difference is the yield point during backoff.
+    ///         A caller that already handles exceptions from the sync overload can switch to this
+    ///         one without changing its error-handling contract, only adding <c>await</c>.
+    ///     </para>
+    /// </summary>
+    /// <param name="path">The destination file path.</param>
+    /// <param name="contents">The text to write.</param>
+    /// <param name="maxAttempts">Maximum attempts (clamped to at least 1).</param>
+    /// <param name="cancellationToken">A cancellation token honoured between retries and during the write itself.</param>
+    /// <returns>A task that completes when the atomic write has succeeded.</returns>
+    /// <exception cref="ArgumentException">If <paramref name="path"/> is null or empty.</exception>
+    /// <exception cref="ArgumentNullException">If <paramref name="contents"/> is null.</exception>
+    /// <exception cref="OperationCanceledException">If <paramref name="cancellationToken"/> is signalled.</exception>
+    internal static async Task WriteAllTextAsync(
+        string path,
+        string contents,
+        int maxAttempts = DefaultMaxAttempts,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+        ArgumentNullException.ThrowIfNull(contents);
+
+        if (maxAttempts < 1)
+        {
+            maxAttempts = 1;
+        }
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // A fresh temp name per attempt avoids colliding with a temp file left behind
+            // by a prior attempt whose cleanup itself failed transiently.
+            var tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                // Explicit UTF-8 (no BOM) — see the class-level Encoding note. The async write
+                // also honours the cancellation token natively, so a cancellation while writing
+                // the temp file will propagate through here without needing the outer check.
+                await File.WriteAllTextAsync(tempPath, contents, Utf8NoBom, cancellationToken).ConfigureAwait(false);
+
+                // File.Move has no async overload in .NET 8/9. It's a fast metadata operation
+                // (rename within the same directory), so blocking here for the sub-millisecond
+                // duration is acceptable and identical to the sync overload's contract.
+                File.Move(tempPath, path, overwrite: true);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation during the async write: clean up the temp file and propagate.
+                // We do NOT retry on cancellation — that would defeat cooperative cancellation.
+                TryDeleteQuietly(tempPath);
+                throw;
+            }
+            catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && attempt < maxAttempts)
+            {
+                // Transient lock (AV/indexer). Clean up this attempt's temp file and back off
+                // briefly before retrying; the lock almost always clears within tens of ms.
+                TryDeleteQuietly(tempPath);
+
+                try
+                {
+                    await Task.Delay(BaseBackoffMilliseconds * attempt, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Cancellation between attempts is honoured: stop retrying, propagate.
+                    throw;
+                }
             }
             catch
             {

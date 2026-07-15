@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
@@ -13,8 +14,16 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// <summary>
 ///     Handles persistence of discovery results to the plugin data directory.
 ///     Mirrors the pattern used by <see cref="Recommendation.RecommendationCacheService"/>.
+///     <para>
+///         <b>Synchronisation:</b> uses a <see cref="SemaphoreSlim"/> instead of a plain
+///         <c>lock</c> so both synchronous callers (scheduled tasks, <see cref="Save"/>) and
+///         asynchronous request-driven callers (<see cref="MarkAsRequestedAsync"/> /
+///         <see cref="RemoveItemAsync"/>) serialise through the exact same mutex. Falling back
+///         to two separate primitives would allow a background task's <c>Save</c> to race with
+///         a live HTTP mutation of the same in-memory cache.
+///     </para>
 /// </summary>
-public sealed class DiscoveryCacheService
+public sealed class DiscoveryCacheService : IDisposable
 {
     private const string FileName = "jellyfin-helper-discovery-results.json";
 
@@ -26,7 +35,15 @@ public sealed class DiscoveryCacheService
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
     private readonly string _filePath;
-    private readonly Lock _fileLock = new();
+
+    /// <summary>
+    ///     Serialises access to <see cref="_memoryCache"/> and the on-disk file. A
+    ///     <see cref="SemaphoreSlim"/> (rather than <c>lock</c>) is required because the
+    ///     new async request-path methods await file I/O while holding the mutex, and the
+    ///     .NET <c>lock</c> statement does not permit an <c>await</c> inside the guarded region.
+    ///     Initialised with a capacity of 1 so it functions as a straight mutual-exclusion lock.
+    /// </summary>
+    private readonly SemaphoreSlim _fileLock = new(initialCount: 1, maxCount: 1);
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger<DiscoveryCacheService> _logger;
 
@@ -68,7 +85,8 @@ public sealed class DiscoveryCacheService
     /// <returns>The deserialized results, or an empty list if the file does not exist or is invalid.</returns>
     public IReadOnlyList<DiscoveryResult> Load()
     {
-        lock (_fileLock)
+        _fileLock.Wait();
+        try
         {
             try
             {
@@ -89,6 +107,10 @@ public sealed class DiscoveryCacheService
                 return _memoryCache.AsReadOnly();
             }
         }
+        finally
+        {
+            _fileLock.Release();
+        }
     }
 
     /// <summary>
@@ -101,72 +123,149 @@ public sealed class DiscoveryCacheService
     /// <param name="userId">The Jellyfin user ID. Only removes from this user's list.</param>
     public void RemoveItem(int tmdbId, string mediaType, Guid userId)
     {
-        lock (_fileLock)
+        _fileLock.Wait();
+        try
         {
+            RemoveItemLocked(tmdbId, mediaType, userId, useAsyncWrite: false, CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    /// <summary>
+    ///     Asynchronous counterpart of <see cref="RemoveItem"/>. Preferred for callers on
+    ///     request-driven paths (e.g. HTTP dismissal handlers) because the underlying atomic
+    ///     write yields to the thread pool during transient-IO retries instead of blocking
+    ///     the caller's request thread with <see cref="Thread.Sleep(int)"/>.
+    ///     <para>
+    ///         Serialises through the exact same <see cref="_fileLock"/> as the synchronous
+    ///         overload, guaranteeing that a background <see cref="Save"/> and a live HTTP
+    ///         dismissal cannot interleave partial writes on the same cache file.
+    ///     </para>
+    /// </summary>
+    /// <param name="tmdbId">The TMDb ID of the item to remove.</param>
+    /// <param name="mediaType">The media type ("movie" or "tv").</param>
+    /// <param name="userId">The Jellyfin user ID. Only removes from this user's list.</param>
+    /// <param name="cancellationToken">Cancellation token honoured between retry attempts of the atomic write.</param>
+    /// <returns>A task that completes once the removal (and its persistence attempt) have finished.</returns>
+    public async Task RemoveItemAsync(int tmdbId, string mediaType, Guid userId, CancellationToken cancellationToken = default)
+    {
+        await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await RemoveItemLocked(tmdbId, mediaType, userId, useAsyncWrite: true, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    /// <summary>
+    ///     Core removal logic shared by <see cref="RemoveItem"/> and <see cref="RemoveItemAsync"/>.
+    ///     Must be called while holding <see cref="_fileLock"/>. Switches between the sync and
+    ///     async atomic-write paths based on <paramref name="useAsyncWrite"/> so the retry
+    ///     back-off in <see cref="AtomicFile"/> yields correctly on the request-driven path.
+    /// </summary>
+    private async Task RemoveItemLocked(int tmdbId, string mediaType, Guid userId, bool useAsyncWrite, CancellationToken cancellationToken)
+    {
+        try
+        {
+            EnsureLoadedLocked();
+            var cache = _memoryCache ??= [];
+
+            if (cache.Count == 0)
+            {
+                return;
+            }
+
+            var userResult = cache.FirstOrDefault(r => r.UserId == userId);
+            if (userResult == null)
+            {
+                return;
+            }
+
+            // Identify items to remove WITHOUT mutating the live cache yet.
+            // This avoids leaving _memoryCache in an inconsistent state if persistence fails.
+            var itemsToRemove = userResult.Recommendations
+                .Where(r => r.TmdbId == tmdbId &&
+                            string.Equals(r.MediaType, mediaType, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (itemsToRemove.Count == 0)
+            {
+                return;
+            }
+
+            // Apply removal
+            foreach (var item in itemsToRemove)
+            {
+                userResult.Recommendations.Remove(item);
+            }
+
             try
             {
-                EnsureLoadedLocked();
-                var cache = _memoryCache ??= [];
+                var updatedJson = JsonSerializer.Serialize(cache, JsonOptions);
 
-                if (cache.Count == 0)
+                // Use AtomicFile: bounded retry on transient AV/indexer locks +
+                // internal temp-file cleanup, so no manual .tmp handling required.
+                if (useAsyncWrite)
                 {
-                    return;
+                    // cancellationToken is passed by name because AtomicFile.WriteAllTextAsync
+                    // orders parameters as (path, contents, maxAttempts, cancellationToken)
+                    // to satisfy the CA1068 "CancellationToken is last" convention.
+                    await AtomicFile.WriteAllTextAsync(_filePath, updatedJson, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
-
-                var userResult = cache.FirstOrDefault(r => r.UserId == userId);
-                if (userResult == null)
+                else
                 {
-                    return;
-                }
-
-                // Identify items to remove WITHOUT mutating the live cache yet.
-                // This avoids leaving _memoryCache in an inconsistent state if persistence fails.
-                var itemsToRemove = userResult.Recommendations
-                    .Where(r => r.TmdbId == tmdbId &&
-                                string.Equals(r.MediaType, mediaType, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                if (itemsToRemove.Count > 0)
-                {
-                    // Apply removal
-                    foreach (var item in itemsToRemove)
-                    {
-                        userResult.Recommendations.Remove(item);
-                    }
-
-                    try
-                    {
-                        var updatedJson = JsonSerializer.Serialize(cache, JsonOptions);
-
-                        // Use AtomicFile: bounded retry on transient AV/indexer locks +
-                        // internal temp-file cleanup, so no manual .tmp handling required.
-                        AtomicFile.WriteAllText(_filePath, updatedJson);
-                    }
-                    catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-                    {
-                        // Rollback: re-add removed items to restore memory/disk consistency.
-                        // On next restart the disk state (which still has the items) will be
-                        // loaded, so the user will see the item again — acceptable for a
-                        // transient IO failure vs. silent data loss.
-                        userResult.Recommendations.AddRange(itemsToRemove);
-
-                        _pluginLog.LogWarning(
-                            "DiscoveryCache",
-                            $"Could not persist removal of TMDb#{tmdbId} from cache: {ex.Message}",
-                            ex,
-                            _logger);
-                    }
+                    // CA1849 is intentionally suppressed here: this branch is only ever taken
+                    // when the caller is the synchronous RemoveItem overload, which invokes us
+                    // via .GetAwaiter().GetResult() on a background scheduled-task thread.
+                    // Awaiting WriteAllTextAsync in that path would sync-over-async block on
+                    // the same wait handle we're already holding via GetResult, which is both
+                    // pointless (we're already sync) and marginally more expensive than the
+                    // Thread.Sleep-based sync WriteAllText. The async request-driven path uses
+                    // the async branch above.
+#pragma warning disable CA1849 // Call async methods when in an async method
+                    AtomicFile.WriteAllText(_filePath, updatedJson);
+#pragma warning restore CA1849
                 }
             }
-            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            catch (OperationCanceledException)
             {
+                // Cancellation on the async path: roll back the in-memory removal so the
+                // caller's view of the cache is consistent with the on-disk state, then
+                // propagate. Same rollback shape as the transient-IO catch below.
+                userResult.Recommendations.AddRange(itemsToRemove);
+                throw;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                // Rollback: re-add removed items to restore memory/disk consistency.
+                // On next restart the disk state (which still has the items) will be
+                // loaded, so the user will see the item again — acceptable for a
+                // transient IO failure vs. silent data loss.
+                userResult.Recommendations.AddRange(itemsToRemove);
+
                 _pluginLog.LogWarning(
                     "DiscoveryCache",
-                    $"Could not remove TMDb#{tmdbId} from cache: {ex.Message}",
+                    $"Could not persist removal of TMDb#{tmdbId} from cache: {ex.Message}",
                     ex,
                     _logger);
-                _memoryCache ??= [];
             }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            _pluginLog.LogWarning(
+                "DiscoveryCache",
+                $"Could not remove TMDb#{tmdbId} from cache: {ex.Message}",
+                ex,
+                _logger);
+            _memoryCache ??= [];
         }
     }
 
@@ -178,74 +277,152 @@ public sealed class DiscoveryCacheService
     /// <param name="mediaType">The media type ("movie" or "tv") to match against. Required because TMDb movie and TV IDs are separate namespaces.</param>
     public void MarkAsRequested(int tmdbId, string mediaType)
     {
-        lock (_fileLock)
+        _fileLock.Wait();
+        try
         {
+            MarkAsRequestedLocked(tmdbId, mediaType, useAsyncWrite: false, CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    /// <summary>
+    ///     Asynchronous counterpart of <see cref="MarkAsRequested"/>. Preferred for callers on
+    ///     request-driven paths (e.g. the HTTP <c>SubmitRequest</c> / <c>SubmitMyRequest</c>
+    ///     handlers) because the underlying atomic write yields to the thread pool during
+    ///     transient-IO retries instead of blocking the caller's request thread with
+    ///     <see cref="Thread.Sleep(int)"/>.
+    ///     <para>
+    ///         Serialises through the exact same <see cref="_fileLock"/> as the synchronous
+    ///         overload, guaranteeing that a background <see cref="Save"/> and a live HTTP
+    ///         request-completion cannot interleave partial writes on the same cache file.
+    ///     </para>
+    /// </summary>
+    /// <param name="tmdbId">The TMDb ID of the requested item.</param>
+    /// <param name="mediaType">The media type ("movie" or "tv") to match against.</param>
+    /// <param name="cancellationToken">Cancellation token honoured between retry attempts of the atomic write.</param>
+    /// <returns>A task that completes once the mark (and its persistence attempt) have finished.</returns>
+    public async Task MarkAsRequestedAsync(int tmdbId, string mediaType, CancellationToken cancellationToken = default)
+    {
+        await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await MarkAsRequestedLocked(tmdbId, mediaType, useAsyncWrite: true, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    /// <summary>
+    ///     Core mark-as-requested logic shared by <see cref="MarkAsRequested"/> and
+    ///     <see cref="MarkAsRequestedAsync"/>. Must be called while holding <see cref="_fileLock"/>.
+    ///     Switches between the sync and async atomic-write paths based on
+    ///     <paramref name="useAsyncWrite"/> so the retry back-off in <see cref="AtomicFile"/>
+    ///     yields correctly on the request-driven path.
+    /// </summary>
+    private async Task MarkAsRequestedLocked(int tmdbId, string mediaType, bool useAsyncWrite, CancellationToken cancellationToken)
+    {
+        try
+        {
+            EnsureLoadedLocked();
+            var cache = _memoryCache ??= [];
+
+            if (cache.Count == 0)
+            {
+                return;
+            }
+
+            // Determine which items need updating WITHOUT mutating the live cache yet.
+            // This avoids leaving _memoryCache in an inconsistent state if persistence fails.
+            var indicesToMark = new List<(int UserIdx, int RecIdx)>();
+            for (var u = 0; u < cache.Count; u++)
+            {
+                var recs = cache[u].Recommendations;
+                for (var r = 0; r < recs.Count; r++)
+                {
+                    if (recs[r].TmdbId == tmdbId
+                        && string.Equals(recs[r].MediaType, mediaType, StringComparison.OrdinalIgnoreCase)
+                        && !recs[r].AlreadyRequested)
+                    {
+                        indicesToMark.Add((u, r));
+                    }
+                }
+            }
+
+            if (indicesToMark.Count == 0)
+            {
+                return;
+            }
+
+            // Apply mutations
+            foreach (var (userIdx, recIdx) in indicesToMark)
+            {
+                cache[userIdx].Recommendations[recIdx].AlreadyRequested = true;
+            }
+
             try
             {
-                EnsureLoadedLocked();
-                var cache = _memoryCache ??= [];
+                var updatedJson = JsonSerializer.Serialize(cache, JsonOptions);
 
-                if (cache.Count == 0)
+                // Use AtomicFile: bounded retry on transient AV/indexer locks +
+                // internal temp-file cleanup, so no manual .tmp handling required.
+                if (useAsyncWrite)
                 {
-                    return;
+                    // cancellationToken is passed by name because AtomicFile.WriteAllTextAsync
+                    // orders parameters as (path, contents, maxAttempts, cancellationToken)
+                    // to satisfy the CA1068 "CancellationToken is last" convention.
+                    await AtomicFile.WriteAllTextAsync(_filePath, updatedJson, cancellationToken: cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    // CA1849 is intentionally suppressed here: same rationale as the identical
+                    // branch in RemoveItemLocked — the sync branch is only entered from the
+                    // synchronous MarkAsRequested overload via .GetAwaiter().GetResult() on a
+                    // background thread. Sync-over-async-over-sync would gain nothing.
+#pragma warning disable CA1849 // Call async methods when in an async method
+                    AtomicFile.WriteAllText(_filePath, updatedJson);
+#pragma warning restore CA1849
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation on the async path: roll back the in-memory mutations so the
+                // caller's view of the cache is consistent with the on-disk state, then
+                // propagate. Matches the transient-IO rollback below in shape and intent.
+                foreach (var (userIdx, recIdx) in indicesToMark)
+                {
+                    cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
                 }
 
-                // Determine which items need updating WITHOUT mutating the live cache yet.
-                // This avoids leaving _memoryCache in an inconsistent state if persistence fails.
-                var indicesToMark = new List<(int UserIdx, int RecIdx)>();
-                for (var u = 0; u < cache.Count; u++)
-                {
-                    var recs = cache[u].Recommendations;
-                    for (var r = 0; r < recs.Count; r++)
-                    {
-                        if (recs[r].TmdbId == tmdbId
-                            && string.Equals(recs[r].MediaType, mediaType, StringComparison.OrdinalIgnoreCase)
-                            && !recs[r].AlreadyRequested)
-                        {
-                            indicesToMark.Add((u, r));
-                        }
-                    }
-                }
-
-                if (indicesToMark.Count > 0)
-                {
-                    // Apply mutations
-                    foreach (var (userIdx, recIdx) in indicesToMark)
-                    {
-                        cache[userIdx].Recommendations[recIdx].AlreadyRequested = true;
-                    }
-
-                    try
-                    {
-                        var updatedJson = JsonSerializer.Serialize(cache, JsonOptions);
-
-                        // Use AtomicFile: bounded retry on transient AV/indexer locks +
-                        // internal temp-file cleanup, so no manual .tmp handling required.
-                        AtomicFile.WriteAllText(_filePath, updatedJson);
-                    }
-                    catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
-                    {
-                        // Rollback in-memory mutations on persistence failure
-                        foreach (var (userIdx, recIdx) in indicesToMark)
-                        {
-                            cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
-                        }
-
-                        throw;
-                    }
-                }
+                throw;
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
-                _pluginLog.LogWarning(
-                    "DiscoveryCache",
-                    $"Could not mark TMDb#{tmdbId} as requested in cache: {ex.Message}",
-                    ex,
-                    _logger);
+                // Rollback in-memory mutations on persistence failure
+                foreach (var (userIdx, recIdx) in indicesToMark)
+                {
+                    cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
+                }
 
-                // Match Load() behavior: prevent repeated failed disk reads on subsequent calls.
-                _memoryCache ??= [];
+                throw;
             }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            _pluginLog.LogWarning(
+                "DiscoveryCache",
+                $"Could not mark TMDb#{tmdbId} as requested in cache: {ex.Message}",
+                ex,
+                _logger);
+
+            // Match Load() behavior: prevent repeated failed disk reads on subsequent calls.
+            _memoryCache ??= [];
         }
     }
 
@@ -311,7 +488,8 @@ public sealed class DiscoveryCacheService
     {
         ArgumentNullException.ThrowIfNull(results);
 
-        lock (_fileLock)
+        _fileLock.Wait();
+        try
         {
             try
             {
@@ -352,5 +530,25 @@ public sealed class DiscoveryCacheService
                 return false;
             }
         }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    /// <summary>
+    ///     Releases the <see cref="SemaphoreSlim"/> used to serialise cache access.
+    ///     <para>
+    ///         The DI container (<c>Microsoft.Extensions.DependencyInjection</c>) owns this
+    ///         service's lifetime and will call <see cref="Dispose"/> when the plugin is
+    ///         torn down. No unmanaged resources are held, so a straight <c>SemaphoreSlim.Dispose()</c>
+    ///         is sufficient. Required by CA1001 because we now hold an <see cref="IDisposable"/>
+    ///         field (<see cref="_fileLock"/>) since the switch from <c>Lock</c> to
+    ///         <see cref="SemaphoreSlim"/> to permit async request-path callers.
+    ///     </para>
+    /// </summary>
+    public void Dispose()
+    {
+        _fileLock.Dispose();
     }
 }

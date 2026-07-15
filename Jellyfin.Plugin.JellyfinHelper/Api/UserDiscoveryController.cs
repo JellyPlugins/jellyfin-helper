@@ -430,13 +430,19 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(502, new RequestResult { Success = false, Message = message });
         }
 
+        // Async variant is preferred (over the legacy sync overload) because it releases
+        // the request thread while AtomicFile's transient-IO retries sleep — the sync path
+        // can block for up to ~200 ms on AV/indexer contention, which would starve the
+        // request pool under a burst of user requests.
         try
         {
-            _cache.MarkAsRequested(dto.TmdbId, mediaType);
+            await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
         {
             // Best-effort cache update — log but do not fail the request.
+            // OperationCanceledException is deliberately NOT swallowed so a cancelled client
+            // still propagates cancellation semantics up the pipeline.
             _logger.LogWarning(ex, "[Discovery] Failed to mark item {TmdbId}/{MediaType} as requested in cache for user {UserId}", dto.TmdbId, mediaType, currentJellyfinUserId);
         }
 

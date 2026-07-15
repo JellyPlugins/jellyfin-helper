@@ -174,13 +174,20 @@ public sealed class DiscoveryController : ControllerBase
         // Mark item as requested in cache so it doesn't reappear on page refresh.
         // Best-effort: don't let cache bookkeeping failures turn a successful Seerr
         // request into a 500 response, which would encourage client retries.
+        //
+        // Async variant is preferred here (over the legacy MarkAsRequested sync overload)
+        // because it releases the request thread while AtomicFile's transient-IO retries
+        // sleep — the sync path can block for up to ~200 ms on AV/indexer contention,
+        // which would starve the request pool under a burst of user requests.
         try
         {
-            _cache.MarkAsRequested(dto.TmdbId, mediaType);
+            await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
         {
-            // Already logged inside MarkAsRequested; swallow to preserve the 200 response.
+            // Already logged inside MarkAsRequestedAsync; swallow to preserve the 200 response.
+            // OperationCanceledException is deliberately NOT swallowed so a cancelled client
+            // still propagates cancellation semantics up the pipeline.
         }
 
         return Ok(new RequestResult { Success = true, Message = message });
