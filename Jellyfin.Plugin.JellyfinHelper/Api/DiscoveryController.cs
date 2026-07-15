@@ -179,15 +179,21 @@ public sealed class DiscoveryController : ControllerBase
         // because it releases the request thread while AtomicFile's transient-IO retries
         // sleep — the sync path can block for up to ~200 ms on AV/indexer contention,
         // which would starve the request pool under a burst of user requests.
+        //
+        // ⚠️ CancellationToken is DELIBERATELY NOT forwarded here. Once Seerr has accepted
+        // the request (a few lines above), the local cache MUST be updated regardless of
+        // whether the HTTP client has disconnected — otherwise the item silently reappears
+        // on the next discovery-page refresh, and the user gets a phantom "please request
+        // this again" prompt for an item they already successfully requested. See the
+        // similar rationale in UserDiscoveryController.SubmitMyRequest.
         try
         {
-            await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, cancellationToken).ConfigureAwait(false);
+            await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            // Already logged inside MarkAsRequestedAsync; swallow to preserve the 200 response.
-            // OperationCanceledException is deliberately NOT swallowed so a cancelled client
-            // still propagates cancellation semantics up the pipeline.
+            // Already logged inside MarkAsRequestedAsync; swallow to preserve the 200 response
+            // that the client will (or would have, absent cancellation) receive.
         }
 
         return Ok(new RequestResult { Success = true, Message = message });

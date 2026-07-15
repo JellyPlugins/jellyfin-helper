@@ -191,20 +191,35 @@ public sealed class DiscoveryCacheService : IDisposable
 
             // Identify items to remove WITHOUT mutating the live cache yet.
             // This avoids leaving _memoryCache in an inconsistent state if persistence fails.
-            var itemsToRemove = userResult.Recommendations
-                .Where(r => r.TmdbId == tmdbId &&
-                            string.Equals(r.MediaType, mediaType, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            //
+            // We capture each removal candidate's ORIGINAL INDEX alongside the item itself so
+            // that a rollback (transient IO error, cancellation) can reinsert the items at
+            // their original ranking positions. AddRange-based rollback would silently
+            // reorder recommendations — a subsequent Save() would then persist that shuffled
+            // ranking, permanently degrading recommendation quality after a single failure.
+            var recommendations = userResult.Recommendations;
+            var itemsToRemove = new List<(int OriginalIndex, DiscoveryRecommendation Item)>();
+            for (var i = 0; i < recommendations.Count; i++)
+            {
+                var rec = recommendations[i];
+                if (rec.TmdbId == tmdbId &&
+                    string.Equals(rec.MediaType, mediaType, StringComparison.OrdinalIgnoreCase))
+                {
+                    itemsToRemove.Add((i, rec));
+                }
+            }
 
             if (itemsToRemove.Count == 0)
             {
                 return;
             }
 
-            // Apply removal
-            foreach (var item in itemsToRemove)
+            // Apply removal in DESCENDING index order so each Remove call does not shift the
+            // indices of items we still need to remove. Ascending order would need index
+            // arithmetic to compensate for the shift and would be trickier to reason about.
+            for (var i = itemsToRemove.Count - 1; i >= 0; i--)
             {
-                userResult.Recommendations.Remove(item);
+                recommendations.RemoveAt(itemsToRemove[i].OriginalIndex);
             }
 
             try
@@ -240,16 +255,17 @@ public sealed class DiscoveryCacheService : IDisposable
                 // Cancellation on the async path: roll back the in-memory removal so the
                 // caller's view of the cache is consistent with the on-disk state, then
                 // propagate. Same rollback shape as the transient-IO catch below.
-                userResult.Recommendations.AddRange(itemsToRemove);
+                ReinsertAtOriginalIndices(recommendations, itemsToRemove);
                 throw;
             }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
-                // Rollback: re-add removed items to restore memory/disk consistency.
-                // On next restart the disk state (which still has the items) will be
-                // loaded, so the user will see the item again — acceptable for a
-                // transient IO failure vs. silent data loss.
-                userResult.Recommendations.AddRange(itemsToRemove);
+                // Rollback: re-insert removed items at their ORIGINAL positions so the
+                // ranking order is preserved. On next restart the disk state (which still
+                // has the items in their original order) will be loaded, so the user will
+                // see the item again — acceptable for a transient IO failure vs. silent
+                // data loss AND silent reordering.
+                ReinsertAtOriginalIndices(recommendations, itemsToRemove);
 
                 _pluginLog.LogWarning(
                     "DiscoveryCache",
@@ -423,6 +439,42 @@ public sealed class DiscoveryCacheService : IDisposable
 
             // Match Load() behavior: prevent repeated failed disk reads on subsequent calls.
             _memoryCache ??= [];
+        }
+    }
+
+    /// <summary>
+    ///     Reinserts previously-removed items back into <paramref name="recommendations"/> at
+    ///     their original indices. Used by the rollback paths of <see cref="RemoveItemLocked"/>
+    ///     to preserve ranking order when a persistence failure (or cancellation) forces us to
+    ///     undo an in-memory removal.
+    ///     <para>
+    ///         Iterates in <b>ascending</b> index order because the <c>OriginalIndex</c> values
+    ///         were captured BEFORE any removals. When we reinsert item A at index 3, then item
+    ///         B at index 7, index 7 already refers to the shifted position that includes A —
+    ///         which is exactly what we want. If we iterated in descending order, we'd have to
+    ///         compensate for the shift caused by later reinserts and the arithmetic would drift.
+    ///     </para>
+    ///     <para>
+    ///         Precondition: <paramref name="itemsToRemove"/> was produced by a linear scan of
+    ///         the source list, so its entries are already in ascending index order — no sort
+    ///         needed. The <see cref="List{T}.Insert(int, T)"/> at each captured original index
+    ///         restores the exact pre-removal state.
+    ///     </para>
+    /// </summary>
+    /// <param name="recommendations">The recommendations list currently missing the removed items.</param>
+    /// <param name="itemsToRemove">The (originalIndex, item) pairs captured before the removal.</param>
+    private static void ReinsertAtOriginalIndices(
+        List<DiscoveryRecommendation> recommendations,
+        List<(int OriginalIndex, DiscoveryRecommendation Item)> itemsToRemove)
+    {
+        // Ascending order matters — see the XML doc above for why.
+        foreach (var (originalIndex, item) in itemsToRemove)
+        {
+            // Clamp to Count as a defensive guard: if some other mutation has trimmed the list
+            // since we captured the indices (should be impossible under _fileLock, but the cost
+            // is a single comparison), append instead of throwing an ArgumentOutOfRangeException.
+            var targetIndex = originalIndex <= recommendations.Count ? originalIndex : recommendations.Count;
+            recommendations.Insert(targetIndex, item);
         }
     }
 

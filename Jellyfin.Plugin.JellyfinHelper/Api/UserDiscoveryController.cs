@@ -430,19 +430,27 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(502, new RequestResult { Success = false, Message = message });
         }
 
+        // ⚠️ CancellationToken is DELIBERATELY NOT forwarded to the cache / feedback-store
+        // updates below. Once Seerr has accepted the request above, the local bookkeeping
+        // MUST run regardless of whether the HTTP client has disconnected — otherwise:
+        //   1. The requested item silently reappears on the next discovery-page refresh
+        //      because MarkAsRequestedAsync never wrote the AlreadyRequested flag.
+        //   2. The DiscoveryFeedbackStore misses a positive-signal training example, so the
+        //      ML model never learns from this successful request.
+        // Both would silently degrade user experience for a client that likely just closed
+        // the tab or lost its connection immediately after clicking "Request".
+        //
         // Async variant is preferred (over the legacy sync overload) because it releases
         // the request thread while AtomicFile's transient-IO retries sleep — the sync path
         // can block for up to ~200 ms on AV/indexer contention, which would starve the
         // request pool under a burst of user requests.
         try
         {
-            await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, cancellationToken).ConfigureAwait(false);
+            await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // Best-effort cache update — log but do not fail the request.
-            // OperationCanceledException is deliberately NOT swallowed so a cancelled client
-            // still propagates cancellation semantics up the pipeline.
             _logger.LogWarning(ex, "[Discovery] Failed to mark item {TmdbId}/{MediaType} as requested in cache for user {UserId}", dto.TmdbId, mediaType, currentJellyfinUserId);
         }
 
