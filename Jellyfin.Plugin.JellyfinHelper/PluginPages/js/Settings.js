@@ -136,6 +136,22 @@ function cancelSaveBandReveal() {
     }
 }
 
+// State classes (is-saved etc.) must survive the fade-out because they carry the
+// CSS rule that hides the Save button. If we removed them synchronously on
+// transition to "hidden", the button would flash for one frame while the band
+// fades. Cleanup happens via this timer after the CSS transition completes.
+var _saveBandHiddenCleanupTimer = null;
+
+// Slightly longer than the 0.28s CSS transition to survive timing jitter.
+var _saveBandHideDurationMs = 320;
+
+function cancelSaveBandHiddenCleanup() {
+    if (_saveBandHiddenCleanupTimer) {
+        clearTimeout(_saveBandHiddenCleanupTimer);
+        _saveBandHiddenCleanupTimer = null;
+    }
+}
+
 /**
  * Renders the floating save band in a specific visual state.
  * @param {'hidden'|'unsaved'|'saving'|'saved'|'error'} kind
@@ -146,7 +162,6 @@ function renderSaveBand(kind) {
     var icon = band.querySelector('.settings-save-band-icon');
     var text = band.querySelector('.settings-save-band-text');
 
-    band.classList.remove('is-unsaved', 'is-saving', 'is-saved', 'is-error', 'is-visible');
     // Cancel a pending fade-out unless we're (re)entering the saved state.
     if (kind !== 'saved' && _settingsSavedHideTimer) {
         clearTimeout(_settingsSavedHideTimer);
@@ -154,12 +169,26 @@ function renderSaveBand(kind) {
     }
 
     if (kind === 'hidden') {
+        // Start fade-out. Keep the previous state class (and icon/text) until the
+        // transition finishes; otherwise the CSS rule that hides the Save button
+        // stops applying and the button briefly appears on its own.
+        band.classList.remove('is-visible');
         band.setAttribute('aria-hidden', 'true');
-        if (icon) icon.innerHTML = '';
-        if (text) text.textContent = '';
-        return; // stays transparent (no is-visible class)
+        cancelSaveBandHiddenCleanup();
+        _saveBandHiddenCleanupTimer = setTimeout(function () {
+            _saveBandHiddenCleanupTimer = null;
+            // Skip cleanup if a new state made the band visible again in the meantime.
+            if (band.classList.contains('is-visible')) return;
+            band.classList.remove('is-unsaved', 'is-saving', 'is-saved', 'is-error');
+            if (icon) icon.innerHTML = '';
+            if (text) text.textContent = '';
+        }, _saveBandHideDurationMs);
+        return;
     }
 
+    // Transition to a visible state: drop pending cleanup and reset state classes.
+    cancelSaveBandHiddenCleanup();
+    band.classList.remove('is-unsaved', 'is-saving', 'is-saved', 'is-error');
     band.setAttribute('aria-hidden', 'false');
     band.classList.add('is-visible');
 
@@ -241,25 +270,27 @@ function refreshSaveBand() {
 }
 
 
-/**
- * Debounced dirty-check listener attached to the settings form.
- * Only wires up input/change events; each rendered form gets a fresh
- * listener because the form element is replaced (not just re-populated)
- * by loadSettings().
- */
+// Debounced dirty-check listener on the settings form. The form element itself
+// persists across loadSettings() calls (only innerHTML gets replaced), so we
+// abort previously registered listeners via AbortController before adding new
+// ones to avoid stacking handlers on repeated reloads.
 var _dirtyDebounceTimer = null;
+var _dirtyTrackingController = null;
 
 function attachDirtyTracking() {
     var form = document.getElementById('settingsForm');
     if (!form) return;
+    if (_dirtyTrackingController && typeof _dirtyTrackingController.abort === 'function') {
+        try { _dirtyTrackingController.abort(); } catch (_e) { /* ignore */ }
+    }
+    _dirtyTrackingController = (typeof AbortController === 'function') ? new AbortController() : null;
     var handler = function () {
         if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);
         _dirtyDebounceTimer = setTimeout(refreshSaveBand, 120);
     };
-    // Reset any legacy handlers before attaching (defence in depth against
-    // duplicate registration when loadSettings is called multiple times).
-    form.addEventListener('input', handler);
-    form.addEventListener('change', handler);
+    var opts = _dirtyTrackingController ? { signal: _dirtyTrackingController.signal } : undefined;
+    form.addEventListener('input', handler, opts);
+    form.addEventListener('change', handler, opts);
 }
 
 // Show unsaved-changes dialog, then call onProceed() or stay
@@ -682,6 +713,22 @@ function doSaveSettings(payload, options) {
         renderSaveBand('saving');
     }
 
+    // PluginLogLevel used to be race-prone here: the Settings form captured it at page load, so a
+    // concurrent change from the Logs tab would be silently overwritten on save. That race is now
+    // closed on the SERVER (ConfigurationController.ApplyRequestToConfig ignores the field on POST;
+    // only PUT /Configuration/LogLevel mutates it). We therefore no longer need a preflight GET —
+    // whatever we send here is discarded server-side and the on-disk value is preserved.
+    postSettingsPayload(payload, quiet, indicatorEl, btn, options);
+}
+
+/**
+ * Internal: performs the actual POST once the caller has validated the payload. Extracted from
+ * doSaveSettings mainly to keep the trash-path / recursion guards separate from the network call.
+ * PluginLogLevel is intentionally NOT rewritten here — the server-side handler
+ * (ConfigurationController.ApplyRequestToConfig) ignores that field, so whatever the client sends
+ * is preserved server-side. See the block comment in doSaveSettings for the TOCTOU history.
+ */
+function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
     apiPost('JellyfinHelper/Configuration', payload, function (response) {
         var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled;
         _wasTrashEnabled = payload.UseTrash;

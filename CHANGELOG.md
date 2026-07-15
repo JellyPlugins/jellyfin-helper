@@ -7,19 +7,26 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ## [3.0.0.0] - 2026-07-08
 
-### Changed
-- **Jellyfin 12.0 Compatibility** - Upgraded to Jellyfin 12.0 (`Jellyfin.Controller`/`Jellyfin.Model` 12.0.0-rc2) and migrated to **.NET 10**.
-- **Guarded Logging** - Adopted the .NET 10 `logger.IsEnabled(...)` pattern on hot paths to avoid unnecessary log-argument evaluation.
+### Added
+- **Smarter recommendation engine** - The neural network behind your recommendations is now four times bigger and uses dropout regularisation, so it learns your taste more reliably and generalises better beyond what you've already watched.
 
 ### Improved
-- **Faster Recommendation & Activity Scans** - Switched to the new JF12 batch APIs (`GetUserDataBatch`, `GetPeopleNamesByItems`) so watch-history, activity, and recommendation scans need dramatically fewer database roundtrips on large libraries. Falls back to the old per-item path if the batch call throws, so behaviour never regresses.
-- **Settings Page Redesign** - Reorganised the Settings tab into four cards (General, Task settings + Recycle Bin, Integrations, Backup & Restore) with a sticky Save toolbar and an unsaved-changes indicator. Cleanup task selects now use a responsive 2-column grid on wide screens. All existing IDs, i18n keys, and autosave feedback behaviour are preserved.
+- **Better recommendations from day one** - Re-watching a favourite nudges the algorithm noticeably now. Actors and directors you love outrank cameo overlaps. Box-set suggestions ("finish the trilogy") stay consistent between what you see and what the model learned from.
+- **Fairer cold-start** - Brand-new users get community-blended suggestions (top-rated + trending) instead of pure recency, so the first list feels curated rather than random.
+- **More diverse top picks** - Ranking now balances genre, studio and release era — no more ten Marvel films in a row.
+- **Faster scans on big libraries** - Watch-history and recommendation scans use Jellyfin 12's batch APIs; on large libraries this shaves seconds off every scheduled run.
+- **Cleaner Settings page** - Reorganised into four clear cards (General, Tasks & Trash, Integrations, Backup) with a sticky save bar and an unsaved-changes indicator, so nothing gets lost.
+- **Compact weight serialization** - Persisted recommendation weights now use compact (non-indented) JSON, roughly a third the size of the equivalent indented form. Note: the v3 neural architecture has ~4.5× more parameters than v2, so on-disk files are larger than v2 files even in compact form.
+
+### Fixed
+- **Recommendations sometimes silently drifted** - Four subtle bugs where training and live scoring used slightly different formulas (weekend detection, popularity, box-set progression, discovery feedback). Your recommendations are now trained on exactly the same signals they're scored on.
+- **Rare "lost save" on Windows** - Cache and state files could occasionally be dropped when an antivirus scanner briefly held the target file. All writes now retry automatically.
 
 ### Breaking
-- **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. Users on Jellyfin 10.x should stay on v2.1.0.5, which remains served from the same plugin repository (`targetAbi: 10.11.10.0`).
+- **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.5 (served from the same plugin repository).
 
 ### Tests
-- Total: **2400 tests** (+82 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths.
+- Total: **2480 tests** (+162 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths, weighted `PeopleSimilarity`, and the progression multiplier in `PreferenceBuilderTests` locking the shared `[ProgressionFloor, ProgressionCeiling]` formula (`0.3 + rawRatio * 1.2`, clamped to `[0.3, 1.5]`).
 
 ---
 

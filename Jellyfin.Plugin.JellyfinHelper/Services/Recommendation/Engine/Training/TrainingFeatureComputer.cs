@@ -191,7 +191,7 @@ internal static class TrainingFeatureComputer
         double avgYear,
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
         Dictionary<Guid, HashSet<string>> cachedPeopleLookup,
-        HashSet<string> preferredPeople,
+        IReadOnlyDictionary<string, double> preferredPeopleWeights,
         Dictionary<Guid, IReadOnlyList<string>> itemStudiosLookup,
         HashSet<string> preferredStudios,
         Dictionary<Guid, IReadOnlyList<string>> itemTagsLookup,
@@ -225,17 +225,17 @@ internal static class TrainingFeatureComputer
         var collabScore = ContentScoring.ComputeCollaborativeScore(seriesId, coOccurrence, collaborativeMax);
         var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(mostRecent?.CommunityRating, null);
 
-        // Series progression boost (same formula as Engine.ScoreCandidate)
-        var seriesProgressionBoost = 0.0;
-        if (episodes.Count > 0)
-        {
-            var ratio = (double)playedEps / episodes.Count;
-            seriesProgressionBoost = ratio < 0.9 ? Math.Clamp(ratio * 1.2, 0.0, 1.0) : 0.2;
-        }
+        // Series progression boost: hardcoded 0.0 to mirror the live inference path
+        // (Engine.ScoreCandidate writes a constant 0.0 for this channel). Aggregated series
+        // examples describe series the user has already interacted with meaningfully, so the
+        // watchedSeriesIds filter permanently excludes them from live candidate scoring —
+        // emitting a graded value here would train a signal the network can never observe.
+        const double seriesProgressionBoost = 0.0;
 
-        // PeopleSimilarity: try seriesId first (most likely hit for series-level metadata)
+        // PeopleSimilarity: try seriesId first (most likely hit for series-level metadata).
+        // Roadmap v3 (C2): weighted overload for train/serve parity with Engine.ScoreCandidate.
         var peopleSimilarity = cachedPeopleLookup.TryGetValue(seriesId, out var seriesPeople)
-            ? SimilarityComputer.ComputePeopleSimilarity(seriesPeople, preferredPeople)
+            ? SimilarityComputer.ComputePeopleSimilarity(seriesPeople, preferredPeopleWeights)
             : 0.0;
 
         // StudioMatch and TagSimilarity: look up by seriesId
@@ -283,8 +283,13 @@ internal static class TrainingFeatureComputer
             YearProximityScore = ContentScoring.ComputeYearProximity(representativeYear, avgYear),
             GenreCount = genreList.Count,
             IsSeries = true,
-            UserRatingScore = userRatingScore,
-            HasUserInteraction = true,
+            // Train/serve parity: aggregated series examples are excluded from live scoring by the
+            // watchedSeriesIds filter in Engine.GenerateForUser (a series with meaningful episode
+            // interaction never re-enters the candidate pool). Feeding real per-episode averages
+            // for UserRatingScore / HasUserInteraction therefore trains signals the model can
+            // never see at inference. The engagement label below still carries the positive signal.
+            UserRatingScore = 0.5,
+            HasUserInteraction = false,
             CompletionRatio = completionRatio,
             PeopleSimilarity = peopleSimilarity,
             StudioMatch = studioMatch,
@@ -292,7 +297,9 @@ internal static class TrainingFeatureComputer
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
             DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: true),
             HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: false),
-            IsWeekend = mostRecent?.LastPlayedDate?.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
+            // Shared IsWeekend resolver: user-anchored, falls back to the most recently played
+            // episode's LastPlayedDate when the profile carries no anchor yet.
+            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, mostRecent?.LastPlayedDate),
             TagSimilarity = tagSimilarity,
             LibraryAddedRecency = episodes
                 .Select(e => e.DateCreated)

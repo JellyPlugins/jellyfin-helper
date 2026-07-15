@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using MediaBrowser.Common.Configuration;
@@ -36,6 +37,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Instance = this;
         _applicationPaths = applicationPaths;
         _logger = logger;
+        ReportClampedConfigValues();
         InjectScript();
     }
 
@@ -83,6 +85,49 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 EmbeddedResourcePath = GetType().Namespace + ".PluginPages.configPage.html"
             },
         ];
+    }
+
+    /// <summary>
+    ///     Surfaces any config values that were clamped during XML deserialization as a single
+    ///     warning line per affected property. Fixes the previous silent-clamp behaviour where a
+    ///     hand-edited value outside the accepted range would be quietly narrowed with no
+    ///     feedback to the operator.
+    /// </summary>
+    private void ReportClampedConfigValues()
+    {
+        // BasePlugin<T>.Configuration is lazily materialised — in the real host it is populated
+        // before this ctor runs, but tests spin up a bare Plugin instance without a serializer
+        // wiring, so Configuration may still be null here. Skip silently in that case.
+        PluginConfiguration? config = null;
+        try
+        {
+            config = Configuration;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or NullReferenceException or IOException)
+        {
+            _logger.LogDebug(ex, "[Configuration] Configuration unavailable at startup; skipping clamp report");
+            return;
+        }
+
+        if (config is null)
+        {
+            return;
+        }
+
+        var reports = config.DrainClampReports();
+        if (reports.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var entry in reports)
+        {
+            _logger.LogWarning(
+                "[Configuration] Value for {Property} was outside its accepted range and was clamped: {Raw} -> {Clamped}",
+                entry.PropertyName,
+                entry.RawValue,
+                entry.ClampedValue);
+        }
     }
 
     /// <summary>
@@ -329,31 +374,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             if (!string.Equals(content, originalContent, StringComparison.Ordinal))
             {
-                var tempPath = indexPath + ".jfh.tmp";
-                try
+                // Use AtomicFile so a transient sharing violation on the final File.Move
+                // (typical when Jellyfin's web server or an AV scanner briefly holds the
+                // file handle) gets a bounded retry with backoff. AtomicFile also handles
+                // temp-file cleanup internally, so no finally block is required here.
+                AtomicFile.WriteAllText(indexPath, content);
+                if (_logger.IsEnabled(LogLevel.Debug))
                 {
-                    File.WriteAllText(tempPath, content);
-                    File.Move(tempPath, indexPath, overwrite: true);
-                    if (_logger.IsEnabled(LogLevel.Debug))
-                    {
-                        _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
-                    }
-                }
-                finally
-                {
-                    // Clean up the temp file if File.Move() failed (e.g., permission flap, lock).
-                    // Without this, stale .jfh.tmp files accumulate in WebPath across restarts.
-                    if (File.Exists(tempPath))
-                    {
-                        try
-                        {
-                            File.Delete(tempPath);
-                        }
-                        catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
-                        {
-                            // Best-effort cleanup — file may still be locked.
-                        }
-                    }
+                    _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
                 }
             }
             else if (_logger.IsEnabled(LogLevel.Debug))

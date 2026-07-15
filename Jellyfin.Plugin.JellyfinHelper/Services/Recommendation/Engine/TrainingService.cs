@@ -126,15 +126,18 @@ internal sealed class TrainingService
         }
 
         // Delegate example building to the TrainingDataBuilder (includes Phase 4 discovery feedback)
-        var (examples, organicCount, randomNegativeCount) =
+        var (examples, organicCount, randomNegativeCount, discoveryCount) =
             TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, cancellationToken);
 
         var positiveCount = examples.Count(e => e.Label > 0.5);
+        // Separate discovery from organic in the log so operators can see whether positive
+        // signal comes from actual watched consumption or external Seerr requests. Previously
+        // both were folded into "organic" which hid unhealthy training-data mixes.
         _pluginLog.LogInfo(
             "Recommendations",
             $"Built {examples.Count} training examples ({positiveCount} positive, " +
             $"{examples.Count - positiveCount} negative) from {previousResults.Count} users " +
-            $"({organicCount} organic, {randomNegativeCount} random negatives).",
+            $"({organicCount} organic, {randomNegativeCount} random negatives, {discoveryCount} discovery).",
             _logger);
 
         List<TrainingExample> trainingExamples = examples;
@@ -217,7 +220,11 @@ internal sealed class TrainingService
             heldOutSplit = [];
         }
 
-        var trained = (strategy is ITrainableStrategy trainable) && trainable.Train(trainSplit);
+        // Pass the held-out slice into the strategy so the metrics it publishes (used by the
+        // ensemble's quality gate + trend analyser) come from the same out-of-sample set the
+        // log line below reports. This keeps the two sources of truth in sync.
+        var trained = strategy is ITrainableStrategy trainable
+            && trainable.Train(trainSplit, heldOutSplit.Count >= 2 ? heldOutSplit : null);
 
         if (trained)
         {

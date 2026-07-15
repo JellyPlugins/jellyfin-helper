@@ -2586,6 +2586,30 @@ public sealed class ScoringStrategyTests : IDisposable
     }
 
     [Fact]
+    public void Ensemble_MetricsHistoryCount_TracksFailedTrainingRuns()
+    {
+        // Cold-start scenario: the very first training call has too few examples
+        // for LearnedScoringStrategy.Train to succeed. Previously the metrics history
+        // stayed empty in this case, which self-locked the exploration gate
+        // (StrategySelector requires MetricsHistoryCount >= 2). We now record a
+        // placeholder snapshot even on failed training so the gate can eventually flip.
+        var ensemble = new EnsembleScoringStrategy();
+
+        Assert.Equal(0, ensemble.MetricsHistoryCount);
+
+        // A single example is well below LearnedScoringStrategy's minimum, so Train returns false.
+        var result = ensemble.Train(GenerateTrainingExamples(1));
+
+        Assert.False(result, "Training should fail with only a single example");
+        Assert.Equal(1, ensemble.MetricsHistoryCount);
+
+        // A second failed training call still bumps the counter, so the exploration
+        // gate can now activate (MinMetricsHistoryForExploration = 2).
+        ensemble.Train(GenerateTrainingExamples(1));
+        Assert.Equal(2, ensemble.MetricsHistoryCount);
+    }
+
+    [Fact]
     public void Ensemble_MetricsHistory_CappedAt10()
     {
         var ensemble = new EnsembleScoringStrategy();

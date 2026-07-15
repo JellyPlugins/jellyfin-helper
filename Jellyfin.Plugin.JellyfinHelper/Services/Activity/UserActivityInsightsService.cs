@@ -273,6 +273,15 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     ///     "please fall back to per-item lookup for this user" marker — the caller checks
     ///     for this on every row. Cancellation propagation is handled by
     ///     <see cref="BatchFallbackHelper"/> to keep parity with the other batch call sites.
+    ///     <para>
+    ///         Cancellation semantics: <see cref="BatchFallbackHelper.TryRunBatch{T}"/> lets
+    ///         <see cref="OperationCanceledException"/> propagate out of the batch delegate.
+    ///         When that happens mid-loop the entire method unwinds — earlier-user entries in
+    ///         the local <c>result</c> dictionary are discarded together with the reference,
+    ///         and the caller (<c>BuildActivityReport</c>) never receives a half-built report.
+    ///         The invariant is: cancellation aborts the whole scan; a partial report is never
+    ///         observable to any caller.
+    ///     </para>
     /// </summary>
     /// <param name="users">The users to pre-load data for.</param>
     /// <param name="allItems">The library items to load user data against.</param>

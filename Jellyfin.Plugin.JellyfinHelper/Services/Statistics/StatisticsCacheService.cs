@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
@@ -55,16 +56,30 @@ public class StatisticsCacheService : IStatisticsCacheService
                 }
 
                 var json = JsonSerializer.Serialize(result, JsonOptions);
-                var tempFilePath = _latestResultFilePath + ".tmp";
-                File.WriteAllText(tempFilePath, json);
-                File.Move(tempFilePath, _latestResultFilePath, true);
+
+                // Use AtomicFile so a transient sharing violation on the final File.Move
+                // (typical when an AV scanner or the Search indexer briefly holds the file
+                // handle) gets a bounded retry with backoff. AtomicFile also handles
+                // temp-file cleanup internally.
+                AtomicFile.WriteAllText(_latestResultFilePath, json);
 
                 _pluginLog.LogDebug(
                     "StatisticsCache",
                     $"Saved latest statistics result to {_latestResultFilePath}",
                     _logger);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+            // Broader filter than plain IOException / UnauthorizedAccessException because
+            // AtomicFile.WriteAllText can also surface SecurityException, NotSupportedException,
+            // ArgumentException (malformed path characters from OS layer), and JsonException
+            // (serializer). Best-effort save must degrade gracefully for every one of those
+            // rather than crashing the scheduled task and taking the next scan down with it.
+            catch (Exception ex) when (ex is IOException
+                                        or UnauthorizedAccessException
+                                        or System.Security.SecurityException
+                                        or NotSupportedException
+                                        or ArgumentException
+                                        or JsonException)
             {
                 _pluginLog.LogWarning(
                     "StatisticsCache",

@@ -29,6 +29,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class ConfigurationController : ControllerBase
 {
+    // Single source of truth for accepted plugin log levels. Previously duplicated between
+    // UpdateLogLevel and ApplyRequestToConfig; hoisted to a shared constant so adding /
+    // removing a level touches one place instead of two that could silently drift.
+    private static readonly string[] ValidLogLevels = ["DEBUG", "INFO", "WARN", "ERROR"];
+
     private readonly IArrIntegrationService _arrService;
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IPluginConfigurationService _configService;
@@ -144,12 +149,11 @@ public class ConfigurationController : ControllerBase
 
         var config = _configService.GetConfiguration();
 
-        var validLevels = new[] { "DEBUG", "INFO", "WARN", "ERROR" };
         var level = string.IsNullOrWhiteSpace(request.PluginLogLevel)
             ? "INFO"
             : request.PluginLogLevel.Trim().ToUpperInvariant();
 
-        if (Array.IndexOf(validLevels, level) < 0)
+        if (Array.IndexOf(ValidLogLevels, level) < 0)
         {
             return BadRequest(
                 new { message = $"Invalid log level '{request.PluginLogLevel}'. Allowed: DEBUG, INFO, WARN, ERROR." });
@@ -191,6 +195,7 @@ public class ConfigurationController : ControllerBase
 
         // Apply request values to the existing config (preserves accumulated statistics and internal state)
         var config = _configService.GetConfiguration();
+        var persistedLogLevel = config.PluginLogLevel;
 
         ApplyRequestToConfig(request, config);
         _configService.SaveConfiguration();
@@ -199,6 +204,21 @@ public class ConfigurationController : ControllerBase
 
         // After saving, test all configured instance connections and log warnings
         var warnings = await TestAllConnectionsAsync(request, cancellationToken).ConfigureAwait(false);
+
+        // Surface the dropped PluginLogLevel so the client doesn't think the change stuck.
+        // The Settings POST intentionally does not mutate the log level (owned by the Logs tab);
+        // callers that need to change it must use PUT /Configuration/LogLevel.
+        if (!string.IsNullOrWhiteSpace(request.PluginLogLevel))
+        {
+            var requested = request.PluginLogLevel.Trim().ToUpperInvariant();
+            if (!string.Equals(requested, persistedLogLevel, StringComparison.OrdinalIgnoreCase))
+            {
+                var warning = $"PluginLogLevel change ('{persistedLogLevel}' → '{requested}') was ignored by POST /Configuration. " +
+                              $"Use PUT /Configuration/LogLevel to change the log level.";
+                warnings.Add(warning);
+                _pluginLog.LogWarning("API", warning, logger: _logger);
+            }
+        }
 
         // Warn when a relative trash path would escape the library root at runtime (falls back silently).
         if (request.UseTrash)
@@ -406,14 +426,24 @@ public class ConfigurationController : ControllerBase
             ? 0
             : Math.Clamp(request.SeerrCleanupAgeDays, 1, 3650);
 
-        // Validate and normalize log level (same rules as UpdateLogLevel endpoint)
-        var validLevels = new[] { "DEBUG", "INFO", "WARN", "ERROR" };
-        var normalizedLevel = string.IsNullOrWhiteSpace(request.PluginLogLevel)
-            ? "INFO"
-            : request.PluginLogLevel.Trim().ToUpperInvariant();
-        config.PluginLogLevel = Array.IndexOf(validLevels, normalizedLevel) >= 0
-            ? normalizedLevel
-            : "INFO";
+        // PluginLogLevel is owned by the Logs tab and mutated exclusively via PUT /Configuration/LogLevel.
+        // The Settings POST payload is intentionally IGNORED for this field to close a TOCTOU race
+        // where the Settings page had captured a stale value at page load, then overwrote a
+        // concurrently-changed level (from the Logs tab or another admin session) on save.
+        // Keeping the merge server-side eliminates the need for a client-side preflight GET and
+        // guarantees the invariant regardless of which caller sends the POST. Legacy configs that
+        // arrive with an invalid persisted level are normalised to "INFO" as a self-healing
+        // fallback so downstream log-filtering code never has to deal with garbage.
+        if (string.IsNullOrWhiteSpace(config.PluginLogLevel)
+            || Array.IndexOf(ValidLogLevels, config.PluginLogLevel.Trim().ToUpperInvariant()) < 0)
+        {
+            config.PluginLogLevel = "INFO";
+        }
+        else
+        {
+            // Persist the canonical UPPER form even if the on-disk value has drifted casing.
+            config.PluginLogLevel = config.PluginLogLevel.Trim().ToUpperInvariant();
+        }
 
         // Update Radarr instances (clear + re-add from request)
         config.RadarrInstances.Clear();

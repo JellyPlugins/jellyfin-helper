@@ -17,6 +17,23 @@ internal static class EngineConstants
     internal const int MinCollaborativeOverlap = 3;
 
     /// <summary>
+    ///     Watch-count threshold above which a neighbour is treated as fully trusted
+    ///     in collaborative filtering. A neighbour with at least this many watched items
+    ///     has enough statistical mass that a high Jaccard cannot be a trivial artefact.
+    ///     Also used as the cold-start gate: if no neighbour reaches this ceiling, the
+    ///     trust factor is released entirely (see <see cref="CollaborativeFilter"/>).
+    /// </summary>
+    internal const int CollaborativeTrustWatchCeiling = 20;
+
+    /// <summary>
+    ///     Scale for the saturating exponential trust curve
+    ///     <c>1 - exp(-otherCount / scale)</c>. A scale of 10 yields ~0.63 trust at 10 watches
+    ///     and ~0.86 at 20 watches, so partially active neighbours are damped gently instead
+    ///     of the sharp linear cliff of the previous formula.
+    /// </summary>
+    internal const double CollaborativeTrustScale = 10.0;
+
+    /// <summary>
     ///     Minimum weighted contribution before a specific reason (genre, collaborative) is shown.
     ///     Must be low enough to work across strategies whose weights differ
     ///     (e.g. collaborative weight 0.12–0.15 → max contribution 0.12–0.15).
@@ -170,6 +187,16 @@ internal static class EngineConstants
     internal const int ExplorationSlotCount = 2;
 
     /// <summary>
+    ///     Divisor for the proportional exploration-slot allocation. For lists smaller than
+    ///     the default <see cref="ExplorationSlotCount"/> ratio, exploration is capped at
+    ///     <c>Math.Max(1, count / ExplorationSlotDivisor)</c> so small
+    ///     <c>MaxRecommendationsPerUser</c> configurations (3-5 items) don't degenerate
+    ///     into 50-66% random picks. 10 keeps exploration at ~10% of the list — matching
+    ///     what count=20 configurations have always seen (2/20).
+    /// </summary>
+    internal const int ExplorationSlotDivisor = 10;
+
+    /// <summary>
     ///     Maximum number of random negative samples added per user during training.
     ///     These are items recommended to OTHER users that this user never interacted with,
     ///     providing the model with true "irrelevant" examples to sharpen the decision boundary.
@@ -210,6 +237,57 @@ internal static class EngineConstants
     /// </summary>
     internal const double DiscoveryFeedbackSampleWeight = 0.6;
 
+    // === CollectionProgressionBoost — shared inference/training formula ===
+
+    /// <summary>
+    ///     Base contribution for a single watched sibling in a BoxSet: 0.3.
+    ///     Used by the diminishing-returns progression formula
+    ///     <c>0.3 + (n-1) × 0.2, clamped [0,1]</c>.
+    /// </summary>
+    internal const double CollectionProgressionBaseBoost = 0.3;
+
+    /// <summary>
+    ///     Per-additional-sibling increment for the diminishing-returns progression formula.
+    ///     n=1 → 0.3, n=2 → 0.5, n=3 → 0.7, n=4 → 0.9, n≥5 clamped to 1.0.
+    /// </summary>
+    internal const double CollectionProgressionIncrement = 0.2;
+
+    /// <summary>
+    ///     Number of heavy-hitter preferred people used to compute the average weight that
+    ///     drives the weighted-people-similarity denominator. Averaging over the whole
+    ///     preferred set dilutes heavy signals with one-off cameos (a 100-person profile
+    ///     dominated by 5 collaborators produces an average close to 1, so candidates that
+    ///     match those 5 collaborators saturate the score at 1.0 and lose granularity).
+    ///     Taking the top-K by weight keeps the denominator anchored to the collaborators
+    ///     that actually drive the user's preference structure.
+    /// </summary>
+    internal const int WeightedPeopleSimilarityTopK = 20;
+
+    /// <summary>
+    ///     Weighted-people-similarity denominator floor.
+    ///     Guards two failure modes documented in the v3 C2 hardening pass:
+    ///     <list type="bullet">
+    ///         <item>
+    ///             <description>
+    ///                 <b>Sparse-user overshoot</b> — a brand-new user with a single 2-weight entry
+    ///                 could otherwise ride a single cast match to a full 1.0 score.
+    ///             </description>
+    ///         </item>
+    ///         <item>
+    ///             <description>
+    ///                 <b>Empty-preferred short-circuit stability</b> — if all positive weights
+    ///                 disappear after filtering, the floor prevents a divide-by-tiny-value blow-up.
+    ///             </description>
+    ///         </item>
+    ///     </list>
+    ///     A floor of <c>5.0</c> corresponds roughly to "the user must have engaged with at least
+    ///     a handful of items before People-similarity becomes decisive"; below that the score is
+    ///     intentionally damped so genre / collaborative signals dominate the overall ranking
+    ///     for cold-ish profiles. Centralised here (rather than in <c>SimilarityComputer</c>) so
+    ///     any future cohort A/B-test on the value has a single tuning surface.
+    /// </summary>
+    internal const double WeightedPeopleSimilarityMinDenominator = 5.0;
+
     /// <summary>
     ///     Exponential decay constant for recency scoring, derived from <see cref="RecencyHalfLifeDays" />.
     ///     Computed as ln(2) / halfLife so that exp(-λ × halfLife) = 0.5 exactly.
@@ -225,4 +303,41 @@ internal static class EngineConstants
     [
         PersonKind.Actor, PersonKind.Director
     ]);
+
+    /// <summary>
+    ///     Shared collection-progression boost formula used by BOTH the live inference path
+    ///     (<c>Engine.ComputeCollectionProgressionBoostLive</c>) and the training path
+    ///     (<c>TrainingDataBuilder.ComputeCollectionProgressionBoostWithCounts</c>) so a copy-drift
+    ///     between the two call sites is architecturally impossible.
+    ///     <para>
+    ///         Formula: <c>clamp( <see cref="CollectionProgressionBaseBoost"/>
+    ///         + (n - 1) × <see cref="CollectionProgressionIncrement"/>, 0, 1 )</c>
+    ///         where <paramref name="watchedSiblingCount"/> is the number of siblings the user has
+    ///         already watched in the same BoxSet. Non-positive counts return <c>0.0</c>.
+    ///     </para>
+    ///     <para>
+    ///         Roadmap v3 (C3.1 — "perfect" hardening pass): before this helper both call sites
+    ///         contained the identical <c>Math.Clamp(0.3 + ((n-1) * 0.2), 0, 1)</c> block. The
+    ///         16 formula-contract tests in <c>CollectionProgressionBoostTests</c> now guard the
+    ///         single canonical implementation, guaranteeing train / serve parity by construction
+    ///         rather than by convention.
+    ///     </para>
+    /// </summary>
+    /// <param name="watchedSiblingCount">
+    ///     Number of siblings from the same BoxSet the user has watched. Non-positive values
+    ///     (including zero) return <c>0.0</c>.
+    /// </param>
+    /// <returns>A progression boost in <c>[0.0, 1.0]</c>.</returns>
+    internal static double ComputeCollectionProgressionBoost(int watchedSiblingCount)
+    {
+        if (watchedSiblingCount <= 0)
+        {
+            return 0.0;
+        }
+
+        return Math.Clamp(
+            CollectionProgressionBaseBoost + ((watchedSiblingCount - 1) * CollectionProgressionIncrement),
+            0.0,
+            1.0);
+    }
 }

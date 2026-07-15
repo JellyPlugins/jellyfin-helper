@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -66,6 +68,15 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     ///     Small steps ensure gradual convergence without oscillation.
     /// </summary>
     internal const double MidpointAdaptationStep = 3.0;
+
+    /// <summary>
+    ///     Multiplicative decay factor applied to the midpoint offset when neither exploration
+    ///     cohort beats control. Slowly pulls the offset back toward the default midpoint so a
+    ///     long streak of "control is optimal" doesn't leave the system permanently anchored at
+    ///     a shifted midpoint that reflects stale user behaviour. 0.98 loses about 2% per run,
+    ///     which decays a fully saturated ±20 offset back to ±10 over roughly 35 training runs.
+    /// </summary>
+    internal const double MidpointDecayFactor = 0.98;
 
     /// <summary>
     ///     Genre similarity threshold below which the soft penalty ramps down.
@@ -143,8 +154,27 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     internal const double TrendImprovementBoost = 1.15;
 
-    /// <summary>Cached JSON serializer options for ensemble state persistence.</summary>
-    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
+    /// <summary>
+    ///     Cached JSON serializer options for ensemble state persistence.
+    ///     Compact (non-indented) output — the ensemble state file is small (~400 bytes with
+    ///     defaults) and machine-read only, so indentation adds no operational value.
+    ///     <para>
+    ///         <see cref="JsonNumberHandling.AllowNamedFloatingPointLiterals"/> is required
+    ///         because the cold-start placeholder in <see cref="Train(IReadOnlyList{TrainingExample})"/> persists
+    ///         <c>ValidationLoss = double.NaN</c>. With the default handling
+    ///         <see cref="JsonSerializer.Serialize{TValue}(TValue, JsonSerializerOptions)"/>
+    ///         would throw <see cref="ArgumentException"/> on <c>NaN</c>/<c>±Infinity</c>,
+    ///         and (because the surrounding <c>try/catch</c> only handles I/O / JSON exceptions)
+    ///         the first failed training run would surface as an unhandled crash instead of
+    ///         silently persisting the placeholder. Applied to both save and load so that
+    ///         the NaN round-trips faithfully.
+    ///     </para>
+    /// </summary>
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        WriteIndented = false,
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
+    };
 
     private readonly HeuristicScoringStrategy _heuristic;
     private readonly LearnedScoringStrategy _learned;
@@ -194,8 +224,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         // Guard: the heuristic must have its genre penalty disabled (floor = 1.0) because
         // the ensemble applies the penalty centrally via ComputeSoftGenrePenalty after blending.
-        // A default-configured heuristic (floor 0.10) would cause double-penalization.
-        if (Math.Abs(heuristic.GenrePenaltyFloor - 1.0) > 0.001)
+        // A default-configured heuristic (floor 0.10) would cause double-penalization. We
+        // compare with strict equality — the previous 0.001 epsilon window let hand-tuned
+        // values like 0.999 slip through, silently reintroducing a tiny secondary penalty on
+        // top of the ensemble's own; both sides of this check are compile-time constants or
+        // caller-supplied, so representation drift is not a concern.
+        if (heuristic.GenrePenaltyFloor != 1.0)
         {
             throw new ArgumentException(
                 $"Heuristic sub-strategy must have genrePenaltyFloor=1.0 (penalty disabled) to avoid " +
@@ -577,12 +611,16 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <returns>True if training was performed, false if insufficient data.</returns>
-    public bool Train(IReadOnlyList<TrainingExample> examples)
+    public bool Train(IReadOnlyList<TrainingExample> examples) => Train(examples, heldOutForMetrics: null);
+
+    /// <inheritdoc />
+    public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
     {
-        var result = _learned.Train(examples);
+        var result = ((ITrainableStrategy)_learned).Train(examples, heldOutForMetrics);
 
         // Also train neural strategy if available (independent of learned success)
-        var neuralTrained = _neural is not null && _neural.Train(examples);
+        var neuralTrained = _neural is not null
+            && ((ITrainableStrategy)_neural).Train(examples, heldOutForMetrics);
 
         if (result)
         {
@@ -745,22 +783,48 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
         else
         {
-            // Learned training failed (insufficient data). Decay neuralBeta to prevent
-            // a stale high value from persisting when the neural strategy may have
-            // outdated weights. This ensures cold-start scenarios don't over-weight
-            // a potentially unreliable neural model.
+            // Learned training failed (insufficient data). We still record a placeholder
+            // metrics snapshot so the exploration gate (StrategySelector.IsExplorationActive,
+            // requires MetricsHistoryCount >= 2) can eventually flip to true even when the
+            // very first training runs have too few examples to succeed. Without this the
+            // cold-start path was self-locking: no successful Train → no snapshot → no
+            // exploration → no cohort feedback → no midpoint adaptation.
+            //
+            // ValidationLoss is NaN to mark the row as a cold-start placeholder. AnalyzeTrend
+            // needs TrendMinSnapshots (5) real rows before it does anything, and NaN comparisons
+            // silently fall through to MetricsTrend.Stable, so the placeholder cannot poison
+            // trend detection either.
             var stateChanged = false;
             lock (_syncRoot)
             {
+                _metricsHistory.Add(
+                    new MetricsSnapshot
+                    {
+                        Timestamp = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                        ValidationLoss = double.NaN,
+                        PrecisionAtK = 0.0,
+                        RecallAtK = 0.0,
+                        NdcgAtK = 0.0,
+                        ExampleCount = examples.Count
+                    });
+                const int maxHistory = 10;
+                if (_metricsHistory.Count > maxHistory)
+                {
+                    _metricsHistory.RemoveRange(0, _metricsHistory.Count - maxHistory);
+                }
+
+                stateChanged = true;
+
                 if (_neuralBeta > 0)
                 {
+                    // Decay neuralBeta to prevent a stale high value from persisting when
+                    // the neural strategy may have outdated weights. This ensures cold-start
+                    // scenarios don't over-weight a potentially unreliable neural model.
                     _neuralBeta *= 0.5;
                     if (_neuralBeta < NeuralBetaMinFloor)
                     {
                         _neuralBeta = 0.0;
                     }
-
-                    stateChanged = true;
                 }
             }
 
@@ -904,12 +968,36 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             }
         }
 
-        // Control is optimal - no adaptation needed
+        // Control is optimal - no cohort-driven adaptation, but apply a mild decay so a
+        // saturated offset from earlier runs drifts back toward the default midpoint over
+        // time. This acts as a slow anti-drift regulariser: if user behaviour has stabilised
+        // around the default, we shouldn't stay pinned at ±20 forever waiting for the
+        // opposite cohort to eventually win. If the offset is already at (near) zero the
+        // decay is a no-op.
+        var decayed = false;
+        double decayedOffset;
+        lock (_syncRoot)
+        {
+            if (Math.Abs(_sigmoidMidpointOffset) > 1e-6)
+            {
+                _sigmoidMidpointOffset *= MidpointDecayFactor;
+                decayed = true;
+            }
+
+            decayedOffset = _sigmoidMidpointOffset;
+        }
+
+        if (decayed)
+        {
+            TrySaveState();
+        }
+
         if (_logger is not null && _logger.IsEnabled(LogLevel.Debug))
         {
             _logger.LogDebug(
-                "Cohort feedback: control ({ControlRate:P1}) is optimal, no midpoint adaptation",
-                controlRate);
+                "Cohort feedback: control ({ControlRate:P1}) is optimal, midpoint offset decayed to {Offset:F2}",
+                controlRate,
+                decayedOffset);
         }
     }
 
@@ -1006,7 +1094,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         try
         {
             var json = File.ReadAllText(_statePath);
-            var data = JsonSerializer.Deserialize<EnsembleStateData>(json);
+            // Use the same SerializerOptions as TrySaveState so a MetricsSnapshot row that
+            // was persisted with ValidationLoss = NaN (cold-start placeholder) round-trips
+            // cleanly. Without AllowNamedFloatingPointLiterals on the deserialiser, the
+            // "NaN" literal in the file would throw JsonException and lose the entire
+            // history — the exploration gate would then never open.
+            var data = JsonSerializer.Deserialize<EnsembleStateData>(json, SerializerOptions);
             if (data is null || data.TrainingExampleCount <= 0)
             {
                 return;
@@ -1030,6 +1123,20 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 if (_neural is not null && data.NeuralBeta is >= 0 and <= NeuralMaxBetaFraction)
                 {
                     _neuralBeta = data.NeuralBeta;
+                }
+                else if (_neural is not null && data.NeuralBeta > NeuralMaxBetaFraction &&
+                         _logger is not null && _logger.IsEnabled(LogLevel.Information))
+                {
+                    // A persisted NeuralBeta above the current ceiling usually means the ceiling
+                    // was lowered in an update. Keep _neuralBeta at its default (0) so the ramp
+                    // in Train() drives it back up from scratch, and log once so operators can
+                    // see this happened rather than silently discarding state. The IsEnabled
+                    // guard mirrors the rest of this class and keeps CA1873 happy for the
+                    // structured-log arguments.
+                    _logger.LogInformation(
+                        "EnsembleScoringStrategy: discarded persisted NeuralBeta={PersistedBeta:F3} (exceeds NeuralMaxBetaFraction={Ceiling:F3}). Ramp will restart from 0.",
+                        data.NeuralBeta,
+                        NeuralMaxBetaFraction);
                 }
 
                 // Restore adaptive sigmoid midpoint offset (clamped to valid range).
@@ -1064,8 +1171,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <summary>
     ///     Tries to persist current ensemble state to disk.
     ///     Snapshot and serialization are performed under lock to ensure consistency
-    ///     with concurrent <see cref="Train"/> calls (analogous to
-    ///     <see cref="LearnedScoringStrategy.TrySaveWeights"/>).
+    ///     with concurrent <see cref="Train(IReadOnlyList{TrainingExample})"/> calls (analogous to
+    ///     <c>LearnedScoringStrategy.TrySaveWeights</c>).
     /// </summary>
     private void TrySaveState()
     {
@@ -1100,9 +1207,9 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 json = JsonSerializer.Serialize(data, SerializerOptions);
             }
 
-            var tempPath = _statePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            File.WriteAllText(tempPath, json);
-            File.Move(tempPath, _statePath, overwrite: true);
+            // Use AtomicFile so a transient Windows AV/indexer sharing violation on the
+            // final File.Move gets a bounded retry instead of silently dropping the save.
+            AtomicFile.WriteAllText(_statePath, json);
         }
         catch (IOException ex)
         {

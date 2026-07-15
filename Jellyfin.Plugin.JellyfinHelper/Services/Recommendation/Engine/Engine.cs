@@ -33,10 +33,45 @@ public sealed class Engine : IRecommendationEngine
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IDiscoveryFeedbackStore _discoveryFeedbackStore;
 
-    // Short-lived cache - populated during GetAllRecommendations and reused by on-demand
-    // GetRecommendations calls until next batch run invalidates it.
+    // Short-lived candidate-metadata cache — NOT a recommendation-result cache. Holds the
+    // library-derived working set (candidate BaseItems, people lookup, BoxSet membership,
+    // series episode counts) that is expensive to rebuild via the LibraryManager. Populated
+    // by GetAllRecommendations (scheduled batch, both Activate and DryRun modes) and reused
+    // by on-demand GetRecommendations calls until either the next batch run overwrites it or
+    // the TTL expires (whichever comes first).
+    //
+    // DryRun mode interaction: the DryRun scheduler still calls GetAllRecommendations to build
+    // this snapshot even though it never persists results to disk (see
+    // Api/RecommendationController.GetAllRecommendations + ScheduledTasks/RecommendationsTask).
+    // The API path calls GetAllRecommendations again when the browser cache is empty; the
+    // snapshot lets that regeneration skip LoadCandidateItems + BuildCandidatePeopleLookup +
+    // BuildCandidateBoxSetLookupFresh. The TTL makes sure a stale snapshot never survives a
+    // library metadata refresh long enough to serve users obsolete BaseItem references.
+    //
+    // The TTL is orthogonal to the DryRun preview semantics: at inference time we always score
+    // against whatever the snapshot currently holds, and expiring it forces a fresh library
+    // scan on the next call — which is exactly the behaviour DryRun users want when they add
+    // a new film and check "what would happen if I activated recommendations".
+    // Single-flight gate for on-demand snapshot rebuilds. When the cache is empty or expired
+    // several concurrent live requests would otherwise each trigger their own LoadCandidateItems /
+    // BuildCandidatePeopleLookup / BuildCandidateBoxSetLookupFresh pass, hammering the library
+    // manager in lock-step. The gate serialises the FIRST rebuild; every waiter that arrives while
+    // the winner is materialising reads the freshly published snapshot instead of doing its own
+    // scan. The scheduled batch path (GetAllRecommendations) intentionally bypasses this gate — it
+    // is the authoritative source of the snapshot and must not defer to a stale live-path build.
+    // Declared before _cachedSnapshot so StyleCop's readonly-fields-first ordering (SA1214) is
+    // satisfied — the two fields are semantically paired.
+    private readonly object _snapshotRefreshLock = new();
+
     // Stored as a single immutable snapshot to prevent concurrent readers from mixing data across batches.
     private volatile CandidateSnapshot? _cachedSnapshot;
+
+    private static readonly TimeSpan CandidateSnapshotMaxAge = TimeSpan.FromMinutes(30);
+
+    // Monotonic counter incremented once per GetAllRecommendations invocation. Snapshotted before the
+    // parallel scoring loop so every user in the same batch shares the same batchGeneration value,
+    // making the exploration seed deterministic per (user, batch) pair.
+    private int _batchGeneration;
 
     /// <summary>Initializes a new instance of the <see cref="Engine" /> class.</summary>
     /// <param name="watchHistoryService">The watch history service.</param>
@@ -82,39 +117,83 @@ public sealed class Engine : IRecommendationEngine
             return null;
         }
 
+        // Live requests get an exploration seed keyed to (userId, current UTC day). This keeps
+        // successive same-day requests deterministic without freezing exploration across days.
+        // Uses a stable, process-independent hash: System.HashCode is randomised per-process,
+        // so a Jellyfin restart within the same UTC day would otherwise reshuffle a user's
+        // exploration slot even though (userId, dayNumber) is unchanged.
+        var liveSeed = ComputeStableSeed(userId, DateOnly.FromDateTime(DateTime.UtcNow).DayNumber);
+
+        // Read the snapshot once and expire it when it exceeds CandidateSnapshotMaxAge. Snapshot
+        // fields reference JF domain objects whose Genres/Studios/CommunityRating may mutate via
+        // metadata refresh between batches, and new library additions would otherwise stay
+        // invisible until the next scheduled run.
+        //
+        // Single-flight refresh: when the cache is empty or expired, GetOrRefreshLiveSnapshot()
+        // serialises the FIRST rebuild through _snapshotRefreshLock and republishes the result
+        // to _cachedSnapshot so every concurrent live request that arrives during the rebuild
+        // reads the freshly published data instead of racing to re-scan the library. Without
+        // this gate a batch of near-simultaneous "GetRecommendations" calls right after TTL
+        // expiry would each run LoadCandidateItems + BuildCandidatePeopleLookup +
+        // BuildCandidateBoxSetLookupFresh in parallel — a "stampede" that lands N heavy library
+        // scans on the LibraryManager in lock-step.
+        var snapshot = GetOrRefreshLiveSnapshot();
+
         if (userProfile.WatchedItems.Count == 0)
         {
-            // Cold-start: user exists but has no watch history - return popular/trending items
-            // Reuse cached candidates from the last batch run if available to avoid redundant library queries
+            // Cold-start: user exists but has no watch history - return popular/trending items.
+            // Reuse cached candidates from the last batch run if available to avoid redundant library queries.
+            // Prefer the community-popularity map already computed by the last batch run (or the
+            // previous live path if it walked this branch first) — that keeps live cold-start hits
+            // out of GetAllUserWatchProfiles + PrecomputeUserWatchSets, which used to run per HTTP
+            // request. Only when the snapshot has no popularity attached (very first hit after
+            // startup, single-user deployment) do we build it on-demand so the user still gets the
+            // community-blended ranking. Fewer than two users with watch history → helper returns
+            // null and GenerateColdStartRecommendations falls back to the classic rating + recency
+            // formula unchanged.
+            var communityPopularity = snapshot.CommunityPopularity ?? BuildCommunityPopularityForColdStart();
             return GenerateColdStartRecommendations(
                 userId,
                 maxResults,
                 userProfile.UserName,
-                _cachedSnapshot?.Candidates,
+                snapshot.Candidates,
                 userProfile.MaxParentalRating,
                 userProfile,
-                cancellationToken);
+                communityPopularity: communityPopularity,
+                explorationSeed: liveSeed,
+                cancellationToken: cancellationToken);
         }
 
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
 
-        // Reuse cached candidates/people/boxSets from last batch run if available, otherwise load fresh
-        var snapshot = _cachedSnapshot;
-        var candidates = snapshot?.Candidates ?? LoadCandidateItems();
-        var peopleLookup = snapshot?.PeopleLookup ?? _similarityComputer.BuildCandidatePeopleLookup(candidates);
-        var boxSetLookup = snapshot?.CandidateBoxSetLookup ?? BuildCandidateBoxSetLookupFresh(candidates);
+        // Live path now always sees a valid, published snapshot (built either by the batch or by
+        // the single-flight refresh above). We can therefore skip the fall-back "load fresh"
+        // branches entirely.
+        var candidates = snapshot.Candidates;
+        var seriesEpisodeCounts = snapshot.SeriesEpisodeCounts;
+        var peopleLookup = snapshot.PeopleLookup;
+        var boxSetLookup = snapshot.CandidateBoxSetLookup;
         var alphaOffset = _strategySelector.GetAlphaOffset(userProfile.UserId);
+        // Live single-user path: no batch-scoped CollaborativeContext exists here (only the batch
+        // path builds one). We therefore pass null and let GenerateForUser derive the aggregates
+        // locally from precomputedUserSets (which is also null in the live path). The named
+        // `ct:` argument is used because CollaborativeContext? sits before the CancellationToken
+        // in the parameter list — CA1068 forces the CancellationToken to be the last positional
+        // parameter, but we want to skip the optional context, so named-arg it is.
         return GenerateForUser(
             userProfile,
             allProfiles,
             candidates,
             peopleLookup,
             boxSetLookup,
+            seriesEpisodeCounts,
             maxResults,
             _strategy,
             null,
             alphaOffset,
-            cancellationToken);
+            liveSeed,
+            collaborativeContext: null,
+            ct: cancellationToken);
     }
 
     /// <inheritdoc />
@@ -182,8 +261,13 @@ public sealed class Engine : IRecommendationEngine
     {
         cancellationToken.ThrowIfCancellationRequested();
         maxResultsPerUser = Math.Clamp(maxResultsPerUser, 1, EngineConstants.MaxRecommendationsPerUserLimit);
+
+        // Bump the batch counter once per invocation and snapshot the value so every user in this
+        // batch shares the same exploration seed context.
+        var batchGeneration = Interlocked.Increment(ref _batchGeneration);
+
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
-        var candidates = LoadCandidateItems();
+        var (candidates, seriesEpisodeCounts) = LoadCandidateItems();
         var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
 
         // Pre-compute BoxSet membership for all candidates once (shared across all users).
@@ -198,12 +282,91 @@ public sealed class Engine : IRecommendationEngine
             }
         }
 
-        // Cache for on-demand single-user calls that may follow
-        _cachedSnapshot = new CandidateSnapshot(candidates, peopleLookup, candidateBoxSetLookup);
+        // Cache for on-demand single-user calls that may follow.
+        // CreatedAtUtc drives the CandidateSnapshotMaxAge check in GetRecommendations so that a
+        // long gap between scheduled batches never lets the live path serve arbitrarily stale
+        // BaseItem references (which JF's metadata refresh may mutate in-place).
+        // The snapshot is republished a few lines below with the community-popularity map filled in,
+        // so live cold-start requests can reuse it instead of re-scanning every user's watch history.
+        //
+        // Publish under _snapshotRefreshLock so a concurrent live rebuild (which also writes under
+        // this lock) cannot race with our publish and overwrite the newer batch snapshot with a
+        // stale live-derived one. The lock is held only for the reference swap, not for the heavy
+        // library scan above it — live requests never wait on this.
+        lock (_snapshotRefreshLock)
+        {
+            _cachedSnapshot = new CandidateSnapshot(
+                candidates,
+                peopleLookup,
+                candidateBoxSetLookup,
+                seriesEpisodeCounts,
+                null,
+                DateTime.UtcNow);
+        }
 
         // Pre-compute all user watched-item sets ONCE for collaborative filtering.
         // Reduces O(U²×M) to O(U×M) by sharing sets across BuildCollaborativeMap calls.
         var precomputedUserSets = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
+
+        // Wrap the user sets in a CollaborativeContext so the itemPopularity map (O(U×M) scan)
+        // and the trust-gate decision (O(U) scan) are also shared across every per-user call
+        // to BuildCollaborativeMap. Without this bundle each user's invocation would re-derive
+        // both aggregates from the exact same input, effectively re-imposing an O(U²×M) cost
+        // that a previous review round had already flagged and reported fixed. Building the
+        // context once here keeps batch cost at O(U×M) + O(U×batch-loop-work).
+        var collaborativeContext = CollaborativeFilter.PrecomputeCollaborativeContext(precomputedUserSets);
+
+        // Cold-start prior: build a community popularity map (itemId → watch count)
+        // from the precomputed user sets. Passed to cold-start scoring so that new users
+        // benefit from the collective "wisdom of the crowd" rather than only static
+        // metadata (rating + release date). Items that many active users have watched
+        // are more likely to be broadly appealing to newcomers.
+        // Only built once per batch run — reused across all cold-start users.
+        //
+        // Guard on non-empty sets: PrecomputeUserWatchSets keeps empty profiles, so a
+        // simple .Count > 1 check would enable the community prior even when only a
+        // single user has any watch data (that user's own set would be "the community").
+        // We require at least two users with actual watch data before the prior kicks in.
+        Dictionary<Guid, int>? communityPopularity = null;
+        var usersWithHistory = 0;
+        foreach (var userSet in precomputedUserSets.Values)
+        {
+            if (userSet.Count > 0 && ++usersWithHistory >= 2)
+            {
+                break;
+            }
+        }
+
+        if (usersWithHistory >= 2)
+        {
+            communityPopularity = new Dictionary<Guid, int>();
+            foreach (var userSet in precomputedUserSets.Values)
+            {
+                foreach (var itemId in userSet)
+                {
+                    communityPopularity.TryGetValue(itemId, out var count);
+                    communityPopularity[itemId] = count + 1;
+                }
+            }
+        }
+
+        // Republish the snapshot with the community-popularity map filled in. Live cold-start
+        // requests that arrive between batch runs can now read this map directly instead of
+        // re-computing it (which required GetAllUserWatchProfiles + PrecomputeUserWatchSets on
+        // every hit — an O(U×M) scan for every single new-user request).
+        //
+        // Also held under _snapshotRefreshLock so a live rebuild racing with this second publish
+        // cannot overwrite the community-popularity map with a stale live-derived snapshot.
+        lock (_snapshotRefreshLock)
+        {
+            _cachedSnapshot = new CandidateSnapshot(
+                candidates,
+                peopleLookup,
+                candidateBoxSetLookup,
+                seriesEpisodeCounts,
+                communityPopularity,
+                DateTime.UtcNow);
+        }
 
         _pluginLog.LogInfo(
             "Recommendations",
@@ -226,6 +389,12 @@ public sealed class Engine : IRecommendationEngine
             {
                 try
                 {
+                    // Combine the per-user id with the shared batch generation counter so every
+                    // batch produces a fresh but user-stable exploration seed. Uses the same
+                    // ComputeStableSeed helper as the live path so the seed is process-independent —
+                    // a Jellyfin restart between two batches of the same generation counter would
+                    // otherwise reshuffle exploration outcomes.
+                    var batchSeed = ComputeStableSeed(profile.UserId, batchGeneration);
                     var result = profile.WatchedItems.Count == 0
                         ? GenerateColdStartRecommendations(
                             profile.UserId,
@@ -234,17 +403,22 @@ public sealed class Engine : IRecommendationEngine
                             candidates,
                             profile.MaxParentalRating,
                             profile,
-                            cancellationToken)
+                            communityPopularity,
+                            explorationSeed: batchSeed,
+                            cancellationToken: cancellationToken)
                         : GenerateForUser(
                             profile,
                             allProfiles,
                             candidates,
                             peopleLookup,
                             candidateBoxSetLookup,
+                            seriesEpisodeCounts,
                             maxResultsPerUser,
                             _strategy,
                             precomputedUserSets,
                             _strategySelector.GetAlphaOffset(profile.UserId),
+                            batchSeed,
+                            collaborativeContext,
                             cancellationToken);
                     concurrentResults.Add(result);
                 }
@@ -292,6 +466,17 @@ public sealed class Engine : IRecommendationEngine
     ///     for consistency with <see cref="GenerateForUser" />. Cold-start users have empty
     ///     WatchedItems but their profile still carries UserId, UserName, MaxParentalRating etc.
     /// </param>
+    /// <param name="communityPopularity">
+    ///     Optional community popularity map (itemId → number of active users who have watched it),
+    ///     built from all users' watch profiles in the batch path. When provided, the cold-start
+    ///     formula becomes 40% rating + 30% recency + 30% community-popularity, letting new users
+    ///     benefit from collective viewing signals. When null (on-demand single-user path or when
+    ///     there is only one user in the system), the classic 60% rating + 40% recency formula
+    ///     is used unchanged to preserve backward compatibility for isolated deployments.
+    /// </param>
+    /// <param name="explorationSeed">
+    ///     Optional deterministic seed forwarded to <see cref="DiversityReranker.ApplyDiversityReranking"/>.
+    /// </param>
     /// <param name="cancellationToken">Token for cooperative cancellation during large candidate scans.</param>
     /// <returns>A recommendation result with popular/trending items.</returns>
     private RecommendationResult GenerateColdStartRecommendations(
@@ -301,9 +486,31 @@ public sealed class Engine : IRecommendationEngine
         List<BaseItem>? preloadedCandidates = null,
         int? maxParentalRating = null,
         UserWatchProfile? userProfile = null,
+        IReadOnlyDictionary<Guid, int>? communityPopularity = null,
+        int? explorationSeed = null,
         CancellationToken cancellationToken = default)
     {
-        var candidates = preloadedCandidates ?? LoadCandidateItems();
+        // Cold start does not need the SeriesEpisodeCounts map (progression signals require
+        // watch history, which cold-start users lack by definition). Discard it explicitly.
+        var candidates = preloadedCandidates ?? LoadCandidateItems().Candidates;
+
+        // Pre-compute the max community-popularity for normalization to [0, 1].
+        // Using log1p compression so a single item watched by 100 users doesn't overshadow
+        // items watched by 5-10 users — we want a smooth gradient, not a winner-take-all signal.
+        // Falls back gracefully when community data is unavailable (single-user deployments).
+        var useCommunityPrior = communityPopularity is { Count: > 0 };
+        var maxLogPopularity = 0.0;
+        if (useCommunityPrior)
+        {
+            foreach (var count in communityPopularity!.Values)
+            {
+                var logValue = Math.Log(1.0 + count);
+                if (logValue > maxLogPopularity)
+                {
+                    maxLogPopularity = logValue;
+                }
+            }
+        }
 
         var scored = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>();
         var candidateIndex = 0;
@@ -325,12 +532,31 @@ public sealed class Engine : IRecommendationEngine
                 candidate.CommunityRating,
                 candidate.CriticRating);
             var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? candidate.DateCreated);
-            // Cold-start formula: 60% rating, 40% recency - prioritize quality + freshness
-            var score = (0.6 * combinedCriticScore) + (0.4 * recencyScore);
+
+            double score;
+            if (useCommunityPrior && maxLogPopularity > 0.0)
+            {
+                // Enhanced cold-start formula with community popularity prior.
+                // Weights: 40% rating (quality), 30% recency (freshness), 30% community-popularity (social proof).
+                // Community-popularity uses log1p compression to smooth long-tail distribution.
+                var communityScore = 0.0;
+                if (communityPopularity!.TryGetValue(candidate.Id, out var watchCount) && watchCount > 0)
+                {
+                    communityScore = Math.Clamp(Math.Log(1.0 + watchCount) / maxLogPopularity, 0.0, 1.0);
+                }
+
+                score = (0.4 * combinedCriticScore) + (0.3 * recencyScore) + (0.3 * communityScore);
+            }
+            else
+            {
+                // Classic formula (single-user deployments or on-demand path).
+                score = (0.6 * combinedCriticScore) + (0.4 * recencyScore);
+            }
+
             scored.Add((candidate, score, "Popular and highly rated", "reasonPopular", null));
         }
 
-        var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults)
+        var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed)
             .Select(s => new RecommendedItem
             {
                 ItemId = s.Item.Id,
@@ -374,10 +600,16 @@ public sealed class Engine : IRecommendationEngine
     }
 
     /// <summary>
-    ///     Loads all candidate items (movies and series) from the library.
+    ///     Loads all candidate items (movies and series) from the library, together with a
+    ///     per-series episode count map derived from the same episode query used for the
+    ///     empty-series filter (no extra DB round-trip).
     /// </summary>
-    /// <returns>A list of candidate base items.</returns>
-    private List<BaseItem> LoadCandidateItems()
+    /// <returns>
+    ///     Candidates and a <c>seriesId → totalEpisodeCount</c> map. The map only contains
+    ///     series with at least one playable episode; consumers must treat missing keys as
+    ///     "no progression signal available".
+    /// </returns>
+    private (List<BaseItem> Candidates, Dictionary<Guid, int> SeriesEpisodeCounts) LoadCandidateItems()
     {
         var movies = _libraryManager.GetItemList(
             new InternalItemsQuery
@@ -426,17 +658,25 @@ public sealed class Engine : IRecommendationEngine
                 IsFolder = false
             });
 
-        var seriesIdsWithEpisodes = allEpisodes
-            .OfType<Episode>()
-            .Where(episode => !string.IsNullOrEmpty(episode.Path))
-            .Select(episode => episode.SeriesId)
-            .Where(seriesId => seriesId != Guid.Empty)
-            .ToHashSet();
+        // Single pass: build both the "series has episodes" filter set AND the per-series
+        // total episode count needed for the progression multiplier in PreferenceBuilder.
+        // Only playable episodes (non-empty Path) are counted to keep the ratio meaningful.
+        var seriesEpisodeCounts = new Dictionary<Guid, int>();
+        foreach (var episode in allEpisodes.OfType<Episode>())
+        {
+            if (string.IsNullOrEmpty(episode.Path) || episode.SeriesId == Guid.Empty)
+            {
+                continue;
+            }
+
+            seriesEpisodeCounts.TryGetValue(episode.SeriesId, out var count);
+            seriesEpisodeCounts[episode.SeriesId] = count + 1;
+        }
 
         var skippedSeries = 0;
         foreach (var s in series)
         {
-            if (!seriesIdsWithEpisodes.Contains(s.Id))
+            if (!seriesEpisodeCounts.ContainsKey(s.Id))
             {
                 skippedSeries++;
                 continue;
@@ -461,7 +701,7 @@ public sealed class Engine : IRecommendationEngine
                 logger: _logger);
         }
 
-        return candidates;
+        return (candidates, seriesEpisodeCounts);
     }
 
     /// <summary>
@@ -472,6 +712,11 @@ public sealed class Engine : IRecommendationEngine
     /// <param name="allCandidates">Pre-loaded candidate items from the library.</param>
     /// <param name="peopleLookup">Pre-built people lookup (item ID → person names).</param>
     /// <param name="candidateBoxSetLookup">Pre-resolved BoxSet IDs per candidate (sparse: only items in BoxSets).</param>
+    /// <param name="seriesEpisodeCounts">
+    ///     Per-series total episode count (from <see cref="LoadCandidateItems"/>) used by
+    ///     <see cref="PreferenceBuilder"/> to weight watched-episode signals by the fraction
+    ///     of the series the user has actually seen. Missing keys treated as "no signal".
+    /// </param>
     /// <param name="maxResults">Maximum number of recommendations to return.</param>
     /// <param name="strategy">The scoring strategy to use.</param>
     /// <param name="precomputedUserSets">
@@ -479,7 +724,22 @@ public sealed class Engine : IRecommendationEngine
     ///     Pass null for single-user mode (sets will be built on-the-fly).
     /// </param>
     /// <param name="alphaOffset">Alpha offset for cohort-based exploration (0.0 = control group).</param>
-    /// <param name="ct">Cancellation token for cooperative cancellation.</param>
+    /// <param name="explorationSeed">
+    ///     Optional deterministic seed for the diversity exploration RNG. Live requests pass
+    ///     <c>ComputeStableSeed(userId, DateOnly.FromDateTime(DateTime.UtcNow).DayNumber)</c>,
+    ///     batch runs pass <c>ComputeStableSeed(userId, batchGeneration)</c>. The stable-seed
+    ///     helper is used instead of <see cref="HashCode.Combine{T1,T2}"/> so the value is
+    ///     process-independent — a Jellyfin restart does not reshuffle same-day exploration.
+    /// </param>
+    /// <param name="collaborativeContext">
+    ///     Optional batch-scoped collaborative aggregates (item popularity + trust-gate flag)
+    ///     shared across every user in the same batch. When provided, this method uses the
+    ///     <see cref="CollaborativeFilter.BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeFilter.CollaborativeContext)"/>
+    ///     overload so those O(U×M) / O(U) aggregates are not recomputed per user. When null
+    ///     (single-user live path) the method falls back to the legacy overload which derives
+    ///     the aggregates locally from <paramref name="precomputedUserSets"/> or a fresh build.
+    /// </param>
+    /// <param name="ct">Cancellation token for cooperative cancellation. Kept last to satisfy CA1068.</param>
     /// <returns>A recommendation result for the user.</returns>
     private RecommendationResult GenerateForUser(
         UserWatchProfile userProfile,
@@ -487,10 +747,13 @@ public sealed class Engine : IRecommendationEngine
         List<BaseItem> allCandidates,
         Dictionary<Guid, HashSet<string>> peopleLookup,
         Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
+        IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
         int maxResults,
         IScoringStrategy strategy,
         Dictionary<Guid, HashSet<Guid>>? precomputedUserSets,
         double alphaOffset = 0.0,
+        int? explorationSeed = null,
+        CollaborativeFilter.CollaborativeContext? collaborativeContext = null,
         CancellationToken ct = default)
     {
         // Build a lookup of watched items by ID for O(1) access in scoring methods
@@ -537,7 +800,10 @@ public sealed class Engine : IRecommendationEngine
             watchedSeriesIds.Add(favSeriesId);
         }
 
-        var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(userProfile);
+        // seriesEpisodeCounts is forwarded so PreferenceBuilder can weight each episode row by
+        // the fraction of the series the user has actually watched. Movies and standalone rows
+        // ignore the map (missing SeriesId), so the effect is scoped to TV series preferences.
+        var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(userProfile, seriesEpisodeCounts);
 
         // Build O(1) candidate lookup by ID - shared across studio/tag preference building
         var candidateLookup = new Dictionary<Guid, BaseItem>(allCandidates.Count);
@@ -546,12 +812,32 @@ public sealed class Engine : IRecommendationEngine
             candidateLookup.TryAdd(c.Id, c);
         }
 
-        // Build the collaborative co-occurrence map (uses precomputed sets in batch mode)
-        var coOccurrence = CollaborativeFilter.BuildCollaborativeMap(userProfile, allProfiles, precomputedUserSets);
+        // Build the collaborative co-occurrence map.
+        //   • Batch mode: use the precomputed CollaborativeContext so itemPopularity and the
+        //     trust-gate decision are read from the shared record instead of being redone.
+        //   • Live single-user mode: caller passes collaborativeContext=null, we fall back to
+        //     the legacy overload which materialises the aggregates locally.
+        var coOccurrence = collaborativeContext is not null
+            ? CollaborativeFilter.BuildCollaborativeMap(userProfile, allProfiles, collaborativeContext)
+            : CollaborativeFilter.BuildCollaborativeMap(userProfile, allProfiles, precomputedUserSets);
         var collaborativeMax = coOccurrence.Count > 0 ? coOccurrence.Values.Max() : 0;
         var averageYear = ContentScoring.ComputeAverageYear(userProfile);
         var preferredStudios = PreferenceBuilder.BuildStudioPreferenceSet(userProfile, candidateLookup);
+        // preferredPeople (HashSet): used by ReasonResolver to surface a concrete matched-person name
+        // in recommendation reasons. Kept as an unweighted set for readable UI output.
         var preferredPeople = PreferenceBuilder.BuildPeoplePreferenceSet(userProfile, peopleLookup);
+        // preferredPeopleWeights: v3 (C2) frequency-aware weighting for the ML PeopleSimilarity
+        // feature. Keys are always a superset-parity match with preferredPeople (same eligibility rule),
+        // but per-key weights reflect how many watched items each person appears on, so dominant
+        // collaborators (e.g. a director watched 8 times) drive similarity more than one-off cameos.
+        // seriesEpisodeCounts is forwarded so people from a fully-watched series contribute more
+        // weight than people from a series the user abandoned after two episodes, mirroring the
+        // exact same progression multiplier applied to genre preferences above.
+        var preferredPeopleWeights = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, peopleLookup, seriesEpisodeCounts);
+        // Precompute the top-K average preferred weight ONCE per user so the O(P log P) sort
+        // inside ComputePeopleSimilarity does not re-run for every candidate. Cuts a heavy
+        // per-candidate cost down to a single per-user amortised call.
+        var averagePreferredPeopleWeight = SimilarityComputer.ComputeAveragePreferredWeight(preferredPeopleWeights);
         var preferredTags = PreferenceBuilder.BuildTagPreferenceSet(userProfile, candidateLookup);
         var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile);
 
@@ -636,6 +922,8 @@ public sealed class Engine : IRecommendationEngine
                     seriesEpisodeLookup,
                     preferredStudios,
                     preferredPeople,
+                    preferredPeopleWeights,
+                    averagePreferredPeopleWeight,
                     preferredTags,
                     peopleLookup,
                     genreExposure,
@@ -649,7 +937,7 @@ public sealed class Engine : IRecommendationEngine
 
         scored = DiversityReranker.DeduplicateSeries(scored);
 
-        var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults)
+        var topItems = DiversityReranker.ApplyDiversityReranking(scored, maxResults, explorationSeed)
             .Select(s => new RecommendedItem
             {
                 ItemId = s.Item.Id,
@@ -712,6 +1000,8 @@ public sealed class Engine : IRecommendationEngine
         Dictionary<Guid, List<WatchedItemInfo>> seriesEpisodeLookup,
         HashSet<string> preferredStudios,
         HashSet<string> preferredPeople,
+        IReadOnlyDictionary<string, double> preferredPeopleWeights,
+        double averagePreferredPeopleWeight,
         HashSet<string> preferredTags,
         Dictionary<Guid, HashSet<string>> peopleLookup,
         PreferenceBuilder.GenreExposureAnalysis genreExposure,
@@ -730,61 +1020,36 @@ public sealed class Engine : IRecommendationEngine
         var libraryAddedRecency = ContentScoring.ComputeRecencyScore(candidate.DateCreated);
         var yearScore = ContentScoring.ComputeYearProximity(candidate.ProductionYear, averageYear);
 
-        // Compute user-specific signals - for series candidates, aggregate from watched episodes
-        double userRatingScore;
-        double completionRatio;
-        bool hasUserInteraction;
-
-        if (candidate is Series && seriesEpisodeLookup.TryGetValue(candidate.Id, out var episodesForScoring))
-        {
-            hasUserInteraction = true;
-            var ratedEpisodes = episodesForScoring.Where(e => e.UserRating is > 0).ToList();
-            userRatingScore = ratedEpisodes.Count > 0
-                ? Math.Clamp(ratedEpisodes.Average(e => e.UserRating!.Value) / 10.0, 0.0, 1.0)
-                : 0.5;
-            // Average per-episode completion ratios
-            completionRatio = episodesForScoring.Count > 0
-                ? Math.Clamp(
-                    episodesForScoring.Average(e => ContentScoring.ComputeCompletionRatio(e)),
-                    0.0,
-                    1.0)
-                : 0.5;
-        }
-        else
-        {
-            watchedItemLookup.TryGetValue(candidate.Id, out var watchedItem);
-            hasUserInteraction = watchedItem is not null;
-            userRatingScore = ContentScoring.ComputeUserRatingScore(watchedItem);
-            completionRatio = hasUserInteraction ? ContentScoring.ComputeCompletionRatio(watchedItem) : 0.5;
-        }
+        // Compute user-specific signals. Series with meaningful interaction have already been
+        // excluded upstream (watchedSeriesIds filter in GenerateForUser), so every Series that
+        // reaches this method is treated identically to a Movie: look the candidate up in
+        // watchedItemLookup and fall back to neutral defaults when it is not present. This
+        // matches the training-time neutralization performed for aggregated series examples
+        // and organic standalone rows, closing a train/serve skew where the training path used
+        // per-episode averages while the live path never hit the aggregation branch.
+        watchedItemLookup.TryGetValue(candidate.Id, out var watchedItem);
+        var hasUserInteraction = watchedItem is not null;
+        var userRatingScore = ContentScoring.ComputeUserRatingScore(watchedItem);
+        var completionRatio = hasUserInteraction ? ContentScoring.ComputeCompletionRatio(watchedItem) : 0.5;
 
         var studioMatch = candidate.Studios is { Length: > 0 } &&
                           candidate.Studios.Any(s => preferredStudios.Contains(s));
+        // Roadmap v3 (C2): use the weighted overload so a candidate carrying the user's
+        // heavy-hitter collaborators (e.g. a director the user has watched 8 times) drives
+        // similarity more than one-off cameo appearances that both the unweighted HashSet
+        // and the previous overlap coefficient would treat identically.
         var peopleSimilarity = peopleLookup.TryGetValue(candidate.Id, out var candidatePeople)
-            ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeople)
+            ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights, averagePreferredPeopleWeight)
             : 0.0;
 
-        // Series progression boost: usually 0.0 at inference time.
-        // Most series with meaningful interaction are filtered earlier by the watchedSeriesIds check,
-        // so this boost is typically not reached during live scoring.
-        // Note: seriesEpisodeLookup is broader than watchedSeriesIds because it includes all watched
-        // entries with a SeriesId (not filtered by HasMeaningfulInteraction()), so edge cases exist
-        // where this block can still execute.
-        // The field is kept to preserve feature-vector layout parity with the training pipeline,
-        // where the boost IS computed from real episode data (the series was recommended first,
-        // then the user watched it — progression is a valid training signal even though it
-        // rarely appears at inference time).
-        var seriesProgressionBoost = 0.0;
-        if (candidate is Series candidateSeries &&
-            seriesEpisodeLookup.TryGetValue(candidateSeries.Id, out var progressionEps))
-        {
-            var playedEps = progressionEps.Count(e => e.Played);
-            if (progressionEps.Count > 0)
-            {
-                var ratio = (double)playedEps / progressionEps.Count;
-                seriesProgressionBoost = ratio < 0.9 ? Math.Clamp(ratio * 1.2, 0.0, 1.0) : 0.2;
-            }
-        }
+        // Series progression boost: hardcoded 0.0 at inference. Series with meaningful episode
+        // interaction are already excluded upstream by the watchedSeriesIds filter, so any series
+        // that reaches this method by definition has no play/favorite signal to aggregate. The
+        // training pipeline mirrors this by writing 0.0 for aggregated series examples (which live
+        // scoring never re-sees) and for standalone rows, guaranteeing train/serve parity on this
+        // channel. The feature slot itself is kept in CandidateFeatures so the network layout does
+        // not change; the value is simply constant.
+        const double seriesProgressionBoost = 0.0;
 
         // Popularity proxy from collaborative scores (centralized formula)
         var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);
@@ -808,10 +1073,10 @@ public sealed class Engine : IRecommendationEngine
             PopularityScore = popularityScore,
             DayOfWeekAffinity = TemporalFeatures.ComputeDayOfWeekAffinity(candidate, userProfile),
             HourOfDayAffinity = TemporalFeatures.ComputeHourOfDayAffinity(candidate, userProfile),
-            // TODO: IsWeekend uses server UTC time, not the user's local calendar.
-            // Jellyfin does not expose per-user timezone, so this is the best available approximation.
-            // Users in distant timezones will see the weekend signal flip several hours early or late.
-            IsWeekend = DateTime.UtcNow.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday,
+            // IsWeekend is resolved through TemporalFeatures.ResolveIsWeekend so that every
+            // feature-vector construction site (live scoring + all four training phases) shares
+            // the exact same user-anchored precedence.
+            IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile),
             TagSimilarity = SimilarityComputer.ComputeTagSimilarity(candidate, preferredTags),
             LibraryAddedRecency = libraryAddedRecency,
             // Content-based nearest-neighbor: composite item-to-item similarity (genre 50%, people 30%, studio 20%)
@@ -863,7 +1128,8 @@ public sealed class Engine : IRecommendationEngine
             genrePreferences,
             preferredPeople,
             preferredStudios,
-            peopleLookup);
+            peopleLookup,
+            preferredPeopleWeights);
 
         return (candidate, explanation.FinalScore, reason, reasonKey, relatedItem);
     }
@@ -1172,10 +1438,80 @@ public sealed class Engine : IRecommendationEngine
     }
 
     /// <summary>
+    ///     Returns the current candidate snapshot, refreshing it under a single-flight gate
+    ///     when the cache is empty or has exceeded <see cref="CandidateSnapshotMaxAge"/>.
+    ///     <para>
+    ///         Concurrency contract: only ONE thread performs the heavy LibraryManager scan
+    ///         at any given time. All other threads that arrive during the rebuild block on
+    ///         <see cref="_snapshotRefreshLock"/> and, once the winner has published the new
+    ///         snapshot to <see cref="_cachedSnapshot"/>, read that fresh snapshot instead of
+    ///         doing their own scan. This closes the stampede window described in the class-
+    ///         level cache comment: without the gate, N live requests hitting an expired
+    ///         cache would trigger N parallel LoadCandidateItems + BuildCandidatePeopleLookup
+    ///         + BuildCandidateBoxSetLookupFresh runs, hammering the library manager and
+    ///         producing N transient snapshots (each candidate to be garbage-collected as
+    ///         soon as the next one overwrites <see cref="_cachedSnapshot"/>).
+    ///     </para>
+    ///     <para>
+    ///         Double-check inside the lock guards against the race where two threads read
+    ///         "cache is null/expired" from the volatile field simultaneously — the second
+    ///         thread must re-verify after acquiring the lock so that only the first one
+    ///         performs the rebuild.
+    ///     </para>
+    /// </summary>
+    /// <returns>A fresh (or still-valid) snapshot. Never returns null.</returns>
+    private CandidateSnapshot GetOrRefreshLiveSnapshot()
+    {
+        var snapshot = _cachedSnapshot;
+        if (snapshot is not null && DateTime.UtcNow - snapshot.CreatedAtUtc <= CandidateSnapshotMaxAge)
+        {
+            return snapshot;
+        }
+
+        lock (_snapshotRefreshLock)
+        {
+            // Re-check under the lock: a competing thread may already have completed a
+            // refresh while we were waiting. Publishing the winner's snapshot is what makes
+            // the rest of the batch a no-op — the "cost" of a stampede is paid at most once.
+            snapshot = _cachedSnapshot;
+            if (snapshot is not null && DateTime.UtcNow - snapshot.CreatedAtUtc <= CandidateSnapshotMaxAge)
+            {
+                return snapshot;
+            }
+
+            var (candidates, seriesEpisodeCounts) = LoadCandidateItems();
+            var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
+            var boxSetLookup = BuildCandidateBoxSetLookupFresh(candidates);
+
+            var fresh = new CandidateSnapshot(
+                candidates,
+                peopleLookup,
+                boxSetLookup,
+                seriesEpisodeCounts,
+                null,
+                DateTime.UtcNow);
+
+            // Republish so subsequent live requests hit the fresh cache without re-entering
+            // this method's slow path. The scheduled batch still owns primary invalidation
+            // via its own unconditional overwrite of _cachedSnapshot in GetAllRecommendations.
+            _cachedSnapshot = fresh;
+            return fresh;
+        }
+    }
+
+    /// <summary>
     ///     Computes the CollectionProgressionBoost for a candidate during live inference scoring.
     ///     Uses the pre-computed <paramref name="watchedBoxSetCounts"/> dictionary for O(1) lookup
-    ///     instead of per-candidate parent traversal + child enumeration.
-    ///     Returns a progression ratio proportional to how many collection siblings are already watched.
+    ///     instead of per-candidate parent traversal + child enumeration. Returns a progression
+    ///     ratio proportional to how many collection siblings are already watched.
+    ///     <para>
+    ///         Roadmap v3 (C3.1): the diminishing-returns scale (<c>0.3 + (n-1) × 0.2, clamped [0,1]</c>)
+    ///         lives centrally in <see cref="EngineConstants.ComputeCollectionProgressionBoost(int)"/> so
+    ///         that this live path and the training-time
+    ///         <c>TrainingDataBuilder.ComputeCollectionProgressionBoostWithCounts</c> can never drift.
+    ///         The 16 formula-contract tests in <c>CollectionProgressionBoostTests</c> exercise the
+    ///         shared helper directly and therefore guard both call sites simultaneously.
+    ///     </para>
     /// </summary>
     /// <param name="candidateBoxSetIds">Pre-resolved BoxSet IDs for the candidate (from ResolveBoxSetIds).</param>
     /// <param name="watchedBoxSetCounts">Pre-computed BoxSet ID → watched member count mapping.</param>
@@ -1184,88 +1520,30 @@ public sealed class Engine : IRecommendationEngine
         List<Guid> candidateBoxSetIds,
         Dictionary<Guid, int> watchedBoxSetCounts)
     {
-        if (watchedBoxSetCounts.Count == 0)
+        if (watchedBoxSetCounts.Count == 0 || candidateBoxSetIds.Count == 0)
         {
             return 0.0;
         }
 
-        if (candidateBoxSetIds.Count == 0)
-        {
-            return 0.0;
-        }
-
-        // Find the best progression signal across all BoxSets the candidate belongs to
+        // Find the best progression signal across all BoxSets the candidate belongs to.
+        // The formula itself is delegated to EngineConstants so the training path uses
+        // exactly the same implementation — guaranteeing train/serve parity by construction.
         var bestBoost = 0.0;
         foreach (var boxSetId in candidateBoxSetIds)
         {
-            if (watchedBoxSetCounts.TryGetValue(boxSetId, out var watchedCount) && watchedCount > 0)
+            if (!watchedBoxSetCounts.TryGetValue(boxSetId, out var watchedCount))
             {
-                // Scale: 1 watched sibling = 0.3, 2 = 0.5, 3+ = 0.7+
-                // Uses diminishing returns formula to avoid over-boosting large collections
-                var boost = Math.Clamp(0.3 + ((watchedCount - 1) * 0.2), 0.0, 1.0);
-                bestBoost = Math.Max(bestBoost, boost);
+                continue;
+            }
+
+            var boost = EngineConstants.ComputeCollectionProgressionBoost(watchedCount);
+            if (boost > bestBoost)
+            {
+                bestBoost = boost;
             }
         }
 
         return bestBoost;
-    }
-
-    /// <summary>
-    ///     Computes the collection/BoxSet progression boost for a candidate item.
-    ///     Returns a positive value if the candidate belongs to a collection where the user
-    ///     has already watched other items. Encourages "complete the collection" recommendations.
-    /// </summary>
-    /// <param name="candidate">The candidate item to evaluate.</param>
-    /// <param name="watchedIds">Set of item IDs the user has watched.</param>
-    /// <returns>A boost value between 0.0 and 1.0.</returns>
-    internal static double ComputeCollectionProgressionBoost(BaseItem candidate, HashSet<Guid> watchedIds)
-    {
-        try
-        {
-            // Check if the candidate belongs to any BoxSet via parent traversal
-            var parent = candidate.GetParent();
-            while (parent is not null)
-            {
-                if (parent is MediaBrowser.Controller.Entities.Movies.BoxSet boxSet)
-                {
-                    // Check if the user has watched any other item in this BoxSet
-                    var children = boxSet.Children;
-                    if (children is not null)
-                    {
-                        var watchedCount = 0;
-                        var totalCount = 0;
-                        foreach (var child in children)
-                        {
-                            if (child.Id == candidate.Id)
-                            {
-                                continue; // Don't count the candidate itself
-                            }
-
-                            totalCount++;
-                            if (watchedIds.Contains(child.Id))
-                            {
-                                watchedCount++;
-                            }
-                        }
-
-                        if (watchedCount > 0 && totalCount > 0)
-                        {
-                            // Boost proportional to how much of the collection is watched
-                            var ratio = (double)watchedCount / totalCount;
-                            return Math.Clamp(ratio * 1.2, 0.0, 1.0);
-                        }
-                    }
-                }
-
-                parent = parent.GetParent();
-            }
-
-            return 0.0;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
-        {
-            return 0.0; // Graceful fallback
-        }
     }
 
     /// <summary>
@@ -1401,6 +1679,76 @@ public sealed class Engine : IRecommendationEngine
     }
 
     /// <summary>
+    ///     Builds the community-popularity map (itemId → number of users who have watched it)
+    ///     used by <see cref="GenerateColdStartRecommendations"/> from the current watch profiles.
+    ///     Matches the exact logic and two-user gate applied by
+    ///     <see cref="GetAllRecommendations"/> so on-demand cold-start requests get the same
+    ///     community-blended ranking that the batch path would have produced.
+    ///     Returns null when fewer than two users have any watch history — callers then fall
+    ///     back to the classic rating + recency formula unchanged.
+    /// </summary>
+    private Dictionary<Guid, int>? BuildCommunityPopularityForColdStart()
+    {
+        var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
+        if (allProfiles.Count < 2)
+        {
+            return null;
+        }
+
+        var userSets = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
+
+        var usersWithHistory = 0;
+        foreach (var userSet in userSets.Values)
+        {
+            if (userSet.Count > 0 && ++usersWithHistory >= 2)
+            {
+                break;
+            }
+        }
+
+        if (usersWithHistory < 2)
+        {
+            return null;
+        }
+
+        var popularity = new Dictionary<Guid, int>();
+        foreach (var userSet in userSets.Values)
+        {
+            foreach (var itemId in userSet)
+            {
+                popularity.TryGetValue(itemId, out var count);
+                popularity[itemId] = count + 1;
+            }
+        }
+
+        return popularity;
+    }
+
+    /// <summary>
+    ///     Deterministic, process-independent seed derived from a <see cref="Guid"/> and an
+    ///     integer suffix (e.g. UTC day number). <see cref="HashCode.Combine{T1,T2}"/> is
+    ///     randomised per-process, so the same (userId, day) tuple would map to a different
+    ///     seed after each Jellyfin restart. Diversity exploration would then reshuffle within
+    ///     the same day, defeating the purpose of the daily seed contract. This helper folds
+    ///     the Guid's 128 bits through a stable mix and combines them with the suffix using
+    ///     a fixed multiplier — no cryptographic strength required, only determinism.
+    /// </summary>
+    /// <param name="id">The user (or entity) identifier.</param>
+    /// <param name="suffix">A secondary integer key (UTC day number, batch generation, ...).</param>
+    /// <returns>A deterministic 32-bit seed for RNG consumers.</returns>
+    internal static int ComputeStableSeed(Guid id, int suffix)
+    {
+        // Guid.GetHashCode() is stable across processes (unlike System.HashCode.Combine).
+        // Fold with the suffix using an unchecked multiply-and-add so the combination
+        // spreads bits across the range without allocating an intermediate object.
+        unchecked
+        {
+            var h = id.GetHashCode();
+            return (h * 397) ^ suffix;
+        }
+    }
+
+    /// <summary>
     ///     Returns true when the candidate's parental rating exceeds the user's maximum,
     ///     or when the candidate has no rating at all (unrated items are treated as unrestricted
     ///     and must be excluded for restricted profiles).
@@ -1428,8 +1776,30 @@ public sealed class Engine : IRecommendationEngine
     ///     to avoid redundant parent-hierarchy traversals across multiple users.
     ///     Only candidates that belong to at least one BoxSet are stored (sparse).
     /// </param>
+    /// <param name="SeriesEpisodeCounts">
+    ///     Per-series total episode count derived from the same episode query used for the
+    ///     empty-series filter. Consumed by <see cref="PreferenceBuilder"/> to weight
+    ///     watched-episode signals by the fraction of the series the user has actually seen.
+    /// </param>
+    /// <param name="CommunityPopularity">
+    ///     Optional community-popularity map (itemId → number of users who watched it) computed
+    ///     once per batch and republished onto the snapshot so live cold-start requests reuse it
+    ///     instead of re-scanning every user's watch history on every hit. Null on the initial
+    ///     snapshot from <see cref="GetOrRefreshLiveSnapshot"/> (which does not have all-user data)
+    ///     and on batches with fewer than two users with any watch history.
+    /// </param>
+    /// <param name="CreatedAtUtc">
+    ///     UTC timestamp at which this snapshot was published. Used together with
+    ///     <see cref="CandidateSnapshotMaxAge"/> to bound the reuse window for the on-demand
+    ///     <see cref="GetRecommendations(Guid, int, CancellationToken)"/> path so that library
+    ///     mutations between daily batch runs (new items, metadata refreshes) do not leave
+    ///     the live path serving arbitrarily stale candidates.
+    /// </param>
     private sealed record CandidateSnapshot(
         List<BaseItem> Candidates,
         Dictionary<Guid, HashSet<string>> PeopleLookup,
-        Dictionary<Guid, List<Guid>> CandidateBoxSetLookup);
+        Dictionary<Guid, List<Guid>> CandidateBoxSetLookup,
+        Dictionary<Guid, int> SeriesEpisodeCounts,
+        Dictionary<Guid, int>? CommunityPopularity,
+        DateTime CreatedAtUtc);
 }

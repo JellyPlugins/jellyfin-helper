@@ -142,6 +142,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   └── Discovery/            # Seerr Discovery tests
 │   │       ├── DiscoveryFeedbackStoreTests.cs
 │   │       ├── DiscoveryRegressionTests.cs  # v2.1.0.3 regression tests (ServerId=0, profile dedup, MissingMethodException)
+│   │       ├── ExternalCandidateFeatureBuilderTests.cs  # inference↔training feature parity (genre-exposure + popularity skew guards)
 │   │       ├── SeerrDiscoveryServiceTests.cs
 │   │       └── ParentalRatingHelperTests.cs
 │   ├── Statistics/                # Statistics service tests
@@ -151,8 +152,12 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
 │       │   ├── ContentScoringTests.cs
+│       │   ├── DiversityRerankerTests.cs
 │       │   ├── PreferenceBuilderTests.cs
-│       │   └── SimilarityComputerTests.cs   # People-batch (GetPeopleNamesByItems) + per-item fallback
+│       │   ├── SimilarityComputerTests.cs   # People-batch (GetPeopleNamesByItems) + per-item fallback; weighted PeopleSimilarity overload (Roadmap v3 C2)
+│       │   ├── TemporalFeaturesTests.cs     # Day-of-week / hour-of-day / weekend affinity computation
+│       │   └── Training/
+│       │       └── CollectionProgressionBoostTests.cs # Locks the diminishing-returns formula 0.3+(n-1)×0.2 (Roadmap v3 C3) - guards train/serve parity
 │       ├── Playlist/              # Playlist sync tests
 │       │   └── RecommendationPlaylistServiceTests.cs
 │       ├── Scoring/               # Strategy-specific tests
@@ -217,6 +222,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   └── UserActivityController.cs        # User activity insights API
 ├── Configuration/
 │   ├── PluginConfiguration.cs   # All config properties with defaults
+│   ├── ClampReportEntry.cs      # Record for reporting clamped config values at startup
 │   ├── TaskMode.cs              # Deactivate / DryRun / Activate enum
 │   └── ArrInstanceConfig.cs     # Per-instance Arr configuration
 ├── Services/
@@ -234,6 +240,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── BackupValidator.cs   # Comprehensive input validation
 │   │   └── BackupSanitizer.cs   # Clamp/normalize values
 │   ├── Common/                      # Shared cross-service helpers
+│   │   ├── AtomicFile.cs            # Atomic text-file write (temp+move) with bounded retry on transient AV/indexer sharing violations
 │   │   └── BatchFallbackHelper.cs   # try-batch/fall-back-per-item wrapper (Jellyfin 12+ batch APIs)
 │   ├── FolderBrowser/               # Server-side folder browsing
 │   │   ├── IFolderBrowserService.cs # Interface for folder listing

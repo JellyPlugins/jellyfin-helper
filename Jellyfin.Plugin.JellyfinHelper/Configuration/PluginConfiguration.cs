@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq;
 using MediaBrowser.Model.Plugins;
 
@@ -11,6 +12,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
+    // Records raw-vs-clamped setter deltas so Plugin startup can surface them as a single
+    // warning instead of silently swallowing hand-edited out-of-range XML values.
+    // Private field: XmlSerializer only touches public settable properties, so no XmlIgnore needed.
+    private readonly List<ClampReportEntry> _clampReports = [];
+
     // ===== Backing fields for clamped properties =====
     private int _orphanMinAgeDays;
     private int _maxRecommendationsPerUser = 20;
@@ -34,7 +40,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public int OrphanMinAgeDays
     {
         get => _orphanMinAgeDays;
-        set => _orphanMinAgeDays = Math.Clamp(value, 0, 3650);
+        set => _orphanMinAgeDays = ClampAndReport(nameof(OrphanMinAgeDays), value, 0, 3650);
     }
 
     // ===== New TaskMode properties (replace old booleans) =====
@@ -165,7 +171,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaxRecommendationsPerUser
     {
         get => _maxRecommendationsPerUser;
-        set => _maxRecommendationsPerUser = Math.Clamp(value, 1, 100);
+        set => _maxRecommendationsPerUser = ClampAndReport(nameof(MaxRecommendationsPerUser), value, 1, 100);
     }
 
     /// <summary>
@@ -190,7 +196,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public double EnsembleAlphaMin
     {
         get => _ensembleAlphaMin;
-        set => _ensembleAlphaMin = Math.Clamp(value, 0.0, 1.0);
+        set => _ensembleAlphaMin = ClampAndReport(nameof(EnsembleAlphaMin), value, 0.0, 1.0);
     }
 
     /// <summary>
@@ -203,7 +209,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public double EnsembleAlphaMax
     {
         get => _ensembleAlphaMax;
-        set => _ensembleAlphaMax = Math.Clamp(value, 0.0, 1.0);
+        set => _ensembleAlphaMax = ClampAndReport(nameof(EnsembleAlphaMax), value, 0.0, 1.0);
     }
 
     /// <summary>
@@ -214,7 +220,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public double EnsembleGenrePenaltyFloor
     {
         get => _ensembleGenrePenaltyFloor;
-        set => _ensembleGenrePenaltyFloor = Math.Clamp(value, 0.0, 1.0);
+        set => _ensembleGenrePenaltyFloor = ClampAndReport(nameof(EnsembleGenrePenaltyFloor), value, 0.0, 1.0);
     }
 
     /// <summary>
@@ -281,5 +287,56 @@ public class PluginConfiguration : BasePluginConfiguration
             .Take(3)
             .ToList();
         return effective.AsReadOnly();
+    }
+
+    /// <summary>
+    ///     Returns any raw-vs-clamped setter deltas recorded since the last call and clears the
+    ///     internal buffer. Callers (Plugin startup) surface these as a single warning so admins
+    ///     who hand-edited the XML find out immediately that their value was silently narrowed.
+    /// </summary>
+    /// <returns>The recorded clamp reports; empty when nothing was clamped.</returns>
+    public IReadOnlyList<ClampReportEntry> DrainClampReports()
+    {
+        if (_clampReports.Count == 0)
+        {
+            return Array.Empty<ClampReportEntry>();
+        }
+
+        var snapshot = _clampReports.ToArray();
+        _clampReports.Clear();
+        return snapshot;
+    }
+
+    // Records the delta only when clamping actually changed the value; the API-driven path
+    // (ConfigurationController) never triggers this because its own validation runs first.
+    private int ClampAndReport(string propertyName, int raw, int min, int max)
+    {
+        var clamped = Math.Clamp(raw, min, max);
+        if (clamped != raw)
+        {
+            _clampReports.Add(new ClampReportEntry(
+                propertyName,
+                raw.ToString(CultureInfo.InvariantCulture),
+                clamped.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        return clamped;
+    }
+
+    private double ClampAndReport(string propertyName, double raw, double min, double max)
+    {
+        // Math.Clamp passes NaN through unchanged, which would poison downstream consumers
+        // (ensemble alpha blend, genre penalty). Coerce NaN to the lower bound so the value
+        // is always finite. The raw NaN is still recorded in the report for diagnostics.
+        var clamped = double.IsNaN(raw) ? min : Math.Clamp(raw, min, max);
+        if (Math.Abs(clamped - raw) > 1e-12 || double.IsNaN(raw))
+        {
+            _clampReports.Add(new ClampReportEntry(
+                propertyName,
+                raw.ToString("G17", CultureInfo.InvariantCulture),
+                clamped.ToString("G17", CultureInfo.InvariantCulture)));
+        }
+
+        return clamped;
     }
 }

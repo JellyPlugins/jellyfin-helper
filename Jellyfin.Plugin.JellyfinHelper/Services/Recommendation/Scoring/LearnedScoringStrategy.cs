@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -41,7 +42,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// <summary>L2 regularization strength (weight decay).</summary>
     internal const double L2Lambda = 0.001;
 
-    /// <summary>Maximum number of training epochs per <see cref="Train"/> call.</summary>
+    /// <summary>Maximum number of training epochs per <see cref="Train(IReadOnlyList{TrainingExample})"/> call.</summary>
     internal const int MaxTrainingEpochs = 30;
 
     /// <summary>Minimum number of training examples required before training runs.</summary>
@@ -83,8 +84,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// </summary>
     internal const int CurrentWeightsVersion = 2;
 
-    /// <summary>Cached JSON serializer options for weight persistence.</summary>
-    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
+    /// <summary>
+    ///     Cached JSON serializer options for weight persistence.
+    ///     Compact (non-indented) output — the file is machine-read
+    ///     only and roughly halves in size (~1.5 KB vs ~3 KB) with no loss of information.
+    /// </summary>
+    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false };
 
     private readonly ILogger? _logger;
     private readonly Lock _syncRoot = new();
@@ -286,7 +291,10 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     /// </summary>
     /// <param name="examples">Training examples with features and labels.</param>
     /// <returns>True if training was performed, false if insufficient data.</returns>
-    public bool Train(IReadOnlyList<TrainingExample> examples)
+    public bool Train(IReadOnlyList<TrainingExample> examples) => Train(examples, heldOutForMetrics: null);
+
+    /// <inheritdoc />
+    public bool Train(IReadOnlyList<TrainingExample> examples, IReadOnlyList<TrainingExample>? heldOutForMetrics)
     {
         if (examples.Count < MinTrainingExamples)
         {
@@ -471,7 +479,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         // which acquires _syncRoot. While Monitor is reentrant (no deadlock), holding the lock
         // during the entire scoring loop unnecessarily blocks all concurrent Score() callers.
         // This mirrors the pattern used by NeuralScoringStrategy.Train().
-        var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(examples, this);
+        //
+        // Prefer the caller-supplied held-out slice so the ensemble's quality snapshot reports
+        // out-of-sample numbers. If the caller passed nothing (or too little to be meaningful)
+        // we fall back to fit-on-training so metrics are still populated.
+        var metricsSource = heldOutForMetrics is { Count: >= 2 } ? heldOutForMetrics : examples;
+        var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
         lock (_syncRoot)
         {
             _lastPrecisionAtK = pAtK;
@@ -925,32 +938,17 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 json = JsonSerializer.Serialize(data, SerializerOptions);
             }
 
-            var tempPath = _weightsPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
-            {
-                File.WriteAllText(tempPath, json);
-                File.Move(tempPath, _weightsPath, overwrite: true);
-            }
-            catch
-            {
-                try
-                {
-                    if (File.Exists(tempPath))
-                    {
-                        File.Delete(tempPath);
-                    }
-                }
-                catch (IOException)
-                {
-                    // best effort - temp file cleanup is non-critical
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    // best effort - temp file cleanup is non-critical
-                }
-
-                throw;
-            }
+            // Use AtomicFile so a transient Windows AV/indexer sharing violation on the
+            // final File.Move gets a bounded retry instead of silently dropping the save.
+            // AtomicFile also handles temp-file cleanup internally.
+            //
+            // Beyond the two "expected" exception paths (IOException / UnauthorizedAccessException)
+            // AtomicFile can also surface, on its final attempt: SecurityException (CAS / SELinux
+            // policy), NotSupportedException (invalid path characters on some file systems), and
+            // ArgumentException (e.g. reserved device names on Windows). All of these are treated
+            // the same way as the primary I/O errors: non-critical, logged, and swallowed so a
+            // failed weight save never brings down the (already best-effort) training pipeline.
+            AtomicFile.WriteAllText(_weightsPath, json);
         }
         catch (IOException ex)
         {
@@ -961,6 +959,22 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         {
             // Non-critical - log for diagnostics but don't fail
             _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to save weights (access denied)");
+        }
+        catch (System.Security.SecurityException ex)
+        {
+            // Non-critical - platform security policy denied write; nothing we can do here.
+            _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to save weights (security policy)");
+        }
+        catch (NotSupportedException ex)
+        {
+            // Non-critical - path/filesystem does not support the operation (e.g. reserved names).
+            _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to save weights (unsupported path)");
+        }
+        catch (ArgumentException ex)
+        {
+            // Non-critical - malformed path characters surfaced by the OS layer. Weight path is
+            // plugin-configured; this indicates a config error, not a runtime failure to recover from.
+            _logger?.LogWarning(ex, "LearnedScoringStrategy: Failed to save weights (invalid path)");
         }
         catch (JsonException ex)
         {

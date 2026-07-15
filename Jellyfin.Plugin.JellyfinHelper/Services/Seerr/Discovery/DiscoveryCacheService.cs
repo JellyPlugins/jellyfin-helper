@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Microsoft.Extensions.Logging;
 
@@ -133,12 +134,13 @@ public sealed class DiscoveryCacheService
                         userResult.Recommendations.Remove(item);
                     }
 
-                    var tempFilePath = _filePath + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
                     try
                     {
                         var updatedJson = JsonSerializer.Serialize(cache, JsonOptions);
-                        File.WriteAllText(tempFilePath, updatedJson);
-                        File.Move(tempFilePath, _filePath, overwrite: true);
+
+                        // Use AtomicFile: bounded retry on transient AV/indexer locks +
+                        // internal temp-file cleanup, so no manual .tmp handling required.
+                        AtomicFile.WriteAllText(_filePath, updatedJson);
                     }
                     catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
                     {
@@ -147,15 +149,6 @@ public sealed class DiscoveryCacheService
                         // loaded, so the user will see the item again — acceptable for a
                         // transient IO failure vs. silent data loss.
                         userResult.Recommendations.AddRange(itemsToRemove);
-
-                        try
-                        {
-                            File.Delete(tempFilePath);
-                        }
-                        catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
-                        {
-                            // Best effort cleanup
-                        }
 
                         _pluginLog.LogWarning(
                             "DiscoveryCache",
@@ -222,12 +215,13 @@ public sealed class DiscoveryCacheService
                         cache[userIdx].Recommendations[recIdx].AlreadyRequested = true;
                     }
 
-                    var tempFilePath = _filePath + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
                     try
                     {
                         var updatedJson = JsonSerializer.Serialize(cache, JsonOptions);
-                        File.WriteAllText(tempFilePath, updatedJson);
-                        File.Move(tempFilePath, _filePath, overwrite: true);
+
+                        // Use AtomicFile: bounded retry on transient AV/indexer locks +
+                        // internal temp-file cleanup, so no manual .tmp handling required.
+                        AtomicFile.WriteAllText(_filePath, updatedJson);
                     }
                     catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
                     {
@@ -235,15 +229,6 @@ public sealed class DiscoveryCacheService
                         foreach (var (userIdx, recIdx) in indicesToMark)
                         {
                             cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
-                        }
-
-                        try
-                        {
-                            File.Delete(tempFilePath);
-                        }
-                        catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
-                        {
-                            // Best effort cleanup
                         }
 
                         throw;
@@ -328,7 +313,6 @@ public sealed class DiscoveryCacheService
 
         lock (_fileLock)
         {
-            var tempFilePath = _filePath + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
             try
             {
                 var directory = Path.GetDirectoryName(_filePath);
@@ -338,8 +322,12 @@ public sealed class DiscoveryCacheService
                 }
 
                 var json = JsonSerializer.Serialize(results, JsonOptions);
-                File.WriteAllText(tempFilePath, json);
-                File.Move(tempFilePath, _filePath, overwrite: true);
+
+                // Use AtomicFile so a transient sharing violation on the final File.Move
+                // (typical when an AV scanner or the Search indexer briefly holds the file
+                // handle) gets a bounded retry with backoff. AtomicFile also handles
+                // temp-file cleanup internally.
+                AtomicFile.WriteAllText(_filePath, json);
 
                 // Update in-memory cache to match persisted state.
                 // Always create a detached copy — never alias the caller's list to prevent
@@ -355,15 +343,6 @@ public sealed class DiscoveryCacheService
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
-                try
-                {
-                    File.Delete(tempFilePath);
-                }
-                catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
-                {
-                    // Best effort cleanup
-                }
-
                 _pluginLog.LogWarning(
                     "DiscoveryCache",
                     $"Could not save discovery results to {_filePath}: {ex.Message}",

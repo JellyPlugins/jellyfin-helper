@@ -30,30 +30,22 @@ public class ConfigurationControllerTests
     public ConfigurationControllerTests()
     {
         _config = new PluginConfiguration();
-
         _configServiceMock = new Mock<IPluginConfigurationService>();
         _configServiceMock.Setup(s => s.IsInitialized).Returns(true);
         _configServiceMock.Setup(s => s.GetConfiguration()).Returns(_config);
-
         var pluginLogMock = new Mock<IPluginLogService>();
-
         _arrServiceMock = new Mock<IArrIntegrationService>();
         _arrServiceMock
             .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "OK"));
-
         _seerrServiceMock = new Mock<ISeerrIntegrationService>();
         _seerrServiceMock
             .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "OK"));
-
         var configHelperMock = new Mock<ICleanupConfigHelper>();
         configHelperMock.Setup(h => h.GetConfig()).Returns(_config);
-
         var loggerMock = new Mock<ILogger<ConfigurationController>>();
-
         var libraryManagerMock = new Mock<MediaBrowser.Controller.Library.ILibraryManager>();
-
         _controller = new ConfigurationController(
             _arrServiceMock.Object,
             pluginLogMock.Object,
@@ -68,7 +60,6 @@ public class ConfigurationControllerTests
     public void GetConfiguration_ReturnsCurrentConfig()
     {
         var result = _controller.GetConfiguration();
-
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
         Assert.IsType<PluginConfiguration>(okResult.Value);
     }
@@ -76,44 +67,83 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_ValidConfig_ReturnsOk()
     {
-        var request = new ConfigurationUpdateRequest
-        {
-            OrphanMinAgeDays = 5,
-            TrashRetentionDays = 10
-        };
-
+        var request = new ConfigurationUpdateRequest { OrphanMinAgeDays = 5, TrashRetentionDays = 10 };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-
         Assert.IsType<OkObjectResult>(result);
         Assert.Equal(5, _config.OrphanMinAgeDays);
         Assert.Equal(10, _config.TrashRetentionDays);
         _configServiceMock.Verify(s => s.SaveConfiguration(), Times.AtLeastOnce);
     }
 
+    /// <summary>
+    ///     Locks the deliberate design decision documented on
+    ///     <c>ConfigurationController.ApplyRequestToConfig</c>: the Settings POST payload
+    ///     MUST NOT be able to overwrite <see cref="PluginConfiguration.PluginLogLevel" />.
+    ///     The field is owned exclusively by the Logs tab (PUT /Configuration/LogLevel) to
+    ///     close a TOCTOU race where the Settings page had captured a stale value at page
+    ///     load and would clobber a concurrent change from the Logs tab or another admin
+    ///     session on save.
+    /// </summary>
     [Fact]
-    public async Task UpdateConfiguration_PluginLogLevel_IsPersisted()
+    public async Task UpdateConfiguration_PluginLogLevel_IsIgnoredByDesignAndSurfacesWarning()
     {
-        var request = new ConfigurationUpdateRequest
-        {
-            PluginLogLevel = "DEBUG"
-        };
-
+        _config.PluginLogLevel = "WARN";
+        var request = new ConfigurationUpdateRequest { PluginLogLevel = "DEBUG" };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
 
-        Assert.IsType<OkObjectResult>(result);
-        Assert.Equal("DEBUG", _config.PluginLogLevel);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("WARN", _config.PluginLogLevel);
+
+        // Silent drop is the worst option — the response must call out the ignored change so
+        // the client can surface it to the admin instead of pretending the save worked.
+        var payload = Assert.IsAssignableFrom<object>(ok.Value);
+        var warningsProp = payload.GetType().GetProperty("warnings");
+        Assert.NotNull(warningsProp);
+        var warnings = Assert.IsAssignableFrom<System.Collections.Generic.IEnumerable<string>>(warningsProp!.GetValue(payload));
+        Assert.Contains(warnings, w => w.Contains("PluginLogLevel", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_PluginLogLevel_MatchingCurrent_NoWarning()
+    {
+        _config.PluginLogLevel = "WARN";
+        var request = new ConfigurationUpdateRequest { PluginLogLevel = "warn" };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("WARN", _config.PluginLogLevel);
+
+        var payload = Assert.IsAssignableFrom<object>(ok.Value);
+        var warningsProp = payload.GetType().GetProperty("warnings");
+        Assert.NotNull(warningsProp);
+        var warnings = Assert.IsAssignableFrom<System.Collections.Generic.IEnumerable<string>>(warningsProp!.GetValue(payload));
+        Assert.DoesNotContain(warnings, w => w.Contains("PluginLogLevel", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_NullPluginLogLevel_NoWarning()
+    {
+        // Old clients that don't include the field at all must not trigger the warning.
+        _config.PluginLogLevel = "INFO";
+        var request = new ConfigurationUpdateRequest { PluginLogLevel = null };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("INFO", _config.PluginLogLevel);
+
+        var payload = Assert.IsAssignableFrom<object>(ok.Value);
+        var warningsProp = payload.GetType().GetProperty("warnings");
+        Assert.NotNull(warningsProp);
+        var warnings = Assert.IsAssignableFrom<System.Collections.Generic.IEnumerable<string>>(warningsProp!.GetValue(payload));
+        Assert.DoesNotContain(warnings, w => w.Contains("PluginLogLevel", StringComparison.Ordinal));
     }
 
     [Fact]
     public async Task UpdateConfiguration_EmptyPluginLogLevel_DefaultsToInfo()
     {
-        var request = new ConfigurationUpdateRequest
-        {
-            PluginLogLevel = ""
-        };
-
+        _config.PluginLogLevel = "";
+        var request = new ConfigurationUpdateRequest { PluginLogLevel = "" };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-
         Assert.IsType<OkObjectResult>(result);
         Assert.Equal("INFO", _config.PluginLogLevel);
     }
@@ -122,9 +152,7 @@ public class ConfigurationControllerTests
     public async Task UpdateConfiguration_InvalidOrphanAge_ReturnsBadRequest()
     {
         var request = new ConfigurationUpdateRequest { OrphanMinAgeDays = -1 };
-
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
@@ -132,9 +160,7 @@ public class ConfigurationControllerTests
     public async Task UpdateConfiguration_InvalidTrashRetention_ReturnsBadRequest()
     {
         var request = new ConfigurationUpdateRequest { TrashRetentionDays = -1 };
-
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
@@ -150,9 +176,7 @@ public class ConfigurationControllerTests
                 new ArrInstanceConfig { Name = "Radarr-3", Url = "http://r3:7878", ApiKey = "key3" }
             ]
         };
-
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-
         Assert.IsType<OkObjectResult>(result);
         Assert.Equal(3, _config.RadarrInstances.Count);
         Assert.Equal("Radarr-2", _config.RadarrInstances[1].Name);
@@ -162,7 +186,6 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_MultipleInstances_SurviveGetAfterSave()
     {
-        // Simulate POST: save 3 Radarr + 2 Sonarr instances
         var request = new ConfigurationUpdateRequest
         {
             RadarrInstances =
@@ -177,39 +200,22 @@ public class ConfigurationControllerTests
                 new ArrInstanceConfig { Name = "S2", Url = "http://s2:8989", ApiKey = "sk2" }
             ]
         };
-
         await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-
-        // Simulate GET: retrieve the config and serialize to JSON (like Jellyfin API)
         var getResult = _controller.GetConfiguration();
         var okResult = Assert.IsType<OkObjectResult>(getResult.Result);
         var config = Assert.IsType<PluginConfiguration>(okResult.Value);
-
-        // Jellyfin uses PropertyNamingPolicy = null (PascalCase) and PropertyNameCaseInsensitive = true
-        var jsonOptions = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = null,
-            PropertyNameCaseInsensitive = true
-        };
-
+        var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = null, PropertyNameCaseInsensitive = true };
         var json = JsonSerializer.Serialize(config, jsonOptions);
-
-        // Verify the JSON contains all instances with PascalCase keys
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
-
-        Assert.True(root.TryGetProperty("RadarrInstances", out var radarrArr),
-            "JSON must contain RadarrInstances (PascalCase)");
+        Assert.True(root.TryGetProperty("RadarrInstances", out var radarrArr), "JSON must contain RadarrInstances (PascalCase)");
         Assert.Equal(3, radarrArr.GetArrayLength());
         Assert.Equal("R2", radarrArr[1].GetProperty("Name").GetString());
         Assert.Equal("http://r3:7878", radarrArr[2].GetProperty("Url").GetString());
-
-        Assert.True(root.TryGetProperty("SonarrInstances", out var sonarrArr),
-            "JSON must contain SonarrInstances (PascalCase)");
+        Assert.True(root.TryGetProperty("SonarrInstances", out var sonarrArr), "JSON must contain SonarrInstances (PascalCase)");
         Assert.Equal(2, sonarrArr.GetArrayLength());
         Assert.Equal("S1", sonarrArr[0].GetProperty("Name").GetString());
 
-        // Also verify it deserializes back correctly (simulating JS → server round-trip)
         var restored = JsonSerializer.Deserialize<PluginConfiguration>(json, jsonOptions);
         Assert.NotNull(restored);
         Assert.Equal(3, restored.RadarrInstances.Count);
@@ -219,7 +225,6 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_UnreachableArr_SavesButReturnsWarnings()
     {
-        // Simulate one reachable and one unreachable Radarr instance
         _arrServiceMock
             .Setup(s => s.TestConnectionAsync("http://r1:7878", "key1", It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "Radarr v5.0"));
@@ -238,11 +243,9 @@ public class ConfigurationControllerTests
 
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
 
-        // Config should still be saved
         var okResult = Assert.IsType<OkObjectResult>(result);
         Assert.Equal(2, _config.RadarrInstances.Count);
 
-        // Response should contain warnings
         var json = JsonSerializer.Serialize(okResult.Value);
         Assert.Contains("Bad-Radarr", json);
         Assert.Contains("not reachable", json);
@@ -254,9 +257,7 @@ public class ConfigurationControllerTests
     public void UpdateLogLevel_ValidLevel_PersistsAndReturnsOk()
     {
         var request = new LogLevelUpdateRequest { PluginLogLevel = "DEBUG" };
-
         var result = _controller.UpdateLogLevel(request);
-
         Assert.IsType<OkObjectResult>(result);
         Assert.Equal("DEBUG", _config.PluginLogLevel);
         _configServiceMock.Verify(s => s.SaveConfiguration(), Times.Once);
@@ -266,9 +267,7 @@ public class ConfigurationControllerTests
     public void UpdateLogLevel_EmptyLevel_DefaultsToInfo()
     {
         var request = new LogLevelUpdateRequest { PluginLogLevel = "" };
-
         var result = _controller.UpdateLogLevel(request);
-
         Assert.IsType<OkObjectResult>(result);
         Assert.Equal("INFO", _config.PluginLogLevel);
     }
@@ -277,9 +276,7 @@ public class ConfigurationControllerTests
     public void UpdateLogLevel_InvalidLevel_ReturnsBadRequest()
     {
         var request = new LogLevelUpdateRequest { PluginLogLevel = "TRACE" };
-
         var result = _controller.UpdateLogLevel(request);
-
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
@@ -287,9 +284,7 @@ public class ConfigurationControllerTests
     public void UpdateLogLevel_CaseInsensitive_NormalizesToUpperCase()
     {
         var request = new LogLevelUpdateRequest { PluginLogLevel = "warn" };
-
         var result = _controller.UpdateLogLevel(request);
-
         Assert.IsType<OkObjectResult>(result);
         Assert.Equal("WARN", _config.PluginLogLevel);
     }
@@ -297,7 +292,6 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateLogLevel_DoesNotAffectOtherSettings()
     {
-        // First set some config values
         var configRequest = new ConfigurationUpdateRequest
         {
             OrphanMinAgeDays = 42,
@@ -306,11 +300,9 @@ public class ConfigurationControllerTests
         };
         await _controller.UpdateConfigurationAsync(configRequest, CancellationToken.None);
 
-        // Now update only the log level
         var logRequest = new LogLevelUpdateRequest { PluginLogLevel = "ERROR" };
         _controller.UpdateLogLevel(logRequest);
 
-        // Verify log level changed but other settings untouched
         Assert.Equal("ERROR", _config.PluginLogLevel);
         Assert.Equal(42, _config.OrphanMinAgeDays);
         Assert.Equal(15, _config.TrashRetentionDays);
@@ -319,7 +311,6 @@ public class ConfigurationControllerTests
     [Fact]
     public void JsonRoundTrip_ConfigurationUpdateRequest_DeserializesMultipleInstances()
     {
-        // Simulate the exact JSON the frontend sends (PascalCase)
         const string frontendJson = """
                                     {
                                         "IncludedLibraries": "",
@@ -346,12 +337,7 @@ public class ConfigurationControllerTests
                                     }
                                     """;
 
-        var jsonOptions = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = null,
-            PropertyNameCaseInsensitive = true
-        };
-
+        var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = null, PropertyNameCaseInsensitive = true };
         var request = JsonSerializer.Deserialize<ConfigurationUpdateRequest>(frontendJson, jsonOptions);
 
         Assert.NotNull(request);
@@ -361,8 +347,6 @@ public class ConfigurationControllerTests
         Assert.Equal("Radarr-3", request.RadarrInstances[2].Name);
         Assert.Equal("http://r2:7878", request.RadarrInstances[1].Url);
         Assert.Equal("key3", request.RadarrInstances[2].ApiKey);
-
-        // Verify renamed LinkRepairTaskMode deserializes correctly
         Assert.Equal(TaskMode.DryRun, request.LinkRepairTaskMode);
     }
 
@@ -370,10 +354,8 @@ public class ConfigurationControllerTests
     public async Task UpdateConfiguration_PluginNotInitialized_ReturnsBadRequest()
     {
         _configServiceMock.Setup(s => s.IsInitialized).Returns(false);
-
         var request = new ConfigurationUpdateRequest();
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
@@ -381,10 +363,8 @@ public class ConfigurationControllerTests
     public void UpdateLogLevel_PluginNotInitialized_ReturnsBadRequest()
     {
         _configServiceMock.Setup(s => s.IsInitialized).Returns(false);
-
         var request = new LogLevelUpdateRequest { PluginLogLevel = "DEBUG" };
         var result = _controller.UpdateLogLevel(request);
-
         Assert.IsType<BadRequestObjectResult>(result);
     }
 }

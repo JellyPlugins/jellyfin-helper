@@ -10,7 +10,7 @@
     "versions": [
       {
         "version": "3.0.0.0",
-        "changelog": "v3.0.0.0: Compatible with Jellyfin 12.0. Users on Jellyfin 10.x should stay on v2.1.0.5. Settings page redesigned. 2400 tests.",
+        "changelog": "v3.0.0.0: Recommendation engine upgraded (4x larger neural net + dropout, train/serve skew fixes, community-blended cold-start, weighted people similarity). Compatible with Jellyfin 12.0 - users on Jellyfin 10.x should stay on v2.1.0.5. Settings page redesigned. 2480 tests.",
         "targetAbi": "12.0.0.0",
         "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/3.0.0.0/JellyfinHelper_3.0.0.0.zip",
         "checksum": "",

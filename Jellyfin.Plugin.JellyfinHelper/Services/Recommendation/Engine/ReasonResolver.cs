@@ -25,6 +25,11 @@ internal static class ReasonResolver
     /// <param name="preferredPeople">Optional set of preferred people names for concrete person reasons.</param>
     /// <param name="preferredStudios">Optional set of preferred studio names for concrete studio reasons.</param>
     /// <param name="peopleLookup">Optional pre-built people lookup (item ID → person names) for resolving concrete person names on candidates.</param>
+    /// <param name="preferredPeopleWeights">
+    ///     Optional per-name weights (matches the map fed into <c>ComputePeopleSimilarity</c>).
+    ///     When supplied, the reason text surfaces the highest-weighted matching person instead
+    ///     of the first arbitrary hit, so a heavyweight director beats a cameo actor.
+    /// </param>
     /// <returns>A tuple of reason text, i18n key, and optional related item name.</returns>
     internal static (string Reason, string ReasonKey, string? RelatedItem) DetermineReason(
         BaseItem candidate,
@@ -32,13 +37,14 @@ internal static class ReasonResolver
         Dictionary<string, double> genrePreferences,
         HashSet<string>? preferredPeople = null,
         HashSet<string>? preferredStudios = null,
-        Dictionary<Guid, HashSet<string>>? peopleLookup = null)
+        Dictionary<Guid, HashSet<string>>? peopleLookup = null,
+        IReadOnlyDictionary<string, double>? preferredPeopleWeights = null)
     {
         var dominant = explanation.DominantSignal;
 
         // Resolve concrete names for richer reasons
         var topGenre = ResolveTopGenre(candidate, genrePreferences);
-        var matchedPerson = ResolveMatchedPerson(candidate, preferredPeople, peopleLookup);
+        var matchedPerson = ResolveMatchedPerson(candidate, preferredPeople, peopleLookup, preferredPeopleWeights);
         var matchedStudio = ResolveMatchedStudio(candidate, preferredStudios);
 
         // === Combination reasons (two strong signals) ===
@@ -175,26 +181,53 @@ internal static class ReasonResolver
     ///     Uses the pre-built <paramref name="peopleLookup"/> (item ID → person names) to avoid
     ///     library-manager queries during scoring. Requires both <paramref name="preferredPeople"/>
     ///     and <paramref name="peopleLookup"/> to be non-null to return a match.
-    ///     Returns the first matching person name, or null if no match or data unavailable.
+    ///     When <paramref name="preferredPeopleWeights"/> is supplied, the highest-weighted match
+    ///     wins so the surfaced name aligns with the driver of the PeopleSimilarity feature.
     /// </summary>
     private static string? ResolveMatchedPerson(
         BaseItem candidate,
         HashSet<string>? preferredPeople,
-        Dictionary<Guid, HashSet<string>>? peopleLookup)
+        Dictionary<Guid, HashSet<string>>? peopleLookup,
+        IReadOnlyDictionary<string, double>? preferredPeopleWeights)
     {
         if (preferredPeople is null || preferredPeople.Count == 0)
         {
             return null;
         }
 
-        // Use the pre-built people lookup to find which person on this candidate
-        // matches the user's preferred people - avoids expensive library queries.
-        if (peopleLookup is not null && peopleLookup.TryGetValue(candidate.Id, out var candidatePeople))
+        if (peopleLookup is null || !peopleLookup.TryGetValue(candidate.Id, out var candidatePeople))
         {
-            return candidatePeople.FirstOrDefault(preferredPeople.Contains);
+            return null;
         }
 
-        return null;
+        // When weights are available, pick the heaviest match so the reason reflects the
+        // person that actually dominated PeopleSimilarity, not an arbitrary weight-1 cameo.
+        if (preferredPeopleWeights is { Count: > 0 })
+        {
+            string? bestName = null;
+            var bestWeight = double.NegativeInfinity;
+            foreach (var name in candidatePeople)
+            {
+                if (!preferredPeople.Contains(name))
+                {
+                    continue;
+                }
+
+                var weight = preferredPeopleWeights.TryGetValue(name, out var w) ? w : 0.0;
+                if (weight > bestWeight)
+                {
+                    bestWeight = weight;
+                    bestName = name;
+                }
+            }
+
+            if (bestName is not null)
+            {
+                return bestName;
+            }
+        }
+
+        return candidatePeople.FirstOrDefault(preferredPeople.Contains);
     }
 
     /// <summary>

@@ -341,13 +341,11 @@ public class PluginConfigurationSerializationTests
     }
 
     [Fact]
-    public void XmlRoundTrip_OutOfRangeNumericProperties_AreClampedOnDeserialization()
+    public void XmlRoundTrip_OutOfRangeNumericProperties_AreClampedBySetter()
     {
-        // Setter-time clamping check: values assigned via property are clamped BEFORE
-        // serialization. This is one half of the "hand-edited config self-heals" story —
-        // it proves the setter contract. The complementary
-        // Deserialize_HandEditedXmlWithOutOfRangeValues_ClampsOnLoad test below covers
-        // the other half: what happens when the XML itself already contains bad values.
+        // Values assigned via property are clamped BEFORE serialization, so the XML
+        // never contains out-of-range values. The Deserialize_HandEditedXmlWithOutOfRangeValues_ClampsOnLoad
+        // test below covers the complementary case: XML that already contains bad values.
         var original = new PluginConfiguration
         {
             OrphanMinAgeDays = 10_000,          // clamped to 3650
@@ -391,5 +389,36 @@ public class PluginConfigurationSerializationTests
         Assert.Equal(0.0, restored.EnsembleAlphaMin, 5);
         Assert.Equal(1.0, restored.EnsembleAlphaMax, 5);
         Assert.Equal(1.0, restored.EnsembleGenrePenaltyFloor, 5);
+    }
+
+    [Fact]
+    public void Deserialize_HandEditedXmlWithNaNDoubles_CoercedToFiniteValueAndReported()
+    {
+        // Math.Clamp passes NaN through unchanged. Without an explicit NaN guard the ensemble
+        // blend would then multiply by NaN and poison every recommendation score. Guard the
+        // finite invariant here so a corrupted or hand-mangled config file cannot silently
+        // brick recommendations.
+        const string xml = @"<?xml version=""1.0"" encoding=""utf-16""?>
+<PluginConfiguration xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" xmlns:xsd=""http://www.w3.org/2001/XMLSchema"">
+  <EnsembleAlphaMin>NaN</EnsembleAlphaMin>
+  <EnsembleAlphaMax>NaN</EnsembleAlphaMax>
+  <EnsembleGenrePenaltyFloor>NaN</EnsembleGenrePenaltyFloor>
+</PluginConfiguration>";
+
+        using var reader = new StringReader(xml);
+        var restored = (PluginConfiguration)Serializer.Deserialize(reader)!;
+
+        Assert.False(double.IsNaN(restored.EnsembleAlphaMin));
+        Assert.False(double.IsNaN(restored.EnsembleAlphaMax));
+        Assert.False(double.IsNaN(restored.EnsembleGenrePenaltyFloor));
+        Assert.Equal(0.0, restored.EnsembleAlphaMin, 5);
+        Assert.Equal(0.0, restored.EnsembleAlphaMax, 5);
+        Assert.Equal(0.0, restored.EnsembleGenrePenaltyFloor, 5);
+
+        // The clamp report must surface the coercion so an admin sees the diagnostic on startup.
+        var reports = restored.DrainClampReports();
+        Assert.Contains(reports, r => r.PropertyName == nameof(PluginConfiguration.EnsembleAlphaMin));
+        Assert.Contains(reports, r => r.PropertyName == nameof(PluginConfiguration.EnsembleAlphaMax));
+        Assert.Contains(reports, r => r.PropertyName == nameof(PluginConfiguration.EnsembleGenrePenaltyFloor));
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
@@ -53,6 +54,16 @@ internal static class BatchFallbackHelper
             // Cancellation must propagate, not fall through to the slow path.
             throw;
         }
+        catch (AggregateException agg) when (ContainsOperationCanceled(agg))
+        {
+            // A Task-based batch call that awaits internally can surface cancellation
+            // wrapped in AggregateException (e.g. Task.Wait / Task.Result semantics).
+            // The naked catch above would miss that shape and let the outer
+            // graceful-degradation branch silently swallow the cancel signal, which is
+            // exactly the failure mode that Finding #37 flagged. Rethrow the innermost
+            // OCE so the caller's cancellation token contract is preserved.
+            throw agg.Flatten().InnerExceptions.OfType<OperationCanceledException>().First();
+        }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // The whole reason this helper exists is that callers always get fallbackValue
@@ -63,7 +74,19 @@ internal static class BatchFallbackHelper
             {
                 onFailure(ex);
             }
-            catch (Exception callbackEx) when (callbackEx is not OutOfMemoryException and not StackOverflowException)
+            catch (OperationCanceledException)
+            {
+                // Callback observed cancellation — must bubble out of the graceful-degradation path.
+                throw;
+            }
+            catch (AggregateException agg) when (ContainsOperationCanceled(agg))
+            {
+                // Async loggers can surface cancellation wrapped in AggregateException. Preserve
+                // the cancellation contract by unwrapping and rethrowing the inner OCE.
+                throw agg.Flatten().InnerExceptions.OfType<OperationCanceledException>().First();
+            }
+            catch (Exception callbackEx) when (callbackEx is not OutOfMemoryException
+                                                and not StackOverflowException)
             {
                 // Intentionally swallowed. There's nothing sensible we can do with an
                 // exception thrown by the diagnostic callback itself.
@@ -71,5 +94,16 @@ internal static class BatchFallbackHelper
 
             return fallbackValue;
         }
+    }
+
+    /// <summary>
+    ///     True if the aggregate (after flattening one level of nested AggregateExceptions)
+    ///     contains at least one <see cref="OperationCanceledException"/>. Task-based batch
+    ///     APIs surface cancellation this way; without unwrapping, the outer catch would
+    ///     treat it like any other exception and drop the caller into the fallback path.
+    /// </summary>
+    private static bool ContainsOperationCanceled(AggregateException agg)
+    {
+        return agg.Flatten().InnerExceptions.Any(inner => inner is OperationCanceledException);
     }
 }

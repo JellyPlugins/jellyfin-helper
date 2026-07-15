@@ -416,4 +416,72 @@ public class UserActivityInsightsServiceTests
         // Per-item fallback must NOT have been invoked once cancellation was requested.
         ud.Verify(m => m.GetUserData(It.IsAny<Jellyfin.Database.Implementations.Entities.User>(), It.IsAny<BaseItem>()), Times.Never);
     }
+
+    [Fact]
+    public void BuildActivityReport_BatchApiCancelledOnSecondUser_PropagatesWithoutPartialReport()
+    {
+        // Multi-user variant of BuildActivityReport_BatchApiCancelled_PropagatesWithoutFallback.
+        // Locks in the invariant documented on BuildUserDataLookup: cancellation mid-scan aborts
+        // the entire report; no caller ever observes a partial result even when earlier users
+        // already had their batch loaded successfully.
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var bob = User("bob");
+        var movie = NewMovie("Shared");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice, bob });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+
+        // Alice's batch succeeds; Bob's batch is cancelled.
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+          .Returns(new Dictionary<Guid, UserItemData> { [movie.Id] = Played(count: 1) });
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), bob))
+          .Throws(new OperationCanceledException());
+
+        Assert.Throws<OperationCanceledException>(() => svc.BuildActivityReport());
+        // Both users' batch calls must have fired exactly once so the assertion actually
+        // exercises "cancellation after a partial preload" — not the shortcut where the
+        // scan aborts before ever reaching Bob. Alice's successful batch proves the loop
+        // was already several iterations in before Bob's cancellation propagated.
+        ud.Verify(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice), Times.Once);
+        ud.Verify(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), bob), Times.Once);
+        // Neither user is allowed to trigger the per-item fallback once cancellation was requested,
+        // and no partially-scored summary ever reaches the caller.
+        ud.Verify(m => m.GetUserData(It.IsAny<Jellyfin.Database.Implementations.Entities.User>(), It.IsAny<BaseItem>()), Times.Never);
+    }
+
+    [Fact]
+    public void BuildActivityReport_BatchApiHappyPath_ConsumesBatchAndSkipsPerItemLookup()
+    {
+        // Happy path: a populated batch dictionary must be consumed via the O(1) lookup,
+        // and per-item GetUserData must not be touched. This locks in the core batch optimisation.
+        var (svc, lib, um, ud) = CreateSut();
+        var alice = User("alice");
+        var movieA = NewMovie("Alpha");
+        var movieB = NewMovie("Beta");
+        um.Setup(m => m.GetUsers()).Returns(new[] { alice });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movieA, movieB]);
+
+        var lastPlayedA = new DateTime(2026, 4, 1, 12, 0, 0, DateTimeKind.Utc);
+        var lastPlayedB = new DateTime(2026, 4, 2, 18, 30, 0, DateTimeKind.Utc);
+        var batchData = new Dictionary<Guid, UserItemData>
+        {
+            [movieA.Id] = Played(count: 4, at: lastPlayedA),
+            [movieB.Id] = Played(count: 2, at: lastPlayedB)
+        };
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice))
+          .Returns(batchData);
+
+        var r = svc.BuildActivityReport();
+
+        Assert.Equal(2, r.Items.Count);
+        Assert.Equal(6L, r.TotalPlayCount);
+        var alpha = r.Items.Single(i => i.ItemName == "Alpha");
+        var beta = r.Items.Single(i => i.ItemName == "Beta");
+        Assert.Equal(4, alpha.TotalPlayCount);
+        Assert.Equal(2, beta.TotalPlayCount);
+        Assert.Equal(lastPlayedA, alpha.MostRecentWatch);
+        Assert.Equal(lastPlayedB, beta.MostRecentWatch);
+        ud.Verify(m => m.GetUserData(alice, It.IsAny<BaseItem>()), Times.Never);
+        ud.Verify(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice), Times.Once);
+    }
 }
