@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Xunit;
@@ -1077,13 +1078,26 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         // strictly weaker property that AT LEAST ONE neuron in Hidden4 is dropped AND at
         // least one is kept. The chance of this failing due to bad luck is ~ 2 × (0.5)^24
         // ≈ 1.2 × 10^-7 (still deterministic here thanks to the fixed seed).
-        Assert.Contains(h4Mask, m => m == 0.0);
-        Assert.Contains(h4Mask, m => m == 1.0);
+        //
+        // The mask entries are populated via `keep ? 1.0 : 0.0` in NeuralScoringStrategy
+        // (no arithmetic involved), so they are literally the double constants 0.0 and 1.0.
+        // Using Math.Abs(m - target) <= MaskEpsilon with a very small epsilon keeps the
+        // semantic identical while silencing static analysis "equality on floating-point"
+        // warnings — a strict bit-exact check would be equivalent here but the epsilon form
+        // documents the intent to future readers without changing behaviour.
+        const double maskEpsilon = 1e-12;
+        Assert.Contains(h4Mask, m => Math.Abs(m - 0.0) <= maskEpsilon);
+        Assert.Contains(h4Mask, m => Math.Abs(m - 1.0) <= maskEpsilon);
         // Each mask entry must be exactly 0.0 or 1.0 — never in between.
-        Assert.All(h4Mask, m => Assert.True(m == 0.0 || m == 1.0, $"Mask entry {m} is neither 0 nor 1"));
-        Assert.All(h1Mask, m => Assert.True(m == 0.0 || m == 1.0));
-        Assert.All(h2Mask, m => Assert.True(m == 0.0 || m == 1.0));
-        Assert.All(h3Mask, m => Assert.True(m == 0.0 || m == 1.0));
+        Assert.All(h4Mask, m => Assert.True(
+            Math.Abs(m - 0.0) <= maskEpsilon || Math.Abs(m - 1.0) <= maskEpsilon,
+            $"Mask entry {m} is neither 0 nor 1"));
+        Assert.All(h1Mask, m => Assert.True(
+            Math.Abs(m - 0.0) <= maskEpsilon || Math.Abs(m - 1.0) <= maskEpsilon));
+        Assert.All(h2Mask, m => Assert.True(
+            Math.Abs(m - 0.0) <= maskEpsilon || Math.Abs(m - 1.0) <= maskEpsilon));
+        Assert.All(h3Mask, m => Assert.True(
+            Math.Abs(m - 0.0) <= maskEpsilon || Math.Abs(m - 1.0) <= maskEpsilon));
 
         // Where a neuron was dropped, its activation must be exactly 0 regardless of
         // pre-activation magnitude. Where it was kept, activation = relu(pre) * invKeepScale.
@@ -1092,11 +1106,12 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         // version only checked Hidden4 and would have missed a Hidden1/2/3-only regression).
         static void AssertDropoutApplied(double[] pre, double[] act, double[] mask, double invKeepScale)
         {
+            const double dropMaskEpsilon = 1e-12;
             Assert.Equal(pre.Length, act.Length);
             Assert.Equal(pre.Length, mask.Length);
             for (var k = 0; k < mask.Length; k++)
             {
-                if (mask[k] == 0.0)
+                if (Math.Abs(mask[k] - 0.0) <= dropMaskEpsilon)
                 {
                     Assert.Equal(0.0, act[k]);
                 }
