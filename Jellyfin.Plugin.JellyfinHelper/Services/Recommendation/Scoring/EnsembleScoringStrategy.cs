@@ -968,6 +968,20 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             }
         }
 
+        // Reaching this point means either:
+        //   (a) at least one exploration cohort had enough samples AND lost to control, OR
+        //   (b) neither exploration cohort had enough samples to be evaluated at all.
+        //
+        // Case (a) is a genuine "control is optimal" signal and legitimately triggers anti-drift
+        // decay. Case (b) is NOT: we have no exploration outcome to compare against, so any
+        // decay would be based purely on control-only data — a shift in the midpoint driven by
+        // no evidence about the alternatives it's shifting away from. Guard against that by
+        // requiring at least one qualifying exploration cohort before decaying.
+        if (highTotal < minRecsPerCohort && lowTotal < minRecsPerCohort)
+        {
+            return;
+        }
+
         // Control is optimal - no cohort-driven adaptation, but apply a mild decay so a
         // saturated offset from earlier runs drifts back toward the default midpoint over
         // time. This acts as a slow anti-drift regulariser: if user behaviour has stabilised
@@ -1100,7 +1114,20 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             // "NaN" literal in the file would throw JsonException and lose the entire
             // history — the exploration gate would then never open.
             var data = JsonSerializer.Deserialize<EnsembleStateData>(json, SerializerOptions);
-            if (data is null || data.TrainingExampleCount <= 0)
+            if (data is null)
+            {
+                return;
+            }
+
+            // Reject only when the state is entirely empty. A run that produced ONLY cold-start
+            // placeholder snapshots persists TrainingExampleCount = 0 (no successful training
+            // happened yet) but non-empty MetricsHistory (each failed Train() call recorded one
+            // placeholder row). Rejecting that on load would erase the exploration-history
+            // signal on every restart and re-lock the cold-start path — exactly the self-lock
+            // the placeholder writes were introduced to break. Keeping the history alive as long
+            // as either counter is non-empty lets exploration continue accumulating snapshots
+            // across restarts until the first real training run flips TrainingExampleCount > 0.
+            if (data.TrainingExampleCount <= 0 && (data.MetricsHistory is null || data.MetricsHistory.Count == 0))
             {
                 return;
             }
@@ -1238,20 +1265,36 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// <returns>The detected trend direction.</returns>
     internal static MetricsTrend AnalyzeTrend(IReadOnlyList<MetricsSnapshot> history)
     {
-        if (history.Count < TrendMinSnapshots)
+        // Filter out cold-start placeholder rows (ValidationLoss = NaN) BEFORE selecting the
+        // trailing window. A mixed history (e.g. 2 placeholders + 3 real snapshots followed by
+        // 5 more real ones) would otherwise poison sums/means with NaN and collapse the whole
+        // analysis to Stable — even though there are enough real rows to detect a real trend.
+        // The Train() path guarantees placeholders carry NaN loss and 0 NDCG; real rows carry
+        // finite loss. IsFinite() is therefore the right gate: it rejects NaN, ±Infinity, and
+        // any other pathological value that would silently break the linear-regression math.
+        var realRows = new List<MetricsSnapshot>(history.Count);
+        foreach (var snapshot in history)
+        {
+            if (double.IsFinite(snapshot.ValidationLoss))
+            {
+                realRows.Add(snapshot);
+            }
+        }
+
+        if (realRows.Count < TrendMinSnapshots)
         {
             return MetricsTrend.InsufficientData;
         }
 
-        var startIdx = history.Count - TrendMinSnapshots;
+        var startIdx = realRows.Count - TrendMinSnapshots;
         var n = TrendMinSnapshots;
         var meanI = (n - 1) / 2.0;
 
         double sumLoss = 0, sumNdcg = 0;
         for (var i = 0; i < n; i++)
         {
-            sumLoss += history[startIdx + i].ValidationLoss;
-            sumNdcg += history[startIdx + i].NdcgAtK;
+            sumLoss += realRows[startIdx + i].ValidationLoss;
+            sumNdcg += realRows[startIdx + i].NdcgAtK;
         }
 
         var meanLoss = sumLoss / n;
@@ -1261,8 +1304,8 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         for (var i = 0; i < n; i++)
         {
             var di = i - meanI;
-            numLoss += di * (history[startIdx + i].ValidationLoss - meanLoss);
-            numNdcg += di * (history[startIdx + i].NdcgAtK - meanNdcg);
+            numLoss += di * (realRows[startIdx + i].ValidationLoss - meanLoss);
+            numNdcg += di * (realRows[startIdx + i].NdcgAtK - meanNdcg);
             denominator += di * di;
         }
 

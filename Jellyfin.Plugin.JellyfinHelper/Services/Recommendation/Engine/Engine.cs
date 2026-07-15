@@ -73,6 +73,14 @@ public sealed class Engine : IRecommendationEngine
     // making the exploration seed deterministic per (user, batch) pair.
     private int _batchGeneration;
 
+    // Monotonic publish-order counter, incremented immediately before EVERY snapshot publish (batch
+    // or live-refresh). Unlike _batchGeneration (which tracks batch-start order and stays at 0 for
+    // live-refresh writes), this sequence reflects the ACTUAL publish order and is used by
+    // TryPublishSnapshot to decide freshness. Without it a long-running batch that started before a
+    // live-refresh could still overwrite the fresher live-refresh snapshot on completion, because
+    // its BatchGeneration >= 1 outranks the live-refresh's BatchGeneration = 0.
+    private long _publicationSequence;
+
     /// <summary>Initializes a new instance of the <see cref="Engine" /> class.</summary>
     /// <param name="watchHistoryService">The watch history service.</param>
     /// <param name="libraryManager">The Jellyfin library manager.</param>
@@ -307,6 +315,7 @@ public sealed class Engine : IRecommendationEngine
             null,
             CommunityPopularityComputed: false, // filled in by the second publish once we have all-user aggregates
             BatchGeneration: batchGeneration,
+            PublicationSequence: Interlocked.Increment(ref _publicationSequence),
             DateTime.UtcNow));
 
         // Pre-compute all user watched-item sets ONCE for collaborative filtering.
@@ -350,6 +359,7 @@ public sealed class Engine : IRecommendationEngine
             communityPopularity,
             CommunityPopularityComputed: true, // batch path has executed the O(U×M) scan
             BatchGeneration: batchGeneration,
+            PublicationSequence: Interlocked.Increment(ref _publicationSequence),
             DateTime.UtcNow));
 
         _pluginLog.LogInfo(
@@ -1474,7 +1484,8 @@ public sealed class Engine : IRecommendationEngine
                 seriesEpisodeCounts,
                 null,
                 CommunityPopularityComputed: false, // live rebuild has no all-user data yet — first cold-start hit will fill this in
-                BatchGeneration: 0, // live-refresh writes carry BatchGeneration=0; TryPublishSnapshot never lets them win over batch writes
+                BatchGeneration: 0, // live-refresh writes carry BatchGeneration=0; kept for exploration-seed semantics only
+                PublicationSequence: Interlocked.Increment(ref _publicationSequence),
                 DateTime.UtcNow);
 
             // Republish so subsequent live requests hit the fresh cache without re-entering
@@ -1490,16 +1501,19 @@ public sealed class Engine : IRecommendationEngine
 
     /// <summary>
     ///     Publishes a snapshot to <see cref="_cachedSnapshot"/> while enforcing monotonic
-    ///     ordering by <see cref="CandidateSnapshot.BatchGeneration"/>. Rejects the write when
-    ///     the currently-cached snapshot originated from a strictly-newer batch, so an older
-    ///     overlapping <see cref="GetAllRecommendations"/> that finishes late cannot clobber
-    ///     the newer batch's cache.
+    ///     ordering by <see cref="CandidateSnapshot.PublicationSequence"/>. Rejects the write
+    ///     when the currently-cached snapshot has a strictly-larger publication sequence, so
+    ///     an older publish that finishes late cannot clobber a newer one — regardless of
+    ///     whether it originated from a batch run or a live-refresh.
     ///     <para>
-    ///         Live-refresh writes (BatchGeneration=0) always yield to any batch-generated
-    ///         snapshot (BatchGeneration&gt;0) and to any other live-refresh already published
-    ///         within the TTL window. Batch writes yield only to strictly-larger batch
-    ///         generations — equal generations always win (they represent the second publish
-    ///         from the same batch, which carries additional community-popularity data).
+    ///         Ordering is decided by <see cref="CandidateSnapshot.PublicationSequence"/>
+    ///         rather than <see cref="CandidateSnapshot.BatchGeneration"/>: the batch counter
+    ///         reflects batch-start order and stays at 0 for live-refresh writes, so a slow
+    ///         batch that started before a live-refresh could otherwise still overwrite the
+    ///         fresher live-refresh snapshot on completion. The publication sequence is
+    ///         incremented immediately before every publish attempt and therefore always
+    ///         reflects actual publish order, closing that gap without disturbing the
+    ///         per-(user, batch) exploration-seed contract that still uses BatchGeneration.
     ///     </para>
     ///     <para>
     ///         All writes serialise through <see cref="_snapshotRefreshLock"/> so this method
@@ -1519,9 +1533,9 @@ public sealed class Engine : IRecommendationEngine
         lock (_snapshotRefreshLock)
         {
             var current = _cachedSnapshot;
-            if (current is not null && current.BatchGeneration > candidate.BatchGeneration)
+            if (current is not null && current.PublicationSequence > candidate.PublicationSequence)
             {
-                // A newer batch has already published. Reject this publish so the older batch
+                // A newer publish has already landed. Reject this write so the older one
                 // cannot roll the cache back to stale data.
                 return false;
             }
@@ -1943,12 +1957,19 @@ public sealed class Engine : IRecommendationEngine
     /// <param name="BatchGeneration">
     ///     The <see cref="_batchGeneration"/> value at the time of publication, or <c>0</c>
     ///     for snapshots produced by the live-refresh path (which is not part of any batch
-    ///     lineage). Monotonically increasing per batch. Used by <see cref="TryPublishSnapshot"/>
-    ///     to reject out-of-order writes: an older <see cref="GetAllRecommendations"/> that
-    ///     finishes late must not clobber a newer batch's publish, otherwise the live cache
-    ///     could serve stale candidates for up to <see cref="CandidateSnapshotMaxAge"/>.
-    ///     Live-refresh writes (BatchGeneration=0) always yield to any batch-generated
-    ///     snapshot, matching the pre-existing "batch owns primary invalidation" contract.
+    ///     lineage). Monotonically increasing per batch. Consumed by the exploration-seed
+    ///     derivation (<see cref="ComputeStableSeed"/>) to make per-user seeds stable across
+    ///     the users of a single batch. NOT used for publish-ordering decisions — see
+    ///     <see cref="PublicationSequence"/> for that.
+    /// </param>
+    /// <param name="PublicationSequence">
+    ///     Monotonically increasing counter incremented immediately before every publish
+    ///     (batch or live-refresh). Used by <see cref="TryPublishSnapshot"/> to reject
+    ///     out-of-order writes: any publish whose sequence is strictly smaller than the
+    ///     currently-cached snapshot's is silently dropped. Unlike <see cref="BatchGeneration"/>,
+    ///     which is 0 for live-refresh writes and therefore lets a slow batch overwrite a
+    ///     newer live-refresh, the publication sequence reflects actual publish order and
+    ///     closes that stale-overwrite gap regardless of write origin.
     /// </param>
     private sealed record CandidateSnapshot(
         List<BaseItem> Candidates,
@@ -1958,5 +1979,6 @@ public sealed class Engine : IRecommendationEngine
         Dictionary<Guid, int>? CommunityPopularity,
         bool CommunityPopularityComputed,
         int BatchGeneration,
+        long PublicationSequence,
         DateTime CreatedAtUtc);
 }

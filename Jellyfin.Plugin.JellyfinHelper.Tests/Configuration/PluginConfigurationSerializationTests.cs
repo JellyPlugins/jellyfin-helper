@@ -343,6 +343,7 @@ public class PluginConfigurationSerializationTests
         Assert.Equal("DEBUG", restored.PluginLogLevel);
         Assert.Equal(123_456_789L, restored.TotalBytesFreed);
         Assert.Equal(42, restored.TotalItemsDeleted);
+        Assert.Equal(original.LastCleanupTimestamp, restored.LastCleanupTimestamp);
         Assert.Single(restored.RadarrInstances);
         Assert.Single(restored.SonarrInstances);
     }

@@ -99,13 +99,23 @@ public sealed class DiscoveryRecommendation
 
     /// <summary>
     ///     Gets or sets the raw TMDb popularity value at the time of discovery.
-    ///     Excluded from JSON serialization to the frontend (not needed for display), but
-    ///     carried in-memory to <c>DiscoveryFeedbackStore.RecordShown</c> so the training
-    ///     pipeline can reconstruct the exact <c>PopularityScore</c> feature used at inference
-    ///     via <c>ExternalCandidateFeatureBuilder.NormalizePopularity</c>. Non-finite values
-    ///     are coerced to 0 to keep the persisted feedback store clean.
+    ///     Carried through JSON serialization to the discovery cache file (and, incidentally,
+    ///     to any frontend response) so that <c>DiscoveryFeedbackStore.RecordShown</c> receives
+    ///     a non-zero value even when the recommendations pass through a cache round-trip
+    ///     (server restart between generation and the next scheduled run's feedback recording).
+    ///     The training pipeline uses this value to reconstruct the exact <c>PopularityScore</c>
+    ///     feature used at inference via <c>ExternalCandidateFeatureBuilder.NormalizePopularity</c>.
+    ///     <para>
+    ///         Previously carried <see cref="JsonIgnoreAttribute"/> to hide the field from the
+    ///         frontend. That was fragile: <see cref="DiscoveryCacheService"/> persists this DTO
+    ///         to disk via <c>JsonSerializer</c>, so a <see cref="JsonIgnoreAttribute"/> would
+    ///         silently drop the value on every cache reload — leaving <c>RecordShown</c> to
+    ///         backfill the feedback store with <c>Popularity=0</c> and quietly re-introducing
+    ///         the train/serve skew this field was added to eliminate. Frontend consumers simply
+    ///         ignore the extra field; the payload cost is a handful of bytes per recommendation.
+    ///     </para>
+    ///     Non-finite values are coerced to 0 to keep the persisted feedback store clean.
     /// </summary>
-    [JsonIgnore]
     public double Popularity
     {
         get => _popularity;
