@@ -168,6 +168,17 @@ function renderSaveBand(kind) {
         _settingsSavedHideTimer = null;
     }
 
+    // Cancel any pending "unsaved" reveal timer. Every explicit render() call
+    // establishes the authoritative visual state; a stale reveal that fires
+    // afterwards must not overwrite it. Without this cancel, an 'error' render
+    // triggered by a failed quiet-save would be silently replaced by "Unsaved
+    // changes" ~600ms later (the delegated dirty-tracker armed the timer on the
+    // same keystroke that triggered the save, and the failed save never updated
+    // the snapshot, so stillDirty=true when the timer wakes up).
+    if (kind !== 'unsaved') {
+        cancelSaveBandReveal();
+    }
+
     if (kind === 'hidden') {
         // Start fade-out. Keep the previous state class (and icon/text) until the
         // transition finishes; otherwise the CSS rule that hides the Save button
