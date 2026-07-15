@@ -447,27 +447,35 @@ public class PreferenceBuilderTests
     [Fact]
     public void BuildGenrePreferenceVector_FullyCompletedSeries_ReceivesHigherWeightThanAbandonedSeries()
     {
-        // Two series, both 5 episodes. User completed all 5 episodes of "SciFi" (ratio 1.0
-        // → multiplier ≈ 1.5) but only 1 of 5 "Drama" episodes (ratio 0.2 → multiplier ≈ 0.54).
-        // Every counted row is Played=true so the eligibility filter admits it into the loop.
-        // The genre weight must reflect the progression ratio: SciFi > Drama.
+        // Isolate the progression multiplier from the number of contributing rows.
+        //
+        // Both series contribute exactly ONE played episode row with identical temporal
+        // weight, PlayCount boost, and +0 favorite additive. The only remaining difference is
+        // series length:
+        //   * SciFi: 1 episode watched of 1 total → rawRatio = 1.0 → multiplier ≈ 1.5.
+        //   * Drama: 1 episode watched of 5 total → rawRatio = 0.2 → multiplier ≈ 0.54.
+        // If ComputeProgressionMultiplier ever regressed to a constant (e.g. always 1.0),
+        // both rows would produce identical genre weights and this test would fail — that is
+        // the regression it is designed to catch. A previous version of this test seeded
+        // 5 SciFi rows vs. 1 Drama row, which already produced SciFi > Drama purely by row
+        // count and would silently pass even after ComputeProgressionMultiplier was neutered.
+        // Keeping the row count symmetric while varying only the seriesEpisodeCounts input is
+        // what makes this a real progression-multiplier guard.
         var sciFiSeries = Guid.NewGuid();
         var dramaSeries = Guid.NewGuid();
-        var counts = new Dictionary<Guid, int> { { sciFiSeries, 5 }, { dramaSeries, 5 } };
+        var counts = new Dictionary<Guid, int> { { sciFiSeries, 1 }, { dramaSeries, 5 } };
 
         var profile = new UserWatchProfile();
         var now = DateTime.UtcNow.AddDays(-1); // same recency for both series to isolate progression effect
-        for (var i = 0; i < 5; i++)
+
+        profile.WatchedItems.Add(new WatchedItemInfo
         {
-            profile.WatchedItems.Add(new WatchedItemInfo
-            {
-                ItemId = Guid.NewGuid(),
-                SeriesId = sciFiSeries,
-                Played = true,
-                LastPlayedDate = now,
-                Genres = ["SciFi"]
-            });
-        }
+            ItemId = Guid.NewGuid(),
+            SeriesId = sciFiSeries,
+            Played = true,
+            LastPlayedDate = now,
+            Genres = ["SciFi"]
+        });
 
         profile.WatchedItems.Add(new WatchedItemInfo
         {

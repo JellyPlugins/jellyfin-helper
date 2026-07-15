@@ -235,13 +235,28 @@ public sealed class ExternalCandidateFeatureBuilderTests
     }
 
     [Fact]
-    public void TrainingBuilder_LegacyEntryWithoutPopularity_NeutralAndDownweighted()
+    public void TrainingBuilder_LegacyEntryWithoutPopularity_MatchesInferenceAndDownweighted()
     {
         // Entries persisted before the Popularity field existed have Popularity == 0.
-        // The previous fallback used entry.Score (the model's own past prediction), which
-        // introduced an auto-regression target leak. The new behaviour emits a neutral 0.5
-        // for PopularityScore and halves the sample weight so the reduced feature quality
-        // is reflected in the gradient without silently invalidating old feedback.
+        //
+        // Three-step contract evolution — this test asserts the current (v3) contract
+        // and explicitly rules out regressions to either earlier failure mode:
+        //
+        //   * v1 (initial, broken): the fallback used entry.Score (the model's own past
+        //     prediction) when Popularity was missing → auto-regression target leak.
+        //   * v2 (attempted fix): fallback returned 0.5 to break the target leak. But
+        //     ExternalCandidateFeatureBuilder.NormalizePopularity(0) returns 0.0 at
+        //     inference, so training was handing the model 0.5 for the exact same input
+        //     the live path would score as 0.0 → different bug, same root cause
+        //     (train/serve divergence).
+        //   * v3 (current): route through NormalizePopularity(entry.Popularity) directly.
+        //     Legacy rows produce PopularityScore==0.0, bit-identical to inference. The
+        //     halved sample weight remains as an ORTHOGONAL provenance signal (reduced
+        //     gradient) that does not distort the feature space.
+        //
+        // Assertions below pin all three invariants: (a) feature value matches inference,
+        // (b) no regression to v1 (entry.Score), (c) no regression to v2 (0.5), and (d)
+        // the provenance down-weighting is still applied.
         var userId = Guid.NewGuid();
         var profile = BuildActionHeavyProfile(userId);
 
@@ -266,7 +281,26 @@ public sealed class ExternalCandidateFeatureBuilderTests
             CancellationToken.None);
 
         Assert.Equal(1, count);
-        Assert.Equal(0.5, examples[0].Features.PopularityScore, 6);
+
+        // (a) Train/serve parity: training path must produce the exact same value inference
+        //     would for a missing/zero popularity. NormalizePopularity(0) == 0.0.
+        Assert.Equal(
+            ExternalCandidateFeatureBuilder.NormalizePopularity(0.0),
+            examples[0].Features.PopularityScore,
+            6);
+
+        // (b) Regression guard against the v1 target leak.
+        Assert.True(
+            Math.Abs(0.42 - examples[0].Features.PopularityScore) > 0.01,
+            $"PopularityScore must not leak entry.Score (0.42), got {examples[0].Features.PopularityScore}");
+
+        // (c) Regression guard against the v2 train/serve skew.
+        Assert.True(
+            Math.Abs(0.5 - examples[0].Features.PopularityScore) > 0.01,
+            $"PopularityScore must not diverge from inference by falling back to 0.5, got {examples[0].Features.PopularityScore}");
+
+        // (d) Provenance down-weighting stays intact so legacy rows still train the model
+        //     but at reduced gradient contribution.
         Assert.Equal(
             EngineConstants.DiscoveryFeedbackSampleWeight * 0.5,
             examples[0].SampleWeight,

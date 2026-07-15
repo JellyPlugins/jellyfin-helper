@@ -97,8 +97,12 @@ internal static class DiscoveryFeedbackExampleBuilder
 
                 // Build feature vector from discovery metadata.
                 // hasLegacyPopularity signals that the original TMDb popularity was not persisted
-                // (entry.Popularity <= 0), so PopularityScore fell back to a neutral placeholder.
-                // We halve the sample weight in that case to reflect the reduced feature quality.
+                // on this entry. The feature itself is now routed through the SAME
+                // NormalizePopularity helper as inference (which returns 0.0 for missing/non-
+                // positive popularity), so no train/serve skew remains on the feature value.
+                // The halved sample weight is preserved as an orthogonal provenance signal:
+                // rows without a recorded popularity still train the model, but contribute a
+                // smaller gradient because we know less about them.
                 var features = BuildFeaturesFromEntry(
                     entry,
                     genrePreferences,
@@ -207,18 +211,24 @@ internal static class DiscoveryFeedbackExampleBuilder
                 entry.KnownPeople, preferredPeople);
         }
 
-        // Popularity feature: reconstruct the EXACT value used at inference time
-        // (ExternalCandidateFeatureBuilder.NormalizePopularity) from the raw TMDb popularity
-        // recorded when the item was shown, avoiding train/serve skew and target leak.
+        // Popularity feature: route THROUGH the same normalisation helper inference uses so
+        // the training path can never diverge from what the model sees at serve time.
         //
-        // Legacy entries persisted before the Popularity field existed have entry.Popularity == 0.
-        // The previous fallback used entry.Score, which is the model's own past prediction and
-        // creates an auto-regression loop: the model trains on its own output. We now emit a
-        // neutral 0.5 for those legacy rows and lower the sample weight in the caller so the
-        // reduced feature quality does not distort the gradient.
-        var popularityScore = entry.Popularity > 0
-            ? ExternalCandidateFeatureBuilder.NormalizePopularity(entry.Popularity)
-            : 0.5;
+        // Historical two-step evolution:
+        //   * v1 (initial): the fallback used entry.Score (the model's own past prediction)
+        //     when Popularity was missing. That is an auto-regression target leak — the
+        //     model would learn to predict its own output.
+        //   * v2 (fixed here initially): fallback returned 0.5 to break the target leak.
+        //     But NormalizePopularity(0) returns 0.0 at inference, so the training path was
+        //     handing the model a value (0.5) it would NEVER see in production. Different
+        //     bug, same root cause: train/serve divergence for the same underlying data.
+        //   * v3 (current): call NormalizePopularity(entry.Popularity) directly — legacy
+        //     rows with Popularity==0 now produce PopularityScore==0.0, bit-identical to
+        //     what ExternalCandidateFeatureBuilder.Build would compute at inference time.
+        //     The reduced provenance is signalled to the training pipeline through the
+        //     halved sample weight in the caller (see BuildDiscoveryExamples above), which
+        //     is orthogonal to the feature value and does not reintroduce any skew.
+        var popularityScore = ExternalCandidateFeatureBuilder.NormalizePopularity(entry.Popularity);
         hasLegacyPopularity = entry.Popularity <= 0;
 
         var isSeries = string.Equals(entry.MediaType, "tv", StringComparison.OrdinalIgnoreCase);

@@ -143,15 +143,22 @@ public sealed class Engine : IRecommendationEngine
         {
             // Cold-start: user exists but has no watch history - return popular/trending items.
             // Reuse cached candidates from the last batch run if available to avoid redundant library queries.
-            // Prefer the community-popularity map already computed by the last batch run (or the
-            // previous live path if it walked this branch first) — that keeps live cold-start hits
-            // out of GetAllUserWatchProfiles + PrecomputeUserWatchSets, which used to run per HTTP
-            // request. Only when the snapshot has no popularity attached (very first hit after
-            // startup, single-user deployment) do we build it on-demand so the user still gets the
-            // community-blended ranking. Fewer than two users with watch history → helper returns
-            // null and GenerateColdStartRecommendations falls back to the classic rating + recency
-            // formula unchanged.
-            var communityPopularity = snapshot.CommunityPopularity ?? BuildCommunityPopularityForColdStart();
+            //
+            // Community-popularity resolution goes through GetOrBuildCommunityPopularity so the
+            // O(U×M) GetAllUserWatchProfiles + PrecomputeUserWatchSets scan runs AT MOST ONCE
+            // per snapshot lifetime (typically ~30 minutes, bounded by CandidateSnapshotMaxAge).
+            //
+            // The previous formulation used `snapshot.CommunityPopularity ?? BuildCommunityPopularityForColdStart()`,
+            // which had a fatal flaw: when the live path published a snapshot (which cannot compute
+            // the community map — it does not have all-user data at that moment), CommunityPopularity
+            // was null, and EVERY subsequent cold-start hit ran the full BuildCommunityPopularityForColdStart
+            // scan again. In a single-user or empty-history deployment the helper legitimately returns null,
+            // meaning the same null-then-recompute-yields-null cycle repeated on every HTTP request.
+            //
+            // Fix: publish the compute result (even a null) back onto the snapshot with an explicit
+            // `CommunityPopularityComputed = true` marker, so subsequent calls short-circuit. See
+            // GetOrBuildCommunityPopularity for the read-back-and-republish protocol.
+            var communityPopularity = GetOrBuildCommunityPopularity(snapshot);
             return GenerateColdStartRecommendations(
                 userId,
                 maxResults,
@@ -301,6 +308,7 @@ public sealed class Engine : IRecommendationEngine
                 candidateBoxSetLookup,
                 seriesEpisodeCounts,
                 null,
+                CommunityPopularityComputed: false, // filled in by the second publish once we have all-user aggregates
                 DateTime.UtcNow);
         }
 
@@ -365,6 +373,7 @@ public sealed class Engine : IRecommendationEngine
                 candidateBoxSetLookup,
                 seriesEpisodeCounts,
                 communityPopularity,
+                CommunityPopularityComputed: true, // batch path has executed the O(U×M) scan
                 DateTime.UtcNow);
         }
 
@@ -1489,6 +1498,7 @@ public sealed class Engine : IRecommendationEngine
                 boxSetLookup,
                 seriesEpisodeCounts,
                 null,
+                CommunityPopularityComputed: false, // live rebuild has no all-user data yet — first cold-start hit will fill this in
                 DateTime.UtcNow);
 
             // Republish so subsequent live requests hit the fresh cache without re-entering
@@ -1497,6 +1507,66 @@ public sealed class Engine : IRecommendationEngine
             _cachedSnapshot = fresh;
             return fresh;
         }
+    }
+
+    /// <summary>
+    ///     Reads the community-popularity map from the given snapshot, computing it on-demand
+    ///     when the snapshot has not yet published one and caching the result back onto
+    ///     <see cref="_cachedSnapshot"/> so subsequent cold-start hits get an O(1) hand-off.
+    ///     <para>
+    ///         Why the write-back is critical: without it, every cold-start request on a snapshot
+    ///         produced by <see cref="GetOrRefreshLiveSnapshot"/> (which cannot compute the map
+    ///         and therefore sets <c>CommunityPopularityComputed = false</c>,
+    ///         <c>CommunityPopularity = null</c>) would call
+    ///         <see cref="BuildCommunityPopularityForColdStart"/> anew, re-running
+    ///         <c>GetAllUserWatchProfiles</c> + <c>PrecomputeUserWatchSets</c> — an O(U×M) scan —
+    ///         on every single HTTP hit. Persisting even a <c>null</c> result (with the flag set
+    ///         to <c>true</c>) short-circuits future requests during the TTL window when fewer
+    ///         than two users have watch history.
+    ///     </para>
+    ///     <para>
+    ///         Concurrency: the read of the marker and the compute itself happen without a lock
+    ///         because the underlying record is immutable and a racy double-compute is harmless
+    ///         (both racing threads produce the same map from the same source). The write-back
+    ///         is performed under <see cref="_snapshotRefreshLock"/> so we do not overwrite a
+    ///         newer batch snapshot published concurrently — we only republish if the currently
+    ///         cached instance is still the one we started reading from
+    ///         (<see cref="object.ReferenceEquals"/>).
+    ///     </para>
+    /// </summary>
+    /// <param name="snapshot">The snapshot returned by <see cref="GetOrRefreshLiveSnapshot"/>.</param>
+    /// <returns>
+    ///     The community-popularity map for cold-start scoring, or <c>null</c> when fewer than
+    ///     two users have any watch history (callers fall back to rating + recency).
+    /// </returns>
+    private Dictionary<Guid, int>? GetOrBuildCommunityPopularity(CandidateSnapshot snapshot)
+    {
+        if (snapshot.CommunityPopularityComputed)
+        {
+            // Already computed (may legitimately be null in single-user deployments). Reuse verbatim.
+            return snapshot.CommunityPopularity;
+        }
+
+        var built = BuildCommunityPopularityForColdStart();
+
+        // Publish the result back so subsequent cold-start requests on this snapshot skip the
+        // O(U×M) scan. Guard the swap under the refresh lock and re-check that the snapshot we
+        // are updating is still the currently-published one; a batch overwrite that happened
+        // while we were computing would leave us stomping newer data with an outdated
+        // CommunityPopularity value.
+        lock (_snapshotRefreshLock)
+        {
+            if (ReferenceEquals(_cachedSnapshot, snapshot))
+            {
+                _cachedSnapshot = snapshot with
+                {
+                    CommunityPopularity = built,
+                    CommunityPopularityComputed = true
+                };
+            }
+        }
+
+        return built;
     }
 
     /// <summary>
@@ -1784,9 +1854,27 @@ public sealed class Engine : IRecommendationEngine
     /// <param name="CommunityPopularity">
     ///     Optional community-popularity map (itemId → number of users who watched it) computed
     ///     once per batch and republished onto the snapshot so live cold-start requests reuse it
-    ///     instead of re-scanning every user's watch history on every hit. Null on the initial
-    ///     snapshot from <see cref="GetOrRefreshLiveSnapshot"/> (which does not have all-user data)
-    ///     and on batches with fewer than two users with any watch history.
+    ///     instead of re-scanning every user's watch history on every hit. Null in two very
+    ///     different situations that used to be indistinguishable from a caller's point of view:
+    ///     <list type="bullet">
+    ///         <item>The compute step has not run yet on this snapshot (e.g. the live path just
+    ///         rebuilt the snapshot but does not have all-user data at that moment).</item>
+    ///         <item>The compute step has run and legitimately produced no map (fewer than two
+    ///         users have any watch history — single-user or empty-history deployment).</item>
+    ///     </list>
+    ///     The <see cref="CommunityPopularityComputed"/> flag disambiguates these two cases so
+    ///     callers can tell "not yet computed → compute now" from "already computed as null →
+    ///     do NOT recompute" and skip a redundant O(U×M) scan in the latter case.
+    /// </param>
+    /// <param name="CommunityPopularityComputed">
+    ///     True once <see cref="CommunityPopularity"/> has been derived from the current watch
+    ///     profiles (either by the batch path or by the live cold-start helper). When true and
+    ///     <see cref="CommunityPopularity"/> is null, the compute step legitimately produced no
+    ///     map (fewer than two users with watch history); callers MUST NOT retry the O(U×M)
+    ///     scan for the lifetime of this snapshot. When false, the map has never been computed
+    ///     yet on this snapshot and the first cold-start hit is expected to fill it in through
+    ///     <see cref="GetOrBuildCommunityPopularity"/>, which republishes the result back onto
+    ///     <see cref="_cachedSnapshot"/> so subsequent hits short-circuit.
     /// </param>
     /// <param name="CreatedAtUtc">
     ///     UTC timestamp at which this snapshot was published. Used together with
@@ -1801,5 +1889,6 @@ public sealed class Engine : IRecommendationEngine
         Dictionary<Guid, List<Guid>> CandidateBoxSetLookup,
         Dictionary<Guid, int> SeriesEpisodeCounts,
         Dictionary<Guid, int>? CommunityPopularity,
+        bool CommunityPopularityComputed,
         DateTime CreatedAtUtc);
 }

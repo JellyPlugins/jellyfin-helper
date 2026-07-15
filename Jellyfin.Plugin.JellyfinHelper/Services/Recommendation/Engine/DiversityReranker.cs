@@ -166,14 +166,20 @@ internal static class DiversityReranker
 
         // Multi-dimensional similarity between two items.
         // Dimensions: genre (50%), studio (30%), era (20%, Gaussian with σ=10yr).
-        // Weights are renormalized over the dimensions that are actually available on
-        // BOTH items. Without renormalization, two items with identical genres but no
-        // studio/year metadata would cap at similarity=0.5, letting MMR treat them as
-        // only "half similar" — a bug that surfaced for sparse-metadata libraries
-        // (custom items, home videos) where near-duplicates could slip through diversity
-        // re-ranking. Items with rich metadata (typical TMDb-sourced content) are
-        // unaffected: their availableWeight always equals 1.0 so the computation is
-        // bit-identical to the previous formula.
+        //
+        // Renormalisation policy (asymmetric — closes two opposing failure modes):
+        //   * When at least one STRONG dimension (genre or studio) is available on both
+        //     items, we renormalise over the actually-available weight. Sparse-metadata
+        //     libraries (custom items, home videos) that carry genres but no studio/year
+        //     therefore no longer cap at similarity=0.5 — a near-duplicate pair with
+        //     matching genres now scores near 1.0 as expected, closing the diversity leak
+        //     that motivated the renormalisation in the first place.
+        //   * When ONLY year is available, we do NOT renormalise. Year alone is a very
+        //     weak signal: two random films from 1995 would otherwise score
+        //     0.2·yearSim / 0.2 = yearSim = 1.0 and MMR would treat them as duplicates,
+        //     evicting genuinely diverse candidates. Capping the year-only case at its
+        //     raw 0.2·yearSim contribution keeps era-only pairs firmly in the "probably
+        //     not related" range while still contributing a small signal.
         // Returns 0-1 where higher = more similar (should be diversified against).
         static double ComputeItemSimilarity(
             HashSet<string> genreA,
@@ -185,17 +191,20 @@ internal static class DiversityReranker
         {
             var weightedSimilarity = 0.0;
             var availableWeight = 0.0;
+            var hasStrongDimension = false;
 
             if (genreA.Count > 0 && genreB.Count > 0)
             {
                 weightedSimilarity += 0.5 * SimilarityComputer.ComputeJaccardFromSets(genreA, genreB);
                 availableWeight += 0.5;
+                hasStrongDimension = true;
             }
 
             if (studioA.Count > 0 && studioB.Count > 0)
             {
                 weightedSimilarity += 0.3 * SimilarityComputer.ComputeJaccardFromSets(studioA, studioB);
                 availableWeight += 0.3;
+                hasStrongDimension = true;
             }
 
             if (yearA.HasValue && yearB.HasValue)
@@ -207,7 +216,21 @@ internal static class DiversityReranker
             }
 
             // No shared dimensions → not enough data to judge similarity, treat as unrelated.
-            return availableWeight > 0.0 ? weightedSimilarity / availableWeight : 0.0;
+            if (availableWeight <= 0.0)
+            {
+                return 0.0;
+            }
+
+            // Year-only case: skip renormalisation. Renormalising here would let two same-
+            // year items score 1.0 and be treated as duplicates by MMR — production year
+            // alone is a much weaker signal than genre or studio, so we return the raw
+            // 0.2·yearSim contribution as an intentionally sub-1.0 similarity ceiling.
+            if (!hasStrongDimension)
+            {
+                return weightedSimilarity;
+            }
+
+            return weightedSimilarity / availableWeight;
         }
 
         // Fill most slots via MMR, reserving the last few slots for random exploration
