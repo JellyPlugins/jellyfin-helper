@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
@@ -12,6 +14,26 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// </summary>
 internal static class ContentScoring
 {
+    /// <summary>
+    ///     Process-lifetime counter of parallel-array mismatches detected in
+    ///     <see cref="ComputeContentNearestNeighborScore"/>. Exposed so unit tests and any
+    ///     future diagnostics endpoint can observe silent degradations that Debug.Assert
+    ///     alone would only surface in Debug builds.
+    ///     <para>
+    ///         Incremented atomically. First non-zero value also emits a one-shot
+    ///         <see cref="Trace.TraceWarning(string)"/> so the mismatch appears in the .NET
+    ///         trace listener chain even in Release builds — a plain Debug.Assert would be
+    ///         a no-op there and the fail-safe degradation would go completely unnoticed.
+    ///     </para>
+    /// </summary>
+    private static long _parallelArrayMismatchCount;
+
+    /// <summary>
+    ///     Gets the number of parallel-array mismatches observed since process start.
+    ///     Test-only accessor — not part of the plugin's public API.
+    /// </summary>
+    internal static long ParallelArrayMismatchCount => Interlocked.Read(ref _parallelArrayMismatchCount);
+
     /// <summary>
     ///     Returns a normalized collaborative score (0–1) for a candidate item.
     /// </summary>
@@ -293,11 +315,34 @@ internal static class ContentScoring
         // dropping the whole watched item. Debug asserts still surface the bug in unit tests;
         // Release builds keep contributing the genre signal so a stray refactor cannot bring
         // the whole scheduled task down or silently discard half the training signal.
-        System.Diagnostics.Debug.Assert(
-            watchedGenreSets.Count == watchedPeopleSets.Count
-                && watchedGenreSets.Count == watchedStudioSets.Count,
+        //
+        // Production visibility: Debug.Assert compiles away in Release, so a silent
+        // degradation would go completely unnoticed. We additionally increment a static
+        // counter (queryable via ParallelArrayMismatchCount for tests / future diagnostics
+        // hooks) and emit a single Trace.TraceWarning on the FIRST mismatch — that keeps
+        // subsequent calls cheap while still giving operators one observable log entry
+        // through the standard .NET trace listener chain.
+        var mismatch = watchedGenreSets.Count != watchedPeopleSets.Count
+            || watchedGenreSets.Count != watchedStudioSets.Count;
+        Debug.Assert(
+            !mismatch,
             $"Parallel array length mismatch: genres={watchedGenreSets.Count}, people={watchedPeopleSets.Count}, studios={watchedStudioSets.Count}. "
                 + "All three watched-item set lists must have the same length.");
+        if (mismatch)
+        {
+            var previous = Interlocked.Increment(ref _parallelArrayMismatchCount);
+            if (previous == 1)
+            {
+                Trace.TraceWarning(
+                    "ContentScoring.ComputeContentNearestNeighborScore observed a parallel-array length mismatch "
+                    + "(genres={0}, people={1}, studios={2}). "
+                    + "This is always a bug — the score is degrading gracefully by treating missing entries as absent. "
+                    + "Subsequent mismatches are counted silently via ParallelArrayMismatchCount.",
+                    watchedGenreSets.Count,
+                    watchedPeopleSets.Count,
+                    watchedStudioSets.Count);
+            }
+        }
 
         var maxComposite = 0.0;
 

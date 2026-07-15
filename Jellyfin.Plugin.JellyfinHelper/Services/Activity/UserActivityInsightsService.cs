@@ -282,6 +282,16 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     ///         The invariant is: cancellation aborts the whole scan; a partial report is never
     ///         observable to any caller.
     ///     </para>
+    ///     <para>
+    ///         <b>Memory trade-off:</b> pre-fetching keeps one per-item <see cref="UserItemData"/>
+    ///         dictionary in memory <i>per user</i> for the entire report duration, so peak memory
+    ///         scales as <c>O(users × items)</c>. The previous per-pair path only ever held the
+    ///         one row currently being scored. On a 5-user / 50k-item library this is roughly
+    ///         5–50 MB of transient state, well below the memory ceiling of a Jellyfin
+    ///         scheduled task, and is amortised by cutting the DB roundtrip count from
+    ///         <c>users × items</c> down to <c>users</c>. Callers with hundreds of users on very
+    ///         large libraries may want to revisit this if the report ever begins to page.
+    ///     </para>
     /// </summary>
     /// <param name="users">The users to pre-load data for.</param>
     /// <param name="allItems">The library items to load user data against.</param>

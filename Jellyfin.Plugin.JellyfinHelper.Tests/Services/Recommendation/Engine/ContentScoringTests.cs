@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Xunit;
 
@@ -92,5 +93,107 @@ public sealed class ContentScoringTests
             var result = ContentScoring.ComputePopularityScore(collab, critic);
             Assert.InRange(result, 0.0, 1.0);
         }
+    }
+
+    // ============================================================
+    // ComputeContentNearestNeighborScore parallel-array mismatch guard
+    // ============================================================
+
+    [Fact]
+    public void ComputeContentNearestNeighborScore_ParallelArrayMismatch_DegradesGracefully()
+    {
+        // Silent-degradation guard: when the parallel arrays disagree in length (always a bug),
+        // the method must NOT throw AND must still produce a score that reflects at least the
+        // genre dimension (the primary 50% signal). It must also record the mismatch on the
+        // process-lifetime counter so operators / diagnostics can observe the degraded state
+        // even in Release builds where Debug.Assert is a no-op.
+        //
+        // Debug.Assert in Debug builds would abort the test run via the default trace listener,
+        // so we scope a listener swap that swallows the assertion while the method runs. The
+        // Trace.TraceWarning emitted on the first mismatch is orthogonal to this — we do not
+        // assert on its exact wording (that would be brittle), only on the counter delta.
+        var candidateGenres = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase) { "Action", "SciFi" };
+        var watchedGenres = new List<HashSet<string>>
+        {
+            new(System.StringComparer.OrdinalIgnoreCase) { "Action" },
+            new(System.StringComparer.OrdinalIgnoreCase) { "SciFi", "Drama" }
+        };
+        // Deliberate mismatch: people list has fewer entries than genre list.
+        var watchedPeople = new List<HashSet<string>>
+        {
+            new(System.StringComparer.OrdinalIgnoreCase) { "Actor A" }
+        };
+        // Deliberate mismatch: studio list is empty.
+        var watchedStudios = new List<HashSet<string>>();
+
+        var listeners = System.Diagnostics.Trace.Listeners;
+        var savedListeners = new System.Diagnostics.TraceListener[listeners.Count];
+        listeners.CopyTo(savedListeners, 0);
+        listeners.Clear();
+        try
+        {
+            var before = ContentScoring.ParallelArrayMismatchCount;
+
+            var score = ContentScoring.ComputeContentNearestNeighborScore(
+                candidateGenres,
+                candidatePeople: null,
+                candidateStudios: null,
+                watchedGenres,
+                watchedPeople,
+                watchedStudios);
+
+            // Genre-only path: candidate {Action, SciFi} vs first watched {Action} → Jaccard 1/2
+            // (Action shared, SciFi only in candidate). Second watched {SciFi, Drama} vs candidate
+            // gives 1/3 (SciFi shared). Max composite is 0.5 × 0.5 = 0.25 from the first row —
+            // the people/studio contributions are 0 due to the mismatch guard degrading them.
+            Assert.InRange(score, 0.0, 1.0);
+            Assert.True(score > 0.0, $"Score must reflect the surviving genre signal, got {score}");
+
+            var after = ContentScoring.ParallelArrayMismatchCount;
+            Assert.True(after > before,
+                $"Mismatch counter must increment on parallel-array length disagreement (before={before}, after={after})");
+        }
+        finally
+        {
+            foreach (var listener in savedListeners)
+            {
+                listeners.Add(listener);
+            }
+        }
+    }
+
+    [Fact]
+    public void ComputeContentNearestNeighborScore_MatchedArrays_DoNotIncrementMismatchCounter()
+    {
+        // Positive-path check: when all three parallel arrays have equal length the counter
+        // must stay flat. Guards against a stray increment path (e.g. off-by-one) that would
+        // otherwise silently poison the counter for the whole process.
+        var candidateGenres = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase) { "Action" };
+        var watchedGenres = new List<HashSet<string>>
+        {
+            new(System.StringComparer.OrdinalIgnoreCase) { "Action" }
+        };
+        var watchedPeople = new List<HashSet<string>>
+        {
+            new(System.StringComparer.OrdinalIgnoreCase) { "Actor A" }
+        };
+        var watchedStudios = new List<HashSet<string>>
+        {
+            new(System.StringComparer.OrdinalIgnoreCase) { "Studio X" }
+        };
+
+        var before = ContentScoring.ParallelArrayMismatchCount;
+
+        var score = ContentScoring.ComputeContentNearestNeighborScore(
+            candidateGenres,
+            candidatePeople: null,
+            candidateStudios: null,
+            watchedGenres,
+            watchedPeople,
+            watchedStudios);
+
+        var after = ContentScoring.ParallelArrayMismatchCount;
+        Assert.Equal(before, after);
+        Assert.InRange(score, 0.0, 1.0);
     }
 }

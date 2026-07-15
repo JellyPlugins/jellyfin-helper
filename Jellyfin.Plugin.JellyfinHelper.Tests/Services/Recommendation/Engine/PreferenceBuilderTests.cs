@@ -381,26 +381,43 @@ public class PreferenceBuilderTests
             });
         }
 
-        // Build a "proximity-off" reference by feeding a profile with only one row per genre
-        // pair so ExpandGenreProximity's co-occurrence gate (needs several co-occurrences) does
-        // not fire. Any proximity-derived boost above this baseline proves the expansion did
-        // something.
+        // Build a proximity-OFF reference by feeding the SAME genre frequencies as the full
+        // profile but with each genre on its own row (no co-occurrences). ExpandGenreProximity
+        // needs at least two distinct genres on a row to build the co-occurrence map, so a
+        // single-genre-per-row baseline gives us the same direct-watch signal without any
+        // proximity contribution. Any observable difference between the two vectors therefore
+        // MUST come from ExpandGenreProximity — a stubbed-out no-op expansion would produce
+        // an identical vector.
+        //
+        // Row counts (kept in lock-step with the full profile above):
+        //   Action    : 12 (Action+Adventure)  + 8 (Action+SciFi)     = 20 rows
+        //   Adventure : 12 (Action+Adventure)  + 8 (Adventure+SciFi)  = 20 rows
+        //   SciFi     : 8  (Adventure+SciFi)   + 8 (Action+SciFi)     = 16 rows
         var baselineProfile = new UserWatchProfile();
-        var baselinePairs = new[]
-        {
-            new[] { "Action", "Adventure" },
-            new[] { "Adventure", "SciFi" },
-            new[] { "Action", "SciFi" }
-        };
-        foreach (var pair in baselinePairs)
+        void AddBaselineRow(string genre, DateTime lastPlayed)
         {
             baselineProfile.WatchedItems.Add(new WatchedItemInfo
             {
                 ItemId = Guid.NewGuid(),
                 Played = true,
-                LastPlayedDate = baseDate,
-                Genres = pair
+                LastPlayedDate = lastPlayed,
+                Genres = [genre]
             });
+        }
+
+        for (var i = 0; i < 20; i++)
+        {
+            AddBaselineRow("Action", baseDate.AddHours(-i));
+        }
+
+        for (var i = 0; i < 20; i++)
+        {
+            AddBaselineRow("Adventure", baseDate.AddHours(-i));
+        }
+
+        for (var i = 0; i < 16; i++)
+        {
+            AddBaselineRow("SciFi", baseDate.AddHours(-i));
         }
 
         var baselineVector = PreferenceBuilder.BuildGenrePreferenceVector(baselineProfile);
@@ -415,23 +432,26 @@ public class PreferenceBuilderTests
             Assert.InRange(weight, 0.0, 1.0);
         }
 
-        // At least one genre's *relative rank* changed because of proximity expansion. The
-        // baseline has all three genres appear once each with identical decayed weights, so
-        // the baseline vector is uniform (every key ≈ 1.0). The full profile has SciFi as a
-        // proximity target of both Action and Adventure, so its normalised weight should be
-        // strictly less than 1.0 while Action or Adventure hold the peak. This asymmetry only
-        // shows up when ExpandGenreProximity actually redistributes weight — a stubbed-out
-        // no-op expansion would preserve the baseline's uniform shape.
+        // Baseline contract: the proximity-OFF vector reflects only direct-watch frequency
+        // (Action=Adventure=1.0 as the shared peak, SciFi=16/20=0.8). Pinning this pins the
+        // "expansion actually did something" delta below.
+        Assert.True(baselineVector.ContainsKey("Action"));
+        Assert.True(baselineVector.ContainsKey("Adventure"));
         Assert.True(baselineVector.ContainsKey("SciFi"));
-        var uniformBaseline = baselineVector.Values.All(w => Math.Abs(w - 1.0) < 1e-9);
-        Assert.True(uniformBaseline,
-            "Sanity check: the baseline profile must produce a uniform vector so the assertion below is meaningful.");
+        Assert.InRange(baselineVector["Action"], 0.999, 1.0001);
+        Assert.InRange(baselineVector["Adventure"], 0.999, 1.0001);
+        Assert.InRange(baselineVector["SciFi"], 0.79, 0.81);
 
+        // Full profile with proximity expansion: SciFi's normalised weight MUST be strictly
+        // above the baseline 0.8 because ExpandGenreProximity adds a co-occurrence-derived
+        // boost from both Action↔SciFi and Adventure↔SciFi (min-count gate passes for both
+        // pairs at 8 co-occurrences each). A stubbed-out no-op expansion would collapse the
+        // full-profile vector back onto the baseline shape, failing this assertion.
         Assert.True(vector.ContainsKey("SciFi"));
-        var vectorHasStructure = vector.Values.Any(w => w < 0.999);
-        Assert.True(vectorHasStructure,
-            "Proximity expansion should introduce weight variance between genres (peak-vs-off-peak). " +
-            "A uniform vector after 28 rows would mean the expansion produced no observable effect.");
+        Assert.True(vector["SciFi"] > baselineVector["SciFi"] + 0.005,
+            $"Proximity expansion must lift SciFi above its direct-watch baseline of ~0.8. " +
+            $"Got baseline={baselineVector["SciFi"]:F4}, full={vector["SciFi"]:F4}. " +
+            "A no-op expansion would produce equal values here.");
     }
 
     // === Progression multiplier: IsEpisodeCompletedForProgression counter semantics ===
@@ -709,14 +729,22 @@ public class PreferenceBuilderTests
     public void ComputeProgressionMultiplier_AbandonedSeries_StillContributesFloor()
     {
         // Locks the ProgressionFloor invariant: a barely-started series (1 of 20 episodes
-        // played) must NOT disappear from the preference vector — it should still contribute
-        // at the ProgressionFloor level (0.3), so users with mostly-abandoned history are not
-        // left with an empty preference vector.
+        // played) must NOT collapse to a near-zero weight — the floor guarantees the signal
+        // stays audible so users with mostly-abandoned history are not left with an empty
+        // preference vector.
         //
-        // We assert this indirectly: a completed 5-episode "Anchor" series (multiplier 1.5)
-        // compared to a 1-of-20 "Fringe" series (multiplier 0.3 + 0.05*1.2 = 0.36) — Fringe
-        // should still produce a non-zero weight, and Anchor should out-weigh it, but Fringe
-        // must be strictly greater than zero (the floor guarantees this).
+        // Construction:
+        //   * Anchor series: 5/5 episodes played (rawRatio=1.0) → multiplier 1.5 per row.
+        //     5 rows × 1.5 × temporal(~0.996) ≈ 7.47 raw weight, which is the vector max
+        //     after normalization → normalized Anchor = 1.0.
+        //   * Fringe series: 1/20 episodes played (rawRatio=0.05) → multiplier 0.36 per row
+        //     (0.3 floor + 0.05 × 1.2 span). One row → raw weight ≈ 0.36 × 0.996 ≈ 0.358.
+        //     Normalized Fringe = 0.358 / 7.47 ≈ 0.048.
+        //
+        // Without the floor: Fringe multiplier would be 0.05 × 1.5 = 0.075, weight ≈ 0.0747,
+        // normalized ≈ 0.010. The lower bound below (0.03) sits well above the "no-floor"
+        // value and comfortably below the "with-floor" value, so this assertion can only
+        // pass when the floor is present and > 0. That is the regression it guards.
         var anchor = Guid.NewGuid();
         var fringe = Guid.NewGuid();
         var counts = new Dictionary<Guid, int> { { anchor, 5 }, { fringe, 20 } };
@@ -748,8 +776,16 @@ public class PreferenceBuilderTests
         var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile, counts);
 
         Assert.True(vector.ContainsKey("Fringe"));
-        Assert.True(vector["Fringe"] > 0.0,
-            "Abandoned series must still contribute a non-zero weight via ProgressionFloor.");
+        Assert.True(vector.ContainsKey("Anchor"));
+
+        // Anchor is the vector max, so it normalises to 1.0.
+        Assert.InRange(vector["Anchor"], 0.999, 1.0001);
+
+        // Fringe must sit inside the "with-floor" range. The lower bound 0.03 is strictly
+        // higher than the ~0.010 a floor-less implementation would produce, so a regression
+        // that drops or zeroes ProgressionFloor fails this test.
+        Assert.InRange(vector["Fringe"], 0.03, 0.07);
+
         Assert.True(vector["Anchor"] > vector["Fringe"],
             "Fully-completed anchor series must still out-weigh an abandoned one.");
     }
