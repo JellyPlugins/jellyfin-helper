@@ -312,16 +312,16 @@ internal static class ContentScoring
         //
         // Fail-safe degradation: iterate the full genre list (the primary signal, 50% weight)
         // and treat missing entries in the people / studio lists as unavailable rather than
-        // dropping the whole watched item. Debug asserts still surface the bug in unit tests;
-        // Release builds keep contributing the genre signal so a stray refactor cannot bring
-        // the whole scheduled task down or silently discard half the training signal.
+        // dropping the whole watched item. Release builds keep contributing the genre signal
+        // so a stray refactor cannot bring the whole scheduled task down or silently discard
+        // half the training signal.
         //
-        // Production visibility: Debug.Assert compiles away in Release, so a silent
-        // degradation would go completely unnoticed. We additionally increment a static
-        // counter (queryable via ParallelArrayMismatchCount for tests / future diagnostics
-        // hooks) and emit a single Trace.TraceWarning on the FIRST mismatch — that keeps
-        // subsequent calls cheap while still giving operators one observable log entry
-        // through the standard .NET trace listener chain.
+        // Production visibility: Debug.Assert surfaces the bug in Debug builds / unit tests
+        // but compiles away in Release. To keep the failure observable there too, we also
+        // increment a static counter (queryable via ParallelArrayMismatchCount for tests and
+        // future diagnostics hooks) and emit a single Trace.TraceWarning on the FIRST
+        // mismatch — subsequent calls stay cheap while operators still get one observable
+        // log entry through the standard .NET trace listener chain.
         var mismatch = watchedGenreSets.Count != watchedPeopleSets.Count
             || watchedGenreSets.Count != watchedStudioSets.Count;
         Debug.Assert(

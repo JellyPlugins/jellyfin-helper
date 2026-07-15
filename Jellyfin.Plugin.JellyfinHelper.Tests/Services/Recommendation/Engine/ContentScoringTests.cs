@@ -1,8 +1,26 @@
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
+
+/// <summary>
+///     xUnit collection marker for tests that touch process-global state related to
+///     <see cref="ContentScoring"/> — the static
+///     <see cref="ContentScoring.ParallelArrayMismatchCount"/> counter and the
+///     <see cref="Trace.Listeners"/> chain used by <see cref="Debug.Assert(bool)"/>.
+///     xUnit executes tests inside the same collection sequentially, which prevents a
+///     parallel test from observing a partial counter increment or from firing a
+///     Debug.Assert into a temporarily-cleared listener chain owned by another test.
+/// </summary>
+[CollectionDefinition(Name)]
+public sealed class ContentScoringGlobalStateCollection
+{
+    /// <summary>The named-collection identifier used by <see cref="CollectionAttribute"/>.</summary>
+    public const string Name = "ContentScoring global state";
+}
 
 /// <summary>
 ///     Tests for <see cref="ContentScoring"/> static helper methods.
@@ -15,7 +33,19 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 ///         of <c>TrainingDataBuilder</c>. The remaining formula is covered end-to-end via the
 ///         Phase 1 / Phase 3 training paths, which exercise the same math with real BoxSet inputs.
 ///     </para>
+///     <para>
+///         <b>Concurrency isolation</b>: the parallel-array-mismatch tests read the
+///         process-lifetime <see cref="ContentScoring.ParallelArrayMismatchCount"/> counter and
+///         temporarily clear <see cref="Trace.Listeners"/> to keep
+///         <see cref="Debug.Assert(bool)"/> from aborting the run when it fires. Both are
+///         process-global state, so this class opts into a named xUnit collection via the
+///         <see cref="CollectionAttribute"/> below. xUnit executes all tests within a
+///         collection sequentially, which eliminates the interleaving that would otherwise
+///         let a parallel test observe a partial counter increment or fire a Debug.Assert
+///         into an empty listener chain we own.
+///     </para>
 /// </summary>
+[Collection(ContentScoringGlobalStateCollection.Name)]
 public sealed class ContentScoringTests
 {
     // ============================================================
@@ -112,22 +142,22 @@ public sealed class ContentScoringTests
         // so we scope a listener swap that swallows the assertion while the method runs. The
         // Trace.TraceWarning emitted on the first mismatch is orthogonal to this — we do not
         // assert on its exact wording (that would be brittle), only on the counter delta.
-        var candidateGenres = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase) { "Action", "SciFi" };
+        var candidateGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action", "SciFi" };
         var watchedGenres = new List<HashSet<string>>
         {
-            new(System.StringComparer.OrdinalIgnoreCase) { "Action" },
-            new(System.StringComparer.OrdinalIgnoreCase) { "SciFi", "Drama" }
+            new(StringComparer.OrdinalIgnoreCase) { "Action" },
+            new(StringComparer.OrdinalIgnoreCase) { "SciFi", "Drama" }
         };
         // Deliberate mismatch: people list has fewer entries than genre list.
         var watchedPeople = new List<HashSet<string>>
         {
-            new(System.StringComparer.OrdinalIgnoreCase) { "Actor A" }
+            new(StringComparer.OrdinalIgnoreCase) { "Actor A" }
         };
         // Deliberate mismatch: studio list is empty.
         var watchedStudios = new List<HashSet<string>>();
 
-        var listeners = System.Diagnostics.Trace.Listeners;
-        var savedListeners = new System.Diagnostics.TraceListener[listeners.Count];
+        var listeners = Trace.Listeners;
+        var savedListeners = new TraceListener[listeners.Count];
         listeners.CopyTo(savedListeners, 0);
         listeners.Clear();
         try
@@ -168,18 +198,18 @@ public sealed class ContentScoringTests
         // Positive-path check: when all three parallel arrays have equal length the counter
         // must stay flat. Guards against a stray increment path (e.g. off-by-one) that would
         // otherwise silently poison the counter for the whole process.
-        var candidateGenres = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase) { "Action" };
+        var candidateGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action" };
         var watchedGenres = new List<HashSet<string>>
         {
-            new(System.StringComparer.OrdinalIgnoreCase) { "Action" }
+            new(StringComparer.OrdinalIgnoreCase) { "Action" }
         };
         var watchedPeople = new List<HashSet<string>>
         {
-            new(System.StringComparer.OrdinalIgnoreCase) { "Actor A" }
+            new(StringComparer.OrdinalIgnoreCase) { "Actor A" }
         };
         var watchedStudios = new List<HashSet<string>>
         {
-            new(System.StringComparer.OrdinalIgnoreCase) { "Studio X" }
+            new(StringComparer.OrdinalIgnoreCase) { "Studio X" }
         };
 
         var before = ContentScoring.ParallelArrayMismatchCount;

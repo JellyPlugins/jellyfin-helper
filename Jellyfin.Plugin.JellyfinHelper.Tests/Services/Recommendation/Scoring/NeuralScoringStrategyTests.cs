@@ -14,6 +14,18 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// </summary>
 public sealed class NeuralScoringStrategyTests : IDisposable
 {
+    /// <summary>
+    ///     Epsilon for dropout-mask equality checks. Mask entries are assigned via
+    ///     <c>keep ? 1.0 : 0.0</c> in <see cref="NeuralScoringStrategy"/> (no arithmetic),
+    ///     so they are literally the double constants 0.0 and 1.0. Using
+    ///     <c>Math.Abs(m - target) &lt;= MaskEpsilon</c> is semantically identical to a
+    ///     bit-exact <c>==</c> comparison at this scale but silences the static-analyzer
+    ///     "equality on floating-point" warning uniformly across the file. Single named
+    ///     constant here so the test-wide tolerance never drifts and future readers see
+    ///     the intent (exact 0/1, tolerance is only there for the analyzer).
+    /// </summary>
+    private const double MaskEpsilon = 1e-12;
+
     private readonly string _tempDir;
 
     public NeuralScoringStrategyTests()
@@ -967,12 +979,15 @@ public sealed class NeuralScoringStrategyTests : IDisposable
             keepProbability: 1.0,
             invKeepScale: 1.0);
 
-        // Bit-identical output, and every mask value must be 1.0
+        // Bit-identical output, and every mask value must be 1.0. See MaskEpsilon comment
+        // for why we use approximate comparison on values that are literally assigned as 1.0
+        // in production code — the epsilon is a static-analyzer accommodation, not a
+        // tolerance for numerical drift.
         Assert.Equal(expected, actual, 15);
-        Assert.All(h1Mask, m => Assert.Equal(1.0, m));
-        Assert.All(h2Mask, m => Assert.Equal(1.0, m));
-        Assert.All(h3Mask, m => Assert.Equal(1.0, m));
-        Assert.All(h4Mask, m => Assert.Equal(1.0, m));
+        Assert.All(h1Mask, m => Assert.True(Math.Abs(m - 1.0) <= MaskEpsilon));
+        Assert.All(h2Mask, m => Assert.True(Math.Abs(m - 1.0) <= MaskEpsilon));
+        Assert.All(h3Mask, m => Assert.True(Math.Abs(m - 1.0) <= MaskEpsilon));
+        Assert.All(h4Mask, m => Assert.True(Math.Abs(m - 1.0) <= MaskEpsilon));
 
         // And every buffer must match ForwardPass exactly (activations, pre-activations).
         // We check every hidden layer, not just the endpoints, because middle-layer skew
@@ -1078,34 +1093,39 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         // strictly weaker property that AT LEAST ONE neuron in Hidden4 is dropped AND at
         // least one is kept. The chance of this failing due to bad luck is ~ 2 × (0.5)^24
         // ≈ 1.2 × 10^-7 (still deterministic here thanks to the fixed seed).
-        //
-        // The mask entries are populated via `keep ? 1.0 : 0.0` in NeuralScoringStrategy
-        // (no arithmetic involved), so they are literally the double constants 0.0 and 1.0.
-        // Using Math.Abs(m - target) <= MaskEpsilon with a very small epsilon keeps the
-        // semantic identical while silencing static analysis "equality on floating-point"
-        // warnings — a strict bit-exact check would be equivalent here but the epsilon form
-        // documents the intent to future readers without changing behaviour.
-        const double maskEpsilon = 1e-12;
-        Assert.Contains(h4Mask, m => Math.Abs(m - 0.0) <= maskEpsilon);
-        Assert.Contains(h4Mask, m => Math.Abs(m - 1.0) <= maskEpsilon);
+        // MaskEpsilon: see the class-level constant comment for why the approximate
+        // comparison is used on values that production code assigns as exact 0/1.
+        Assert.Contains(h4Mask, m => Math.Abs(m - 0.0) <= MaskEpsilon);
+        Assert.Contains(h4Mask, m => Math.Abs(m - 1.0) <= MaskEpsilon);
         // Each mask entry must be exactly 0.0 or 1.0 — never in between.
         Assert.All(h4Mask, m => Assert.True(
-            Math.Abs(m - 0.0) <= maskEpsilon || Math.Abs(m - 1.0) <= maskEpsilon,
+            Math.Abs(m - 0.0) <= MaskEpsilon || Math.Abs(m - 1.0) <= MaskEpsilon,
             $"Mask entry {m} is neither 0 nor 1"));
         Assert.All(h1Mask, m => Assert.True(
-            Math.Abs(m - 0.0) <= maskEpsilon || Math.Abs(m - 1.0) <= maskEpsilon));
+            Math.Abs(m - 0.0) <= MaskEpsilon || Math.Abs(m - 1.0) <= MaskEpsilon));
         Assert.All(h2Mask, m => Assert.True(
-            Math.Abs(m - 0.0) <= maskEpsilon || Math.Abs(m - 1.0) <= maskEpsilon));
+            Math.Abs(m - 0.0) <= MaskEpsilon || Math.Abs(m - 1.0) <= MaskEpsilon));
         Assert.All(h3Mask, m => Assert.True(
-            Math.Abs(m - 0.0) <= maskEpsilon || Math.Abs(m - 1.0) <= maskEpsilon));
+            Math.Abs(m - 0.0) <= MaskEpsilon || Math.Abs(m - 1.0) <= MaskEpsilon));
 
         // Where a neuron was dropped, its activation must be exactly 0 regardless of
         // pre-activation magnitude. Where it was kept, activation = relu(pre) * invKeepScale.
         // Verified for EVERY hidden layer so a regression that records the mask but forgets
         // to apply zeroing/scaling in an earlier layer still fails the test (a previous
         // version only checked Hidden4 and would have missed a Hidden1/2/3-only regression).
+        //
+        // The local function is `static` so it cannot capture the class-level MaskEpsilon
+        // directly; we hardcode the same 1e-12 value here as a bit-exact mirror. Sharing
+        // the value via a parameter was tried but rejected — passing a wrong epsilon at a
+        // call site would silently invert the "dropped" / "kept" decision without any test
+        // catching it. Keeping the value literal here + a comment cross-reference to
+        // MaskEpsilon makes both call sites trivially auditable and eliminates the class
+        // of "wrong-argument-passed" bugs entirely.
         static void AssertDropoutApplied(double[] pre, double[] act, double[] mask, double invKeepScale)
         {
+            // Mirror of MaskEpsilon (see class-level constant) — kept literal because static
+            // locals can't capture instance/class members. Bit-exact equality would work but
+            // triggers the same static-analyzer warning MaskEpsilon exists to silence.
             const double dropMaskEpsilon = 1e-12;
             Assert.Equal(pre.Length, act.Length);
             Assert.Equal(pre.Length, mask.Length);

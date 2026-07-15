@@ -273,10 +273,20 @@ function refreshSaveBand() {
 // Debounced dirty-check listener on the settings form. The form element itself
 // persists across loadSettings() calls (only innerHTML gets replaced), so we
 // remove previously registered listeners before adding new ones to avoid
-// stacking handlers on repeated reloads. Preferred path uses AbortController
-// (near-universal since ~2020), fallback keeps a reference to the previous
-// handler so removeEventListener can strip it on legacy browsers where
-// AbortController is missing.
+// stacking handlers on repeated reloads.
+//
+// Two exclusive detach mechanisms — only one is ever active in a given runtime
+// because `typeof AbortController === 'function'` is deterministic per browser:
+//   1. Preferred: AbortController (near-universal since ~2020).
+//      Stored in _dirtyTrackingController; abort() detaches both listeners atomically.
+//   2. Legacy fallback: keep the handler+form pair so removeEventListener() can
+//      strip both listeners individually. Stored in _dirtyTrackingHandler/_Form.
+//
+// Test coverage note: the fallback branch is not covered by automated tests (the
+// repo has no JS test framework and modern browsers won't take that branch). The
+// invariant we rely on is "runtime picks one branch and stays there", which makes
+// interleaving impossible — a runtime that lacks AbortController on load will
+// keep lacking it, so mixed-state cleanup is not a real failure mode.
 var _dirtyDebounceTimer = null;
 var _dirtyTrackingController = null;
 var _dirtyTrackingHandler = null;
@@ -286,9 +296,10 @@ function attachDirtyTracking() {
     var form = document.getElementById('settingsForm');
     if (!form) return;
 
-    // Detach previous listeners before wiring new ones. Whichever branch was
-    // used last time is cleaned up here so repeated loadSettings() calls do
-    // not accumulate handlers on the same <form> instance.
+    // Detach previous listeners before wiring new ones. Only one of the two
+    // branches below will find non-null state in a given runtime, because
+    // typeof AbortController is deterministic — the other branch's tracking
+    // fields are guaranteed to still be their initial null.
     if (_dirtyTrackingController && typeof _dirtyTrackingController.abort === 'function') {
         try { _dirtyTrackingController.abort(); } catch (_e) { /* ignore */ }
         _dirtyTrackingController = null;
@@ -298,9 +309,9 @@ function attachDirtyTracking() {
             _dirtyTrackingForm.removeEventListener('input', _dirtyTrackingHandler);
             _dirtyTrackingForm.removeEventListener('change', _dirtyTrackingHandler);
         } catch (_e) { /* ignore */ }
+        _dirtyTrackingHandler = null;
+        _dirtyTrackingForm = null;
     }
-    _dirtyTrackingHandler = null;
-    _dirtyTrackingForm = null;
 
     var handler = function () {
         if (_dirtyDebounceTimer) clearTimeout(_dirtyDebounceTimer);

@@ -503,6 +503,12 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         // NotSupportedException and ArgumentException (malformed path characters from OS layer).
         // Best-effort save must degrade gracefully for every one of those rather than crashing
         // the calling task or request. Matches the filter used in StatisticsCacheService.
+        //
+        // Not covered by unit tests: reliably provoking SecurityException / NotSupportedException
+        // in-process requires filesystem edge cases (locked-down user accounts, exotic path
+        // syntax on non-Windows) that a portable xUnit run cannot reproduce. The handler body
+        // is shape-identical for all six exception types (log + invalidate cache, no partial
+        // writes to on-disk state), so extending the filter cannot introduce a new failure mode.
         catch (Exception ex) when (ex is IOException
                                     or UnauthorizedAccessException
                                     or JsonException

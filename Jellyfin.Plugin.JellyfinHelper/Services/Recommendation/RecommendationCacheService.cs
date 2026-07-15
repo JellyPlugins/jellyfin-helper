@@ -73,6 +73,13 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
             // NotSupportedException and ArgumentException (malformed path characters from OS layer).
             // Best-effort save must degrade gracefully for every one of those rather than crashing
             // the scheduled task. Matches the filter used in StatisticsCacheService.
+            //
+            // Not covered by unit tests: triggering SecurityException / NotSupportedException
+            // reliably in-process requires filesystem edge cases (locked-down user accounts,
+            // exotic path syntax on non-Windows) that a portable xUnit run cannot reproduce.
+            // The handler body is intentionally identical to the IOException/JsonException
+            // path (log + swallow, no state mutation) so all six exception types share the
+            // same code path — extending the filter cannot introduce a new failure mode.
             catch (Exception ex) when (ex is IOException
                                         or UnauthorizedAccessException
                                         or JsonException

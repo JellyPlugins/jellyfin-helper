@@ -328,24 +328,24 @@ public class PreferenceBuilderTests
     public void BuildGenrePreferenceVector_ProximityExpansion_StaysNormalized()
     {
         // Contract: after ExpandGenreProximity fires the vector must remain max-normalised
-        // (largest weight == 1.0, everything in [0, 1]), AND at least one genre that never
-        // appeared directly in watch history must be introduced via proximity — otherwise
-        // this test could pass with the expansion removed entirely.
+        // (largest weight == 1.0, everything in [0, 1]), AND the co-occurrence-derived boost
+        // must be observable in the final normalised weights — otherwise this test could pass
+        // with the expansion removed entirely.
         //
-        // Construction:
-        //   • 12 items ["Action", "Adventure"] → Action and Adventure are the direct base genres.
-        //   • 8 items ["Adventure", "SciFi"] → Adventure and SciFi co-occur, and SciFi is now
-        //     also direct.
-        //   • 8 items ["Action", "SciFi"] → Action and SciFi co-occur too.
+        // Full profile row counts:
+        //   • 12 items ["Action", "Adventure"]  → Action/Adventure co-occur strongly.
+        //   • 8  items ["Adventure", "SciFi"]   → Adventure/SciFi co-occur (min-count gate passes).
+        //   • 8  items ["Action", "SciFi"]      → Action/SciFi co-occur (min-count gate passes).
+        //   → Direct row counts: Action 20, Adventure 20, SciFi 16.
         //
-        // ExpandGenreProximity looks at each direct genre's neighbours and adds proximity-derived
-        // weight to genres that were themselves already in the vector but whose base weight came
-        // from a different (weaker) co-occurrence path. To guarantee a strictly *new* key we
-        // instead assert a distinct behaviour: build a snapshot of the direct-only vector by
-        // computing what BuildGenrePreferenceVector would produce for a profile that stripped
-        // out the co-occurrences, and check the produced vector introduces "SciFi" — a genre
-        // whose base weight (from 8+8 rows) is lower than the proximity-boosted weight that a
-        // strong Action↔Adventure↔SciFi triangle produces.
+        // ExpandGenreProximity reinforces peer weights by adding a co-occurrence-derived
+        // additive to existing entries (v3 hardening pass — the earlier ContainsKey-guarded
+        // version was a no-op for the common case where every neighbour was already direct).
+        // We assert this reinforcement by comparing SciFi's normalised weight against a
+        // proximity-OFF baseline built with the same direct frequencies but each genre on its
+        // own row (no co-occurrences, so ExpandGenreProximity cannot build its map). A no-op
+        // expansion would collapse the full profile's SciFi back to the baseline's ~0.8; the
+        // reinforcement lifts it strictly above.
         var profile = new UserWatchProfile();
         var baseDate = DateTime.UtcNow.AddDays(-10);
         for (var i = 0; i < 12; i++)
