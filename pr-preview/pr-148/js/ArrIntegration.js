@@ -320,6 +320,10 @@ function initArrButtons(cfg) {
         return;
     }
 
+    // Wrap the compare-buttons block in an .arr-card so the Arr tab shares
+    // the same visual card language as the Settings and Health tabs.
+    h += '<div class="arr-card">';
+
     if (radarrInstances.length > 0) {
         h += '<div style="margin-bottom:1em;">';
         h += '<h4 class="icon-label arr-integration-instance-header">' + mi('movie') + 'Radarr</h4>';
@@ -345,6 +349,8 @@ function initArrButtons(cfg) {
         }
         h += '</div></div>';
     }
+
+    h += '</div>'; // /arr-card
 
     btnContainer.innerHTML = h;
 
@@ -392,7 +398,11 @@ function compareArr(type, index, label) {
     apiGet('JellyfinHelper/ArrIntegration/Compare/' + type + '?index=' + index,
         function (data) {
             var instanceLabel = label || type;
-            var h = '<h3 style="margin-bottom:0.8em;">' + escHtml(instanceLabel)
+            // Wrap the result block in an .arr-card so it visually matches the
+            // Settings + Health card language (single container per logical
+            // result, same border/radius/padding treatment).
+            var h = '<div class="arr-card">';
+            h += '<h3 style="margin-bottom:0.8em;">' + escHtml(instanceLabel)
                 + '</h3>';
             h += renderArrSection(mi('check_circle'), 'inBoth', 'In Both', data.InBoth);
             h += renderArrSection(mi('inventory_2'), 'inArrOnly', 'In Arr Only (with file)',
@@ -401,6 +411,7 @@ function compareArr(type, index, label) {
                 data.InArrOnlyMissing);
             h += renderArrSection(mi('search'), 'inJellyfinOnly', 'In Jellyfin Only',
                 data.InJellyfinOnly);
+            h += '</div>'; // /arr-card
             resultDiv.innerHTML = h;
         }, function () {
             resultDiv.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('arrCompareError',

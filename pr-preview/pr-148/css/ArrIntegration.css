@@ -1,6 +1,59 @@
 /* Arr comparison */
+
+/* ============================================================
+   Arr page — card layout (aligned with Settings + Health redesigns).
+   Rules below are ADDITIVE. Existing selectors (.arr-section,
+   .arr-list, .arr-count, .arr-integration-instance-header) keep
+   their behaviour so all existing initArrButtons + compareArr
+   markup renders exactly as before, just optionally wrapped
+   in an .arr-card for visual consistency with the other tabs.
+   ============================================================ */
+
+/* noinspection CssUnusedSymbol */
+.arr-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 0.8em 1.1em 1.1em 1.1em;
+    margin-top: 1.2em;
+    box-sizing: border-box;
+}
+
+/* First card in the arr tab hugs the top of the tab-content area
+   (the .section-title in the tab shell already provides top spacing).
+   The card lives one level deeper (#arrButtons > .arr-card and
+   #arrResult > .arr-card), so we target it via descendant selectors
+   and pair the rule with :empty on #arrResult so the first card in
+   #arrButtons still gets the tightened margin when no comparison
+   result is displayed yet. */
+/* noinspection CssUnusedSymbol */
+#arrButtons > .arr-card:first-child {
+    margin-top: 0.4em;
+}
+/* noinspection CssUnusedSymbol */
+#arrResult > .arr-card:first-child {
+    /* Result card follows the buttons card — keep a comfortable gap
+       (default 1.2em) so the two cards read as separate blocks. */
+    margin-top: 1.2em;
+}
+
+@media (max-width: 500px) {
+    /* noinspection CssUnusedSymbol */
+    .arr-card {
+        padding: 0.6em 0.8em 0.9em 0.8em;
+    }
+}
+
 .arr-section {
     margin-top: 1em;
+}
+
+/* Reset the top-margin for the first arr-section inside a result card so
+   the block hugs the card padding instead of introducing a double gap
+   below the result heading. */
+/* noinspection CssUnusedSymbol */
+.arr-card .arr-section:first-of-type {
+    margin-top: 0.5em;
 }
 
 .arr-list {
