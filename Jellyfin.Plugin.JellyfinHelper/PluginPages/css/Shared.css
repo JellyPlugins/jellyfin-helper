@@ -380,11 +380,11 @@
     cursor: not-allowed;
 }
 
-/* NOTE: .arr-compare-btn styling now lives in ArrIntegration.css.
-   The previous `min-width: 14em` rule was written for the legacy
-   "Compare with Radarr X" per-instance button layout and caused
-   the Compare button in the new dropdown+button layout to overflow
-   its .arr-card container on narrow viewports. */
+.arr-compare-btn {
+    min-width: 14em;
+    justify-content: center;
+    text-align: center;
+}
 
 .action-btn.success,
 .action-btn.success:hover {
