@@ -296,12 +296,163 @@ function attachAddHandlers() {
     }
 }
 
+// Cached instance list per Arr type, populated by initArrButtons. Keeps
+// URL + ApiKey out of the DOM (they only live in JS memory) so the compare
+// tab never surfaces credentials as data-* attributes on select options.
+var _arrInstancesCache = {Radarr: [], Sonarr: []};
+
+// Connection-status cache per instance key ("Radarr_0", "Sonarr_1", ...).
+// { state: 'ok'|'error'|'testing'|'unknown', ts: <epoch ms> }
+var _arrStatusCache = {};
+var _arrStatusTtlMs = 60 * 1000;
+// Monotonic request id per instance so late responses from a stale test
+// (e.g. after the user switched instances or removed one in Settings)
+// cannot overwrite the badge of the currently-selected instance.
+var _arrStatusReqSeq = {};
+
+function _arrCacheKey(type, index) {
+    return type + '_' + index;
+}
+
+// Paint the status badge inside the select-wrapper for the given type.
+// State enum: 'unknown' (empty), 'testing', 'ok', 'error'.
+//
+// The badge is a live region (role=status + aria-live=polite, set at
+// render time in _renderArrTypeBlock) so assistive tech announces each
+// state transition. The icon itself is aria-hidden (purely decorative);
+// a visually-hidden .arr-status-sr-only sibling carries the localised
+// text that screen readers actually read out.
+function _renderArrStatusBadge(type, state) {
+    var badge = document.getElementById('arrStatus' + type);
+    if (!badge) {
+        return;
+    }
+    badge.classList.remove('is-ok', 'is-error', 'is-testing');
+    if (state === 'ok') {
+        badge.classList.add('is-ok');
+        badge.innerHTML = '<span aria-hidden="true">' + mi('check_circle') + '</span>'
+            + '<span class="arr-status-sr-only">'
+            + escHtml(T('arrStatusReachable', 'Reachable')) + '</span>';
+    } else if (state === 'error') {
+        badge.classList.add('is-error');
+        badge.innerHTML = '<span aria-hidden="true">' + mi('error') + '</span>'
+            + '<span class="arr-status-sr-only">'
+            + escHtml(T('arrStatusUnreachable', 'Not reachable')) + '</span>';
+    } else if (state === 'testing') {
+        badge.classList.add('is-testing');
+        badge.innerHTML = '<span class="arr-status-spinner" aria-hidden="true"></span>'
+            + '<span class="arr-status-sr-only">'
+            + escHtml(T('arrStatusTesting', 'Checking connection')) + '</span>';
+    } else {
+        // 'unknown' or anything else: clear the badge slot entirely.
+        badge.innerHTML = '';
+    }
+}
+
+// Kick off (or reuse cached) connection test for the currently-selected
+// instance of the given type. Cache TTL is 60s so rapid dropdown toggling
+// or tab-reopens don't hammer the Arr backend.
+function refreshArrInstanceStatus(type, index) {
+    var instances = _arrInstancesCache[type] || [];
+    if (index < 0 || index >= instances.length) {
+        _renderArrStatusBadge(type, 'unknown');
+        return;
+    }
+    var inst = instances[index];
+    if (!inst || !inst.Url || !inst.ApiKey) {
+        _renderArrStatusBadge(type, 'unknown');
+        return;
+    }
+
+    var cacheKey = _arrCacheKey(type, index);
+    var cached = _arrStatusCache[cacheKey];
+    if (cached && (Date.now() - cached.ts) < _arrStatusTtlMs
+        && (cached.state === 'ok' || cached.state === 'error')) {
+        _renderArrStatusBadge(type, cached.state);
+        return;
+    }
+
+    _renderArrStatusBadge(type, 'testing');
+    var reqId = (_arrStatusReqSeq[type] || 0) + 1;
+    _arrStatusReqSeq[type] = reqId;
+
+    apiPost('JellyfinHelper/ArrIntegration/TestConnection',
+        {Url: inst.Url, ApiKey: inst.ApiKey}, function (data) {
+            // Ignore stale responses (user picked a different instance in the
+            // meantime, or a newer test superseded this one).
+            if (reqId !== _arrStatusReqSeq[type]) {
+                return;
+            }
+            var ok = !!(data && data.success);
+            _arrStatusCache[cacheKey] = {state: ok ? 'ok' : 'error', ts: Date.now()};
+            // Also only paint if the dropdown is still on this index.
+            var sel = document.getElementById('arrSelect' + type);
+            if (sel && parseInt(sel.value, 10) === index) {
+                _renderArrStatusBadge(type, ok ? 'ok' : 'error');
+            }
+        }, function () {
+            if (reqId !== _arrStatusReqSeq[type]) {
+                return;
+            }
+            _arrStatusCache[cacheKey] = {state: 'error', ts: Date.now()};
+            var sel = document.getElementById('arrSelect' + type);
+            if (sel && parseInt(sel.value, 10) === index) {
+                _renderArrStatusBadge(type, 'error');
+            }
+        });
+}
+
+// Render one "type block" (Radarr or Sonarr) with a section header, a
+// single dropdown listing all instances of that type, and a single fixed-
+// width Compare button. Returns HTML string; caller wires up event handlers.
+function _renderArrTypeBlock(type, icon, instances) {
+    var h = '<div class="arr-compare-block">';
+    h += '<div class="arr-compare-header">' + icon + '<span>' + escHtml(type) + '</span></div>';
+    h += '<div class="arr-compare-row">';
+    h += '<div class="arr-instance-select-wrap">';
+    h += '<span class="arr-instance-status" id="arrStatus' + type + '" role="status" aria-live="polite" aria-atomic="true"></span>';
+    h += '<select class="arr-instance-select" id="arrSelect' + type + '" aria-label="' + escAttr(T('arrSelectInstance', 'Select an instance')) + '">';
+    for (var i = 0; i < instances.length; i++) {
+        var name = instances[i].Name || (type + ' #' + (i + 1));
+        h += '<option value="' + i + '">' + escHtml(name) + '</option>';
+    }
+    h += '</select>';
+    h += '</div>';
+    h += '<button type="button" class="action-btn arr-compare-btn" id="btnCompare' + type + '">'
+        + mi('search') + '<span>' + T('compare', 'Compare') + '</span></button>';
+    h += '</div>';
+    h += '</div>';
+    return h;
+}
+
 function initArrButtons(cfg) {
     var btnContainer = document.getElementById('arrButtons');
     if (!btnContainer) {
         return;
     }
-    var h = '';
+
+    // Any previous compare result belongs to a stale instance list; wipe it
+    // so a config change (URL/key edit, instance removed) never leaves an
+    // outdated comparison visible next to the freshly-rendered controls.
+    var stalResult = document.getElementById('arrResult');
+    if (stalResult) {
+        stalResult.innerHTML = '';
+    }
+
+    // Reset the result cache so a config change immediately re-tests
+    // instead of showing a stale ✓/✗ for a URL that may have changed.
+    _arrStatusCache = {};
+    // IMPORTANT: do NOT reset _arrStatusReqSeq — advance it. If we reset
+    // to {} an in-flight request that started before this call would still
+    // hold reqId=1, and the very next refreshArrInstanceStatus() call
+    // would issue reqId=1 again, so the stale-response guard
+    // `reqId !== _arrStatusReqSeq[type]` would erroneously match and let
+    // the old credentials' response overwrite the badge for the new ones.
+    // Bumping each type's sequence guarantees any pending callback holds
+    // a strictly smaller ID than the current one and is rejected.
+    _arrStatusReqSeq.Radarr = (_arrStatusReqSeq.Radarr || 0) + 1;
+    _arrStatusReqSeq.Sonarr = (_arrStatusReqSeq.Sonarr || 0) + 1;
+
     var radarrInstances = resolveArrInstances(cfg, 'Radarr').filter(
         function (inst) {
             return inst && inst.Url && inst.ApiKey;
@@ -312,6 +463,9 @@ function initArrButtons(cfg) {
             return inst && inst.Url && inst.ApiKey;
         });
 
+    _arrInstancesCache.Radarr = radarrInstances;
+    _arrInstancesCache.Sonarr = sonarrInstances;
+
     if (radarrInstances.length === 0 && sonarrInstances.length === 0) {
         btnContainer.innerHTML = '<div class="no-data-container"><p>' + T(
                 'arrNotConfigured',
@@ -320,44 +474,63 @@ function initArrButtons(cfg) {
         return;
     }
 
+    // Wrap the compare controls in an .arr-card so the Arr tab shares the
+    // same visual card language as the Settings and Health tabs.
+    var h = '<div class="arr-card">';
     if (radarrInstances.length > 0) {
-        h += '<div style="margin-bottom:1em;">';
-        h += '<h4 class="icon-label arr-integration-instance-header">' + mi('movie') + 'Radarr</h4>';
-        h += '<div class="header-actions" style="flex-wrap:wrap;">';
-        for (var r = 0; r < radarrInstances.length; r++) {
-            var rName = radarrInstances[r].Name || ('Radarr #' + (r + 1));
-            h += '<button class="action-btn arr-compare-btn" data-type="Radarr" data-index="'
-                + r + '" data-label="' + escAttr(rName) + '">' + T('compareWith', 'Compare with') + ' ' + escHtml(rName)
-                + '</button>';
-        }
-        h += '</div></div>';
+        h += _renderArrTypeBlock('Radarr', mi('movie'), radarrInstances);
     }
-
     if (sonarrInstances.length > 0) {
-        h += '<div style="margin-bottom:1em;">';
-        h += '<h4 class="icon-label arr-integration-instance-header">' + mi('tv') + 'Sonarr</h4>';
-        h += '<div class="header-actions" style="flex-wrap:wrap;">';
-        for (var s = 0; s < sonarrInstances.length; s++) {
-            var sName = sonarrInstances[s].Name || ('Sonarr #' + (s + 1));
-            h += '<button class="action-btn arr-compare-btn" data-type="Sonarr" data-index="'
-                + s + '" data-label="' + escAttr(sName) + '">' + T('compareWith', 'Compare with') + ' ' + escHtml(sName)
-                + '</button>';
-        }
-        h += '</div></div>';
+        h += _renderArrTypeBlock('Sonarr', mi('tv'), sonarrInstances);
     }
+    h += '</div>'; // /arr-card
 
     btnContainer.innerHTML = h;
 
-    // Use onclick assignment (not addEventListener) to prevent handler stacking on re-bind
-    var compareBtns = btnContainer.querySelectorAll('.arr-compare-btn');
-    for (var i = 0; i < compareBtns.length; i++) {
-        compareBtns[i].onclick = function () {
-            var type = this.getAttribute('data-type');
-            var idx = parseInt(this.getAttribute('data-index'), 10);
-            var label = this.getAttribute('data-label') || type;
+    // Wire up per-type handlers: change on the dropdown re-runs the health
+    // check for the newly-selected instance (cached 60 s), click on the
+    // Compare button dispatches the comparison. Uses onclick/onchange
+    // assignment (not addEventListener) so a subsequent re-render — e.g.
+    // after settings save — never stacks duplicate listeners on the same
+    // element instance.
+    _wireArrCompareControls('Radarr', radarrInstances);
+    _wireArrCompareControls('Sonarr', sonarrInstances);
+}
+
+// Bind the change + click handlers for one type block and kick off the
+// initial connection check for the currently-selected instance (usually
+// index 0). Extracted from initArrButtons to keep that function focused
+// on rendering the shell.
+function _wireArrCompareControls(type, instances) {
+    if (!instances || instances.length === 0) {
+        return;
+    }
+    var sel = document.getElementById('arrSelect' + type);
+    var btn = document.getElementById('btnCompare' + type);
+    if (sel) {
+        sel.onchange = function () {
+            var idx = parseInt(sel.value, 10);
+            if (isNaN(idx)) {
+                return;
+            }
+            refreshArrInstanceStatus(type, idx);
+        };
+    }
+    if (btn) {
+        btn.onclick = function () {
+            var idxSel = document.getElementById('arrSelect' + type);
+            var idx = idxSel ? parseInt(idxSel.value, 10) : 0;
+            if (isNaN(idx) || idx < 0) {
+                idx = 0;
+            }
+            var opt = idxSel && idxSel.options[idxSel.selectedIndex];
+            var label = opt ? opt.textContent : type;
             compareArr(type, idx, label);
         };
     }
+    // Trigger the first health check so the user immediately sees whether
+    // the default instance is reachable, without having to click anything.
+    refreshArrInstanceStatus(type, 0);
 }
 
 // Render a single Arr comparison section (list with max 50 items and "and X more" hint)
@@ -392,7 +565,11 @@ function compareArr(type, index, label) {
     apiGet('JellyfinHelper/ArrIntegration/Compare/' + type + '?index=' + index,
         function (data) {
             var instanceLabel = label || type;
-            var h = '<h3 style="margin-bottom:0.8em;">' + escHtml(instanceLabel)
+            // Wrap the result block in an .arr-card so it visually matches the
+            // Settings + Health card language (single container per logical
+            // result, same border/radius/padding treatment).
+            var h = '<div class="arr-card">';
+            h += '<h3 style="margin-bottom:0.8em;">' + escHtml(instanceLabel)
                 + '</h3>';
             h += renderArrSection(mi('check_circle'), 'inBoth', 'In Both', data.InBoth);
             h += renderArrSection(mi('inventory_2'), 'inArrOnly', 'In Arr Only (with file)',
@@ -401,6 +578,7 @@ function compareArr(type, index, label) {
                 data.InArrOnlyMissing);
             h += renderArrSection(mi('search'), 'inJellyfinOnly', 'In Jellyfin Only',
                 data.InJellyfinOnly);
+            h += '</div>'; // /arr-card
             resultDiv.innerHTML = h;
         }, function () {
             resultDiv.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('arrCompareError',
