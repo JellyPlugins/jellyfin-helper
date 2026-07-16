@@ -215,7 +215,10 @@
 }
 
 /* The Compare button never shrinks — it always shows its full label so
-   the user has a stable click target regardless of instance name length. */
+   the user has a stable click target regardless of instance name length.
+   box-sizing:border-box ensures its padding is included in the 100 %
+   width used on mobile, so the button lines up flush with the dropdown
+   above it instead of appearing narrower. */
 /* noinspection CssUnusedSymbol */
 .arr-compare-btn {
     flex: 0 0 auto;
@@ -227,20 +230,34 @@
     margin: 0;
     white-space: nowrap;
     font-size: 0.9em;
+    box-sizing: border-box;
 }
 
 /* Mobile: stack the dropdown and compare button on their own rows so
-   the button label never truncates on narrow viewports. */
+   the button label never truncates on narrow viewports. The row itself
+   must reset align-items to stretch so both children fill the full
+   column width — otherwise the Compare button (which is intrinsically
+   inline-flex) would shrink to its content width and float centered.
+   .arr-instance-select-wrap keeps flex:1 which, combined with stretch,
+   gives it 100 % of the row width; the button explicitly reads 100 %
+   too so both children have identical visual width. */
 @media (max-width: 500px) {
     /* noinspection CssUnusedSymbol */
     .arr-compare-row {
         flex-direction: column;
         gap: 0.5em;
+        align-items: stretch;
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .arr-compare-row .arr-instance-select-wrap {
+        width: 100%;
     }
 
     /* noinspection CssUnusedSymbol */
     .arr-compare-btn {
         width: 100%;
+        display: flex; /* stretch mode uses block-level flex so width:100 % is honored */
     }
 }
 
