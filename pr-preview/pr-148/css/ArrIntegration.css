@@ -214,11 +214,15 @@
     .arr-instance-status .arr-status-spinner { animation: none; }
 }
 
-/* The Compare button never shrinks — it always shows its full label so
-   the user has a stable click target regardless of instance name length.
-   box-sizing:border-box ensures its padding is included in the 100 %
-   width used on mobile, so the button lines up flush with the dropdown
-   above it instead of appearing narrower. */
+/* The Compare button in the new dropdown+button row.
+   Shared.css sets `.arr-compare-btn { min-width: 14em; ... }` as a legacy
+   rule for the old per-instance "Compare with Radarr X" layout. In the
+   new layout this rule would push the button outside its .arr-card on
+   narrow viewports. We override `min-width` here without touching
+   Shared.css (which is loaded across every tab in the dashboard).
+   ArrIntegration.css is loaded AFTER Shared.css in the composed
+   configPage.html (see ComposeConfigPage MSBuild task), so this rule
+   wins at equal specificity. */
 /* noinspection CssUnusedSymbol */
 .arr-compare-btn {
     flex: 0 0 auto;
@@ -231,6 +235,8 @@
     white-space: nowrap;
     font-size: 0.9em;
     box-sizing: border-box;
+    min-width: 0; /* neutralise the Shared.css min-width:14em legacy value */
+    max-width: 100%;
 }
 
 /* Mobile: stack the dropdown and compare button on their own rows so
