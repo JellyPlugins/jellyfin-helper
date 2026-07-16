@@ -142,6 +142,8 @@
   "radarrInstances": "Radarr Örnekleri",
   "sonarrInstances": "Sonarr Örnekleri",
   "compareWith": "Karşılaştır",
+  "compare": "Karşılaştır",
+  "arrSelectInstance": "Bir örnek seçin",
   "arrCompareError": "Karşılaştırma başarısız. Ayarları kontrol edin.",
   "url": "URL",
   "apiKey": "API Anahtarı",

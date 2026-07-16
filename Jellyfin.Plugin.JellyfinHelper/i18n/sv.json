@@ -142,6 +142,8 @@
   "radarrInstances": "Radarr-instanser",
   "sonarrInstances": "Sonarr-instanser",
   "compareWith": "Jämför med",
+  "compare": "Jämför",
+  "arrSelectInstance": "Välj en instans",
   "arrCompareError": "Jämförelse misslyckades. Kontrollera inställningarna.",
   "url": "URL",
   "apiKey": "API-nyckel",
