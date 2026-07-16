@@ -316,6 +316,12 @@ function _arrCacheKey(type, index) {
 
 // Paint the status badge inside the select-wrapper for the given type.
 // State enum: 'unknown' (empty), 'testing', 'ok', 'error'.
+//
+// The badge is a live region (role=status + aria-live=polite, set at
+// render time in _renderArrTypeBlock) so assistive tech announces each
+// state transition. The icon itself is aria-hidden (purely decorative);
+// a visually-hidden .arr-status-sr-only sibling carries the localised
+// text that screen readers actually read out.
 function _renderArrStatusBadge(type, state) {
     var badge = document.getElementById('arrStatus' + type);
     if (!badge) {
@@ -324,13 +330,19 @@ function _renderArrStatusBadge(type, state) {
     badge.classList.remove('is-ok', 'is-error', 'is-testing');
     if (state === 'ok') {
         badge.classList.add('is-ok');
-        badge.innerHTML = mi('check_circle');
+        badge.innerHTML = '<span aria-hidden="true">' + mi('check_circle') + '</span>'
+            + '<span class="arr-status-sr-only">'
+            + escHtml(T('arrStatusReachable', 'Reachable')) + '</span>';
     } else if (state === 'error') {
         badge.classList.add('is-error');
-        badge.innerHTML = mi('error');
+        badge.innerHTML = '<span aria-hidden="true">' + mi('error') + '</span>'
+            + '<span class="arr-status-sr-only">'
+            + escHtml(T('arrStatusUnreachable', 'Not reachable')) + '</span>';
     } else if (state === 'testing') {
         badge.classList.add('is-testing');
-        badge.innerHTML = '<span class="arr-status-spinner" aria-hidden="true"></span>';
+        badge.innerHTML = '<span class="arr-status-spinner" aria-hidden="true"></span>'
+            + '<span class="arr-status-sr-only">'
+            + escHtml(T('arrStatusTesting', 'Checking connection')) + '</span>';
     } else {
         // 'unknown' or anything else: clear the badge slot entirely.
         badge.innerHTML = '';
@@ -398,7 +410,7 @@ function _renderArrTypeBlock(type, icon, instances) {
     h += '<div class="arr-compare-header">' + icon + '<span>' + escHtml(type) + '</span></div>';
     h += '<div class="arr-compare-row">';
     h += '<div class="arr-instance-select-wrap">';
-    h += '<span class="arr-instance-status" id="arrStatus' + type + '" aria-hidden="true"></span>';
+    h += '<span class="arr-instance-status" id="arrStatus' + type + '" role="status" aria-live="polite" aria-atomic="true"></span>';
     h += '<select class="arr-instance-select" id="arrSelect' + type + '" aria-label="' + escAttr(T('arrSelectInstance', 'Select an instance')) + '">';
     for (var i = 0; i < instances.length; i++) {
         var name = instances[i].Name || (type + ' #' + (i + 1));
@@ -427,10 +439,19 @@ function initArrButtons(cfg) {
         stalResult.innerHTML = '';
     }
 
-    // Reset caches so a config change immediately re-tests instead of
-    // showing a stale ✓/✗ for a URL that may have changed.
+    // Reset the result cache so a config change immediately re-tests
+    // instead of showing a stale ✓/✗ for a URL that may have changed.
     _arrStatusCache = {};
-    _arrStatusReqSeq = {};
+    // IMPORTANT: do NOT reset _arrStatusReqSeq — advance it. If we reset
+    // to {} an in-flight request that started before this call would still
+    // hold reqId=1, and the very next refreshArrInstanceStatus() call
+    // would issue reqId=1 again, so the stale-response guard
+    // `reqId !== _arrStatusReqSeq[type]` would erroneously match and let
+    // the old credentials' response overwrite the badge for the new ones.
+    // Bumping each type's sequence guarantees any pending callback holds
+    // a strictly smaller ID than the current one and is rejected.
+    _arrStatusReqSeq.Radarr = (_arrStatusReqSeq.Radarr || 0) + 1;
+    _arrStatusReqSeq.Sonarr = (_arrStatusReqSeq.Sonarr || 0) + 1;
 
     var radarrInstances = resolveArrInstances(cfg, 'Radarr').filter(
         function (inst) {
