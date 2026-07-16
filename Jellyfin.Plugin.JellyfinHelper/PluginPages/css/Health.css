@@ -140,7 +140,9 @@
     font-weight: 600;
     opacity: 0.8;
     flex-wrap: wrap;
-    word-break: break-word;
+    /* overflow-wrap is the modern standard replacement for the legacy
+       word-break: break-word value which is spec-inconsistent. */
+    overflow-wrap: break-word;
 }
 
 /* noinspection CssUnusedSymbol */

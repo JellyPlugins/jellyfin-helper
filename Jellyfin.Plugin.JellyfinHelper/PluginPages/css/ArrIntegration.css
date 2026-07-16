@@ -191,6 +191,23 @@
     color: rgba(255, 255, 255, 0.55);
 }
 
+/* Screen-reader-only utility scoped to the arr status badge. The visual
+   badge is icon-only for sighted users; assistive tech reads this text
+   instead. Uses the well-known clip pattern so the text is off-screen
+   but stays in the accessibility tree. */
+/* noinspection CssUnusedSymbol */
+.arr-status-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 /* Small inline spinner used while the connection is being tested.
    Reuses the same border-based spinner pattern as .btn-spinner but
    scoped to the status slot so it sits perfectly centred. */
