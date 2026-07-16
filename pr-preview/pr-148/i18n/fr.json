@@ -142,6 +142,8 @@
   "radarrInstances": "Instances Radarr",
   "sonarrInstances": "Instances Sonarr",
   "compareWith": "Comparer avec",
+  "compare": "Comparer",
+  "arrSelectInstance": "Sélectionner une instance",
   "arrCompareError": "Échec de la comparaison. Vérifiez les paramètres.",
   "url": "URL",
   "apiKey": "Clé API",
