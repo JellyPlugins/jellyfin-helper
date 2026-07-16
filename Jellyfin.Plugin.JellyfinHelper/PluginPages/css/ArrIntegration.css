@@ -56,6 +56,194 @@
     margin-top: 0.5em;
 }
 
+/* ============================================================
+   Arr compare row — one dropdown + one compare button per type.
+   Replaces the old "N buttons of varying width per instance"
+   layout so the Radarr and Sonarr rows always share the same
+   visual footprint regardless of how many instances or how
+   long their names are.
+   ============================================================ */
+
+/* noinspection CssUnusedSymbol */
+.arr-compare-block {
+    /* Reset the default .arr-section top-margin bump (which pushes each
+       block down by 1em) because the section-header inside every block
+       already provides its own bottom spacing. */
+    margin-top: 1em;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-compare-block:first-child {
+    margin-top: 0;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-compare-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    margin: 0 0 0.5em 0;
+    font-weight: 600;
+    opacity: 0.85;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-compare-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.6em;
+    flex-wrap: nowrap;
+}
+
+/* Select wrapper positions the status badge over the select without
+   shifting the layout. The native select chevron on the right is left
+   alone; we place our badge on the left side of the visible content. */
+/* noinspection CssUnusedSymbol */
+.arr-instance-select-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0; /* allow the select to shrink below content-width */
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-select {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    padding: 0.55em 2.4em 0.55em 2.1em; /* left padding leaves room for status badge, right for native chevron */
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.05);
+    color: inherit;
+    font-size: 0.95em;
+    color-scheme: light dark;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='rgba(255,255,255,0.8)'%3E%3Cpath d='M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5em center;
+    background-size: 1.3em;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-select:hover,
+.arr-instance-select:focus-visible {
+    border-color: var(--color-primary);
+    outline: none;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-select option {
+    background: #2b2b2b;
+    color: #e0e0e0;
+}
+
+@media (prefers-color-scheme: light) {
+    /* noinspection CssUnusedSymbol */
+    .arr-instance-select {
+        background-color: rgba(0, 0, 0, 0.05);
+        border-color: rgba(0, 0, 0, 0.15);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='rgba(0,0,0,0.6)'%3E%3Cpath d='M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z'/%3E%3C/svg%3E");
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .arr-instance-select option {
+        background: #ffffff;
+        color: #111111;
+    }
+}
+
+/* Status badge (✓ / ✗ / ⏳) sits on the LEFT edge of the select so it
+   doesn't clash with the native right-side chevron on any OS. */
+/* noinspection CssUnusedSymbol */
+.arr-instance-status {
+    position: absolute;
+    left: 0.55em;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.2em;
+    height: 1.2em;
+    font-size: 1.05em;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.35);
+    transition: color 0.2s;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-status.is-ok {
+    color: var(--color-success);
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-status.is-error {
+    color: var(--color-danger);
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-status.is-testing {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+/* Small inline spinner used while the connection is being tested.
+   Reuses the same border-based spinner pattern as .btn-spinner but
+   scoped to the status slot so it sits perfectly centred. */
+/* noinspection CssUnusedSymbol */
+.arr-instance-status .arr-status-spinner {
+    display: inline-block;
+    width: 0.9em;
+    height: 0.9em;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: currentcolor;
+    border-radius: 50%;
+    animation: arr-status-spin 0.85s linear infinite;
+}
+
+@keyframes arr-status-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* noinspection CssUnusedSymbol */
+    .arr-instance-status .arr-status-spinner { animation: none; }
+}
+
+/* The Compare button never shrinks — it always shows its full label so
+   the user has a stable click target regardless of instance name length. */
+/* noinspection CssUnusedSymbol */
+.arr-compare-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35em;
+    padding: 0.55em 1em;
+    margin: 0;
+    white-space: nowrap;
+    font-size: 0.9em;
+}
+
+/* Mobile: stack the dropdown and compare button on their own rows so
+   the button label never truncates on narrow viewports. */
+@media (max-width: 500px) {
+    /* noinspection CssUnusedSymbol */
+    .arr-compare-row {
+        flex-direction: column;
+        gap: 0.5em;
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .arr-compare-btn {
+        width: 100%;
+    }
+}
+
 .arr-list {
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.08);
