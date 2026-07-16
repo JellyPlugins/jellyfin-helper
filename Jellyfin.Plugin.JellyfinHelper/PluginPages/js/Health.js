@@ -139,8 +139,7 @@ function loadTrashHealthSection() {
                 }
             }
 
-            var html = '<div id="trashHealthSection">';
-            html += '<div class="section-divider" style="margin:1.5em 0;"></div>';
+            var html = '<div class="health-card" id="trashHealthSection">';
             html += '<div class="section-title">' + mi('delete') + T('trashContents',
                 'Trash Contents') + '</div>';
 
@@ -164,10 +163,10 @@ function loadTrashHealthSection() {
                 html += '<div id="trashDetailContainer">';
                 for (var li = 0; li < data.Libraries.length; li++) {
                     var trashLib = data.Libraries[li];
-                    html += '<div style="margin-top:1em;">';
-                    html += '<h4 style="margin:0 0 0.3em 0;opacity:0.8;">' + mi('folder') + ' ' + escHtml(
+                    html += '<div class="trash-library-block">';
+                    html += '<h4 class="trash-library-heading">' + mi('folder') + escHtml(
                             trashLib.LibraryName)
-                        + ' <span style="opacity:0.5;font-weight:400;">('
+                        + ' <span class="trash-library-count">('
                         + trashLib.Items.length + ' ' + T('items', 'items')
                         + ')</span></h4>';
                     html += '<div class="health-detail-list"><ul>';
@@ -176,14 +175,14 @@ function loadTrashHealthSection() {
                         var purgeInfo = item.PurgeDate ? ' - ' + T('purgesOn', 'purges')
                             + ' ' + new Date(item.PurgeDate).toLocaleDateString() : '';
                         html += '<li>' + escHtml(item.OriginalName || item.Name)
-                            + ' <span style="opacity:0.5;">(' + formatBytes(item.Size)
+                            + ' <span class="trash-item-meta">(' + formatBytes(item.Size)
                             + purgeInfo + ')</span></li>';
                     }
                     html += '</ul></div></div>';
                 }
                 html += '</div>';
             } else {
-                html += '<p style="opacity:0.5;padding:0.5em;">' + T('trashEmpty',
+                html += '<p class="trash-empty-hint">' + T('trashEmpty',
                     'Trash is empty.') + '</p>';
             }
 
@@ -198,9 +197,11 @@ function loadTrashHealthSection() {
 }
 
 function fillHealthData(data) {
-    var healthHtml = '<div class="section-title">' + T('healthChecks',
+    var healthHtml = '<div class="health-card" id="healthChecksCard">';
+    healthHtml += '<div class="section-title">' + T('healthChecks',
         'Library Health Checks') + '</div>';
     healthHtml += renderHealthChecks(data);
+    healthHtml += '</div>';
 
     var healthContainer = document.getElementById('healthContent');
     if (healthContainer) {

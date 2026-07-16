@@ -91,3 +91,112 @@
     padding: 0.15em 0;
     word-break: break-all;
 }
+
+
+/* noinspection CssUnusedSymbol */
+.health-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 0.8em 1.1em 1.1em 1.1em;
+    margin-top: 1.2em;
+    box-sizing: border-box;
+}
+
+/* First card in the health tab hugs the top of the tab-content area. */
+/* noinspection CssUnusedSymbol */
+#healthContent > .health-card:first-child {
+    margin-top: 0.4em;
+}
+
+/* Inside a card, the section-title acts as the card header — kill the
+   large default top margin the section-title uses. */
+/* noinspection CssUnusedSymbol */
+.health-card > .section-title:first-child {
+    margin-top: 0;
+    margin-bottom: 0.6em;
+}
+
+/* Per-library trash sub-block. Replaces the previous ad-hoc
+   <div style="margin-top:1em;">…<h4 style="margin:0 0 0.3em 0;opacity:0.8;">
+   layout with a class-driven equivalent. */
+/* noinspection CssUnusedSymbol */
+.trash-library-block {
+    margin-top: 1em;
+}
+
+/* noinspection CssUnusedSymbol */
+.trash-library-block:first-child {
+    margin-top: 0.5em;
+}
+
+/* noinspection CssUnusedSymbol */
+.trash-library-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.3em;
+    margin: 0 0 0.3em 0;
+    font-size: 1em;
+    font-weight: 600;
+    opacity: 0.8;
+    flex-wrap: wrap;
+    /* overflow-wrap is the modern standard replacement for the legacy
+       word-break: break-word value which is spec-inconsistent. */
+    overflow-wrap: break-word;
+}
+
+/* noinspection CssUnusedSymbol */
+.trash-library-count {
+    opacity: 0.5;
+    font-weight: 400;
+    font-size: 0.9em;
+}
+
+/* noinspection CssUnusedSymbol */
+.trash-item-meta {
+    opacity: 0.5;
+}
+
+/* noinspection CssUnusedSymbol */
+.trash-empty-hint {
+    opacity: 0.5;
+    padding: 0.5em;
+    margin: 0;
+    text-align: center;
+    font-size: 0.9em;
+}
+
+/* Mobile tuning. Match the Settings tab breakpoint (500 px) so both
+   pages collapse to the same tighter padding at the same screen size. */
+@media (max-width: 500px) {
+    /* noinspection CssUnusedSymbol */
+    .health-card {
+        padding: 0.6em 0.8em 0.9em 0.8em;
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .trash-library-heading {
+        font-size: 0.95em;
+    }
+}
+
+/* Extra-narrow phones: allow the health-grid tiles to shrink instead
+   of forcing a horizontal scrollbar. The existing `.health-grid` rule
+   uses minmax(180px, 1fr); on ~360 px viewports (Galaxy S8 etc.) that
+   leaves ~20 px of chrome. Lowering the minimum to 140 px on very
+   narrow screens keeps two tiles per row where sensible and falls
+   back to one column cleanly below that. */
+@media (max-width: 400px) {
+    .health-grid {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 0.6em;
+    }
+
+    .health-item {
+        padding: 0.6em 0.7em;
+    }
+
+    .health-item .health-value {
+        font-size: 1.3em;
+    }
+}

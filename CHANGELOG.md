@@ -16,6 +16,9 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **More diverse top picks** - Ranking now balances genre, studio and release era — no more ten Marvel films in a row.
 - **Faster scans on big libraries** - Watch-history and recommendation scans use Jellyfin 12's batch APIs; on large libraries this shaves seconds off every scheduled run.
 - **Cleaner Settings page** - Reorganised into four clear cards (General, Tasks & Trash, Integrations, Backup) with a sticky save bar and an unsaved-changes indicator, so nothing gets lost.
+- **Health tab now in tidy cards** - Library health checks and trash contents each live in their own card, so the page feels calmer and easier to scan.
+- **Arr tab redesigned** - Instead of one button per instance, each Arr type (Radarr, Sonarr) now has a single dropdown to pick which instance to compare, with a live "reachable" indicator right on the dropdown (green tick, red cross, or a spinner while checking). Fewer buttons, no more layout jumping when instance names differ in length, and you see straight away whether the selected instance is online.
+- **Better on phones** - The Health, Arr and Settings tabs now shrink their padding on small screens and keep long library names and file paths from breaking the layout.
 - **Compact weight serialization** - Persisted recommendation weights now use compact (non-indented) JSON, roughly a third the size of the equivalent indented form. Note: the v3 neural architecture has ~4.5× more parameters than v2, so on-disk files are larger than v2 files even in compact form.
 
 ### Fixed
