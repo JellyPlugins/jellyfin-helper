@@ -234,13 +234,19 @@
 }
 
 /* Mobile: stack the dropdown and compare button on their own rows so
-   the button label never truncates on narrow viewports. The row itself
-   must reset align-items to stretch so both children fill the full
-   column width — otherwise the Compare button (which is intrinsically
-   inline-flex) would shrink to its content width and float centered.
-   .arr-instance-select-wrap keeps flex:1 which, combined with stretch,
-   gives it 100 % of the row width; the button explicitly reads 100 %
-   too so both children have identical visual width. */
+   the button label never truncates on narrow viewports.
+
+   Critical override: the shared .arr-compare-btn rule in Shared.css sets
+   `min-width: 14em` (for the previous desktop button layout). On very
+   narrow viewports 14em can exceed the card's available inner width,
+   which pushes the button visually outside the card border. We reset
+   min-width to 0 inside the mobile media query so the button collapses
+   to its container width. max-width:100 % is a defense-in-depth guard
+   in case any future rule reintroduces a min-content-based expansion.
+
+   .arr-compare-row uses align-items:stretch so both children (dropdown
+   wrapper + button) fill the full column width in flex-direction:column
+   mode. Explicit width:100 % on both keeps their visual widths identical. */
 @media (max-width: 500px) {
     /* noinspection CssUnusedSymbol */
     .arr-compare-row {
@@ -257,6 +263,8 @@
     /* noinspection CssUnusedSymbol */
     .arr-compare-btn {
         width: 100%;
+        max-width: 100%;
+        min-width: 0;
         display: flex; /* stretch mode uses block-level flex so width:100 % is honored */
     }
 }
