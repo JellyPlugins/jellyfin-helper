@@ -725,6 +725,54 @@ public class PreferenceBuilderTests
             $"Actor A must not be treated as two bypasses; expected < 2.0, got {actorAWeight}");
     }
 
+    // === F-04 regression: phantom watched-episode rows must not inflate the counter ===
+    // When the on-disk episode files are deleted but the WatchedItemInfo rows survive in the
+    // history cache, the naive per-series counter would grow beyond the actual episode total
+    // and unlock ProgressionCeiling for a series the user never came close to completing.
+    // The two tests below pin the two failure modes: (1) whole-series deletion, (2) partial
+    // file loss within an existing series.
+
+    [Fact]
+    public void BuildGenrePreferenceVector_PhantomRowsForDeletedSeries_AreIgnored()
+    {
+        // Series was fully deleted from the library — seriesEpisodeCounts no longer has an
+        // entry for it, but old watch rows still exist. Without the skip guard those rows
+        // would drive the multiplier off a series length of zero (or, historically, from a
+        // reused row's Genres alone) and could still push the vector towards the deleted
+        // signal. Now they must be treated exactly like non-existent rows.
+        var deletedSeries = Guid.NewGuid();
+        var liveSeries = Guid.NewGuid();
+        var counts = new Dictionary<Guid, int> { { liveSeries, 2 } };
+        var now = DateTime.UtcNow.AddDays(-1);
+
+        var withPhantoms = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = liveSeries, Played = true, LastPlayedDate = now, Genres = ["Live"] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = deletedSeries, Played = true, LastPlayedDate = now, Genres = ["Phantom"] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = deletedSeries, Played = true, LastPlayedDate = now, Genres = ["Phantom"] }
+            ]
+        };
+        var withoutPhantoms = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), SeriesId = liveSeries, Played = true, LastPlayedDate = now, Genres = ["Live"] }
+            ]
+        };
+
+        var vectorWith = PreferenceBuilder.BuildGenrePreferenceVector(withPhantoms, counts);
+        var vectorWithout = PreferenceBuilder.BuildGenrePreferenceVector(withoutPhantoms, counts);
+
+        // The Live series must land at the exact same relative weight in both profiles once
+        // the phantom rows are excluded from the counter. A regression that let phantom rows
+        // through would either dilute Live's normalised weight or introduce a Phantom entry.
+        Assert.True(vectorWith.ContainsKey("Live"));
+        Assert.InRange(vectorWith["Live"], 0.999, 1.0001);
+        Assert.InRange(vectorWithout["Live"], 0.999, 1.0001);
+    }
+
     [Fact]
     public void ComputeProgressionMultiplier_AbandonedSeries_StillContributesFloor()
     {

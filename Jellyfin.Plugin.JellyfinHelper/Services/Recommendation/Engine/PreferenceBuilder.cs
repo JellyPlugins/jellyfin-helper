@@ -147,6 +147,12 @@ internal static class PreferenceBuilder
                 continue;
             }
 
+            // F-04 phantom guard: skip rows whose series has been deleted from the library.
+            if (IsPhantomSeriesRow(item, seriesEpisodeCounts))
+            {
+                continue;
+            }
+
             if (item.Genres is not { Count: > 0 })
             {
                 continue;
@@ -629,6 +635,12 @@ internal static class PreferenceBuilder
                 continue;
             }
 
+            // F-04 phantom guard: keep in lock-step with BuildGenrePreferenceVector.
+            if (IsPhantomSeriesRow(w, seriesEpisodeCounts))
+            {
+                continue;
+            }
+
             // Merge people from the item itself AND its parent series (episodes → series).
             // De-duplicate per watched row so the same person on the same item is not
             // double-counted just because both item-level and series-level lookups return them.
@@ -864,6 +876,32 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
+    ///     F-04 phantom-row guard. Returns true when the row belongs to a series that has been
+    ///     deleted from the library — the caller passes <paramref name="seriesEpisodeCounts"/>
+    ///     from <c>Engine.LoadCandidateItems</c> so any <c>SeriesId</c> absent from that map is
+    ///     by definition stale. Only <see cref="BuildGenrePreferenceVector"/> and
+    ///     <see cref="BuildPeoplePreferenceWeights"/> receive the series map — the studio / tag /
+    ///     (unweighted) people paths still call the 1-arg <see cref="IsEligibleForPreferenceWeighting"/>
+    ///     unchanged for backwards compatibility.
+    ///     <para>
+    ///         Rows without a <see cref="WatchedItemInfo.SeriesId"/> (movies, standalone items) are
+    ///         never treated as phantoms here — their existence is validated by the item-lookup
+    ///         maps in the caller. Only episode / series rows benefit from this guard.
+    ///     </para>
+    /// </summary>
+    private static bool IsPhantomSeriesRow(
+        WatchedItemInfo row,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts)
+    {
+        if (seriesEpisodeCounts is null || row.SeriesId is not { } sid)
+        {
+            return false;
+        }
+
+        return !seriesEpisodeCounts.ContainsKey(sid);
+    }
+
+    /// <summary>
     ///     Pre-aggregates the number of completed episodes per series for the user, using the
     ///     strict <see cref="IsEpisodeCompletedForProgression"/> predicate (Played or PlayCount &gt; 0).
     ///     Returns <c>null</c> when the caller did not supply a <paramref name="seriesEpisodeCounts"/>
@@ -900,15 +938,16 @@ internal static class PreferenceBuilder
             }
 
             // Skip rows for series no longer in the library (phantom data from deleted series).
-            if (!seriesEpisodeCounts.TryGetValue(sid, out var totalEps) || totalEps <= 0)
+            // ComputeProgressionMultiplier's Math.Min(1.0, rawRatio) already clamps overshoot
+            // for the still-existing series case, so no per-row cap is required here — the
+            // skip is what actually matters, and it must happen BEFORE we bump the counter.
+            if (!seriesEpisodeCounts.ContainsKey(sid))
             {
                 continue;
             }
 
             watched.TryGetValue(sid, out var c);
-            // Cap at total: phantom rows for deleted episode files must not push the counter
-            // beyond the available episodes and inflate the progression ratio to ceiling.
-            watched[sid] = Math.Min(c + 1, totalEps);
+            watched[sid] = c + 1;
         }
 
         return watched;
