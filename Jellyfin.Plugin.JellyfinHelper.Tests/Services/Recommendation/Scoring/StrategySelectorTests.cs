@@ -159,4 +159,163 @@ public class StrategySelectorTests
         Assert.Equal(0.0, selector.GetAlphaOffset(Guid.Empty));
         Assert.Equal("control", selector.GetCohortName(Guid.Empty));
     }
+
+    // ---------------------------------------------------------------------
+    // Exploration-active tests (require both gates open)
+    // ---------------------------------------------------------------------
+    //
+    // The exploration gate is `TrainingExampleCount >= 50 && MetricsHistoryCount >= 2`.
+    // We drive that state by calling Train() with cold-start placeholder examples that fail
+    // (single example → LearnedScoringStrategy.Train returns false but still records a
+    // placeholder metrics snapshot). Two failed runs get MetricsHistoryCount to 2, then
+    // one successful training round pushes TrainingExampleCount to >= 50.
+
+    [Fact]
+    public void GetAlphaOffset_AllZeroGuid_ExplorationActive_ReturnsExploreHigh()
+    {
+        // Guid.Empty XOR-folds to bucket 0 which is inside the explore-high band (0..9).
+        var ensemble = BuildActivatedEnsemble();
+        var selector = new StrategySelector(ensemble);
+
+        Assert.Equal(StrategySelector.ExploreHighOffset, selector.GetAlphaOffset(Guid.Empty));
+        Assert.Equal("explore-high", selector.GetCohortName(Guid.Empty));
+    }
+
+    [Fact]
+    public void GetAlphaOffset_ExplorationActive_DistributionCoversAllThreeCohorts()
+    {
+        // With exploration active, iterating enough random users must produce entries in all
+        // three cohorts (explore-high 10%, explore-low 10%, control 80%). 500 iterations gives
+        // a near-zero probability of missing any single cohort by chance (~5e-24 for the
+        // rarest cohort). Reveals: hash bucketing is not degenerate (all users to one bucket).
+        var ensemble = BuildActivatedEnsemble();
+        var selector = new StrategySelector(ensemble);
+
+        var cohorts = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < 500 && cohorts.Count < 3; i++)
+        {
+            cohorts.Add(selector.GetCohortName(Guid.NewGuid()));
+        }
+
+        Assert.Contains("control", cohorts);
+        Assert.Contains("explore-high", cohorts);
+        Assert.Contains("explore-low", cohorts);
+    }
+
+    [Fact]
+    public void GetAlphaOffset_ExplorationActive_OffsetAgreesWithCohort()
+    {
+        // For every user, the offset must be strictly derived from the cohort. A drift
+        // between the two would show up here.
+        var ensemble = BuildActivatedEnsemble();
+        var selector = new StrategySelector(ensemble);
+
+        for (var i = 0; i < 200; i++)
+        {
+            var id = Guid.NewGuid();
+            var cohort = selector.GetCohortName(id);
+            var offset = selector.GetAlphaOffset(id);
+
+            switch (cohort)
+            {
+                case "control":
+                    Assert.Equal(0.0, offset);
+                    break;
+                case "explore-high":
+                    Assert.Equal(StrategySelector.ExploreHighOffset, offset);
+                    break;
+                case "explore-low":
+                    Assert.Equal(StrategySelector.ExploreLowOffset, offset);
+                    break;
+                default:
+                    Assert.Fail($"Unknown cohort '{cohort}' for user {id}.");
+                    break;
+            }
+        }
+    }
+
+    [Fact]
+    public void GetAlphaOffset_ExplorationActive_ApproximateSplitMatches10_10_80()
+    {
+        // Statistical sanity: over 2000 samples the observed proportion of each cohort
+        // should be close to the intended 10 / 10 / 80 split. Loose tolerance because
+        // this is stochastic - we're only checking that we're not silently mis-bucketing.
+        var ensemble = BuildActivatedEnsemble();
+        var selector = new StrategySelector(ensemble);
+
+        int high = 0, low = 0, control = 0;
+        const int iterations = 2000;
+        for (var i = 0; i < iterations; i++)
+        {
+            var cohort = selector.GetCohortName(Guid.NewGuid());
+            switch (cohort)
+            {
+                case "explore-high": high++; break;
+                case "explore-low": low++; break;
+                default: control++; break;
+            }
+        }
+
+        // Wide bounds - stochastic tolerance:
+        //   * expected high/low ≈ 10% each → allow 5..15%.
+        //   * expected control ≈ 80% → allow 70..90%.
+        // The point is not tight statistical validation but to catch a "all users get
+        // the same cohort" bug or a "high band is 90%" bucketing regression.
+        Assert.InRange(high, iterations * 5 / 100, iterations * 15 / 100);
+        Assert.InRange(low, iterations * 5 / 100, iterations * 15 / 100);
+        Assert.InRange(control, iterations * 70 / 100, iterations * 90 / 100);
+    }
+
+    /// <summary>
+    ///     Builds an ensemble whose exploration gate has flipped to active
+    ///     (<c>TrainingExampleCount &gt;= 50</c> AND <c>MetricsHistoryCount &gt;= 2</c>).
+    ///     Uses two failed cold-start training calls to seed <c>MetricsHistoryCount = 2</c>
+    ///     (the placeholder-snapshot path) and one successful training call to lift
+    ///     the cumulative example count above <see cref="StrategySelector.MinExamplesForExploration"/>.
+    /// </summary>
+    private static EnsembleScoringStrategy BuildActivatedEnsemble()
+    {
+        var ensemble = new EnsembleScoringStrategy();
+        // Two failed runs → 2 placeholder snapshots (opens metrics gate).
+        ensemble.Train(BuildTrainingExamples(1));
+        ensemble.Train(BuildTrainingExamples(1));
+        // One successful run with >= 50 examples → opens example gate.
+        ensemble.Train(BuildTrainingExamples(50));
+        return ensemble;
+    }
+
+    /// <summary>
+    ///     Builds a fixed set of training examples with alternating labels and enough feature
+    ///     variance for the learned strategy to fit. Deterministic (no randomness) so the
+    ///     exploration-gate seed step is reproducible across CI runs.
+    /// </summary>
+    private static List<TrainingExample> BuildTrainingExamples(int count)
+    {
+        var list = new List<TrainingExample>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var t = (double)i / Math.Max(1, count - 1);
+            list.Add(new TrainingExample
+            {
+                Features = new CandidateFeatures
+                {
+                    GenreSimilarity = t,
+                    CollaborativeScore = 1.0 - t,
+                    CombinedCriticScore = 0.5 + (t * 0.4),
+                    RecencyScore = 1.0 - (t * 0.5),
+                    YearProximityScore = 0.5 + (t * 0.5),
+                    GenreCount = 1 + (i % 4),
+                    IsSeries = (i % 2) == 0,
+                    UserRatingScore = t,
+                    CompletionRatio = t,
+                    LanguageAffinity = 0.5 + (t * 0.5),
+                    SubtitleLanguageAffinity = 0.5
+                },
+                Label = i % 2 == 0 ? 1.0 : 0.0,
+                SampleWeight = 1.0,
+                GeneratedAtUtc = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc).AddDays(i)
+            });
+        }
+        return list;
+    }
 }
