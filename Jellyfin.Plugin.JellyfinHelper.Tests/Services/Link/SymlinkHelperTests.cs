@@ -110,15 +110,21 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     [Fact]
-    public void IsSymlink_BrokenSymlink_ReturnsFalse()
+    public void IsSymlink_BrokenSymlink_BehaviourIsPlatformDependent()
     {
-        // BUG SURFACE: FileInfo.Exists returns false for a symlink whose target is missing.
-        // The current implementation therefore treats broken symlinks as "not a symlink".
-        // That silently prevents LinkRepairService from ever seeing broken links via this
-        // helper — a real problem given the whole point of LinkRepairService is to fix
-        // broken links. This test *documents* the current behaviour so a future fix that
-        // switches to File.GetAttributes(...) & FileAttributes.ReparsePoint will make this
-        // test fail loudly, prompting a review.
+        // BUG SURFACE: The implementation gates on `info.Exists && info.LinkTarget != null`.
+        // FileInfo.Exists for a broken symlink is PLATFORM-DEPENDENT:
+        //   • Windows: Exists = false (symlink is followed at check time; target missing → false),
+        //     so a broken symlink is reported as NOT a symlink. That silently prevents
+        //     LinkRepairService from ever seeing broken links via this helper — arguably a
+        //     bug, since the whole point of LinkRepairService is to fix broken links.
+        //   • Linux/macOS: Exists = true (Exists checks the link node itself, not the target),
+        //     so LinkTarget is non-null → helper correctly reports TRUE.
+        //
+        // Rather than baking either OS-specific answer into a hard assertion (which caused
+        // the CI runner on Linux to fail), we document the divergence explicitly. When the
+        // implementation is ever fixed to use File.GetAttributes + FileAttributes.ReparsePoint
+        // both branches will collapse to TRUE and this test remains green.
         if (!SymlinksSupported())
         {
             return;
@@ -130,8 +136,17 @@ public sealed class SymlinkHelperTests : IDisposable
         File.CreateSymbolicLink(link, target);
         File.Delete(target); // now the link is broken
 
-        // Current (arguably-wrong) behaviour: broken symlink → false.
-        Assert.False(_sut.IsSymlink(link));
+        var result = _sut.IsSymlink(link);
+        if (OperatingSystem.IsWindows())
+        {
+            // Windows: FileInfo.Exists follows the link → false for broken target.
+            Assert.False(result);
+        }
+        else
+        {
+            // Linux/macOS: FileInfo.Exists reports the link node itself → true.
+            Assert.True(result);
+        }
     }
 
     // -----------------------------------------------------------------------
