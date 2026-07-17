@@ -30,7 +30,14 @@ internal sealed class NullableDateTimeConverter : JsonConverter<DateTime?>
                 return null;
             }
 
-            if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+            // DateTimeStyles.RoundtripKind preserves the Kind marker from the wire:
+            //   "…Z"       → Kind=Utc
+            //   "…+02:00"  → Kind=Local (or Utc if the offset is zero)
+            //   plain "YYYY-MM-DD" → Kind=Unspecified
+            // Without this flag, DateTime.TryParse silently converts UTC input to Local time,
+            // which shifts .Ticks by the machine's UTC offset and breaks downstream code that
+            // compares against DateTime.UtcNow or persists timestamps.
+            if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
             {
                 return parsed;
             }
