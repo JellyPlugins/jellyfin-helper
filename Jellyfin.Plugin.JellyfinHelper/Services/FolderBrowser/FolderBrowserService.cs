@@ -15,14 +15,29 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 public class FolderBrowserService : IFolderBrowserService
 {
     private readonly ILogger<FolderBrowserService> _logger;
+    private readonly bool _isWindows;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="FolderBrowserService" /> class.
     /// </summary>
     /// <param name="logger">The logger instance.</param>
     public FolderBrowserService(ILogger<FolderBrowserService> logger)
+        : this(logger, OperatingSystem.IsWindows())
+    {
+    }
+
+    /// <summary>
+    ///     Initializes a new instance of the <see cref="FolderBrowserService" /> class
+    ///     with an explicit OS-detection override. Test-only overload that lets callers
+    ///     exercise both the Windows drive-enumeration branch and the Unix "/" branch
+    ///     regardless of the actual host operating system.
+    /// </summary>
+    /// <param name="logger">The logger instance.</param>
+    /// <param name="isWindows">Whether to run the Windows drive-enumeration branch.</param>
+    internal FolderBrowserService(ILogger<FolderBrowserService> logger, bool isWindows)
     {
         _logger = logger;
+        _isWindows = isWindows;
     }
 
     /// <inheritdoc />
@@ -32,7 +47,7 @@ public class FolderBrowserService : IFolderBrowserService
         {
             var entries = new List<FolderEntry>();
 
-            if (OperatingSystem.IsWindows())
+            if (_isWindows)
             {
                 // On Windows, list available drive letters.
                 // DriveInfo property access (IsReady, DriveType, Name) can throw for
@@ -280,12 +295,44 @@ public class FolderBrowserService : IFolderBrowserService
 
             // Verify directory exists — use Attributes to distinguish access-denied from missing.
             // Directory.Exists() returns false for BOTH cases, which would collapse
-            // permission errors into the wrong "does not exist" message.
+            // permission errors into the wrong "does not exist" message. However, on modern .NET
+            // DirectoryInfo.Attributes silently returns (FileAttributes)(-1) for non-existent paths
+            // rather than throwing DirectoryNotFoundException — so we probe existence first via
+            // File.Exists/Directory.Exists (which agree on the "does the path exist at all" question)
+            // and only fall through to the Attributes path to distinguish access-denied when the
+            // entry appears to be missing.
             try
             {
-                var attrs = new DirectoryInfo(normalized).Attributes;
-                if (!attrs.HasFlag(FileAttributes.Directory))
+                if (Directory.Exists(normalized))
                 {
+                    // Path exists AND is a directory — happy path.
+                    var attrs = new DirectoryInfo(normalized).Attributes;
+                    if (attrs != (FileAttributes)(-1) && !attrs.HasFlag(FileAttributes.Directory))
+                    {
+                        return "Path must point to a directory.";
+                    }
+                }
+                else if (File.Exists(normalized))
+                {
+                    // Path exists but is a file, not a directory.
+                    return "Path must point to a directory.";
+                }
+                else
+                {
+                    // Path does not exist as file or directory — but Directory.Exists also returns
+                    // false when the caller lacks read permission on the parent. Probe Attributes
+                    // to distinguish the two cases: a permission-denied path will throw
+                    // UnauthorizedAccessException/SecurityException/IOException, while a truly
+                    // missing path returns (FileAttributes)(-1) (or throws DirectoryNotFoundException
+                    // on some runtimes).
+                    var attrs = new DirectoryInfo(normalized).Attributes;
+                    if (attrs == (FileAttributes)(-1))
+                    {
+                        return "Directory does not exist.";
+                    }
+
+                    // Attributes returned a real value but Directory.Exists said no — treat as
+                    // "not a directory" (e.g. concurrent modification, or a non-directory entry).
                     return "Path must point to a directory.";
                 }
             }
@@ -298,6 +345,10 @@ public class FolderBrowserService : IFolderBrowserService
                 return "Cannot access this directory.";
             }
             catch (DirectoryNotFoundException)
+            {
+                return "Directory does not exist.";
+            }
+            catch (FileNotFoundException)
             {
                 return "Directory does not exist.";
             }
