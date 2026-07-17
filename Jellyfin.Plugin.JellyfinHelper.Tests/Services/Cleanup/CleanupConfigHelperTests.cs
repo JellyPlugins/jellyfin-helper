@@ -600,4 +600,130 @@ public class CleanupConfigHelperTests
             File.Delete(tempFile);
         }
     }
+
+    // ===== GetExistingTrashFoldersForPath =====
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_ThrowsOnNullLibraryManager()
+    {
+        var helper = CreateHelper();
+        Assert.Throws<System.ArgumentNullException>(() =>
+            helper.GetExistingTrashFoldersForPath(null!, "/tmp"));
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_EmptyQuery_ReturnsEmpty()
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, string.Empty));
+        Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, "   "));
+        Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, null!));
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_AbsolutePath_NonExistent_ReturnsEmpty()
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        lm.Setup(m => m.GetVirtualFolders()).Returns([]);
+
+        var query = Path.Join(Path.GetTempPath(), "does-not-exist-" + Guid.NewGuid().ToString("N"));
+        Assert.Empty(helper.GetExistingTrashFoldersForPath(lm.Object, query));
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_AbsolutePath_Exists_ReturnsIt()
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        lm.Setup(m => m.GetVirtualFolders()).Returns([]);
+
+        var trash = Path.Join(Path.GetTempPath(), "jfh-trash-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(trash);
+        try
+        {
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, trash);
+            Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(trash), result[0]);
+        }
+        finally
+        {
+            Directory.Delete(trash, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_AbsolutePath_MatchesLibraryRoot_ReturnsEmpty()
+    {
+        // Safety guard: if the trash query resolves to a real library root, the method must
+        // report NO match so that downstream relocate/delete flows cannot wipe out the library.
+        var helper = CreateHelper();
+        var libraryRoot = Path.Join(Path.GetTempPath(), "jfh-lib-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(libraryRoot);
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "Movies", Locations = [libraryRoot] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, libraryRoot);
+            Assert.Empty(result);
+        }
+        finally
+        {
+            Directory.Delete(libraryRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_RelativePath_ResolvesPerLibrary()
+    {
+        var helper = CreateHelper();
+        var lib1 = Path.Join(Path.GetTempPath(), "jfh-l1-" + Guid.NewGuid().ToString("N"));
+        var lib2 = Path.Join(Path.GetTempPath(), "jfh-l2-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Join(lib1, ".trash")); // only lib1 has a real trash
+        Directory.CreateDirectory(lib2);
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "L1", Locations = [lib1] },
+                new VirtualFolderInfo { Name = "L2", Locations = [lib2] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, ".trash");
+            Assert.Single(result);
+            Assert.Equal(Path.GetFullPath(Path.Join(lib1, ".trash")), result[0]);
+        }
+        finally
+        {
+            if (Directory.Exists(lib1)) Directory.Delete(lib1, recursive: true);
+            if (Directory.Exists(lib2)) Directory.Delete(lib2, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetExistingTrashFoldersForPath_RelativePathEscape_IsRejected()
+    {
+        // "../../etc" tries to escape the library root — must never be reported as valid trash.
+        var helper = CreateHelper();
+        var lib = Path.Join(Path.GetTempPath(), "jfh-esc-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(lib);
+        try
+        {
+            var lm = new Mock<ILibraryManager>();
+            lm.Setup(m => m.GetVirtualFolders()).Returns([
+                new VirtualFolderInfo { Name = "L", Locations = [lib] }
+            ]);
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, "../../etc");
+            Assert.Empty(result);
+        }
+        finally
+        {
+            Directory.Delete(lib, recursive: true);
+        }
+    }
 }

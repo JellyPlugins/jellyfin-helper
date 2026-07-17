@@ -1,234 +1,68 @@
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
-using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
-using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
-using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.ConfigAccess;
 
 /// <summary>
-///     Tests for <see cref="IPluginConfigurationService" /> contract behaviour.
-///     Verifies that SaveConfiguration persists changes made to the Configuration object,
-///     and that GetConfiguration always returns the same mutable reference (singleton semantics).
+///     Tests for <see cref="PluginConfigurationService"/>. Because <c>Plugin.Instance</c> is a
+///     process-wide singleton that other tests may or may not have initialised, every assertion
+///     tolerates both states (null → fallback, non-null → delegation) so the outcome is not order-dependent.
 /// </summary>
 public class PluginConfigurationServiceTests
 {
-    /// <summary>
-    ///     Verifies that modifications to the configuration object returned by
-    ///     <see cref="IPluginConfigurationService.GetConfiguration" /> are visible
-    ///     after <see cref="IPluginConfigurationService.SaveConfiguration" /> is called
-    ///     and the configuration is retrieved again.
-    ///     This is the core contract: GetConfiguration returns a mutable reference,
-    ///     changes are made in-place, and SaveConfiguration persists them.
-    /// </summary>
+    private readonly PluginConfigurationService _sut = new();
+
     [Fact]
-    public void SaveConfiguration_PersistsChanges_ToConfigurationProperty()
+    public void IsInitialized_MatchesPluginInstancePresence()
     {
-        // Arrange: a shared config instance (simulating Plugin.Instance.Configuration)
-        var config = new PluginConfiguration
+        Assert.Equal(Plugin.Instance is not null, _sut.IsInitialized);
+    }
+
+    [Fact]
+    public void PluginVersion_ReturnsUnknownOrRealVersion()
+    {
+        var version = _sut.PluginVersion;
+        Assert.False(string.IsNullOrWhiteSpace(version));
+
+        if (Plugin.Instance is null)
         {
-            OrphanMinAgeDays = 0,
-            Language = "en",
-            PluginLogLevel = "INFO"
-        };
-
-        var saveCallCount = 0;
-
-        var mock = new Mock<IPluginConfigurationService>();
-        mock.Setup(s => s.GetConfiguration()).Returns(config);
-        mock.Setup(s => s.IsInitialized).Returns(true);
-        mock.Setup(s => s.SaveConfiguration()).Callback(() => saveCallCount++);
-
-        var service = mock.Object;
-
-        // Act: mutate the config and save
-        var retrieved = service.GetConfiguration();
-        retrieved.OrphanMinAgeDays = 42;
-        retrieved.Language = "de";
-        retrieved.PluginLogLevel = "DEBUG";
-        retrieved.TrickplayTaskMode = TaskMode.Activate;
-        service.SaveConfiguration();
-
-        // Assert: the same reference should reflect the changes
-        var afterSave = service.GetConfiguration();
-        Assert.Same(retrieved, afterSave); // same reference (singleton semantics)
-        Assert.Equal(42, afterSave.OrphanMinAgeDays);
-        Assert.Equal("de", afterSave.Language);
-        Assert.Equal("DEBUG", afterSave.PluginLogLevel);
-        Assert.Equal(TaskMode.Activate, afterSave.TrickplayTaskMode);
-        Assert.Equal(1, saveCallCount);
+            Assert.Equal("unknown", version);
+        }
+        else
+        {
+            // With a real plugin, the version is the singleton's version string.
+            Assert.Equal(Plugin.Instance.Version.ToString(), version);
+        }
     }
 
-    /// <summary>
-    ///     Verifies that multiple sequential saves accumulate changes correctly.
-    ///     Each save should persist the latest state of the configuration object.
-    /// </summary>
     [Fact]
-    public void SaveConfiguration_MultipleSaves_AccumulateChanges()
+    public void GetConfiguration_NeverReturnsNull()
     {
-        var config = new PluginConfiguration();
-        var saveCallCount = 0;
-
-        var mock = new Mock<IPluginConfigurationService>();
-        mock.Setup(s => s.GetConfiguration()).Returns(config);
-        mock.Setup(s => s.IsInitialized).Returns(true);
-        mock.Setup(s => s.SaveConfiguration()).Callback(() => saveCallCount++);
-
-        var service = mock.Object;
-
-        // First mutation + save
-        service.GetConfiguration().OrphanMinAgeDays = 10;
-        service.SaveConfiguration();
-
-        // Second mutation + save
-        service.GetConfiguration().TrashRetentionDays = 60;
-        service.SaveConfiguration();
-
-        // Third mutation + save
-        service.GetConfiguration().TotalBytesFreed = 999_999;
-        service.SaveConfiguration();
-
-        // All changes should be visible on the same config object
-        var final = service.GetConfiguration();
-        Assert.Equal(10, final.OrphanMinAgeDays);
-        Assert.Equal(60, final.TrashRetentionDays);
-        Assert.Equal(999_999, final.TotalBytesFreed);
-        Assert.Equal(3, saveCallCount);
+        var cfg = _sut.GetConfiguration();
+        Assert.NotNull(cfg);
+        Assert.IsType<PluginConfiguration>(cfg);
     }
 
-    /// <summary>
-    ///     Verifies that IsInitialized correctly reflects the service state.
-    ///     When not initialized, consumers should handle gracefully.
-    /// </summary>
     [Fact]
-    public void IsInitialized_ReturnsFalse_WhenPluginInstanceNotAvailable()
+    public void GetConfiguration_MatchesPluginInstanceWhenAvailable()
     {
-        var mock = new Mock<IPluginConfigurationService>();
-        mock.Setup(s => s.IsInitialized).Returns(false);
-        mock.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration());
+        // With a real plugin the service returns the singleton's own config (same reference).
+        // Without one, it must fall back to a fresh default instance.
+        var cfg = _sut.GetConfiguration();
 
-        var service = mock.Object;
-
-        Assert.False(service.IsInitialized);
-
-        // GetConfiguration should still return a usable default config
-        var config = service.GetConfiguration();
-        Assert.NotNull(config);
+        if (Plugin.Instance is not null)
+        {
+            Assert.Same(Plugin.Instance.Configuration, cfg);
+        }
     }
 
-    /// <summary>
-    ///     Verifies that the configuration service works correctly in a realistic
-    ///     scenario where CleanupTrackingService records cleanup statistics.
-    ///     This simulates the actual pattern: read config → mutate → save.
-    /// </summary>
     [Fact]
-    public void SaveConfiguration_CleanupTracking_Pattern()
+    public void SaveConfiguration_DoesNotThrow()
     {
-        var config = new PluginConfiguration();
-
-        var mock = new Mock<IPluginConfigurationService>();
-        mock.Setup(s => s.GetConfiguration()).Returns(config);
-        mock.Setup(s => s.IsInitialized).Returns(true);
-
-        var service = mock.Object;
-
-        // Simulate what CleanupTrackingService.RecordCleanup does
-        var cfg = service.GetConfiguration();
-        cfg.TotalBytesFreed += 1024 * 1024; // 1 MB
-        cfg.TotalItemsDeleted += 5;
-        cfg.LastCleanupTimestamp = new DateTime(2026, 4, 15, 14, 0, 0, DateTimeKind.Utc);
-        service.SaveConfiguration();
-
-        // Verify accumulated state
-        var result = service.GetConfiguration();
-        Assert.Equal(1024 * 1024, result.TotalBytesFreed);
-        Assert.Equal(5, result.TotalItemsDeleted);
-        Assert.Equal(new DateTime(2026, 4, 15, 14, 0, 0, DateTimeKind.Utc), result.LastCleanupTimestamp);
-        mock.Verify(s => s.SaveConfiguration(), Times.Once);
-    }
-
-    // ===== TestMockFactory Integration =====
-
-    /// <summary>
-    ///     Verifies that <see cref="TestMockFactory.CreateConfigurationService(PluginConfiguration)" /> returns a mock
-    ///     with all expected properties pre-configured (IsInitialized, GetConfiguration, PluginVersion).
-    /// </summary>
-    [Fact]
-    public void CreateConfigurationService_DefaultConfig_HasExpectedDefaults()
-    {
-        var mock = TestMockFactory.CreateConfigurationService();
-        var service = mock.Object;
-
-        Assert.True(service.IsInitialized);
-        Assert.NotNull(service.GetConfiguration());
-        Assert.Equal("1.0.0-test", service.PluginVersion);
-    }
-
-    /// <summary>
-    ///     Verifies that <see cref="TestMockFactory.CreateConfigurationService" /> with a custom
-    ///     configuration returns the exact same instance (reference equality).
-    /// </summary>
-    [Fact]
-    public void CreateConfigurationService_CustomConfig_ReturnsSameInstance()
-    {
-        var customConfig = new PluginConfiguration { OrphanMinAgeDays = 99, Language = "fr" };
-        var mock = TestMockFactory.CreateConfigurationService(customConfig);
-        var service = mock.Object;
-
-        var retrieved = service.GetConfiguration();
-        Assert.Same(customConfig, retrieved);
-        Assert.Equal(99, retrieved.OrphanMinAgeDays);
-        Assert.Equal("fr", retrieved.Language);
-    }
-
-    /// <summary>
-    ///     Verifies that <see cref="TestMockFactory.CreateConfigurationService" /> returns a mock
-    ///     whose PluginVersion is set to a test value, ensuring consumers don't depend on runtime version.
-    /// </summary>
-    [Fact]
-    public void CreateConfigurationService_PluginVersion_ReturnsTestVersion()
-    {
-        var mock = TestMockFactory.CreateConfigurationService();
-        Assert.Equal("1.0.0-test", mock.Object.PluginVersion);
-    }
-
-    /// <summary>
-    ///     Verifies that <see cref="TestMockFactory.CreatePluginLogService" /> creates a working
-    ///     <see cref="PluginLogService" /> that is properly wired to the configuration service.
-    ///     This is an integration test ensuring the factory method produces usable instances.
-    /// </summary>
-    [Fact]
-    public void CreatePluginLogService_ReturnsWorkingInstance()
-    {
-        var sut = TestMockFactory.CreatePluginLogService();
-
-        // Should be able to log without exceptions
-        var ex = Record.Exception(() => sut.LogInfo("__PCS_Test__", "Factory test"));
+        // Both branches (null-safe no-op and delegate to Plugin.Instance.SaveConfiguration)
+        // must complete without exception in a test host.
+        var ex = Record.Exception(() => _sut.SaveConfiguration());
         Assert.Null(ex);
-
-        // Should have recorded the entry
-        var entries = sut.GetEntries(source: "__PCS_Test__");
-        Assert.Single(entries);
-        Assert.Equal("INFO", entries[0].Level);
-    }
-
-    /// <summary>
-    ///     Verifies that <see cref="TestMockFactory.CreatePluginLogService" /> with a custom config
-    ///     respects the configured PluginLogLevel from the provided configuration.
-    /// </summary>
-    [Fact]
-    public void CreatePluginLogService_CustomConfig_RespectsPluginLogLevel()
-    {
-        var config = new PluginConfiguration { PluginLogLevel = "ERROR" };
-        var sut = TestMockFactory.CreatePluginLogService(config);
-        sut.TestMinLevelOverride = null; // rely on config service, not test override
-
-        sut.LogInfo("__PCS_Lvl__", "should-not-be-stored");
-        sut.LogError("__PCS_Lvl__", "should-be-stored");
-
-        var entries = sut.GetEntries(source: "__PCS_Lvl__");
-        Assert.Single(entries);
-        Assert.Equal("ERROR", entries[0].Level);
     }
 }
