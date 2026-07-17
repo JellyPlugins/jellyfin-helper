@@ -225,5 +225,73 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         Assert.NotEmpty(second.DataPoints);
     }
 
+    [Fact]
+    public async Task LoadTimelineAsync_ReturnsPersistedTimeline_AfterComputeRoundtrip()
+    {
+        // Guards the disk-read path of LoadTimelineAsync (file exists + valid JSON).
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie");
+        Directory.CreateDirectory(movieDir);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 100 }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        var loaded = await _sut.LoadTimelineAsync(CancellationToken.None);
+        Assert.NotNull(loaded);
+        Assert.NotEmpty(loaded!.DataPoints);
+    }
+
+    [Fact]
+    public async Task LoadTimelineAsync_CorruptedJson_ReturnsNull()
+    {
+        // A corrupted or truncated timeline file must not blow up the caller.
+        var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
+        await File.WriteAllTextAsync(timelinePath, "{ not valid json");
+
+        var loaded = await _sut.LoadTimelineAsync(CancellationToken.None);
+
+        Assert.Null(loaded);
+    }
+
+    [Fact]
+    public async Task ComputeTimelineAsync_EmptyAfterHavingData_ReturnsWithoutThrowing()
+    {
+        // Sequence: first scan with data → second scan with no libraries.
+        // We only assert the second call completes without throwing and returns a valid
+        // result object; the exact data-point shape depends on TimelineAggregator's
+        // TrimLeadingZeros / Merge logic which is covered by TimelineAggregatorTests.
+        var libRoot = Path.Join(_dataPath, "library");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie");
+        Directory.CreateDirectory(movieDir);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie", IsDirectory = true }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 500 }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
+
+        var second = await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        Assert.NotNull(second);
+        Assert.Equal(0, second.TotalFilesScanned);
+    }
+
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 }
