@@ -157,7 +157,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── SimilarityComputerTests.cs   # People-batch (GetPeopleNamesByItems) + per-item fallback; weighted PeopleSimilarity overload (Roadmap v3 C2)
 │       │   ├── TemporalFeaturesTests.cs     # Day-of-week / hour-of-day / weekend affinity computation
 │       │   └── Training/
-│       │       └── CollectionProgressionBoostTests.cs # Locks the diminishing-returns formula 0.3+(n-1)×0.2 (Roadmap v3 C3) - guards train/serve parity
+│       │       ├── CollectionProgressionBoostTests.cs # Locks the diminishing-returns formula 0.3+(n-1)×0.2 (Roadmap v3 C3) - guards train/serve parity
+│       │       └── TrainingDataBuilderTests.cs        # F-01 regression: Phase 3 cross-user random negatives must be deterministic across runs (guards against Random.Shared reintroduction)
 │       ├── Playlist/              # Playlist sync tests
 │       │   └── RecommendationPlaylistServiceTests.cs
 │       ├── Scoring/               # Strategy-specific tests

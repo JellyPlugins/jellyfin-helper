@@ -174,11 +174,10 @@ internal static class TrainingDataBuilder
             var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposure) =
                 perUserCache[userProfile.UserId];
 
-            // Build preferred people/studios/tags from the user's watch profile using cached data.
-            // This mirrors what Engine.GenerateForUser() does with live BaseItem data.
-            var preferredPeople = PreferenceBuilder.BuildPeoplePreferenceSet(userProfile, cachedPeopleLookup);
-            // Roadmap v3 (C2) train/serve parity: also build the frequency-aware weights map so
-            // the ML PeopleSimilarity feature uses the same weighted overload as Engine.ScoreCandidate.
+            // Roadmap v3 (C2) train/serve parity: build the frequency-aware weights map so the ML
+            // PeopleSimilarity feature uses the same weighted overload as Engine.ScoreCandidate.
+            // The unweighted BuildPeoplePreferenceSet variant is used by ReasonResolver in the
+            // live path and is not needed here — training does not produce user-facing reasons.
             var preferredPeopleWeights = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, cachedPeopleLookup);
             var preferredStudios = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
             var preferredTags = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
@@ -516,9 +515,10 @@ internal static class TrainingDataBuilder
                 recommendedItemIds = [];
             }
 
-            // Build per-user preference sets for organic feature computation (mirrors Phase 1).
-            var preferredPeopleOrganic = PreferenceBuilder.BuildPeoplePreferenceSet(userProfile, cachedPeopleLookup);
-            // Roadmap v3 (C2) train/serve parity for organic examples.
+            // Roadmap v3 (C2) train/serve parity for organic examples: only the weighted map is
+            // consumed by SimilarityComputer.ComputePeopleSimilarity below; the unweighted
+            // HashSet variant is only useful for reason-display (Engine.GenerateForUser),
+            // which the training path does not produce.
             var preferredPeopleWeightsOrganic = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, cachedPeopleLookup);
             var preferredStudiosOrganic = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
             var preferredTagsOrganic = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
@@ -805,8 +805,8 @@ internal static class TrainingDataBuilder
                 // Build per-user preference sets for negative feature computation (mirrors Phase 1/2).
                 // Without these, PeopleSimilarity/StudioMatch/TagSimilarity would default to 0.0/false
                 // for all negatives, creating a systematic bias (the model learns "zero = irrelevant").
-                var preferredPeopleNeg = PreferenceBuilder.BuildPeoplePreferenceSet(userProfile, cachedPeopleLookup);
-                // Roadmap v3 (C2) train/serve parity for cross-user random negatives.
+                // Only the weighted map is consumed below; the unweighted HashSet is only useful for
+                // reason-display in the live path, which the training pipeline does not produce.
                 var preferredPeopleWeightsNeg = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, cachedPeopleLookup);
                 var preferredStudiosNeg = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
                 var preferredTagsNeg = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
