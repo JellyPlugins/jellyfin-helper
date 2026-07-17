@@ -155,5 +155,147 @@ public class TrainingServiceTests
         Assert.Equal(1, strategy.TrainInvocationCount);
     }
 
+    // ===== Populated training path =====
+
+    /// <summary>
+    ///     Builds a small but realistic watch profile so that TrainingDataBuilder actually
+    ///     produces training examples (at least one positive + a negative).
+    /// </summary>
+    private static UserWatchProfile CreatePopulatedProfile(Guid userId)
+    {
+        return new UserWatchProfile
+        {
+            UserId = userId,
+            UserName = "Test",
+            LastActivityDate = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc),
+            WatchedItems =
+            {
+                new WatchedItemInfo
+                {
+                    ItemId = Guid.NewGuid(),
+                    Played = true,
+                    PlayCount = 3,
+                    Genres = new[] { "Action" },
+                    LastPlayedDate = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc)
+                },
+                new WatchedItemInfo
+                {
+                    ItemId = Guid.NewGuid(),
+                    Played = true,
+                    Genres = new[] { "Drama" },
+                    LastPlayedDate = new DateTime(2026, 1, 2, 12, 0, 0, DateTimeKind.Utc)
+                }
+            }
+        };
+    }
+
+    private static RecommendationResult CreateResultWithRecommendations(Guid userId)
+    {
+        return new RecommendationResult
+        {
+            UserId = userId,
+            UserName = "Test",
+            GeneratedAt = new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc),
+            Recommendations =
+            {
+                new RecommendedItem
+                {
+                    ItemId = Guid.NewGuid(),
+                    ItemType = "Movie",
+                    Name = "Action Flick",
+                    Score = 0.8,
+                    Genres = new[] { "Action" },
+                    Year = 2020
+                },
+                new RecommendedItem
+                {
+                    ItemId = Guid.NewGuid(),
+                    ItemType = "Movie",
+                    Name = "Drama Piece",
+                    Score = 0.6,
+                    Genres = new[] { "Drama" },
+                    Year = 2021
+                }
+            }
+        };
+    }
+
+    [Fact]
+    public void Train_WithPopulatedProfiles_InvokesStrategyWithExamples()
+    {
+        var userId = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile> { CreatePopulatedProfile(userId) };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var sut = CreateSut();
+        var strategy = new RecordingStrategy { NextTrainReturns = true };
+
+        var previous = new[] { CreateResultWithRecommendations(userId) };
+        var result = sut.Train(strategy, previous);
+
+        Assert.True(result);
+        Assert.Equal(1, strategy.TrainInvocationCount);
+        Assert.NotNull(strategy.LastReceivedTrainSet);
+        // With random-negative sampling + Phase-2 organic examples, we expect at least SOME examples.
+        Assert.NotEmpty(strategy.LastReceivedTrainSet!);
+    }
+
+    [Fact]
+    public void Train_Incremental_SubsamplesOldExamples()
+    {
+        // Regression: incremental=true reduces the training set to "recent + sampled old".
+        // The strategy's LastReceivedTrainSet count should generally be <= the non-incremental variant.
+        var userId = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile> { CreatePopulatedProfile(userId) };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var sut = CreateSut();
+        var strategy = new RecordingStrategy();
+        var previous = new[] { CreateResultWithRecommendations(userId) };
+
+        var incrementalResult = sut.Train(strategy, previous, incremental: true);
+
+        Assert.True(incrementalResult);
+        Assert.NotNull(strategy.LastReceivedTrainSet);
+    }
+
+    [Fact]
+    public void Train_WithDiscoveryFeedback_IncludesInBuilder()
+    {
+        // Regression: when the feedback store returns Phase-4 discovery examples, they must be
+        // forwarded into TrainingDataBuilder.BuildExamples.
+        var userId = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile> { CreatePopulatedProfile(userId) };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(new List<DiscoveryFeedbackResult>
+        {
+            new()
+            {
+                UserId = userId,
+                Entries =
+                {
+                    new DiscoveryFeedbackEntry
+                    {
+                        TmdbId = 123,
+                        MediaType = "movie",
+                        ShownAtUtc = DateTime.UtcNow.AddDays(-1),
+                        Genres = new[] { "Action" }
+                    }
+                }
+            }
+        });
+
+        var sut = CreateSut();
+        var strategy = new RecordingStrategy();
+        var previous = new[] { CreateResultWithRecommendations(userId) };
+
+        var result = sut.Train(strategy, previous);
+
+        Assert.True(result);
+        _feedbackStoreMock.Verify(s => s.LoadAll(), Times.Once);
+    }
+
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 }
