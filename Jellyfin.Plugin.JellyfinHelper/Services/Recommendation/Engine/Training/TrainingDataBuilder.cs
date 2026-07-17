@@ -779,10 +779,13 @@ internal static class TrainingDataBuilder
 
         if (allRecommendedItems.Count > 0)
         {
-            var rngNeg = Random.Shared;
             foreach (var userProfile in allProfiles)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                // Per-user deterministic RNG: same cache + same user => same negatives.
+                // Keeps training reproducible without coupling across users.
+                var rngNeg = new Random(Engine.ComputeStableSeed(userProfile.UserId, previousResults.Count));
 
                 if (!profileLookup.TryGetValue(userProfile.UserId, out var userWatchedIds))
                 {

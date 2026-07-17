@@ -2,10 +2,13 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
@@ -23,6 +26,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// </summary>
 public sealed class Engine : IRecommendationEngine
 {
+    // File name for the persisted batch-generation counter. Sits in the plugin data folder.
+    private const string BatchGenerationFileName = "jellyfin-helper-batch-generation.txt";
+
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<Engine> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -107,6 +113,10 @@ public sealed class Engine : IRecommendationEngine
         _discoveryFeedbackStore = discoveryFeedbackStore;
         _similarityComputer = new SimilarityComputer(libraryManager, pluginLog, logger);
         _trainingService = new TrainingService(watchHistoryService, discoveryFeedbackStore, pluginLog, logger);
+
+        // Seed the batch counter from disk so the first post-reload batch does not reuse
+        // the exploration seed the very first batch ever produced.
+        _batchGeneration = LoadPersistedBatchGeneration();
     }
 
     /// <inheritdoc />
@@ -278,8 +288,11 @@ public sealed class Engine : IRecommendationEngine
         maxResultsPerUser = Math.Clamp(maxResultsPerUser, 1, EngineConstants.MaxRecommendationsPerUserLimit);
 
         // Bump the batch counter once per invocation and snapshot the value so every user in this
-        // batch shares the same exploration seed context.
+        // batch shares the same exploration seed context. Persist immediately so the counter
+        // survives plugin reloads and the first post-restart batch does not collide with the
+        // very first batch of the previous process.
         var batchGeneration = Interlocked.Increment(ref _batchGeneration);
+        PersistBatchGeneration(batchGeneration);
 
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
         var (candidates, seriesEpisodeCounts) = LoadCandidateItems();
@@ -1887,6 +1900,67 @@ public sealed class Engine : IRecommendationEngine
             var h = id.GetHashCode();
             return (h * 397) ^ suffix;
         }
+    }
+
+    /// <summary>
+    ///     Reads the persisted batch-generation counter from disk. Best-effort: missing file,
+    ///     bad content, or IO trouble all fall back to 0 so the engine still boots.
+    /// </summary>
+    private int LoadPersistedBatchGeneration()
+    {
+        try
+        {
+            var path = ResolveBatchGenerationFilePath();
+            if (path is null || !File.Exists(path))
+            {
+                return 0;
+            }
+
+            var raw = File.ReadAllText(path);
+            return int.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value >= 0
+                ? value
+                : 0;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            _pluginLog.LogDebug(
+                "Recommendations",
+                $"Could not load persisted batch generation, starting at 0: {ex.Message}",
+                _logger);
+            return 0;
+        }
+    }
+
+    /// <summary>
+    ///     Writes the current batch-generation counter to disk. Best-effort: a failure here
+    ///     never blocks the batch — worst case is a repeated seed after the next reload,
+    ///     which is the state we started from.
+    /// </summary>
+    private void PersistBatchGeneration(int value)
+    {
+        try
+        {
+            var path = ResolveBatchGenerationFilePath();
+            if (path is null)
+            {
+                return;
+            }
+
+            AtomicFile.WriteAllText(path, value.ToString(CultureInfo.InvariantCulture));
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            _pluginLog.LogDebug(
+                "Recommendations",
+                $"Could not persist batch generation {value}: {ex.Message}",
+                _logger);
+        }
+    }
+
+    private static string? ResolveBatchGenerationFilePath()
+    {
+        var dataFolder = Plugin.Instance?.DataFolderPath;
+        return string.IsNullOrEmpty(dataFolder) ? null : Path.Join(dataFolder, BatchGenerationFileName);
     }
 
     /// <summary>

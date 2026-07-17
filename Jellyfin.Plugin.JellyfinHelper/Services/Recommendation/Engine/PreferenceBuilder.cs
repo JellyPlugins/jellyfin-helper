@@ -899,8 +899,16 @@ internal static class PreferenceBuilder
                 continue;
             }
 
+            // Skip rows for series no longer in the library (phantom data from deleted series).
+            if (!seriesEpisodeCounts.TryGetValue(sid, out var totalEps) || totalEps <= 0)
+            {
+                continue;
+            }
+
             watched.TryGetValue(sid, out var c);
-            watched[sid] = c + 1;
+            // Cap at total: phantom rows for deleted episode files must not push the counter
+            // beyond the available episodes and inflate the progression ratio to ceiling.
+            watched[sid] = Math.Min(c + 1, totalEps);
         }
 
         return watched;
