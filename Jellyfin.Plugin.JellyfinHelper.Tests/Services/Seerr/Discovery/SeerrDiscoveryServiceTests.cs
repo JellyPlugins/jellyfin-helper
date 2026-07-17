@@ -1,6 +1,3 @@
-using System.Threading;
-using System.Threading.Tasks;
-using Jellyfin.Plugin.JellyfinHelper;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;

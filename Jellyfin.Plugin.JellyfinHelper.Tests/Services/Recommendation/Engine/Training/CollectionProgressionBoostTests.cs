@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Xunit;
 

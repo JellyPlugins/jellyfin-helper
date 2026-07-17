@@ -432,7 +432,7 @@ public class ConfigurationController : ControllerBase
         // concurrently-changed level (from the Logs tab or another admin session) on save.
         // Keeping the merge server-side eliminates the need for a client-side preflight GET and
         // guarantees the invariant regardless of which caller sends the POST. Legacy configs that
-        // arrive with an invalid persisted level are normalised to "INFO" as a self-healing
+        // arrive with an invalid persisted level are normalized to "INFO" as a self-healing
         // fallback so downstream log-filtering code never has to deal with garbage.
         if (string.IsNullOrWhiteSpace(config.PluginLogLevel)
             || Array.IndexOf(ValidLogLevels, config.PluginLogLevel.Trim().ToUpperInvariant()) < 0)

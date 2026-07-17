@@ -2,7 +2,7 @@ using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Xunit;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.Configuration;
 
 /// <summary>
 ///     Tests for the <see cref="TaskMode" /> enum and its JSON serialization behavior.

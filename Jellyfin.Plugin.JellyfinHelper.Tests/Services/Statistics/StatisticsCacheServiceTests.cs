@@ -1,9 +1,6 @@
-using System;
-using System.IO;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Common.Configuration;
-using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 

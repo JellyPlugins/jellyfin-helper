@@ -10,10 +10,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 /// </summary>
 public sealed class DiscoveryRecommendation
 {
-    private double _score;
-    private double _tmdbRating;
-    private double _popularity;
-
     /// <summary>
     ///     Gets or sets the TMDb ID of the recommended item.
     /// </summary>
@@ -40,8 +36,8 @@ public sealed class DiscoveryRecommendation
     /// </summary>
     public double Score
     {
-        get => _score;
-        set => _score = double.IsFinite(value) ? Math.Clamp(value, 0.0, 1.0) : 0.0;
+        get;
+        set => field = double.IsFinite(value) ? Math.Clamp(value, 0.0, 1.0) : 0.0;
     }
 
     /// <summary>
@@ -70,8 +66,8 @@ public sealed class DiscoveryRecommendation
     /// </summary>
     public double TmdbRating
     {
-        get => _tmdbRating;
-        set => _tmdbRating = double.IsFinite(value) ? Math.Clamp(value, 0.0, 10.0) : 0.0;
+        get;
+        set => field = double.IsFinite(value) ? Math.Clamp(value, 0.0, 10.0) : 0.0;
     }
 
     /// <summary>
@@ -118,7 +114,7 @@ public sealed class DiscoveryRecommendation
     /// </summary>
     public double Popularity
     {
-        get => _popularity;
-        set => _popularity = double.IsFinite(value) && value > 0 ? value : 0.0;
+        get;
+        set => field = double.IsFinite(value) && value > 0 ? value : 0.0;
     }
 }

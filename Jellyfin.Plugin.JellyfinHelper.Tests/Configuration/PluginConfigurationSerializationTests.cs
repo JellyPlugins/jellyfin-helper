@@ -2,7 +2,7 @@ using System.Xml.Serialization;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Xunit;
 
-namespace Jellyfin.Plugin.JellyfinHelper.Tests;
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.Configuration;
 
 /// <summary>
 ///     Tests for XML serialization/deserialization of PluginConfiguration,

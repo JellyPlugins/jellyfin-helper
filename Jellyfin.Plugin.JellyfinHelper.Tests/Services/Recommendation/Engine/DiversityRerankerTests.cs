@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
