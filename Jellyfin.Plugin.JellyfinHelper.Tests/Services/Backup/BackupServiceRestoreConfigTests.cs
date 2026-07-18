@@ -1,0 +1,392 @@
+using System.Text.Json;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using Moq;
+using Xunit;
+
+namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
+
+/// <summary>
+///     Focused tests for the RestoreBackup + RestoreConfiguration path when
+///     <see cref="IPluginConfigurationService.IsInitialized"/> returns <c>true</c> — this
+///     exercises the full config-restore pipeline that the existing tests deliberately
+///     skip (they set <c>IsInitialized = false</c> so only the file I/O paths run).
+///     Covers sanitization/validation edge cases: invalid language falls back to "en",
+///     out-of-range values are clamped, task-mode parsing rejects garbage input, and
+///     Arr instance lists are properly cleared before replacement.
+/// </summary>
+public sealed class BackupServiceRestoreConfigTests : IDisposable
+{
+    private readonly string _tempDir;
+
+    public BackupServiceRestoreConfigTests()
+    {
+        _tempDir = Path.Join(Path.GetTempPath(), "jfh-backup-restore-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(_tempDir);
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (Directory.Exists(_tempDir))
+            {
+                Directory.Delete(_tempDir, recursive: true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort cleanup.
+        }
+
+        GC.SuppressFinalize(this);
+    }
+
+    private (BackupService Service, PluginConfiguration LiveConfig, Mock<IPluginConfigurationService> ConfigMock)
+        CreateServiceWithInitializedConfig()
+    {
+        var liveConfig = new PluginConfiguration();
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+        configMock.Setup(c => c.IsInitialized).Returns(true);
+        configMock.Setup(c => c.PluginVersion).Returns("1.0.0-test");
+        // SaveConfiguration is a no-op in tests; we assert against liveConfig directly.
+        configMock.Setup(c => c.SaveConfiguration());
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        return (service, liveConfig, configMock);
+    }
+
+    private static BackupData MakeMinimalValidBackup()
+    {
+        return new BackupData
+        {
+            BackupVersion = 1,
+            CreatedAt = DateTime.UtcNow,
+            PluginVersion = "1.0.0",
+            Language = "en",
+            ExcludedLibraries = "Movies,TV",
+            OrphanMinAgeDays = 7,
+            PluginLogLevel = "INFO",
+            TrickplayTaskMode = "Activate",
+            EmptyMediaFolderTaskMode = "Activate",
+            OrphanedSubtitleTaskMode = "DryRun",
+            LinkRepairTaskMode = "DryRun",
+            SeerrCleanupTaskMode = "DryRun",
+            RecommendationsTaskMode = "Activate",
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "test-key",
+            SeerrCleanupAgeDays = 30,
+            UseTrash = true,
+            TrashFolderPath = ".trash",
+            TrashRetentionDays = 14,
+            SyncRecommendationsToPlaylist = true,
+            DiscoveryUserAccessEnabled = true
+        };
+    }
+
+    [Fact]
+    public void RestoreBackup_InitializedConfig_RestoresAllScalarFields()
+    {
+        var (service, liveConfig, configMock) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+
+        var summary = service.RestoreBackup(backup);
+
+        Assert.True(summary.ConfigurationRestored);
+        Assert.Equal("en", liveConfig.Language);
+        Assert.Equal("Movies,TV", liveConfig.ExcludedLibraries);
+        Assert.Equal(7, liveConfig.OrphanMinAgeDays);
+        Assert.Equal("INFO", liveConfig.PluginLogLevel);
+        Assert.Equal(TaskMode.Activate, liveConfig.TrickplayTaskMode);
+        Assert.Equal(TaskMode.Activate, liveConfig.EmptyMediaFolderTaskMode);
+        Assert.Equal(TaskMode.DryRun, liveConfig.OrphanedSubtitleTaskMode);
+        Assert.Equal(TaskMode.DryRun, liveConfig.LinkRepairTaskMode);
+        Assert.Equal(TaskMode.DryRun, liveConfig.SeerrCleanupTaskMode);
+        Assert.Equal(TaskMode.Activate, liveConfig.RecommendationsTaskMode);
+        Assert.Equal("https://seerr.example.com", liveConfig.SeerrUrl);
+        Assert.Equal("test-key", liveConfig.SeerrApiKey);
+        Assert.Equal(30, liveConfig.SeerrCleanupAgeDays);
+        Assert.True(liveConfig.UseTrash);
+        Assert.Equal(".trash", liveConfig.TrashFolderPath);
+        Assert.Equal(14, liveConfig.TrashRetentionDays);
+        Assert.True(liveConfig.SyncRecommendationsToPlaylist);
+        Assert.True(liveConfig.DiscoveryUserAccessEnabled);
+
+        configMock.Verify(c => c.SaveConfiguration(), Times.Once);
+    }
+
+    [Fact]
+    public void RestoreBackup_InvalidLanguage_FallsBackToEnglish()
+    {
+        // BUG GUARD: If the persisted language is corrupted or from a newer version that
+        // introduced language codes the current version doesn't know, the plugin must NOT
+        // apply the untrusted value — it must fall back to "en" to keep the UI usable.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.Language = "klingon-KL";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal("en", liveConfig.Language);
+    }
+
+    [Fact]
+    public void RestoreBackup_InvalidLogLevel_FallsBackToInfo()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.PluginLogLevel = "TRACE"; // Not a supported level
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal("INFO", liveConfig.PluginLogLevel);
+    }
+
+    [Fact]
+    public void RestoreBackup_NegativeOrphanMinAge_IsClampedToZero()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.OrphanMinAgeDays = -100;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(0, liveConfig.OrphanMinAgeDays);
+    }
+
+    [Fact]
+    public void RestoreBackup_ExcessiveOrphanMinAge_IsClampedToMax()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.OrphanMinAgeDays = 99999;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(BackupValidator.MaxRetentionDays, liveConfig.OrphanMinAgeDays);
+    }
+
+    [Fact]
+    public void RestoreBackup_NegativeTrashRetention_IsClampedToZero()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.TrashRetentionDays = -50;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(0, liveConfig.TrashRetentionDays);
+    }
+
+    [Fact]
+    public void RestoreBackup_EmptyTrashFolderPath_UsesDefault()
+    {
+        // BUG GUARD: If the persisted trash path is missing/blank, RestoreConfiguration must
+        // inject the sensible default ".jellyfin-trash" — leaving it empty would break
+        // subsequent trash operations that assume a valid folder name.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.TrashFolderPath = "";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(".jellyfin-trash", liveConfig.TrashFolderPath);
+    }
+
+    [Fact]
+    public void RestoreBackup_WhitespaceTrashFolderPath_UsesDefault()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.TrashFolderPath = "   ";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(".jellyfin-trash", liveConfig.TrashFolderPath);
+    }
+
+    [Fact]
+    public void RestoreBackup_UnknownTaskMode_DefaultsToDryRun()
+    {
+        // BUG GUARD: unknown task mode strings must fall back to DryRun (safe default) rather
+        // than throw or corrupt the enum. This prevents a malicious/older backup from disabling
+        // safety modes silently.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.TrickplayTaskMode = "MaliciousMode";
+        backup.EmptyMediaFolderTaskMode = "AlsoBad";
+        backup.OrphanedSubtitleTaskMode = "";
+        backup.LinkRepairTaskMode = null!;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(TaskMode.DryRun, liveConfig.TrickplayTaskMode);
+        Assert.Equal(TaskMode.DryRun, liveConfig.EmptyMediaFolderTaskMode);
+        Assert.Equal(TaskMode.DryRun, liveConfig.OrphanedSubtitleTaskMode);
+        Assert.Equal(TaskMode.DryRun, liveConfig.LinkRepairTaskMode);
+    }
+
+    [Fact]
+    public void RestoreBackup_EmptySeerrCleanupTaskMode_DefaultsToDeactivate()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrCleanupTaskMode = "";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(TaskMode.Deactivate, liveConfig.SeerrCleanupTaskMode);
+    }
+
+    [Fact]
+    public void RestoreBackup_LowercaseTaskMode_ParsedCaseInsensitively()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.TrickplayTaskMode = "dryrun";
+        backup.EmptyMediaFolderTaskMode = "ACTIVATE";
+        backup.LinkRepairTaskMode = "Deactivate";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(TaskMode.DryRun, liveConfig.TrickplayTaskMode);
+        Assert.Equal(TaskMode.Activate, liveConfig.EmptyMediaFolderTaskMode);
+        Assert.Equal(TaskMode.Deactivate, liveConfig.LinkRepairTaskMode);
+    }
+
+    [Fact]
+    public void RestoreBackup_ZeroSeerrCleanupAgeDays_LeavesConfigUnchanged()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrCleanupAgeDays = 45;
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrCleanupAgeDays = 0;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(45, liveConfig.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void RestoreBackup_ExcessiveSeerrCleanupAgeDays_IsClampedToMax()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrCleanupAgeDays = 99999;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(BackupValidator.MaxRetentionDays, liveConfig.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void RestoreBackup_ArrInstances_ClearedBeforeReplacement()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.RadarrInstances.Add(new ArrInstanceConfig { Name = "OldRadarr", Url = "http://old", ApiKey = "old" });
+        liveConfig.SonarrInstances.Add(new ArrInstanceConfig { Name = "OldSonarr", Url = "http://old", ApiKey = "old" });
+
+        var backup = MakeMinimalValidBackup();
+        backup.RadarrInstances.Add(new BackupArrInstance { Name = "NewRadarr", Url = "http://new", ApiKey = "new" });
+        backup.SonarrInstances.Add(new BackupArrInstance { Name = "NewSonarr", Url = "http://new", ApiKey = "new" });
+
+        service.RestoreBackup(backup);
+
+        Assert.Single(liveConfig.RadarrInstances);
+        Assert.Equal("NewRadarr", liveConfig.RadarrInstances[0].Name);
+        Assert.DoesNotContain(liveConfig.RadarrInstances, i => i.Name == "OldRadarr");
+        Assert.Single(liveConfig.SonarrInstances);
+        Assert.Equal("NewSonarr", liveConfig.SonarrInstances[0].Name);
+    }
+
+    [Fact]
+    public void RestoreBackup_ArrInstances_TruncatedToMaxCount()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.RadarrInstances.Clear();
+        for (var i = 0; i < BackupValidator.MaxArrInstances + 5; i++)
+        {
+            backup.RadarrInstances.Add(new BackupArrInstance
+            {
+                Name = $"R{i}",
+                Url = $"http://r{i}",
+                ApiKey = $"k{i}"
+            });
+        }
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(BackupValidator.MaxArrInstances, liveConfig.RadarrInstances.Count);
+    }
+
+    [Fact]
+    public void RestoreBackup_LongArrInstanceFields_AreTruncated()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.RadarrInstances.Clear();
+        backup.RadarrInstances.Add(new BackupArrInstance
+        {
+            Name = new string('N', BackupValidator.MaxInstanceNameLength + 200),
+            Url = new string('U', BackupValidator.MaxUrlLength + 200),
+            ApiKey = new string('K', BackupValidator.MaxApiKeyLength + 200)
+        });
+
+        service.RestoreBackup(backup);
+
+        var instance = Assert.Single(liveConfig.RadarrInstances);
+        Assert.Equal(BackupValidator.MaxInstanceNameLength, instance.Name.Length);
+        Assert.Equal(BackupValidator.MaxUrlLength, instance.Url.Length);
+        Assert.Equal(BackupValidator.MaxApiKeyLength, instance.ApiKey.Length);
+    }
+
+    [Fact]
+    public void RestoreBackup_LongSeerrUrlAndKey_AreTruncated()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrUrl = new string('S', BackupValidator.MaxUrlLength + 500);
+        backup.SeerrApiKey = new string('A', BackupValidator.MaxApiKeyLength + 500);
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(BackupValidator.MaxUrlLength, liveConfig.SeerrUrl.Length);
+        Assert.Equal(BackupValidator.MaxApiKeyLength, liveConfig.SeerrApiKey.Length);
+    }
+
+    [Fact]
+    public void RestoreBackup_UninitializedConfig_SkipsConfigButRestoresFiles()
+    {
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.IsInitialized).Returns(false);
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        var backup = MakeMinimalValidBackup();
+
+        var summary = service.RestoreBackup(backup);
+
+        Assert.False(summary.ConfigurationRestored);
+        configMock.Verify(c => c.SaveConfiguration(), Times.Never);
+    }
+
+    [Fact]
+    public void RestoreBackup_NullBackup_Throws()
+    {
+        var (service, _, _) = CreateServiceWithInitializedConfig();
+        Assert.Throws<ArgumentNullException>(() => service.RestoreBackup(null!));
+    }
+}
