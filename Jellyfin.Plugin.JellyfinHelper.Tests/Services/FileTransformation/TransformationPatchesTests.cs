@@ -149,16 +149,38 @@ public class TransformationPatchesTests
     public void IndexHtml_WithMultipleBodyTags_InjectsBeforeFirstOccurrence()
     {
         // Documents the current contract: the code uses IndexOf (first occurrence).
-        // If a downstream template ever contained multiple </body> substrings (e.g.
-        // inside a code sample), we inject before the first one. This test locks that
-        // behaviour so it doesn't silently change.
-        const string html = "<html><body>outer<pre>&lt;/body&gt;\n</pre></body></html>";
+        // If a downstream template ever contained multiple LITERAL </body> substrings —
+        // e.g. one inside an HTML comment or CDATA block, and the real closing tag at
+        // the very end — we inject before the first one. Previous versions of this test
+        // used &lt;/body&gt; which is HTML-escaped and does NOT contain a real </body>
+        // substring, so it accidentally covered only the "single occurrence" case.
+        //
+        // We now embed a genuine literal `</body>` inside an HTML comment BEFORE the
+        // real closing tag. If the implementation ever switched to LastIndexOf, the
+        // script would land against the trailing tag and this test would fail — that is
+        // the exact behavioural drift we want to lock down.
+        const string html =
+            "<html>" +
+            "<body>" +
+            "<!-- example: </body> -->" +
+            "<div>real content</div>" +
+            "</body>" +
+            "</html>";
+
         var result = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = html });
 
         var scriptIndex = result.IndexOf("plugin=\"Jellyfin Helper\"", StringComparison.Ordinal);
         var firstBody = result.IndexOf("</body>", StringComparison.Ordinal);
-        Assert.True(scriptIndex >= 0);
-        Assert.True(scriptIndex < firstBody);
+        var lastBody = result.LastIndexOf("</body>", StringComparison.Ordinal);
+
+        Assert.True(scriptIndex >= 0, "script tag must be present in the transformed output");
+        // Locked contract: inject before the FIRST </body> occurrence, even when there
+        // is a later one. A regression that switches to LastIndexOf would move the
+        // script past the first occurrence and fail this assertion.
+        Assert.True(scriptIndex < firstBody, $"script tag must appear before the first </body> (script={scriptIndex}, firstBody={firstBody})");
+        // Sanity: our fixture must actually contain two distinct </body> positions,
+        // otherwise the test degenerates to a single-occurrence check.
+        Assert.NotEqual(firstBody, lastBody);
     }
 
     // -----------------------------------------------------------------------

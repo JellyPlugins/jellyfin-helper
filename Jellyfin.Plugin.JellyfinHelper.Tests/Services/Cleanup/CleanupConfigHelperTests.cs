@@ -708,9 +708,21 @@ public class CleanupConfigHelperTests
     public void GetExistingTrashFoldersForPath_RelativePathEscape_IsRejected()
     {
         // "../../etc" tries to escape the library root — must never be reported as valid trash.
+        //
+        // To make the test meaningful we ALSO materialise the target of the escape (a
+        // sibling directory next to the library root that actually exists). Without this
+        // extra step the test could pass simply because the resolved path happens not to
+        // exist on the CI runner, which would let a regression that dropped the containment
+        // check ship silently. With the sibling in place, only the containment guard can
+        // keep this test green.
         var helper = CreateHelper();
-        var lib = Path.Join(Path.GetTempPath(), "jfh-esc-" + Guid.NewGuid().ToString("N"));
+        var parent = Path.Join(Path.GetTempPath(), "jfh-esc-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(parent);
+        var lib = Path.Join(parent, "library");
+        var escapedSibling = Path.Join(parent, "outside-lib");
         Directory.CreateDirectory(lib);
+        Directory.CreateDirectory(escapedSibling);
+
         try
         {
             var lm = new Mock<ILibraryManager>();
@@ -718,12 +730,28 @@ public class CleanupConfigHelperTests
                 new VirtualFolderInfo { Name = "L", Locations = [lib] }
             ]);
 
-            var result = helper.GetExistingTrashFoldersForPath(lm.Object, "../../etc");
+            // Craft a relative path that ACTUALLY resolves to escapedSibling from lib.
+            // e.g. "../outside-lib" resolves out of the library root — the guard must
+            // still refuse to report it as a trash candidate even though the destination
+            // path physically exists.
+            var relativeEscape = ".." + Path.DirectorySeparatorChar + "outside-lib";
+
+            var result = helper.GetExistingTrashFoldersForPath(lm.Object, relativeEscape);
             Assert.Empty(result);
+
+            // Sanity: prove the target directory really is reachable via that relative path.
+            // If Path.GetRelativePath ever changes semantics, this Assert catches it before
+            // the containment test degenerates into a vacuous "path doesn't exist" pass.
+            var resolved = Path.GetFullPath(Path.Combine(lib, relativeEscape));
+            Assert.Equal(Path.GetFullPath(escapedSibling), resolved);
+            Assert.True(Directory.Exists(resolved), "escaped sibling must exist so the test isn't vacuous");
         }
         finally
         {
-            Directory.Delete(lib, recursive: true);
+            if (Directory.Exists(parent))
+            {
+                Directory.Delete(parent, recursive: true);
+            }
         }
     }
 }

@@ -1,3 +1,4 @@
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
@@ -23,8 +24,32 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStoreMock;
     private readonly DiscoveryCacheService _cache;
 
+    // Storage isolation: DiscoveryCacheService derives its file path from
+    // Plugin.Instance?.DataFolderPath, falling back to string.Empty which resolves
+    // the cache filename against the current working directory. Any test that calls
+    // Save persists a real JSON blob at "<cwd>/jellyfin-helper-discovery-results.json".
+    // Without cleanup, cache state from one test class leaks into another that runs
+    // afterwards on the same worker (xUnit executes tests in a class sequentially, but
+    // different test classes may share process-wide state via files).
+    //
+    // We intentionally do NOT alter Directory.SetCurrentDirectory here because CWD is
+    // a process-global setting and xUnit may run other test classes in parallel on
+    // separate threads. Instead we snapshot / delete the exact cache file at both
+    // fixture ends so this class starts and finishes with a clean slate, regardless
+    // of what any concurrent class did.
+    private const string CacheFileName = "jellyfin-helper-discovery-results.json";
+    private readonly string _cacheFilePath;
+    private readonly byte[]? _originalCacheContents;
+
     public DiscoveryControllerExtendedTests()
     {
+        _cacheFilePath = Path.Combine(Directory.GetCurrentDirectory(), CacheFileName);
+        _originalCacheContents = File.Exists(_cacheFilePath)
+            ? File.ReadAllBytes(_cacheFilePath)
+            : null;
+        // Start every test with no pre-existing cache so seed order is deterministic.
+        TryDeleteCacheFile();
+
         var pluginLog = new Mock<IPluginLogService>();
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
         _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
@@ -35,7 +60,46 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     public void Dispose()
     {
         _cache.Dispose();
+
+        // Restore whatever cache state the process had before this fixture ran, so we
+        // do not leave an artifact behind for downstream test classes to trip over.
+        TryDeleteCacheFile();
+        if (_originalCacheContents is not null)
+        {
+            try
+            {
+                File.WriteAllBytes(_cacheFilePath, _originalCacheContents);
+            }
+            catch (IOException)
+            {
+                // Best effort — a locking file would be surfaced by the next test's setup.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Same rationale.
+            }
+        }
+
         GC.SuppressFinalize(this);
+    }
+
+    private void TryDeleteCacheFile()
+    {
+        try
+        {
+            if (File.Exists(_cacheFilePath))
+            {
+                File.Delete(_cacheFilePath);
+            }
+        }
+        catch (IOException)
+        {
+            // Best effort.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best effort.
+        }
     }
 
     private DiscoveryController CreateController() =>
@@ -115,6 +179,26 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "Request submitted successfully."));
 
+        // Seed a matching recommendation so we can prove the persisted state transition,
+        // not just the HTTP result. The controller's success path must also flip the
+        // cached item's AlreadyRequested flag via _cache.MarkAsRequestedAsync — a
+        // regression that drops that call would leave this flag false, and the item
+        // would silently reappear on the next discovery-page refresh.
+        var userId = Guid.NewGuid();
+        _cache.Save(
+        [
+            new DiscoveryResult
+            {
+                UserId = userId,
+                UserName = "u",
+                Recommendations = new List<DiscoveryRecommendation>
+                {
+                    new() { TmdbId = 12345, MediaType = "movie", Title = "Target", AlreadyRequested = false },
+                    new() { TmdbId = 99999, MediaType = "movie", Title = "Other",  AlreadyRequested = false }
+                }
+            }
+        ]);
+
         var controller = CreateController();
         var dto = new DiscoveryRequestDto { TmdbId = 12345, MediaType = "movie" };
         var result = await controller.SubmitRequest(dto, CancellationToken.None);
@@ -123,6 +207,15 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         var body = Assert.IsType<RequestResult>(ok.Value);
         Assert.True(body.Success);
         Assert.Contains("submitted", body.Message, StringComparison.OrdinalIgnoreCase);
+
+        // Post-condition: the matching cache item is flagged as requested; the other
+        // one remains untouched (proves the mark is scoped by TmdbId, not blanket).
+        var reload = _cache.Load();
+        var user = Assert.Single(reload);
+        var target = user.Recommendations.Single(r => r.TmdbId == 12345);
+        var other = user.Recommendations.Single(r => r.TmdbId == 99999);
+        Assert.True(target.AlreadyRequested, "matching item must be marked as requested");
+        Assert.False(other.AlreadyRequested, "non-matching item must be untouched");
     }
 
     [Fact]

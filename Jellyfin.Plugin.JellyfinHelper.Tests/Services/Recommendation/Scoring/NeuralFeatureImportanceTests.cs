@@ -202,18 +202,34 @@ public class NeuralFeatureImportanceTests
     }
 
     [Fact]
-    public void ComputePermutationImportance_DifferentSampleSize_CanYieldDifferentResults()
+    public void ComputePermutationImportance_DifferentSampleSize_YieldsDifferentImportanceValues()
     {
         // Sanity: different sampleSize must be able to affect the outcome, otherwise
-        // the sampling is a no-op.
+        // the sampling is a no-op. Merely comparing dictionary sizes proves nothing
+        // (both are always FeatureCount) — we assert that AT LEAST ONE feature
+        // importance value differs between the two runs. If the sampling ever became
+        // a no-op (e.g. sampleSize ignored), every feature would produce identical
+        // scores and this test would fail.
         var strategy = CreateStrategy();
         var examples = BuildExamples(50);
         var small = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples, sampleSize: 5);
         var full = NeuralFeatureImportance.ComputePermutationImportance(strategy, examples, sampleSize: 50);
-        // Both have the correct number of features but the actual importance numbers
-        // must be free to differ.
+
         Assert.Equal(CandidateFeatures.FeatureCount, small.Count);
         Assert.Equal(CandidateFeatures.FeatureCount, full.Count);
+
+        // Feature keys must be identical (deterministic layout across runs).
+        Assert.Equal(small.Keys.OrderBy(k => k), full.Keys.OrderBy(k => k));
+
+        // Assert that at least one importance value differs. With sampleSize=5 vs 50
+        // over a permutation-based algorithm, statistical variance across even the
+        // most stable feature is essentially guaranteed. We use a tiny epsilon so
+        // pure floating-point noise on identical inputs would still not count as a
+        // difference — only a real distributional shift does.
+        var anyDifferent = small.Any(kv => Math.Abs(kv.Value - full[kv.Key]) > 1e-9);
+        Assert.True(
+            anyDifferent,
+            "sampleSize must influence permutation importance results; every value matched exactly, suggesting the sampling was a no-op.");
     }
 
     // -----------------------------------------------------------------------

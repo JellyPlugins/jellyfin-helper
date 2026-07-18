@@ -40,6 +40,19 @@ public sealed class SymlinkHelperTests : IDisposable
     ///     Attempts to create a throwaway symlink to detect whether the current environment
     ///     permits symlink creation. Windows requires either Developer Mode enabled or admin
     ///     privileges; certain sandboxed CI environments also reject them.
+    ///     <para>
+    ///         When this returns <c>false</c>, the calling test performs an early <c>return</c>
+    ///         and the test reports as <b>passed</b> (not skipped) — xUnit 2.9 has no runtime
+    ///         Assert.Skip API, and the currently referenced packages do not include a
+    ///         third-party SkippableFact package. The trade-off is deliberate: a hard
+    ///         <c>Assert.Fail</c> on unsupported environments would break the CI matrix
+    ///         (Windows without Developer Mode / rootless containers), while a
+    ///         <c>throw new SkipException</c> would require adding another package. The
+    ///         escape hatch is validated once via
+    ///         <see cref="SymlinkProbe_MustExecuteAtLeastOnceInLinuxCi"/> so a regression
+    ///         that broke <b>every</b> symlink test on Linux (where symlinks are guaranteed)
+    ///         would still surface loudly.
+    ///     </para>
     /// </summary>
     private bool SymlinksSupported()
     {
@@ -57,6 +70,31 @@ public sealed class SymlinkHelperTests : IDisposable
         {
             return false;
         }
+    }
+
+    /// <summary>
+    ///     Meta-test: guarantees that at least one environment in the CI matrix actually
+    ///     exercises the symlink path. On Linux/macOS symlinks are guaranteed to work in
+    ///     a per-test <c>Path.GetTempPath()</c> directory, so if this ever fails there we
+    ///     know the probe itself is broken — before every other symlink test silently
+    ///     degenerates to "passed by skipping".
+    /// </summary>
+    [Fact]
+    public void SymlinkProbe_MustExecuteAtLeastOnceInLinuxCi()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            // Windows CI without Developer Mode legitimately cannot create symlinks —
+            // the return-on-unsupported pattern in the other tests is the right answer
+            // there.
+            return;
+        }
+
+        Assert.True(
+            SymlinksSupported(),
+            "SymlinksSupported() reported false on a non-Windows host. If this ever fires, " +
+            "the probe (or the underlying temp-dir permission model) is broken and every " +
+            "downstream symlink test is silently no-op'ing.");
     }
 
     // -----------------------------------------------------------------------
@@ -110,21 +148,14 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     [Fact]
-    public void IsSymlink_BrokenSymlink_BehaviourIsPlatformDependent()
+    public void IsSymlink_BrokenSymlink_ReturnsTrue_OnAllPlatforms()
     {
-        // BUG SURFACE: The implementation gates on `info.Exists && info.LinkTarget != null`.
-        // FileInfo.Exists for a broken symlink is PLATFORM-DEPENDENT:
-        //   • Windows: Exists = false (symlink is followed at check time; target missing → false),
-        //     so a broken symlink is reported as NOT a symlink. That silently prevents
-        //     LinkRepairService from ever seeing broken links via this helper — arguably a
-        //     bug, since the whole point of LinkRepairService is to fix broken links.
-        //   • Linux/macOS: Exists = true (Exists checks the link node itself, not the target),
-        //     so LinkTarget is non-null → helper correctly reports TRUE.
-        //
-        // Rather than baking either OS-specific answer into a hard assertion (which caused
-        // the CI runner on Linux to fail), we document the divergence explicitly. When the
-        // implementation is ever fixed to use File.GetAttributes + FileAttributes.ReparsePoint
-        // both branches will collapse to TRUE and this test remains green.
+        // BUG FIX ANCHOR: the whole raison d'être of LinkRepairService is to *repair broken
+        // symlinks*, so IsSymlink MUST detect them. The implementation now uses
+        // File.GetAttributes + FileAttributes.ReparsePoint (rather than FileInfo.Exists +
+        // LinkTarget), which inspects the link node itself and therefore behaves the same
+        // on Windows and POSIX. A regression that reintroduces the old Exists-based gate
+        // would fail this test on Windows.
         if (!SymlinksSupported())
         {
             return;
@@ -136,17 +167,7 @@ public sealed class SymlinkHelperTests : IDisposable
         File.CreateSymbolicLink(link, target);
         File.Delete(target); // now the link is broken
 
-        var result = _sut.IsSymlink(link);
-        if (OperatingSystem.IsWindows())
-        {
-            // Windows: FileInfo.Exists follows the link → false for broken target.
-            Assert.False(result);
-        }
-        else
-        {
-            // Linux/macOS: FileInfo.Exists reports the link node itself → true.
-            Assert.True(result);
-        }
+        Assert.True(_sut.IsSymlink(link), "broken symlinks must still be recognised as symlinks");
     }
 
     // -----------------------------------------------------------------------

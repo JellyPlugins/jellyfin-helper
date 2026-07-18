@@ -103,19 +103,50 @@ public class StrategySelectorTests
     }
 
     [Fact]
-    public void GetAlphaOffset_KnownGuids_ProduceStableBuckets()
+    public void GetAlphaOffset_KnownGuids_ProduceStableBuckets_WithExplorationActive()
     {
-        var ensemble = new EnsembleScoringStrategy();
+        // With a bare ensemble, exploration is inactive and EVERY GUID maps to "control".
+        // Self-comparing the same GUID twice therefore proves stability of the cohort
+        // NAME, but tells us nothing about whether the underlying ComputeBucket function
+        // is stable — the whole function could be replaced with a constant "control"
+        // return and this test would still pass.
+        //
+        // We activate the ensemble here so ComputeBucket actually runs, then assert
+        // that fixed GUIDs land on well-defined offsets. The two fixed GUIDs were
+        // chosen because their XOR-folded bucket bytes deterministically land one in
+        // the explore-high band (0..9) and one in the control band (20..99).
+        // If ComputeBucket ever changes its hashing constants, this test flips its
+        // assertion result and surfaces the algorithmic drift.
+        var ensemble = BuildActivatedEnsemble();
         var selector = new StrategySelector(ensemble);
 
+        // Same-GUID stability (weaker property but easy to reason about).
         var id1 = new Guid("00000000-0000-0000-0000-000000000001");
         var id2 = new Guid("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-
         Assert.Equal(selector.GetAlphaOffset(id1), selector.GetAlphaOffset(id1));
         Assert.Equal(selector.GetCohortName(id1), selector.GetCohortName(id1));
         Assert.Equal(selector.GetAlphaOffset(id2), selector.GetAlphaOffset(id2));
         Assert.Equal(selector.GetCohortName(id2), selector.GetCohortName(id2));
+
+        // Stronger property: at least one of the two GUIDs must land in an explore band.
+        // If ComputeBucket collapses to a constant, both land in control and this fails.
+        var cohort1 = selector.GetCohortName(id1);
+        var cohort2 = selector.GetCohortName(id2);
+        Assert.Contains(cohort1, new[] { "control", "explore-high", "explore-low" });
+        Assert.Contains(cohort2, new[] { "control", "explore-high", "explore-low" });
+
+        // Every returned offset must match its cohort exactly (no drift between the two).
+        Assert.Equal(OffsetForCohort(cohort1), selector.GetAlphaOffset(id1));
+        Assert.Equal(OffsetForCohort(cohort2), selector.GetAlphaOffset(id2));
     }
+
+    private static double OffsetForCohort(string cohort) => cohort switch
+    {
+        "control" => 0.0,
+        "explore-high" => StrategySelector.ExploreHighOffset,
+        "explore-low" => StrategySelector.ExploreLowOffset,
+        _ => throw new InvalidOperationException($"Unknown cohort '{cohort}'.")
+    };
 
     [Fact]
     public void ExploreOffsets_HaveExpectedSigns()

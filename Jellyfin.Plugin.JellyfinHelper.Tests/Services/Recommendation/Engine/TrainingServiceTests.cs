@@ -245,7 +245,11 @@ public class TrainingServiceTests
     public void Train_Incremental_SubsamplesOldExamples()
     {
         // Regression: incremental=true reduces the training set to "recent + sampled old".
-        // The strategy's LastReceivedTrainSet count should generally be <= the non-incremental variant.
+        // A non-null assertion alone would pass even if the incremental branch became a
+        // no-op — we compare against the non-incremental training path on the SAME inputs
+        // and assert the invariant "incremental <= baseline" instead. The tighter
+        // subsampling behaviour (older examples sampled while newer ones survive) is
+        // covered in detail by Train_Incremental_WithMixedAgeExamples_SubsamplesOldOnesOnly.
         var userId = Guid.NewGuid();
         var profiles = new Collection<UserWatchProfile> { CreatePopulatedProfile(userId) };
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
@@ -253,12 +257,26 @@ public class TrainingServiceTests
 
         var sut = CreateSut();
         var strategy = new RecordingStrategy();
+        var baselineStrategy = new RecordingStrategy();
         var previous = new[] { CreateResultWithRecommendations(userId) };
 
+        var baselineResult = sut.Train(baselineStrategy, previous, incremental: false);
         var incrementalResult = sut.Train(strategy, previous, incremental: true);
 
+        Assert.True(baselineResult);
         Assert.True(incrementalResult);
         Assert.NotNull(strategy.LastReceivedTrainSet);
+        Assert.NotNull(baselineStrategy.LastReceivedTrainSet);
+
+        // Invariant: an incremental pass never enlarges the training set relative to a
+        // full pass on the same fixture. If someone accidentally disables the
+        // "sample old examples" step, both counts would still typically match (the
+        // fixture may be below IncrementalMinExamplesThreshold), so this assertion is
+        // deliberately non-strict — it fails ONLY if a regression makes incremental
+        // produce MORE examples, which would be a serious correctness bug.
+        Assert.True(
+            strategy.LastReceivedTrainSet!.Count <= baselineStrategy.LastReceivedTrainSet!.Count,
+            $"incremental training must not enlarge the training set (baseline={baselineStrategy.LastReceivedTrainSet!.Count}, incremental={strategy.LastReceivedTrainSet!.Count})");
     }
 
     [Fact]

@@ -13,11 +13,25 @@ public class SymlinkHelper : ISymlinkHelper
     {
         try
         {
-            var info = new FileInfo(path);
-            return info.Exists && info.LinkTarget != null;
+            // We must detect the LINK NODE itself, not follow it to the target. Using
+            // `info.Exists` gates the check on the target being present, which:
+            //   • On Windows, `FileInfo.Exists` follows the link at check time — so a
+            //     broken symlink is reported as NOT a symlink, silently hiding the very
+            //     class of link LinkRepairService is designed to fix.
+            //   • On Linux/macOS, `FileInfo.Exists` reports the link node — the check
+            //     would work there, but relying on that is a portability hazard.
+            //
+            // `File.GetAttributes` inspects the entry itself without following it, and
+            // the ReparsePoint bit is exactly the "this is a symbolic link" indicator
+            // on both Win32 (reparse point) and POSIX (via .NET's abstraction).
+            var attrs = File.GetAttributes(path);
+            return (attrs & FileAttributes.ReparsePoint) != 0;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // Non-existent paths / permission denied → treat as "not a symlink". The
+            // LinkRepairService will decide separately whether the *absence* of the
+            // path is itself an actionable state.
             return false;
         }
     }

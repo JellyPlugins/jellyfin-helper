@@ -215,14 +215,45 @@ public class PluginServiceRegistratorTests
     }
 
     [Fact]
-    public void RegisterServices_IsIdempotent_TwoCallsProduceIdenticalRegistrationCount()
+    public void RegisterServices_TwoInvocationsOnFreshCollections_ProduceIdenticalCounts()
     {
-        // Regression: if someone accidentally adds a registration inside a conditional and
-        // it fires only once, calling Register twice would produce inconsistent state.
-        // The registrator is called by Jellyfin exactly once, but this test acts as a
-        // guardrail against any future re-entrancy.
+        // Determinism guard: two fresh registrations must yield the same number of
+        // descriptors. If a registration ever became non-deterministic (e.g. driven by
+        // Random / DateTime.UtcNow / environmental state), this catches it early.
         var sc1 = Register();
         var sc2 = Register();
         Assert.Equal(sc1.Count, sc2.Count);
+    }
+
+    [Fact]
+    public void RegisterServices_CalledTwiceOnSameCollection_DoublesTheRegistrationsAsExpected()
+    {
+        // Real re-entrancy guard: calling RegisterServices twice against the SAME
+        // ServiceCollection is expected to append descriptors (Add* semantics, not
+        // TryAdd*). If any registration silently switched to TryAdd, the second call
+        // would be a no-op and this test would fail — surfacing the subtle behaviour
+        // change instead of shipping it.
+        //
+        // Note: the registrator is called by Jellyfin exactly once, so this is a
+        // regression net for future refactors, not a claim that double-registration
+        // is a supported production scenario.
+        var sc = new ServiceCollection();
+        var host = new Mock<IServerApplicationHost>();
+        var sut = new PluginServiceRegistrator();
+
+        sut.RegisterServices(sc, host.Object);
+        var countAfterFirst = sc.Count;
+        Assert.NotEqual(0, countAfterFirst);
+
+        sut.RegisterServices(sc, host.Object);
+        var countAfterSecond = sc.Count;
+
+        // Every Add* registration is duplicated by the second call. Named HttpClient
+        // registrations use Configure<HttpClientFactoryOptions> which multiply on repeat
+        // invocation, so the exact ratio is not necessarily 2:1 — we assert only strict
+        // monotonic growth to keep this test resilient against future changes.
+        Assert.True(
+            countAfterSecond > countAfterFirst,
+            $"Registration count must grow when RegisterServices is invoked twice on the same collection (was {countAfterFirst}, now {countAfterSecond}).");
     }
 }

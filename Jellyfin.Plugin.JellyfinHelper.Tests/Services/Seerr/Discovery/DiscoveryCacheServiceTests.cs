@@ -316,21 +316,59 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     [Fact]
     public void Load_OversizedFile_DeletesFileAndReturnsEmpty()
     {
-        // Files above the 50 MB safety cap are treated as tampered and removed.
-        // We fake the size by writing a tiny valid JSON — the cap check is via FileInfo.Length,
-        // which for our test we cannot easily blow past 50 MB. Instead, we verify that a
-        // legitimate small file survives (negative regression: the cap must not trip on normal files).
+        // Files above the 50 MB safety cap are treated as tampered and MUST be removed
+        // so the plugin does not sit in a repeated-deserialize loop. Rather than writing
+        // 50 MB of real data (slow, expensive on CI), we use FileStream.SetLength to
+        // create a SPARSE file that reports > 50 MB via FileInfo.Length without actually
+        // consuming disk blocks on filesystems that support sparse files. On filesystems
+        // that don't (e.g. FAT), SetLength still allocates the space — this is a one-shot
+        // test so the cost is acceptable.
+        Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
+        using (var stream = new FileStream(
+                   _cacheFilePath,
+                   FileMode.Create,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            // 50 MiB + 1 byte — strictly above the cap.
+            stream.SetLength((50L * 1024 * 1024) + 1);
+        }
+
+        Assert.True(File.Exists(_cacheFilePath));
+        var lengthBefore = new FileInfo(_cacheFilePath).Length;
+        Assert.True(lengthBefore > 50L * 1024 * 1024, $"expected > 50 MB file, got {lengthBefore}");
+
+        // Re-instantiate the service to force a fresh disk read (the current one may
+        // have already cached an empty result in memory from earlier test setup).
+        using var freshSut = new DiscoveryCacheService(
+            new Mock<IPluginLogService>().Object,
+            new Mock<ILogger<DiscoveryCacheService>>().Object);
+
+        var results = freshSut.Load();
+
+        // The oversized file must be reported as empty AND removed from disk so it
+        // doesn't trip subsequent Load calls.
+        Assert.Empty(results);
+        Assert.False(File.Exists(_cacheFilePath),
+            "the oversized cache file must be deleted after Load rejects it");
+    }
+
+    [Fact]
+    public void Load_LegitimateSmallFile_IsNotAffectedByCap()
+    {
+        // Negative regression: the cap must not misfire on ordinary-sized cache files.
+        // This complements the oversized-file test above; together they lock the
+        // upper bound of the guard.
         _sut.Save([new DiscoveryResult { UserId = Guid.NewGuid() }]);
         Assert.True(File.Exists(_cacheFilePath));
 
-        // Re-instantiate to force a fresh disk read.
         using var freshSut = new DiscoveryCacheService(
             new Mock<IPluginLogService>().Object,
             new Mock<ILogger<DiscoveryCacheService>>().Object);
 
         var results = freshSut.Load();
         Assert.Single(results);
-        Assert.True(File.Exists(_cacheFilePath));
+        Assert.True(File.Exists(_cacheFilePath), "legitimate cache files must survive Load");
     }
 
     [Fact]

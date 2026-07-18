@@ -326,16 +326,33 @@ public class NullableDateTimeConverterTests
     [Fact]
     public void ReadInvariantCulture_ParsesEnglishFormattedDate_UnderGermanCulture()
     {
-        // Regression: the Read() path must also use InvariantCulture. Otherwise
-        // a "6/15/2024" style string under de-DE culture would fail to parse.
+        // Regression: the Read() path MUST use InvariantCulture. Otherwise a
+        // "6/15/2024" style string under de-DE culture would parse as 6 May 2024
+        // (dd/MM/yyyy) or fail entirely, silently corrupting dates parsed from
+        // Seerr responses.
+        //
+        // The previous version of this test used an ISO-8601 payload ("2024-06-15T…Z")
+        // which parses identically in every culture — so it could not detect a
+        // regression that removed the InvariantCulture argument. We now use the
+        // US-format "6/15/2024" which is:
+        //   * unambiguous under InvariantCulture (June 15, 2024)
+        //   * INVALID under de-DE (day 15 of month 15 → FormatException)
+        // If the InvariantCulture argument were dropped from DateTime.TryParse, the
+        // Read() method would return null under de-DE and this test would fail.
         var original = CultureInfo.CurrentCulture;
         try
         {
             CultureInfo.CurrentCulture = new CultureInfo("de-DE");
-            var json = "{\"Value\":\"2024-06-15T10:30:00Z\"}";
+            var json = "{\"Value\":\"6/15/2024\"}";
+
             var result = JsonSerializer.Deserialize<Container>(json, CreateOptions());
+
             Assert.NotNull(result);
             Assert.NotNull(result!.Value);
+            // Positive fields assertion: it MUST parse to June 15th, 2024.
+            Assert.Equal(2024, result.Value!.Value.Year);
+            Assert.Equal(6, result.Value.Value.Month);
+            Assert.Equal(15, result.Value.Value.Day);
         }
         finally
         {

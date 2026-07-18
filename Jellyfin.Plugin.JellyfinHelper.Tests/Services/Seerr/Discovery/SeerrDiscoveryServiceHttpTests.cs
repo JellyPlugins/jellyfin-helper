@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
@@ -222,16 +223,26 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task SubmitRequestAsync_UserIdIncludedInPayloadWhenPositive()
     {
-        // JsonDefaults.Options serialises with WriteIndented=true, so key:value pairs are
-        // separated by ": " and lines are wrapped. We assert on presence of the property
-        // name and the value separately to stay format-tolerant.
+        // BUG GUARD: the earlier version of this test asserted `Contains("42")` on the
+        // raw JSON string, which also matches the existing mediaId 1234 — so a broken
+        // implementation that dropped the userId field entirely (or wrote the wrong
+        // value) would still pass. We now parse the payload as JSON and assert the
+        // strongly-typed value of the `userId` property.
         _handler.RegisterResponse(HttpMethod.Post, "/api/v1/request", HttpStatusCode.Created, "{}");
 
         await _sut.SubmitRequestAsync(1234, "movie", 42, null, null, null, CancellationToken.None);
 
         Assert.NotNull(_handler.LastRequestBody);
-        Assert.Contains("\"userId\"", _handler.LastRequestBody!, StringComparison.Ordinal);
-        Assert.Contains("42", _handler.LastRequestBody!, StringComparison.Ordinal);
+
+        using var payload = JsonDocument.Parse(_handler.LastRequestBody!);
+        // The property MUST exist and carry exactly 42.
+        Assert.True(payload.RootElement.TryGetProperty("userId", out var userIdElement),
+            $"payload missing 'userId' property; body was: {_handler.LastRequestBody}");
+        Assert.Equal(42, userIdElement.GetInt32());
+        // Sanity: the mediaId was serialised alongside as expected — this makes the
+        // parsing sanity check tight and future-proofs against accidental field renames.
+        Assert.True(payload.RootElement.TryGetProperty("mediaId", out var mediaIdElement));
+        Assert.Equal(1234, mediaIdElement.GetInt32());
     }
 
     [Fact]

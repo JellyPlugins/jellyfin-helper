@@ -708,19 +708,35 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetRoots_ForcedWindowsBranch_OnAnyHost_ProducesFullyQualifiedDrivePaths()
     {
-        // On non-Windows hosts DriveInfo.GetDrives() still returns entries — usually just "/"
-        // as a Fixed drive — so the loop still executes and we exercise the Windows-specific
-        // code paths (VolumeLabel probing, drive-type filtering, entries.Sort).
+        // The Windows branch inside FolderBrowserService relies on Win32 semantics of
+        // DriveInfo (drive letters, VolumeLabel, drive type). On non-Windows hosts this
+        // path can silently degrade to an empty result set, which means Assert.All would
+        // trivially pass without ever exercising the branch. Only assert the strong
+        // contract on Windows; otherwise still cover the "no throw + shape correct" path.
         var svc = new FolderBrowserService(
             TestMockFactory.CreateLogger<FolderBrowserService>().Object,
             isWindows: true);
 
         var result = svc.GetRoots();
 
-        // Whatever the host returns, the shape of the response must be correct:
+        // Shape guarantees hold on every OS:
         Assert.Null(result.Error);
         Assert.False(result.CanGoUp);
-        Assert.All(result.Directories, e => Assert.True(Path.IsPathFullyQualified(e.Path)));
+
+        if (OperatingSystem.IsWindows())
+        {
+            // On Windows the enumeration must produce at least one drive entry, and
+            // every path must be fully qualified (drive letter form).
+            Assert.NotEmpty(result.Directories);
+            Assert.All(result.Directories, e => Assert.True(Path.IsPathFullyQualified(e.Path)));
+        }
+        else
+        {
+            // On non-Windows the Windows branch can filter everything out. Only assert
+            // shape (no drives with malformed paths) — this documents that we still
+            // exercise the code without falsely claiming to test drive filtering.
+            Assert.All(result.Directories, e => Assert.False(string.IsNullOrEmpty(e.Path)));
+        }
     }
 
     // ===================================================================

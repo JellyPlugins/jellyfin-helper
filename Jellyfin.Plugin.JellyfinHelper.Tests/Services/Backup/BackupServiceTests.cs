@@ -988,7 +988,9 @@ public class BackupServiceTests
     {
         // BUG GUARD: Line 407-411 — baselines above MaxBaselineDirectories (50_000) must
         // trigger a WARNING (not an error) so the import proceeds with trimming rather
-        // than aborting for a merely oversized dataset.
+        // than aborting for a merely oversized dataset. We seed a fixture that is otherwise
+        // fully valid so the only failure surface is the oversized directory set, and then
+        // assert the warn-only contract directly (IsValid must remain true).
         var backup = CreateValidBackup();
         backup.GrowthBaseline = new GrowthTimelineBaseline();
         for (int i = 0; i < BackupValidator.MaxBaselineDirectories + 5; i++)
@@ -1004,8 +1006,11 @@ public class BackupServiceTests
         var result = BackupValidator.Validate(backup);
 
         Assert.Contains(result.Warnings, w => w.Contains("directories", StringComparison.OrdinalIgnoreCase));
-        // Import must not be blocked.
-        Assert.True(result.IsValid || !result.Errors.Any(e => e.Contains("director", StringComparison.OrdinalIgnoreCase)));
+        // Warn-only contract: the import must remain valid. A weaker "no directory-related
+        // error" check would let unrelated errors mask a regression here.
+        Assert.True(
+            result.IsValid,
+            $"oversized baseline must NOT invalidate the backup; errors: {string.Join("; ", result.Errors)}");
     }
 
     [Fact]

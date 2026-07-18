@@ -292,24 +292,73 @@ public sealed class AtomicFileTests : IDisposable
     }
 
     [Fact]
-    public async Task WriteAllTextAsync_CancelledMidWrite_LeavesNoOrphans()
+    public async Task WriteAllTextAsync_CancelledMidWrite_LeavesNoOrphansAndTargetUntouched()
     {
-        // Cancel after a small write starts, before finish. Even with a token that fires
-        // immediately, the temp file cleanup must run and the target must remain untouched.
+        // Race-based mid-write cancellation coverage: use a payload large enough that
+        // File.WriteAllTextAsync yields to the scheduler at least once, then fire the
+        // cancellation a few milliseconds after the call starts. On any given run the
+        // cancellation may fire before the write starts, during the write, or (rarely)
+        // after the atomic move — but every path must respect the same invariants:
+        //   * target either holds OLD (cancellation won) or the new payload (write won);
+        //     never partial content, never missing,
+        //   * no *.tmp orphans left behind in the directory afterwards.
+        // We repeat a few times so occasional scheduling luck cannot mask a bug in the
+        // temp-cleanup path. We do NOT assert "cancellation was observed" — that would
+        // introduce timing-based flakes; the important guarantee is that the invariants
+        // hold under *any* scheduling outcome.
         var path = Path.Join(_tempDir, "cancel-mid.txt");
-        using var cts = new CancellationTokenSource();
+        File.WriteAllText(path, "OLD");
 
-        // Trigger cancellation before starting
+        // 8 MB payload — big enough that on realistic disk I/O the async write yields.
+        var payload = new string('X', 8 * 1024 * 1024);
+
+        for (var iteration = 0; iteration < 4; iteration++)
+        {
+            using var cts = new CancellationTokenSource();
+            var task = AtomicFile.WriteAllTextAsync(path, payload, cancellationToken: cts.Token);
+
+            // Give the async write a moment to start, then cancel while it is in progress.
+            cts.CancelAfter(TimeSpan.FromMilliseconds(2));
+
+            try
+            {
+                await task;
+                // If the write finished before cancellation, reset for the next iteration
+                // so the "target held OLD" branch is exercised too.
+                File.WriteAllText(path, "OLD");
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected on the mid-write path. No assertion here — invariants below.
+            }
+
+            // Invariant #1: no *.tmp orphans in the directory after this iteration,
+            // regardless of whether the write succeeded or was cancelled.
+            var orphans = Directory.GetFiles(_tempDir, "*.tmp", SearchOption.TopDirectoryOnly);
+            Assert.Empty(orphans);
+
+            // Invariant #2: target file always exists, and only ever holds OLD or the
+            // full new payload — never a partial or truncated write.
+            Assert.True(File.Exists(path));
+            var final = await File.ReadAllTextAsync(path);
+            Assert.True(
+                final == "OLD" || final == payload,
+                $"target must never contain partial content (iteration {iteration}, length {final.Length})");
+        }
+    }
+
+    [Fact]
+    public async Task WriteAllTextAsync_CancelledBeforeStart_LeavesNoOrphans()
+    {
+        // Pure pre-start cancellation. Complement to the mid-write test above so both
+        // control paths (early ThrowIfCancellationRequested vs File.WriteAllTextAsync
+        // propagating the token) are covered independently.
+        var path = Path.Join(_tempDir, "cancel-pre.txt");
+        using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        try
-        {
-            await AtomicFile.WriteAllTextAsync(path, "content", cancellationToken: cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            // expected
-        }
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => AtomicFile.WriteAllTextAsync(path, "content", cancellationToken: cts.Token));
 
         Assert.False(File.Exists(path));
         var orphans = Directory.GetFiles(_tempDir, "*.tmp", SearchOption.TopDirectoryOnly);

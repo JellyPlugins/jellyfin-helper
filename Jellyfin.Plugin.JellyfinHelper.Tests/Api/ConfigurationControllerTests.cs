@@ -759,16 +759,27 @@ public class ConfigurationControllerTests
         // an explicit null gracefully by falling back to ".jellyfin-trash". `null!` suppresses the
         // nullable-analysis warning — the DTO property is non-nullable in the C# type system, but
         // production JSON payloads may legitimately deserialize as null.
+        //
+        // We seed a NON-default value first so a regression that bypasses ApplyRequestToConfig
+        // (early return, wrong branch, etc.) cannot silently pass just because ".jellyfin-trash"
+        // is also the constructor default.
+        _config.TrashFolderPath = "custom-trash";
         var request = new ConfigurationUpdateRequest { TrashFolderPath = null! };
-        await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
         Assert.Equal(".jellyfin-trash", _config.TrashFolderPath);
     }
 
     [Fact]
     public async Task UpdateConfiguration_WhitespaceLanguage_DefaultsToEnglish()
     {
+        // Same rationale as the null-TrashFolderPath test above: seed a non-default value
+        // ("de") so we can prove the whitespace payload actually reached the defaulting
+        // branch instead of leaving the field untouched.
+        _config.Language = "de";
         var request = new ConfigurationUpdateRequest { Language = "   " };
-        await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
         Assert.Equal("en", _config.Language);
     }
 

@@ -352,8 +352,8 @@ public class RecommendationControllerTests
     public void GetUserRecommendations_CachedUserLargerThanRequestedMax_ReturnsTrimmedCopy()
     {
         // BUG GUARD: the copy-on-trim path in GetUserRecommendations (Lines 145-157) must
-        // preserve all metadata (UserName, ScoringStrategy, GeneratedAt, Profile) — not
-        // just the Recommendations. If a future refactor forgets one field, this test
+        // preserve all metadata (UserName, ScoringStrategy, GeneratedAt, Profile, Cohort) —
+        // not just the Recommendations. If a future refactor forgets one field, this test
         // catches it because we assert against every metadata property.
         var userId = Guid.NewGuid();
         var original = new RecommendationResult
@@ -363,6 +363,7 @@ public class RecommendationControllerTests
             ScoringStrategy = "TestStrategy",
             ScoringStrategyKey = "strategyTest",
             GeneratedAt = new DateTime(2026, 3, 1, 10, 0, 0, DateTimeKind.Utc),
+            Cohort = "explore-high",
             Profile = new UserWatchProfile { UserId = userId, UserName = "Alice" },
             Recommendations = new Collection<RecommendedItem>(
                 Enumerable.Range(0, 25)
@@ -383,16 +384,51 @@ public class RecommendationControllerTests
         Assert.Equal("TestStrategy", data.ScoringStrategy);
         Assert.Equal("strategyTest", data.ScoringStrategyKey);
         Assert.Equal(original.GeneratedAt, data.GeneratedAt);
+        Assert.Equal("explore-high", data.Cohort);
         Assert.Same(original.Profile, data.Profile);
         // Original cache entry not mutated.
         Assert.Equal(25, original.Recommendations.Count);
     }
 
+    [Fact]
+    public void GetAllRecommendations_CachedListLargerThanRequestedMax_TrimmedCopyPreservesCohort()
+    {
+        // BUG GUARD: TrimRecommendations must propagate the Cohort field on the trimmed copy.
+        // Without this test, a regression that drops Cohort would silently break the A/B
+        // reporting for the admin overview endpoint.
+        var userId = Guid.NewGuid();
+        var original = new RecommendationResult
+        {
+            UserId = userId,
+            UserName = "Alice",
+            Cohort = "explore-low",
+            Recommendations = new Collection<RecommendedItem>(
+                Enumerable.Range(0, 12)
+                    .Select(i => new RecommendedItem { ItemId = Guid.NewGuid(), Name = $"Item{i}" })
+                    .ToList())
+        };
+        _mockCache.Setup(c => c.LoadResults())
+            .Returns(new Collection<RecommendationResult> { original });
+
+        var result = _controller.GetAllRecommendations(maxPerUser: 4);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
+        Assert.Single(data);
+        Assert.Equal(4, data[0].Recommendations.Count);
+        Assert.Equal("explore-low", data[0].Cohort);
+    }
+
     [Theory]
-    [InlineData(0)]      // Zero → falls back to config default
-    [InlineData(-5)]     // Negative → falls back to config default
-    [InlineData(1000)]   // Above 100 → clamped to 100
-    public void GetAllRecommendations_MaxPerUserOutOfRange_ClampsToValidRange(int maxPerUser)
+    // maxPerUser <= 0 -> falls back to configured (20); >100 -> clamped to 100.
+    // The trailing tuple asserts BOTH: what the engine is invoked with AND how many
+    // recommendations survive trimming for each element in the response.
+    [InlineData(0, 20)]
+    [InlineData(-5, 20)]
+    [InlineData(1000, 100)]
+    [InlineData(50, 50)]
+    public void GetAllRecommendations_MaxPerUserOutOfRange_TrimsToExpectedEffectiveLimit(
+        int maxPerUser, int expectedTrimmedCount)
     {
         _mockConfigService.Setup(c => c.GetConfiguration())
             .Returns(new PluginConfiguration
@@ -400,21 +436,42 @@ public class RecommendationControllerTests
                 RecommendationsTaskMode = TaskMode.Activate,
                 MaxRecommendationsPerUser = 20
             });
-        _mockCache.Setup(c => c.LoadResults()).Returns((Collection<RecommendationResult>?)null);
-        _mockEngine.Setup(e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .Returns(new Collection<RecommendationResult>());
+
+        // Seed the cache with 150 recommendations so the trim path is exercised
+        // regardless of the effective limit (max clamp is 100).
+        var userId = Guid.NewGuid();
+        var cached = new Collection<RecommendationResult>
+        {
+            new()
+            {
+                UserId = userId,
+                UserName = "Alice",
+                Recommendations = new Collection<RecommendedItem>(
+                    Enumerable.Range(0, 150)
+                        .Select(i => new RecommendedItem { ItemId = Guid.NewGuid(), Name = $"Item{i}" })
+                        .ToList())
+            }
+        };
+        _mockCache.Setup(c => c.LoadResults()).Returns(cached);
 
         var result = _controller.GetAllRecommendations(maxPerUser);
 
-        // Must return 200 in every case — no ArgumentOutOfRangeException, no crash.
-        Assert.IsType<OkObjectResult>(result.Result);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
+        Assert.Single(data);
+        Assert.Equal(expectedTrimmedCount, data[0].Recommendations.Count);
+        // Cache must never be mutated by trimming.
+        Assert.Equal(150, cached[0].Recommendations.Count);
     }
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(-1)]
-    [InlineData(500)]
-    public void GetUserRecommendations_MaxResultsOutOfRange_ClampsToValidRange(int maxResults)
+    // maxResults <= 0 -> falls back to configured (20); >100 -> clamped to 100.
+    [InlineData(0, 20)]
+    [InlineData(-1, 20)]
+    [InlineData(500, 100)]
+    [InlineData(15, 15)]
+    public void GetUserRecommendations_MaxResultsOutOfRange_TrimsToExpectedEffectiveLimit(
+        int maxResults, int expectedTrimmedCount)
     {
         var userId = Guid.NewGuid();
         _mockConfigService.Setup(c => c.GetConfiguration())
@@ -423,13 +480,27 @@ public class RecommendationControllerTests
                 RecommendationsTaskMode = TaskMode.Activate,
                 MaxRecommendationsPerUser = 20
             });
-        _mockCache.Setup(c => c.LoadResults()).Returns((Collection<RecommendationResult>?)null);
-        _mockEngine.Setup(e => e.GetRecommendations(userId, It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .Returns(new RecommendationResult { UserId = userId });
+
+        // Seed the user cache with 150 recommendations so the trimmed-copy path is
+        // exercised regardless of the effective limit (max clamp is 100).
+        var cachedUser = new RecommendationResult
+        {
+            UserId = userId,
+            UserName = "Alice",
+            Recommendations = new Collection<RecommendedItem>(
+                Enumerable.Range(0, 150)
+                    .Select(i => new RecommendedItem { ItemId = Guid.NewGuid(), Name = $"Item{i}" })
+                    .ToList())
+        };
+        _mockCache.Setup(c => c.LoadResults())
+            .Returns(new Collection<RecommendationResult> { cachedUser });
 
         var result = _controller.GetUserRecommendations(userId, maxResults);
 
-        // Must return 200 — no ArgumentOutOfRangeException regardless of parameter shape.
-        Assert.IsType<OkObjectResult>(result.Result);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var data = Assert.IsType<RecommendationResult>(ok.Value);
+        Assert.Equal(expectedTrimmedCount, data.Recommendations.Count);
+        // Cache must never be mutated by the copy-on-trim path.
+        Assert.Equal(150, cachedUser.Recommendations.Count);
     }
 }

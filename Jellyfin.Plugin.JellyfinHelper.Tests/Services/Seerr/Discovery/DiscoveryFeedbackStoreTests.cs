@@ -623,14 +623,25 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Contains(all, r => r.UserId == u2);
 
         // Prove defensive copy: mutating the returned list must not affect the store.
-        all[0].Entries.Clear();
-        all[0].Entries.Add(new DiscoveryFeedbackEntry { TmdbId = 9999, MediaType = "movie" });
+        // Look up u1's returned record explicitly rather than relying on `all[0]` — the
+        // dictionary-backed store makes no ordering guarantee, and picking the wrong
+        // record would let a shallow-copy regression pass by mutating u2 while asserting
+        // only against u1's later state.
+        var returnedU1 = all.First(r => r.UserId == u1);
+        returnedU1.Entries.Clear();
+        returnedU1.Entries.Add(
+            new DiscoveryFeedbackEntry { TmdbId = 9999, MediaType = "movie" });
 
         var fresh = store.LoadAll();
-        // Original entries must still be present.
+        // Original entries must still be present for u1 (the mutation target).
         var freshU1 = fresh.First(r => r.UserId == u1);
         Assert.Contains(freshU1.Entries, e => e.TmdbId == 1);
         Assert.DoesNotContain(freshU1.Entries, e => e.TmdbId == 9999);
+
+        // And u2 is untouched too — a defensive-copy regression that only affected
+        // its own record would sneak past a u1-only assertion.
+        var freshU2 = fresh.First(r => r.UserId == u2);
+        Assert.Contains(freshU2.Entries, e => e.TmdbId == 2);
     }
 
     [Fact]

@@ -46,15 +46,24 @@ public class FolderBrowserDtoTests
     }
 
     [Fact]
-    public void FolderEntry_TwoInstancesWithSameValues_AreNotReferenceEqual()
+    public void FolderEntry_TwoInstancesWithSameValues_AreNotEqualByValue()
     {
-        // The DTO is intentionally not a value/record type — two payloads with identical
-        // field values must not compare equal via ReferenceEquals, so callers can safely
-        // use identity in caches without collisions.
+        // The DTO is intentionally NOT a value/record type — two payloads with identical
+        // field values must not compare equal, so callers can safely use identity in
+        // caches without collisions. `ReferenceEquals` alone cannot detect a switch to
+        // `record` (records still fail ReferenceEquals on two allocations), so we
+        // additionally assert on `Equals` and the default hash-code contract that
+        // reference types get from `object`.
         var a = new FolderEntry { Name = "x", Path = "/x", HasChildren = true };
         var b = new FolderEntry { Name = "x", Path = "/x", HasChildren = true };
 
         Assert.False(ReferenceEquals(a, b));
+        // The key invariant: if someone converts FolderEntry to `record`, this line flips
+        // to true and the test fails — surfacing the semantic change before it ships.
+        Assert.False(a.Equals(b), "FolderEntry must use reference equality (not value/record semantics)");
+        // Same instance still equals itself — guards against accidental override of
+        // Equals to a constant false.
+        Assert.True(a.Equals(a));
     }
 
     // ===== FolderBrowseResult =====
