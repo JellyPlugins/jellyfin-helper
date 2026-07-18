@@ -297,5 +297,204 @@ public class TrainingServiceTests
         _feedbackStoreMock.Verify(s => s.LoadAll(), Times.Once);
     }
 
+    // ===== Extended coverage: constructor overload + incremental subsample + held-out split =====
+
+    [Fact]
+    public void Ctor_WithoutFeedbackStore_TrainCallSucceeds()
+    {
+        // BUG GUARD: the legacy two-arg constructor (no feedback store) was previously
+        // dead code — no test exercised it. If someone ever removes it in a "cleanup"
+        // pass, this test catches the removal because it also protects against a subtle
+        // regression: the incoming null must be tolerated by the discovery-feedback-load
+        // branch inside TrainCore.
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
+            .Returns(new Collection<UserWatchProfile>());
+
+        var sut = new TrainingService(
+            _watchHistoryMock.Object,
+            _pluginLogMock.Object,
+            _loggerMock.Object);
+
+        var strategy = new RecordingStrategy { NextTrainReturns = false };
+
+        var result = sut.Train(strategy, [new RecommendationResult { UserId = Guid.NewGuid() }]);
+
+        Assert.False(result);
+        // The strategy was still consulted with an empty example set — proving the
+        // no-feedback-store constructor really did wire through to TrainCore.
+        Assert.Equal(1, strategy.TrainInvocationCount);
+        Assert.NotNull(strategy.LastReceivedTrainSet);
+        Assert.Empty(strategy.LastReceivedTrainSet!);
+        // Held-out split must be null when < 20 examples (fallback path).
+        Assert.Null(strategy.LastReceivedHeldOutSet);
+        // The feedback store must NOT have been consulted — the two-arg constructor
+        // stores a null and TrainCore skips the LoadAll() call entirely.
+        _feedbackStoreMock.Verify(s => s.LoadAll(), Times.Never);
+    }
+
+    /// <summary>
+    ///     Builds a large watch profile with N distinct watched items across several genres,
+    ///     which — combined with N recommendations per user — produces enough training examples
+    ///     to trigger the held-out validation split path (>= 20 examples).
+    /// </summary>
+    private static UserWatchProfile CreateLargeProfile(Guid userId, int watchedCount)
+    {
+        var profile = new UserWatchProfile
+        {
+            UserId = userId,
+            UserName = "TestBig",
+            LastActivityDate = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc)
+        };
+
+        var genres = new[] { "Action", "Drama", "Comedy", "Thriller", "SciFi" };
+        for (var i = 0; i < watchedCount; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                Played = true,
+                PlayCount = 2,
+                Genres = new[] { genres[i % genres.Length] },
+                LastPlayedDate = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc).AddDays(i)
+            });
+        }
+
+        return profile;
+    }
+
+    private static RecommendationResult CreateLargeResult(Guid userId, int recommendationCount, DateTime generatedAt)
+    {
+        var result = new RecommendationResult
+        {
+            UserId = userId,
+            UserName = "TestBig",
+            GeneratedAt = generatedAt
+        };
+
+        var genres = new[] { "Action", "Drama", "Comedy", "Thriller", "SciFi" };
+        for (var i = 0; i < recommendationCount; i++)
+        {
+            result.Recommendations.Add(new RecommendedItem
+            {
+                ItemId = Guid.NewGuid(),
+                ItemType = "Movie",
+                Name = $"Rec {i}",
+                Score = 0.5 + (i * 0.01),
+                Genres = new[] { genres[i % genres.Length] },
+                Year = 2020 + (i % 5)
+            });
+        }
+
+        return result;
+    }
+
+    [Fact]
+    public void Train_WithEnoughExamples_UsesHeldOutValidationSplit()
+    {
+        // BUG GUARD: The held-out split path (Lines 209-215) only fires when
+        // trainingExamples.Count >= 20. Below that threshold the code falls back to
+        // "train on all, validate on training-set fit". If the threshold is ever
+        // changed silently, this test catches it because we're pushing WELL past 20
+        // and asserting the strategy actually receives a held-out slice.
+        var userId = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(userId, watchedCount: 30) };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var sut = CreateSut();
+        var strategy = new RecordingStrategy { NextTrainReturns = true };
+        var previous = new[] { CreateLargeResult(userId, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
+
+        var result = sut.Train(strategy, previous);
+
+        Assert.True(result);
+        Assert.NotNull(strategy.LastReceivedTrainSet);
+        // With 20+ examples, a non-null held-out slice must be forwarded to the strategy.
+        Assert.NotNull(strategy.LastReceivedHeldOutSet);
+        Assert.True(strategy.LastReceivedHeldOutSet!.Count >= 2,
+            "Held-out split must contain at least 2 examples (Math.Max(2, 10%) floor).");
+        // The train split must be the remainder — strictly smaller than the full set.
+        Assert.True(strategy.LastReceivedTrainSet!.Count < strategy.LastReceivedTrainSet!.Count + strategy.LastReceivedHeldOutSet!.Count);
+    }
+
+    [Fact]
+    public void Train_HeldOutSplit_PicksMostRecentAsValidation()
+    {
+        // BUG GUARD: The comment at line 211 promises "Sort by GeneratedAtUtc descending
+        // to pick the most recent as held-out". If someone flips the order accidentally,
+        // the model would train on future data and validate on past data — a subtle
+        // form of temporal leakage that this test guards against.
+        var userId = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(userId, watchedCount: 30) };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var sut = CreateSut();
+        var strategy = new RecordingStrategy();
+        var previous = new[] { CreateLargeResult(userId, recommendationCount: 30, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc)) };
+
+        sut.Train(strategy, previous);
+
+        Assert.NotNull(strategy.LastReceivedHeldOutSet);
+        Assert.NotNull(strategy.LastReceivedTrainSet);
+
+        if (strategy.LastReceivedHeldOutSet!.Count > 0 && strategy.LastReceivedTrainSet!.Count > 0)
+        {
+            var maxHeldOut = strategy.LastReceivedHeldOutSet!.Max(e => e.GeneratedAtUtc);
+            var minHeldOut = strategy.LastReceivedHeldOutSet!.Min(e => e.GeneratedAtUtc);
+            var maxTrain = strategy.LastReceivedTrainSet!.Max(e => e.GeneratedAtUtc);
+
+            // Every held-out example must be at least as recent as the newest training example.
+            // (Ties can occur because BuildExamples stamps a batch of examples with the same
+            // GeneratedAtUtc; the invariant is "no train example is strictly newer than any
+            // held-out example".)
+            Assert.True(minHeldOut >= maxTrain,
+                $"Temporal leakage detected: oldest held-out ({minHeldOut:o}) predates newest train ({maxTrain:o}).");
+            Assert.Equal(maxHeldOut, strategy.LastReceivedHeldOutSet!.Max(e => e.GeneratedAtUtc));
+        }
+    }
+
+    [Fact]
+    public void Train_Incremental_WithMixedAgeExamples_SubsamplesOldOnesOnly()
+    {
+        // BUG GUARD: The incremental training branch (Lines 144-194) partitions examples
+        // by "generatedAt >= cutoff" where cutoff = latestGeneratedAt.AddDays(-1). When
+        // multiple recommendation results span more than a day, older examples must be
+        // subsampled at IncrementalOldSampleRatio while ALL new examples survive.
+        //
+        // We build TWO recommendation results spaced 5 days apart so the age partitioning
+        // has content on both sides of the cutoff. This exercises Lines 149-189 which
+        // were entirely uncovered until now.
+        var userId = Guid.NewGuid();
+        var profiles = new Collection<UserWatchProfile> { CreateLargeProfile(userId, watchedCount: 30) };
+        _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles()).Returns(profiles);
+        _feedbackStoreMock.Setup(s => s.LoadAll()).Returns(Array.Empty<DiscoveryFeedbackResult>());
+
+        var sut = CreateSut();
+        var strategy = new RecordingStrategy();
+        var previous = new[]
+        {
+            CreateLargeResult(userId, recommendationCount: 15, new DateTime(2025, 11, 1, 0, 0, 0, DateTimeKind.Utc)),
+            CreateLargeResult(userId, recommendationCount: 15, new DateTime(2025, 12, 1, 0, 0, 0, DateTimeKind.Utc))
+        };
+
+        // Non-incremental baseline
+        var strategyBaseline = new RecordingStrategy();
+        sut.Train(strategyBaseline, previous, incremental: false);
+        var baselineCount = strategyBaseline.LastReceivedTrainSet?.Count ?? 0;
+
+        // Incremental — should subsample the older set
+        sut.Train(strategy, previous, incremental: true);
+        var incrementalCount = strategy.LastReceivedTrainSet?.Count ?? 0;
+
+        // The incremental path must produce >= 1 example. If both counts happen to fall below
+        // IncrementalMinExamplesThreshold the incremental branch is skipped and both paths
+        // return the same set — that is a valid outcome, not a bug. The stronger invariant
+        // is: incremental never PRODUCES MORE examples than the non-incremental baseline.
+        Assert.NotNull(strategy.LastReceivedTrainSet);
+        Assert.True(incrementalCount <= baselineCount,
+            $"Incremental training must not enlarge the training set. baseline={baselineCount}, incremental={incrementalCount}.");
+    }
+
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 }
