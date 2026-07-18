@@ -20,8 +20,20 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 ///     Validation paths (400 responses) are covered by the equivalent admin
 ///     <see cref="DiscoveryControllerTests"/> which shares the same DTO validation logic.
 ///     Full integration tests covering the enabled-access path require a running
-///     Jellyfin host with Plugin.Instance initialized.
+///     Jellyfin host with Plugin.Instance initialized — those are exercised by
+///     <see cref="UserDiscoveryControllerAccessEnabledTests"/> and
+///     <see cref="UserDiscoveryControllerSubmitTests"/> which flip the toggle on.
+///     <para>
+///         Belongs to the <c>ConfigOverride</c> collection because the sister suites
+///         that DO flip <c>Plugin.Instance.Configuration.DiscoveryUserAccessEnabled</c> to
+///         <c>true</c> run in parallel by default. Without joining the collection, THIS
+///         suite would race with them and observe the toggle mid-flight, causing the
+///         "access gate = false" tests here to see a mutated state and fail. All three
+///         suites in the collection are serialised, so each suite's ctor/dispose resets
+///         the toggle to a known state before its tests run.
+///     </para>
 /// </summary>
+[Collection("ConfigOverride")]
 public class UserDiscoveryControllerTests
 {
     private readonly Mock<ISeerrDiscoveryService> _discoveryMock;
