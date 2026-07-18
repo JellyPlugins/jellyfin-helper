@@ -251,6 +251,25 @@ public class LinkRepairService : ILinkRepairService
         }
 
         fileResult.OriginalTargetPath = targetPath;
+
+        // Guard: NUL bytes are structurally invalid in every filesystem path on every
+        // supported platform (POSIX and NT both reserve 0x00 as a string terminator).
+        // Modern .NET versions no longer throw ArgumentException from Path.GetFullPath
+        // for embedded NULs — the path silently propagates through normalisation and
+        // eventually fails the existence check, causing the entry to be misclassified
+        // as Broken instead of InvalidContent. Rejecting NUL up front keeps the
+        // classification semantically correct AND avoids leaking a corrupted path into
+        // the downstream File.Exists / TryRepair pipeline.
+        if (targetPath.Contains('\0', StringComparison.Ordinal))
+        {
+            _pluginLog.LogWarning(
+                "LinkRepair",
+                $"Invalid target path in link file {linkFilePath}: contains NUL byte",
+                logger: _logger);
+            fileResult.Status = LinkFileStatus.InvalidContent;
+            return fileResult;
+        }
+
         string normalizedTargetPath;
         try
         {
