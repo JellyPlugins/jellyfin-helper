@@ -1,4 +1,6 @@
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Xunit;
 
@@ -742,5 +744,289 @@ public class TrainingFeatureComputerTests
             target, new[] { "Action" }, profile, isDay: false);
 
         Assert.Equal(1.0, result);
+    }
+
+    // -----------------------------------------------------------------------
+    // AddAggregatedSeriesExample — the biggest uncovered slab of this file (0%).
+    //
+    // Business meaning: an episode-heavy series would otherwise flood the training data with
+    // one row per episode, biasing the model toward series with many episodes. This helper
+    // collapses episodes into a single series-level training example. The tests below drive
+    // each label branch (fully watched, favorite-only, abandoned, partially watched) and
+    // verify the wire-up of studios / tags / people / temporal features.
+    // -----------------------------------------------------------------------
+
+    private static PreferenceBuilder.GenreExposureAnalysis BuildExposure(
+        Dictionary<string, double> genrePreferences,
+        UserWatchProfile profile)
+        => PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, profile);
+
+    private static (Guid SeriesId, UserWatchProfile Profile, List<WatchedItemInfo> Episodes) BuildSeriesEpisodes(
+        int totalEpisodes,
+        int playedEpisodes,
+        bool anyFavorite = false,
+        bool anyPartial = false)
+    {
+        var seriesId = Guid.NewGuid();
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), UserName = "series-user" };
+        var episodes = new List<WatchedItemInfo>();
+        var baseDay = new DateTime(2026, 1, 5, 14, 0, 0, DateTimeKind.Utc); // Monday afternoon
+        for (int i = 0; i < totalEpisodes; i++)
+        {
+            var w = new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                SeriesId = seriesId,
+                Played = i < playedEpisodes,
+                PlayCount = i < playedEpisodes ? 1 : 0,
+                LastPlayedDate = baseDay.AddDays(i),
+                Genres = new[] { "Drama" },
+                Year = 2020,
+                CommunityRating = 8.0f,
+                DateCreated = new DateTime(2020, 6, 1, 0, 0, 0, DateTimeKind.Utc)
+            };
+            if (anyFavorite && i == 0)
+            {
+                w.IsFavorite = true;
+            }
+
+            if (anyPartial && i == 0)
+            {
+                w.PlaybackPositionTicks = 100_000_000L;
+            }
+
+            episodes.Add(w);
+            profile.WatchedItems.Add(w);
+        }
+
+        return (seriesId, profile, episodes);
+    }
+
+    [Fact]
+    public void AddAggregatedSeriesExample_AllEpisodesPlayed_EmitsPositiveEngagementLabel()
+    {
+        var (seriesId, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 4, playedEpisodes: 4);
+        var examples = new List<TrainingExample>();
+        var genrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["Drama"] = 1.0 };
+        var exposure = BuildExposure(genrePreferences, profile);
+        var itemStudiosLookup = new Dictionary<Guid, IReadOnlyList<string>>
+        {
+            [seriesId] = new[] { "PremiumStudio" }
+        };
+        var itemTagsLookup = new Dictionary<Guid, IReadOnlyList<string>>
+        {
+            [seriesId] = new[] { "SlowBurn", "PrestigeTV" }
+        };
+        var preferredStudios = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "PremiumStudio" };
+        var preferredTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SlowBurn" };
+        var peopleLookup = new Dictionary<Guid, HashSet<string>>
+        {
+            [seriesId] = new(StringComparer.OrdinalIgnoreCase) { "AliceDirector" }
+        };
+        var preferredPeopleWeights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["AliceDirector"] = 1.0
+        };
+
+        TrainingFeatureComputer.AddAggregatedSeriesExample(
+            examples,
+            episodes,
+            seriesId,
+            profile,
+            genrePreferences,
+            coOccurrence: new Dictionary<Guid, double>(),
+            collaborativeMax: 0.0,
+            avgYear: 2020.0,
+            exposure,
+            peopleLookup,
+            preferredPeopleWeights,
+            itemStudiosLookup,
+            preferredStudios,
+            itemTagsLookup,
+            preferredTags,
+            organicFallbackTimestamp: DateTime.UtcNow);
+
+        Assert.Single(examples);
+        var ex = examples[0];
+        // Fully-played series must produce a positive engagement label (> 0.5).
+        Assert.True(ex.Label > 0.5, $"Expected engagement label > 0.5 for fully-watched series, got {ex.Label}.");
+        Assert.True(ex.Features.IsSeries);
+        // Studio + tag features wired through
+        Assert.True(ex.Features.StudioMatch);
+        Assert.True(ex.Features.TagSimilarity > 0.0);
+        // People similarity must be non-zero because AliceDirector is preferred.
+        Assert.True(ex.Features.PeopleSimilarity > 0.0);
+        // Series-progression boost is hardcoded to 0.0 by contract (train/serve parity).
+        Assert.Equal(0.0, ex.Features.SeriesProgressionBoost);
+        // Train/serve parity: aggregated series never re-enter live scoring, so these signals
+        // must be neutralised on the training side.
+        Assert.Equal(0.5, ex.Features.UserRatingScore);
+        Assert.False(ex.Features.HasUserInteraction);
+        // GeneratedAtUtc must be sourced from the most-recently-watched episode.
+        Assert.Equal(episodes.Max(e => e.LastPlayedDate!.Value), ex.GeneratedAtUtc);
+        // SampleWeight for aggregated series is 0.7 by contract.
+        Assert.Equal(0.7, ex.SampleWeight);
+    }
+
+    [Fact]
+    public void AddAggregatedSeriesExample_FavoriteOnlyNoPlayback_UsesFavoriteLabel()
+    {
+        // BUG GUARD: when a series has zero played episodes but at least one favourite,
+        // the label must be 0.65 (explicit-interest signal) — NOT the abandoned label (0.0).
+        // A regression here would silently teach the model that favourited series are bad.
+        var (seriesId, profile, episodes) = BuildSeriesEpisodes(
+            totalEpisodes: 3, playedEpisodes: 0, anyFavorite: true, anyPartial: false);
+        var examples = new List<TrainingExample>();
+        var genrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["Drama"] = 1.0 };
+        var exposure = BuildExposure(genrePreferences, profile);
+
+        TrainingFeatureComputer.AddAggregatedSeriesExample(
+            examples,
+            episodes,
+            seriesId,
+            profile,
+            genrePreferences,
+            new Dictionary<Guid, double>(),
+            0.0,
+            2020.0,
+            exposure,
+            new Dictionary<Guid, HashSet<string>>(),
+            new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<Guid, IReadOnlyList<string>>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<Guid, IReadOnlyList<string>>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            organicFallbackTimestamp: DateTime.UtcNow);
+
+        Assert.Single(examples);
+        Assert.Equal(0.65, examples[0].Label);
+    }
+
+    [Fact]
+    public void AddAggregatedSeriesExample_StartedButAbandoned_UsesAbandonedLabel()
+    {
+        // BUG GUARD: when playedEps == 0 AND at least one episode has PlaybackPositionTicks > 0
+        // (started but abandoned) AND the average completion ratio is below the abandoned
+        // threshold, the label must be AbandonedLabel (0.0). A regression here would
+        // silently keep training on abandoned series as if they were desirable.
+        var (seriesId, profile, episodes) = BuildSeriesEpisodes(
+            totalEpisodes: 3, playedEpisodes: 0, anyFavorite: false, anyPartial: true);
+        var examples = new List<TrainingExample>();
+        var genrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["Drama"] = 1.0 };
+        var exposure = BuildExposure(genrePreferences, profile);
+
+        TrainingFeatureComputer.AddAggregatedSeriesExample(
+            examples,
+            episodes,
+            seriesId,
+            profile,
+            genrePreferences,
+            new Dictionary<Guid, double>(),
+            0.0,
+            2020.0,
+            exposure,
+            new Dictionary<Guid, HashSet<string>>(),
+            new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<Guid, IReadOnlyList<string>>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<Guid, IReadOnlyList<string>>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            organicFallbackTimestamp: DateTime.UtcNow);
+
+        Assert.Single(examples);
+        Assert.Equal(EngineConstants.AbandonedLabel, examples[0].Label);
+    }
+
+    [Fact]
+    public void AddAggregatedSeriesExample_UsesMostRecentEpisodeAsTemporalAnchor()
+    {
+        // Regression guard: the temporal features (DayOfWeekAffinity / HourOfDayAffinity /
+        // IsWeekend) must be derived from the most-recently-watched episode. If someone
+        // silently switches to FirstOrDefault or a "first episode" reference, the temporal
+        // signal would degrade for series watched over long time spans.
+        var seriesId = Guid.NewGuid();
+        var profile = new UserWatchProfile { UserId = Guid.NewGuid(), UserName = "spread-user" };
+        var episodes = new List<WatchedItemInfo>();
+        var oldest = new DateTime(2025, 1, 1, 10, 0, 0, DateTimeKind.Utc);   // 4am ish
+        var newest = new DateTime(2026, 2, 15, 22, 30, 0, DateTimeKind.Utc); // evening bucket
+
+        for (int i = 0; i < 3; i++)
+        {
+            var w = new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(),
+                SeriesId = seriesId,
+                Played = true,
+                PlayCount = 1,
+                LastPlayedDate = i == 0 ? oldest : (i == 1 ? oldest.AddMonths(1) : newest),
+                Genres = new[] { "Drama" }
+            };
+            episodes.Add(w);
+            profile.WatchedItems.Add(w);
+        }
+
+        var examples = new List<TrainingExample>();
+        var genrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["Drama"] = 1.0 };
+        var exposure = BuildExposure(genrePreferences, profile);
+
+        TrainingFeatureComputer.AddAggregatedSeriesExample(
+            examples,
+            episodes,
+            seriesId,
+            profile,
+            genrePreferences,
+            new Dictionary<Guid, double>(),
+            0.0,
+            2020.0,
+            exposure,
+            new Dictionary<Guid, HashSet<string>>(),
+            new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<Guid, IReadOnlyList<string>>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<Guid, IReadOnlyList<string>>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            organicFallbackTimestamp: DateTime.UtcNow);
+
+        Assert.Single(examples);
+        Assert.Equal(newest, examples[0].GeneratedAtUtc);
+    }
+
+    [Fact]
+    public void AddAggregatedSeriesExample_NoStudioOverlap_LeavesStudioMatchFalse()
+    {
+        // Wire-check: when preferredStudios is empty, StudioMatch must be false — never
+        // silently true. Bug source: an accidental `preferredStudios.Any()` inversion could
+        // flip the sign.
+        var (seriesId, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 2, playedEpisodes: 2);
+        var examples = new List<TrainingExample>();
+        var genrePreferences = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { ["Drama"] = 1.0 };
+        var exposure = BuildExposure(genrePreferences, profile);
+        var itemStudiosLookup = new Dictionary<Guid, IReadOnlyList<string>>
+        {
+            [seriesId] = new[] { "SomeStudio" }
+        };
+        var preferredStudios = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // deliberately empty
+
+        TrainingFeatureComputer.AddAggregatedSeriesExample(
+            examples,
+            episodes,
+            seriesId,
+            profile,
+            genrePreferences,
+            new Dictionary<Guid, double>(),
+            0.0,
+            2020.0,
+            exposure,
+            new Dictionary<Guid, HashSet<string>>(),
+            new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase),
+            itemStudiosLookup,
+            preferredStudios,
+            new Dictionary<Guid, IReadOnlyList<string>>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            organicFallbackTimestamp: DateTime.UtcNow);
+
+        Assert.Single(examples);
+        Assert.False(examples[0].Features.StudioMatch);
+        Assert.Equal(0.0, examples[0].Features.TagSimilarity);
     }
 }
