@@ -175,7 +175,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       ├── SeerrDiscoveryServiceHttpTests.cs        # HTTP-driven public surface via scripted HttpMessageHandler: SubmitRequestAsync, GetServiceInfoAsync, GetSeerrUsersAsync, ResolveSeerrUserIdAsync, GetUserRequestPermissionsAsync (mutates Plugin.Instance.Configuration → serialised via ConfigOverride collection)
 │   │       ├── SeerrDiscoveryServiceUserResolutionTests.cs # User-resolution + quality-profile-list helpers: FindSeerrUserByJellyfinId, BuildAllowedProfileList
 │   │       ├── SeerrDiscoveryServiceReasonTests.cs      # Pure-static DetermineReason: reasonPersonNamed/reasonGenre/reasonTrending/reasonPopular branch selection, boundary-guards on 0.3/0.7/0.8 gates, priority ordering, preferred-people intersection tie-break
-│   │       └── SeerrPermissionExtensionsTests.cs        # SECURITY: authorization gate for Discovery requests - HasPermission zero-flag guard, admin bypass, granular per-media-type flags, unknown-media-type rejection, null-user throws
+│   │       ├── SeerrPermissionExtensionsTests.cs        # SECURITY: authorization gate for Discovery requests - HasPermission zero-flag guard, admin bypass, granular per-media-type flags, unknown-media-type rejection, null-user throws
+│   │       └── TmdbDiscoverItemTests.cs                 # TmdbDiscoverItem DTO parsing surface between Seerr/TMDb JSON and the recommendation engine: GenreIds null-coalesce to empty list (TMDb sometimes emits null), DisplayTitle Title→Name→"Unknown" fallback chain (BUG GUARD: only NULL falls through, not empty string, else TV shows silently rename), EffectiveReleaseDate ReleaseDate→FirstAirDate for TV items (recency-scoring depends on this), defaults (Adult=false safe posture, MediaType="movie", KnownPeople=null to distinguish "not enriched yet" vs "enriched empty"), JSON round-trip via NullableDateTimeConverter (empty-string releaseDate must not blow up the whole batch)
 │   ├── Statistics/                # Statistics service tests
 │   ├── Timeline/                  # Growth timeline tests
 │   │   └── GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks/junctions
@@ -186,6 +187,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── DiversityRerankerTests.cs
 │       │   ├── EngineBoxSetTests.cs                   # BoxSet pure-static helpers on Engine: BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity guard)
 │       │   ├── EngineCommunityPopularityTests.cs      # Engine.BuildCommunityPopularityMap - shared cold-start community-popularity computation used by both the batch path and the live path (identical output required)
+│       │   ├── EngineExceedsMaxRatingTests.cs         # SECURITY-CRITICAL parental-rating gate (private-static ExceedsMaxRating): null max = unrestricted, missing item rating on a restricted profile = REJECT (fail-safe against unrated adult content leaking into child profiles), inclusive boundary (=max allowed, max+1 rejected), zero-max edge case, reflection-based invocation with backing-field fallback so tests survive BaseItem API drift
 │       │   ├── EngineHelperTests.cs                   # Pure-static internal helper methods on Engine that cannot be exercised end-to-end without spinning up the full recommendation pipeline
 │       │   ├── PreferenceBuilderTests.cs
 │       │   ├── ReasonResolverTests.cs                 # Every branch of ReasonResolver.DetermineReason + private resolvers + StripWatchedItemsForResponse; EngineConstants thresholds are treated as contract
