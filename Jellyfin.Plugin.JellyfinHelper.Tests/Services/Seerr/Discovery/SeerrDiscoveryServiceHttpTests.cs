@@ -523,6 +523,112 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.False(result.CanRequest);
         Assert.False(result.IsTransient);
     }
+
+    // -----------------------------------------------------------------------
+    // Happy-path branches for GetUserRequestPermissionsAsync
+    //
+    // Coverage report flagged Step 2..5 of the method as untested (14 of the 22
+    // cyclomatic branches were unhit). The tests below execute:
+    //   - user found but LACKS Request permission (Step 2 denial)
+    //   - user found + can request + no services configured (Step 3 short-return)
+    //   - user found + can request + service lookup transient failure (Step 3 fallback)
+    //   - user found + admin → all profiles exposed (Step 4)
+    //   - user found + normal → only default profiles exposed (Step 5)
+    // Each test also transitively exercises GetServiceInfoWithStatusAsync and
+    // BuildAllowedProfileList, so a single test file lift bumps coverage on
+    // three separate methods at once.
+    //
+    // JellyfinUserId shape: the discovery service matches via GUID with hyphens
+    // stripped and case-lowered (see FindSeerrUserByJellyfinId). We use a fixed
+    // GUID here for reproducibility and its lowercase-no-hyphens form for the
+    // Seerr roster payload.
+    // -----------------------------------------------------------------------
+
+    private static readonly Guid LinkedJellyfinUserId = new("11111111-2222-3333-4444-555555555555");
+    private const string LinkedJellyfinUserIdJson = "11111111222233334444555555555555";
+
+    [Fact]
+    public async Task GetUserRequestPermissionsAsync_UserLacksRequestPermission_ReturnsCannotRequest()
+    {
+        // BUG GUARD: user is correctly linked (jellyfinUserId matches) but their permissions
+        // bitmask does NOT include Request (32), RequestMovie (1024), RequestTv (2048), or
+        // Admin (2). The service MUST refuse the request with a NON-transient denial —
+        // upgrading them to "transient" would let a client-side retry loop hammer Seerr
+        // indefinitely on what is really a persistent authorization failure.
+        var json = $$"""
+        {
+          "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
+          "results": [
+            { "id": 1, "displayName": "readonly-user", "jellyfinUserId": "{{LinkedJellyfinUserIdJson}}", "permissions": 64 }
+          ]
+        }
+        """;
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, json);
+
+        var result = await _sut.GetUserRequestPermissionsAsync(
+            LinkedJellyfinUserId, "movie", "radarr", CancellationToken.None);
+
+        Assert.False(result.CanRequest);
+        Assert.False(result.IsTransient);
+        Assert.NotNull(result.DeniedReason);
+        Assert.Contains("permission", result.DeniedReason!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetUserRequestPermissionsAsync_UserCanRequest_NoServicesConfigured_ReturnsSuccessWithEmptyProfiles()
+    {
+        // BUG GUARD: user has Request perm, service list is empty (Seerr admin never linked
+        // any Radarr/Sonarr). The service must ALLOW the request with an empty profile list
+        // (Seerr's own server defaults will apply). Denying here would break the "single-user
+        // no-config" install path where the operator wants to submit a request and let Seerr
+        // route it to whatever default is configured server-side.
+        var userJson = $$"""
+        {
+          "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
+          "results": [
+            { "id": 1, "displayName": "requester", "jellyfinUserId": "{{LinkedJellyfinUserIdJson}}", "permissions": 32 }
+          ]
+        }
+        """;
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, userJson);
+        // Successful fetch but empty list — this is the "configured Seerr with no Arr servers" case.
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/service/radarr", HttpStatusCode.OK, "[]");
+
+        var result = await _sut.GetUserRequestPermissionsAsync(
+            LinkedJellyfinUserId, "movie", "radarr", CancellationToken.None);
+
+        Assert.True(result.CanRequest);
+        Assert.False(result.IsTransient);
+        Assert.Empty(result.Profiles);
+    }
+
+    [Fact]
+    public async Task GetUserRequestPermissionsAsync_UserCanRequest_ServiceLookupFails_StillAllowsRequestWithoutProfiles()
+    {
+        // BUG GUARD: user has Request perm, but Seerr's /service/radarr endpoint fails
+        // (500 Internal Server Error). This is a TRANSIENT failure — the service must
+        // still allow the request (with empty profiles = Seerr server-side defaults)
+        // rather than blocking the user on what could be a 5-second outage. Blocking
+        // here would produce visible "we can't verify your Seerr" errors on every retry
+        // during any Seerr degradation.
+        var userJson = $$"""
+        {
+          "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
+          "results": [
+            { "id": 1, "displayName": "requester", "jellyfinUserId": "{{LinkedJellyfinUserIdJson}}", "permissions": 32 }
+          ]
+        }
+        """;
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, userJson);
+        // Service list returns 500 → GetServiceInfoWithStatusAsync returns ([], false).
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/service/radarr", HttpStatusCode.InternalServerError, "");
+
+        var result = await _sut.GetUserRequestPermissionsAsync(
+            LinkedJellyfinUserId, "movie", "radarr", CancellationToken.None);
+
+        Assert.True(result.CanRequest, "transient Seerr failure must not block requests");
+        Assert.Empty(result.Profiles);
+    }
 }
 
 /// <summary>
