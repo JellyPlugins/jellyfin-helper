@@ -888,6 +888,14 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         var title = await service.ResolveMediaTitleAsync(httpClient, null, CancellationToken.None);
         Assert.Equal("Unknown", title);
+        // Sentinel-exception observation alone is insufficient: a future broad catch could
+        // swallow it and still return "Unknown". An explicit Times.Never verify ensures
+        // the short-circuit really happens BEFORE the handler is touched.
+        mock.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.IsAny<HttpRequestMessage>(),
+            ItExpr.IsAny<CancellationToken>());
     }
 
     [Fact]
@@ -912,6 +920,13 @@ public class SeerrIntegrationServiceTests : IDisposable
             CancellationToken.None);
 
         Assert.Equal("Unknown", title);
+        // Same defence-in-depth as the null-media case: the short-circuit must be
+        // observable at the handler level, not just via the sentinel exception.
+        mock.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.IsAny<HttpRequestMessage>(),
+            ItExpr.IsAny<CancellationToken>());
     }
 
     [Fact]

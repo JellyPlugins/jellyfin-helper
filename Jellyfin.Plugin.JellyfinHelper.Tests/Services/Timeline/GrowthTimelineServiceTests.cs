@@ -266,9 +266,12 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     public async Task ComputeTimelineAsync_EmptyAfterHavingData_ReturnsWithoutThrowing()
     {
         // Sequence: first scan with data → second scan with no libraries.
-        // We only assert the second call completes without throwing and returns a valid
-        // result object; the exact data-point shape depends on TimelineAggregator's
-        // TrimLeadingZeros / Merge logic which is covered by TimelineAggregatorTests.
+        // The second call must (a) return an empty transient result, AND (b) actually
+        // PERSIST that empty state to disk so LoadTimelineAsync reflects reality.
+        // A test that only inspects the transient return value could pass even if
+        // SaveTimelineAsync was silently skipped — leaving stale non-zero data on disk.
+        // We therefore reload from a fresh instance below to prove the persisted point
+        // is the zero snapshot.
         var libRoot = Path.Join(_dataPath, "library");
         Directory.CreateDirectory(libRoot);
         var movieDir = Path.Join(libRoot, "Movie");
@@ -283,7 +286,9 @@ public sealed class GrowthTimelineServiceTests : IDisposable
             .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 500 }]);
         _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
 
-        await _sut.ComputeTimelineAsync(CancellationToken.None);
+        var first = await _sut.ComputeTimelineAsync(CancellationToken.None);
+        Assert.NotEmpty(first.DataPoints);
+        Assert.Equal(1, first.TotalFilesScanned);
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
 
@@ -291,6 +296,12 @@ public sealed class GrowthTimelineServiceTests : IDisposable
 
         Assert.NotNull(second);
         Assert.Equal(0, second.TotalFilesScanned);
+
+        // Persistence proof: reload from disk (bypassing any in-memory cache) and verify
+        // the persisted timeline reports the zero snapshot too, not the stale first scan.
+        var reloaded = await _sut.LoadTimelineAsync(CancellationToken.None);
+        Assert.NotNull(reloaded);
+        Assert.Equal(0, reloaded!.TotalFilesScanned);
     }
 
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.

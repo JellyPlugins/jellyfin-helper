@@ -146,19 +146,13 @@ public class TransformationPatchesTests
     }
 
     [Fact]
-    public void IndexHtml_WithMultipleBodyTags_InjectsBeforeFirstOccurrence()
+    public void IndexHtml_WithLiteralBodyInsideComment_InjectsBeforeRealClosingBody()
     {
-        // Documents the current contract: the code uses IndexOf (first occurrence).
-        // If a downstream template ever contained multiple LITERAL </body> substrings —
-        // e.g. one inside an HTML comment or CDATA block, and the real closing tag at
-        // the very end — we inject before the first one. Previous versions of this test
-        // used &lt;/body&gt; which is HTML-escaped and does NOT contain a real </body>
-        // substring, so it accidentally covered only the "single occurrence" case.
-        //
-        // We now embed a genuine literal `</body>` inside an HTML comment BEFORE the
-        // real closing tag. If the implementation ever switched to LastIndexOf, the
-        // script would land against the trailing tag and this test would fail — that is
-        // the exact behavioural drift we want to lock down.
+        // Contract: the injection target is the REAL closing </body> — the last one.
+        // A stray literal `</body>` inside an HTML comment must NOT trap the injection
+        // inside a non-executing region. This fixture places a literal `</body>` inside
+        // an HTML comment BEFORE the real closing tag; the implementation must skip
+        // past the comment occurrence and use the last one.
         const string html =
             "<html>" +
             "<body>" +
@@ -174,13 +168,15 @@ public class TransformationPatchesTests
         var lastBody = result.LastIndexOf("</body>", StringComparison.Ordinal);
 
         Assert.True(scriptIndex >= 0, "script tag must be present in the transformed output");
-        // Locked contract: inject before the FIRST </body> occurrence, even when there
-        // is a later one. A regression that switches to LastIndexOf would move the
-        // script past the first occurrence and fail this assertion.
-        Assert.True(scriptIndex < firstBody, $"script tag must appear before the first </body> (script={scriptIndex}, firstBody={firstBody})");
         // Sanity: our fixture must actually contain two distinct </body> positions,
         // otherwise the test degenerates to a single-occurrence check.
         Assert.NotEqual(firstBody, lastBody);
+        // Locked contract: the script MUST land BETWEEN the comment's `</body>` and the
+        // real closing `</body>` — i.e. after the comment occurrence, before the last.
+        Assert.True(scriptIndex > firstBody,
+            $"script must appear AFTER the </body> inside the comment (script={scriptIndex}, commentBody={firstBody})");
+        Assert.True(scriptIndex < lastBody,
+            $"script must appear BEFORE the real closing </body> (script={scriptIndex}, realBody={lastBody})");
     }
 
     // -----------------------------------------------------------------------

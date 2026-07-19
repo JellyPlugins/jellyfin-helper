@@ -234,7 +234,10 @@ public sealed class EngineBoxSetTests
         var boost = InvokeComputeCollectionProgressionBoostLive(
             [boxSet],
             new Dictionary<Guid, int> { [boxSet] = 100 });
-        Assert.InRange(boost, 0.0, 1.0);
+        // The clamp is the actual contract — not "somewhere in [0,1]" but "exactly 1.0"
+        // for saturating inputs. A range check would still pass if the clamp got weaker
+        // (e.g. saturated at 0.9), and we would silently lose the signal ceiling.
+        Assert.Equal(1.0, boost);
     }
 
     // ============================================================================

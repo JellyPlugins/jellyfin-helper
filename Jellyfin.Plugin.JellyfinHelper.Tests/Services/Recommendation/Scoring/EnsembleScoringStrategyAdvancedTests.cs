@@ -69,21 +69,37 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     [Fact]
     public void Constructor_AlphaMaxBelowAlphaMin_IsClampedToAlphaMin()
     {
-        var ensemble = new EnsembleScoringStrategy(alphaMin: 0.6, alphaMax: 0.2);
+        // A "finite & in-range" assertion alone would still pass if the constructor
+        // silently ignored the invalid values altogether. Pin the actual clamp by
+        // comparing against an instance configured explicitly at the expected boundary
+        // (alphaMax == alphaMin) — both must produce the same score.
+        var invalid = new EnsembleScoringStrategy(alphaMin: 0.6, alphaMax: 0.2);
+        var clamped = new EnsembleScoringStrategy(alphaMin: 0.6, alphaMax: 0.6);
         var features = new CandidateFeatures { GenreSimilarity = 0.5, CombinedCriticScore = 0.5 };
-        var score = ensemble.Score(features);
-        Assert.True(double.IsFinite(score));
-        Assert.InRange(score, 0.0, 1.0);
+
+        var invalidScore = invalid.Score(features);
+        var expectedScore = clamped.Score(features);
+
+        Assert.True(double.IsFinite(invalidScore));
+        Assert.InRange(invalidScore, 0.0, 1.0);
+        Assert.Equal(expectedScore, invalidScore, 12);
     }
 
     [Fact]
     public void Constructor_GenrePenaltyFloor_ClampedToValidRange()
     {
+        // Same idea as above: assert the clamp landed on the actual boundary (0.0 and 1.0)
+        // instead of "produced a finite number".
         var tooHigh = new EnsembleScoringStrategy(genrePenaltyFloor: 5.0);
         var tooLow = new EnsembleScoringStrategy(genrePenaltyFloor: -1.0);
+        var atFloorOne = new EnsembleScoringStrategy(genrePenaltyFloor: 1.0);
+        var atFloorZero = new EnsembleScoringStrategy(genrePenaltyFloor: 0.0);
         var zeroGenre = new CandidateFeatures { GenreSimilarity = 0.0, CombinedCriticScore = 0.5 };
+
         Assert.True(double.IsFinite(tooHigh.Score(zeroGenre)));
         Assert.True(double.IsFinite(tooLow.Score(zeroGenre)));
+        Assert.Equal(atFloorOne.Score(zeroGenre), tooHigh.Score(zeroGenre), 12);
+        Assert.Equal(atFloorZero.Score(zeroGenre), tooLow.Score(zeroGenre), 12);
     }
 
     [Fact]

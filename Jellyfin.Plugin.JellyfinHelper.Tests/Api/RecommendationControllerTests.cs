@@ -380,6 +380,7 @@ public class RecommendationControllerTests
         // Trimmed to 3.
         Assert.Equal(3, data.Recommendations.Count);
         // All metadata carried through unchanged.
+        Assert.Equal(userId, data.UserId);
         Assert.Equal("Alice", data.UserName);
         Assert.Equal("TestStrategy", data.ScoringStrategy);
         Assert.Equal("strategyTest", data.ScoringStrategyKey);

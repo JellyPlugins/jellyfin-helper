@@ -281,6 +281,22 @@ public class LinkRepairService : ILinkRepairService
                 pathToNormalize = fileUri.LocalPath;
             }
 
+            // Second NUL guard: the pre-normalisation check above only sees the RAW
+            // target string. A file:// URI like `file:///tmp/name%00video.mkv` contains
+            // no literal NUL byte, so it bypasses the first guard — but `Uri.LocalPath`
+            // percent-decodes `%00` back into a real NUL. Re-check here so an encoded
+            // NUL cannot leak into GetFullPath / File.Exists and get misclassified as
+            // a "Broken" link.
+            if (pathToNormalize.Contains('\0', StringComparison.Ordinal))
+            {
+                _pluginLog.LogWarning(
+                    "LinkRepair",
+                    $"Invalid target path in link file {linkFilePath}: contains NUL byte (decoded from file:// URI)",
+                    logger: _logger);
+                fileResult.Status = LinkFileStatus.InvalidContent;
+                return fileResult;
+            }
+
             normalizedTargetPath = _fileSystem.Path.IsPathRooted(pathToNormalize)
                 ? _fileSystem.Path.GetFullPath(pathToNormalize)
                 : _fileSystem.Path.GetFullPath(

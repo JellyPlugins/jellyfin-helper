@@ -674,14 +674,36 @@ public class LinkRepairServiceTests
     public void ProcessLinkFile_ReadTargetThrowsIOException_ReturnsInvalidContent_DoesNotPropagate()
     {
         // A handler throwing IOException must be caught & mapped to InvalidContent —
-        // never propagate up and abort the whole library scan.
+        // never propagate up and abort the whole library scan. The method name promises
+        // IO-exception coverage, so we throw an actual IOException here (an
+        // UnauthorizedAccessException hits a different catch clause and would not
+        // exercise the intended path).
+        var handler = new Mock<ILinkHandler>();
+        handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
+        handler.Setup(x => x.SupportsUrlTargets).Returns(false);
+        handler.Setup(x => x.ReadTarget(It.IsAny<string>()))
+            .Throws(new IOException("read failed"));
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/ReadThrows/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("payload"));
+
+        var result = _service.ProcessLinkFile(linkFile, handler.Object, dryRun: true);
+
+        Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_ReadTargetThrowsUnauthorized_ReturnsInvalidContent_DoesNotPropagate()
+    {
+        // Sibling coverage: the UnauthorizedAccessException path must also be caught
+        // and mapped to InvalidContent (previously silently conflated with IOException).
         var handler = new Mock<ILinkHandler>();
         handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
         handler.Setup(x => x.SupportsUrlTargets).Returns(false);
         handler.Setup(x => x.ReadTarget(It.IsAny<string>()))
             .Throws(new UnauthorizedAccessException("denied"));
 
-        var linkFile = _fileSystem.Path.GetFullPath("/series/ReadThrows/movie.strm");
+        var linkFile = _fileSystem.Path.GetFullPath("/series/ReadThrowsUnauth/movie.strm");
         _fileSystem.AddFile(linkFile, new MockFileData("payload"));
 
         var result = _service.ProcessLinkFile(linkFile, handler.Object, dryRun: true);

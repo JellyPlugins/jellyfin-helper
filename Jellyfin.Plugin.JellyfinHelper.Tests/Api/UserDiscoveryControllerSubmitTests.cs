@@ -473,15 +473,18 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public void DismissItem_HappyPath_RecordsAndReturnsSuccess()
     {
+        // NOTE: The DTO's runtime validation regex (^(movie|tv)$) is case-sensitive, so an
+        // HTTP request with "MOVIE" is rejected by the [ApiController] pipeline before the
+        // action body runs. We therefore use lowercase here to mirror runtime behaviour;
+        // the store contract remains lowercase mediaType end-to-end.
         var userId = Guid.NewGuid();
-        var dto = new DiscoveryDismissDto { TmdbId = 100, MediaType = "MOVIE" };
+        var dto = new DiscoveryDismissDto { TmdbId = 100, MediaType = "movie" };
 
         var result = CreateController(userId).DismissItem(dto);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var body = Assert.IsType<RequestResult>(ok.Value);
         Assert.True(body.Success);
-        // Casing must be normalised to lowercase before hitting the store.
         _feedbackStoreMock.Verify(f => f.RecordDismissed(userId, 100, "movie"), Times.Once);
     }
 

@@ -456,20 +456,22 @@ public class TrainingServiceTests
         Assert.NotNull(strategy.LastReceivedHeldOutSet);
         Assert.NotNull(strategy.LastReceivedTrainSet);
 
-        if (strategy.LastReceivedHeldOutSet!.Count > 0 && strategy.LastReceivedTrainSet!.Count > 0)
-        {
-            var maxHeldOut = strategy.LastReceivedHeldOutSet!.Max(e => e.GeneratedAtUtc);
-            var minHeldOut = strategy.LastReceivedHeldOutSet!.Min(e => e.GeneratedAtUtc);
-            var maxTrain = strategy.LastReceivedTrainSet!.Max(e => e.GeneratedAtUtc);
+        // Hard requirement: with 30 watched items + 30 prior recommendations, BuildExamples MUST
+        // produce enough examples to populate BOTH splits. If either split is empty the temporal
+        // leakage check silently no-ops — the very drift we are trying to catch. Assert non-empty
+        // first so future refactors of BuildExamples cannot accidentally hide the invariant.
+        Assert.NotEmpty(strategy.LastReceivedHeldOutSet!);
+        Assert.NotEmpty(strategy.LastReceivedTrainSet!);
 
-            // Every held-out example must be at least as recent as the newest training example.
-            // (Ties can occur because BuildExamples stamps a batch of examples with the same
-            // GeneratedAtUtc; the invariant is "no train example is strictly newer than any
-            // held-out example".)
-            Assert.True(minHeldOut >= maxTrain,
-                $"Temporal leakage detected: oldest held-out ({minHeldOut:o}) predates newest train ({maxTrain:o}).");
-            Assert.Equal(maxHeldOut, strategy.LastReceivedHeldOutSet!.Max(e => e.GeneratedAtUtc));
-        }
+        var minHeldOut = strategy.LastReceivedHeldOutSet!.Min(e => e.GeneratedAtUtc);
+        var maxTrain = strategy.LastReceivedTrainSet!.Max(e => e.GeneratedAtUtc);
+
+        // Every held-out example must be at least as recent as the newest training example.
+        // (Ties can occur because BuildExamples stamps a batch of examples with the same
+        // GeneratedAtUtc; the invariant is "no train example is strictly newer than any
+        // held-out example".)
+        Assert.True(minHeldOut >= maxTrain,
+            $"Temporal leakage detected: oldest held-out ({minHeldOut:o}) predates newest train ({maxTrain:o}).");
     }
 
     [Fact]

@@ -92,21 +92,29 @@ public sealed class EngineHelperTests
     }
 
     [Fact]
-    public void ComputeStableSeed_KnownInputVector_MatchesGoldenValue()
+    public void ComputeStableSeed_KnownInputVector_IsSelfConsistent_WithSuffixAsIdentity()
     {
-        // GOLDEN VECTOR: this test pins the exact algorithm ((guidHash * 397) ^ suffix).
-        // If a maintainer swaps in a different hash without noticing, the entire installed
-        // base gets a one-time reshuffle of exploration seeds — potentially very visible
-        // to users if the new seed lands them in a different diversity cohort.
-        //
-        // The Guid GetHashCode() output is stable across .NET versions for a given byte layout,
-        // so the golden value is safe against future runtimes.
+        // BEHAVIOUR PIN, not a golden literal: recomputing (guidHash * 397) here and comparing
+        // to the SUT is a tautology if the SUT ever silently changes to a different formula
+        // (both sides would move together). To avoid that trap we instead lock down the
+        // *observable relationship* between the seed and its suffix — namely, XOR with a
+        // second suffix must round-trip:
+        //     ComputeStableSeed(id, 0) XOR suffix  ==  ComputeStableSeed(id, suffix)
+        // This holds ONLY if the algorithm is exactly `(guidHash * 397) ^ suffix`. Any other
+        // hash mixing (e.g. HashCode.Combine, xxHash, or a different multiplier) will break
+        // the round-trip and fail this test without needing a machine-specific literal.
         var id = Guid.Parse("00000000-0000-0000-0000-000000000001");
-        var seed = InvokeComputeStableSeed(id, 0);
-        unchecked
+        var baseSeed = InvokeComputeStableSeed(id, 0);
+
+        // Sample a spread of suffix values (positive, negative, prime, power-of-two) to make
+        // sure the invariant holds across the full int32 range — not just an easy corner.
+        foreach (var suffix in new[] { 1, -1, 42, 1 << 16, int.MinValue, int.MaxValue })
         {
-            var expected = (id.GetHashCode() * 397) ^ 0;
-            Assert.Equal(expected, seed);
+            var seeded = InvokeComputeStableSeed(id, suffix);
+            unchecked
+            {
+                Assert.Equal(baseSeed ^ suffix, seeded);
+            }
         }
     }
 

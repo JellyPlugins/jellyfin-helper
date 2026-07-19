@@ -188,6 +188,15 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
+        // Verify the move was actually attempted for the orphan subtitle — otherwise a
+        // "Deleted 0 files" summary could just mean the task never processed the file at all.
+        MockTrashService.Verify(
+            t => t.MoveFileToTrash(
+                It.Is<string>(s => s.EndsWith("Orphan.en.srt", StringComparison.Ordinal)),
+                It.IsAny<string>(),
+                It.IsAny<ILogger>(),
+                It.IsAny<DateTime?>()),
+            Times.Once);
         VerifyLogContains(_loggerMock, "Deleted 0 files, freed 0 bytes", LogLevel.Information);
     }
 

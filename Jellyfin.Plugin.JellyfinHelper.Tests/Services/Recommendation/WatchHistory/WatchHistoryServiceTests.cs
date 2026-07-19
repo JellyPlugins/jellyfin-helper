@@ -591,6 +591,13 @@ public sealed class WatchHistoryServiceTests
         Assert.Equal(1, profile!.PeopleProfile["Bryan Cranston"]);
         Assert.Equal(1, profile.PeopleProfile["Aaron Paul"]);
         _mockLibraryManager.Verify(m => m.GetPeople(series), Times.Once);
+        // Strengthened contract: GetPeople must NEVER be queried for an Episode. Returning
+        // an empty list from the episode setup above would let a regression pass silently
+        // (queried but happens to return nothing = same outward result). An explicit
+        // Times.Never verify pins the "series-level aggregation only" invariant.
+        _mockLibraryManager.Verify(
+            m => m.GetPeople(It.Is<BaseItem>(i => i is Episode)),
+            Times.Never);
     }
 
     [Fact]

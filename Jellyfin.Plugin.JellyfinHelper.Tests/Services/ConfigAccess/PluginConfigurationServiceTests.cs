@@ -148,11 +148,14 @@ public class PluginConfigurationServiceTests
         // happens to be in at the moment this runs, construction must not throw and
         // every read must return a valid value (either the singleton's or the
         // documented fallback).
+        //
+        // NOTE: We intentionally do NOT invoke SaveConfiguration() here — that would
+        // touch the real Plugin.Instance persistence layer (ambient disk I/O) and could
+        // race with other tests running in parallel. Save-path behaviour is covered by
+        // the accessor-mock tests below.
         var sut = new PluginConfigurationService();
 
         Assert.NotNull(sut.GetConfiguration());
         Assert.False(string.IsNullOrWhiteSpace(sut.PluginVersion));
-        var ex = Record.Exception(() => sut.SaveConfiguration());
-        Assert.Null(ex);
     }
 }

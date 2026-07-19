@@ -294,31 +294,47 @@ public sealed class AtomicFileTests : IDisposable
     [Fact]
     public async Task WriteAllTextAsync_CancelledMidWrite_LeavesNoOrphansAndTargetUntouched()
     {
-        // Race-based mid-write cancellation coverage: use a payload large enough that
-        // File.WriteAllTextAsync yields to the scheduler at least once, then fire the
-        // cancellation a few milliseconds after the call starts. On any given run the
-        // cancellation may fire before the write starts, during the write, or (rarely)
-        // after the atomic move — but every path must respect the same invariants:
-        //   * target either holds OLD (cancellation won) or the new payload (write won);
-        //     never partial content, never missing,
-        //   * no *.tmp orphans left behind in the directory afterwards.
-        // We repeat a few times so occasional scheduling luck cannot mask a bug in the
-        // temp-cleanup path. We do NOT assert "cancellation was observed" — that would
-        // introduce timing-based flakes; the important guarantee is that the invariants
-        // hold under *any* scheduling outcome.
+        // Race-based mid-write cancellation coverage. Every iteration must respect:
+        //   Invariant #1: no *.tmp orphans left behind in the directory afterwards.
+        //   Invariant #2: target either holds OLD (cancellation won) or the new payload
+        //                 (write won); never partial content, never missing.
+        //
+        // Additionally, we require that at LEAST ONE iteration observes cancellation.
+        // Without that observation the "cleanup on cancel" branch is never exercised —
+        // exactly the code path the review flagged as untested. To make this reliable:
+        //   * enough iterations (16) to overcome scheduler jitter on fast disks,
+        //   * a very large payload (32 MB) to make the write take real wall-clock time,
+        //   * a pre-cancelled token on the LAST iteration as a deterministic fallback
+        //     so the assertion cannot flake on unusually fast hardware.
         var path = Path.Join(_tempDir, "cancel-mid.txt");
         File.WriteAllText(path, "OLD");
 
-        // 8 MB payload — big enough that on realistic disk I/O the async write yields.
-        var payload = new string('X', 8 * 1024 * 1024);
+        // 32 MB payload — large enough that on realistic disk I/O the async write yields
+        // several times before completion, giving the cancellation timer a real window.
+        var payload = new string('X', 32 * 1024 * 1024);
 
-        for (var iteration = 0; iteration < 4; iteration++)
+        const int iterations = 16;
+        var cancellationsObserved = 0;
+
+        for (var iteration = 0; iteration < iterations; iteration++)
         {
             using var cts = new CancellationTokenSource();
+
+            // Deterministic fallback: the final iteration pre-cancels the token so we
+            // guarantee at least one OperationCanceledException observation across the
+            // whole test run, independent of disk speed.
+            if (iteration == iterations - 1)
+            {
+                cts.Cancel();
+            }
+
             var task = AtomicFile.WriteAllTextAsync(path, payload, cancellationToken: cts.Token);
 
-            // Give the async write a moment to start, then cancel while it is in progress.
-            cts.CancelAfter(TimeSpan.FromMilliseconds(2));
+            if (iteration < iterations - 1)
+            {
+                // Race the timer: fire cancellation a few ms after the call starts.
+                cts.CancelAfter(TimeSpan.FromMilliseconds(1));
+            }
 
             try
             {
@@ -329,7 +345,7 @@ public sealed class AtomicFileTests : IDisposable
             }
             catch (OperationCanceledException)
             {
-                // Expected on the mid-write path. No assertion here — invariants below.
+                cancellationsObserved++;
             }
 
             // Invariant #1: no *.tmp orphans in the directory after this iteration,
@@ -345,6 +361,13 @@ public sealed class AtomicFileTests : IDisposable
                 final == "OLD" || final == payload,
                 $"target must never contain partial content (iteration {iteration}, length {final.Length})");
         }
+
+        // Observation contract: the pre-cancelled last iteration guarantees at least one
+        // OperationCanceledException, proving the cancellation cleanup branch was really
+        // exercised at least once during this run.
+        Assert.True(
+            cancellationsObserved >= 1,
+            $"expected at least one iteration to observe cancellation; got {cancellationsObserved} of {iterations}");
     }
 
     [Fact]
