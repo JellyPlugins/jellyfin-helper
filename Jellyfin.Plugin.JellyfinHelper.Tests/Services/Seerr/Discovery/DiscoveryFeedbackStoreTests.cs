@@ -791,4 +791,219 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.NotNull(result);
         Assert.Equal("AliceRenamed", result!.UserName);
     }
+
+    // -----------------------------------------------------------------------
+    // Bounds enforcement: MaxFileSizeBytes / MaxEntriesPerUser / MaxEntryAgeDays
+    //
+    // These branches guard against three separate DoS-style corruption modes:
+    //   1. A rogue writer inflates the feedback file past 30 MB — the store must
+    //      delete it and start over rather than OOM'ing on the next read.
+    //   2. A user's entry list grows unbounded because show/dismiss/request cycles
+    //      accumulate over years — the store must cap at MaxEntriesPerUser=200 and
+    //      keep the most-recently-active entries, so training data reflects recent
+    //      user preferences instead of ancient noise.
+    //   3. Very old entries (>365 days) survive indefinitely — the store must evict
+    //      them so the JSON file doesn't grow by ~50 bytes per shown item forever.
+    //
+    // The current tests exercise none of these paths (all use tiny in-memory sets
+    // with fresh timestamps). Coverage report flags them explicitly.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void LoadForUser_OversizeFile_DeletesFileAndReturnsNull()
+    {
+        // BUG GUARD: any file larger than MaxFileSizeBytes (30 MB) must be treated
+        // as poisoned — deserializing a 30 MB+ JSON payload can OOM small deployments
+        // (e.g. Raspberry Pi hosts) and even valid content that grows this large is
+        // a sign the eviction logic silently broke. The store must delete the file
+        // and log a warning so the operator sees the recovery.
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
+        // Write just over the 30 MB threshold. We use a valid JSON array header
+        // followed by filler so the code hits the size check BEFORE the deserializer.
+        // 30 MB = 30 * 1024 * 1024 = 31,457,280 bytes. Add a few extra to guarantee overflow.
+        var padSize = (30 * 1024 * 1024) + 1024;
+        using (var stream = File.Create(filePath))
+        {
+            // Prefix with a valid empty-array so a code path that skipped the size guard
+            // would still deserialize cleanly — makes the test specifically prove the
+            // size-guard fires FIRST, not the JSON parser bailing on garbage input.
+            stream.Write("[]"u8);
+            var padding = new byte[8192];
+            Array.Fill(padding, (byte)' ');
+            var written = 2;
+            while (written < padSize)
+            {
+                var chunk = Math.Min(padding.Length, padSize - written);
+                stream.Write(padding, 0, chunk);
+                written += chunk;
+            }
+        }
+
+        var pluginLog = new Mock<IPluginLogService>();
+        var warningCount = 0;
+        pluginLog.Setup(p => p.LogWarning(
+                "DiscoveryFeedback",
+                It.Is<string>(m => m.Contains("exceeds", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()))
+            .Callback(() => warningCount++);
+
+        var store = new DiscoveryFeedbackStore(
+            pluginLog.Object,
+            new Mock<ILogger<DiscoveryFeedbackStore>>().Object,
+            _tempDir);
+
+        var result = store.LoadForUser(Guid.NewGuid());
+
+        Assert.Null(result);
+        Assert.False(File.Exists(filePath), "oversize file must be deleted");
+        Assert.Equal(1, warningCount);
+    }
+
+    [Fact]
+    public void SaveInternal_UserWithMoreThanMaxEntries_KeepsOnlyMostRecent200()
+    {
+        // BUG GUARD: cap at MaxEntriesPerUser=200. A user who accumulates 250 shown
+        // items must have the oldest-by-activity 50 evicted, keeping the 200 most
+        // recently active. This prevents unbounded per-user growth.
+        //
+        // We force a mixture of "shown-only" entries with staggered ShownAtUtc to
+        // avoid entries getting the same timestamp (which would make the eviction
+        // ordering ambiguous — LINQ OrderByDescending is stable but the input order
+        // has to be non-degenerate for the test to be meaningful).
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        // Show 250 items in one batch — RecordShown assigns DateTime.UtcNow to all
+        // of them, but the eviction code uses GetLatestActivityUtc which will tie.
+        // To make eviction deterministic we do two batches with a small wait between.
+        var oldBatch = new List<DiscoveryRecommendation>();
+        for (var i = 1; i <= 50; i++)
+        {
+            oldBatch.Add(new DiscoveryRecommendation
+            {
+                TmdbId = i,
+                MediaType = "movie",
+                Title = $"Old-{i}"
+            });
+        }
+
+        store.RecordShown(userId, "User", oldBatch);
+
+        Thread.Sleep(50); // ensure the second batch has strictly later ShownAtUtc
+
+        var newBatch = new List<DiscoveryRecommendation>();
+        for (var i = 51; i <= 250; i++)
+        {
+            newBatch.Add(new DiscoveryRecommendation
+            {
+                TmdbId = i,
+                MediaType = "movie",
+                Title = $"New-{i}"
+            });
+        }
+
+        store.RecordShown(userId, "User", newBatch);
+
+        var result = store.LoadForUser(userId);
+        Assert.NotNull(result);
+        // Cap invariant.
+        Assert.Equal(200, result!.Entries.Count);
+        // The 50 oldest entries (TmdbId 1..50) must have been evicted; the 200 newest
+        // (TmdbId 51..250) must remain. Sample a handful to confirm.
+        Assert.DoesNotContain(result.Entries, e => e.TmdbId == 1);
+        Assert.DoesNotContain(result.Entries, e => e.TmdbId == 25);
+        Assert.DoesNotContain(result.Entries, e => e.TmdbId == 50);
+        Assert.Contains(result.Entries, e => e.TmdbId == 51);
+        Assert.Contains(result.Entries, e => e.TmdbId == 250);
+    }
+
+    [Fact]
+    public void SaveInternal_EntriesOlderThanMaxAge_AreEvicted()
+    {
+        // BUG GUARD: entries with ALL activity timestamps older than MaxEntryAgeDays=365
+        // must be evicted. We seed the file directly (bypassing RecordShown, which
+        // stamps DateTime.UtcNow) so the ancient timestamps are real, then trigger a
+        // save via a fresh RecordShown call to exercise the eviction path.
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
+        var userId = Guid.NewGuid();
+        var ancientUtc = DateTime.UtcNow.AddDays(-400); // beyond the 365-day cutoff
+        var recentUtc = DateTime.UtcNow.AddDays(-30);    // safely inside the cutoff
+
+        var seedJson = System.Text.Json.JsonSerializer.Serialize(new[]
+        {
+            new
+            {
+                UserId = userId,
+                Entries = new[]
+                {
+                    new { TmdbId = 1, MediaType = "movie", ShownAtUtc = ancientUtc },
+                    new { TmdbId = 2, MediaType = "movie", ShownAtUtc = recentUtc }
+                }
+            }
+        });
+        File.WriteAllText(filePath, seedJson);
+
+        var store = CreateStore();
+
+        // Trigger a save (RecordShown of an unrelated third item) so eviction runs.
+        store.RecordShown(userId, "User", new List<DiscoveryRecommendation>
+        {
+            new() { TmdbId = 3, MediaType = "movie", Title = "Fresh" }
+        });
+
+        var result = store.LoadForUser(userId);
+        Assert.NotNull(result);
+
+        // TmdbId=1 is the 400-day-old entry → must be gone.
+        Assert.DoesNotContain(result!.Entries, e => e.TmdbId == 1);
+        // TmdbId=2 is 30 days old → must survive.
+        Assert.Contains(result.Entries, e => e.TmdbId == 2);
+        // TmdbId=3 is fresh → must be present.
+        Assert.Contains(result.Entries, e => e.TmdbId == 3);
+    }
+
+    [Fact]
+    public void SaveInternal_UsersWithZeroEntriesAfterEviction_AreRemoved()
+    {
+        // BUG GUARD: after eviction removes all of a user's entries (because they
+        // were all ancient), the user record itself must be removed from the top-level
+        // list. Otherwise the file accumulates empty user shells forever.
+        var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
+        var deadUser = Guid.NewGuid();
+        var liveUser = Guid.NewGuid();
+        var ancientUtc = DateTime.UtcNow.AddDays(-500);
+        var recentUtc = DateTime.UtcNow.AddDays(-10);
+
+        var seedJson = System.Text.Json.JsonSerializer.Serialize(new object[]
+        {
+            new
+            {
+                UserId = deadUser,
+                Entries = new[] { new { TmdbId = 1, MediaType = "movie", ShownAtUtc = ancientUtc } }
+            },
+            new
+            {
+                UserId = liveUser,
+                Entries = new[] { new { TmdbId = 2, MediaType = "movie", ShownAtUtc = recentUtc } }
+            }
+        });
+        File.WriteAllText(filePath, seedJson);
+
+        var store = CreateStore();
+
+        // Trigger a save by touching the live user — eviction runs during the save.
+        store.RecordShown(liveUser, "Live", new List<DiscoveryRecommendation>
+        {
+            new() { TmdbId = 3, MediaType = "movie" }
+        });
+
+        // Dead user's entries were all ancient → their record must be removed entirely.
+        Assert.Null(store.LoadForUser(deadUser));
+        // Live user survives with the recent + fresh entries.
+        var liveResult = store.LoadForUser(liveUser);
+        Assert.NotNull(liveResult);
+        Assert.Contains(liveResult!.Entries, e => e.TmdbId == 2);
+        Assert.Contains(liveResult.Entries, e => e.TmdbId == 3);
+    }
 }
