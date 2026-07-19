@@ -445,4 +445,58 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     }
 
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
+
+    // -----------------------------------------------------------------------
+    // Post-oversize-recovery contract: after Load() ran the oversize-file guard
+    // and DELETED the file, the service must have _memoryCache=[] rather than
+    // null. The next Save() writes the caller's list, the next Load() must
+    // see it. A regression that left _memoryCache=null after the delete would
+    // still work for Load() (because EnsureLoadedLocked would re-run and see
+    // "no file, init empty"), but the *specific bug* it guards against is a
+    // future refactoring that assumes _memoryCache is non-null after Load
+    // returned successfully — for example, a Save() path that skips the
+    // detached-copy step because it thinks a valid cache is already loaded.
+    //
+    // NOTE: `Load_OversizedFile_DeletesFileAndReturnsEmpty` above already
+    // exercises the delete-and-return-empty branch; this test complements it
+    // by chaining Load → Save → Load through a single freshly-constructed
+    // service so the post-recovery state is proven end-to-end.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void Load_AfterOversizeRecovery_SubsequentSaveWorks()
+    {
+        var padSize = (50 * 1024 * 1024) + 1024;
+        Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
+        using (var stream = new FileStream(
+                   _cacheFilePath,
+                   FileMode.Create,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            stream.SetLength(padSize);
+        }
+
+        var pluginLog = new Mock<IPluginLogService>();
+        var logger = new Mock<ILogger<DiscoveryCacheService>>();
+        using var recoveringSut = new DiscoveryCacheService(pluginLog.Object, logger.Object);
+
+        // Trigger the oversize recovery via Load().
+        Assert.Empty(recoveringSut.Load());
+
+        // Prove the service recovered: a fresh Save must succeed and round-trip.
+        var userId = Guid.NewGuid();
+        var saved = recoveringSut.Save([
+            new DiscoveryResult
+            {
+                UserId = userId,
+                Recommendations = [new DiscoveryRecommendation { TmdbId = 7, MediaType = "movie", Title = "PostRecovery" }]
+            }
+        ]);
+
+        Assert.True(saved);
+        var loaded = recoveringSut.Load();
+        Assert.Single(loaded);
+        Assert.Equal("PostRecovery", loaded[0].Recommendations[0].Title);
+    }
 }
