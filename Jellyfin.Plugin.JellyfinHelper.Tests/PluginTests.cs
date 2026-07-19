@@ -108,6 +108,116 @@ public sealed class PluginTests : IDisposable
         Assert.EndsWith(".PluginPages.configPage.html", page.EmbeddedResourcePath, StringComparison.Ordinal);
     }
 
+    // ================================================================================================
+    // ReportClampedConfigValues — the "clamped hand-edited XML" warning path
+    // ================================================================================================
+
+    [Fact]
+    public void Ctor_WithClampedConfigValues_LogsWarningPerReport()
+    {
+        // BUG GUARD: an operator who hand-edits the XML config to an out-of-range value
+        // (e.g. MaxRecommendationsPerUser=999) gets that value silently narrowed by the
+        // property setter. ReportClampedConfigValues is the ONLY visible feedback loop —
+        // without it, the operator sees the UI display "100" and has no idea why.
+        // This test asserts the warning IS logged when a clamp happened.
+        // Pre-materialise a PluginConfiguration with two clamped values, then inject it
+        // into the Configuration property (BasePlugin<T>.Configuration is set-able via the
+        // MediaBrowser.Common test-visible surface used by ControllerTestFactory).
+        var config = new global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration
+        {
+            MaxRecommendationsPerUser = 999, // clamped down to 100
+            EnsembleAlphaMin = 2.5,          // clamped down to 1.0
+        };
+
+        var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: _dataPath, configPath: _dataPath);
+        appPathsMock.Setup(p => p.WebPath).Returns(_webPath);
+        var xmlSerializerMock = new Mock<IXmlSerializer>();
+        var loggerMock = new Mock<ILogger<Plugin>>();
+        loggerMock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+
+        // Track LogWarning calls
+        var warningCount = 0;
+        loggerMock
+            .Setup(l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.IsAny<It.IsAnyType>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()))
+            .Callback(() => warningCount++);
+
+        // Trick: build the plugin, then set Configuration via reflection, then re-run
+        // ReportClampedConfigValues indirectly by pulling the private method.
+        // Simpler path: reset Configuration BEFORE ReportClampedConfigValues runs.
+        //
+        // The ctor calls ReportClampedConfigValues() → DrainClampReports() reads whatever
+        // is on Configuration at that moment. In production BasePlugin<T> materialises
+        // Configuration via the XmlSerializer BEFORE the ctor body runs; in tests we don't
+        // wire the serializer up, so Configuration is null when the ctor's report call runs.
+        // To exercise the warning path we build the plugin with the wired-up config manually
+        // via the same reflection trick ControllerTestFactory uses, then invoke
+        // ReportClampedConfigValues via reflection.
+        var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object);
+        var configProperty = typeof(MediaBrowser.Common.Plugins.BasePlugin<global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration>)
+            .GetProperty("Configuration");
+        Assert.NotNull(configProperty);
+        configProperty!.SetValue(plugin, config);
+
+        // Now invoke the private ReportClampedConfigValues to exercise the count>0 branch.
+        var method = typeof(Plugin).GetMethod(
+            "ReportClampedConfigValues",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        // Reset the warning counter first — the ctor above may have logged from InjectScript.
+        warningCount = 0;
+        method!.Invoke(plugin, []);
+
+        // Exactly 2 clamped values were recorded, so exactly 2 warnings expected.
+        Assert.Equal(2, warningCount);
+    }
+
+    [Fact]
+    public void Ctor_WithNoClampedValues_DoesNotLogClampWarning()
+    {
+        // BUG GUARD: the fast-return path when DrainClampReports returns an empty list must
+        // not log ANY clamp warnings. Regressions to "always log" would spam the log on
+        // every startup and hide real problems.
+        var config = new global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration
+        {
+            MaxRecommendationsPerUser = 20,   // within range, no clamp
+            EnsembleAlphaMin = 0.3,           // default, no clamp
+        };
+
+        var appPathsMock = TestMockFactory.CreateAppPaths(dataPath: _dataPath, configPath: _dataPath);
+        appPathsMock.Setup(p => p.WebPath).Returns(_webPath);
+        var xmlSerializerMock = new Mock<IXmlSerializer>();
+        var loggerMock = new Mock<ILogger<Plugin>>();
+        loggerMock.Setup(l => l.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+
+        var clampWarnings = 0;
+        loggerMock
+            .Setup(l => l.Log(
+                LogLevel.Warning,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, _) => v!.ToString()!.Contains("was outside its accepted range", StringComparison.Ordinal)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()))
+            .Callback(() => clampWarnings++);
+
+        var plugin = new Plugin(appPathsMock.Object, xmlSerializerMock.Object, loggerMock.Object);
+        var configProperty = typeof(MediaBrowser.Common.Plugins.BasePlugin<global::Jellyfin.Plugin.JellyfinHelper.Configuration.PluginConfiguration>)
+            .GetProperty("Configuration");
+        configProperty!.SetValue(plugin, config);
+
+        var method = typeof(Plugin).GetMethod(
+            "ReportClampedConfigValues",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        clampWarnings = 0;
+        method!.Invoke(plugin, []);
+
+        Assert.Equal(0, clampWarnings);
+    }
+
     [Fact]
     public void UpdateIndexHtml_Inject_InsertsScriptTagBeforeBody()
     {

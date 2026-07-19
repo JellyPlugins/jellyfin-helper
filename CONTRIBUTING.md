@@ -102,7 +102,9 @@ Tests mirror the source structure:
 ```text
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── PluginServiceRegistratorTests.cs      # DI-container smoke test: every service the plugin depends on must resolve (catches renamed/removed registrations before runtime)
+├── PluginTests.cs                        # Plugin bootstrap: constructor Instance publishing, GetPages menu entry, UpdateIndexHtml inject/remove fast-path + idempotency (BUG GUARD against double-injection and mtime churn), OnUninstalling data-file + playlist cleanup with strict prefix + extension guards (must not delete unrelated files)
 ├── Api/                           # Controller tests
+│   ├── BackupControllerExtendedTests.cs               # Branch coverage beyond BackupControllerTests: malformed JSON (must return 400 not 500), JSON literal "null" (null-guard after DeserializeBackup), actual chunk-loop body exceeds MaxSize when Content-Length lies (memory-exhaustion defence), whitespace-only body (IsNullOrWhiteSpace vs IsNullOrEmpty guard)
 │   ├── DiscoveryControllerTests.cs
 │   ├── DiscoveryControllerExtendedTests.cs           # GetSeerrUsers/GetServiceInfo happy paths, SubmitRequest + MarkAsRequestedAsync integration, dismissed/requested filter logic, error paths when the feedback store throws
 │   ├── UserDiscoveryControllerTests.cs
