@@ -1,4 +1,4 @@
-﻿3<!--
+﻿<!--
   CONTRIBUTING.md - Contributor guidelines for the Jellyfin Helper plugin.
   This file uses UTF-8 encoding and may contain emoji characters.
   If your editor shows garbled characters, ensure UTF-8 is set.
@@ -119,9 +119,21 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── PluginConfigurationSerializationTests.cs
 │   └── TaskModeTests.cs
 ├── PluginPages/                   # HTML composition tests
-│   ├── ConfigPageTestBase.cs      # Shared base loading configPage.html
-│   ├── DiscoverHtmlTests.cs       # Recommendations tab HTML tests
-│   └── ...
+│   ├── ConfigPageTestBase.cs      # Shared base loading configPage.html + README
+│   ├── ConfigPageHtmlTests.cs     # Top-level page structure + README hygiene
+│   ├── ConfigPageTemplateTests.cs # Template shell / placeholder / metadata
+│   ├── MainHtmlTests.cs           # Main.js: bootstrap, tab switching, page lifecycle
+│   ├── SharedHtmlTests.cs         # Shared.js: API wrappers, i18n, formatting, tree
+│   ├── OverviewHtmlTests.cs       # Overview tab
+│   ├── CodecsHtmlTests.cs         # Codecs tab (donut charts, path map)
+│   ├── HealthHtmlTests.cs         # Health tab (orphan/missing detection)
+│   ├── TrendsHtmlTests.cs         # Trends tab (growth timeline + insights)
+│   ├── SettingsHtmlTests.cs       # Settings tab (task modes, trash, Seerr)
+│   ├── LogsHtmlTests.cs           # Logs tab (viewer, auto-refresh, download)
+│   ├── ArrIntegrationHtmlTests.cs # Arr tab (Radarr/Sonarr/Lidarr wiring)
+│   ├── DiscoverHtmlTests.cs       # Recommendations tab surface structure
+│   ├── RecommendationsHtmlTests.cs# Recommendations.js: cache, XSS, popup, TTL
+│   └── FolderBrowserHtmlTests.cs  # Server-side folder picker dialog
 ├── ScheduledTasks/                # Task execution tests
 │   ├── CleanTrickplayTrashExclusionTests.cs              # Trash folder exclusion from recursive scan
 │   ├── CleanOrphanedSubtitlesTaskProcessLocationTests.cs # Integration test for CleanOrphanedSubtitlesTask.ProcessLocation: library setup, recursive GetDirectories, file-leaf-name enumeration wiring
