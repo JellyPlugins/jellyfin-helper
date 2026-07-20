@@ -22,10 +22,25 @@ public class SymlinkHelper : ISymlinkHelper
             //     would work there, but relying on that is a portability hazard.
             //
             // `File.GetAttributes` inspects the entry itself without following it, and
-            // the ReparsePoint bit is exactly the "this is a symbolic link" indicator
-            // on both Win32 (reparse point) and POSIX (via .NET's abstraction).
+            // the ReparsePoint bit is a necessary — but NOT sufficient — indicator of a
+            // symbolic link. On Windows the ReparsePoint bit is also set on entries that
+            // are NOT symlinks: OneDrive / cloud "files on-demand" placeholders and
+            // Windows Data-Deduplication stubs both carry it. Treating those as symlinks
+            // makes LinkRepairService flag healthy media files as broken links.
+            //
+            // To distinguish a real (possibly broken) symlink from such a placeholder we
+            // additionally require a non-null `LinkTarget`. `FileInfo.LinkTarget` reads the
+            // stored target from the reparse data WITHOUT following it, so it is:
+            //   • non-null for both valid and broken symlinks (the target string survives
+            //     even after the target file is deleted — see IsSymlink_BrokenSymlink test),
+            //   • null for cloud/dedup reparse points, which .NET does not recognise as links.
             var attrs = File.GetAttributes(path);
-            return (attrs & FileAttributes.ReparsePoint) != 0;
+            if ((attrs & FileAttributes.ReparsePoint) == 0)
+            {
+                return false;
+            }
+
+            return new FileInfo(path).LinkTarget != null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

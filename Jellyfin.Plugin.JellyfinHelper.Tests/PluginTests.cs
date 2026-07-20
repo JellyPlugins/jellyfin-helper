@@ -374,6 +374,61 @@ public sealed class PluginTests : IDisposable
     }
 
     [Fact]
+    public void CleanupWebPathTempFiles_RemovesOrphanedAtomicTempFiles_KeepsRealIndex()
+    {
+        // REGRESSION GUARD (v3.0.0.0): AtomicFile writes index.html.<guid>.tmp then renames it
+        // over index.html. A hard process kill between write and rename orphans the uniquely-named
+        // temp file; since the name is never reused, such orphans would accumulate forever and are
+        // never touched by CleanupDataFiles (which only sweeps DataPath). This sweep reclaims them.
+        var indexPath = Path.Combine(_webPath, "index.html");
+        File.WriteAllText(indexPath, "<html><body></body></html>");
+        var orphan1 = Path.Combine(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
+        var orphan2 = Path.Combine(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
+        File.WriteAllText(orphan1, "leftover");
+        File.WriteAllText(orphan2, "leftover");
+
+        // An unrelated file that merely shares the WebPath must NOT be deleted.
+        var unrelated = Path.Combine(_webPath, "main.chunk.js");
+        File.WriteAllText(unrelated, "app");
+
+        var plugin = CreatePlugin();
+        plugin.CleanupWebPathTempFiles();
+
+        Assert.False(File.Exists(orphan1), "orphaned atomic-write temp file must be swept");
+        Assert.False(File.Exists(orphan2), "orphaned atomic-write temp file must be swept");
+        Assert.True(File.Exists(indexPath), "the real index.html must be preserved");
+        Assert.True(File.Exists(unrelated), "unrelated WebPath files must be preserved");
+    }
+
+    [Fact]
+    public void CleanupWebPathTempFiles_MissingWebPath_DoesNotThrow()
+    {
+        // Rolling-update deployments may briefly lack the web directory entirely.
+        Directory.Delete(_webPath, recursive: true);
+        var plugin = CreatePlugin();
+
+        var ex = Record.Exception(plugin.CleanupWebPathTempFiles);
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void UpdateIndexHtml_SweepsOrphanedTempFilesOnEntry()
+    {
+        // The sweep also runs at the start of every UpdateIndexHtml call, so leftovers cannot
+        // build up across restarts even without an uninstall.
+        var indexPath = Path.Combine(_webPath, "index.html");
+        File.WriteAllText(indexPath, "<html><body></body></html>");
+        var orphan = Path.Combine(_webPath, "index.html." + Guid.NewGuid().ToString("N") + ".tmp");
+        File.WriteAllText(orphan, "leftover");
+
+        var plugin = CreatePlugin();
+        plugin.UpdateIndexHtml(true);
+
+        Assert.False(File.Exists(orphan), "UpdateIndexHtml must sweep orphaned temp files on entry");
+    }
+
+    [Fact]
     public void OnUninstalling_DeletesJellyfinHelperJsonFiles()
     {
         var dataFile1 = Path.Combine(_dataPath, "jellyfin-helper-statistics-latest.json");

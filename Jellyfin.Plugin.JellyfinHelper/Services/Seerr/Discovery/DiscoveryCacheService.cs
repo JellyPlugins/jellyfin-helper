@@ -418,9 +418,14 @@ public sealed class DiscoveryCacheService : IDisposable
 
                 throw;
             }
-            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
-                // Rollback in-memory mutations on persistence failure
+                // Rollback in-memory mutations on ANY persistence failure. AtomicFile.WriteAllText
+                // can surface more than IOException/UnauthorizedAccessException (e.g. SecurityException,
+                // NotSupportedException, ArgumentException from the OS path layer). Narrowing the
+                // filter here would let those escape with AlreadyRequested=true still applied in
+                // _memoryCache while disk was never updated — a memory/disk divergence that survives
+                // until restart. Matches the broad rollback filter in RemoveItemLocked.
                 foreach (var (userIdx, recIdx) in indicesToMark)
                 {
                     cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
@@ -429,7 +434,14 @@ public sealed class DiscoveryCacheService : IDisposable
                 throw;
             }
         }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        catch (OperationCanceledException)
+        {
+            // Cancellation must propagate to the caller (honours the CancellationToken contract);
+            // it is NOT a persistence failure and must not be logged-and-swallowed by the broad
+            // catch below. The inner cancellation handler already rolled back the mutation.
+            throw;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             _pluginLog.LogWarning(
                 "DiscoveryCache",

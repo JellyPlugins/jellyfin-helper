@@ -166,6 +166,86 @@ public class PreferenceBuilderTests
         Assert.Equal(1.0, result["Actor B"]);
     }
 
+    // === Train/serve parity of the progression multiplier (regression guard, v3.0.0.0) ===
+    // The progression multiplier was originally threaded into BuildGenrePreferenceVector /
+    // BuildPeoplePreferenceWeights only on the inference path (Engine.cs) and NOT on the training
+    // path (TrainingDataBuilder), so the model trained on unweighted vectors but was served
+    // progression-weighted ones. The fix threads the same per-series total-episode-count map into
+    // the training builders. These tests pin the two invariants that make the fix meaningful:
+    //   (1) the map is NOT a no-op — supplying it genuinely reshapes the vectors, so training with
+    //       it produces a different (and now serve-matching) distribution than the old null path; and
+    //   (2) given the SAME profile and the SAME map, the builder is a pure function — the vector the
+    //       training path computes equals the vector the inference path computes.
+
+    [Fact]
+    public void BuildGenrePreferenceVector_ProgressionMap_ReshapesVectorVsNeutralPath()
+    {
+        // A user who COMPLETED a Drama series (10/10 episodes → multiplier ~1.5) and ABANDONED a
+        // SciFi series (1/24 episodes → multiplier ~0.35). With the map, Drama must dominate SciFi
+        // by more than the raw 10:1 episode ratio would give unweighted.
+        var dramaSeries = Guid.NewGuid();
+        var scifiSeries = Guid.NewGuid();
+        var now = DateTime.UtcNow.AddDays(-30);
+
+        var profile = new UserWatchProfile();
+        for (var i = 0; i < 10; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(), SeriesId = dramaSeries, Played = true, LastPlayedDate = now, Genres = ["Drama"]
+            });
+        }
+
+        profile.WatchedItems.Add(new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(), SeriesId = scifiSeries, Played = true, LastPlayedDate = now, Genres = ["SciFi"]
+        });
+
+        var seriesEpisodeCounts = new Dictionary<Guid, int> { [dramaSeries] = 10, [scifiSeries] = 24 };
+
+        var neutral = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var weighted = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
+
+        // The completed Drama series is boosted and the abandoned SciFi series is dampened, so the
+        // Drama/SciFi ratio must be strictly larger with the map than without it. If the training
+        // path had kept passing null (the bug), these two vectors would be identical.
+        var neutralRatio = neutral["Drama"] / neutral["SciFi"];
+        var weightedRatio = weighted["Drama"] / weighted["SciFi"];
+        Assert.True(
+            weightedRatio > neutralRatio,
+            $"progression map must reshape the vector (weighted ratio {weightedRatio} should exceed neutral {neutralRatio})");
+    }
+
+    [Fact]
+    public void BuildGenrePreferenceVector_SameProfileAndMap_TrainAndServeProduceIdenticalVector()
+    {
+        // Purity guard: the builder is deterministic in (profile, map), so the vector the training
+        // path now computes is byte-for-byte the vector the inference path computes. This is the
+        // property the fix restores — the two call sites can no longer diverge.
+        var seriesId = Guid.NewGuid();
+        var now = DateTime.UtcNow.AddDays(-15);
+        var profile = new UserWatchProfile();
+        for (var i = 0; i < 5; i++)
+        {
+            profile.WatchedItems.Add(new WatchedItemInfo
+            {
+                ItemId = Guid.NewGuid(), SeriesId = seriesId, Played = true, LastPlayedDate = now, Genres = ["Thriller"]
+            });
+        }
+
+        var map = new Dictionary<Guid, int> { [seriesId] = 8 };
+
+        var serveVector = PreferenceBuilder.BuildGenrePreferenceVector(profile, map);
+        var trainVector = PreferenceBuilder.BuildGenrePreferenceVector(profile, map);
+
+        Assert.Equal(serveVector.Count, trainVector.Count);
+        foreach (var (genre, weight) in serveVector)
+        {
+            Assert.True(trainVector.TryGetValue(genre, out var other));
+            Assert.Equal(weight, other, precision: 12);
+        }
+    }
+
     [Fact]
     public void BuildGenreExposureAnalysis_InsufficientHistory_ReturnsInvalid()
     {

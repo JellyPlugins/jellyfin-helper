@@ -170,6 +170,38 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.True(_sut.IsSymlink(link), "broken symlinks must still be recognised as symlinks");
     }
 
+    [Fact]
+    public void IsSymlink_RealSymlink_HasNonNullLinkTarget_RegressionGuard()
+    {
+        // REGRESSION ANCHOR (v3.0.0.0): IsSymlink was briefly implemented as a pure
+        // `(attrs & FileAttributes.ReparsePoint) != 0` check. That misclassified any
+        // non-symlink reparse point — OneDrive/cloud "files on-demand" placeholders and
+        // Windows Data-Deduplication stubs — as a symlink, causing LinkRepairService to
+        // report healthy media files as broken links. The fix additionally requires a
+        // non-null FileInfo.LinkTarget, which .NET populates only for genuine
+        // symlinks/junctions (and NOT for cloud/dedup reparse points).
+        //
+        // We cannot deterministically materialise a cloud/dedup placeholder in a unit
+        // test, so this guard pins the other half of the contract: a real symlink both
+        // carries the ReparsePoint bit AND exposes a non-null LinkTarget, so the stricter
+        // predicate still recognises it. Together with IsSymlink_BrokenSymlink_ReturnsTrue
+        // and IsSymlink_RegularFile_ReturnsFalse this fixes the classification on all sides
+        // a reversion to the pure-ReparsePoint check would break.
+        if (!SymlinksSupported())
+        {
+            return;
+        }
+
+        var target = Path.Join(_tempDir, "target.txt");
+        var link = Path.Join(_tempDir, "link.txt");
+        File.WriteAllText(target, "content");
+        File.CreateSymbolicLink(link, target);
+
+        Assert.True((File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0);
+        Assert.NotNull(new FileInfo(link).LinkTarget);
+        Assert.True(_sut.IsSymlink(link));
+    }
+
     // -----------------------------------------------------------------------
     // GetSymlinkTarget
     // -----------------------------------------------------------------------

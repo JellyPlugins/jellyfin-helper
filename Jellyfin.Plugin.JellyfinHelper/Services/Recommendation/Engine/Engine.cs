@@ -233,7 +233,13 @@ public sealed class Engine : IRecommendationEngine
         // This upgrades the training label from 0.75 (Requested) to 0.90 (RequestedAndWatched).
         UpdateDiscoveryWatchedStatus(cancellationToken);
 
-        var trained = _trainingService.Train(_strategy, previousResults, incremental, cancellationToken);
+        // Build the per-series total-episode-count map from the live library so the training
+        // path applies the EXACT same progression multiplier as inference. Without this the
+        // model trains on genre/people preference vectors weighted 1.0 while it is served
+        // vectors weighted 0.3–1.5 — a train/serve skew. Same source as LoadCandidateItems.
+        var seriesEpisodeCounts = BuildSeriesEpisodeCounts();
+
+        var trained = _trainingService.Train(_strategy, previousResults, seriesEpisodeCounts, incremental, cancellationToken);
 
         // After training, apply cohort-based feedback to adapt the sigmoid midpoint.
         // This compares watch-rates across exploration cohorts and shifts the midpoint
@@ -668,17 +674,7 @@ public sealed class Engine : IRecommendationEngine
         // Single pass: build both the "series has episodes" filter set AND the per-series
         // total episode count needed for the progression multiplier in PreferenceBuilder.
         // Only playable episodes (non-empty Path) are counted to keep the ratio meaningful.
-        var seriesEpisodeCounts = new Dictionary<Guid, int>();
-        foreach (var episode in allEpisodes.OfType<Episode>())
-        {
-            if (string.IsNullOrEmpty(episode.Path) || episode.SeriesId == Guid.Empty)
-            {
-                continue;
-            }
-
-            seriesEpisodeCounts.TryGetValue(episode.SeriesId, out var count);
-            seriesEpisodeCounts[episode.SeriesId] = count + 1;
-        }
+        var seriesEpisodeCounts = CountPlayableEpisodesPerSeries(allEpisodes);
 
         var skippedSeries = 0;
         foreach (var s in series)
@@ -709,6 +705,52 @@ public sealed class Engine : IRecommendationEngine
         }
 
         return (candidates, seriesEpisodeCounts);
+    }
+
+    /// <summary>
+    ///     Builds the per-series total-episode-count map (SeriesId → number of playable episodes
+    ///     in the library) used by <see cref="PreferenceBuilder"/>'s progression multiplier.
+    ///     <para>
+    ///         This is the SAME computation performed inline inside <see cref="LoadCandidateItems"/>
+    ///         for the inference path, extracted so the training path (<see cref="TrainStrategy"/>)
+    ///         can produce a byte-for-byte identical map. Keeping a single definition is what
+    ///         guarantees train/serve parity of the progression-weighted genre/people preference
+    ///         vectors — a divergent copy here would silently reintroduce the skew.
+    ///     </para>
+    /// </summary>
+    /// <returns>A map of series id to its count of playable (non-empty <c>Path</c>) episodes.</returns>
+    private Dictionary<Guid, int> BuildSeriesEpisodeCounts()
+    {
+        var allEpisodes = _libraryManager.GetItemList(
+            new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Episode],
+                IsFolder = false
+            });
+
+        return CountPlayableEpisodesPerSeries(allEpisodes);
+    }
+
+    /// <summary>
+    ///     Collapses a flat episode list into a per-series playable-episode count. Only episodes
+    ///     with a non-empty <c>Path</c> and a valid <c>SeriesId</c> are counted, matching the
+    ///     candidate-filtering rule so the progression ratio (watched / total) stays meaningful.
+    /// </summary>
+    private static Dictionary<Guid, int> CountPlayableEpisodesPerSeries(IReadOnlyList<BaseItem> episodes)
+    {
+        var seriesEpisodeCounts = new Dictionary<Guid, int>();
+        foreach (var episode in episodes.OfType<Episode>())
+        {
+            if (string.IsNullOrEmpty(episode.Path) || episode.SeriesId == Guid.Empty)
+            {
+                continue;
+            }
+
+            seriesEpisodeCounts.TryGetValue(episode.SeriesId, out var count);
+            seriesEpisodeCounts[episode.SeriesId] = count + 1;
+        }
+
+        return seriesEpisodeCounts;
     }
 
     /// <summary>

@@ -26,7 +26,7 @@ internal static class TrainingDataBuilder
         Collection<UserWatchProfile> allProfiles,
         CancellationToken cancellationToken)
     {
-        return BuildExamples(previousResults, allProfiles, discoveryFeedback: null, cancellationToken);
+        return BuildExamples(previousResults, allProfiles, discoveryFeedback: null, seriesEpisodeCounts: null, cancellationToken);
     }
 
     /// <summary>
@@ -48,6 +48,40 @@ internal static class TrainingDataBuilder
         IReadOnlyList<RecommendationResult> previousResults,
         Collection<UserWatchProfile> allProfiles,
         IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback,
+        CancellationToken cancellationToken)
+    {
+        return BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts: null, cancellationToken);
+    }
+
+    /// <summary>
+    ///     Builds all training examples from previous results, user profiles, optional discovery
+    ///     feedback, and the per-series total-episode-count map.
+    /// </summary>
+    /// <param name="previousResults">The recommendation results from previous runs.</param>
+    /// <param name="allProfiles">All user watch profiles.</param>
+    /// <param name="discoveryFeedback">Optional discovery feedback data for Phase 4.</param>
+    /// <param name="seriesEpisodeCounts">
+    ///     Per-series total-episode-count map (SeriesId → playable episodes in the library). When
+    ///     supplied, the genre/people preference vectors built here apply the SAME progression
+    ///     multiplier the inference path applies (see <see cref="PreferenceBuilder"/>), so the model
+    ///     trains on the feature distribution it is actually served — eliminating train/serve skew.
+    ///     When null/empty, every episode row keeps neutral weight (1.0), matching the pre-fix and
+    ///     no-library-data behavior.
+    /// </param>
+    /// <param name="cancellationToken">Token to cancel the operation.</param>
+    /// <returns>
+    ///     A tuple with the training examples and three separate counters — organic watches
+    ///     (Phase 2), cross-user random negatives (Phase 3) and discovery interactions
+    ///     (Phase 4). Splitting the discovery counter out of <c>OrganicCount</c> lets
+    ///     operators tell at a glance whether the positive signal comes from actual
+    ///     consumption or external Seerr requests, which have very different implications
+    ///     for training-data health.
+    /// </returns>
+    internal static (List<TrainingExample> Examples, int OrganicCount, int RandomNegativeCount, int DiscoveryCount) BuildExamples(
+        IReadOnlyList<RecommendationResult> previousResults,
+        Collection<UserWatchProfile> allProfiles,
+        IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -146,7 +180,7 @@ internal static class TrainingDataBuilder
 
         foreach (var profile in allProfiles)
         {
-            var gp = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+            var gp = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
             var co = CollaborativeFilter.BuildCollaborativeMap(profile, allProfiles, precomputedUserSets);
             var cm = co.Count > 0 ? co.Values.Max() : 0;
             var ay = ContentScoring.ComputeAverageYear(profile);
@@ -178,7 +212,7 @@ internal static class TrainingDataBuilder
             // PeopleSimilarity feature uses the same weighted overload as Engine.ScoreCandidate.
             // The unweighted BuildPeoplePreferenceSet variant is used by ReasonResolver in the
             // live path and is not needed here — training does not produce user-facing reasons.
-            var preferredPeopleWeights = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, cachedPeopleLookup);
+            var preferredPeopleWeights = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, cachedPeopleLookup, seriesEpisodeCounts);
             var preferredStudios = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
             var preferredTags = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
 
@@ -519,7 +553,7 @@ internal static class TrainingDataBuilder
             // consumed by SimilarityComputer.ComputePeopleSimilarity below; the unweighted
             // HashSet variant is only useful for reason-display (Engine.GenerateForUser),
             // which the training path does not produce.
-            var preferredPeopleWeightsOrganic = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, cachedPeopleLookup);
+            var preferredPeopleWeightsOrganic = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, cachedPeopleLookup, seriesEpisodeCounts);
             var preferredStudiosOrganic = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
             var preferredTagsOrganic = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
 
@@ -807,7 +841,7 @@ internal static class TrainingDataBuilder
                 // for all negatives, creating a systematic bias (the model learns "zero = irrelevant").
                 // Only the weighted map is consumed below; the unweighted HashSet is only useful for
                 // reason-display in the live path, which the training pipeline does not produce.
-                var preferredPeopleWeightsNeg = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, cachedPeopleLookup);
+                var preferredPeopleWeightsNeg = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, cachedPeopleLookup, seriesEpisodeCounts);
                 var preferredStudiosNeg = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
                 var preferredTagsNeg = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
 
@@ -996,6 +1030,7 @@ internal static class TrainingDataBuilder
             var (discoveryExamples, phase4Count) = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(
                 discoveryFeedback,
                 profileById,
+                seriesEpisodeCounts,
                 cancellationToken);
 
             if (discoveryExamples.Count > 0)

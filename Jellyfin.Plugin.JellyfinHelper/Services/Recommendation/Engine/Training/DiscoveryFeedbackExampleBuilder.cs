@@ -22,11 +22,17 @@ internal static class DiscoveryFeedbackExampleBuilder
     /// </summary>
     /// <param name="feedbackResults">All discovery feedback data (loaded from <see cref="IDiscoveryFeedbackStore"/>).</param>
     /// <param name="profileById">User watch profiles keyed by user ID (for computing user-specific features).</param>
+    /// <param name="seriesEpisodeCounts">
+    ///     Per-series total-episode-count map, forwarded to <see cref="PreferenceBuilder.BuildGenrePreferenceVector"/>
+    ///     so the discovery-feedback training examples apply the same progression weighting as the
+    ///     inference path. May be null/empty (neutral, unweighted) — see <c>TrainingDataBuilder.BuildExamples</c>.
+    /// </param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>A list of training examples and the count of discovery examples added.</returns>
     internal static (List<TrainingExample> Examples, int Count) BuildDiscoveryExamples(
         IReadOnlyList<DiscoveryFeedbackResult> feedbackResults,
         IReadOnlyDictionary<Guid, UserWatchProfile> profileById,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         CancellationToken cancellationToken)
     {
         var examples = new List<TrainingExample>();
@@ -56,7 +62,7 @@ internal static class DiscoveryFeedbackExampleBuilder
             // interactions (request/dismiss) are still valuable training signals even when
             // genre features default to zero/neutral.
             var genrePreferences = userProfile != null
-                ? PreferenceBuilder.BuildGenrePreferenceVector(userProfile)
+                ? PreferenceBuilder.BuildGenrePreferenceVector(userProfile, seriesEpisodeCounts)
                 : new Dictionary<string, double>();
 
             var avgYear = userProfile != null

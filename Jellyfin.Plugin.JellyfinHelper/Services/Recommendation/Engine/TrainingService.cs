@@ -55,12 +55,20 @@ internal sealed class TrainingService
     /// </summary>
     /// <param name="strategy">The scoring strategy to train.</param>
     /// <param name="previousResults">The recommendation results from the previous run.</param>
+    /// <param name="seriesEpisodeCounts">
+    ///     Per-series total-episode-count map (SeriesId → playable episodes in the library), built
+    ///     by the caller from the live library. Threaded into <see cref="TrainingDataBuilder"/> so
+    ///     the training-time genre/people preference vectors apply the identical progression
+    ///     multiplier used at inference, eliminating train/serve skew. May be null/empty, in which
+    ///     case the builder falls back to the neutral (unweighted) path.
+    /// </param>
     /// <param name="incremental">When true, subsample older examples for efficiency.</param>
     /// <param name="cancellationToken">Token to cancel the training operation.</param>
     /// <returns>True if training was performed, false if skipped.</returns>
     internal bool Train(
         IScoringStrategy strategy,
         IReadOnlyList<RecommendationResult> previousResults,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts = null,
         bool incremental = false,
         CancellationToken cancellationToken = default)
     {
@@ -82,7 +90,7 @@ internal sealed class TrainingService
 
         try
         {
-            return TrainCore(strategy, previousResults, incremental, cancellationToken);
+            return TrainCore(strategy, previousResults, seriesEpisodeCounts, incremental, cancellationToken);
         }
         finally
         {
@@ -97,6 +105,7 @@ internal sealed class TrainingService
     private bool TrainCore(
         IScoringStrategy strategy,
         IReadOnlyList<RecommendationResult> previousResults,
+        IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         bool incremental,
         CancellationToken cancellationToken)
     {
@@ -127,7 +136,7 @@ internal sealed class TrainingService
 
         // Delegate example building to the TrainingDataBuilder (includes Phase 4 discovery feedback)
         var (examples, organicCount, randomNegativeCount, discoveryCount) =
-            TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, cancellationToken);
+            TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, cancellationToken);
 
         var positiveCount = examples.Count(e => e.Label > 0.5);
         // Separate discovery from organic in the log so operators can see whether positive

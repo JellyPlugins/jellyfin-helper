@@ -67,6 +67,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         UnregisterFileTransformation();
         UpdateIndexHtml(false);
         CleanupDataFiles();
+        CleanupWebPathTempFiles();
         CleanupRecommendationPlaylists();
         base.OnUninstalling();
     }
@@ -325,6 +326,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         try
         {
+            // Sweep any orphaned atomic-write temp files from a prior hard-killed run before
+            // writing again, so unique-named leftovers cannot accumulate across restarts.
+            CleanupWebPathTempFiles();
+
             var indexPath = IndexHtmlPath;
             if (_logger.IsEnabled(LogLevel.Debug))
             {
@@ -449,6 +454,50 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Best effort - if the data directory is inaccessible, nothing we can do.
+        }
+    }
+
+    /// <summary>
+    ///     Removes stale atomic-write temp files left in the Jellyfin <c>WebPath</c> by
+    ///     <see cref="UpdateIndexHtml"/>. <see cref="AtomicFile.WriteAllText"/> writes to a
+    ///     uniquely-named <c>index.html.&lt;guid&gt;.tmp</c> before renaming it over the target;
+    ///     it cleans that temp file up in-process on failure, but a hard process kill
+    ///     (OOM / container SIGKILL) between the write and the rename orphans it. Because the
+    ///     name is unique per attempt, such orphans would otherwise accumulate forever —
+    ///     <see cref="CleanupDataFiles"/> only sweeps <c>DataPath</c>, never <c>WebPath</c>.
+    ///     Swept on uninstall and at the start of each <see cref="UpdateIndexHtml"/> run so
+    ///     leftovers cannot build up across crashes/restarts.
+    /// </summary>
+    internal void CleanupWebPathTempFiles()
+    {
+        try
+        {
+            var webPath = _applicationPaths.WebPath;
+            if (!Directory.Exists(webPath))
+            {
+                return;
+            }
+
+            // Only our own atomic-write leftovers: index.html.<something>.tmp. The middle
+            // segment is a GUID in practice, but the glob stays permissive while the
+            // "index.html." prefix + ".tmp" suffix keep it scoped to this plugin's writes
+            // and away from Jellyfin's real index.html.
+            foreach (var file in Directory.GetFiles(webPath, "index.html.*.tmp"))
+            {
+                try
+                {
+                    File.Delete(file);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Best effort - file may be locked or permission-restricted.
+                    // Skip and continue with the next file.
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best effort - if the web directory is inaccessible, nothing we can do.
         }
     }
 

@@ -213,6 +213,7 @@ public sealed class ExternalCandidateFeatureBuilderTests
         var (examples, count) = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(
             [feedback],
             profileById,
+            seriesEpisodeCounts: null,
             CancellationToken.None);
 
         Assert.Equal(1, count);
@@ -275,6 +276,7 @@ public sealed class ExternalCandidateFeatureBuilderTests
         var (examples, count) = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(
             [feedback],
             profileById,
+            seriesEpisodeCounts: null,
             CancellationToken.None);
 
         Assert.Equal(1, count);
@@ -330,6 +332,7 @@ public sealed class ExternalCandidateFeatureBuilderTests
         var (examples, count) = DiscoveryFeedbackExampleBuilder.BuildDiscoveryExamples(
             [feedback],
             profileById,
+            seriesEpisodeCounts: null,
             CancellationToken.None);
 
         Assert.Equal(1, count);

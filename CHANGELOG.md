@@ -29,7 +29,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.5 (served from the same plugin repository).
 
 ### Tests
-- Total: **3811 tests** (+1486 vs. v2.1.0.6). New tests cover the JF 12 batch fallback paths. Overall test coverage improvement.
+- Total: **3818 tests** (+1493 vs. v2.1.0.6). New tests cover the JF 12 batch fallback paths. Overall test coverage improvement.
 
 ---
 

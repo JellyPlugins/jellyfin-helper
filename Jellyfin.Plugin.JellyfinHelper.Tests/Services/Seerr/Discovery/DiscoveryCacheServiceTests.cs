@@ -123,6 +123,51 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     // ===== MarkAsRequested =====
 
     [Fact]
+    public void MarkAsRequested_WriteFailure_RollsBackInMemoryMutationAndDoesNotThrow()
+    {
+        // REGRESSION GUARD (v3.0.0.0): MarkAsRequestedLocked applies AlreadyRequested=true in
+        // memory BEFORE the atomic write, then rolls it back if the write fails. The catch filter
+        // was broadened to `not OOM and not SO` (matching the sibling RemoveItemLocked) so that a
+        // write failure — of ANY non-fatal type — both rolls back the mutation AND is swallowed by
+        // the sync overload rather than escaping unlogged and leaving the in-memory cache diverged
+        // from disk until restart.
+        //
+        // We seed the in-memory cache from a real on-disk file (valid path), then turn the cache
+        // path into a DIRECTORY so the subsequent AtomicFile write (File.Move over a directory)
+        // fails deterministically. This exercises the apply-then-rollback path end to end: no throw
+        // escapes MarkAsRequested, and the flag is observably back to false afterwards.
+        _sut.Save([
+            new DiscoveryResult
+            {
+                UserId = Guid.NewGuid(),
+                Recommendations = [new DiscoveryRecommendation { TmdbId = 100, MediaType = "movie", Title = "A" }]
+            }
+        ]);
+        Assert.True(File.Exists(_cacheFilePath));
+        Assert.False(_sut.Load()[0].Recommendations[0].AlreadyRequested);
+
+        SafeDelete(_cacheFilePath);
+        Directory.CreateDirectory(_cacheFilePath);
+
+        try
+        {
+            var ex = Record.Exception(() => _sut.MarkAsRequested(100, "movie"));
+
+            Assert.Null(ex);
+            Assert.False(
+                _sut.Load()[0].Recommendations[0].AlreadyRequested,
+                "a failed persist must roll back the in-memory AlreadyRequested mutation");
+        }
+        finally
+        {
+            if (Directory.Exists(_cacheFilePath))
+            {
+                Directory.Delete(_cacheFilePath, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void MarkAsRequested_ExistingItem_UpdatesFlag()
     {
         var userId = Guid.NewGuid();
