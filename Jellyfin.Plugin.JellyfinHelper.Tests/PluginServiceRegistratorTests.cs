@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
@@ -223,6 +224,22 @@ public class PluginServiceRegistratorTests
         var sc1 = Register();
         var sc2 = Register();
         Assert.Equal(sc1.Count, sc2.Count);
+    }
+
+    [Fact]
+    public void RegisterServices_RegistersModelBindingLogFilter_AsScoped()
+    {
+        // Filter is consumed via [ServiceFilter(typeof(ModelBindingLogFilter))] on the
+        // ConfigurationController action. That attribute needs the CONCRETE type resolvable
+        // from DI — a rename or accidental removal here would surface as a runtime
+        // InvalidOperationException on the first Settings save. Also pins Scoped lifetime:
+        // Singleton would prevent request-scoped dependencies from being injected later,
+        // Transient would spawn a fresh filter per invocation (fine functionally but wastes
+        // allocations on a filter that has no per-request state today). Scoped matches the
+        // documented convention for [ServiceFilter]-resolved filters.
+        var sc = Register();
+        Assert.Contains(sc, d => d.ServiceType == typeof(ModelBindingLogFilter)
+                                 && d.Lifetime == ServiceLifetime.Scoped);
     }
 
     [Fact]
