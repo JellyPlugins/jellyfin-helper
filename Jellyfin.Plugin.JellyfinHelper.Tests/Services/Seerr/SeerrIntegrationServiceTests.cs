@@ -772,4 +772,200 @@ public class SeerrIntegrationServiceTests : IDisposable
                 It.IsAny<ILogger>()),
             Times.Once);
     }
+
+    // =========================================================================
+    // Error-path & bug-surface coverage
+    // =========================================================================
+
+    [Fact]
+    public async Task Cleanup_InvalidBaseUrl_MarksFailure_DoesNotThrow()
+    {
+        // BUG SURFACE: an invalid base URL used to throw straight to the caller,
+        // producing a stack trace instead of a graceful Failed=1 result the scheduler can log.
+        var handler = new Mock<HttpMessageHandler>();
+        var service = CreateService(handler.Object, out _, out _);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            "not-a-url", ApiKey, 365, false, CancellationToken.None);
+
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(0, result.TotalChecked);
+        Assert.Equal(0, result.Deleted);
+    }
+
+    [Fact]
+    public async Task Cleanup_EmptyApiKey_MarksFailure_DoesNotThrow()
+    {
+        // Empty/whitespace API key must be caught inside CreateClient and mapped to Failed=1.
+        var handler = new Mock<HttpMessageHandler>();
+        var service = CreateService(handler.Object, out _, out _);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, "   ", 365, false, CancellationToken.None);
+
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(0, result.TotalChecked);
+    }
+
+    [Fact]
+    public async Task Cleanup_HttpErrorOnFirstPage_MarksFailedAndBreaks()
+    {
+        // HttpRequestException during page fetch must be caught and log-and-break,
+        // not propagate up and abort the entire cleanup pipeline.
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("connection reset"));
+
+        var service = CreateService(mock.Object, out _, out _);
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(0, result.TotalChecked);
+    }
+
+    [Fact]
+    public async Task Cleanup_MalformedJsonOnFirstPage_MarksFailedAndBreaks()
+    {
+        // JsonException must NOT crash; break pagination gracefully with a Failed count.
+        var handler = CreateMockHandler(HttpStatusCode.OK, "not-json{");
+        var service = CreateService(handler.Object, out _, out _);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+
+        Assert.Equal(1, result.Failed);
+    }
+
+    [Fact]
+    public async Task Cleanup_ResponseMissingPageInfo_MarksFailedAndBreaks()
+    {
+        // BUG SURFACE: a response with results but no pageInfo used to loop forever
+        // (skip never advanced because pageInfo.Results was undefined). The guard clause
+        // now marks it as Failed and breaks the loop.
+        var json = JsonSerializer.Serialize(new
+        {
+            pageInfo = (object?)null,
+            results = new[]
+            {
+                new
+                {
+                    id = 1,
+                    createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"),
+                    status = 2
+                }
+            }
+        });
+
+        var handler = CreateMockHandler(HttpStatusCode.OK, json);
+        var service = CreateService(handler.Object, out _, out _);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 365, true, CancellationToken.None);
+
+        Assert.Equal(1, result.Failed);
+    }
+
+    [Fact]
+    public async Task ResolveMediaTitleAsync_MediaNull_ReturnsUnknown_NoHttpCall()
+    {
+        // Direct-invocation test of the internal helper — the null-guard branch must
+        // short-circuit BEFORE any HTTP call.
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Should not be called"));
+
+        var service = CreateService(mock.Object, out _, out _);
+        using var httpClient = new HttpClient(mock.Object) { BaseAddress = new Uri(BaseUrl + "/") };
+
+        var title = await service.ResolveMediaTitleAsync(httpClient, null, CancellationToken.None);
+        Assert.Equal("Unknown", title);
+        // Sentinel-exception observation alone is insufficient: a future broad catch could
+        // swallow it and still return "Unknown". An explicit Times.Never verify ensures
+        // the short-circuit really happens BEFORE the handler is touched.
+        mock.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.IsAny<HttpRequestMessage>(),
+            ItExpr.IsAny<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveMediaTitleAsync_ZeroTmdbId_ReturnsUnknown_NoHttpCall()
+    {
+        // TMDB ids <= 0 must short-circuit — an HTTP call would waste Seerr API quota
+        // on a request that cannot possibly resolve.
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Should not be called"));
+
+        var service = CreateService(mock.Object, out _, out _);
+        using var httpClient = new HttpClient(mock.Object) { BaseAddress = new Uri(BaseUrl + "/") };
+
+        var title = await service.ResolveMediaTitleAsync(
+            httpClient,
+            new SeerrMedia { MediaType = "movie", TmdbId = 0 },
+            CancellationToken.None);
+
+        Assert.Equal("Unknown", title);
+        // Same defence-in-depth as the null-media case: the short-circuit must be
+        // observable at the handler level, not just via the sentinel exception.
+        mock.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.IsAny<HttpRequestMessage>(),
+            ItExpr.IsAny<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ResolveMediaTitleAsync_HttpError_ReturnsUnknown_DoesNotThrow()
+    {
+        // A 500 from the movie-detail endpoint must degrade gracefully to "Unknown",
+        // never propagate a stack trace up into the cleanup summary.
+        var handler = CreateMockHandler(HttpStatusCode.InternalServerError, string.Empty);
+        var service = CreateService(handler.Object, out _, out _);
+        using var httpClient = new HttpClient(handler.Object) { BaseAddress = new Uri(BaseUrl + "/") };
+
+        var title = await service.ResolveMediaTitleAsync(
+            httpClient,
+            new SeerrMedia { MediaType = "movie", TmdbId = 42 },
+            CancellationToken.None);
+
+        Assert.Equal("Unknown", title);
+    }
+
+    [Fact]
+    public async Task ResolveMediaTitleAsync_NetworkException_ReturnsUnknown()
+    {
+        // HttpRequestException must be caught inside the helper and produce "Unknown".
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("timeout"));
+
+        var service = CreateService(mock.Object, out _, out _);
+        using var httpClient = new HttpClient(mock.Object) { BaseAddress = new Uri(BaseUrl + "/") };
+
+        var title = await service.ResolveMediaTitleAsync(
+            httpClient,
+            new SeerrMedia { MediaType = "movie", TmdbId = 42 },
+            CancellationToken.None);
+
+        Assert.Equal("Unknown", title);
+    }
 }

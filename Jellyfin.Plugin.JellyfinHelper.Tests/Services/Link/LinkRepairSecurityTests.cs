@@ -244,8 +244,12 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
-        // The service must handle null bytes gracefully without throwing and must report Broken
-        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        // The service must handle null bytes gracefully without throwing and must classify the
+        // entry as InvalidContent — a NUL byte is a structural violation of the path grammar,
+        // not merely a missing file. Prior versions returned Broken because .NET no longer
+        // throws ArgumentException from Path.GetFullPath for embedded NULs; the explicit
+        // guard now catches it before normalisation runs and produces the correct classification.
+        Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
     }
 
     // ===== Symlink: Null bytes in target =====
@@ -260,8 +264,10 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true);
 
-        // The service must handle null bytes gracefully without throwing and must report Broken
-        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        // Symlink targets go through the same NUL-byte guard as .strm targets and must
+        // therefore land in InvalidContent (a structurally malformed path), never Broken
+        // (which would incorrectly imply the target is a resolvable-but-missing filename).
+        Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
     }
 
     // ===== FindLinkFiles: Edge cases =====

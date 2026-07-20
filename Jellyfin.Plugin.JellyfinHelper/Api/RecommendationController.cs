@@ -151,6 +151,7 @@ public class RecommendationController : ControllerBase
                 ScoringStrategy = cachedUser.ScoringStrategy,
                 ScoringStrategyKey = cachedUser.ScoringStrategyKey,
                 GeneratedAt = cachedUser.GeneratedAt,
+                Cohort = cachedUser.Cohort,
                 Recommendations = new Collection<RecommendedItem>(
                     cachedUser.Recommendations.Take(maxResults).ToList())
             };
@@ -267,6 +268,7 @@ public class RecommendationController : ControllerBase
                         ScoringStrategy = r.ScoringStrategy,
                         ScoringStrategyKey = r.ScoringStrategyKey,
                         GeneratedAt = r.GeneratedAt,
+                        Cohort = r.Cohort,
                         Recommendations = new Collection<RecommendedItem>(
                             r.Recommendations.Take(maxPerUser).ToList())
                     });

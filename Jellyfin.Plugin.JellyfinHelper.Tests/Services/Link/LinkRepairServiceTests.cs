@@ -571,4 +571,196 @@ public class LinkRepairServiceTests
 
         Assert.Throws<OperationCanceledException>(() => _service.RepairLinks([seriesDir], true, cts.Token));
     }
+
+    // =========================================================================
+    // Error-path & bug-surface coverage
+    // =========================================================================
+
+    [Fact]
+    public void ProcessLinkFile_Symlink_ActualRepair_DeleteThrows_ReturnsBroken_AndClearsNewTargetPath()
+    {
+        // BUG SURFACE: prior versions returned Repaired even when DeleteSymlink threw,
+        // producing a summary that reported repairs that never happened.
+        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-DeleteThrows");
+        var newFile = _fileSystem.Path.Join(movieDir, "new.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
+        _fileSystem.AddDirectory(movieDir);
+        _fileSystem.AddFile(newFile, new MockFileData("video"));
+
+        var symlinkFile = _fileSystem.Path.GetFullPath("/series/DeleteThrows/ep.mkv");
+        _symlinkHelper.Setup(h => h.GetSymlinkTarget(symlinkFile)).Returns(brokenTarget);
+        _symlinkHelper.Setup(h => h.DeleteSymlink(symlinkFile))
+            .Throws(new UnauthorizedAccessException("denied"));
+
+        var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, dryRun: false);
+
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        Assert.Null(result.NewTargetPath);
+        _symlinkHelper.Verify(h => h.CreateSymlink(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_Symlink_ActualRepair_CreateThrows_ReturnsBroken()
+    {
+        // BUG SURFACE: DeleteSymlink succeeded but CreateSymlink threw — without the
+        // guard clause, the symlink would be permanently gone AND marked Repaired.
+        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-CreateThrows");
+        var newFile = _fileSystem.Path.Join(movieDir, "new.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
+        _fileSystem.AddDirectory(movieDir);
+        _fileSystem.AddFile(newFile, new MockFileData("video"));
+
+        var symlinkFile = _fileSystem.Path.GetFullPath("/series/CreateThrows/ep.mkv");
+        _symlinkHelper.Setup(h => h.GetSymlinkTarget(symlinkFile)).Returns(brokenTarget);
+        _symlinkHelper.Setup(h => h.CreateSymlink(symlinkFile, newFile))
+            .Throws(new IOException("disk full"));
+
+        var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, dryRun: false);
+
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        Assert.Null(result.NewTargetPath);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_Strm_FileUriTarget_ValidFile_ReturnsValid()
+    {
+        // file:// URIs must NOT be short-circuited by the URL bypass —
+        // they reference local paths and must be validated normally.
+        var movieFile = _fileSystem.Path.GetFullPath("/movies/FileUri/movie.mkv");
+        _fileSystem.AddFile(movieFile, new MockFileData("video"));
+        var fileUri = new Uri(movieFile).AbsoluteUri;
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/FileUri/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(fileUri));
+
+        var result = _service.ProcessLinkFile(linkFile, _strmHandler, dryRun: true);
+
+        Assert.Equal(LinkFileStatus.Valid, result.Status);
+        Assert.Equal(fileUri, result.OriginalTargetPath);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_Strm_FileUriTarget_MissingFile_ReturnsBroken()
+    {
+        // A broken file:// URI must NOT slip past the URL bypass as Valid.
+        var missing = _fileSystem.Path.GetFullPath("/movies/FileUri-Missing/file.mkv");
+        var fileUri = new Uri(missing).AbsoluteUri;
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/FileUri-Missing/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(fileUri));
+
+        var result = _service.ProcessLinkFile(linkFile, _strmHandler, dryRun: true);
+
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_Strm_RelativeTarget_ResolvedRelativeToLinkFile()
+    {
+        // Relative paths must be resolved against the DIRECTORY of the link file, not CWD.
+        var linkDir = _fileSystem.Path.GetFullPath("/series/Relative");
+        var sibling = _fileSystem.Path.Join(linkDir, "actual-movie.mkv");
+        _fileSystem.AddFile(sibling, new MockFileData("video"));
+
+        var linkFile = _fileSystem.Path.Join(linkDir, "movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("actual-movie.mkv"));
+
+        var result = _service.ProcessLinkFile(linkFile, _strmHandler, dryRun: true);
+
+        Assert.Equal(LinkFileStatus.Valid, result.Status);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_ReadTargetThrowsIOException_ReturnsInvalidContent_DoesNotPropagate()
+    {
+        // A handler throwing IOException must be caught & mapped to InvalidContent —
+        // never propagate up and abort the whole library scan. The method name promises
+        // IO-exception coverage, so we throw an actual IOException here (an
+        // UnauthorizedAccessException hits a different catch clause and would not
+        // exercise the intended path).
+        var handler = new Mock<ILinkHandler>();
+        handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
+        handler.Setup(x => x.SupportsUrlTargets).Returns(false);
+        handler.Setup(x => x.ReadTarget(It.IsAny<string>()))
+            .Throws(new IOException("read failed"));
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/ReadThrows/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("payload"));
+
+        var result = _service.ProcessLinkFile(linkFile, handler.Object, dryRun: true);
+
+        Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_ReadTargetThrowsUnauthorized_ReturnsInvalidContent_DoesNotPropagate()
+    {
+        // Sibling coverage: the UnauthorizedAccessException path must also be caught
+        // and mapped to InvalidContent (previously silently conflated with IOException).
+        var handler = new Mock<ILinkHandler>();
+        handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
+        handler.Setup(x => x.SupportsUrlTargets).Returns(false);
+        handler.Setup(x => x.ReadTarget(It.IsAny<string>()))
+            .Throws(new UnauthorizedAccessException("denied"));
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/ReadThrowsUnauth/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("payload"));
+
+        var result = _service.ProcessLinkFile(linkFile, handler.Object, dryRun: true);
+
+        Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_TargetWithNulByte_ReturnsInvalidContent()
+    {
+        // NUL bytes are universally invalid across .NET path APIs. The ArgumentException
+        // must be caught and mapped to InvalidContent — never bubble up as a crash.
+        var handler = new Mock<ILinkHandler>();
+        handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
+        handler.Setup(x => x.SupportsUrlTargets).Returns(false);
+        handler.Setup(x => x.ReadTarget(It.IsAny<string>())).Returns("/movies/bad\0path.mkv");
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/NulByte/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("stub"));
+
+        var result = _service.ProcessLinkFile(linkFile, handler.Object, dryRun: true);
+
+        Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_UrlTarget_NewTargetPathStaysNull()
+    {
+        // URL targets exit early via the URL-bypass branch; NewTargetPath must stay null
+        // so the UI never shows a "would-repair-to" that was never computed.
+        var linkFile = _fileSystem.Path.GetFullPath("/series/UrlBypass/stream.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("https://example.com/video.mp4"));
+
+        var result = _service.ProcessLinkFile(linkFile, _strmHandler, dryRun: false);
+
+        Assert.Equal(LinkFileStatus.Valid, result.Status);
+        Assert.Null(result.NewTargetPath);
+        Assert.Equal("https://example.com/video.mp4", result.OriginalTargetPath);
+    }
+
+    [Fact]
+    public void RepairLinks_MissingLibraryPath_ContinuesScanningOtherLibraries()
+    {
+        // A missing mount point (e.g. NAS not yet mounted at startup) must NOT abort
+        // scanning of the remaining library roots.
+        var validDir = _fileSystem.Path.GetFullPath("/series-valid-lib");
+        var movie = _fileSystem.Path.GetFullPath("/movies/lib-valid/movie.mkv");
+        _fileSystem.AddFile(movie, new MockFileData("video"));
+        _fileSystem.AddFile(
+            _fileSystem.Path.Join(validDir, "Show/movie.strm"),
+            new MockFileData(movie));
+
+        var missing = _fileSystem.Path.GetFullPath("/does-not-exist");
+
+        var result = _service.RepairLinks([missing, validDir], dryRun: true);
+
+        Assert.Single(result.FileResults);
+        Assert.Equal(LinkFileStatus.Valid, result.FileResults[0].Status);
+    }
 }

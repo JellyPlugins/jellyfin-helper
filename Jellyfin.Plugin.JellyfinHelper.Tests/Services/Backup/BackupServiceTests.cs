@@ -873,4 +873,268 @@ public class BackupServiceTests
 
         Assert.Equal("DryRun", backup.RecommendationsTaskMode);
     }
+
+    // ===== BackupValidator: previously-uncovered growth-baseline branches =====
+
+    [Fact]
+    public void Validate_GrowthBaseline_NegativeDirectorySize_EmitsWarning()
+    {
+        // BUG GUARD: Line 419-423 in BackupValidator emits a warning when a baseline directory
+        // reports a negative size. Without this warning the operator would silently import
+        // corrupted data with impossible sizes.
+        var backup = CreateValidBackup();
+        backup.GrowthBaseline = new GrowthTimelineBaseline();
+        backup.GrowthBaseline.Directories["/media/movies"] = new BaselineDirectoryEntry
+        {
+            Size = -1L,
+            Count = 5,
+            CreatedUtc = DateTime.UtcNow
+        };
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.Contains(result.Warnings, w => w.Contains("negative size", StringComparison.OrdinalIgnoreCase));
+        // Errors must NOT include this — negative size is a warning, not a hard fail.
+        Assert.DoesNotContain(result.Errors, e => e.Contains("negative size", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_GrowthBaseline_NegativeDirectoryCount_EmitsWarning()
+    {
+        // BUG GUARD: Line 425-429. Parallel guard for negative file counts.
+        var backup = CreateValidBackup();
+        backup.GrowthBaseline = new GrowthTimelineBaseline();
+        backup.GrowthBaseline.Directories["/media/movies"] = new BaselineDirectoryEntry
+        {
+            Size = 1024,
+            Count = -3,
+            CreatedUtc = DateTime.UtcNow
+        };
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.Contains(result.Warnings, w => w.Contains("negative count", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_GrowthBaseline_NegativeSizeAndCount_EachWarnedOnlyOnce()
+    {
+        // BUG GUARD: Lines 375-383 & 425-429 use per-flag `warnedNegative*` sentinels to
+        // avoid spamming the operator with N warnings for N corrupt entries. This test
+        // proves the sentinel logic — only ONE warning per issue type across many bad rows.
+        var backup = CreateValidBackup();
+        backup.GrowthBaseline = new GrowthTimelineBaseline();
+        for (int i = 0; i < 10; i++)
+        {
+            backup.GrowthBaseline.Directories[$"/media/dir{i}"] = new BaselineDirectoryEntry
+            {
+                Size = -100L * (i + 1),
+                Count = -1 - i,
+                CreatedUtc = DateTime.UtcNow
+            };
+        }
+
+        var result = BackupValidator.Validate(backup);
+
+        var negSizeWarnings = result.Warnings.Count(w => w.Contains("negative size", StringComparison.OrdinalIgnoreCase));
+        var negCountWarnings = result.Warnings.Count(w => w.Contains("negative count", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(1, negSizeWarnings);
+        Assert.Equal(1, negCountWarnings);
+    }
+
+    [Fact]
+    public void Validate_GrowthBaseline_OversizedDirectoryKey_EmitsError()
+    {
+        // BUG GUARD: Line 432-436 — an attacker could embed a huge string as a directory
+        // key. The validator must reject any path > 1000 chars with a hard error, breaking
+        // out of the loop to avoid ballooning the error list.
+        var backup = CreateValidBackup();
+        backup.GrowthBaseline = new GrowthTimelineBaseline();
+        var longKey = new string('a', 1500);
+        backup.GrowthBaseline.Directories[longKey] = new BaselineDirectoryEntry
+        {
+            Size = 100,
+            Count = 1,
+            CreatedUtc = DateTime.UtcNow
+        };
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.Contains(result.Errors, e => e.Contains("exceeds 1000 characters", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_GrowthBaseline_ScriptInjectionInDirectoryKey_EmitsError()
+    {
+        // BUG GUARD: Line 438-444 — a baseline export from a compromised system might
+        // carry <script>...</script> as a directory key. The validator must reject it
+        // to prevent DOM injection when the key is later shown in the admin UI.
+        var backup = CreateValidBackup();
+        backup.GrowthBaseline = new GrowthTimelineBaseline();
+        backup.GrowthBaseline.Directories["/media/<script>alert(1)</script>"] = new BaselineDirectoryEntry
+        {
+            Size = 100,
+            Count = 1,
+            CreatedUtc = DateTime.UtcNow
+        };
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.Contains(result.Errors, e => e.Contains("script injection", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_GrowthBaseline_TooManyDirectories_EmitsWarningOnly()
+    {
+        // BUG GUARD: Line 407-411 — baselines above MaxBaselineDirectories (50_000) must
+        // trigger a WARNING (not an error) so the import proceeds with trimming rather
+        // than aborting for a merely oversized dataset. We seed a fixture that is otherwise
+        // fully valid so the only failure surface is the oversized directory set, and then
+        // assert the warn-only contract directly (IsValid must remain true).
+        var backup = CreateValidBackup();
+        backup.GrowthBaseline = new GrowthTimelineBaseline();
+        for (int i = 0; i < BackupValidator.MaxBaselineDirectories + 5; i++)
+        {
+            backup.GrowthBaseline.Directories[$"/media/dir{i}"] = new BaselineDirectoryEntry
+            {
+                Size = 100,
+                Count = 1,
+                CreatedUtc = DateTime.UtcNow
+            };
+        }
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.Contains(result.Warnings, w => w.Contains("directories", StringComparison.OrdinalIgnoreCase));
+        // Warn-only contract: the import must remain valid. A weaker "no directory-related
+        // error" check would let unrelated errors mask a regression here.
+        Assert.True(
+            result.IsValid,
+            $"oversized baseline must NOT invalidate the backup; errors: {string.Join("; ", result.Errors)}");
+    }
+
+    [Fact]
+    public void Validate_GrowthTimeline_NegativeCumulativeSize_EmitsWarningOnce()
+    {
+        // BUG GUARD: Lines 379-384 mirror the baseline warn-once logic. Even with 100
+        // consecutive negative sizes we must produce exactly ONE warning.
+        var backup = CreateValidBackup();
+        backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
+        for (int i = 0; i < 100; i++)
+        {
+            backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
+            {
+                Date = DateTime.UtcNow.AddDays(-i),
+                CumulativeSize = -(i + 1) * 1000,
+                CumulativeFileCount = 10
+            });
+        }
+
+        var result = BackupValidator.Validate(backup);
+
+        var negSizeWarnings = result.Warnings.Count(w => w.Contains("negative cumulative size", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(1, negSizeWarnings);
+    }
+
+    [Fact]
+    public void Validate_GrowthTimeline_NegativeCumulativeFileCount_EmitsWarningOnce()
+    {
+        // BUG GUARD: Lines 386-391 parallel guard for file count.
+        var backup = CreateValidBackup();
+        backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
+        for (int i = 0; i < 5; i++)
+        {
+            backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
+            {
+                Date = DateTime.UtcNow.AddDays(-i),
+                CumulativeSize = 1000,
+                CumulativeFileCount = -1 - i
+            });
+        }
+
+        var result = BackupValidator.Validate(backup);
+
+        var negCountWarnings = result.Warnings.Count(w => w.Contains("negative cumulative file count", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(1, negCountWarnings);
+    }
+
+    [Fact]
+    public void Validate_GrowthTimeline_UnknownGranularity_EmitsWarning()
+    {
+        // BUG GUARD: Line 369-372 — the ValidGranularities set is authoritative. An unknown
+        // granularity must degrade to a warning so the timeline still imports, but with a
+        // hint that the value is unexpected.
+        var backup = CreateValidBackup();
+        backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "hyperfast" };
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.Contains(result.Warnings, w => w.Contains("granularity", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_SeerrUrl_InvalidScheme_EmitsError()
+    {
+        // BUG GUARD: Lines 150-155 — SeerrUrl must reject ftp/file/gopher schemes; only
+        // http/https are safe for the outbound API calls.
+        var backup = CreateValidBackup();
+        backup.SeerrUrl = "ftp://malicious.example.com";
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.Contains(result.Errors, e => e.Contains("SeerrUrl", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_SeerrUrl_MalformedString_EmitsError()
+    {
+        var backup = CreateValidBackup();
+        backup.SeerrUrl = "not-a-url-at-all";
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.Contains(result.Errors, e => e.Contains("SeerrUrl", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_UseTrash_EmptyPath_EmitsError()
+    {
+        // BUG GUARD: Lines 203-216 — when UseTrash is true, an empty TrashFolderPath must
+        // produce an error. Otherwise the trash system would be enabled with no destination
+        // and every "move to trash" call would silently no-op or move files to the plugin's
+        // working directory.
+        var backup = new BackupData
+        {
+            BackupVersion = 1,
+            CreatedAt = DateTime.UtcNow,
+            Language = "en",
+            UseTrash = true,
+            TrashFolderPath = string.Empty
+        };
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Contains("TrashFolderPath", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_TrashPath_WithNewline_EmitsError()
+    {
+        // BUG GUARD: Line 306-309 — trash paths containing \n or \r could be exploited for
+        // log-injection when the path is echoed into structured log lines.
+        var backup = new BackupData
+        {
+            BackupVersion = 1,
+            CreatedAt = DateTime.UtcNow,
+            Language = "en",
+            UseTrash = true,
+            TrashFolderPath = "/tmp/trash\nInjected: line"
+        };
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Contains("newline", StringComparison.OrdinalIgnoreCase));
+    }
 }

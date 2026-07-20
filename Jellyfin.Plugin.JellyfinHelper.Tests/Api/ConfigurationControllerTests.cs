@@ -367,4 +367,579 @@ public class ConfigurationControllerTests
         var result = _controller.UpdateLogLevel(request);
         Assert.IsType<BadRequestObjectResult>(result);
     }
+
+    // ===== GetAvailableLibraries Tests =====
+
+    [Fact]
+    public void GetAvailableLibraries_FiltersOutMusicBoxsetsAndCollections()
+    {
+        // BUG GUARD: cleanup never processes music/boxsets, so the picker must not offer them.
+        // Additionally, name-based fallback catches manually-created "Collection" folders that
+        // slipped through the enum classification (e.g. legacy libraries migrated from older Jellyfin).
+        var libraryManagerMock = new Mock<MediaBrowser.Controller.Library.ILibraryManager>();
+        libraryManagerMock.Setup(lm => lm.GetVirtualFolders()).Returns(
+        [
+            new MediaBrowser.Model.Entities.VirtualFolderInfo
+            {
+                Name = "Movies",
+                CollectionType = MediaBrowser.Model.Entities.CollectionTypeOptions.movies
+            },
+            new MediaBrowser.Model.Entities.VirtualFolderInfo
+            {
+                Name = "Music",
+                CollectionType = MediaBrowser.Model.Entities.CollectionTypeOptions.music
+            },
+            new MediaBrowser.Model.Entities.VirtualFolderInfo
+            {
+                Name = "Boxsets",
+                CollectionType = MediaBrowser.Model.Entities.CollectionTypeOptions.boxsets
+            },
+            new MediaBrowser.Model.Entities.VirtualFolderInfo
+            {
+                Name = "My Collection", // Name-based fallback
+                CollectionType = MediaBrowser.Model.Entities.CollectionTypeOptions.movies
+            },
+            new MediaBrowser.Model.Entities.VirtualFolderInfo
+            {
+                Name = "TV Shows",
+                CollectionType = MediaBrowser.Model.Entities.CollectionTypeOptions.tvshows
+            },
+            new MediaBrowser.Model.Entities.VirtualFolderInfo
+            {
+                Name = " ", // Whitespace name is filtered out
+                CollectionType = MediaBrowser.Model.Entities.CollectionTypeOptions.movies
+            }
+        ]);
+        var localConfigHelper = new Mock<ICleanupConfigHelper>();
+        localConfigHelper.Setup(h => h.GetConfig()).Returns(_config);
+        var controller = new ConfigurationController(
+            _arrServiceMock.Object,
+            new Mock<IPluginLogService>().Object,
+            new Mock<ILogger<ConfigurationController>>().Object,
+            localConfigHelper.Object,
+            _configServiceMock.Object,
+            _seerrServiceMock.Object,
+            libraryManagerMock.Object);
+
+        var result = controller.GetAvailableLibraries();
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.NotNull(ok.Value);
+
+        // Reflect into the anonymous type
+        var json = JsonSerializer.Serialize(ok.Value);
+        Assert.Contains("Movies", json, StringComparison.Ordinal);
+        Assert.Contains("TV Shows", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("Music", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("Boxsets", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("My Collection", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetAvailableLibraries_ReturnsAlphabeticallySorted()
+    {
+        // UI ordering is deterministic so admins don't see libraries shuffled between page loads.
+        var libraryManagerMock = new Mock<MediaBrowser.Controller.Library.ILibraryManager>();
+        libraryManagerMock.Setup(lm => lm.GetVirtualFolders()).Returns(
+        [
+            new MediaBrowser.Model.Entities.VirtualFolderInfo
+            {
+                Name = "Zeta", CollectionType = MediaBrowser.Model.Entities.CollectionTypeOptions.movies
+            },
+            new MediaBrowser.Model.Entities.VirtualFolderInfo
+            {
+                Name = "Alpha", CollectionType = MediaBrowser.Model.Entities.CollectionTypeOptions.movies
+            },
+            new MediaBrowser.Model.Entities.VirtualFolderInfo
+            {
+                Name = "beta", CollectionType = MediaBrowser.Model.Entities.CollectionTypeOptions.movies
+            }
+        ]);
+        var localConfigHelper = new Mock<ICleanupConfigHelper>();
+        localConfigHelper.Setup(h => h.GetConfig()).Returns(_config);
+        var controller = new ConfigurationController(
+            _arrServiceMock.Object,
+            new Mock<IPluginLogService>().Object,
+            new Mock<ILogger<ConfigurationController>>().Object,
+            localConfigHelper.Object,
+            _configServiceMock.Object,
+            _seerrServiceMock.Object,
+            libraryManagerMock.Object);
+
+        var result = controller.GetAvailableLibraries();
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = JsonSerializer.Serialize(ok.Value);
+        // Alphabetical (case-insensitive): Alpha < beta < Zeta
+        var alphaIdx = json.IndexOf("Alpha", StringComparison.Ordinal);
+        var betaIdx = json.IndexOf("beta", StringComparison.Ordinal);
+        var zetaIdx = json.IndexOf("Zeta", StringComparison.Ordinal);
+        Assert.True(alphaIdx < betaIdx && betaIdx < zetaIdx,
+            $"Expected Alpha < beta < Zeta but got positions {alphaIdx}, {betaIdx}, {zetaIdx}");
+    }
+
+    // ===== TestArrInstanceGroupAsync: Sonarr coverage =====
+
+    [Fact]
+    public async Task UpdateConfiguration_UnreachableSonarr_ReturnsWarning()
+    {
+        _arrServiceMock
+            .Setup(s => s.TestConnectionAsync("http://s1:8989", "sk1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((false, "timeout"));
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SonarrInstances = [ new ArrInstanceConfig { Name = "BadSonarr", Url = "http://s1:8989", ApiKey = "sk1" } ]
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = JsonSerializer.Serialize(ok.Value);
+        Assert.Contains("BadSonarr", json);
+        Assert.Contains("not reachable", json);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ArrInstanceWithoutName_UsesGenericLabel()
+    {
+        // BUG GUARD: instances added without a name must still surface a meaningful label
+        // ("Radarr #1", "Radarr #2" etc), not a blank string in the warning.
+        _arrServiceMock
+            .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((false, "refused"));
+
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = string.Empty, Url = "http://r1:7878", ApiKey = "k1" }
+            ]
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = JsonSerializer.Serialize(ok.Value);
+        Assert.Contains("Radarr #1", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ArrInstanceWithEmptyCredentials_IsSkipped()
+    {
+        // Instances without url or apiKey must not trigger a connection test at all —
+        // otherwise every save produces a spurious "instance unreachable" warning for
+        // partially-filled rows the admin hasn't finished configuring yet.
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = "Empty", Url = string.Empty, ApiKey = string.Empty }
+            ]
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+        _arrServiceMock.Verify(
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ArrTestThrows_ExceptionSurfacesAsWarning()
+    {
+        // Contract: HttpRequestException / TimeoutException must be caught and reported as
+        // a warning — the config save must NOT fail because of unreachable Arr instances.
+        _arrServiceMock
+            .Setup(s => s.TestConnectionAsync("http://r1:7878", "k1", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("network down"));
+
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = "Flaky", Url = "http://r1:7878", ApiKey = "k1" }
+            ]
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = JsonSerializer.Serialize(ok.Value);
+        Assert.Contains("Flaky", json, StringComparison.Ordinal);
+        Assert.Contains("network down", json, StringComparison.Ordinal);
+    }
+
+    // ===== TestSeerrConnectionAsync coverage =====
+
+    [Fact]
+    public async Task UpdateConfiguration_SeerrConfigured_HappyPath_NoWarnings()
+    {
+        _seerrServiceMock
+            .Setup(s => s.TestConnectionAsync("https://seerr.example.com", "seerr-key", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "Seerr v1.33"));
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "  https://seerr.example.com  ",
+            SeerrApiKey = "  seerr-key  ",
+            SeerrCleanupAgeDays = 30
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = JsonSerializer.Serialize(ok.Value);
+        // No Seerr warnings should appear
+        Assert.DoesNotContain("Seerr instance", json, StringComparison.Ordinal);
+        // Values were trimmed before persistence
+        Assert.Equal("https://seerr.example.com", _config.SeerrUrl);
+        Assert.Equal("seerr-key", _config.SeerrApiKey);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SeerrUnreachable_ReturnsWarning()
+    {
+        _seerrServiceMock
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((false, "invalid api key"));
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "wrong-key",
+            SeerrCleanupAgeDays = 30
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = JsonSerializer.Serialize(ok.Value);
+        Assert.Contains("Seerr", json, StringComparison.Ordinal);
+        Assert.Contains("not reachable", json, StringComparison.Ordinal);
+        Assert.Contains("invalid api key", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SeerrTestThrows_ExceptionSurfacesAsWarning()
+    {
+        _seerrServiceMock
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("dns timeout"));
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "some-key",
+            SeerrCleanupAgeDays = 30
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = JsonSerializer.Serialize(ok.Value);
+        Assert.Contains("Seerr", json, StringComparison.Ordinal);
+        Assert.Contains("dns timeout", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_NoSeerrCredentials_SkipsSeerrConnectionTest()
+    {
+        // Save with empty Seerr fields must not test Seerr, matching the Arr "skip empty" behaviour.
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = string.Empty,
+            SeerrApiKey = string.Empty
+        };
+        await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        _seerrServiceMock.Verify(
+            s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    // ===== SeerrCleanupAgeDays clamp / disable =====
+
+    [Fact]
+    public async Task UpdateConfiguration_SeerrCleanupAgeDays_TooLarge_ReturnsBadRequest()
+    {
+        // BUG GUARD: The validator MUST reject SeerrCleanupAgeDays > 3650 with 400 (hard-fail),
+        // NOT silently clamp. Silent clamping would let a malicious/buggy client persist
+        // absurd retention values without any feedback that the input was clipped.
+        _seerrServiceMock
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "OK"));
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "k",
+            SeerrCleanupAgeDays = 99999
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        var json = JsonSerializer.Serialize(bad.Value);
+        Assert.Contains("SeerrCleanupAgeDays", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SeerrCleanupAgeDays_TooSmall_ReturnsBadRequest()
+    {
+        // Symmetric guard for the lower bound: 0 must be rejected when Seerr is configured
+        // (the "disable" state is signalled by clearing SeerrUrl, not by setting cleanupAge=0).
+        _seerrServiceMock
+            .Setup(s => s.TestConnectionAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "OK"));
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "k",
+            SeerrCleanupAgeDays = 0
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SeerrCleanupAgeDays_ClampedWhenSeerrDisabled_DoesNotValidate()
+    {
+        // When Seerr is disabled (no URL), the age validator MUST be skipped so that clients
+        // sending a legacy non-zero age don't get a BadRequest — the code silently forces the
+        // stored value to 0. This test locks the "validator skips when Seerr disabled" contract.
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = string.Empty,
+            SeerrApiKey = string.Empty,
+            SeerrCleanupAgeDays = 99999
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(0, _config.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SeerrCleanupAgeDays_ZeroedWhenSeerrDisabled()
+    {
+        // BUG GUARD: without a Seerr URL, the age setting is meaningless and MUST be forced
+        // to 0 so the scheduled cleanup task can trivially detect the "disabled" state.
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = string.Empty,
+            SeerrApiKey = string.Empty,
+            SeerrCleanupAgeDays = 30
+        };
+        await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.Equal(0, _config.SeerrCleanupAgeDays);
+    }
+
+    // ===== ApplyRequestToConfig edge cases =====
+
+    [Fact]
+    public async Task UpdateConfiguration_OrphanMinAgeDays_TooLarge_ReturnsBadRequest()
+    {
+        // BUG GUARD: validator rejects OrphanMinAgeDays > 3650 with 400 (hard-fail), not
+        // silent clamp. Prevents absurd retention windows from being persisted without feedback.
+        var request = new ConfigurationUpdateRequest { OrphanMinAgeDays = 999999 };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        var json = JsonSerializer.Serialize(bad.Value);
+        Assert.Contains("OrphanMinAgeDays", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_OrphanMinAgeDays_AtBoundary3650_Accepted()
+    {
+        // Boundary test: exactly 3650 must be accepted (inclusive upper bound).
+        var request = new ConfigurationUpdateRequest { OrphanMinAgeDays = 3650 };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(3650, _config.OrphanMinAgeDays);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_TrashRetentionDays_TooLarge_ReturnsBadRequest()
+    {
+        // Symmetric guard: TrashRetentionDays follows the same 0-3650 range as OrphanMinAgeDays.
+        var request = new ConfigurationUpdateRequest { TrashRetentionDays = 4000 };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        var json = JsonSerializer.Serialize(bad.Value);
+        Assert.Contains("TrashRetentionDays", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_NullTrashFolderPath_DefaultsToJellyfinTrash()
+    {
+        // Verifies the null-guard in ApplyRequestToConfig: `string.IsNullOrWhiteSpace(...)` handles
+        // an explicit null gracefully by falling back to ".jellyfin-trash". `null!` suppresses the
+        // nullable-analysis warning — the DTO property is non-nullable in the C# type system, but
+        // production JSON payloads may legitimately deserialize as null.
+        //
+        // We seed a NON-default value first so a regression that bypasses ApplyRequestToConfig
+        // (early return, wrong branch, etc.) cannot silently pass just because ".jellyfin-trash"
+        // is also the constructor default.
+        _config.TrashFolderPath = "custom-trash";
+        var request = new ConfigurationUpdateRequest { TrashFolderPath = null! };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(".jellyfin-trash", _config.TrashFolderPath);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_WhitespaceLanguage_DefaultsToEnglish()
+    {
+        // Same rationale as the null-TrashFolderPath test above: seed a non-default value
+        // ("de") so we can prove the whitespace payload actually reached the defaulting
+        // branch instead of leaving the field untouched.
+        _config.Language = "de";
+        var request = new ConfigurationUpdateRequest { Language = "   " };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal("en", _config.Language);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_InvalidPersistedLogLevel_SelfHealsToInfo()
+    {
+        // Legacy configs may have an unknown level (e.g. "TRACE" from an older schema).
+        // ApplyRequestToConfig must normalise these to INFO instead of leaving garbage.
+        _config.PluginLogLevel = "GARBAGE";
+        var request = new ConfigurationUpdateRequest();
+        await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.Equal("INFO", _config.PluginLogLevel);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_MixedCasePersistedLogLevel_NormalizedToUpperCase()
+    {
+        _config.PluginLogLevel = "warn";
+        var request = new ConfigurationUpdateRequest();
+        await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.Equal("WARN", _config.PluginLogLevel);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_UseTrashWithTraversalPath_ReturnsBadRequest()
+    {
+        // BUG GUARD: The validator MUST hard-reject a TrashFolderPath containing "." or ".."
+        // segments — traversal is a real attack surface (fs escape) and must not save.
+        var request = new ConfigurationUpdateRequest
+        {
+            UseTrash = true,
+            TrashFolderPath = "../../etc"
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        var json = JsonSerializer.Serialize(bad.Value);
+        Assert.Contains("..", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_UseTrashWithInvalidCharacters_ReturnsBadRequest()
+    {
+        // Invalid folder-name chars must be rejected with 400, not silently persisted.
+        var request = new ConfigurationUpdateRequest
+        {
+            UseTrash = true,
+            TrashFolderPath = "trash*folder"
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_UseTrashWithControlChars_ReturnsBadRequest()
+    {
+        var request = new ConfigurationUpdateRequest
+        {
+            UseTrash = true,
+            TrashFolderPath = "trash\u0007folder"
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_UseTrashDisabledWithBadPath_StillAccepts()
+    {
+        // Contract: when UseTrash=false, the path is not validated (irrelevant field).
+        var request = new ConfigurationUpdateRequest
+        {
+            UseTrash = false,
+            TrashFolderPath = "../../etc" // Would be rejected if UseTrash=true, but not here
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_UseTrashWithEmptyPath_ReturnsBadRequest()
+    {
+        // When trash is enabled, an empty path must be rejected — the feature has no default fallback.
+        var request = new ConfigurationUpdateRequest
+        {
+            UseTrash = true,
+            TrashFolderPath = "   " // whitespace-only
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_MaxRadarrInstancesExceeded_ReturnsBadRequest()
+    {
+        // BUG GUARD: the validator caps Radarr instances at 3 — beyond that the config UI
+        // would be unwieldy and per-request overhead would grow linearly.
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = "R1", Url = "http://r1:7878", ApiKey = "k1" },
+                new ArrInstanceConfig { Name = "R2", Url = "http://r2:7878", ApiKey = "k2" },
+                new ArrInstanceConfig { Name = "R3", Url = "http://r3:7878", ApiKey = "k3" },
+                new ArrInstanceConfig { Name = "R4", Url = "http://r4:7878", ApiKey = "k4" }
+            ]
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ArrInstanceWithNonHttpUrl_ReturnsBadRequest()
+    {
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = "Bad", Url = "ftp://r1:7878", ApiKey = "k1" }
+            ]
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ArrInstanceUrlWithoutApiKey_ReturnsBadRequest()
+    {
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = "Naked", Url = "http://r1:7878", ApiKey = string.Empty }
+            ]
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SeerrUrlWithoutApiKey_ReturnsBadRequest()
+    {
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = string.Empty,
+            SeerrCleanupAgeDays = 30
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_InvalidSeerrUrl_ReturnsBadRequest()
+    {
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "not-a-url",
+            SeerrApiKey = "k",
+            SeerrCleanupAgeDays = 30
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
 }

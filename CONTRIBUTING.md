@@ -101,9 +101,17 @@ Tests mirror the source structure:
 
 ```text
 Jellyfin.Plugin.JellyfinHelper.Tests/
+├── PluginServiceRegistratorTests.cs      # DI-container smoke test: every service the plugin depends on must resolve (catches renamed/removed registrations before runtime)
+├── PluginTests.cs                        # Plugin bootstrap: constructor Instance publishing, GetPages menu entry, UpdateIndexHtml inject/remove fast-path + idempotency (BUG GUARD against double-injection and mtime churn), OnUninstalling data-file + playlist cleanup with strict prefix + extension guards (must not delete unrelated files)
 ├── Api/                           # Controller tests
+│   ├── ArrIntegrationControllerExtendedTests.cs      # Branch coverage beyond ArrIntegrationControllerTests: index parameter (negative, out-of-range, valid), 502-Bad-Gateway with named failed instance in the response body (admins must know exactly WHICH Radarr/Sonarr instance failed), trash-folder exclusion in GetJellyfinFolderNames (the ".jellyfin-trash" directory must NOT surface as InJellyfinOnly noise), IOException / UnauthorizedAccessException swallow around _fileSystem.GetDirectories, and the design-contract test that locks the filter-aware "no configured instances" semantic: GetEffectiveRadarrInstances/GetEffectiveSonarrInstances drop partial instances BEFORE the controller sees them, so a config with only empty-URL entries correctly returns 400 (not a silent 200 with empty comparison).
+│   ├── BackupControllerExtendedTests.cs               # Branch coverage beyond BackupControllerTests: malformed JSON (must return 400 not 500), JSON literal "null" (null-guard after DeserializeBackup), actual chunk-loop body exceeds MaxSize when Content-Length lies (memory-exhaustion defence), whitespace-only body (IsNullOrWhiteSpace vs IsNullOrEmpty guard)
 │   ├── DiscoveryControllerTests.cs
+│   ├── DiscoveryControllerExtendedTests.cs           # GetSeerrUsers/GetServiceInfo happy paths, SubmitRequest + MarkAsRequestedAsync integration, dismissed/requested filter logic, error paths when the feedback store throws
 │   ├── UserDiscoveryControllerTests.cs
+│   ├── UserDiscoveryControllerAccessEnabledTests.cs  # Access gate ENABLED - request validation and permission surfaces (complements gate-disabled default)
+│   ├── UserDiscoveryControllerSubmitTests.cs         # SubmitMyRequest + DismissItem with gate ENABLED (per-user Seerr identity mapping + feedback-store side effects)
+│   ├── FolderBrowserControllerTests.cs               # Thin wrapper over IFolderBrowserService + ILibraryManager; root/list/validate flows and library-path resolution
 │   ├── RecommendationControllerTests.cs
 │   ├── UserActivityControllerTests.cs
 │   ├── TrashControllerTests.cs
@@ -112,69 +120,129 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── PluginConfigurationSerializationTests.cs
 │   └── TaskModeTests.cs
 ├── PluginPages/                   # HTML composition tests
-│   ├── ConfigPageTestBase.cs      # Shared base loading configPage.html
-│   ├── DiscoverHtmlTests.cs       # Recommendations tab HTML tests
-│   └── ...
+│   ├── ConfigPageTestBase.cs      # Shared base loading configPage.html + README
+│   ├── ConfigPageHtmlTests.cs     # Top-level page structure + README hygiene
+│   ├── ConfigPageTemplateTests.cs # Template shell / placeholder / metadata
+│   ├── MainHtmlTests.cs           # Main.js: bootstrap, tab switching, page lifecycle
+│   ├── SharedHtmlTests.cs         # Shared.js: API wrappers, i18n, formatting, tree
+│   ├── OverviewHtmlTests.cs       # Overview tab
+│   ├── CodecsHtmlTests.cs         # Codecs tab (donut charts, path map)
+│   ├── HealthHtmlTests.cs         # Health tab (orphan/missing detection)
+│   ├── TrendsHtmlTests.cs         # Trends tab (growth timeline + insights)
+│   ├── SettingsHtmlTests.cs       # Settings tab (task modes, trash, Seerr)
+│   ├── LogsHtmlTests.cs           # Logs tab (viewer, auto-refresh, download)
+│   ├── ArrIntegrationHtmlTests.cs # Arr tab (Radarr/Sonarr/Lidarr wiring)
+│   ├── DiscoverHtmlTests.cs       # Recommendations tab surface structure
+│   ├── RecommendationsHtmlTests.cs# Recommendations.js: cache, XSS, popup, TTL
+│   └── FolderBrowserHtmlTests.cs  # Server-side folder picker dialog
 ├── ScheduledTasks/                # Task execution tests
-│   ├── CleanTrickplayTrashExclusionTests.cs  # Trash folder exclusion from recursive scan
+│   ├── CleanTrickplayTrashExclusionTests.cs              # Trash folder exclusion from recursive scan
+│   ├── CleanOrphanedSubtitlesTaskProcessLocationTests.cs # Integration test for CleanOrphanedSubtitlesTask.ProcessLocation: library setup, recursive GetDirectories, file-leaf-name enumeration wiring
+│   ├── RepairLinksTaskTests.cs                           # Thin orchestration of RepairLinksTask around ILinkRepairService (dry-run flag propagation, cancellation token, progress reporting) - no filesystem I/O
 │   ├── RecommendationsTaskTests.cs
 │   ├── UserActivityUpdateTaskTests.cs
 │   └── ...
 ├── Services/
+│   ├── DateTimeNormalizationTests.cs      # Every branch of the UTC coercion helper used by all result-DTO timestamp setters (guards against Local->SpecifyKind bugs that would silently corrupt cache timestamps)
 │   ├── Activity/                  # User activity service tests
 │   ├── Arr/                       # Arr integration tests
 │   ├── Backup/                    # Backup/restore tests
+│   │   ├── BackupServiceTests.cs
+│   │   ├── BackupServicePerformanceTests.cs
+│   │   └── BackupServiceRestoreConfigTests.cs  # RestoreBackup + RestoreConfiguration when IPluginConfigurationService.IsInitialized=true (invalid language -> "en" fallback, out-of-range clamping, garbage task-mode rejection, Arr-instance list reset)
 │   ├── Cleanup/                   # Cleanup task tests
 │   │   ├── TrashControllerAccessTests.cs  # CheckAccess API endpoint tests (permission probing)
 │   │   ├── TrashControllerRelocateTests.cs # Trash path relocation API endpoint tests
 │   │   ├── TrashServiceAccessTests.cs     # CheckPathAccess permission probing tests
 │   │   ├── TrashServiceGuardTests.cs      # Defense-in-depth: prevent re-trashing items already in trash
 │   │   ├── TrashServicePathLengthTests.cs # ResolveCollision stays within OS MAX_PATH (Windows 259 / Linux 4095)
-│   │   └── TrashServiceRelocateTests.cs   # RelocateTrashContents unit tests (move, collision, safety)
+│   │   ├── TrashServiceRelocateTests.cs   # RelocateTrashContents unit tests (move, collision, safety)
+│   │   └── TrashServiceInternalHelpersTests.cs # Edge-case coverage of the internal static helpers TruncateToSize / MeasureString / ExtractOriginalName / TryParseTrashTimestamp / PathComparison (NAME_MAX=255 on Unix, surrogate pairs, empty budget, mojibake avoidance)
 │   ├── Common/                    # Shared cross-service helper tests
+│   │   ├── AtomicFileTests.cs             # Atomic-write helper contract: UTF-8 no-BOM payload, temp-file cleanup on success/failure, transient-IO retry with backoff, async overload honours CancellationToken (per-test tmp dirs for isolation)
 │   │   └── BatchFallbackHelperTests.cs    # try-batch/fall-back contract: cancellation propagates, non-fatal exceptions degrade to fallback
 │   ├── ConfigAccess/              # Configuration access tests
+│   ├── FileTransformation/        # File Transformation plugin integration tests
+│   │   ├── DiscoveryScriptTagTests.cs      # Single source of truth for the sidebar script tag: Build() produces well-formed HTML with URL-escaped version, RemovalRegex round-trips every Build() output, edge cases (null/empty/whitespace/special chars), regex must NOT eat unrelated <script> tags
+│   │   ├── PatchRequestPayloadTests.cs     # JSON DTO contract: property must (de)serialize to "contents" (lowercase-camel) so File Transformation callback payloads round-trip correctly
+│   │   └── TransformationPatchesTests.cs   # TransformationPatches.IndexHtml callback: null/empty-Contents tolerance, no-op when </body> missing, single insert before first </body>, idempotent re-serving (removes previous script tag before re-inserting), case-insensitive </BODY>
+│   ├── FolderBrowser/             # Server-side folder browsing tests
+│   │   ├── FolderBrowserDtoTests.cs        # DTO defaults, mutability, reference-equality semantics for FolderEntry / FolderBrowseResult (guards against accidental conversion to `record` which would break identity-based caching)
+│   │   └── FolderBrowserServiceTests.cs    # Full-behaviour coverage of FolderBrowserService: GetRoots per-OS branches (forced via internal ctor overload), ValidatePath (empty / traversal / null-byte / relative / non-existent / file-vs-dir / access-denied), GetChildren (empty dir, HasChildren, hidden dirs, symlinks, broken symlinks, UNC)
 │   ├── Link/                      # Link repair tests
+│   │   └── SymlinkHelperTests.cs           # Integration tests for the production SymlinkHelper against a real filesystem (per-test isolated temp dirs; graceful skip when symlink privileges are unavailable); a meta-test guarantees at least Linux/macOS CI actually exercises the symlink branch
 │   ├── PluginLog/                 # Plugin log tests
 │   ├── Seerr/                     # Seerr integration tests
 │   │   ├── SeerrIntegrationServiceTests.cs
 │   │   ├── SeerrMediaDetailsTests.cs
+│   │   ├── SeerrRequestPageTests.cs        # Null-coalescing setter on the SeerrRequestPage.Results collection: a null upstream payload (or a Deserialize returning null for the array) must not propagate to callers that iterate the list without null-guarding. Also pins non-null Same-reference contract (no defensive copy) and reassignment-to-null clears back to empty (guards against init-only regression).
 │   │   └── Discovery/            # Seerr Discovery tests
+│   │       ├── DiscoveryCacheServiceTests.cs            # DiscoveryCacheService disk + memory persistence contract; uses Plugin.Instance.DataFolderPath so each test writes to a real (per-test) file to avoid cross-test contamination
 │   │       ├── DiscoveryFeedbackStoreTests.cs
-│   │       ├── DiscoveryRegressionTests.cs  # v2.1.0.3 regression tests (ServerId=0, profile dedup, MissingMethodException)
+│   │       ├── DiscoveryRecommendationTests.cs         # Setter guards on the DiscoveryRecommendation DTO: Score / TmdbRating (Range 0..1 / 0..10, non-finite→0, clamp on out-of-range) and Popularity (non-finite→0, negative→0, positive preserved). Pins the exact contract that keeps JsonSerializer from crashing on NaN and prevents poisoned TMDb responses from propagating a non-finite feature into the neural-training vector.
+│   │       ├── DiscoveryRegressionTests.cs              # v2.1.0.3 regression tests (ServerId=0, profile dedup, MissingMethodException)
 │   │       ├── ExternalCandidateFeatureBuilderTests.cs  # inference↔training feature parity (genre-exposure + popularity skew guards)
+│   │       ├── ExternalCandidateFeatureBuilderExtendedTests.cs # Branch-coverage extensions for ExternalCandidateFeatureBuilder: ArgumentNullException guards on all four required inputs, defensive rebuild of preferredPeople HashSet when a non-OrdinalIgnoreCase comparer is passed (BUG GUARD: TMDb returns "leonardo dicaprio" while profile stores "Leonardo DiCaprio" — case-sensitive comparer silently drops PeopleSimilarity to 0), EffectiveReleaseDate=null → neutral 0.5 RecencyScore + null-tolerant YearProximity, TV branch where FirstAirDate feeds recency (proved by asserting RecencyScore varies with the date, not a constant fallback), OrdinalIgnoreCase mediaType parsing ("TV" uppercase treated as series), ComputePeopleSimilarity guard branches (empty preferred / null KnownPeople / empty KnownPeople), ComputePeopleSimilarityFromNames whitespace filter + duplicate-name de-dup + small-preferred-set MinPeopleForFullScore cap
+│   │       ├── NullableDateTimeConverterTests.cs        # TMDb/Seerr empty-string / malformed release_date / first_air_date values must degrade to null instead of throwing JsonException (whole response would otherwise be dropped)
+│   │       ├── ParentalRatingHelperTests.cs
+│   │       ├── SeerrDiscoveryDtoTests.cs                # Wire contract for the Seerr / TMDb DTO family used by the discovery pipeline: lower-camel property names, defaults, round-trip
 │   │       ├── SeerrDiscoveryServiceTests.cs
-│   │       └── ParentalRatingHelperTests.cs
+│   │       ├── SeerrDiscoveryServiceHelperTests.cs      # Pure-static internal helpers on SeerrDiscoveryService: StampMediaType, BuildGenreIdList, GetPrimaryLanguageForDiscovery, etc.
+│   │       ├── SeerrDiscoveryServiceHttpTests.cs        # HTTP-driven public surface via scripted HttpMessageHandler: SubmitRequestAsync, GetServiceInfoAsync, GetSeerrUsersAsync, ResolveSeerrUserIdAsync, GetUserRequestPermissionsAsync (mutates Plugin.Instance.Configuration → serialised via ConfigOverride collection)
+│   │       ├── SeerrDiscoveryGenerationTests.cs         # Task-mode orchestration of GenerateDiscoveryRecommendationsAsync (largest previously-uncovered method): TaskMode.Deactivate short-circuits BEFORE watch-history fetch (guards against opt-out admins getting a 6h DB traffic spike), missing SeerrUrl/ApiKey short-circuits, no-active-users skips feedback recording (users with 0 plays + <3 favorites must not enter the scoring pipeline), cancellation propagates out of the per-user try/catch (must not be swallowed by outer catch-not-OCE filter), DryRun mode NEVER writes to feedback store (preview must not contaminate training ground-truth)
+│   │       ├── SeerrDiscoveryServiceUserResolutionTests.cs # User-resolution + quality-profile-list helpers: FindSeerrUserByJellyfinId, BuildAllowedProfileList
+│   │       ├── SeerrDiscoveryServiceReasonTests.cs      # Pure-static DetermineReason: reasonPersonNamed/reasonGenre/reasonTrending/reasonPopular branch selection, boundary-guards on 0.3/0.7/0.8 gates, priority ordering, preferred-people intersection tie-break
+│   │       ├── SeerrPermissionExtensionsTests.cs        # SECURITY: authorization gate for Discovery requests - HasPermission zero-flag guard, admin bypass, granular per-media-type flags, unknown-media-type rejection, null-user throws
+│   │       └── TmdbDiscoverItemTests.cs                 # TmdbDiscoverItem DTO parsing surface between Seerr/TMDb JSON and the recommendation engine: GenreIds null-coalesce to empty list (TMDb sometimes emits null), DisplayTitle Title→Name→"Unknown" fallback chain (BUG GUARD: only NULL falls through, not empty string, else TV shows silently rename), EffectiveReleaseDate ReleaseDate→FirstAirDate for TV items (recency-scoring depends on this), defaults (Adult=false safe posture, MediaType="movie", KnownPeople=null to distinguish "not enriched yet" vs "enriched empty"), JSON round-trip via NullableDateTimeConverter (empty-string releaseDate must not blow up the whole batch)
 │   ├── Statistics/                # Statistics service tests
 │   ├── Timeline/                  # Growth timeline tests
-│   │   └── GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks/junctions
+│   │   ├── GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks/junctions
+│   │   └── LibraryInsightsResultTests.cs  # Null-coalescing setters on LibraryInsightsResult (Largest, Recent, LibrarySizes): cache JSON that omits or nulls a collection must not surface as `null` to enumerating callers. Also asserts defaults (fresh instance is safe to enumerate) and reassignment-to-null (must actively clear back to empty, no stale non-null leak).
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
 │       │   ├── ContentScoringTests.cs
 │       │   ├── DiversityRerankerTests.cs
+│       │   ├── EngineBoxSetTests.cs                   # BoxSet pure-static helpers on Engine: BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity guard)
+│       │   ├── EngineBoxSetLookupTests.cs             # private-static BoxSet-resolution helpers on Engine (BuildCandidateBoxSetLookupFresh, ResolveBoxSetIds): sparsity guarantee (orphan movies produce ZERO lookup entries, not empty-list values - measurable overhead at 10k+ candidates), fail-soft catch-all on parent-hierarchy walk (corrupted third-party metadata must not crash the batch), mutability contract on returned list (guards against future Array.Empty/ImmutableList regression)
+│       │   ├── EngineCommunityPopularityTests.cs      # Engine.BuildCommunityPopularityMap - shared cold-start community-popularity computation used by both the batch path and the live path (identical output required)
+│       │   ├── EngineExceedsMaxRatingTests.cs         # SECURITY-CRITICAL parental-rating gate (private-static ExceedsMaxRating): null max = unrestricted, missing item rating on a restricted profile = REJECT (fail-safe against unrated adult content leaking into child profiles), inclusive boundary (=max allowed, max+1 rejected), zero-max edge case, reflection-based invocation with backing-field fallback so tests survive BaseItem API drift
+│       │   ├── EngineHelperTests.cs                   # Pure-static internal helper methods on Engine that cannot be exercised end-to-end without spinning up the full recommendation pipeline
+│       │   ├── EngineFullPipelineTests.cs             # End-to-end pipeline tests that DRIVE the full recommendation Engine through cold-start and warm code paths: constructs real Movie instances and feeds them through the LibraryManager mock so GenerateColdStartRecommendations, GenerateForUser, ScoreCandidate, ResolveMediaLanguages, and the Parallel.ForEach batch loop actually execute (all sat at 0% coverage before Round 9). Bug guards: cold-start returns non-null result even with empty library, cold-start uses classic formula when communityPopularity is null, warm path executes without any watched item in candidate list (ghost-id case after library cleanup), parallel batch loop respects user-count == 2 (Two-User-Gate in BuildCommunityPopularityMap)
+│       │   ├── EngineInstanceTests.cs                 # Outer control-flow contract of Engine.GetRecommendations / GetAllRecommendations / TrainStrategy via the EngineTestFactory harness: user-not-found returns NULL (never empty-result - the API layer relies on this to distinguish 404 from 200), cancellation-token honoured at method entry (not after profile fetch), Math.Clamp guards maxResults against negative / int.MaxValue inputs, empty-user deployment yields empty (never null) list, TrainStrategy short-circuits on empty previousResults for both incremental=true and =false (must NOT touch watch-history or mutate strategy metrics counter)
+│       │   ├── EngineLanguageAffinityTests.cs         # ComputeLanguageAffinity + ComputeSubtitleLanguageAffinity fail-safe contract: empty language profile OR item without stream metadata BOTH return neutral 0.5 (never 0.0 - would penalise every thin-metadata item to the bottom of the ranking), cross-feature isolation guard (audio profile presence must not leak into subtitle score and vice versa)
 │       │   ├── PreferenceBuilderTests.cs
-│       │   ├── SimilarityComputerTests.cs   # People-batch (GetPeopleNamesByItems) + per-item fallback; weighted PeopleSimilarity overload (Roadmap v3 C2)
-│       │   ├── TemporalFeaturesTests.cs     # Day-of-week / hour-of-day / weekend affinity computation
+│       │   ├── ReasonResolverTests.cs                 # Every branch of ReasonResolver.DetermineReason + private resolvers + StripWatchedItemsForResponse; EngineConstants thresholds are treated as contract
+│       │   ├── SimilarityComputerTests.cs             # People-batch (GetPeopleNamesByItems) + per-item fallback; weighted PeopleSimilarity overload (Roadmap v3 C2)
+│       │   ├── TemporalFeaturesTests.cs               # Day-of-week / hour-of-day / weekend affinity computation
+│       │   ├── TrainingServiceTests.cs                # TrainingService uses a process-wide static gate (TrainGate) - tests must be serialised via the ConfigOverride collection
 │       │   └── Training/
 │       │       ├── CollectionProgressionBoostTests.cs # Locks the diminishing-returns formula 0.3+(n-1)×0.2 (Roadmap v3 C3) - guards train/serve parity
-│       │       └── TrainingDataBuilderTests.cs        # F-01 regression: Phase 3 cross-user random negatives must be deterministic across runs (guards against Random.Shared reintroduction)
+│       │       ├── TrainingDataBuilderTests.cs        # F-01 regression: Phase 3 cross-user random negatives must be deterministic across runs (guards against Random.Shared reintroduction)
+│       │       └── TrainingFeatureComputerTests.cs    # Shared training-time feature helpers must remain in lock-step with the live scoring path (feature-parity guard)
 │       ├── Playlist/              # Playlist sync tests
 │       │   └── RecommendationPlaylistServiceTests.cs
 │       ├── Scoring/               # Strategy-specific tests
 │       │   ├── ScoringStrategyTests.cs
 │       │   ├── NeuralScoringStrategyTests.cs
+│       │   ├── EnsembleScoringStrategyAdvancedTests.cs # Previously uncovered branches on EnsembleScoringStrategy: ScoreWithOffset, ScoreWithExplanationAndOffset, ApplyCohortFeedback, constructor guards
+│       │   ├── StrategySelectorTests.cs                # Cohort router: exploration-gate activation, deterministic user-hash bucketing, strategy routing
+│       │   ├── NeuralFeatureImportanceTests.cs         # Permutation-based feature importance analyzer for the neural model - which features drive the predictions
 │       │   ├── ScoreExplanationTests.cs
 │       │   ├── TrainingExampleTests.cs
 │       │   └── RankingMetricsTests.cs
 │       ├── WatchHistory/          # Watch history service tests
 │       │   ├── LanguageAffinityTests.cs
-│       │   ├── WatchHistoryCompatTests.cs  # IUserManager API compatibility (MissingMethodException handling)
+│       │   ├── UserWatchProfileTests.cs        # Cache invalidation for lazy props, case-insensitive dictionary re-assignment (guards case-sensitive cache-deserialisation from silently regressing genre/language matching), null-safe setters, TopPeople boundaries (min-count filter, tie-break, cap at 20)
+│       │   ├── WatchHistoryCompatTests.cs      # IUserManager API compatibility (MissingMethodException handling)
 │       │   └── WatchHistoryServiceTests.cs
 │       ├── RecommendationCacheServiceTests.cs
+│       ├── RecommendationCacheServiceExtendedTests.cs  # Defensive branches missed by RecommendationCacheServiceTests: null-argument guard, directory auto-creation when DataPath does not exist, load of a file containing literal "null"
 │       ├── RecommendationDtoTests.cs
-│       └── RecommendationEngineTests.cs
+│       ├── RecommendationEngineTests.cs
+│       └── RecommendedItemTests.cs                     # Setter null-coalescing on the RecommendedItem DTO: SEVEN collection properties (Genres, PeopleNames, Studios, Tags, AudioLanguages, SubtitleLanguages, BoxSetIds) MUST swallow a null assignment and expose an empty list instead. Cache round-trips through JsonSerializer can null any of them; downstream training/scoring code iterates with foreach without null-guards. Reassignment (non-null → null) must actively replace the backing field so a re-clear doesn't leak the previous list.
 └── TestFixtures/                  # Shared test helpers
+    └── EngineTestFactory.cs       # Centralised builder for a fully-mocked recommendation Engine (7 constructor dependencies wired to sensible empty-collection defaults + a strategy override hook). Returns an EngineHarness record bundling the engine with all Moq references so tests can override a single collaborator without re-wiring the other six; keeps the Engine-tests suite resilient to future constructor-signature changes (one-line fix here vs. shotgun surgery across N test files)
 ```
 
 ### Test Guidelines

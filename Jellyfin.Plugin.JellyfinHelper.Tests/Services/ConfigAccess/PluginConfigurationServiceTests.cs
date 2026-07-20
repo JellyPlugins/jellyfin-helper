@@ -1,234 +1,161 @@
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
-using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
-using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
-using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.ConfigAccess;
 
 /// <summary>
-///     Tests for <see cref="IPluginConfigurationService" /> contract behaviour.
-///     Verifies that SaveConfiguration persists changes made to the Configuration object,
-///     and that GetConfiguration always returns the same mutable reference (singleton semantics).
+///     Tests for <see cref="PluginConfigurationService"/>. The service depends on the
+///     <c>Plugin.Instance</c> singleton — a piece of process-wide state that other tests
+///     may leave in either the initialised or the uninitialised state. To make the
+///     branches deterministic we go through the internal <c>IPluginAccessor</c> seam
+///     (exposed via <c>InternalsVisibleTo</c>) with a per-test fake so both the
+///     "plugin present" and "plugin absent" paths are exercised on every run.
 /// </summary>
 public class PluginConfigurationServiceTests
 {
     /// <summary>
-    ///     Verifies that modifications to the configuration object returned by
-    ///     <see cref="IPluginConfigurationService.GetConfiguration" /> are visible
-    ///     after <see cref="IPluginConfigurationService.SaveConfiguration" /> is called
-    ///     and the configuration is retrieved again.
-    ///     This is the core contract: GetConfiguration returns a mutable reference,
-    ///     changes are made in-place, and SaveConfiguration persists them.
+    ///     Deterministic accessor stub — replaces the real Plugin.Instance lookup with
+    ///     fields we control, so the tests are independent of process-wide singleton
+    ///     state and can be run in parallel without racing against any other suite.
     /// </summary>
-    [Fact]
-    public void SaveConfiguration_PersistsChanges_ToConfigurationProperty()
+    private sealed class FakePluginAccessor : PluginConfigurationService.IPluginAccessor
     {
-        // Arrange: a shared config instance (simulating Plugin.Instance.Configuration)
-        var config = new PluginConfiguration
-        {
-            OrphanMinAgeDays = 0,
-            Language = "en",
-            PluginLogLevel = "INFO"
-        };
+        public bool IsInitialized { get; set; }
+        public string? Version { get; set; }
+        public PluginConfiguration? Configuration { get; set; }
+        public int SaveCallCount { get; private set; }
 
-        var saveCallCount = 0;
-
-        var mock = new Mock<IPluginConfigurationService>();
-        mock.Setup(s => s.GetConfiguration()).Returns(config);
-        mock.Setup(s => s.IsInitialized).Returns(true);
-        mock.Setup(s => s.SaveConfiguration()).Callback(() => saveCallCount++);
-
-        var service = mock.Object;
-
-        // Act: mutate the config and save
-        var retrieved = service.GetConfiguration();
-        retrieved.OrphanMinAgeDays = 42;
-        retrieved.Language = "de";
-        retrieved.PluginLogLevel = "DEBUG";
-        retrieved.TrickplayTaskMode = TaskMode.Activate;
-        service.SaveConfiguration();
-
-        // Assert: the same reference should reflect the changes
-        var afterSave = service.GetConfiguration();
-        Assert.Same(retrieved, afterSave); // same reference (singleton semantics)
-        Assert.Equal(42, afterSave.OrphanMinAgeDays);
-        Assert.Equal("de", afterSave.Language);
-        Assert.Equal("DEBUG", afterSave.PluginLogLevel);
-        Assert.Equal(TaskMode.Activate, afterSave.TrickplayTaskMode);
-        Assert.Equal(1, saveCallCount);
+        public void SaveConfiguration() => SaveCallCount++;
     }
 
-    /// <summary>
-    ///     Verifies that multiple sequential saves accumulate changes correctly.
-    ///     Each save should persist the latest state of the configuration object.
-    /// </summary>
+    // ===== IsInitialized =====
+
     [Fact]
-    public void SaveConfiguration_MultipleSaves_AccumulateChanges()
+    public void IsInitialized_TrueWhenAccessorReportsInitialized()
     {
-        var config = new PluginConfiguration();
-        var saveCallCount = 0;
-
-        var mock = new Mock<IPluginConfigurationService>();
-        mock.Setup(s => s.GetConfiguration()).Returns(config);
-        mock.Setup(s => s.IsInitialized).Returns(true);
-        mock.Setup(s => s.SaveConfiguration()).Callback(() => saveCallCount++);
-
-        var service = mock.Object;
-
-        // First mutation + save
-        service.GetConfiguration().OrphanMinAgeDays = 10;
-        service.SaveConfiguration();
-
-        // Second mutation + save
-        service.GetConfiguration().TrashRetentionDays = 60;
-        service.SaveConfiguration();
-
-        // Third mutation + save
-        service.GetConfiguration().TotalBytesFreed = 999_999;
-        service.SaveConfiguration();
-
-        // All changes should be visible on the same config object
-        var final = service.GetConfiguration();
-        Assert.Equal(10, final.OrphanMinAgeDays);
-        Assert.Equal(60, final.TrashRetentionDays);
-        Assert.Equal(999_999, final.TotalBytesFreed);
-        Assert.Equal(3, saveCallCount);
+        var sut = new PluginConfigurationService(new FakePluginAccessor { IsInitialized = true });
+        Assert.True(sut.IsInitialized);
     }
 
-    /// <summary>
-    ///     Verifies that IsInitialized correctly reflects the service state.
-    ///     When not initialized, consumers should handle gracefully.
-    /// </summary>
     [Fact]
-    public void IsInitialized_ReturnsFalse_WhenPluginInstanceNotAvailable()
+    public void IsInitialized_FalseWhenAccessorReportsUninitialized()
     {
-        var mock = new Mock<IPluginConfigurationService>();
-        mock.Setup(s => s.IsInitialized).Returns(false);
-        mock.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration());
-
-        var service = mock.Object;
-
-        Assert.False(service.IsInitialized);
-
-        // GetConfiguration should still return a usable default config
-        var config = service.GetConfiguration();
-        Assert.NotNull(config);
+        var sut = new PluginConfigurationService(new FakePluginAccessor { IsInitialized = false });
+        Assert.False(sut.IsInitialized);
     }
 
-    /// <summary>
-    ///     Verifies that the configuration service works correctly in a realistic
-    ///     scenario where CleanupTrackingService records cleanup statistics.
-    ///     This simulates the actual pattern: read config → mutate → save.
-    /// </summary>
+    // ===== PluginVersion =====
+
     [Fact]
-    public void SaveConfiguration_CleanupTracking_Pattern()
+    public void PluginVersion_ReturnsAccessorVersionWhenPresent()
     {
-        var config = new PluginConfiguration();
-
-        var mock = new Mock<IPluginConfigurationService>();
-        mock.Setup(s => s.GetConfiguration()).Returns(config);
-        mock.Setup(s => s.IsInitialized).Returns(true);
-
-        var service = mock.Object;
-
-        // Simulate what CleanupTrackingService.RecordCleanup does
-        var cfg = service.GetConfiguration();
-        cfg.TotalBytesFreed += 1024 * 1024; // 1 MB
-        cfg.TotalItemsDeleted += 5;
-        cfg.LastCleanupTimestamp = new DateTime(2026, 4, 15, 14, 0, 0, DateTimeKind.Utc);
-        service.SaveConfiguration();
-
-        // Verify accumulated state
-        var result = service.GetConfiguration();
-        Assert.Equal(1024 * 1024, result.TotalBytesFreed);
-        Assert.Equal(5, result.TotalItemsDeleted);
-        Assert.Equal(new DateTime(2026, 4, 15, 14, 0, 0, DateTimeKind.Utc), result.LastCleanupTimestamp);
-        mock.Verify(s => s.SaveConfiguration(), Times.Once);
+        var sut = new PluginConfigurationService(new FakePluginAccessor { Version = "1.2.3-test" });
+        Assert.Equal("1.2.3-test", sut.PluginVersion);
     }
 
-    // ===== TestMockFactory Integration =====
-
-    /// <summary>
-    ///     Verifies that <see cref="TestMockFactory.CreateConfigurationService(PluginConfiguration)" /> returns a mock
-    ///     with all expected properties pre-configured (IsInitialized, GetConfiguration, PluginVersion).
-    /// </summary>
     [Fact]
-    public void CreateConfigurationService_DefaultConfig_HasExpectedDefaults()
+    public void PluginVersion_FallsBackToUnknownWhenAccessorHasNoVersion()
     {
-        var mock = TestMockFactory.CreateConfigurationService();
-        var service = mock.Object;
-
-        Assert.True(service.IsInitialized);
-        Assert.NotNull(service.GetConfiguration());
-        Assert.Equal("1.0.0-test", service.PluginVersion);
+        var sut = new PluginConfigurationService(new FakePluginAccessor { Version = null });
+        Assert.Equal("unknown", sut.PluginVersion);
     }
 
-    /// <summary>
-    ///     Verifies that <see cref="TestMockFactory.CreateConfigurationService" /> with a custom
-    ///     configuration returns the exact same instance (reference equality).
-    /// </summary>
-    [Fact]
-    public void CreateConfigurationService_CustomConfig_ReturnsSameInstance()
-    {
-        var customConfig = new PluginConfiguration { OrphanMinAgeDays = 99, Language = "fr" };
-        var mock = TestMockFactory.CreateConfigurationService(customConfig);
-        var service = mock.Object;
+    // ===== GetConfiguration =====
 
-        var retrieved = service.GetConfiguration();
-        Assert.Same(customConfig, retrieved);
-        Assert.Equal(99, retrieved.OrphanMinAgeDays);
-        Assert.Equal("fr", retrieved.Language);
+    [Fact]
+    public void GetConfiguration_ReturnsAccessorConfigurationWhenAvailable()
+    {
+        var owned = new PluginConfiguration { Language = "de", OrphanMinAgeDays = 99 };
+        var sut = new PluginConfigurationService(new FakePluginAccessor { Configuration = owned });
+
+        var cfg = sut.GetConfiguration();
+
+        // Same reference — the service must not copy so callers can mutate through it.
+        Assert.Same(owned, cfg);
+        Assert.Equal("de", cfg.Language);
+        Assert.Equal(99, cfg.OrphanMinAgeDays);
     }
 
-    /// <summary>
-    ///     Verifies that <see cref="TestMockFactory.CreateConfigurationService" /> returns a mock
-    ///     whose PluginVersion is set to a test value, ensuring consumers don't depend on runtime version.
-    /// </summary>
     [Fact]
-    public void CreateConfigurationService_PluginVersion_ReturnsTestVersion()
+    public void GetConfiguration_FallsBackToFreshDefaultsWhenAccessorHasNone()
     {
-        var mock = TestMockFactory.CreateConfigurationService();
-        Assert.Equal("1.0.0-test", mock.Object.PluginVersion);
+        var sut = new PluginConfigurationService(new FakePluginAccessor { Configuration = null });
+
+        var cfg = sut.GetConfiguration();
+
+        Assert.NotNull(cfg);
+        // A fresh PluginConfiguration is returned — must have default values, not aliased.
+        Assert.IsType<PluginConfiguration>(cfg);
+        // Each call under the fallback path returns a NEW instance (so callers can't
+        // accidentally share a mutable default across the codebase).
+        var cfg2 = sut.GetConfiguration();
+        Assert.NotSame(cfg, cfg2);
     }
 
-    /// <summary>
-    ///     Verifies that <see cref="TestMockFactory.CreatePluginLogService" /> creates a working
-    ///     <see cref="PluginLogService" /> that is properly wired to the configuration service.
-    ///     This is an integration test ensuring the factory method produces usable instances.
-    /// </summary>
     [Fact]
-    public void CreatePluginLogService_ReturnsWorkingInstance()
+    public void GetConfiguration_NeverReturnsNull_WhenAccessorIsNull()
     {
-        var sut = TestMockFactory.CreatePluginLogService();
+        // Redundant with the fallback test above but locks the contract at the interface
+        // boundary: no code path may leak a null reference to a caller.
+        var sut = new PluginConfigurationService(new FakePluginAccessor());
+        Assert.NotNull(sut.GetConfiguration());
+    }
 
-        // Should be able to log without exceptions
-        var ex = Record.Exception(() => sut.LogInfo("__PCS_Test__", "Factory test"));
+    // ===== SaveConfiguration =====
+
+    [Fact]
+    public void SaveConfiguration_ForwardsToAccessorWhenInitialized()
+    {
+        var accessor = new FakePluginAccessor { IsInitialized = true };
+        var sut = new PluginConfigurationService(accessor);
+
+        sut.SaveConfiguration();
+        sut.SaveConfiguration();
+
+        // Every call must be forwarded — the service must not deduplicate or throttle.
+        Assert.Equal(2, accessor.SaveCallCount);
+    }
+
+    [Fact]
+    public void SaveConfiguration_ForwardsToAccessorEvenWhenUninitialized()
+    {
+        // Contract: the service forwards unconditionally; the ACCESSOR decides whether
+        // an uninitialised plugin means "no-op" or "throw". This keeps the service
+        // itself free of environmental branching.
+        var accessor = new FakePluginAccessor { IsInitialized = false };
+        var sut = new PluginConfigurationService(accessor);
+
+        var ex = Record.Exception(() => sut.SaveConfiguration());
+
         Assert.Null(ex);
-
-        // Should have recorded the entry
-        var entries = sut.GetEntries(source: "__PCS_Test__");
-        Assert.Single(entries);
-        Assert.Equal("INFO", entries[0].Level);
+        Assert.Equal(1, accessor.SaveCallCount);
     }
 
-    /// <summary>
-    ///     Verifies that <see cref="TestMockFactory.CreatePluginLogService" /> with a custom config
-    ///     respects the configured PluginLogLevel from the provided configuration.
-    /// </summary>
+    // ===== Constructor guards =====
+
     [Fact]
-    public void CreatePluginLogService_CustomConfig_RespectsPluginLogLevel()
+    public void Constructor_RejectsNullAccessor()
     {
-        var config = new PluginConfiguration { PluginLogLevel = "ERROR" };
-        var sut = TestMockFactory.CreatePluginLogService(config);
-        sut.TestMinLevelOverride = null; // rely on config service, not test override
+        Assert.Throws<ArgumentNullException>(
+            () => new PluginConfigurationService(accessor: null!));
+    }
 
-        sut.LogInfo("__PCS_Lvl__", "should-not-be-stored");
-        sut.LogError("__PCS_Lvl__", "should-be-stored");
+    [Fact]
+    public void ParameterlessConstructor_UsesRealPluginAccessor_WithoutThrowing()
+    {
+        // Smoke test for the production wiring path. Whichever state Plugin.Instance
+        // happens to be in at the moment this runs, construction must not throw and
+        // every read must return a valid value (either the singleton's or the
+        // documented fallback).
+        //
+        // NOTE: We intentionally do NOT invoke SaveConfiguration() here — that would
+        // touch the real Plugin.Instance persistence layer (ambient disk I/O) and could
+        // race with other tests running in parallel. Save-path behaviour is covered by
+        // the accessor-mock tests below.
+        var sut = new PluginConfigurationService();
 
-        var entries = sut.GetEntries(source: "__PCS_Lvl__");
-        Assert.Single(entries);
-        Assert.Equal("ERROR", entries[0].Level);
+        Assert.NotNull(sut.GetConfiguration());
+        Assert.False(string.IsNullOrWhiteSpace(sut.PluginVersion));
     }
 }
