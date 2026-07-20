@@ -33,34 +33,6 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ---
 
-## [2.2.0.0] - 2026-07-20
-
-### Added
-- **Smarter recommendation engine** - The neural network behind your recommendations is now four times bigger and uses dropout regularisation, so it learns your taste more reliably and generalises better beyond what you have already watched.
-
-### Improved
-- **Better recommendations from day one** - Re-watching a favourite nudges the algorithm noticeably now. Actors and directors you love outrank cameo overlaps. Box-set suggestions stay consistent between what you see and what the model learned from.
-- **Fairer cold-start** - Brand-new users get community-blended suggestions (top-rated + trending) instead of pure recency, so the first list feels curated rather than random.
-- **More diverse top picks** - Ranking now balances genre, studio and release era. No more ten Marvel films in a row.
-- **Faster scans on big libraries** - Watch-history and recommendation scans are significantly faster on large libraries.
-- **Cleaner Settings page** - Reorganised into four clear cards (General, Tasks & Trash, Integrations, Backup) with a sticky save bar and an unsaved-changes indicator.
-- **Health tab now in tidy cards** - Library health checks and trash contents each live in their own card.
-- **Arr tab redesigned** - Each Arr type now has a single dropdown to pick which instance to compare, with a live reachable indicator. Fewer buttons, no more layout jumping.
-- **Better on phones** - Health, Arr and Settings tabs shrink padding on small screens.
-- **Compact weight serialization** - Persisted recommendation weights now use compact JSON, roughly a third the size of the equivalent indented form.
-
-### Fixed
-- **Recommendations sometimes silently drifted** - Four subtle bugs where training and live scoring used slightly different formulas. Your recommendations are now trained on exactly the same signals they are scored on.
-- **Rare lost save on Windows** - Cache and state files could occasionally be dropped when an antivirus scanner briefly held the target file. All writes now retry automatically.
-
-### Compatibility
-- **Requires Jellyfin 10.11.11+** - This release targets Jellyfin 10.11.x. Users planning to upgrade to Jellyfin 12.0 should wait for v3.0.0.0.
-
-### Tests
-- Total: **3818 tests** (+1493 vs. v2.1.0.6).
-
----
-
 ## [2.1.0.6] - 2026-07-20
 
 ### Added
