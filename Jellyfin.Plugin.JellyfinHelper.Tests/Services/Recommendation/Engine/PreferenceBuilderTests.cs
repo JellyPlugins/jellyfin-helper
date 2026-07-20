@@ -570,11 +570,13 @@ public class PreferenceBuilderTests
         var vectorA = PreferenceBuilder.BuildGenrePreferenceVector(withPartials, counts);
         var vectorB = PreferenceBuilder.BuildGenrePreferenceVector(withoutPartials, counts);
 
-        Assert.True(vectorA.ContainsKey("SciFi") && vectorA.ContainsKey("Anchor"));
-        Assert.True(vectorB.ContainsKey("SciFi") && vectorB.ContainsKey("Anchor"));
+        Assert.True(vectorA.TryGetValue("SciFi", out var sciFiA));
+        Assert.True(vectorA.TryGetValue("Anchor", out var anchorA));
+        Assert.True(vectorB.TryGetValue("SciFi", out var sciFiB));
+        Assert.True(vectorB.TryGetValue("Anchor", out var anchorB));
 
-        var ratioA = vectorA["SciFi"] / vectorA["Anchor"];
-        var ratioB = vectorB["SciFi"] / vectorB["Anchor"];
+        var ratioA = sciFiA / anchorA;
+        var ratioB = sciFiB / anchorB;
 
         // Both profiles compute the same played counter (2/5), so the SciFi/Anchor ratio must
         // match to within floating-point noise. A regression to HasPlaybackActivity would push
@@ -764,9 +766,10 @@ public class PreferenceBuilderTests
         // The Live series must land at the exact same relative weight in both profiles once
         // the phantom rows are excluded from the counter. A regression that let phantom rows
         // through would either dilute Live's normalised weight or introduce a Phantom entry.
-        Assert.True(vectorWith.ContainsKey("Live"));
-        Assert.InRange(vectorWith["Live"], 0.999, 1.0001);
-        Assert.InRange(vectorWithout["Live"], 0.999, 1.0001);
+        Assert.True(vectorWith.TryGetValue("Live", out var liveWithWeight));
+        Assert.True(vectorWithout.TryGetValue("Live", out var liveWithoutWeight));
+        Assert.InRange(liveWithWeight, 0.999, 1.0001);
+        Assert.InRange(liveWithoutWeight, 0.999, 1.0001);
     }
 
     [Fact]
@@ -819,18 +822,18 @@ public class PreferenceBuilderTests
 
         var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile, counts);
 
-        Assert.True(vector.ContainsKey("Fringe"));
-        Assert.True(vector.ContainsKey("Anchor"));
+        Assert.True(vector.TryGetValue("Fringe", out var fringeWeight));
+        Assert.True(vector.TryGetValue("Anchor", out var anchorWeight));
 
         // Anchor is the vector max, so it normalises to 1.0.
-        Assert.InRange(vector["Anchor"], 0.999, 1.0001);
+        Assert.InRange(anchorWeight, 0.999, 1.0001);
 
         // Fringe must sit inside the "with-floor" range. The lower bound 0.03 is strictly
         // higher than the ~0.010 a floor-less implementation would produce, so a regression
         // that drops or zeroes ProgressionFloor fails this test.
-        Assert.InRange(vector["Fringe"], 0.03, 0.07);
+        Assert.InRange(fringeWeight, 0.03, 0.07);
 
-        Assert.True(vector["Anchor"] > vector["Fringe"],
+        Assert.True(anchorWeight > fringeWeight,
             "Fully-completed anchor series must still out-weigh an abandoned one.");
     }
 }

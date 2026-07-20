@@ -58,6 +58,17 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         ControllerTestFactory.InitializePluginInstance();
         ControllerTestFactory.ResetPluginConfiguration();
 
+        // Defensive guard: Path.Combine silently drops earlier segments if a later
+        // segment is rooted. CacheFileName is a compile-time constant literal here, so
+        // this branch is unreachable in normal builds — but locking the invariant with
+        // a runtime check protects against a future refactor that reassigns the
+        // constant to a path resolved from configuration/environment.
+        if (Path.IsPathRooted(CacheFileName))
+        {
+            throw new InvalidOperationException(
+                $"{nameof(CacheFileName)} must be a bare file name, not an absolute path.");
+        }
+
         _cacheFilePath = Path.Combine(Plugin.Instance!.DataFolderPath, CacheFileName);
         _originalCacheContents = File.Exists(_cacheFilePath)
             ? File.ReadAllBytes(_cacheFilePath)
