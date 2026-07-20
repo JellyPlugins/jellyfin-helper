@@ -29,7 +29,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.5 (served from the same plugin repository).
 
 ### Tests
-- Total: **3710 tests** (+1392 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths, weighted `PeopleSimilarity`, and the progression multiplier in `PreferenceBuilderTests` locking the shared `[ProgressionFloor, ProgressionCeiling]` formula (`0.3 + rawRatio * 1.2`, clamped to `[0.3, 1.5]`).
+- Total: **3719 tests** (+1401 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths, weighted `PeopleSimilarity`, and the progression multiplier in `PreferenceBuilderTests` locking the shared `[ProgressionFloor, ProgressionCeiling]` formula (`0.3 + rawRatio * 1.2`, clamped to `[0.3, 1.5]`). Round 9 hardens the `Engine` pipeline (cold-start + warm-user + batch loop) and the `SeerrDiscoveryService.GenerateDiscoveryRecommendationsAsync` guards (Deactivate/DryRun/config-missing/no-active-users/cancellation).
 
 ---
 
