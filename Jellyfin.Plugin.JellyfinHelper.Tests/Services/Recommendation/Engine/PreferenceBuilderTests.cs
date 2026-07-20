@@ -431,22 +431,22 @@ public class PreferenceBuilderTests
         // Baseline contract: the proximity-OFF vector reflects only direct-watch frequency
         // (Action=Adventure=1.0 as the shared peak, SciFi=16/20=0.8). Pinning this pins the
         // "expansion actually did something" delta below.
-        Assert.True(baselineVector.ContainsKey("Action"));
-        Assert.True(baselineVector.ContainsKey("Adventure"));
-        Assert.True(baselineVector.ContainsKey("SciFi"));
-        Assert.InRange(baselineVector["Action"], 0.999, 1.0001);
-        Assert.InRange(baselineVector["Adventure"], 0.999, 1.0001);
-        Assert.InRange(baselineVector["SciFi"], 0.79, 0.81);
+        Assert.True(baselineVector.TryGetValue("Action", out var baselineAction));
+        Assert.True(baselineVector.TryGetValue("Adventure", out var baselineAdventure));
+        Assert.True(baselineVector.TryGetValue("SciFi", out var baselineSciFi));
+        Assert.InRange(baselineAction, 0.999, 1.0001);
+        Assert.InRange(baselineAdventure, 0.999, 1.0001);
+        Assert.InRange(baselineSciFi, 0.79, 0.81);
 
         // Full profile with proximity expansion: SciFi's normalised weight MUST be strictly
         // above the baseline 0.8 because ExpandGenreProximity adds a co-occurrence-derived
         // boost from both Action↔SciFi and Adventure↔SciFi (min-count gate passes for both
         // pairs at 8 co-occurrences each). A stubbed-out no-op expansion would collapse the
         // full-profile vector back onto the baseline shape, failing this assertion.
-        Assert.True(vector.ContainsKey("SciFi"));
-        Assert.True(vector["SciFi"] > baselineVector["SciFi"] + 0.005,
+        Assert.True(vector.TryGetValue("SciFi", out var sciFiWeight));
+        Assert.True(sciFiWeight > baselineSciFi + 0.005,
             $"Proximity expansion must lift SciFi above its direct-watch baseline of ~0.8. " +
-            $"Got baseline={baselineVector["SciFi"]:F4}, full={vector["SciFi"]:F4}. " +
+            $"Got baseline={baselineSciFi:F4}, full={sciFiWeight:F4}. " +
             "A no-op expansion would produce equal values here.");
     }
 
@@ -504,11 +504,11 @@ public class PreferenceBuilderTests
 
         var vector = PreferenceBuilder.BuildGenrePreferenceVector(profile, counts);
 
-        Assert.True(vector.ContainsKey("SciFi"));
-        Assert.True(vector.ContainsKey("Drama"));
-        Assert.True(vector["SciFi"] > vector["Drama"],
+        Assert.True(vector.TryGetValue("SciFi", out var sciFiWeight));
+        Assert.True(vector.TryGetValue("Drama", out var dramaWeight));
+        Assert.True(sciFiWeight > dramaWeight,
             $"Fully-completed series should out-weigh abandoned series after progression scaling " +
-            $"(SciFi={vector["SciFi"]:F4}, Drama={vector["Drama"]:F4})");
+            $"(SciFi={sciFiWeight:F4}, Drama={dramaWeight:F4})");
     }
 
     [Fact]

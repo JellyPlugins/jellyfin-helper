@@ -146,7 +146,7 @@ public class TemporalFeaturesTests
         // 8 items on Friday
         for (int i = 0; i < 8; i++)
         {
-            profile.WatchedItems.Add(WI(FridayNoonUtc.AddMinutes(i * 10), new[] { "Action" }));
+            profile.WatchedItems.Add(WI(FridayNoonUtc.AddMinutes(i * 10.0), new[] { "Action" }));
         }
         Assert.Equal(0.5, TemporalFeatures.ComputeDayOfWeekAffinity(candidate, profile, SaturdayNoonUtc));
     }
@@ -288,7 +288,7 @@ public class TemporalFeaturesTests
         var night = new DateTime(2026, 1, 3, 0, 0, 0, DateTimeKind.Utc);
         for (int i = 0; i < 8; i++)
         {
-            profile.WatchedItems.Add(WI(night.AddMinutes(i * 5), new[] { "Action" }));
+            profile.WatchedItems.Add(WI(night.AddMinutes(i * 5.0), new[] { "Action" }));
         }
         Assert.Equal(0.5, TemporalFeatures.ComputeHourOfDayAffinity(candidate, profile, SaturdayNoonUtc));
     }

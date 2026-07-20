@@ -63,8 +63,9 @@ public class DateTimeNormalizationTests
         var result = DateTimeNormalization.ToUtc(value);
 
         Assert.NotNull(result);
-        Assert.Equal(DateTimeKind.Utc, result.Value.Kind);
-        Assert.Equal(value.Value.Ticks, result.Value.Ticks);
+        var normalized = result.Value;
+        Assert.Equal(DateTimeKind.Utc, normalized.Kind);
+        Assert.Equal(value.Value.Ticks, normalized.Ticks);
     }
 
     [Fact]
@@ -86,8 +87,9 @@ public class DateTimeNormalizationTests
         var result = DateTimeNormalization.ToUtc(local);
 
         Assert.NotNull(result);
-        Assert.Equal(DateTimeKind.Utc, result.Value.Kind);
-        Assert.Equal(expected, result.Value);
+        var normalized = result.Value;
+        Assert.Equal(DateTimeKind.Utc, normalized.Kind);
+        Assert.Equal(expected, normalized);
     }
 
     [Fact]
