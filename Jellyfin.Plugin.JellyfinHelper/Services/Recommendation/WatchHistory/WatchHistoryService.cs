@@ -729,7 +729,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     The try/catch shape is delegated to <see cref="BatchFallbackHelper"/> so the
     ///     three batch call sites in the plugin can't drift apart on cancellation handling.
     /// </summary>
-    private IReadOnlyDictionary<Guid, UserItemData>? TryLoadUserDataBatch(
+    private Dictionary<Guid, UserItemData>? TryLoadUserDataBatch(
         Jellyfin.Database.Implementations.Entities.User user,
         IReadOnlyList<BaseItem> items)
     {
@@ -738,22 +738,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
             return new Dictionary<Guid, UserItemData>();
         }
 
-        return BatchFallbackHelper.TryRunBatch<IReadOnlyDictionary<Guid, UserItemData>?>(
+        return BatchFallbackHelper.TryRunBatch<Dictionary<Guid, UserItemData>?>(
             batchCall: () =>
             {
-                var batch = _userDataManager.GetUserDataBatch(items, user);
-                if (batch is null)
-                {
-                    return null;
-                }
-
-                // Accept whatever dictionary shape Jellyfin hands back.
-                if (batch is IReadOnlyDictionary<Guid, UserItemData> readOnly)
-                {
-                    return readOnly;
-                }
-
-                return new Dictionary<Guid, UserItemData>(batch);
+                // GetUserDataBatch is a Jellyfin 12+ API; not available in 10.11.x.
+                // Returning null here causes the caller to fall back to per-item GetUserData.
+                return null;
             },
             fallbackValue: null,
             onFailure: ex => _pluginLog.LogWarning(

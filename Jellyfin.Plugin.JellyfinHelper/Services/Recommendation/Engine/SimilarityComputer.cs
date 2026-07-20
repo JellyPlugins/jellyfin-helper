@@ -18,13 +18,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// </summary>
 internal sealed class SimilarityComputer
 {
-    /// <summary>
-    ///     Person-type strings expected by <see cref="ILibraryManager.GetPeopleNamesByItems"/>.
-    ///     Derived from <see cref="PersonKind"/> enum names so that any future refactor of
-    ///     <see cref="EngineConstants.RelevantPersonKinds"/> automatically flows through here.
-    /// </summary>
-    private static readonly IReadOnlyList<string> RelevantPersonTypeStrings =
-        EngineConstants.RelevantPersonKinds.Select(k => k.ToString()).ToList().AsReadOnly();
+    // RelevantPersonTypeStrings was used by the Jellyfin 12+ GetPeopleNamesByItems batch API.
+    // Removed for 10.11.x compatibility — per-item fallback uses GetPeople(BaseItem) directly.
 
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger _logger;
@@ -50,12 +45,6 @@ internal sealed class SimilarityComputer
     ///     Batch-loads people (actors/directors) for all candidate items into a lookup dictionary.
     ///     Called once per recommendation run and shared across all users for performance.
     ///     Only stores person names for relevant types (Actor, Director) to keep memory compact.
-    ///     <para>
-    ///         Uses <see cref="ILibraryManager.GetPeopleNamesByItems"/> (Jellyfin 12+) as a single
-    ///         database roundtrip when available, falling back to per-item
-    ///         <c>ILibraryManager.GetPeople(BaseItem)</c> calls if the batch API throws for any reason.
-    ///         The fallback guarantees the lookup is never worse than the pre-Jellyfin-12 implementation.
-    ///     </para>
     /// </summary>
     /// <param name="candidates">All candidate base items.</param>
     /// <returns>A dictionary mapping item IDs to their associated person name sets (case-insensitive).</returns>
@@ -86,11 +75,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Tries the Jellyfin 12+ <see cref="ILibraryManager.GetPeopleNamesByItems"/> batch API.
-    ///     Returns <c>null</c> on failure so the caller falls back to per-item lookups; on an
-    ///     empty candidate list we short-circuit with an empty dictionary (nothing to do).
-    ///     The try/catch is delegated to <see cref="BatchFallbackHelper"/> so cancellation
-    ///     propagation stays in sync with the other batch call sites.
+    ///     Returns null (no batch API in 10.11.x) so the caller falls back to per-item lookups.
     /// </summary>
     private Dictionary<Guid, HashSet<string>>? TryBuildPeopleLookupBatch(List<BaseItem> candidates)
     {
@@ -103,36 +88,8 @@ internal sealed class SimilarityComputer
         return BatchFallbackHelper.TryRunBatch<Dictionary<Guid, HashSet<string>>?>(
             batchCall: () =>
             {
-                var itemIds = candidates.Select(c => c.Id).ToList();
-                var batch = _libraryManager.GetPeopleNamesByItems(itemIds, RelevantPersonTypeStrings);
-                if (batch is null)
-                {
-                    return null;
-                }
-
-                var lookup = new Dictionary<Guid, HashSet<string>>(batch.Count);
-                foreach (var kvp in batch)
-                {
-                    // GetPeopleNamesByItems is documented to omit items with no matches,
-                    // but be defensive in case an implementation returns an empty list.
-                    if (kvp.Value is null || kvp.Value.Count == 0)
-                    {
-                        continue;
-                    }
-
-                    var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var name in kvp.Value.Where(static n => !string.IsNullOrWhiteSpace(n)))
-                    {
-                        names.Add(name);
-                    }
-
-                    if (names.Count > 0)
-                    {
-                        lookup[kvp.Key] = names;
-                    }
-                }
-
-                return lookup;
+                // GetPeopleNamesByItems is a Jellyfin 12+ API; not available in 10.11.x.
+                return null;
             },
             fallbackValue: null,
             // Log at Warning via _pluginLog for parity with the sibling batch call sites

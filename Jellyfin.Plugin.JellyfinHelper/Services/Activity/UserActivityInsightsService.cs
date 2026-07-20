@@ -313,18 +313,8 @@ public class UserActivityInsightsService : IUserActivityInsightsService
             var lookup = BatchFallbackHelper.TryRunBatch<IReadOnlyDictionary<Guid, UserItemData>?>(
                 batchCall: () =>
                 {
-                    var batch = _userDataManager.GetUserDataBatch(allItems, perUser);
-                    if (batch is null)
-                    {
-                        return null;
-                    }
-
-                    // Accept any dictionary shape Jellyfin returns (Dictionary<>, IDictionary<>,
-                    // IReadOnlyDictionary<>). Returning IReadOnlyDictionary means the caller
-                    // can't accidentally mutate the batch and we don't lock ourselves to a
-                    // specific concrete return type across Jellyfin patch versions.
-                    return batch as IReadOnlyDictionary<Guid, UserItemData>
-                           ?? new Dictionary<Guid, UserItemData>(batch);
+                    // GetUserDataBatch is a Jellyfin 12+ API; not available in 10.11.x.
+                    return null;
                 },
                 fallbackValue: null,
                 onFailure: ex => _pluginLog.LogWarning(
