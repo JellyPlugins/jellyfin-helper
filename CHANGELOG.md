@@ -29,7 +29,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.5 (served from the same plugin repository).
 
 ### Tests
-- Total: **3719 tests** (+1401 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths, weighted `PeopleSimilarity`, and the progression multiplier in `PreferenceBuilderTests` locking the shared `[ProgressionFloor, ProgressionCeiling]` formula (`0.3 + rawRatio * 1.2`, clamped to `[0.3, 1.5]`). Round 9 hardens the `Engine` pipeline (cold-start + warm-user + batch loop) and the `SeerrDiscoveryService.GenerateDiscoveryRecommendationsAsync` guards (Deactivate/DryRun/config-missing/no-active-users/cancellation).
+- Total: **3767 tests** (+1449 vs. v2.1.0.5). New tests cover the JF 12 batch fallback paths, weighted `PeopleSimilarity`, and the progression multiplier in `PreferenceBuilderTests` locking the shared `[ProgressionFloor, ProgressionCeiling]` formula (`0.3 + rawRatio * 1.2`, clamped to `[0.3, 1.5]`). Round 9 hardens the `Engine` pipeline (cold-start + warm-user + batch loop) and the `SeerrDiscoveryService.GenerateDiscoveryRecommendationsAsync` guards (Deactivate/DryRun/config-missing/no-active-users/cancellation). Round 10 pins value-type setter guards on `DiscoveryRecommendation` (NaN / ±Infinity / clamp on `Score`, `TmdbRating`, `Popularity`), `RecommendedItem` (7 collection setters × `null` and non-`null` branches), `LibraryInsightsResult` (3 collections + reassignment), and `SeerrRequestPage` (`Results` null-coalesce) so a regression removing any `?? []` / `IsFinite(...) ? … : 0.0` guard surfaces immediately.
 
 ---
 

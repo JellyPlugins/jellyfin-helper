@@ -174,9 +174,11 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Seerr/                     # Seerr integration tests
 │   │   ├── SeerrIntegrationServiceTests.cs
 │   │   ├── SeerrMediaDetailsTests.cs
+│   │   ├── SeerrRequestPageTests.cs        # Null-coalescing setter on the SeerrRequestPage.Results collection: a null upstream payload (or a Deserialize returning null for the array) must not propagate to callers that iterate the list without null-guarding. Also pins non-null Same-reference contract (no defensive copy) and reassignment-to-null clears back to empty (guards against init-only regression).
 │   │   └── Discovery/            # Seerr Discovery tests
 │   │       ├── DiscoveryCacheServiceTests.cs            # DiscoveryCacheService disk + memory persistence contract; uses Plugin.Instance.DataFolderPath so each test writes to a real (per-test) file to avoid cross-test contamination
 │   │       ├── DiscoveryFeedbackStoreTests.cs
+│   │       ├── DiscoveryRecommendationTests.cs         # Setter guards on the DiscoveryRecommendation DTO: Score / TmdbRating (Range 0..1 / 0..10, non-finite→0, clamp on out-of-range) and Popularity (non-finite→0, negative→0, positive preserved). Pins the exact contract that keeps JsonSerializer from crashing on NaN and prevents poisoned TMDb responses from propagating a non-finite feature into the neural-training vector.
 │   │       ├── DiscoveryRegressionTests.cs              # v2.1.0.3 regression tests (ServerId=0, profile dedup, MissingMethodException)
 │   │       ├── ExternalCandidateFeatureBuilderTests.cs  # inference↔training feature parity (genre-exposure + popularity skew guards)
 │   │       ├── NullableDateTimeConverterTests.cs        # TMDb/Seerr empty-string / malformed release_date / first_air_date values must degrade to null instead of throwing JsonException (whole response would otherwise be dropped)
@@ -192,7 +194,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │       └── TmdbDiscoverItemTests.cs                 # TmdbDiscoverItem DTO parsing surface between Seerr/TMDb JSON and the recommendation engine: GenreIds null-coalesce to empty list (TMDb sometimes emits null), DisplayTitle Title→Name→"Unknown" fallback chain (BUG GUARD: only NULL falls through, not empty string, else TV shows silently rename), EffectiveReleaseDate ReleaseDate→FirstAirDate for TV items (recency-scoring depends on this), defaults (Adult=false safe posture, MediaType="movie", KnownPeople=null to distinguish "not enriched yet" vs "enriched empty"), JSON round-trip via NullableDateTimeConverter (empty-string releaseDate must not blow up the whole batch)
 │   ├── Statistics/                # Statistics service tests
 │   ├── Timeline/                  # Growth timeline tests
-│   │   └── GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks/junctions
+│   │   ├── GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks/junctions
+│   │   └── LibraryInsightsResultTests.cs  # Null-coalescing setters on LibraryInsightsResult (Largest, Recent, LibrarySizes): cache JSON that omits or nulls a collection must not surface as `null` to enumerating callers. Also asserts defaults (fresh instance is safe to enumerate) and reassignment-to-null (must actively clear back to empty, no stale non-null leak).
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
@@ -234,7 +237,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       ├── RecommendationCacheServiceTests.cs
 │       ├── RecommendationCacheServiceExtendedTests.cs  # Defensive branches missed by RecommendationCacheServiceTests: null-argument guard, directory auto-creation when DataPath does not exist, load of a file containing literal "null"
 │       ├── RecommendationDtoTests.cs
-│       └── RecommendationEngineTests.cs
+│       ├── RecommendationEngineTests.cs
+│       └── RecommendedItemTests.cs                     # Setter null-coalescing on the RecommendedItem DTO: SEVEN collection properties (Genres, PeopleNames, Studios, Tags, AudioLanguages, SubtitleLanguages, BoxSetIds) MUST swallow a null assignment and expose an empty list instead. Cache round-trips through JsonSerializer can null any of them; downstream training/scoring code iterates with foreach without null-guards. Reassignment (non-null → null) must actively replace the backing field so a re-clear doesn't leak the previous list.
 └── TestFixtures/                  # Shared test helpers
     └── EngineTestFactory.cs       # Centralised builder for a fully-mocked recommendation Engine (7 constructor dependencies wired to sensible empty-collection defaults + a strategy override hook). Returns an EngineHarness record bundling the engine with all Moq references so tests can override a single collaborator without re-wiring the other six; keeps the Engine-tests suite resilient to future constructor-signature changes (one-line fix here vs. shotgun surgery across N test files)
 ```
