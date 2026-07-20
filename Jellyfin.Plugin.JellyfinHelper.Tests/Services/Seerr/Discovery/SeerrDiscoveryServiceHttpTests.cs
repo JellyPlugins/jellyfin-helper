@@ -28,7 +28,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 [Collection("ConfigOverride")]
 public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
 {
-    private readonly List<HttpResponseMessage> _responsesInFlight = [];
     private readonly ScriptedHttpHandler _handler;
     private readonly Mock<IHttpClientFactory> _httpFactoryMock;
     private readonly SeerrDiscoveryService _sut;
@@ -76,11 +75,6 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
 
     public void Dispose()
     {
-        foreach (var r in _responsesInFlight)
-        {
-            r.Dispose();
-        }
-
         _handler.Dispose();
         _cache.Dispose();
         ControllerTestFactory.ResetPluginConfiguration();

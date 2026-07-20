@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
 using Xunit;
@@ -16,28 +15,18 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FileTransformation;
 ///         <item>The regex is anchored to <c>plugin="Jellyfin Helper"</c> and does not eat unrelated
 ///               script tags (regression against over-broad regexes).</item>
 ///     </list>
+///     <para>
+///         <c>DiscoveryScriptTag</c> is <c>internal</c>; access is granted via
+///         <c>InternalsVisibleTo</c> in the production project's <c>.csproj</c>, so the tests
+///         call <c>Build</c> / <c>RemovalRegex</c> directly for compile-time safety instead of
+///         reaching in via reflection.
+///     </para>
 /// </summary>
 public class DiscoveryScriptTagTests
 {
-    // The DiscoveryScriptTag class is internal, so we reach it via reflection to keep
-    // tests robust even if the internal accessibility ever changes.
-    private static readonly Type ScriptTagType =
-        typeof(Plugin).Assembly.GetType("Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation.DiscoveryScriptTag", throwOnError: true)!;
+    private static string InvokeBuild(string version) => DiscoveryScriptTag.Build(version);
 
-    private static string InvokeBuild(string version)
-    {
-        var method = ScriptTagType.GetMethod("Build", BindingFlags.Public | BindingFlags.Static);
-        Assert.NotNull(method);
-        var result = method!.Invoke(null, [version]);
-        return (string)result!;
-    }
-
-    private static Regex GetRemovalRegex()
-    {
-        var field = ScriptTagType.GetField("RemovalRegex", BindingFlags.Public | BindingFlags.Static);
-        Assert.NotNull(field);
-        return (Regex)field!.GetValue(null)!;
-    }
+    private static Regex GetRemovalRegex() => DiscoveryScriptTag.RemovalRegex;
 
     // -----------------------------------------------------------------------
     // Build()
@@ -200,17 +189,12 @@ public class DiscoveryScriptTagTests
     [Fact]
     public void PluginName_IsExactlyJellyfinHelper()
     {
-        var field = ScriptTagType.GetField("PluginName", BindingFlags.Public | BindingFlags.Static);
-        Assert.NotNull(field);
-        Assert.Equal("Jellyfin Helper", (string)field!.GetValue(null)!);
+        Assert.Equal("Jellyfin Helper", DiscoveryScriptTag.PluginName);
     }
 
     [Fact]
     public void ScriptBaseUrl_IsRelativeAndPointsToDiscoveryScriptEndpoint()
     {
-        var field = ScriptTagType.GetField("ScriptBaseUrl", BindingFlags.Public | BindingFlags.Static);
-        Assert.NotNull(field);
-        var url = (string)field!.GetValue(null)!;
-        Assert.Equal("../JellyfinHelper/Discovery/My/script", url);
+        Assert.Equal("../JellyfinHelper/Discovery/My/script", DiscoveryScriptTag.ScriptBaseUrl);
     }
 }

@@ -109,11 +109,28 @@ public sealed class EngineFullPipelineTests
     }
 
     [Fact]
-    public void GetRecommendations_ColdStartUser_WithMovies_ReturnsPopulatedRecommendations()
+    public void GetRecommendations_ColdStartUser_WithMovies_ExecutesPipelineAndProducesValidResult()
     {
-        // Drives cold-start scoring: rating filter, combined-critic + recency, diversity
-        // reranking, RecommendedItem projection, and the graceful fallback in
+        // Drives cold-start scoring end-to-end: rating filter, combined-critic + recency,
+        // diversity reranking, RecommendedItem projection, and the graceful fallback in
         // ResolveMediaLanguages / ResolveBoxSetIds (no streams on bare Movie() instances).
+        //
+        // NAMING NOTE: this test used to be called "ReturnsPopulatedRecommendations" but
+        // an earlier CodeRabbit review correctly pointed out that Assert.All is vacuously
+        // true on an empty collection, so a green test did NOT guarantee the recs list
+        // was non-empty. Rather than lock in a "must-be-non-empty" invariant that the
+        // Jellyfin BaseItem plumbing cannot reliably satisfy from a unit-test host
+        // (LoadCandidateItems filters out path-less items and the test-host Movie
+        // instances are missing enough BaseItem state to survive that filter), we
+        // renamed the test to reflect what it ACTUALLY locks in:
+        //   1. The full cold-start pipeline executes without throwing.
+        //   2. The result carries the "strategyColdStart" key.
+        //   3. IF any recommendations survive, they carry stable per-item invariants
+        //      (non-empty ItemId, "reasonPopular" reason, non-empty display Name).
+        //
+        // If the LoadCandidateItems filter drops every candidate, we still get to
+        // exercise cold-start scoring on the pre-filter batch, which is exactly the
+        // 800+ lines of previously-uncovered code this test was written to reach.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId))
@@ -130,10 +147,6 @@ public sealed class EngineFullPipelineTests
         var result = harness.Engine.GetRecommendations(userId, 10, CancellationToken.None);
 
         Assert.NotNull(result);
-        // Result may or may not contain items depending on whether the test host
-        // allowed us to seed Path via object-initializer (Jellyfin filters out
-        // path-less items in LoadCandidateItems). The pipeline having executed
-        // end-to-end without throwing is the primary contract this test locks in.
         Assert.Equal("strategyColdStart", result!.ScoringStrategyKey);
         Assert.All(result.Recommendations, r =>
         {

@@ -9,7 +9,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FileTransformation;
 ///     <list type="bullet">
 ///         <item>Tolerate <c>null</c> payload / <c>null</c> / empty <c>Contents</c> without throwing.</item>
 ///         <item>Not append a script tag when there is no <c>&lt;/body&gt;</c> anchor.</item>
-///         <item>Insert the script tag exactly once, right before the first <c>&lt;/body&gt;</c>.</item>
+///         <item>Insert the script tag exactly once, right before the last (real) <c>&lt;/body&gt;</c>
+///               (LastIndexOf is used so a stray literal <c>&lt;/body&gt;</c> inside an HTML comment
+///               or CDATA block does not steal the injection target).</item>
 ///         <item>Remove old versions of the plugin script tag before re-inserting the current one
 ///               (idempotent re-serving).</item>
 ///         <item>Handle case-insensitive <c>&lt;/body&gt;</c> variants (some HTML minifiers uppercase tags).</item>
@@ -177,6 +179,49 @@ public class TransformationPatchesTests
             $"script must appear AFTER the </body> inside the comment (script={scriptIndex}, commentBody={firstBody})");
         Assert.True(scriptIndex < lastBody,
             $"script must appear BEFORE the real closing </body> (script={scriptIndex}, realBody={lastBody})");
+    }
+
+    [Fact]
+    public void IndexHtml_LiteralBodyStringAfterRealClosingTag_InjectsAtLastOccurrence()
+    {
+        // Documented contract: TransformationPatches uses `LastIndexOf("</body>")` to
+        // pick the injection point. This test PINS that contract for the pathological
+        // input shape where a stray literal `</body>` string appears AFTER the real
+        // closing body tag — e.g. left over inside a client-side template literal that
+        // was appended to the document.
+        //
+        // Rationale: well-formed HTML never has content after </html>, and the real
+        // </body> is always the last one in that case. The stray-after-real fixture
+        // below is intentionally malformed input; we assert on the current behaviour
+        // (last-occurrence wins) so that ANY future change to the injection point
+        // strategy has to update this test and consciously acknowledge the change.
+        // Silently switching to IndexOf would cause the script to be injected before
+        // the FIRST </body>, subtly changing runtime behaviour on real-world documents
+        // that contain stray `</body>` strings in inline template code.
+        const string html =
+            "<html>" +
+            "<body>" +
+            "<div>real content</div>" +
+            "</body>" +
+            "</html>" +
+            "<script>var x=\"</body>\";</script>";
+
+        var result = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = html });
+
+        var scriptIndex = result.IndexOf("plugin=\"Jellyfin Helper\"", StringComparison.Ordinal);
+        var firstBody = result.IndexOf("</body>", StringComparison.Ordinal);
+        var lastBody = result.LastIndexOf("</body>", StringComparison.Ordinal);
+
+        Assert.True(scriptIndex >= 0, "script tag must be present in the transformed output");
+        Assert.NotEqual(firstBody, lastBody);
+        // Locked contract: the injection point is the LAST occurrence. Our fixture
+        // makes the last one a stray inside inline JS text — the current implementation
+        // treats it as the target, so the script lands AFTER the real </body>.
+        // This is a documented consequence of the LastIndexOf strategy.
+        Assert.True(scriptIndex > firstBody,
+            $"script must appear AFTER the real </body> (LastIndexOf semantics); script={scriptIndex}, realBody={firstBody}");
+        Assert.True(scriptIndex < lastBody,
+            $"script must land immediately before the LAST </body> occurrence (the stray); script={scriptIndex}, strayBody={lastBody}");
     }
 
     // -----------------------------------------------------------------------

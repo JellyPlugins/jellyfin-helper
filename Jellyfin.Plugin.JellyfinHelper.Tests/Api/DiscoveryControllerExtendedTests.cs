@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -17,7 +18,17 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 ///     SubmitRequest success path (including MarkAsRequestedAsync integration), the
 ///     GetDiscoveryResults filter logic against dismissed/requested items, and behaviour
 ///     when the feedback store throws.
+///     <para>
+///         Joined to the <c>ConfigOverride</c> collection because <see cref="DiscoveryCacheService"/>
+///         derives its file path from <c>Plugin.Instance?.DataFolderPath</c>. Concurrent
+///         suites that initialise the singleton (via <see cref="ControllerTestFactory.InitializePluginInstance"/>)
+///         switch the path from the current working directory to a real Data folder in tempdir,
+///         so a fixture that snapshots the wrong file would silently corrupt cache state for
+///         both itself AND unrelated tests. Serialising via the collection guarantees an
+///         initialised Plugin.Instance + a stable DataFolderPath for the whole class.
+///     </para>
 /// </summary>
+[Collection("ConfigOverride")]
 public sealed class DiscoveryControllerExtendedTests : IDisposable
 {
     private readonly Mock<ISeerrDiscoveryService> _discoveryMock;
@@ -25,25 +36,29 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     private readonly DiscoveryCacheService _cache;
 
     // Storage isolation: DiscoveryCacheService derives its file path from
-    // Plugin.Instance?.DataFolderPath, falling back to string.Empty which resolves
-    // the cache filename against the current working directory. Any test that calls
-    // Save persists a real JSON blob at "<cwd>/jellyfin-helper-discovery-results.json".
-    // Without cleanup, cache state from one test class leaks into another that runs
-    // afterwards on the same worker (xUnit executes tests in a class sequentially, but
-    // different test classes may share process-wide state via files).
+    // Plugin.Instance?.DataFolderPath at construction time. We initialise the singleton
+    // BEFORE constructing the service so we always resolve against the same well-known
+    // temp directory owned by ControllerTestFactory.InitializePluginInstance — never
+    // against the process's current working directory (which could be shared with any
+    // other test class running in parallel via a different collection).
     //
-    // We intentionally do NOT alter Directory.SetCurrentDirectory here because CWD is
-    // a process-global setting and xUnit may run other test classes in parallel on
-    // separate threads. Instead we snapshot / delete the exact cache file at both
-    // fixture ends so this class starts and finishes with a clean slate, regardless
-    // of what any concurrent class did.
+    // The ConfigOverride collection serialises this class with every other suite that
+    // mutates Plugin.Instance.Configuration; combined with ResetPluginConfiguration()
+    // in Dispose, this keeps our cache file firmly under our control from ctor→Dispose.
     private const string CacheFileName = "jellyfin-helper-discovery-results.json";
     private readonly string _cacheFilePath;
     private readonly byte[]? _originalCacheContents;
 
     public DiscoveryControllerExtendedTests()
     {
-        _cacheFilePath = Path.Combine(Directory.GetCurrentDirectory(), CacheFileName);
+        // Ensure Plugin.Instance is populated so DiscoveryCacheService resolves its file
+        // path against the factory's temp DataFolderPath, not the CWD. This makes the
+        // snapshot / delete below target the correct file regardless of which other
+        // suite ran first (and regardless of whether they mutated the CWD).
+        ControllerTestFactory.InitializePluginInstance();
+        ControllerTestFactory.ResetPluginConfiguration();
+
+        _cacheFilePath = Path.Combine(Plugin.Instance!.DataFolderPath, CacheFileName);
         _originalCacheContents = File.Exists(_cacheFilePath)
             ? File.ReadAllBytes(_cacheFilePath)
             : null;

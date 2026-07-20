@@ -264,12 +264,34 @@ public sealed class UserActivityCacheServiceTests : IDisposable
         // a previous save) must NOT crash the caller with a JsonException at the
         // top of the LoadResult method — the try/catch must swallow it and
         // return null. Without this test a regression that narrows the catch
-        // filter would silently break next-boot recovery.
+        // filter would silently break next-boot recovery. We also lock the
+        // "logs a warning" contract by constructing a service with a captured
+        // IPluginLogService mock — the class-level _cacheService is built with
+        // its own log-service mock the tests cannot reach, so we build a
+        // dedicated instance here (same pattern as the literal-null test above).
+        var mockPaths = new Mock<IApplicationPaths>();
+        mockPaths.Setup(p => p.DataPath).Returns(_tempDir);
+        var mockPluginLog = new Mock<IPluginLogService>();
+        var warningCount = 0;
+        mockPluginLog.Setup(l => l.LogWarning(
+                "UserActivityCache",
+                It.IsAny<string>(),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()))
+            .Callback(() => warningCount++);
+        var mockLogger = new Mock<ILogger<UserActivityCacheService>>();
+
+        var service = new UserActivityCacheService(mockPaths.Object, mockPluginLog.Object, mockLogger.Object);
+
         var cacheFile = Path.Join(_tempDir, "jellyfin-helper-useractivity-latest.json");
         File.WriteAllText(cacheFile, string.Empty);
 
-        var loaded = _cacheService.LoadResult();
+        var loaded = service.LoadResult();
 
         Assert.Null(loaded);
+        // Contract: the empty-file branch MUST emit at least one warning so operators
+        // can spot the corruption in logs. Zero warnings would mean the catch filter
+        // silently swallowed the JsonException without diagnostics.
+        Assert.True(warningCount >= 1, $"expected at least one warning to be logged, got {warningCount}");
     }
 }

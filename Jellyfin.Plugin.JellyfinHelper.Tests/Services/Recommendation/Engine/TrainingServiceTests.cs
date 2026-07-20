@@ -431,8 +431,30 @@ public class TrainingServiceTests
         Assert.NotNull(strategy.LastReceivedHeldOutSet);
         Assert.True(strategy.LastReceivedHeldOutSet!.Count >= 2,
             "Held-out split must contain at least 2 examples (Math.Max(2, 10%) floor).");
-        // The train split must be the remainder — strictly smaller than the full set.
-        Assert.True(strategy.LastReceivedTrainSet!.Count < strategy.LastReceivedTrainSet!.Count + strategy.LastReceivedHeldOutSet!.Count);
+        // The train split must be non-empty AND the two splits must be disjoint by
+        // object reference — together this proves the split actually partitioned the
+        // example set rather than degenerating to either "all-training / no-holdout"
+        // or "all-holdout / no-training" (either extreme would silently disable
+        // validation-based early stopping in the trainable strategy).
+        //
+        // NOTE: the previous version of this assertion was
+        //     train.Count < train.Count + heldOut.Count
+        // which reduces to `heldOut.Count > 0` — trivially true given the `>= 2`
+        // assertion above and therefore never catching a regression. We now assert
+        // the two invariants that actually matter for the split's semantics.
+        //
+        // We use reference equality (ReferenceEqualityComparer) because TrainingExample
+        // does not expose a stable per-example identifier — the split is expected to
+        // hand each captured example instance to EXACTLY one of the two lists, so
+        // referential disjointness is the correct integrity check.
+        Assert.NotEmpty(strategy.LastReceivedTrainSet!);
+        var trainSetRefs = new HashSet<TrainingExample>(
+            strategy.LastReceivedTrainSet!,
+            ReferenceEqualityComparer.Instance);
+        Assert.All(strategy.LastReceivedHeldOutSet!, heldOut =>
+        {
+            Assert.DoesNotContain(heldOut, trainSetRefs);
+        });
     }
 
     [Fact]
