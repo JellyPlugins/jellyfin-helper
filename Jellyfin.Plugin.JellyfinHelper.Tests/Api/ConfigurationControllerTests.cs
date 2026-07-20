@@ -25,6 +25,7 @@ public class ConfigurationControllerTests
     private readonly PluginConfiguration _config;
     private readonly Mock<IPluginConfigurationService> _configServiceMock;
     private readonly ConfigurationController _controller;
+    private readonly Mock<IPluginLogService> _pluginLogMock;
     private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
 
     public ConfigurationControllerTests()
@@ -35,7 +36,7 @@ public class ConfigurationControllerTests
         _configServiceMock.Setup(s => s.IsInitialized).Returns(true);
         _configServiceMock.Setup(s => s.GetConfiguration()).Returns(_config);
 
-        var pluginLogMock = new Mock<IPluginLogService>();
+        _pluginLogMock = new Mock<IPluginLogService>();
 
         _arrServiceMock = new Mock<IArrIntegrationService>();
         _arrServiceMock
@@ -56,7 +57,7 @@ public class ConfigurationControllerTests
 
         _controller = new ConfigurationController(
             _arrServiceMock.Object,
-            pluginLogMock.Object,
+            _pluginLogMock.Object,
             loggerMock.Object,
             configHelperMock.Object,
             _configServiceMock.Object,
@@ -386,5 +387,69 @@ public class ConfigurationControllerTests
         var result = _controller.UpdateLogLevel(request);
 
         Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    // ===== Diagnostic logging for rejected saves =====
+
+    /// <summary>
+    ///     Regression test: when ASP.NET Core surfaces a model-binding error via
+    ///     <c>ModelState</c>, the controller must (a) return 400 and (b) write a
+    ///     WARNING entry to the plugin log so admins can see *why* their save was
+    ///     rejected. Before this diagnostic was added, model-binding failures never
+    ///     reached the plugin log and users saw only a generic "Failed to save
+    ///     settings" toast with no server-side trace to debug against.
+    /// </summary>
+    [Fact]
+    public async Task UpdateConfiguration_ModelStateInvalid_LogsWarningAndReturns400()
+    {
+        _controller.ModelState.AddModelError("SeerrCleanupAgeDays", "The value 'null' is not valid.");
+
+        var result = await _controller.UpdateConfigurationAsync(
+            new ConfigurationUpdateRequest(),
+            CancellationToken.None);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+
+        // Response body must include the field name so the UI can surface it.
+        var body = JsonSerializer.Serialize(badRequest.Value);
+        Assert.Contains("SeerrCleanupAgeDays", body);
+
+        // The failure must be recorded in the plugin log at WARNING level with the
+        // "API" source so it shows up in the Logs tab of the admin UI.
+        _pluginLogMock.Verify(
+            l => l.LogWarning(
+                "API",
+                It.Is<string>(msg => msg.Contains("model binding failed", System.StringComparison.OrdinalIgnoreCase)
+                                     && msg.Contains("SeerrCleanupAgeDays", System.StringComparison.Ordinal)),
+                It.IsAny<System.Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+
+        // Config must not have been persisted when the payload is rejected upfront.
+        _configServiceMock.Verify(s => s.SaveConfiguration(), Times.Never);
+    }
+
+    /// <summary>
+    ///     Regression test: validator-level errors (as opposed to model-binding
+    ///     errors) must also produce a plugin-log entry. Previously the response
+    ///     carried a helpful message but the log stayed silent, which meant a user
+    ///     running with debug logging still couldn't see the rejection reason.
+    /// </summary>
+    [Fact]
+    public async Task UpdateConfiguration_ValidatorRejects_LogsWarning()
+    {
+        var request = new ConfigurationUpdateRequest { OrphanMinAgeDays = -5 };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+
+        _pluginLogMock.Verify(
+            l => l.LogWarning(
+                "API",
+                It.Is<string>(msg => msg.Contains("validation rejected", System.StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<System.Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
     }
 }

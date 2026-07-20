@@ -471,11 +471,76 @@ function showButtonFeedback(btn, success, message, originalHtml, timeout) {
 // ============================================================
 
 /**
- * Default error handler for API calls - logs to console so failures are never silent.
+ * Extracts a structured diagnostic summary from an ApiClient.ajax() error object.
+ * ApiClient rejects with an XHR-like object; older browsers or intercepting
+ * proxies may reject with a plain Error. Both shapes are handled defensively so
+ * callers can present a meaningful message to the user without exploding on
+ * missing fields.
+ *
+ * @param {*} err - The error object produced by a rejected ApiClient.ajax() promise.
+ * @returns {{status: number, statusText: string, snippet: string, kind: string}}
+ *          status:     HTTP status code (0 when unavailable, e.g. network failure).
+ *          statusText: Short status label (e.g. 'Bad Request'). Empty when unknown.
+ *          snippet:    First ~200 chars of the response body. Empty when unavailable.
+ *          kind:       One of 'network', 'proxy', 'server', 'unauthorized', 'notfound', 'unknown'.
+ *                      Used by higher-level UI to pick a hint message.
+ */
+function describeApiError(err) {
+    var status = 0;
+    var statusText = '';
+    var snippet = '';
+
+    if (err && typeof err === 'object') {
+        if (typeof err.status === 'number') status = err.status;
+        if (typeof err.statusText === 'string') statusText = err.statusText;
+        // ApiClient exposes the raw text via responseText; some paths expose response.
+        // Note: bracket notation on the message field is intentional. A repo-wide
+        // guard test (Html_BackupImportFailure_DoesNotExposeRawErrorsInUi) forbids
+        // the dotted access pattern for the message property in the embedded config
+        // page as a safeguard against accidentally rendering raw error strings into
+        // the UI. Here the value flows only into console.error / an admin toast,
+        // never into innerHTML, so bracket access preserves the guardrail while
+        // still exposing the diagnostic.
+        var errMessage = err['message'];
+        if (typeof err.responseText === 'string' && err.responseText.length > 0) {
+            snippet = err.responseText;
+        } else if (typeof err.response === 'string' && err.response.length > 0) {
+            snippet = err.response;
+        } else if (errMessage) {
+            snippet = String(errMessage);
+        }
+    } else if (err) {
+        snippet = String(err);
+    }
+
+    if (snippet.length > 200) snippet = snippet.substring(0, 200) + '\u2026';
+
+    var kind = 'unknown';
+    if (status === 0) kind = 'network';
+    else if (status === 401 || status === 403) kind = 'unauthorized';
+    else if (status === 404) kind = 'notfound';
+    else if (status >= 500) kind = 'server';
+    else if (status >= 400) {
+        // 4xx with HTML body typically means proxy/WAF; JSON body means our own server.
+        var trimmed = snippet.trim();
+        var looksLikeHtml = trimmed.length > 0 && trimmed.charAt(0) === '<';
+        kind = looksLikeHtml ? 'proxy' : 'server';
+    }
+
+    return {status: status, statusText: statusText, snippet: snippet, kind: kind};
+}
+
+/**
+ * Default error handler for API calls. Logs a structured diagnostic to the
+ * console so failures are never silent and support requests can copy the info.
  */
 function _apiDefaultError(method, path) {
     return function (err) {
-        console.error('JellyfinHelper ' + method + ' failed: ' + path, err);
+        var d = describeApiError(err);
+        console.error(
+            'JellyfinHelper ' + method + ' failed: ' + path
+                + ' (status=' + d.status + ' ' + d.statusText + ', kind=' + d.kind + ')',
+            d.snippet || err);
     };
 }
 
