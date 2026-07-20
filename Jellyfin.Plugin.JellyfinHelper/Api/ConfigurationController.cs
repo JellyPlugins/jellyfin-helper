@@ -176,38 +176,24 @@ public class ConfigurationController : ControllerBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A status result with optional connection warnings.</returns>
     [HttpPost]
+    [ServiceFilter(typeof(ModelBindingLogFilter))]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> UpdateConfigurationAsync(
         [FromBody] ConfigurationUpdateRequest request,
         CancellationToken cancellationToken)
     {
-        // ASP.NET Core rejects malformed JSON bodies with 400 *before* this method runs,
-        // but ModelState may also carry binding errors for individual fields (e.g. an int
-        // field receiving null, an enum receiving an unknown string). Surface those into
-        // the plugin log so they are visible to admins - otherwise they only appear in
-        // the raw HTTP response, which some reverse-proxy / WAF setups may obscure.
-        if (!ModelState.IsValid)
-        {
-            var bindingErrors = string.Join(
-                "; ",
-                ModelState
-                    .Where(kvp => kvp.Value?.Errors.Count > 0)
-                    .SelectMany(kvp =>
-                        kvp.Value!.Errors.Select(e =>
-                            $"{kvp.Key}: {(string.IsNullOrEmpty(e.ErrorMessage) ? e.Exception?.Message ?? "invalid" : e.ErrorMessage)}")));
-
-            _pluginLog.LogWarning(
-                "API",
-                $"Configuration model binding failed: {bindingErrors}",
-                logger: _logger);
-
-            return BadRequest(new { message = $"Invalid request body: {bindingErrors}" });
-        }
-
+        // Model-binding and null-body diagnostics are handled by ModelBindingLogFilter, which
+        // runs with Order = int.MinValue so it fires *before* [ApiController]'s built-in
+        // ModelStateInvalidFilter. Any 400 for a malformed payload therefore comes with a
+        // matching WARNING entry in the plugin log — see ModelBindingLogFilter for the details.
+        //
+        // Defense-in-depth: if someone ever detaches the filter, we still want to reject a
+        // null request rather than NRE. The log line is intentionally absent here because the
+        // filter is the single source of truth for that diagnostic — we don't want duplicate
+        // entries if both paths ever fire together.
         if (request is null)
         {
-            _pluginLog.LogWarning("API", "Configuration update rejected: request body was null.", logger: _logger);
             return BadRequest(new { message = "Request body is required." });
         }
 

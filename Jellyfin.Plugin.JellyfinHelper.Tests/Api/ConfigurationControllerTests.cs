@@ -946,43 +946,12 @@ public class ConfigurationControllerTests
 
     // ===== Diagnostic logging for rejected saves =====
 
-    /// <summary>
-    ///     Regression test: when ASP.NET Core surfaces a model-binding error via
-    ///     <c>ModelState</c>, the controller must (a) return 400 and (b) write a
-    ///     WARNING entry to the plugin log so admins can see *why* their save was
-    ///     rejected. Before this diagnostic was added, model-binding failures never
-    ///     reached the plugin log and users saw only a generic "Failed to save
-    ///     settings" toast with no server-side trace to debug against.
-    /// </summary>
-    [Fact]
-    public async Task UpdateConfiguration_ModelStateInvalid_LogsWarningAndReturns400()
-    {
-        _controller.ModelState.AddModelError("SeerrCleanupAgeDays", "The value 'null' is not valid.");
-
-        var result = await _controller.UpdateConfigurationAsync(
-            new ConfigurationUpdateRequest(),
-            CancellationToken.None);
-
-        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
-
-        // Response body must include the field name so the UI can surface it.
-        var body = JsonSerializer.Serialize(badRequest.Value);
-        Assert.Contains("SeerrCleanupAgeDays", body);
-
-        // The failure must be recorded in the plugin log at WARNING level with the
-        // "API" source so it shows up in the Logs tab of the admin UI.
-        _pluginLogMock.Verify(
-            l => l.LogWarning(
-                "API",
-                It.Is<string>(msg => msg.Contains("model binding failed", System.StringComparison.OrdinalIgnoreCase)
-                                     && msg.Contains("SeerrCleanupAgeDays", System.StringComparison.Ordinal)),
-                It.IsAny<System.Exception?>(),
-                It.IsAny<ILogger?>()),
-            Times.Once);
-
-        // Config must not have been persisted when the payload is rejected upfront.
-        _configServiceMock.Verify(s => s.SaveConfiguration(), Times.Never);
-    }
+    // Model-binding diagnostics (invalid ModelState / null request body) are exercised in
+    // ModelBindingLogFilterTests. Those failures are handled by ModelBindingLogFilter which runs
+    // *before* the action method — driving them through UpdateConfigurationAsync() directly (as
+    // this test file did originally) bypasses the MVC pipeline and gives a false-positive green
+    // even when the production code path is broken. See ModelBindingLogFilterTests for the real
+    // contract.
 
     /// <summary>
     ///     Regression test: validator-level errors (as opposed to model-binding
