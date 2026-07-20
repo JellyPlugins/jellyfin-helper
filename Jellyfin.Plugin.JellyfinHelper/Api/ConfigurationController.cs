@@ -182,6 +182,35 @@ public class ConfigurationController : ControllerBase
         [FromBody] ConfigurationUpdateRequest request,
         CancellationToken cancellationToken)
     {
+        // ASP.NET Core rejects malformed JSON bodies with 400 *before* this method runs,
+        // but ModelState may also carry binding errors for individual fields (e.g. an int
+        // field receiving null, an enum receiving an unknown string). Surface those into
+        // the plugin log so they are visible to admins - otherwise they only appear in
+        // the raw HTTP response, which some reverse-proxy / WAF setups may obscure.
+        if (!ModelState.IsValid)
+        {
+            var bindingErrors = string.Join(
+                "; ",
+                ModelState
+                    .Where(kvp => kvp.Value?.Errors.Count > 0)
+                    .SelectMany(kvp =>
+                        kvp.Value!.Errors.Select(e =>
+                            $"{kvp.Key}: {(string.IsNullOrEmpty(e.ErrorMessage) ? e.Exception?.Message ?? "invalid" : e.ErrorMessage)}")));
+
+            _pluginLog.LogWarning(
+                "API",
+                $"Configuration model binding failed: {bindingErrors}",
+                logger: _logger);
+
+            return BadRequest(new { message = $"Invalid request body: {bindingErrors}" });
+        }
+
+        if (request is null)
+        {
+            _pluginLog.LogWarning("API", "Configuration update rejected: request body was null.", logger: _logger);
+            return BadRequest(new { message = "Request body is required." });
+        }
+
         if (!_configService.IsInitialized)
         {
             return BadRequest(new { message = "Plugin not initialized." });
@@ -190,6 +219,7 @@ public class ConfigurationController : ControllerBase
         var validationError = ConfigurationRequestValidator.Validate(request);
         if (validationError != null)
         {
+            _pluginLog.LogWarning("API", $"Configuration validation rejected: {validationError}", logger: _logger);
             return BadRequest(new { message = validationError });
         }
 
