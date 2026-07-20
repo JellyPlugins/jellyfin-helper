@@ -1,4 +1,4 @@
-﻿<!--
+﻿3<!--
   CONTRIBUTING.md - Contributor guidelines for the Jellyfin Helper plugin.
   This file uses UTF-8 encoding and may contain emoji characters.
   If your editor shows garbled characters, ensure UTF-8 is set.
@@ -186,9 +186,12 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── ContentScoringTests.cs
 │       │   ├── DiversityRerankerTests.cs
 │       │   ├── EngineBoxSetTests.cs                   # BoxSet pure-static helpers on Engine: BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity guard)
+│       │   ├── EngineBoxSetLookupTests.cs             # private-static BoxSet-resolution helpers on Engine (BuildCandidateBoxSetLookupFresh, ResolveBoxSetIds): sparsity guarantee (orphan movies produce ZERO lookup entries, not empty-list values - measurable overhead at 10k+ candidates), fail-soft catch-all on parent-hierarchy walk (corrupted third-party metadata must not crash the batch), mutability contract on returned list (guards against future Array.Empty/ImmutableList regression)
 │       │   ├── EngineCommunityPopularityTests.cs      # Engine.BuildCommunityPopularityMap - shared cold-start community-popularity computation used by both the batch path and the live path (identical output required)
 │       │   ├── EngineExceedsMaxRatingTests.cs         # SECURITY-CRITICAL parental-rating gate (private-static ExceedsMaxRating): null max = unrestricted, missing item rating on a restricted profile = REJECT (fail-safe against unrated adult content leaking into child profiles), inclusive boundary (=max allowed, max+1 rejected), zero-max edge case, reflection-based invocation with backing-field fallback so tests survive BaseItem API drift
 │       │   ├── EngineHelperTests.cs                   # Pure-static internal helper methods on Engine that cannot be exercised end-to-end without spinning up the full recommendation pipeline
+│       │   ├── EngineInstanceTests.cs                 # Outer control-flow contract of Engine.GetRecommendations / GetAllRecommendations / TrainStrategy via the EngineTestFactory harness: user-not-found returns NULL (never empty-result - the API layer relies on this to distinguish 404 from 200), cancellation-token honoured at method entry (not after profile fetch), Math.Clamp guards maxResults against negative / int.MaxValue inputs, empty-user deployment yields empty (never null) list, TrainStrategy short-circuits on empty previousResults for both incremental=true and =false (must NOT touch watch-history or mutate strategy metrics counter)
+│       │   ├── EngineLanguageAffinityTests.cs         # ComputeLanguageAffinity + ComputeSubtitleLanguageAffinity fail-safe contract: empty language profile OR item without stream metadata BOTH return neutral 0.5 (never 0.0 - would penalise every thin-metadata item to the bottom of the ranking), cross-feature isolation guard (audio profile presence must not leak into subtitle score and vice versa)
 │       │   ├── PreferenceBuilderTests.cs
 │       │   ├── ReasonResolverTests.cs                 # Every branch of ReasonResolver.DetermineReason + private resolvers + StripWatchedItemsForResponse; EngineConstants thresholds are treated as contract
 │       │   ├── SimilarityComputerTests.cs             # People-batch (GetPeopleNamesByItems) + per-item fallback; weighted PeopleSimilarity overload (Roadmap v3 C2)
@@ -219,6 +222,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       ├── RecommendationDtoTests.cs
 │       └── RecommendationEngineTests.cs
 └── TestFixtures/                  # Shared test helpers
+    └── EngineTestFactory.cs       # Centralised builder for a fully-mocked recommendation Engine (7 constructor dependencies wired to sensible empty-collection defaults + a strategy override hook). Returns an EngineHarness record bundling the engine with all Moq references so tests can override a single collaborator without re-wiring the other six; keeps the Engine-tests suite resilient to future constructor-signature changes (one-line fix here vs. shotgun surgery across N test files)
 ```
 
 ### Test Guidelines
