@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/JellyPlugins/jellyfin-helper/main/media/logo.png",
     "versions": [
       {
+        "version": "2.1.0.6",
+        "changelog": "v2.1.0.6: Diagnostics for reverse-proxy / WAF-blocked config saves. Added GET /JellyfinHelper/Ping liveness endpoint. Configuration model-binding and validation errors are now logged to the plugin log (source \"API\", level WARN) instead of silently returning 400. Frontend save handler now classifies errors (network / proxy / server / unauthorized) and surfaces the HTTP status and body snippet to the console, with an automatic Ping follow-up to distinguish \"backend unreachable\" from \"backend reachable, payload rejected\". 2325 tests.",
+        "targetAbi": "10.11.10.0",
+        "sourceUrl": "https://github.com/JellyPlugins/jellyfin-helper/releases/download/2.1.0.6/JellyfinHelper_2.1.0.6.zip",
+        "checksum": "TBD_ON_RELEASE",
+        "timestamp": "TBD_ON_RELEASE"
+      },
+      {
         "version": "2.1.0.5",
         "changelog": "v2.1.0.5: Fix StackOverflow on circular symlinks in directory scan. Fix IOException on long trash path names. Added Swedish (sv) language. Exclude Libraries multi-select dropdown. Trash folder browser. Trash path change dialog (move/delete content on path change). Enhanced trash path validation. Upgraded to Jellyfin 10.11.10. 2318 tests.",
         "targetAbi": "10.11.10.0",

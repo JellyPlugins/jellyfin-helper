@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.IO.Abstractions;
+using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
@@ -129,5 +130,12 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<DiscoveryCacheService>();
         serviceCollection.AddSingleton<IDiscoveryFeedbackStore, DiscoveryFeedbackStore>();
         serviceCollection.AddSingleton<ISeerrDiscoveryService, SeerrDiscoveryService>();
+
+        // Action filter for surfacing model-binding failures into the plugin log before
+        // [ApiController]'s auto-400 short-circuits the request. Scoped is the recommended
+        // lifetime for filters resolved via [ServiceFilter(...)] — a new instance per request
+        // matches the built-in filter lifecycle and avoids surprises when the filter ever
+        // grows request-scoped dependencies.
+        serviceCollection.AddScoped<ModelBindingLogFilter>();
     }
 }

@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
+## [2.1.0.6] - 2026-07-20
+
+### Added
+- **`GET /JellyfinHelper/Ping` Liveness Endpoint** - A minimal, dependency-free endpoint that returns `{ ok: true, plugin: "JellyfinHelper", version: "..." }`. The UI calls this endpoint automatically after a failed configuration save to distinguish "backend unreachable" (Ping also fails - infrastructure issue) from "backend reachable, payload rejected" (Ping succeeds - server-side validation rejected the request). Uses the same `RequiresElevation` authorization policy as the other admin endpoints so a successful ping is a genuine end-to-end proof.
+
+### Fixed
+- **Silent 400 Bad Request on Config Save** - When ASP.NET Core rejected a configuration save due to model-binding errors (e.g. a numeric field arriving as `null` because of a blank UI input, or an enum receiving an unknown string), the error was returned as a plain HTTP 400 with no matching entry in the plugin log. Administrators saw only "Failed to save settings." in the UI and had no server-side trace to debug against. `ConfigurationController.UpdateConfigurationAsync` now inspects `ModelState` before running its own validator and writes a `WARN` entry to the plugin log with the exact field names and their error messages. Validator-level rejections are also logged for symmetry.
+- **Frontend Save Failure Diagnostics** - The `doSaveSettings` error handler previously showed a generic "Failed to save settings." toast for every failure mode (network drop, proxy blocking, WAF rejection, our own 400 with a JSON `message`, unauthorized). It now classifies the error via a new `describeApiError()` helper into `network / proxy / server / unauthorized / notfound / unknown` buckets, prefers the server-provided `message` field when present, and falls back to a status-code-specific i18n string otherwise. A structured `console.error` line with status, kind, and a 200-char response snippet is emitted so users can copy the diagnostic straight into a GitHub issue.
+- **Automatic Backend Reachability Probe** - After a network / proxy / server class failure the frontend automatically fires `GET /JellyfinHelper/Ping` in the background. A `console.info` line confirms "Backend reachable, POST rejected" when Ping succeeds, or a `console.warn` states "Backend path blocked - reverse proxy / WAF / firewall" when Ping also fails. Purely diagnostic - never blocks a user-visible flow.
+
+### Improved
+- **API Error Utility** - New `describeApiError(err)` function in `Shared.js` extracts HTTP status, status text, body snippet, and a coarse-grained error kind from ApiClient.ajax rejections. The default error handler (`_apiDefaultError`) now uses it to log structured diagnostics for every failing GET/POST/PUT/DELETE call across the plugin, not just the save handler.
+
+### i18n
+- Added three new UI strings (`settingsErrorNetwork`, `settingsErrorProxy`, `settingsErrorUnauthorized`) in all 8 supported languages (en, de, fr, es, pt, zh, tr, sv).
+
+### Tests
+- Total: **2325 tests** (`PingControllerTests`, `ConfigurationControllerTests.UpdateConfiguration_ModelStateInvalid_LogsWarningAndReturns400`, `ConfigurationControllerTests.UpdateConfiguration_ValidatorRejects_LogsWarning`).
+
+---
+
 ## [2.1.0.5] - 2026-05-26
 
 ### Fixed

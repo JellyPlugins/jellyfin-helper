@@ -25,6 +25,7 @@ public class ConfigurationControllerTests
     private readonly PluginConfiguration _config;
     private readonly Mock<IPluginConfigurationService> _configServiceMock;
     private readonly ConfigurationController _controller;
+    private readonly Mock<IPluginLogService> _pluginLogMock;
     private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
 
     public ConfigurationControllerTests()
@@ -35,7 +36,7 @@ public class ConfigurationControllerTests
         _configServiceMock.Setup(s => s.IsInitialized).Returns(true);
         _configServiceMock.Setup(s => s.GetConfiguration()).Returns(_config);
 
-        var pluginLogMock = new Mock<IPluginLogService>();
+        _pluginLogMock = new Mock<IPluginLogService>();
 
         _arrServiceMock = new Mock<IArrIntegrationService>();
         _arrServiceMock
@@ -56,7 +57,7 @@ public class ConfigurationControllerTests
 
         _controller = new ConfigurationController(
             _arrServiceMock.Object,
-            pluginLogMock.Object,
+            _pluginLogMock.Object,
             loggerMock.Object,
             configHelperMock.Object,
             _configServiceMock.Object,
@@ -386,5 +387,38 @@ public class ConfigurationControllerTests
         var result = _controller.UpdateLogLevel(request);
 
         Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    // ===== Diagnostic logging for rejected saves =====
+
+    // Model-binding diagnostics (invalid ModelState / null request body) are exercised in
+    // ModelBindingLogFilterTests. Those failures are handled by ModelBindingLogFilter which runs
+    // *before* the action method — driving them through UpdateConfigurationAsync() directly (as
+    // this test file did originally) bypasses the MVC pipeline and gives a false-positive green
+    // even when the production code path is broken. See ModelBindingLogFilterTests for the real
+    // contract.
+
+    /// <summary>
+    ///     Regression test: validator-level errors (as opposed to model-binding
+    ///     errors) must also produce a plugin-log entry. Previously the response
+    ///     carried a helpful message but the log stayed silent, which meant a user
+    ///     running with debug logging still couldn't see the rejection reason.
+    /// </summary>
+    [Fact]
+    public async Task UpdateConfiguration_ValidatorRejects_LogsWarning()
+    {
+        var request = new ConfigurationUpdateRequest { OrphanMinAgeDays = -5 };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+
+        _pluginLogMock.Verify(
+            l => l.LogWarning(
+                "API",
+                It.Is<string>(msg => msg.Contains("validation rejected", System.StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<System.Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
     }
 }

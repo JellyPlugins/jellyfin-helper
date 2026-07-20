@@ -172,12 +172,27 @@ public class ConfigurationController : ControllerBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A status result with optional connection warnings.</returns>
     [HttpPost]
+    [ServiceFilter(typeof(ModelBindingLogFilter))]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> UpdateConfigurationAsync(
         [FromBody] ConfigurationUpdateRequest request,
         CancellationToken cancellationToken)
     {
+        // Model-binding and null-body diagnostics are handled by ModelBindingLogFilter, which
+        // runs with Order = int.MinValue so it fires *before* [ApiController]'s built-in
+        // ModelStateInvalidFilter. Any 400 for a malformed payload therefore comes with a
+        // matching WARNING entry in the plugin log — see ModelBindingLogFilter for the details.
+        //
+        // Defense-in-depth: if someone ever detaches the filter, we still want to reject a
+        // null request rather than NRE. The log line is intentionally absent here because the
+        // filter is the single source of truth for that diagnostic — we don't want duplicate
+        // entries if both paths ever fire together.
+        if (request is null)
+        {
+            return BadRequest(new { message = "Request body is required." });
+        }
+
         if (!_configService.IsInitialized)
         {
             return BadRequest(new { message = "Plugin not initialized." });
@@ -186,6 +201,7 @@ public class ConfigurationController : ControllerBase
         var validationError = ConfigurationRequestValidator.Validate(request);
         if (validationError != null)
         {
+            _pluginLog.LogWarning("API", $"Configuration validation rejected: {validationError}", logger: _logger);
             return BadRequest(new { message = validationError });
         }
 
