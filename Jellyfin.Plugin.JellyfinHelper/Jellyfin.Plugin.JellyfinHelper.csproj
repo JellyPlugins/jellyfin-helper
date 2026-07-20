@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFramework>net9.0</TargetFramework>
         <AssemblyName>Jellyfin.Plugin.JellyfinHelper</AssemblyName>
         <RootNamespace>Jellyfin.Plugin.JellyfinHelper</RootNamespace>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
