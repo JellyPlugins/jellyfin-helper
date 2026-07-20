@@ -817,11 +817,28 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
             options.onSuccess();
         }
     }, function (err) {
+        // Structured diagnostic: try to give the user (and support) a concrete hint
+        // instead of a generic "Failed to save settings." toast. The classification
+        // uses HTTP status code and body shape (HTML => proxy/WAF, JSON => our server).
+        var diag = describeApiError(err);
+
         var errorMsg = '';
+        // Prefer the server-provided message field (our controllers always emit
+        // { message: "..." } on validation / model-binding errors).
         try {
-            var errData = err && (err.responseJSON || (typeof err.responseText === 'string' ? JSON.parse(err.responseText) : null));
-            if (errData && errData.message) errorMsg = errData.message;
-        } catch (_e) { /* ignore parse errors */ }
+            var errData = err && (err.responseJSON
+                || (typeof err.responseText === 'string' && err.responseText.length > 0
+                    ? JSON.parse(err.responseText)
+                    : null));
+            if (errData && errData.message) errorMsg = String(errData.message);
+        } catch (_e) { /* body was not JSON (e.g. HTML from a proxy) - fall through */ }
+
+        // Emit a rich console log so users copy/pasting into a GitHub issue give us
+        // everything we need in one shot (status, kind, body snippet).
+        console.error('[JellyfinHelper] Save configuration failed',
+            {status: diag.status, statusText: diag.statusText, kind: diag.kind,
+             message: errorMsg, snippet: diag.snippet});
+
         if (quiet) {
             showAutoSaveIndicatorOverlay(indicatorEl, false);
             renderSaveBand('error');
@@ -832,8 +849,77 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
             _saveBandSaving = false;
             if (btn) btn.disabled = false;
             renderSaveBand('error');
+            // Override the generic error text with a diagnostic-aware label
+            // (server message > proxy/network/auth hint > generic fallback).
+            var band = getSaveBand();
+            var errText = band ? band.querySelector('.settings-save-band-text') : null;
+            if (errText) errText.textContent = buildSaveErrorLabel(diag, errorMsg);
+        }
+
+        // When the HTTP layer looks like something between the browser and Jellyfin
+        // dropped the request (network error, HTML body, 5xx), fire a lightweight
+        // Ping. If Ping succeeds, we KNOW the backend is reachable and the payload
+        // was rejected on purpose - useful signal for the console.  If Ping ALSO
+        // fails, we log a clear "backend unreachable" line so infrastructure issues
+        // are unmistakable in the report.
+        if (diag.kind === 'network' || diag.kind === 'proxy' || diag.kind === 'server') {
+            probeBackendReachability(diag);
         }
     });
+}
+
+/**
+ * Compose a compact user-facing error label for the save band.
+ * Priority: server-provided message > HTTP status hint > generic fallback.
+ *
+ * @param {{status:number,statusText:string,kind:string}} diag
+ * @param {string} serverMessage - Parsed 'message' field from the JSON error body, or ''.
+ * @returns {string}
+ */
+function buildSaveErrorLabel(diag, serverMessage) {
+    if (serverMessage) return serverMessage;
+    if (diag.kind === 'proxy') {
+        return T('settingsErrorProxy',
+            'Save blocked (HTTP ' + diag.status + '). Check reverse proxy / WAF logs.');
+    }
+    if (diag.kind === 'network') {
+        return T('settingsErrorNetwork',
+            'Save failed: backend unreachable. Check network / proxy.');
+    }
+    if (diag.kind === 'unauthorized') {
+        return T('settingsErrorUnauthorized',
+            'Save failed: not authorized. Try re-logging in.');
+    }
+    if (diag.status > 0) {
+        return T('settingsError', 'Failed to save settings.') + ' (HTTP ' + diag.status + ')';
+    }
+    return T('settingsError', 'Failed to save settings.');
+}
+
+/**
+ * Fires the /Ping endpoint after a failed save to distinguish
+ * "backend unreachable" from "backend reachable, payload rejected".
+ * Purely informational: writes a diagnostic line to console. Never
+ * throws and never blocks any user-visible flow.
+ *
+ * @param {{status:number,statusText:string,kind:string,snippet:string}} originalDiag
+ */
+function probeBackendReachability(originalDiag) {
+    try {
+        apiGet('JellyfinHelper/Ping', function () {
+            console.info('[JellyfinHelper] Ping OK after failed save. '
+                + 'Backend is reachable - the Configuration POST itself was rejected. '
+                + 'Original: HTTP ' + originalDiag.status + ' (' + originalDiag.kind + ').');
+        }, function (pingErr) {
+            var pingDiag = describeApiError(pingErr);
+            console.warn('[JellyfinHelper] Ping ALSO failed. '
+                + 'The entire backend path appears to be blocked (reverse proxy / WAF / firewall). '
+                + 'Save: HTTP ' + originalDiag.status + ' (' + originalDiag.kind + '); '
+                + 'Ping: HTTP ' + pingDiag.status + ' (' + pingDiag.kind + ').');
+        });
+    } catch (_e) {
+        // Diagnostic-only path - never let a Ping failure surface to the user.
+    }
 }
 
 // Dialog helpers (createDialogOverlay, createDialogBtn, removeDialogById) are now in Shared.js
