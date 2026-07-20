@@ -22,7 +22,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - Added three new UI strings (`settingsErrorNetwork`, `settingsErrorProxy`, `settingsErrorUnauthorized`) in all 8 supported languages (en, de, fr, es, pt, zh, tr, sv).
 
 ### Tests
-- Total: **2322 tests** (`PingControllerTests`, `ConfigurationControllerTests.UpdateConfiguration_ModelStateInvalid_LogsWarningAndReturns400`, `ConfigurationControllerTests.UpdateConfiguration_ValidatorRejects_LogsWarning`).
+- Total: **2325 tests** (`PingControllerTests`, `ConfigurationControllerTests.UpdateConfiguration_ModelStateInvalid_LogsWarningAndReturns400`, `ConfigurationControllerTests.UpdateConfiguration_ValidatorRejects_LogsWarning`).
 
 ---
 

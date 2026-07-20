@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  v2.1.0.6: Diagnostics for reverse-proxy / WAF-blocked config saves. Added GET /JellyfinHelper/Ping liveness endpoint. Configuration model-binding and validation errors are now logged to the plugin log (source "API", level WARN) instead of silently returning 400. Frontend save handler now classifies errors (network / proxy / server / unauthorized) and surfaces the HTTP status and body snippet to the console, with an automatic Ping follow-up to distinguish "backend unreachable" from "backend reachable, payload rejected". 2322 tests.
+  v2.1.0.6: Diagnostics for reverse-proxy / WAF-blocked config saves. Added GET /JellyfinHelper/Ping liveness endpoint. Configuration model-binding and validation errors are now logged to the plugin log (source "API", level WARN) instead of silently returning 400. Frontend save handler now classifies errors (network / proxy / server / unauthorized) and surfaces the HTTP status and body snippet to the console, with an automatic Ping follow-up to distinguish "backend unreachable" from "backend reachable, payload rejected". 2325 tests.

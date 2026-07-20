@@ -103,6 +103,8 @@ Tests mirror the source structure:
 Jellyfin.Plugin.JellyfinHelper.Tests/
 ├── Api/                           # Controller tests
 │   ├── DiscoveryControllerTests.cs
+│   ├── ModelBindingLogFilterTests.cs                 # Verifies the IAsyncActionFilter that surfaces model-binding failures into the plugin log BEFORE [ApiController]'s auto-400 short-circuits the request. Drives the filter through hand-rolled ActionExecutingContext (invalid ModelState, null request argument, happy-path) instead of the controller — the previous test suite drove the same logic through the action method directly, which bypassed the MVC pipeline and gave a false-positive green even when the production code path was dead. Also pins Order = int.MinValue as a hard contract (bumping the value silently disables the diagnostic because [ApiController]'s built-in ModelStateInvalidFilter would fire first).
+│   ├── PingControllerTests.cs                        # /JellyfinHelper/Ping liveness endpoint: 200 with { ok, plugin, version } payload — the Settings save flow probes this after a failed save to distinguish "backend unreachable" (Ping also fails, likely reverse proxy / WAF / firewall) from "backend reachable but the mutating request itself was rejected" (Ping succeeds).
 │   ├── UserDiscoveryControllerTests.cs
 │   ├── RecommendationControllerTests.cs
 │   ├── UserActivityControllerTests.cs
@@ -205,6 +207,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── LibraryInsightsController.cs     # Library insights API
 │   ├── LogsController.cs               # Plugin logs API
 │   ├── MediaStatisticsController.cs     # Media statistics API
+│   ├── ModelBindingLogFilter.cs        # IAsyncActionFilter (Order = int.MinValue) attached to endpoints via [ServiceFilter]. Surfaces model-binding failures (invalid field types, null request body) into IPluginLogService BEFORE [ApiController]'s auto-400 short-circuits the request — without this filter, the auto-400 makes it out but no plugin-log entry is written, leaving admins with a bare HTTP 400 and no server-side trace to debug against. Registered as Scoped in PluginServiceRegistrator; do NOT register globally (would rewrite responses of other Jellyfin controllers that have their own error contracts).
+│   ├── PingController.cs               # /JellyfinHelper/Ping liveness endpoint - no dependencies, returns { ok, plugin, version }. The Settings save flow probes this after a failed save to distinguish "backend unreachable" (Ping also fails) from "backend reachable, request rejected" (Ping succeeds). Uses the same [Authorize(RequiresElevation)] policy as the other admin endpoints so a successful ping proves the entire auth + routing + reverse-proxy chain is intact for admins.
 │   ├── RecommendationController.cs      # ML recommendations API
 │   ├── SeerrController.cs              # Jellyseerr/Overseerr integration API
 │   ├── TranslationsController.cs        # i18n translations API
