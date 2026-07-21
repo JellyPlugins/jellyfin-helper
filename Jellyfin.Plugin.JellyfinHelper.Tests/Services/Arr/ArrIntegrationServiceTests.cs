@@ -612,4 +612,14 @@ public class ArrIntegrationServiceTests
     //  per-request HttpRequestMessage — this is safe and does not need the fix.
     //  The SeerrIntegrationService-specific test lives in SeerrIntegrationServiceTests.cs
     //  via the existing TestConnection_SetsApiKeyHeader test that validates the header is set.)
+
+    [Fact]
+    public async Task TestConnectionAsync_ApiKeyWithCrlf_ThrowsArgumentException()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        var service = CreateService(handler.Object);
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.TestConnectionAsync("http://radarr.local", "key\r\nX-Injected: evil", CancellationToken.None));
+        Assert.Contains("CR or LF", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

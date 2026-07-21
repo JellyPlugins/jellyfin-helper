@@ -429,4 +429,86 @@ public class PluginConfigurationSerializationTests
         Assert.Contains(reports, r => r.PropertyName == nameof(PluginConfiguration.EnsembleAlphaMax));
         Assert.Contains(reports, r => r.PropertyName == nameof(PluginConfiguration.EnsembleGenrePenaltyFloor));
     }
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(3651, 3650)]
+    [InlineData(999999, 3650)]
+    public void SeerrCleanupAgeDays_OutOfRange_IsClamped(int raw, int expected)
+    {
+        var config = new PluginConfiguration { SeerrCleanupAgeDays = raw };
+        Assert.Equal(expected, config.SeerrCleanupAgeDays);
+    }
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(3651, 3650)]
+    public void SeerrCleanupAgeDays_OutOfRange_AppearsInClampReport(int raw, int expected)
+    {
+        var config = new PluginConfiguration { SeerrCleanupAgeDays = raw };
+        var reports = config.DrainClampReports();
+        Assert.Contains(reports, r => r.PropertyName == "SeerrCleanupAgeDays"
+            && r.RawValue == raw.ToString()
+            && r.ClampedValue == expected.ToString());
+    }
+
+    [Fact]
+    public void SeerrCleanupAgeDays_Valid365_NoClampReport()
+    {
+        var config = new PluginConfiguration { SeerrCleanupAgeDays = 365 };
+        var reports = config.DrainClampReports();
+        Assert.DoesNotContain(reports, r => r.PropertyName == "SeerrCleanupAgeDays");
+    }
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(-100, 0)]
+    [InlineData(3651, 3650)]
+    public void TrashRetentionDays_OutOfRange_IsClamped(int raw, int expected)
+    {
+        var config = new PluginConfiguration { TrashRetentionDays = raw };
+        Assert.Equal(expected, config.TrashRetentionDays);
+    }
+
+    [Theory]
+    [InlineData(-5, 0)]
+    [InlineData(9999, 3650)]
+    public void TrashRetentionDays_OutOfRange_AppearsInClampReport(int raw, int expected)
+    {
+        var config = new PluginConfiguration { TrashRetentionDays = raw };
+        var reports = config.DrainClampReports();
+        Assert.Contains(reports, r => r.PropertyName == "TrashRetentionDays"
+            && r.RawValue == raw.ToString()
+            && r.ClampedValue == expected.ToString());
+    }
+
+    [Fact]
+    public void NormalizeAlphaRange_MinGreaterThanMax_AppearsInClampReport()
+    {
+        var config = new PluginConfiguration
+        {
+            EnsembleAlphaMin = 0.8,
+            EnsembleAlphaMax = 0.3
+        };
+        config.DrainClampReports();
+
+        config.NormalizeAlphaRange();
+
+        var reports = config.DrainClampReports();
+        Assert.Contains(reports, r => r.PropertyName.Contains("EnsembleAlphaRange",
+            StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(0.3, config.EnsembleAlphaMin, precision: 10);
+        Assert.Equal(0.8, config.EnsembleAlphaMax, precision: 10);
+    }
+
+    [Fact]
+    public void NormalizeAlphaRange_MinEqualsMax_NoClampReport()
+    {
+        var config = new PluginConfiguration { EnsembleAlphaMin = 0.5, EnsembleAlphaMax = 0.5 };
+        config.DrainClampReports();
+        config.NormalizeAlphaRange();
+        var reports = config.DrainClampReports();
+        Assert.DoesNotContain(reports, r => r.PropertyName.Contains("EnsembleAlphaRange",
+            StringComparison.OrdinalIgnoreCase));
+    }
 }

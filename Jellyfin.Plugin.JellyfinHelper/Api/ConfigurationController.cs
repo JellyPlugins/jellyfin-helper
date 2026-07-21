@@ -92,7 +92,7 @@ public class ConfigurationController : ControllerBase
             {
                 Name = i.Name,
                 Url = i.Url,
-                ApiKey = string.IsNullOrEmpty(i.ApiKey) ? string.Empty : ConfigurationResponse.ApiKeyMask
+                ApiKey = string.IsNullOrWhiteSpace(i.ApiKey) ? string.Empty : ConfigurationResponse.ApiKeyMask
             })
             .ToList();
 
@@ -101,7 +101,7 @@ public class ConfigurationController : ControllerBase
             {
                 Name = i.Name,
                 Url = i.Url,
-                ApiKey = string.IsNullOrEmpty(i.ApiKey) ? string.Empty : ConfigurationResponse.ApiKeyMask
+                ApiKey = string.IsNullOrWhiteSpace(i.ApiKey) ? string.Empty : ConfigurationResponse.ApiKeyMask
             })
             .ToList();
 
@@ -116,7 +116,7 @@ public class ConfigurationController : ControllerBase
             SeerrCleanupTaskMode = config.SeerrCleanupTaskMode,
             SeerrCleanupAgeDays = config.SeerrCleanupAgeDays,
             SeerrUrl = config.SeerrUrl,
-            SeerrApiKey = string.IsNullOrEmpty(config.SeerrApiKey) ? string.Empty : ConfigurationResponse.ApiKeyMask,
+            SeerrApiKey = string.IsNullOrWhiteSpace(config.SeerrApiKey) ? string.Empty : ConfigurationResponse.ApiKeyMask,
             UseTrash = config.UseTrash,
             TrashFolderPath = config.TrashFolderPath,
             TrashRetentionDays = config.TrashRetentionDays,
@@ -357,6 +357,14 @@ public class ConfigurationController : ControllerBase
         var seerrUrl = request.SeerrUrl.Trim();
         var seerrApiKey = request.SeerrApiKey.Trim();
 
+        // When the client echoes back the mask sentinel, the key was not changed — skip the test.
+        // ApplyRequestToConfig already preserved the real stored key; using "***" as a live
+        // credential would produce a guaranteed 401 from Seerr and a misleading warning.
+        if (string.Equals(seerrApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+        {
+            return;
+        }
+
         try
         {
             var (success, message) = await _seerrService.TestConnectionAsync(
@@ -410,6 +418,14 @@ public class ConfigurationController : ControllerBase
         {
             var instance = instances[i];
             if (string.IsNullOrWhiteSpace(instance.Url) || string.IsNullOrWhiteSpace(instance.ApiKey))
+            {
+                continue;
+            }
+
+            // Skip the live test when the client echoed back the mask sentinel — same guard as
+            // TestSeerrConnectionAsync. Sending "***" to Radarr/Sonarr produces a 401 and a
+            // spurious warning even though the real stored key is perfectly valid.
+            if (string.Equals(instance.ApiKey.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
             {
                 continue;
             }

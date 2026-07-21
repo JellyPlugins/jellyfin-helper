@@ -16,7 +16,6 @@ permissions:
 
 env:
   PLUGIN_NAME: JellyfinHelper
-  TARGET_ABI: "12.0.0.0"
 
 jobs:
   security-audit:
@@ -194,6 +193,7 @@ jobs:
         mkdir package
         cp publish/*.dll package/
         cp publish/logo.png package/ 2>/dev/null || cp media/logo.png package/
+        TARGET_ABI=$(jq -er '.[0].versions[0].targetAbi' manifest.json)
         TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.0000000Z")
         jq -n \
           --arg changelog "$BUILD_CHANGELOG" \
@@ -234,6 +234,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: "!contains(github.event.head_commit.message, '[skip release]')"
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
     - name: Checkout repository
@@ -351,13 +354,14 @@ jobs:
            --arg sha256 "$CHECKSUM_SHA256" \
            --arg url "$DOWNLOAD_URL" \
            '
-           .[0].versions[0].checksum = $checksum |
+           .[0].versions[0].checksum = $sha256 |
            .[0].versions[0].timestamp = (now | todateiso8601) |
            .[0].versions[0].sourceUrl = $url
            ' manifest.json > manifest.tmp
 
         mv manifest.tmp manifest.json
 
+        TARGET_ABI=$(jq -er '.[0].versions[0].targetAbi' manifest.json)
         yq eval -i '
           .version = strenv(VERSION) |
           .targetAbi = strenv(TARGET_ABI) |

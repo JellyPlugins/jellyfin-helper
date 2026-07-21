@@ -49,6 +49,14 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         string apiKey,
         CancellationToken cancellationToken)
     {
+        // Validate inputs before entering the catch-all try block so programming-error
+        // exceptions (invalid key format) propagate instead of being swallowed as
+        // connection failures.
+        if (apiKey.Contains('\r', StringComparison.Ordinal) || apiKey.Contains('\n', StringComparison.Ordinal))
+        {
+            throw new ArgumentException("API key must not contain CR or LF characters.", nameof(apiKey));
+        }
+
         try
         {
             using var client = CreateClient(baseUrl, apiKey);
@@ -381,11 +389,16 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             throw new ArgumentException("API key is required.", nameof(apiKey));
         }
 
-        client.BaseAddress = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
+        // TryAddWithoutValidation tolerates non-ASCII API keys (rejected by strict Add()).
+        // It does NOT sanitize CRLF sequences, which would allow header injection. Reject keys
+        // containing CR or LF before they reach the header so the non-ASCII tolerance cannot
+        // become a security hole.
+        if (apiKey.Contains('\r', StringComparison.Ordinal) || apiKey.Contains('\n', StringComparison.Ordinal))
+        {
+            throw new ArgumentException("API key must not contain CR or LF characters.", nameof(apiKey));
+        }
 
-        // TryAddWithoutValidation is used instead of Add() because the Overseerr/Jellyseerr
-        // API key may contain characters (e.g. non-ASCII tokens) that fail RFC 7230 header
-        // validation enforced by Add(), causing a FormatException at runtime.
+        client.BaseAddress = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
         client.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", apiKey);
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 

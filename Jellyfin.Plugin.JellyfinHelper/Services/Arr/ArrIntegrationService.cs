@@ -65,7 +65,12 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             var url = $"{baseUrl.TrimEnd('/')}/api/v3/system/status";
             using var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("X-Api-Key", apiKey);
+            if (apiKey.Contains('\r', StringComparison.Ordinal) || apiKey.Contains('\n', StringComparison.Ordinal))
+            {
+                throw new ArgumentException("API key must not contain CR or LF characters.", nameof(apiKey));
+            }
+
+            request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
             var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
@@ -129,7 +134,12 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             using var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
             var url = $"{baseUrl.TrimEnd('/')}/api/v3/movie";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("X-Api-Key", apiKey);
+            if (apiKey.Contains('\r', StringComparison.Ordinal) || apiKey.Contains('\n', StringComparison.Ordinal))
+            {
+                throw new ArgumentException("API key must not contain CR or LF characters.", nameof(apiKey));
+            }
+
+            request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
             var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
@@ -186,7 +196,12 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             using var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
             var url = $"{baseUrl.TrimEnd('/')}/api/v3/series";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("X-Api-Key", apiKey);
+            if (apiKey.Contains('\r', StringComparison.Ordinal) || apiKey.Contains('\n', StringComparison.Ordinal))
+            {
+                throw new ArgumentException("API key must not contain CR or LF characters.", nameof(apiKey));
+            }
+
+            request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
             var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();

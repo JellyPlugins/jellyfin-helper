@@ -204,7 +204,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Statistics/                # Statistics service tests
 │   ├── Timeline/                  # Growth timeline tests
 │   │   ├── GrowthTimelineSymlinkTests.cs  # ReparsePoint guard prevents StackOverflow on circular symlinks
-│   │   └── LibraryInsightsResultTests.cs  # Null-coalescing setters; defaults safe to enumerate; reassignment-to-null clears to empty
+│   │   ├── LibraryInsightsResultTests.cs  # Null-coalescing setters; defaults safe to enumerate; reassignment-to-null clears to empty
+│   │   └── TimelineAggregatorTests.cs     # Unit tests for DetermineGranularity boundary conditions (daily/weekly/monthly/quarterly/yearly thresholds) and GenerateBucketStarts bucket spacing.
 │   └── Recommendation/            # Recommendation engine tests
 │       ├── Engine/                # Core engine logic tests
 │       │   ├── CollaborativeFilterTests.cs
@@ -426,6 +427,17 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       └── DiscoveryInteractionStatus.cs # Enum: Shown/Dismissed/Requested/RequestedAndWatched
 │   ├── Statistics/              # Media statistics
 │   └── Timeline/                # Library growth tracking
+│       ├── IGrowthTimelineService.cs   # Interface for timeline generation
+│       ├── GrowthTimelineService.cs    # Orchestrator: scans library directories, builds incremental entries, writes result JSON
+│       ├── TimelineAggregator.cs       # Pure stateless aggregation: DetermineGranularity (daily/weekly/monthly/quarterly/yearly by span), GenerateBucketStarts, BuildIncrementalEntries, ConsolidateToGranularity — all internal static, no I/O
+│       ├── GrowthTimelineBaseline.cs   # Baseline snapshot DTO (first-scan directory sizes + timestamps)
+│       ├── BaselineDirectoryEntry.cs   # Single directory entry in the baseline
+│       ├── GrowthTimelineResult.cs     # Timeline result DTO (buckets + granularity label)
+│       ├── GrowthTimelinePoint.cs      # Single data point in the timeline (date + size + count)
+│       ├── ILibraryInsightsService.cs  # Interface for library insights aggregation
+│       ├── LibraryInsightsService.cs   # Aggregates growth data into per-library insights
+│       ├── LibraryInsightsResult.cs    # Insights result DTO
+│       └── LibraryInsightEntry.cs      # Per-library insight entry
 ├── ScheduledTasks/
 │   ├── HelperCleanupTask.cs         # Main orchestrator task
 │   ├── CleanTrickplayTask.cs

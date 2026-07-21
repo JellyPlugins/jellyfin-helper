@@ -217,4 +217,26 @@ public class StatisticsCacheServiceTests : IDisposable
         Assert.Null(exception);
         Assert.All(tasks, t => Assert.NotNull(t.Result));
     }
+
+    [Fact]
+    public void ConcurrentReadWrite_DoNotThrow()
+    {
+        _service.SaveLatestResult(new MediaStatisticsResult());
+
+        var tasks = Enumerable.Range(0, 16).Select(i =>
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                if (i % 2 == 0)
+                {
+                    _service.SaveLatestResult(new MediaStatisticsResult());
+                }
+                else
+                {
+                    _service.LoadLatestResult();
+                }
+            })).ToArray();
+
+        var exception = Record.Exception(() => System.Threading.Tasks.Task.WaitAll(tasks));
+        Assert.Null(exception);
+    }
 }

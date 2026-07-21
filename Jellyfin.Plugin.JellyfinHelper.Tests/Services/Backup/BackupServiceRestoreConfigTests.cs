@@ -560,4 +560,23 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
                 It.IsAny<Microsoft.Extensions.Logging.ILogger?>()),
             Times.Never);
     }
+
+    [Fact]
+    public void RestoreConfig_SeerrApiKey_LongerThan200Chars_NoSpuriousCredentialsChangedWarning()
+    {
+        var longKey = new string('x', 250);
+        var backupKey = new string('x', 200);
+
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrApiKey = longKey;
+        liveConfig.SeerrUrl = "https://seerr.example.com";
+
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrApiKey = backupKey;
+
+        var summary = service.RestoreBackup(backup);
+
+        Assert.False(summary.CredentialsChanged,
+            "No credentials change should be reported when the backup key is the truncated form of the stored key.");
+    }
 }

@@ -719,7 +719,9 @@ public class ConfigurationControllerTests
             SeerrCleanupAgeDays = 0
         };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
-        Assert.IsType<BadRequestObjectResult>(result);
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        var json = JsonSerializer.Serialize(bad.Value);
+        Assert.Contains("SeerrCleanupAgeDays", json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1210,5 +1212,51 @@ public class ConfigurationControllerTests
                 It.IsAny<System.Exception?>(),
                 It.IsAny<ILogger?>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SeerrApiKey_Sentinel_DoesNotCallTestConnection()
+    {
+        _config.SeerrApiKey = "real-stored-key";
+        _config.SeerrUrl = "https://seerr.example.com";
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "***",
+            SeerrCleanupAgeDays = 30
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result);
+        _seerrServiceMock.Verify(
+            s => s.TestConnectionAsync(It.IsAny<string>(), "***", It.IsAny<CancellationToken>()),
+            Times.Never);
+        Assert.Equal("real-stored-key", _config.SeerrApiKey);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_ArrApiKey_Sentinel_DoesNotCallTestConnection()
+    {
+        _config.RadarrInstances.Add(new ArrInstanceConfig
+        {
+            Name = "Radarr", Url = "http://radarr.local", ApiKey = "real-radarr-key"
+        });
+
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances = [new ArrInstanceConfig
+            {
+                Name = "Radarr", Url = "http://radarr.local", ApiKey = "***"
+            }]
+        };
+
+        await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+
+        _arrServiceMock.Verify(
+            s => s.TestConnectionAsync(It.IsAny<string>(), "***", It.IsAny<CancellationToken>()),
+            Times.Never);
+        Assert.Equal("real-radarr-key", _config.RadarrInstances[0].ApiKey);
     }
 }

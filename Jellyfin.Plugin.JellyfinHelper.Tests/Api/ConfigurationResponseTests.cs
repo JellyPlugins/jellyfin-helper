@@ -38,12 +38,14 @@ public class ConfigurationResponseTests
     }
 
     [Fact]
-    public void FromConfig_SeerrApiKey_Whitespace_ReturnsMask()
+    public void FromConfig_SeerrApiKey_Whitespace_ReturnsEmpty()
     {
-        // Whitespace-only key is non-empty — must be masked, not exposed.
+        // Whitespace-only key is treated as "not configured" (IsNullOrWhiteSpace) — same
+        // behaviour as the save-path in ApplyRequestToConfig. Masking it as "***" would
+        // mislead operators into thinking the key is valid when it will fail all API calls.
         var config = new PluginConfiguration { SeerrApiKey = "   " };
         var response = ConfigurationResponse.FromConfig(config);
-        Assert.Equal(ConfigurationResponse.ApiKeyMask, response.SeerrApiKey);
+        Assert.Equal(string.Empty, response.SeerrApiKey);
     }
 
     // ── Radarr instance masking ──────────────────────────────────────────────

@@ -182,22 +182,12 @@ public class TransformationPatchesTests
     }
 
     [Fact]
-    public void IndexHtml_LiteralBodyStringAfterRealClosingTag_InjectsAtLastOccurrence()
+    public void IndexHtml_LiteralBodyStringAfterRealClosingTag_InjectsBeforeRealBody()
     {
-        // Documented contract: TransformationPatches uses `LastIndexOf("</body>")` to
-        // pick the injection point. This test PINS that contract for the pathological
-        // input shape where a stray literal `</body>` string appears AFTER the real
-        // closing body tag — e.g. left over inside a client-side template literal that
-        // was appended to the document.
-        //
-        // Rationale: well-formed HTML never has content after </html>, and the real
-        // </body> is always the last one in that case. The stray-after-real fixture
-        // below is intentionally malformed input; we assert on the current behaviour
-        // (last-occurrence wins) so that ANY future change to the injection point
-        // strategy has to update this test and consciously acknowledge the change.
-        // Silently switching to IndexOf would cause the script to be injected before
-        // the FIRST </body>, subtly changing runtime behaviour on real-world documents
-        // that contain stray `</body>` strings in inline template code.
+        // H-5 contract: the </body> search is bounded to content before </html>, so a stray
+        // literal `</body>` that appears AFTER </html> (e.g. inside a trailing <script> tag)
+        // must NOT be chosen as the injection point. The script must land before the REAL
+        // </body> that precedes </html>.
         const string html =
             "<html>" +
             "<body>" +
@@ -209,19 +199,11 @@ public class TransformationPatchesTests
         var result = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = html });
 
         var scriptIndex = result.IndexOf("plugin=\"Jellyfin Helper\"", StringComparison.Ordinal);
-        var firstBody = result.IndexOf("</body>", StringComparison.Ordinal);
-        var lastBody = result.LastIndexOf("</body>", StringComparison.Ordinal);
+        var htmlCloseIndex = result.IndexOf("</html>", StringComparison.OrdinalIgnoreCase);
 
         Assert.True(scriptIndex >= 0, "script tag must be present in the transformed output");
-        Assert.NotEqual(firstBody, lastBody);
-        // Locked contract: the injection point is the LAST occurrence. Our fixture
-        // makes the last one a stray inside inline JS text — the current implementation
-        // treats it as the target, so the script lands AFTER the real </body>.
-        // This is a documented consequence of the LastIndexOf strategy.
-        Assert.True(scriptIndex > firstBody,
-            $"script must appear AFTER the real </body> (LastIndexOf semantics); script={scriptIndex}, realBody={firstBody}");
-        Assert.True(scriptIndex < lastBody,
-            $"script must land immediately before the LAST </body> occurrence (the stray); script={scriptIndex}, strayBody={lastBody}");
+        Assert.True(scriptIndex < htmlCloseIndex,
+            $"script must be injected before </html>, not after it; script={scriptIndex}, htmlClose={htmlCloseIndex}");
     }
 
     // -----------------------------------------------------------------------
@@ -239,5 +221,20 @@ public class TransformationPatchesTests
         }
 
         return count;
+    }
+
+    [Fact]
+    public void IndexHtml_BodyTagInsideTemplate_InjectsBeforeRealBodyTag()
+    {
+        const string html = "<html><body><template id=\"x\">fake</body>in template</template></body></html>";
+        var payload = new PatchRequestPayload { Contents = html };
+
+        var result = TransformationPatches.IndexHtml(payload);
+
+        // Script must appear after </template>, not inside it.
+        var templateClose = result.IndexOf("</template>", StringComparison.OrdinalIgnoreCase);
+        var scriptPos = result.IndexOf("<script", StringComparison.OrdinalIgnoreCase);
+        Assert.True(scriptPos > templateClose,
+            "Script tag must be injected after </template>, not inside it.");
     }
 }

@@ -110,7 +110,7 @@ public sealed class ConfigurationResponse
             SeerrCleanupTaskMode = config.SeerrCleanupTaskMode,
             SeerrCleanupAgeDays = config.SeerrCleanupAgeDays,
             SeerrUrl = config.SeerrUrl,
-            SeerrApiKey = string.IsNullOrEmpty(config.SeerrApiKey) ? string.Empty : ApiKeyMask,
+            SeerrApiKey = string.IsNullOrWhiteSpace(config.SeerrApiKey) ? string.Empty : ApiKeyMask,
             UseTrash = config.UseTrash,
             TrashFolderPath = config.TrashFolderPath,
             TrashRetentionDays = config.TrashRetentionDays,

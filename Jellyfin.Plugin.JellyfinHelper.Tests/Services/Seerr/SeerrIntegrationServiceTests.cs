@@ -1003,4 +1003,14 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         Assert.Null(exception);
     }
+
+    [Fact]
+    public async Task TestConnectionAsync_ApiKeyWithCrlf_ThrowsArgumentException()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        var service = CreateService(handler.Object, out _, out _);
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.TestConnectionAsync("http://seerr.local", "key\r\nX-Injected: evil", CancellationToken.None));
+        Assert.Contains("CR or LF", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

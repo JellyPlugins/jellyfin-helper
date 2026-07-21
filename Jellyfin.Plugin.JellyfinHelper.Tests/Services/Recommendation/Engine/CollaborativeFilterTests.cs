@@ -437,7 +437,9 @@ public class CollaborativeFilterTests
         var anchorUserId = Guid.NewGuid();
         var sparseNeighbourUserId = Guid.NewGuid();
 
-        // Scenario A: cold-start gate ACTIVE (trust = 1.0) — only sparse profiles in deployment.
+        // Scenario A: cold-start gate RELEASED (no power users → gate is off → trust bypassed = 1.0).
+        // All profiles are sparse: no one has crossed CollaborativeTrustWatchCeiling, so the
+        // gate stays open and every sparse neighbour gets full trust.
         var userA = new UserWatchProfile { UserId = anchorUserId, WatchedItems = userWatchedItems };
         var sparseNeighbourA = new UserWatchProfile
         {
@@ -448,10 +450,9 @@ public class CollaborativeFilterTests
         var mapA = CollaborativeFilter.BuildCollaborativeMap(
             userA, profilesA, CollaborativeFilter.PrecomputeUserWatchSets(profilesA));
 
-        // Scenario B: cold-start gate INACTIVE (trust applies) — add a rich gatekeeper.
-        // The gatekeeper's watched IDs are all fresh Guids that don't overlap with `shared` or
-        // `recommendedItem`, so it can never contribute to co-occurrence with `userB`. Its only
-        // job is to flip the trust gate on by crossing CollaborativeTrustWatchCeiling.
+        // Scenario B: cold-start gate ENGAGED (a power user exists → gate is on → trust applies).
+        // Adding a rich gatekeeper who has crossed CollaborativeTrustWatchCeiling flips the gate
+        // on; the sparse neighbour's trust is now attenuated, reducing their recommendation score.
         var userB = new UserWatchProfile { UserId = anchorUserId, WatchedItems = userWatchedItems };
         var sparseNeighbourB = new UserWatchProfile
         {
@@ -472,11 +473,11 @@ public class CollaborativeFilterTests
 
         Assert.True(mapA.TryGetValue(recommendedItem, out var scoreA));
         Assert.True(mapB.TryGetValue(recommendedItem, out var scoreB));
-        Assert.True(scoreA > 0.0, "Scenario A (gate active) score must be positive");
-        Assert.True(scoreB > 0.0, "Scenario B (gate inactive → trust applies) score must still be positive");
+        Assert.True(scoreA > 0.0, "Scenario A (gate released, trust=1.0) score must be positive");
+        Assert.True(scoreB > 0.0, "Scenario B (gate engaged, trust attenuated) score must still be positive");
         Assert.True(
             scoreB < scoreA,
-            $"Trust factor must attenuate the sparse neighbour when the gate is active — " +
+            $"Trust factor must attenuate the sparse neighbour when the gate is engaged (Scenario B) — " +
             $"expected scoreB ({scoreB:F4}) < scoreA ({scoreA:F4}). If they're equal, trust is a no-op; " +
             $"if scoreB > scoreA, the trust factor is inverted.");
     }

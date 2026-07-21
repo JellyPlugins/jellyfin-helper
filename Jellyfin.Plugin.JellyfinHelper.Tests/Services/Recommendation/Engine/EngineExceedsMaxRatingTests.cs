@@ -50,13 +50,10 @@ public sealed class EngineExceedsMaxRatingTests
         // "null max" as "0 max" (which would exclude everything). This test verifies that
         // the null-guard short-circuit at the top of the helper is intact.
         var movie = new Movie();
-        if (!TrySetInheritedRating(movie, 1000))
-        {
-            // Skip when the Jellyfin API no longer allows us to seed the rating — the test
-            // is not meaningful without a real rating value. Fail-soft prevents a false red
-            // if BaseItem's property surface changes in a future upstream refactor.
-            return;
-        }
+        var ratingSeeded = TrySetInheritedRating(movie, 1000);
+        Assert.True(ratingSeeded,
+            "Could not seed InheritedParentalRatingValue via reflection — Jellyfin BaseItem API may have changed. " +
+            "Check property name and backing field. Test aborted to avoid silent false-positive.");
 
         Assert.False(InvokeExceedsMaxRating(movie, null));
     }
@@ -91,7 +88,9 @@ public sealed class EngineExceedsMaxRatingTests
     public void ExceedsMaxRating_ItemRatingBelowMax_ReturnsFalse()
     {
         var movie = new Movie();
-        if (!TrySetInheritedRating(movie, 5)) return;
+        Assert.True(TrySetInheritedRating(movie, 5),
+            "Could not seed InheritedParentalRatingValue via reflection — Jellyfin BaseItem API may have changed. " +
+            "Check property name and backing field. Test aborted to avoid silent false-positive.");
         Assert.False(InvokeExceedsMaxRating(movie, 10));
     }
 
@@ -102,7 +101,9 @@ public sealed class EngineExceedsMaxRatingTests
         // be allowed. Flipping `>` to `>=` in the implementation would silently strip
         // every exact-match rating from the recommendation set.
         var movie = new Movie();
-        if (!TrySetInheritedRating(movie, 13)) return;
+        Assert.True(TrySetInheritedRating(movie, 13),
+            "Could not seed InheritedParentalRatingValue via reflection — Jellyfin BaseItem API may have changed. " +
+            "Check property name and backing field. Test aborted to avoid silent false-positive.");
         Assert.False(InvokeExceedsMaxRating(movie, 13));
     }
 
@@ -111,7 +112,9 @@ public sealed class EngineExceedsMaxRatingTests
     {
         // Complements the equals-max test above: the boundary rejects the very next tick up.
         var movie = new Movie();
-        if (!TrySetInheritedRating(movie, 14)) return;
+        Assert.True(TrySetInheritedRating(movie, 14),
+            "Could not seed InheritedParentalRatingValue via reflection — Jellyfin BaseItem API may have changed. " +
+            "Check property name and backing field. Test aborted to avoid silent false-positive.");
         Assert.True(InvokeExceedsMaxRating(movie, 13));
     }
 
@@ -119,7 +122,9 @@ public sealed class EngineExceedsMaxRatingTests
     public void ExceedsMaxRating_ItemRatingFarAboveMax_ReturnsTrue()
     {
         var movie = new Movie();
-        if (!TrySetInheritedRating(movie, 100)) return;
+        Assert.True(TrySetInheritedRating(movie, 100),
+            "Could not seed InheritedParentalRatingValue via reflection — Jellyfin BaseItem API may have changed. " +
+            "Check property name and backing field. Test aborted to avoid silent false-positive.");
         Assert.True(InvokeExceedsMaxRating(movie, 7));
     }
 
@@ -130,7 +135,9 @@ public sealed class EngineExceedsMaxRatingTests
         // because the max is inclusive. This mirrors Jellyfin's own semantic where a
         // "G / All Ages" item is rated 0 and must be visible to a 0-max profile.
         var movie = new Movie();
-        if (!TrySetInheritedRating(movie, 0)) return;
+        Assert.True(TrySetInheritedRating(movie, 0),
+            "Could not seed InheritedParentalRatingValue via reflection — Jellyfin BaseItem API may have changed. " +
+            "Check property name and backing field. Test aborted to avoid silent false-positive.");
         Assert.False(InvokeExceedsMaxRating(movie, 0));
     }
 
@@ -138,7 +145,9 @@ public sealed class EngineExceedsMaxRatingTests
     public void ExceedsMaxRating_ZeroMax_RejectsAnyPositiveRating()
     {
         var movie = new Movie();
-        if (!TrySetInheritedRating(movie, 1)) return;
+        Assert.True(TrySetInheritedRating(movie, 1),
+            "Could not seed InheritedParentalRatingValue via reflection — Jellyfin BaseItem API may have changed. " +
+            "Check property name and backing field. Test aborted to avoid silent false-positive.");
         Assert.True(InvokeExceedsMaxRating(movie, 0));
     }
 
@@ -171,7 +180,9 @@ public sealed class EngineExceedsMaxRatingTests
                 binder: null,
                 types: [typeof(MediaBrowser.Controller.Entities.BaseItem), typeof(int?)],
                 modifiers: null);
-        Assert.NotNull(method);
+        Assert.True(method is not null,
+            "Could not find Engine.ExceedsMaxRating(BaseItem, int?) via reflection. " +
+            "Check if the method was renamed or its signature (int?) was changed.");
         return (bool)method!.Invoke(null, [candidate, maxRating])!;
     }
 

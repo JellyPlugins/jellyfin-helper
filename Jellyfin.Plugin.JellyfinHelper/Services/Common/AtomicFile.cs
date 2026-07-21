@@ -16,7 +16,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 ///                 <description>
 ///                     <see cref="WriteAllText"/> — synchronous, uses <see cref="Thread.Sleep(int)"/> for
 ///                     retry backoff. A fully retrying call blocks the caller for up to ~200 ms with the
-///                     default 5 attempts (20 + 40 + 60 + 80 ms). Intended for background scheduled-task
+///                     default 5 attempts (4 sleeps: 20 + 40 + 60 + 80 ms; the final attempt
+///                     propagates immediately without sleeping). Intended for background scheduled-task
 ///                     paths where thread blocking is acceptable.
 ///                 </description>
 ///             </item>
@@ -121,7 +122,7 @@ internal static class AtomicFile
     ///         synchronous overload's "no orphans on the disk" invariant.
     ///     </para>
     ///     <para>
-    ///         <b>Semantic parity:</b> retry count, backoff schedule (20 / 40 / 60 / 80 ms), UTF-8
+    ///         <b>Semantic parity:</b> retry count, backoff schedule (4 sleeps: 20 / 40 / 60 / 80 ms across 5 attempts), UTF-8
     ///         no-BOM encoding, and the temp-then-move atomicity rule are identical to
     ///         <see cref="WriteAllText"/>; the only difference is the yield point during backoff.
     ///         A caller that already handles exceptions from the sync overload can switch to this

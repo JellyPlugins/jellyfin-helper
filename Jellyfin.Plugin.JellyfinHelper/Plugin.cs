@@ -104,7 +104,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             config = Configuration;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or NullReferenceException or IOException)
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             // Guarded like the rest of the LogDebug calls in this class so a future
             // parameterized message does not accidentally regress the CA1873 pattern.
@@ -363,7 +363,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             if (inject)
             {
                 var closingBodyTag = "</body>";
-                var closingBodyIndex = content.LastIndexOf(closingBodyTag, StringComparison.OrdinalIgnoreCase);
+                var htmlCloseIndex = content.LastIndexOf("</html>", StringComparison.OrdinalIgnoreCase);
+                var searchBound = htmlCloseIndex >= 0 ? htmlCloseIndex : content.Length;
+                var closingBodyIndex = content.LastIndexOf(closingBodyTag, searchBound, StringComparison.OrdinalIgnoreCase);
                 if (closingBodyIndex >= 0)
                 {
                     content = content.Insert(closingBodyIndex, scriptTag + "\n");

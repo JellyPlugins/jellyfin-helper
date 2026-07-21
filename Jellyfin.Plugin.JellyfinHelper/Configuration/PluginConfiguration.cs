@@ -23,6 +23,8 @@ public class PluginConfiguration : BasePluginConfiguration
     private double _ensembleAlphaMin = 0.3;
     private double _ensembleAlphaMax = 0.75;
     private double _ensembleGenrePenaltyFloor = 0.10;
+    private int _seerrCleanupAgeDays = 365;
+    private int _trashRetentionDays = 30;
 
     /// <summary>
     ///     Gets or sets the library names to exclude (exclude list).
@@ -77,9 +79,13 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the maximum age in days for Seerr requests before they are cleaned up.
-    ///     Default is 365 days (1 year).
+    ///     Default is 365 days (1 year). Valid range: 1–3650. Out-of-range values are clamped.
     /// </summary>
-    public int SeerrCleanupAgeDays { get; set; } = 365;
+    public int SeerrCleanupAgeDays
+    {
+        get => _seerrCleanupAgeDays;
+        set => _seerrCleanupAgeDays = ClampAndReport(nameof(SeerrCleanupAgeDays), value, 0, 3650);
+    }
 
     /// <summary>
     ///     Gets or sets the base URL of the Jellyseerr/Overseerr/Seerr instance.
@@ -118,9 +124,13 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the number of days to keep items in the trash before permanent deletion.
-    ///     Default is 30 days.
+    ///     Default is 30 days. Valid range: 0–3650. Out-of-range values are clamped.
     /// </summary>
-    public int TrashRetentionDays { get; set; } = 30;
+    public int TrashRetentionDays
+    {
+        get => _trashRetentionDays;
+        set => _trashRetentionDays = ClampAndReport(nameof(TrashRetentionDays), value, 0, 3650);
+    }
 
     /// <summary>
     ///     Gets the list of Radarr instances (max 3).
@@ -256,8 +266,14 @@ public class PluginConfiguration : BasePluginConfiguration
     {
         if (_ensembleAlphaMin > _ensembleAlphaMax)
         {
-            // Swap so that min ≤ max
+            var originalMin = _ensembleAlphaMin;
+            var originalMax = _ensembleAlphaMax;
             (_ensembleAlphaMin, _ensembleAlphaMax) = (_ensembleAlphaMax, _ensembleAlphaMin);
+
+            _clampReports.Add(new ClampReportEntry(
+                "EnsembleAlphaRange (swapped Min > Max)",
+                $"Min={originalMin:G4}, Max={originalMax:G4}",
+                $"Min={_ensembleAlphaMin:G4}, Max={_ensembleAlphaMax:G4}"));
         }
     }
 

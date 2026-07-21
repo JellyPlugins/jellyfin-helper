@@ -33,10 +33,12 @@ public static class TransformationPatches
         var updatedContent = DiscoveryScriptTag.RemovalRegex.Replace(content.Contents, string.Empty);
 
         // Inject the new script tag before the LAST </body> (case-insensitive for robustness).
-        // We use LastIndexOf so a stray literal `</body>` inside an HTML comment or CDATA block
-        // does not cause the script to be injected inside a non-executing region — the real
-        // closing body tag is always the final occurrence in a well-formed document.
-        var bodyIndex = updatedContent.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+        // Search is bounded to content before </html> so a literal </body> inside a <template>
+        // or framework fragment (Vue, Lit, Svelte) does not cause injection into a non-executing
+        // DOM region.
+        var htmlClose = updatedContent.LastIndexOf("</html>", StringComparison.OrdinalIgnoreCase);
+        var searchEnd = htmlClose >= 0 ? htmlClose : updatedContent.Length;
+        var bodyIndex = updatedContent.LastIndexOf("</body>", searchEnd, StringComparison.OrdinalIgnoreCase);
         if (bodyIndex >= 0)
         {
             return updatedContent.Insert(bodyIndex, $"{scriptTag}\n");

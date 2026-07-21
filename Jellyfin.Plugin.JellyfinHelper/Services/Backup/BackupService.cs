@@ -293,7 +293,8 @@ public class BackupService : IBackupService
         if (!string.IsNullOrEmpty(backup.SeerrApiKey))
         {
             var truncatedSeerrKey = BackupSanitizer.TruncateString(backup.SeerrApiKey, BackupValidator.MaxApiKeyLength);
-            if (truncatedSeerrKey != config.SeerrApiKey)
+            var truncatedStoredKey = BackupSanitizer.TruncateString(config.SeerrApiKey, BackupValidator.MaxApiKeyLength);
+            if (truncatedSeerrKey != truncatedStoredKey)
             {
                 _pluginLog.LogWarning(
                     "Backup",
