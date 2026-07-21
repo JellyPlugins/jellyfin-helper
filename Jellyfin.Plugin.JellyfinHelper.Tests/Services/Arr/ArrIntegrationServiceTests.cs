@@ -1,6 +1,8 @@
 using System.Net;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
 using Xunit;
@@ -16,6 +18,19 @@ public class ArrIntegrationServiceTests
         factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
         var logger = TestMockFactory.CreateLogger<ArrIntegrationService>();
         return new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), logger.Object);
+    }
+
+    // Variant that exposes the pluginLog mock so tests can verify log calls.
+    private static ArrIntegrationService CreateServiceWithMockLog(
+        HttpMessageHandler handler,
+        out Mock<IPluginLogService> pluginLogMock)
+    {
+        pluginLogMock = new Mock<IPluginLogService>();
+        var httpClient = new HttpClient(handler);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        var logger = TestMockFactory.CreateLogger<ArrIntegrationService>();
+        return new ArrIntegrationService(factoryMock.Object, pluginLogMock.Object, logger.Object);
     }
 
     private static Mock<HttpMessageHandler> CreateMockHandler(HttpStatusCode statusCode, string content)
@@ -359,6 +374,82 @@ public class ArrIntegrationServiceTests
         Assert.Null(series);
     }
 
+    // ===== Fix #3 (extension): timeout in GetRadarrMoviesAsync / GetSonarrSeriesAsync =====
+
+    [Fact]
+    public async Task GetRadarrMovies_Timeout_ReturnsNull_AndLogsWarning_NotError()
+    {
+        // BUG GUARD: HttpClient timeout (OperationCanceledException not caused by user cancellation)
+        // in GetRadarrMoviesAsync must be logged at WARNING level and return null.
+        var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mock.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException("HttpClient timeout"));
+
+        var service = CreateServiceWithMockLog(mock.Object, out var pluginLogMock);
+
+        var movies = await service.GetRadarrMoviesAsync("http://localhost:7878", "testapikey");
+
+        Assert.Null(movies);
+
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "ArrIntegration",
+                It.Is<string>(msg => msg.Contains("timed out", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+
+        pluginLogMock.Verify(
+            p => p.LogError(
+                "ArrIntegration",
+                It.Is<string>(msg => msg.Contains("timed out", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task GetSonarrSeries_Timeout_ReturnsNull_AndLogsWarning_NotError()
+    {
+        // BUG GUARD: HttpClient timeout (OperationCanceledException not caused by user cancellation)
+        // in GetSonarrSeriesAsync must be logged at WARNING level and return null.
+        var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mock.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException("HttpClient timeout"));
+
+        var service = CreateServiceWithMockLog(mock.Object, out var pluginLogMock);
+
+        var series = await service.GetSonarrSeriesAsync("http://localhost:8989", "testapikey");
+
+        Assert.Null(series);
+
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "ArrIntegration",
+                It.Is<string>(msg => msg.Contains("timed out", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+
+        pluginLogMock.Verify(
+            p => p.LogError(
+                "ArrIntegration",
+                It.Is<string>(msg => msg.Contains("timed out", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Never);
+    }
+
     // === CompareRadarrWithJellyfin ===
 
     [Fact]
@@ -479,4 +570,46 @@ public class ArrIntegrationServiceTests
 
         Assert.Single(result.InArrOnlyMissing);
     }
+
+    // ===== Fix #3: HTTP timeout logged as LogError, not LogWarning =====
+
+    [Fact]
+    public async Task TestConnection_Timeout_LogsWarning()
+    {
+        // BUG GUARD: HttpClient timeout (OperationCanceledException that is NOT user-initiated)
+        // must be logged at WARNING level in TestConnectionAsync — a timeout means the instance
+        // is unreachable, which is surfaced to the UI as a connection-test failure.
+        // GetRadarrMoviesAsync / GetSonarrSeriesAsync use the same Warning level (see separate tests).
+        var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
+        mock.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException("HttpClient timeout"));
+
+        var service = CreateServiceWithMockLog(mock.Object, out var pluginLogMock);
+
+        var (success, message) = await service.TestConnectionAsync(
+            "http://localhost:7878", "testapikey");
+
+        Assert.False(success);
+        Assert.Contains("timed out", message, StringComparison.OrdinalIgnoreCase);
+
+        // Must fire exactly once as LogWarning
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "ArrIntegration",
+                It.Is<string>(msg => msg.Contains("timed out", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<Exception?>(),
+                It.IsAny<ILogger?>()),
+            Times.Once);
+    }
+
+    // ===== Fix #4: SeerrIntegrationService TryAddWithoutValidation =====
+    // (Tested here via ArrIntegrationService which uses request.Headers.Add() directly on
+    //  per-request HttpRequestMessage — this is safe and does not need the fix.
+    //  The SeerrIntegrationService-specific test lives in SeerrIntegrationServiceTests.cs
+    //  via the existing TestConnection_SetsApiKeyHeader test that validates the header is set.)
 }

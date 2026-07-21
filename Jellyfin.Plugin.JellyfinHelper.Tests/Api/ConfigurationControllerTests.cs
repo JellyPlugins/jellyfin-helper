@@ -62,7 +62,7 @@ public class ConfigurationControllerTests
     {
         var result = _controller.GetConfiguration();
         var okResult = Assert.IsType<OkObjectResult>(result.Result);
-        Assert.IsType<PluginConfiguration>(okResult.Value);
+        Assert.IsType<ConfigurationResponse>(okResult.Value);
     }
 
     [Fact]
@@ -204,9 +204,9 @@ public class ConfigurationControllerTests
         await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         var getResult = _controller.GetConfiguration();
         var okResult = Assert.IsType<OkObjectResult>(getResult.Result);
-        var config = Assert.IsType<PluginConfiguration>(okResult.Value);
+        var configResponse = Assert.IsType<ConfigurationResponse>(okResult.Value);
         var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = null, PropertyNameCaseInsensitive = true };
-        var json = JsonSerializer.Serialize(config, jsonOptions);
+        var json = JsonSerializer.Serialize(configResponse, jsonOptions);
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
         Assert.True(root.TryGetProperty("RadarrInstances", out var radarrArr), "JSON must contain RadarrInstances (PascalCase)");
@@ -219,8 +219,11 @@ public class ConfigurationControllerTests
 
         var restored = JsonSerializer.Deserialize<PluginConfiguration>(json, jsonOptions);
         Assert.NotNull(restored);
-        Assert.Equal(3, restored.RadarrInstances.Count);
-        Assert.Equal(2, restored.SonarrInstances.Count);
+        // ConfigurationResponse uses IReadOnlyList<MaskedArrInstanceConfig>, not List<ArrInstanceConfig>,
+        // so direct deserialization into PluginConfiguration will not populate instance lists.
+        // Verify counts via the response object directly.
+        Assert.Equal(3, configResponse.RadarrInstances.Count);
+        Assert.Equal(2, configResponse.SonarrInstances.Count);
     }
 
     [Fact]
@@ -368,6 +371,43 @@ public class ConfigurationControllerTests
         var result = _controller.UpdateLogLevel(request);
         Assert.IsType<BadRequestObjectResult>(result);
     }
+
+    // ===== Fix #1: API key masking in GET /Configuration =====
+
+    [Fact]
+    public void GetConfiguration_ApiKeysAreMasked()
+    {
+        // BUG GUARD: the GET endpoint must NEVER return plain-text API keys.
+        // Any non-empty key must be replaced with the mask constant; only truly
+        // empty keys (not yet configured) should come back as empty string.
+        _config.SeerrApiKey = "real-seerr-secret";
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "R1", Url = "http://r:7878", ApiKey = "real-radarr-key" });
+        _config.SonarrInstances.Add(new ArrInstanceConfig { Name = "S1", Url = "http://s:8989", ApiKey = string.Empty });
+
+        var result = _controller.GetConfiguration();
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ConfigurationResponse>(okResult.Value);
+
+        Assert.Equal(ConfigurationResponse.ApiKeyMask, response.SeerrApiKey);
+        Assert.Equal(ConfigurationResponse.ApiKeyMask, response.RadarrInstances[0].ApiKey);
+        // Empty key stays empty — mask is only for keys that are set
+        Assert.Equal(string.Empty, response.SonarrInstances[0].ApiKey);
+
+        // Also assert the live config was NOT mutated
+        Assert.Equal("real-seerr-secret", _config.SeerrApiKey);
+    }
+
+    [Fact]
+    public void GetConfiguration_EmptySeerrKey_RemainsEmpty()
+    {
+        _config.SeerrApiKey = string.Empty;
+        var result = _controller.GetConfiguration();
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ConfigurationResponse>(okResult.Value);
+        Assert.Equal(string.Empty, response.SeerrApiKey);
+    }
+
+    // ===== Fix #1 end =====
 
     // ===== GetAvailableLibraries Tests =====
 
@@ -943,6 +983,90 @@ public class ConfigurationControllerTests
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<BadRequestObjectResult>(result);
     }
+
+    // ===== Fix #1 (inline masking + sentinel guard) =====
+
+    [Fact]
+    public void GetConfiguration_NonEmptyKeys_ReturnsSentinelMask()
+    {
+        // BUG GUARD: GET must never return plain-text API keys.
+        // Non-empty keys must be replaced with the sentinel mask "***".
+        _config.SeerrApiKey = "real-seerr-secret";
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "R1", Url = "http://r:7878", ApiKey = "real-radarr-key" });
+        _config.SonarrInstances.Add(new ArrInstanceConfig { Name = "S1", Url = "http://s:8989", ApiKey = "real-sonarr-key" });
+
+        var result = _controller.GetConfiguration();
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ConfigurationResponse>(okResult.Value);
+
+        Assert.Equal(ConfigurationResponse.ApiKeyMask, response.SeerrApiKey);
+        Assert.Equal(ConfigurationResponse.ApiKeyMask, response.RadarrInstances[0].ApiKey);
+        Assert.Equal(ConfigurationResponse.ApiKeyMask, response.SonarrInstances[0].ApiKey);
+
+        // Live config must not have been mutated by the masking
+        Assert.Equal("real-seerr-secret", _config.SeerrApiKey);
+        Assert.Equal("real-radarr-key", _config.RadarrInstances[0].ApiKey);
+    }
+
+    [Fact]
+    public void GetConfiguration_EmptyKeys_RemainEmpty()
+    {
+        // Empty (unconfigured) keys must come back as "" — not the sentinel — so the UI
+        // can distinguish "key not yet set" from "key set but hidden".
+        _config.SeerrApiKey = string.Empty;
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "R1", Url = "http://r:7878", ApiKey = string.Empty });
+
+        var result = _controller.GetConfiguration();
+        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ConfigurationResponse>(okResult.Value);
+
+        Assert.Equal(string.Empty, response.SeerrApiKey);
+        Assert.Equal(string.Empty, response.RadarrInstances[0].ApiKey);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SentinelSeerrApiKey_PreservesStoredKey()
+    {
+        // Contract: when the client echoes "***" for SeerrApiKey the POST must leave
+        // the real stored key untouched. This is the round-trip case: GET → UI shows "***"
+        // → user saves without changing the key → POST receives "***" → key must not change.
+        _config.SeerrApiKey = "original-secret";
+        _config.SeerrUrl = "https://seerr.example.com";
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = ConfigurationResponse.ApiKeyMask, // echoed sentinel
+            SeerrCleanupAgeDays = 30
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        // The real key must be preserved
+        Assert.Equal("original-secret", _config.SeerrApiKey);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_RealSeerrApiKey_OverwritesStoredKey()
+    {
+        // Complementary case: a genuine new key value (not the sentinel) must overwrite
+        // the stored key so the user can update credentials.
+        _config.SeerrApiKey = "old-secret";
+        _config.SeerrUrl = "https://seerr.example.com";
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SeerrUrl = "https://seerr.example.com",
+            SeerrApiKey = "brand-new-key",
+            SeerrCleanupAgeDays = 30
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.Equal("brand-new-key", _config.SeerrApiKey);
+    }
+
+    // ===== Fix #1 (inline masking + sentinel guard) end =====
 
     // ===== Diagnostic logging for rejected saves =====
 

@@ -123,7 +123,8 @@ public class BackupService : IBackupService
             DiscoveryUserAccessEnabled = config.DiscoveryUserAccessEnabled
         };
 
-        // Arr instances
+        // Arr instances — API keys are included so that credentials survive a full
+        // backup/restore cycle. ContainsSecrets is set below when any key is non-empty.
         foreach (var instance in config.RadarrInstances)
         {
             backup.RadarrInstances.Add(
@@ -153,6 +154,13 @@ public class BackupService : IBackupService
         // Growth baseline (required to preserve diff-based trend history after restore)
         backup.GrowthBaseline = LoadJsonFile<GrowthTimelineBaseline>(
             Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"));
+
+        // Flag the backup when it contains plaintext credentials so the UI/caller can
+        // warn the user to store the exported file securely.
+        backup.ContainsSecrets =
+            !string.IsNullOrEmpty(backup.SeerrApiKey)
+            || backup.RadarrInstances.Any(i => !string.IsNullOrEmpty(i.ApiKey))
+            || backup.SonarrInstances.Any(i => !string.IsNullOrEmpty(i.ApiKey));
 
         _pluginLog.LogInfo(
             "Backup",
@@ -277,7 +285,26 @@ public class BackupService : IBackupService
 
         // Seerr settings
         config.SeerrUrl = BackupSanitizer.TruncateString(backup.SeerrUrl, BackupValidator.MaxUrlLength);
-        config.SeerrApiKey = BackupSanitizer.TruncateString(backup.SeerrApiKey, BackupValidator.MaxApiKeyLength);
+        // API keys: an empty backup value means "leave the existing key in place"; a
+        // non-empty value is applied after the same length-truncation as other fields.
+        // When the incoming value actually differs from the current stored value, emit an
+        // audit warning and set the CredentialsChanged flag so callers can surface a
+        // notification to the operator.
+        if (!string.IsNullOrEmpty(backup.SeerrApiKey))
+        {
+            var truncatedSeerrKey = BackupSanitizer.TruncateString(backup.SeerrApiKey, BackupValidator.MaxApiKeyLength);
+            if (truncatedSeerrKey != config.SeerrApiKey)
+            {
+                _pluginLog.LogWarning(
+                    "Backup",
+                    "Backup restore is replacing credentials: Seerr API key changed.",
+                    logger: _logger);
+                summary.CredentialsChanged = true;
+            }
+
+            config.SeerrApiKey = truncatedSeerrKey;
+        }
+
         if (backup.SeerrCleanupAgeDays != 0)
         {
             config.SeerrCleanupAgeDays = Math.Clamp(
@@ -303,29 +330,75 @@ public class BackupService : IBackupService
         // Discovery user access - defaults to false for older backups without this field
         config.DiscoveryUserAccessEnabled = backup.DiscoveryUserAccessEnabled;
 
-        // Arr instances
+        // Arr instances — for each instance, preserve the existing API key when the backup
+        // omitted it (empty string), so that a restore does not wipe live credentials.
+        // When a non-empty key is present and it differs from the current stored value,
+        // emit an audit warning and set CredentialsChanged on the summary.
+        var previousRadarr = config.RadarrInstances.ToDictionary(i => i.Name, i => i.ApiKey);
         config.RadarrInstances.Clear();
+        var radarrKeysChanged = 0;
         foreach (var instance in backup.RadarrInstances.Take(BackupValidator.MaxArrInstances))
         {
+            var apiKey = string.IsNullOrEmpty(instance.ApiKey)
+                ? string.Empty
+                : BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength);
+
+            // Detect credential change: non-empty incoming key that differs from the live value.
+            if (!string.IsNullOrEmpty(apiKey) &&
+                (!previousRadarr.TryGetValue(instance.Name, out var prevKey) || prevKey != apiKey))
+            {
+                radarrKeysChanged++;
+            }
+
             config.RadarrInstances.Add(
                 new ArrInstanceConfig
                 {
                     Name = BackupSanitizer.TruncateString(instance.Name, BackupValidator.MaxInstanceNameLength),
                     Url = BackupSanitizer.TruncateString(instance.Url, BackupValidator.MaxUrlLength),
-                    ApiKey = BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength)
+                    ApiKey = apiKey
                 });
         }
 
+        if (radarrKeysChanged > 0)
+        {
+            _pluginLog.LogWarning(
+                "Backup",
+                $"Backup restore is replacing credentials: {radarrKeysChanged} Radarr instance API key(s) changed.",
+                logger: _logger);
+            summary.CredentialsChanged = true;
+        }
+
+        var previousSonarr = config.SonarrInstances.ToDictionary(i => i.Name, i => i.ApiKey);
         config.SonarrInstances.Clear();
+        var sonarrKeysChanged = 0;
         foreach (var instance in backup.SonarrInstances.Take(BackupValidator.MaxArrInstances))
         {
+            var apiKey = string.IsNullOrEmpty(instance.ApiKey)
+                ? string.Empty
+                : BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength);
+
+            if (!string.IsNullOrEmpty(apiKey) &&
+                (!previousSonarr.TryGetValue(instance.Name, out var prevKey) || prevKey != apiKey))
+            {
+                sonarrKeysChanged++;
+            }
+
             config.SonarrInstances.Add(
                 new ArrInstanceConfig
                 {
                     Name = BackupSanitizer.TruncateString(instance.Name, BackupValidator.MaxInstanceNameLength),
                     Url = BackupSanitizer.TruncateString(instance.Url, BackupValidator.MaxUrlLength),
-                    ApiKey = BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength)
+                    ApiKey = apiKey
                 });
+        }
+
+        if (sonarrKeysChanged > 0)
+        {
+            _pluginLog.LogWarning(
+                "Backup",
+                $"Backup restore is replacing credentials: {sonarrKeysChanged} Sonarr instance API key(s) changed.",
+                logger: _logger);
+            summary.CredentialsChanged = true;
         }
 
         _configService.SaveConfiguration();

@@ -72,14 +72,68 @@ public class ConfigurationController : ControllerBase
 
     /// <summary>
     ///     Gets the current plugin configuration.
+    ///     API keys are replaced with a masked placeholder (<c>***</c>) so they
+    ///     never leave the server in plain text. Clients that need to change a key must
+    ///     send the real value via POST /Configuration; receiving the mask means the key
+    ///     is already set. Sending the mask back via POST is a no-op — the real stored
+    ///     key is preserved.
     /// </summary>
-    /// <returns>The plugin configuration.</returns>
+    /// <returns>The masked plugin configuration response.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<PluginConfiguration> GetConfiguration()
+    public ActionResult<ConfigurationResponse> GetConfiguration()
     {
         var config = _configHelper.GetConfig();
-        return Ok(config);
+
+        // Build a masked copy inline — no raw key ever leaves the server.
+        // Sentinel "***" signals "key is already set"; empty string signals "no key configured".
+        var maskedRadarr = config.RadarrInstances
+            .Select(i => new MaskedArrInstanceConfig
+            {
+                Name = i.Name,
+                Url = i.Url,
+                ApiKey = string.IsNullOrEmpty(i.ApiKey) ? string.Empty : ConfigurationResponse.ApiKeyMask
+            })
+            .ToList();
+
+        var maskedSonarr = config.SonarrInstances
+            .Select(i => new MaskedArrInstanceConfig
+            {
+                Name = i.Name,
+                Url = i.Url,
+                ApiKey = string.IsNullOrEmpty(i.ApiKey) ? string.Empty : ConfigurationResponse.ApiKeyMask
+            })
+            .ToList();
+
+        var response = new ConfigurationResponse
+        {
+            ExcludedLibraries = config.ExcludedLibraries,
+            OrphanMinAgeDays = config.OrphanMinAgeDays,
+            TrickplayTaskMode = config.TrickplayTaskMode,
+            EmptyMediaFolderTaskMode = config.EmptyMediaFolderTaskMode,
+            OrphanedSubtitleTaskMode = config.OrphanedSubtitleTaskMode,
+            LinkRepairTaskMode = config.LinkRepairTaskMode,
+            SeerrCleanupTaskMode = config.SeerrCleanupTaskMode,
+            SeerrCleanupAgeDays = config.SeerrCleanupAgeDays,
+            SeerrUrl = config.SeerrUrl,
+            SeerrApiKey = string.IsNullOrEmpty(config.SeerrApiKey) ? string.Empty : ConfigurationResponse.ApiKeyMask,
+            UseTrash = config.UseTrash,
+            TrashFolderPath = config.TrashFolderPath,
+            TrashRetentionDays = config.TrashRetentionDays,
+            Language = config.Language,
+            PluginLogLevel = config.PluginLogLevel,
+            RecommendationsTaskMode = config.RecommendationsTaskMode,
+            MaxRecommendationsPerUser = config.MaxRecommendationsPerUser,
+            SyncRecommendationsToPlaylist = config.SyncRecommendationsToPlaylist,
+            DiscoveryUserAccessEnabled = config.DiscoveryUserAccessEnabled,
+            TotalBytesFreed = config.TotalBytesFreed,
+            TotalItemsDeleted = config.TotalItemsDeleted,
+            LastCleanupTimestamp = config.LastCleanupTimestamp,
+            RadarrInstances = maskedRadarr,
+            SonarrInstances = maskedSonarr
+        };
+
+        return Ok(response);
     }
 
     /// <summary>
@@ -437,7 +491,12 @@ public class ConfigurationController : ControllerBase
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
-        config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
+        // If the client echoes back the mask sentinel ("***"), the key was not changed — preserve the stored value.
+        if (!string.Equals(request.SeerrApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+        {
+            config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
+        }
+
         config.SeerrCleanupAgeDays = string.IsNullOrEmpty(config.SeerrUrl)
             ? 0
             : Math.Clamp(request.SeerrCleanupAgeDays, 1, 3650);
@@ -465,14 +524,32 @@ public class ConfigurationController : ControllerBase
         config.RadarrInstances.Clear();
         foreach (var instance in request.RadarrInstances ?? [])
         {
-            config.RadarrInstances.Add(instance);
+            // If the client echoes the mask sentinel, the key was unchanged — keep whatever was stored.
+            // For a fresh add there is no prior value, so treat the sentinel as an empty key.
+            var apiKey = string.Equals(instance.ApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
+                ? string.Empty
+                : instance.ApiKey;
+            config.RadarrInstances.Add(new ArrInstanceConfig
+            {
+                Name = instance.Name,
+                Url = instance.Url,
+                ApiKey = apiKey
+            });
         }
 
         // Update Sonarr instances (clear + re-add from request)
         config.SonarrInstances.Clear();
         foreach (var instance in request.SonarrInstances ?? [])
         {
-            config.SonarrInstances.Add(instance);
+            var apiKey = string.Equals(instance.ApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
+                ? string.Empty
+                : instance.ApiKey;
+            config.SonarrInstances.Add(new ArrInstanceConfig
+            {
+                Name = instance.Name,
+                Url = instance.Url,
+                ApiKey = apiKey
+            });
         }
     }
 }

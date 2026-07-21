@@ -383,7 +383,10 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
         client.BaseAddress = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
 
-        client.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
+        // TryAddWithoutValidation is used instead of Add() because the Overseerr/Jellyseerr
+        // API key may contain characters (e.g. non-ASCII tokens) that fail RFC 7230 header
+        // validation enforced by Add(), causing a FormatException at runtime.
+        client.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", apiKey);
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         return client;

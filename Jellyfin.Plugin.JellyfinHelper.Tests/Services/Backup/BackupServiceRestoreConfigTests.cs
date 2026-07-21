@@ -389,4 +389,175 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         var (service, _, _) = CreateServiceWithInitializedConfig();
         Assert.Throws<ArgumentNullException>(() => service.RestoreBackup(null!));
     }
+
+    // ===== Fix #2: API keys included in backup export; ContainsSecrets flag set =====
+
+    [Fact]
+    public void CreateBackup_SeerrApiKey_IsIncludedInExport()
+    {
+        // API keys are now exported so that a backup/restore round-trip preserves
+        // credentials. The ContainsSecrets flag is set to true so the UI/caller can
+        // warn the user to store the file securely.
+        var liveConfig = new PluginConfiguration { SeerrApiKey = "real-secret-key" };
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+        configMock.Setup(c => c.IsInitialized).Returns(true);
+        configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        var backup = service.CreateBackup();
+
+        Assert.Equal("real-secret-key", backup.SeerrApiKey);
+        Assert.True(backup.ContainsSecrets);
+    }
+
+    [Fact]
+    public void CreateBackup_ArrInstanceApiKeys_AreIncludedInExport()
+    {
+        // Same rationale — Radarr/Sonarr keys must be included for a lossless round-trip.
+        var liveConfig = new PluginConfiguration();
+        liveConfig.RadarrInstances.Add(new ArrInstanceConfig
+            { Name = "R1", Url = "http://r:7878", ApiKey = "radarr-secret" });
+        liveConfig.SonarrInstances.Add(new ArrInstanceConfig
+            { Name = "S1", Url = "http://s:8989", ApiKey = "sonarr-secret" });
+
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+        configMock.Setup(c => c.IsInitialized).Returns(true);
+        configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        var backup = service.CreateBackup();
+
+        Assert.All(backup.RadarrInstances, i => Assert.Equal("radarr-secret", i.ApiKey));
+        Assert.All(backup.SonarrInstances, i => Assert.Equal("sonarr-secret", i.ApiKey));
+        Assert.True(backup.ContainsSecrets);
+    }
+
+    [Fact]
+    public void RestoreBackup_EmptySeerrApiKeyInBackup_PreservesLiveKey()
+    {
+        // Empty SeerrApiKey in the backup (normal case — key was omitted on export)
+        // must leave whatever key is already configured on the server untouched.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrApiKey = "live-key-must-survive";
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrApiKey = string.Empty;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal("live-key-must-survive", liveConfig.SeerrApiKey);
+    }
+
+    [Fact]
+    public void RestoreBackup_NonEmptySeerrApiKeyInBackup_OverwritesLiveKey()
+    {
+        // A non-empty SeerrApiKey in the backup (e.g. a manually-crafted import) must
+        // be applied — the operator chose to restore credentials explicitly.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrApiKey = "old-live-key";
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrApiKey = "new-key-from-backup";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal("new-key-from-backup", liveConfig.SeerrApiKey);
+    }
+
+    [Fact]
+    public void RestoreBackup_EmptyArrApiKeyInBackup_PreservesEmptyKey()
+    {
+        // Arr instance restored from a normal export has empty ApiKey — the empty
+        // value is stored as-is (there is no existing live key for a newly-added instance).
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.RadarrInstances.Add(new BackupArrInstance
+            { Name = "R1", Url = "http://r:7878", ApiKey = string.Empty });
+
+        service.RestoreBackup(backup);
+
+        Assert.Single(liveConfig.RadarrInstances);
+        Assert.Equal(string.Empty, liveConfig.RadarrInstances[0].ApiKey);
+    }
+
+    // ===== Fix #5: Audit log when backup restore overwrites credentials =====
+
+    [Fact]
+    public void RestoreBackup_NonEmptySeerrApiKey_EmitsAuditWarning()
+    {
+        // BUG GUARD: silently overwriting credentials from a backup file with no log
+        // entry makes it impossible to audit. When a non-empty key in the backup differs
+        // from the live value the service must emit a LogWarning before applying it.
+        var pluginLogMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>();
+        var liveConfig = new PluginConfiguration();
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+        configMock.Setup(c => c.IsInitialized).Returns(true);
+        configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+        configMock.Setup(c => c.SaveConfiguration());
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            pluginLogMock.Object,
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrApiKey = "overwriting-key"; // differs from liveConfig.SeerrApiKey ("")
+
+        service.RestoreBackup(backup);
+
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "Backup",
+                It.Is<string>(msg => msg.Contains("Seerr", StringComparison.OrdinalIgnoreCase)
+                                     && msg.Contains("API key", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Microsoft.Extensions.Logging.ILogger?>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public void RestoreBackup_EmptySeerrApiKey_NoAuditWarning()
+    {
+        // When the backup has an empty key (normal export case) no audit warning
+        // should fire — there is nothing being overwritten.
+        var pluginLogMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>();
+        var liveConfig = new PluginConfiguration();
+        var configMock = new Mock<IPluginConfigurationService>();
+        configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+        configMock.Setup(c => c.IsInitialized).Returns(true);
+        configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+        configMock.Setup(c => c.SaveConfiguration());
+
+        var service = new BackupService(
+            _tempDir,
+            configMock.Object,
+            pluginLogMock.Object,
+            TestMockFactory.CreateLogger<BackupService>().Object);
+
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrApiKey = string.Empty;
+
+        service.RestoreBackup(backup);
+
+        pluginLogMock.Verify(
+            p => p.LogWarning(
+                "Backup",
+                It.Is<string>(msg => msg.Contains("Seerr", StringComparison.OrdinalIgnoreCase)
+                                     && msg.Contains("API key", StringComparison.OrdinalIgnoreCase)),
+                It.IsAny<Exception?>(),
+                It.IsAny<Microsoft.Extensions.Logging.ILogger?>()),
+            Times.Never);
+    }
 }

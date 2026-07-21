@@ -151,7 +151,13 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         {
             throw; // Propagate user-initiated cancellation
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            // HttpClient.Timeout elapsed — not a user cancellation; warn that the instance is unreachable.
+            _pluginLog.LogWarning("ArrIntegration", $"Request to {baseUrl} timed out", null, _logger);
+            return null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
         {
             _pluginLog.LogError("ArrIntegration", $"Failed to fetch movies from Radarr at {baseUrl}", ex, _logger);
             return null;
@@ -204,7 +210,13 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         {
             throw; // Propagate user-initiated cancellation
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            // HttpClient.Timeout elapsed — not a user cancellation; warn that the instance is unreachable.
+            _pluginLog.LogWarning("ArrIntegration", $"Request to {baseUrl} timed out", null, _logger);
+            return null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException)
         {
             _pluginLog.LogError("ArrIntegration", $"Failed to fetch series from Sonarr at {baseUrl}", ex, _logger);
             return null;

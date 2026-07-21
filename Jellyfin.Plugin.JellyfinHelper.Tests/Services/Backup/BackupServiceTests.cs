@@ -1137,4 +1137,213 @@ public class BackupServiceTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, e => e.Contains("newline", StringComparison.OrdinalIgnoreCase));
     }
+
+    // ===== Fix #2: ContainsSecrets flag on CreateBackup =====
+
+    [Fact]
+    public void CreateBackup_ContainsSecrets_TrueWhenSeerrKeyPresent()
+    {
+        // BUG GUARD: the backup file is downloadable and may contain credentials.
+        // ContainsSecrets must be true whenever any API key is non-empty so the
+        // UI/caller can display a security warning to the operator.
+        var tempDir = Path.Join(Path.GetTempPath(), "jh-cs-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var liveConfig = new PluginConfiguration { SeerrApiKey = "my-seerr-key" };
+            var configMock = new Mock<IPluginConfigurationService>();
+            configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+            configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+
+            var service = new BackupService(tempDir, configMock.Object,
+                TestMockFactory.CreatePluginLogService(),
+                TestMockFactory.CreateLogger<BackupService>().Object);
+
+            var backup = service.CreateBackup();
+
+            Assert.True(backup.ContainsSecrets);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CreateBackup_ContainsSecrets_TrueWhenArrKeyPresent()
+    {
+        // ContainsSecrets must be true when Radarr or Sonarr instances carry keys
+        // even if SeerrApiKey is empty.
+        var tempDir = Path.Join(Path.GetTempPath(), "jh-cs-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var liveConfig = new PluginConfiguration();
+            liveConfig.RadarrInstances.Add(new ArrInstanceConfig
+                { Name = "R1", Url = "http://r:7878", ApiKey = "arr-key" });
+
+            var configMock = new Mock<IPluginConfigurationService>();
+            configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+            configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+
+            var service = new BackupService(tempDir, configMock.Object,
+                TestMockFactory.CreatePluginLogService(),
+                TestMockFactory.CreateLogger<BackupService>().Object);
+
+            var backup = service.CreateBackup();
+
+            Assert.True(backup.ContainsSecrets);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CreateBackup_ContainsSecrets_FalseWhenAllKeysEmpty()
+    {
+        // When there are no API keys at all ContainsSecrets must be false — the
+        // operator does not need a security warning for a credential-free export.
+        var tempDir = Path.Join(Path.GetTempPath(), "jh-cs-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var liveConfig = new PluginConfiguration(); // SeerrApiKey = "" by default, no Arr instances
+            var configMock = new Mock<IPluginConfigurationService>();
+            configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+            configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+
+            var service = new BackupService(tempDir, configMock.Object,
+                TestMockFactory.CreatePluginLogService(),
+                TestMockFactory.CreateLogger<BackupService>().Object);
+
+            var backup = service.CreateBackup();
+
+            Assert.False(backup.ContainsSecrets);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // ===== Fix #5: CredentialsChanged on BackupRestoreSummary =====
+
+    [Fact]
+    public void RestoreBackup_CredentialsChanged_TrueWhenSeerrKeyDiffers()
+    {
+        // BUG GUARD: CredentialsChanged must be set when the incoming Seerr key is
+        // different from the one currently stored so callers can surface an audit
+        // notification without having to re-inspect the config themselves.
+        var tempDir = Path.Join(Path.GetTempPath(), "jh-cc-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var liveConfig = new PluginConfiguration { SeerrApiKey = "old-key" };
+            var configMock = new Mock<IPluginConfigurationService>();
+            configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+            configMock.Setup(c => c.IsInitialized).Returns(true);
+            configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+            configMock.Setup(c => c.SaveConfiguration());
+
+            var service = new BackupService(tempDir, configMock.Object,
+                TestMockFactory.CreatePluginLogService(),
+                TestMockFactory.CreateLogger<BackupService>().Object);
+
+            var backup = CreateValidBackup();
+            backup.SeerrApiKey = "new-different-key";
+
+            var summary = service.RestoreBackup(backup);
+
+            Assert.True(summary.CredentialsChanged);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void RestoreBackup_CredentialsChanged_FalseWhenAllKeysIdentical()
+    {
+        // When the backup contains the same keys as the live config no credential
+        // change is occurring — CredentialsChanged must stay false to avoid false
+        // positives that would confuse the operator.
+        var tempDir = Path.Join(Path.GetTempPath(), "jh-cc-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var liveConfig = new PluginConfiguration { SeerrApiKey = "same-key" };
+            // Add Arr instances with the exact same keys that the backup will carry.
+            liveConfig.RadarrInstances.Add(new ArrInstanceConfig
+                { Name = "Radarr", Url = "http://localhost:7878", ApiKey = "abc123" });
+            liveConfig.SonarrInstances.Add(new ArrInstanceConfig
+                { Name = "Sonarr", Url = "http://localhost:8989", ApiKey = "def456" });
+
+            var configMock = new Mock<IPluginConfigurationService>();
+            configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+            configMock.Setup(c => c.IsInitialized).Returns(true);
+            configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+            configMock.Setup(c => c.SaveConfiguration());
+
+            var service = new BackupService(tempDir, configMock.Object,
+                TestMockFactory.CreatePluginLogService(),
+                TestMockFactory.CreateLogger<BackupService>().Object);
+
+            // CreateValidBackup() has Radarr "abc123", Sonarr "def456" — identical to live.
+            var backup = CreateValidBackup();
+            backup.SeerrApiKey = "same-key"; // identical to live value
+
+            var summary = service.RestoreBackup(backup);
+
+            Assert.False(summary.CredentialsChanged);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void RestoreBackup_CredentialsChanged_WarningLogFiredWhenKeyChanges()
+    {
+        // BUG GUARD: the audit Warning log must fire whenever a credential actually
+        // changes so ops tooling that tails Warning entries gets a reliable signal.
+        var tempDir = Path.Join(Path.GetTempPath(), "jh-cc-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var pluginLogMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>();
+            var liveConfig = new PluginConfiguration { SeerrApiKey = "old-key" };
+            var configMock = new Mock<IPluginConfigurationService>();
+            configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
+            configMock.Setup(c => c.IsInitialized).Returns(true);
+            configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
+            configMock.Setup(c => c.SaveConfiguration());
+
+            var service = new BackupService(tempDir, configMock.Object,
+                pluginLogMock.Object,
+                TestMockFactory.CreateLogger<BackupService>().Object);
+
+            var backup = CreateValidBackup();
+            backup.SeerrApiKey = "brand-new-key";
+
+            service.RestoreBackup(backup);
+
+            pluginLogMock.Verify(
+                p => p.LogWarning(
+                    "Backup",
+                    It.Is<string>(msg =>
+                        msg.Contains("replacing credentials", StringComparison.OrdinalIgnoreCase)
+                        && msg.Contains("Seerr", StringComparison.OrdinalIgnoreCase)),
+                    It.IsAny<Exception?>(),
+                    It.IsAny<Microsoft.Extensions.Logging.ILogger?>()),
+                Times.Once);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
 }

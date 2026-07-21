@@ -21,15 +21,20 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Better on phones** - The Health, Arr and Settings tabs now shrink their padding on small screens and keep long library names and file paths from breaking the layout.
 - **Compact weight serialization** - Persisted recommendation weights now use compact (non-indented) JSON, roughly a third the size of the equivalent indented form. Note: the v3 neural architecture has ~4.5× more parameters than v2, so on-disk files are larger than v2 files even in compact form.
 
+### Security
+- **API keys protected on the settings page** - Saved API keys (Seerr, Radarr, Sonarr) are no longer sent back to the browser when the settings page loads. The fields show a placeholder instead, and saving without changing a field leaves the stored key untouched.
+- **Backup downloads warn about stored credentials** - The plugin now flags when a backup file contains API keys, so you know to keep the file private.
+- **Audit log when a backup replaces credentials** - Importing a backup that overwrites a stored API key is now recorded in the plugin log, giving you a clear trail if credentials change unexpectedly.
+
 ### Fixed
 - **Recommendations sometimes silently drifted** - Four subtle bugs where training and live scoring used slightly different formulas (weekend detection, popularity, box-set progression, discovery feedback). Your recommendations are now trained on exactly the same signals they're scored on.
 - **Rare "lost save" on Windows** - Cache and state files could occasionally be dropped when an antivirus scanner briefly held the target file. All writes now retry automatically.
 
 ### Breaking
-- **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.5 (served from the same plugin repository).
+- **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.6 (served from the same plugin repository).
 
 ### Tests
-- Total: **3818 tests** (+1493 vs. v2.1.0.6). New tests cover the JF 12 batch fallback paths. Overall test coverage improvement.
+- Total: **3855 tests** (+1530 vs. v2.1.0.6).
 
 ---
 

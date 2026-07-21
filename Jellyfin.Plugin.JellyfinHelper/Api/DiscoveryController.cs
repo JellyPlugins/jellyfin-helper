@@ -190,7 +190,15 @@ public sealed class DiscoveryController : ControllerBase
         {
             await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (OutOfMemoryException)
+        {
+            throw;
+        }
+        catch (StackOverflowException)
+        {
+            throw;
+        }
+        catch (Exception)
         {
             // Already logged inside MarkAsRequestedAsync; swallow to preserve the 200 response
             // that the client will (or would have, absent cancellation) receive.
@@ -214,7 +222,15 @@ public sealed class DiscoveryController : ControllerBase
                 excluded.Add(item);
             }
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (OutOfMemoryException)
+        {
+            throw;
+        }
+        catch (StackOverflowException)
+        {
+            throw;
+        }
+        catch (Exception)
         {
             // Best-effort
         }

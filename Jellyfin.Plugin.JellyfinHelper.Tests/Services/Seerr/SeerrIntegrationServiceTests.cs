@@ -968,4 +968,39 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         Assert.Equal("Unknown", title);
     }
+
+    // ===== Fix #4: TryAddWithoutValidation for X-Api-Key =====
+
+    [Fact]
+    public async Task TestConnection_NonAsciiApiKey_DoesNotThrow()
+    {
+        // BUG GUARD: HttpRequestHeaders.Add() validates the header value against RFC 7230
+        // and throws FormatException for values containing non-ASCII characters or whitespace.
+        // TryAddWithoutValidation() bypasses that check, so API keys with unusual characters
+        // must be accepted without throwing — the server will simply reject them with 401.
+        var handler = CreateMockHandler(HttpStatusCode.Unauthorized, string.Empty);
+        var service = CreateService(handler.Object, out _, out _);
+
+        // Japanese characters in the key would throw with Add(), must not throw with TryAddWithoutValidation
+        var nonAsciiKey = "キー12345";
+        var exception = await Record.ExceptionAsync(
+            () => service.TestConnectionAsync(BaseUrl, nonAsciiKey, CancellationToken.None));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task TestConnection_ApiKeyWithInternalSpace_DoesNotThrow()
+    {
+        // RFC 7230 forbids whitespace inside header values — Add() throws FormatException.
+        // TryAddWithoutValidation() must silently pass it through so the server can reject
+        // the key with a proper HTTP error instead of crashing the plugin.
+        var handler = CreateMockHandler(HttpStatusCode.Unauthorized, string.Empty);
+        var service = CreateService(handler.Object, out _, out _);
+
+        var exception = await Record.ExceptionAsync(
+            () => service.TestConnectionAsync(BaseUrl, "key with spaces", CancellationToken.None));
+
+        Assert.Null(exception);
+    }
 }

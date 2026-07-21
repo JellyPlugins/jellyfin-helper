@@ -10,13 +10,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services;
 /// <summary>
 ///     Provides reusable, robust filesystem operations with proper error handling.
 ///     All methods gracefully handle <see cref="IOException" /> and <see cref="UnauthorizedAccessException" />
-///     by logging a warning and continuing, ensuring that inaccessible directories never crash the caller.
+///     by skipping silently (best-effort), ensuring that inaccessible directories never crash the caller.
 /// </summary>
 public static class FileSystemHelper
 {
     /// <summary>
     ///     Calculates the total size of all files in a directory tree.
-    ///     Inaccessible directories are logged and skipped.
+    ///     Inaccessible directories are silently skipped.
     /// </summary>
     /// <param name="fileSystem">The Jellyfin file system abstraction.</param>
     /// <param name="directoryPath">The root directory path.</param>
@@ -33,7 +33,10 @@ public static class FileSystemHelper
             var subDirs = fileSystem.GetDirectories(directoryPath);
             totalSize += subDirs.Sum(subDir => CalculateDirectorySize(fileSystem, subDir.FullName));
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
         {
         }
 

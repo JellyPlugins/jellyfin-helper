@@ -281,7 +281,11 @@ public class TrashService : ITrashService
             itemCount += files.Length;
             totalSize += files.Sum(f => new FileInfo(f).Length);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (IOException)
+        {
+            // Access errors are expected for inaccessible trash directories
+        }
+        catch (UnauthorizedAccessException)
         {
             // Access errors are expected for inaccessible trash directories
         }
@@ -355,7 +359,11 @@ public class TrashService : ITrashService
                     });
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (IOException)
+        {
+            // Access errors are expected for inaccessible trash directories
+        }
+        catch (UnauthorizedAccessException)
         {
             // Access errors are expected for inaccessible trash directories
         }
