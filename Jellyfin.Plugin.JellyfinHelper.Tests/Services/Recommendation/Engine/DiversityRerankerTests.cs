@@ -44,8 +44,6 @@ public class DiversityRerankerTests
         Assert.Empty(result);
     }
 
-    // === FIX-3 · Deterministic exploration seed ===
-
     [Fact]
     public void ApplyDiversityReranking_SameSeed_ProducesIdenticalSelection()
     {
@@ -84,8 +82,6 @@ public class DiversityRerankerTests
         // Highly unlikely to collide on both seeds; a single mismatch is enough for divergence.
         Assert.NotEqual(tailA, tailB);
     }
-
-    // === FIX-2 · Exploration reaches beyond the top count·5 MMR window ===
 
     [Fact]
     public void ApplyDiversityReranking_ExplorationCanSelectFromWidenedBand()

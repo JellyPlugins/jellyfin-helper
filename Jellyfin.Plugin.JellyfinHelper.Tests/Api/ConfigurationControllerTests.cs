@@ -372,8 +372,6 @@ public class ConfigurationControllerTests
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
-    // ===== Fix #1: API key masking in GET /Configuration =====
-
     [Fact]
     public void GetConfiguration_ApiKeysAreMasked()
     {
@@ -406,8 +404,6 @@ public class ConfigurationControllerTests
         var response = Assert.IsType<ConfigurationResponse>(okResult.Value);
         Assert.Equal(string.Empty, response.SeerrApiKey);
     }
-
-    // ===== Fix #1 end =====
 
     // ===== GetAvailableLibraries Tests =====
 
@@ -984,8 +980,6 @@ public class ConfigurationControllerTests
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
-    // ===== Fix #1 (inline masking + sentinel guard) =====
-
     [Fact]
     public void GetConfiguration_NonEmptyKeys_ReturnsSentinelMask()
     {
@@ -1065,10 +1059,6 @@ public class ConfigurationControllerTests
 
         Assert.Equal("brand-new-key", _config.SeerrApiKey);
     }
-
-    // ===== Fix #1 (inline masking + sentinel guard) end =====
-
-    // ===== Fix #2 (Radarr/Sonarr sentinel round-trip key preservation) =====
 
     [Fact]
     public async Task UpdateConfiguration_SentinelRadarrApiKey_PreservesStoredKey()
@@ -1188,8 +1178,6 @@ public class ConfigurationControllerTests
         Assert.Equal("key-r1", _config.RadarrInstances[0].ApiKey);
         Assert.Equal("key-r2", _config.RadarrInstances[1].ApiKey);
     }
-
-    // ===== Fix #2 (Radarr/Sonarr sentinel round-trip key preservation) end =====
 
     // ===== Diagnostic logging for rejected saves =====
 

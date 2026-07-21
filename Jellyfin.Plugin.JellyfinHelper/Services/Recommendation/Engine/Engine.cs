@@ -173,7 +173,7 @@ public sealed class Engine : IRecommendationEngine
             // scan again. In a single-user or empty-history deployment the helper legitimately returns null,
             // meaning the same null-then-recompute-yields-null cycle repeated on every HTTP request.
             //
-            // Fix: publish the compute result (even a null) back onto the snapshot with an explicit
+            // Publish the compute result (even a null) back onto the snapshot with an explicit
             // `CommunityPopularityComputed = true` marker, so subsequent calls short-circuit. See
             // GetOrBuildCommunityPopularity for the read-back-and-republish protocol.
             var communityPopularity = GetOrBuildCommunityPopularity(snapshot);

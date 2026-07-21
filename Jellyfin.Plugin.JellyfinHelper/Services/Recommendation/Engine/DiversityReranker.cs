@@ -344,7 +344,7 @@ internal static class DiversityReranker
 
             if (explorationPool.Count > 0)
             {
-                // FIX-3: seedable RNG. Callers pass Engine.ComputeStableSeed(userId, batchGenerationCounter)
+                // Callers pass Engine.ComputeStableSeed(userId, batchGenerationCounter)
                 // for offline batches or Engine.ComputeStableSeed(userId, DayNumber) for live requests, so
                 // exploration picks are reproducible per user/context and unit tests can pin behaviour.
                 // ComputeStableSeed is used instead of System.HashCode.Combine because HashCode.Combine is
