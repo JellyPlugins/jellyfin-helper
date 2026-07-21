@@ -334,7 +334,10 @@ public class BackupService : IBackupService
         // omitted it (empty string), so that a restore does not wipe live credentials.
         // When a non-empty key is present and it differs from the current stored value,
         // emit an audit warning and set CredentialsChanged on the summary.
-        var previousRadarr = config.RadarrInstances.ToDictionary(i => i.Name, i => i.ApiKey);
+        // Use the last entry when duplicate names exist — ToDictionary would throw in that case.
+        var previousRadarr = config.RadarrInstances
+            .GroupBy(i => i.Name)
+            .ToDictionary(g => g.Key, g => g.Last().ApiKey);
         config.RadarrInstances.Clear();
         var radarrKeysChanged = 0;
         foreach (var instance in backup.RadarrInstances.Take(BackupValidator.MaxArrInstances))
@@ -368,7 +371,10 @@ public class BackupService : IBackupService
             summary.CredentialsChanged = true;
         }
 
-        var previousSonarr = config.SonarrInstances.ToDictionary(i => i.Name, i => i.ApiKey);
+        // Use the last entry when duplicate names exist — ToDictionary would throw in that case.
+        var previousSonarr = config.SonarrInstances
+            .GroupBy(i => i.Name)
+            .ToDictionary(g => g.Key, g => g.Last().ApiKey);
         config.SonarrInstances.Clear();
         var sonarrKeysChanged = 0;
         foreach (var instance in backup.SonarrInstances.Take(BackupValidator.MaxArrInstances))

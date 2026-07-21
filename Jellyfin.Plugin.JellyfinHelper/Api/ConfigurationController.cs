@@ -492,7 +492,9 @@ public class ConfigurationController : ControllerBase
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
         // If the client echoes back the mask sentinel ("***"), the key was not changed — preserve the stored value.
-        if (!string.Equals(request.SeerrApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+        // Trim before comparing so a client that pads the sentinel (e.g. " *** ") is still recognised correctly
+        // and never overwrites the real stored key with a literal "***".
+        if (!string.Equals(request.SeerrApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
         {
             config.SeerrApiKey = string.IsNullOrWhiteSpace(request.SeerrApiKey) ? string.Empty : request.SeerrApiKey.Trim();
         }
@@ -532,9 +534,9 @@ public class ConfigurationController : ControllerBase
             // Sentinel "***" means the UI echoed back the masked placeholder without
             // changing the field.  Restore the key that was stored at this index;
             // fall back to empty string when the index is brand-new (no prior entry).
-            var apiKey = string.Equals(instance.ApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
+            var apiKey = string.Equals(instance.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
                 ? (i < previousRadarrKeys.Count ? previousRadarrKeys[i] : string.Empty)
-                : instance.ApiKey;
+                : instance.ApiKey ?? string.Empty;
             config.RadarrInstances.Add(new ArrInstanceConfig
             {
                 Name = instance.Name,
@@ -551,9 +553,9 @@ public class ConfigurationController : ControllerBase
         for (var i = 0; i < sonarrRequestList.Count; i++)
         {
             var instance = sonarrRequestList[i];
-            var apiKey = string.Equals(instance.ApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
+            var apiKey = string.Equals(instance.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
                 ? (i < previousSonarrKeys.Count ? previousSonarrKeys[i] : string.Empty)
-                : instance.ApiKey;
+                : instance.ApiKey ?? string.Empty;
             config.SonarrInstances.Add(new ArrInstanceConfig
             {
                 Name = instance.Name,

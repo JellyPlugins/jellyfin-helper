@@ -13,4 +13,4 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: >-
-  v3.0.0.0: Smarter recommendations with a bigger neural net, fairer cold-start for new users, and more diverse top picks. Faster scans on big libraries. Settings and Health redesigned into tidy cards. Arr tab redesigned with a single dropdown + Compare button per type and a live reachability indicator instead of the old row of buttons. Better on phones. Compatible with Jellyfin 12.0 - users on Jellyfin 10.x should stay on v2.1.0.6. 3818 tests.
+  v3.0.0.0: Smarter recommendations with a bigger neural net, fairer cold-start for new users, and more diverse top picks. Faster scans on big libraries. Settings and Health redesigned into tidy cards. Arr tab redesigned with a single dropdown + Compare button per type and a live reachability indicator instead of the old row of buttons. Better on phones. Compatible with Jellyfin 12.0 - users on Jellyfin 10.x should stay on v2.1.0.6. 3859 tests.
