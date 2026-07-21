@@ -281,13 +281,13 @@ public class TrashService : ITrashService
             itemCount += files.Length;
             totalSize += files.Sum(f => new FileInfo(f).Length);
         }
-        catch (IOException)
+        catch (IOException ex)
         {
-            // Access errors are expected for inaccessible trash directories
+            _pluginLog.LogWarning("Trash", $"Could not read trash summary for '{trashBasePath}': {ex.Message}", ex);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
-            // Access errors are expected for inaccessible trash directories
+            _pluginLog.LogWarning("Trash", $"Access denied reading trash summary for '{trashBasePath}': {ex.Message}", ex);
         }
 
         return (totalSize, itemCount);

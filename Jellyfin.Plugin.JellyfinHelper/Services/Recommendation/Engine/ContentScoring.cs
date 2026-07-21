@@ -330,8 +330,8 @@ internal static class ContentScoring
                 + "All three watched-item set lists must have the same length.");
         if (mismatch)
         {
-            var previous = Interlocked.Increment(ref _parallelArrayMismatchCount);
-            if (previous == 1)
+            var afterIncrement = Interlocked.Increment(ref _parallelArrayMismatchCount);
+            if (afterIncrement == 1)
             {
                 Trace.TraceWarning(
                     "ContentScoring.ComputeContentNearestNeighborScore observed a parallel-array length mismatch "

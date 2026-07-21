@@ -83,4 +83,35 @@ public class SeerrDiscoveryServiceTests
             }
         }
     }
+
+    [Fact]
+    public async Task SubmitRequestAsync_ApiKeyWithCrlf_ReturnsFalse()
+    {
+        var prevUrl = Plugin.Instance?.Configuration?.SeerrUrl;
+        var prevKey = Plugin.Instance?.Configuration?.SeerrApiKey;
+        try
+        {
+            if (Plugin.Instance?.Configuration != null)
+            {
+                Plugin.Instance.Configuration.SeerrUrl = "http://seerr.local";
+                Plugin.Instance.Configuration.SeerrApiKey = "key\r\nX-Injected: evil";
+            }
+
+            var service = CreateService();
+            var (success, message) = await service.SubmitRequestAsync(
+                123, "movie", null, null, null, null, CancellationToken.None);
+
+            // CRLF guard fires inside CreateClient; caller wraps it as a config error.
+            Assert.False(success);
+            Assert.False(string.IsNullOrEmpty(message));
+        }
+        finally
+        {
+            if (Plugin.Instance?.Configuration != null)
+            {
+                Plugin.Instance.Configuration.SeerrUrl = prevUrl!;
+                Plugin.Instance.Configuration.SeerrApiKey = prevKey!;
+            }
+        }
+    }
 }

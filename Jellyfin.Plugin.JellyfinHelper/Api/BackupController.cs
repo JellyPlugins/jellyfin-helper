@@ -86,6 +86,7 @@ public class BackupController : ControllerBase
             "API",
             $"Backup exported ({FormatBackupSize(bytes.LongLength)}, timelinePoints={backup.GrowthTimeline?.DataPoints.Count ?? 0}, baselineDirs={backup.GrowthBaseline?.Directories.Count ?? 0})",
             _logger);
+        HttpContext?.Response.Headers.Append("Cache-Control", "no-store");
         return File(bytes, "application/json", $"jellyfin-helper-backup-{timestamp}.json");
     }
 
@@ -262,7 +263,8 @@ public class BackupController : ControllerBase
                     {
                         summary.ConfigurationRestored,
                         summary.TimelineRestored,
-                        summary.BaselineRestored
+                        summary.BaselineRestored,
+                        summary.CredentialsChanged
                     }
                 });
         }

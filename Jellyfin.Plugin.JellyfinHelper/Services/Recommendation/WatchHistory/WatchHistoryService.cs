@@ -382,8 +382,12 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
+            // Single-pass partition: split audio and subtitle streams in one iteration.
+            var streamsByType = allStreams.ToLookup(s => s.Type);
+            var audioStreams = streamsByType[MediaStreamType.Audio].ToList();
+            var subtitleStreams = streamsByType[MediaStreamType.Subtitle].ToList();
+
             // === Audio Language Analysis ===
-            var audioStreams = allStreams.Where(s => s.Type == MediaStreamType.Audio).ToList();
             if (audioStreams.Count > 0)
             {
                 string? usedAudioLanguage = null;
@@ -431,7 +435,6 @@ public sealed class WatchHistoryService : IWatchHistoryService
             // === Subtitle Language Analysis ===
             if (userData.SubtitleStreamIndex.HasValue && userData.SubtitleStreamIndex.Value >= 0)
             {
-                var subtitleStreams = allStreams.Where(s => s.Type == MediaStreamType.Subtitle).ToList();
                 if (subtitleStreams.Count > 0)
                 {
                     var chosenSubStream = subtitleStreams

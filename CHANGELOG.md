@@ -34,7 +34,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.6 (served from the same plugin repository).
 
 ### Tests
-- Total: **3899 tests** (+1574 vs. v2.1.0.6).
+- Total: **3900 tests** (+1575 vs. v2.1.0.6).
 
 ---
 

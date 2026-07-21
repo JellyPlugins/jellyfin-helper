@@ -127,9 +127,10 @@ internal sealed class TrainingService
             }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
             {
-                _pluginLog.LogInfo(
+                _pluginLog.LogWarning(
                     "Recommendations",
                     $"Could not load discovery feedback for training: {ex.Message}",
+                    ex,
                     _logger);
             }
         }

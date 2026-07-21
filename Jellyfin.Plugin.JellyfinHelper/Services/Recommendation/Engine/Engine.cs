@@ -1083,6 +1083,13 @@ public sealed class Engine : IRecommendationEngine
 
         var studioMatch = candidate.Studios is { Length: > 0 } &&
                           candidate.Studios.Any(s => preferredStudios.Contains(s));
+
+        // Pre-build candidate genre/studio sets once; reused for ContentNearestNeighborScore below.
+        var candidateGenreSet = new HashSet<string>(candidate.Genres ?? [], StringComparer.OrdinalIgnoreCase);
+        var candidateStudioSet = candidate.Studios is { Length: > 0 }
+            ? new HashSet<string>(candidate.Studios, StringComparer.OrdinalIgnoreCase)
+            : null;
+
         // Roadmap v3 (C2): use the weighted overload so a candidate carrying the user's
         // heavy-hitter collaborators (e.g. a director the user has watched 8 times) drives
         // similarity more than one-off cameo appearances that both the unweighted HashSet
@@ -1131,11 +1138,9 @@ public sealed class Engine : IRecommendationEngine
             // Content-based nearest-neighbor: composite item-to-item similarity (genre 50%, people 30%, studio 20%)
             // against the user's most similar watched item. Captures item-level affinity as a fine-tuning signal.
             ContentNearestNeighborScore = ContentScoring.ComputeContentNearestNeighborScore(
-                new HashSet<string>(candidate.Genres ?? [], StringComparer.OrdinalIgnoreCase),
-                peopleLookup.TryGetValue(candidate.Id, out var candidatePeopleForNn) ? candidatePeopleForNn : null,
-                candidate.Studios is { Length: > 0 }
-                    ? new HashSet<string>(candidate.Studios, StringComparer.OrdinalIgnoreCase)
-                    : null,
+                candidateGenreSet,
+                candidatePeople,
+                candidateStudioSet,
                 watchedGenreSets,
                 watchedPeopleSets,
                 watchedStudioSets),
@@ -1934,9 +1939,9 @@ public sealed class Engine : IRecommendationEngine
     /// <returns>A deterministic 32-bit seed for RNG consumers.</returns>
     internal static int ComputeStableSeed(Guid id, int suffix)
     {
-        // Guid.GetHashCode() is stable across processes (unlike System.HashCode.Combine).
-        // Fold with the suffix using an unchecked multiply-and-add so the combination
-        // spreads bits across the range without allocating an intermediate object.
+        // Guid.GetHashCode() is deterministic within a process but .NET does not guarantee
+        // stability across processes or runtimes. Seeds derived here are used only for
+        // exploration shuffling — no cryptographic strength required, only intra-run consistency.
         unchecked
         {
             var h = id.GetHashCode();

@@ -335,10 +335,12 @@ public class BackupService : IBackupService
         // omitted it (empty string), so that a restore does not wipe live credentials.
         // When a non-empty key is present and it differs from the current stored value,
         // emit an audit warning and set CredentialsChanged on the summary.
-        // Use the last entry when duplicate names exist — ToDictionary would throw in that case.
-        var previousRadarr = config.RadarrInstances
-            .GroupBy(i => i.Name)
-            .ToDictionary(g => g.Key, g => g.Last().ApiKey);
+        // ToLookup preserves all entries per name, so duplicate instance names do not
+        // cause false credential-changed warnings.
+        var previousRadarrKeys = config.RadarrInstances
+            .ToLookup(
+                i => i.Name,
+                i => BackupSanitizer.TruncateString(i.ApiKey, BackupValidator.MaxApiKeyLength));
         config.RadarrInstances.Clear();
         var radarrKeysChanged = 0;
         foreach (var instance in backup.RadarrInstances.Take(BackupValidator.MaxArrInstances))
@@ -347,11 +349,16 @@ public class BackupService : IBackupService
                 ? string.Empty
                 : BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength);
 
-            // Detect credential change: non-empty incoming key that differs from the live value.
-            if (!string.IsNullOrEmpty(apiKey) &&
-                (!previousRadarr.TryGetValue(instance.Name, out var prevKey) || prevKey != apiKey))
+            // Detect credential change: non-empty incoming key not found in any prior entry
+            // for this name. Both sides are truncated to the same length so a key that was
+            // stored full-length but backed up at MaxApiKeyLength is not a false positive.
+            if (!string.IsNullOrEmpty(apiKey))
             {
-                radarrKeysChanged++;
+                var priorKeys = previousRadarrKeys[instance.Name];
+                if (!priorKeys.Any(k => k == apiKey))
+                {
+                    radarrKeysChanged++;
+                }
             }
 
             config.RadarrInstances.Add(
@@ -372,10 +379,11 @@ public class BackupService : IBackupService
             summary.CredentialsChanged = true;
         }
 
-        // Use the last entry when duplicate names exist — ToDictionary would throw in that case.
-        var previousSonarr = config.SonarrInstances
-            .GroupBy(i => i.Name)
-            .ToDictionary(g => g.Key, g => g.Last().ApiKey);
+        // Use ToLookup for the same duplicate-name safety as the Radarr block above.
+        var previousSonarrKeys = config.SonarrInstances
+            .ToLookup(
+                i => i.Name,
+                i => BackupSanitizer.TruncateString(i.ApiKey, BackupValidator.MaxApiKeyLength));
         config.SonarrInstances.Clear();
         var sonarrKeysChanged = 0;
         foreach (var instance in backup.SonarrInstances.Take(BackupValidator.MaxArrInstances))
@@ -384,10 +392,13 @@ public class BackupService : IBackupService
                 ? string.Empty
                 : BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength);
 
-            if (!string.IsNullOrEmpty(apiKey) &&
-                (!previousSonarr.TryGetValue(instance.Name, out var prevKey) || prevKey != apiKey))
+            if (!string.IsNullOrEmpty(apiKey))
             {
-                sonarrKeysChanged++;
+                var priorKeys = previousSonarrKeys[instance.Name];
+                if (!priorKeys.Any(k => k == apiKey))
+                {
+                    sonarrKeysChanged++;
+                }
             }
 
             config.SonarrInstances.Add(

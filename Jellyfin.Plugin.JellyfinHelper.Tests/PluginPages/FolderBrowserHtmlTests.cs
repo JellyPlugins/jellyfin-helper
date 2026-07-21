@@ -214,7 +214,6 @@ public class FolderBrowserHtmlTests : ConfigPageTestBase
     public void Html_FolderBrowser_DetectsWindowsDriveAbsolutePath()
     {
         // Source regex: /^[A-Za-z]:[\\/]/
-        Assert.Contains("[A-Za-z]", HtmlContent);
         Assert.Matches(new Regex(@"\[A-Za-z\]:\[\\\\/\]"), HtmlContent);
     }
 

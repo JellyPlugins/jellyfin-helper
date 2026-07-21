@@ -1850,11 +1850,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             throw new ArgumentException("API key is required.", nameof(apiKey));
         }
 
+        // TryAddWithoutValidation tolerates non-ASCII API keys (rejected by strict Add()).
+        // It does NOT sanitize CRLF sequences, which would allow header injection. Reject keys
+        // containing CR or LF before they reach the header so the non-ASCII tolerance cannot
+        // become a security hole.
+        if (apiKey.Contains('\r', StringComparison.Ordinal) || apiKey.Contains('\n', StringComparison.Ordinal))
+        {
+            throw new ArgumentException("API key must not contain CR or LF characters.", nameof(apiKey));
+        }
+
         client.BaseAddress = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
 
-        // Use TryAddWithoutValidation to avoid FormatException when the API key
-        // contains characters that fail default header validation (e.g., newlines
-        // from a misconfigured admin paste). The key is treated as an opaque token.
         client.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", apiKey);
         client.DefaultRequestHeaders.Accept.Add(
             new MediaTypeWithQualityHeaderValue("application/json"));

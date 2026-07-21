@@ -237,6 +237,10 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_EmptySeerrCleanupTaskMode_DefaultsToDeactivate()
     {
+        // SeerrCleanupTaskMode intentionally falls back to Deactivate (not DryRun) because
+        // enabling cleanup by default on a fresh restore could permanently delete Seerr
+        // requests the admin has not reviewed. Deactivate is the safest no-op sentinel for
+        // an opt-in background cleanup that modifies external data in a third-party service.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
         backup.SeerrCleanupTaskMode = "";
@@ -578,5 +582,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
 
         Assert.False(summary.CredentialsChanged,
             "No credentials change should be reported when the backup key is the truncated form of the stored key.");
+        // The restored key must equal the truncated backup value (200 'x' chars), not the full 250-char stored value.
+        Assert.Equal(backupKey, liveConfig.SeerrApiKey);
     }
 }
