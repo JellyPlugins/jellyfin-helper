@@ -125,12 +125,11 @@ internal static class TrainingDataBuilder
         var cachedPeopleLookup = new Dictionary<Guid, HashSet<string>>();
         foreach (var prevResult in previousResults)
         {
-            foreach (var rec in prevResult.Recommendations.Where(
-                         r => r.PeopleNames.Count > 0 && !cachedPeopleLookup.ContainsKey(r.ItemId)))
+            foreach (var rec in prevResult.Recommendations.Where(r => r.PeopleNames.Count > 0))
             {
-                cachedPeopleLookup[rec.ItemId] = new HashSet<string>(
-                    rec.PeopleNames,
-                    StringComparer.OrdinalIgnoreCase);
+                cachedPeopleLookup.TryAdd(
+                    rec.ItemId,
+                    new HashSet<string>(rec.PeopleNames, StringComparer.OrdinalIgnoreCase));
             }
         }
 
@@ -146,19 +145,19 @@ internal static class TrainingDataBuilder
         {
             foreach (var rec in prevResult.Recommendations)
             {
-                if (!itemStudiosLookup.ContainsKey(rec.ItemId) && rec.Studios.Count > 0)
+                if (rec.Studios.Count > 0)
                 {
-                    itemStudiosLookup[rec.ItemId] = rec.Studios;
+                    itemStudiosLookup.TryAdd(rec.ItemId, rec.Studios);
                 }
 
-                if (!itemTagsLookup.ContainsKey(rec.ItemId) && rec.Tags.Count > 0)
+                if (rec.Tags.Count > 0)
                 {
-                    itemTagsLookup[rec.ItemId] = rec.Tags;
+                    itemTagsLookup.TryAdd(rec.ItemId, rec.Tags);
                 }
 
-                if (!itemBoxSetIdsLookup.ContainsKey(rec.ItemId) && rec.BoxSetIds.Count > 0)
+                if (rec.BoxSetIds.Count > 0)
                 {
-                    itemBoxSetIdsLookup[rec.ItemId] = rec.BoxSetIds;
+                    itemBoxSetIdsLookup.TryAdd(rec.ItemId, rec.BoxSetIds);
                 }
             }
         }
@@ -166,14 +165,17 @@ internal static class TrainingDataBuilder
         var examples = new List<TrainingExample>();
 
         // Pre-compute per-user artifacts once and cache them. These are reused across
-        // Phase 1 (recommendation feedback) and Phase 2 (organic examples), avoiding
-        // redundant BuildCollaborativeMap / BuildGenrePreferenceVector calls for the same user.
+        // Phase 1 (recommendation feedback), Phase 2 (organic examples), and Phase 3 (random
+        // negatives), avoiding redundant scans of the watched-items list for the same user.
         var perUserCache = new Dictionary<Guid, (
             Dictionary<string, double> GenrePreferences,
             Dictionary<Guid, double> CoOccurrence,
             double CollaborativeMax,
             double AvgYear,
-            PreferenceBuilder.GenreExposureAnalysis GenreExposure)>();
+            PreferenceBuilder.GenreExposureAnalysis GenreExposure,
+            IReadOnlyDictionary<string, double> PeopleWeights,
+            HashSet<string> PreferredStudios,
+            HashSet<string> PreferredTags)>();
 
         // Build a lookup for O(1) profile access by user ID (avoids O(N) FirstOrDefault per result)
         var profileById = new Dictionary<Guid, UserWatchProfile>(allProfiles.Count);
@@ -185,7 +187,10 @@ internal static class TrainingDataBuilder
             var cm = co.Count > 0 ? co.Values.Max() : 0;
             var ay = ContentScoring.ComputeAverageYear(profile);
             var ge = PreferenceBuilder.BuildGenreExposureAnalysis(gp, profile);
-            perUserCache[profile.UserId] = (gp, co, cm, ay, ge);
+            var pw = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, cachedPeopleLookup, seriesEpisodeCounts);
+            var ps = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, itemStudiosLookup);
+            var pt = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, itemTagsLookup);
+            perUserCache[profile.UserId] = (gp, co, cm, ay, ge, pw, ps, pt);
             profileById[profile.UserId] = profile;
         }
 
@@ -205,16 +210,8 @@ internal static class TrainingDataBuilder
                 continue;
             }
 
-            var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposure) =
+            var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposure, preferredPeopleWeights, preferredStudios, preferredTags) =
                 perUserCache[userProfile.UserId];
-
-            // Roadmap v3 (C2) train/serve parity: build the frequency-aware weights map so the ML
-            // PeopleSimilarity feature uses the same weighted overload as Engine.ScoreCandidate.
-            // The unweighted BuildPeoplePreferenceSet variant is used by ReasonResolver in the
-            // live path and is not needed here — training does not produce user-facing reasons.
-            var preferredPeopleWeights = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, cachedPeopleLookup, seriesEpisodeCounts);
-            var preferredStudios = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
-            var preferredTags = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
 
             var watchedItemLookup = new Dictionary<Guid, WatchedItemInfo>(userProfile.WatchedItems.Count);
             foreach (var w in userProfile.WatchedItems)
@@ -275,14 +272,8 @@ internal static class TrainingDataBuilder
             // contribute BoxSet membership when the item was recommended to at least one other user
             // and thus has BoxSet metadata cached. Previously only recommendations for THIS user
             // were considered, systematically under-counting BoxSet progression at training time.
-            var watchedForBoxSetsPhase1 = new HashSet<Guid>(watchedIds);
-            if (watchedSeriesIds is not null)
-            {
-                watchedForBoxSetsPhase1.UnionWith(watchedSeriesIds);
-            }
-
             var watchedBoxSetCounts = new Dictionary<Guid, int>();
-            foreach (var watchedId in watchedForBoxSetsPhase1)
+            foreach (var watchedId in BuildWatchedIdSet(watchedIds, watchedSeriesIds))
             {
                 if (!itemBoxSetIdsLookup.TryGetValue(watchedId, out var watchedBoxSetIds))
                 {
@@ -389,6 +380,11 @@ internal static class TrainingDataBuilder
                 // Compute TagSimilarity from cached data (matches Engine.ScoreCandidate() logic)
                 var tagSimilarity = TrainingFeatureComputer.ComputeTagSimilarityFromCache(rec.Tags, preferredTags);
 
+                // Build genre set once; shared by GenreSimilarity, temporal affinity (day + hour), and genre exposure.
+                var recGenreSet = rec.Genres.Count > 0
+                    ? new HashSet<string>(rec.Genres, StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
                 // Build the COMPLETE feature vector matching Engine.ScoreCandidate() logic
                 var features = new CandidateFeatures
                 {
@@ -415,12 +411,12 @@ internal static class TrainingDataBuilder
                     PopularityScore = popularityScore,
                     DayOfWeekAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(
                         watchedItemForRec,
-                        rec.Genres,
+                        recGenreSet,
                         userProfile,
                         isDay: true),
                     HourOfDayAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(
                         watchedItemForRec,
-                        rec.Genres,
+                        recGenreSet,
                         userProfile,
                         isDay: false),
                     // Shared IsWeekend resolver: user's LastActivityDate wins, falls back to the
@@ -540,7 +536,8 @@ internal static class TrainingDataBuilder
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureOrganic) =
+            var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureOrganic,
+                 preferredPeopleWeightsOrganic, preferredStudiosOrganic, preferredTagsOrganic) =
                 perUserCache[userProfile.UserId];
 
             // Resolve the per-user recommended set; users with no previous results get an empty set
@@ -548,14 +545,6 @@ internal static class TrainingDataBuilder
             {
                 recommendedItemIds = [];
             }
-
-            // Roadmap v3 (C2) train/serve parity for organic examples: only the weighted map is
-            // consumed by SimilarityComputer.ComputePeopleSimilarity below; the unweighted
-            // HashSet variant is only useful for reason-display (Engine.GenerateForUser),
-            // which the training path does not produce.
-            var preferredPeopleWeightsOrganic = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, cachedPeopleLookup, seriesEpisodeCounts);
-            var preferredStudiosOrganic = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
-            var preferredTagsOrganic = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
 
             // Build series episode lookup for series progression boost
             var seriesEpisodeLookupOrganic = new Dictionary<Guid, List<WatchedItemInfo>>();
@@ -714,6 +703,11 @@ internal static class TrainingDataBuilder
                 // Null-safe genre access for deserialized cache objects
                 var wGenres = w.Genres ?? Array.Empty<string>();
 
+                // Build genre set once; shared by temporal affinity (day + hour) calls below.
+                var wGenreSet = wGenres.Count > 0
+                    ? new HashSet<string>(wGenres, StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
                 var features = new CandidateFeatures
                 {
                     GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(wGenres, genrePreferences),
@@ -741,8 +735,8 @@ internal static class TrainingDataBuilder
                     StudioMatch = studioMatch,
                     SeriesProgressionBoost = seriesProgressionBoost,
                     PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
-                    DayOfWeekAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenres, userProfile, isDay: true),
-                    HourOfDayAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenres, userProfile, isDay: false),
+                    DayOfWeekAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenreSet, userProfile, isDay: true),
+                    HourOfDayAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenreSet, userProfile, isDay: false),
                     // Shared IsWeekend resolver: user-anchored, falls back to organic LastPlayedDate. See FIX-1.
                     IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, w.LastPlayedDate),
                     TagSimilarity = tagSimilarity,
@@ -833,17 +827,9 @@ internal static class TrainingDataBuilder
                     userRecommendedIds = new HashSet<Guid>();
                 }
 
-                var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureNeg) =
+                var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureNeg,
+                     preferredPeopleWeightsNeg, preferredStudiosNeg, preferredTagsNeg) =
                     perUserCache[userProfile.UserId];
-
-                // Build per-user preference sets for negative feature computation (mirrors Phase 1/2).
-                // Without these, PeopleSimilarity/StudioMatch/TagSimilarity would default to 0.0/false
-                // for all negatives, creating a systematic bias (the model learns "zero = irrelevant").
-                // Only the weighted map is consumed below; the unweighted HashSet is only useful for
-                // reason-display in the live path, which the training pipeline does not produce.
-                var preferredPeopleWeightsNeg = PreferenceBuilder.BuildPeoplePreferenceWeights(userProfile, cachedPeopleLookup, seriesEpisodeCounts);
-                var preferredStudiosNeg = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(userProfile, itemStudiosLookup);
-                var preferredTagsNeg = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(userProfile, itemTagsLookup);
 
                 // Build watched genre/people/studio sets for ContentNearestNeighborScore (mirrors Phase 1).
                 var watchedGenreSetsNeg = new List<HashSet<string>>();
@@ -877,14 +863,8 @@ internal static class TrainingDataBuilder
                 // whenever the item was recommended to at least one other user (so we have BoxSet
                 // metadata for it). This closes the earlier train/serve gap where Phase 3 only saw
                 // items recommended to this user's neighbours in the recommendation set.
-                var watchedForBoxSetsNeg = new HashSet<Guid>(userWatchedIds);
-                if (userWatchedSeriesIds is not null)
-                {
-                    watchedForBoxSetsNeg.UnionWith(userWatchedSeriesIds);
-                }
-
                 var watchedBoxSetCountsNeg = new Dictionary<Guid, int>();
-                foreach (var watchedId in watchedForBoxSetsNeg)
+                foreach (var watchedId in BuildWatchedIdSet(userWatchedIds, userWatchedSeriesIds))
                 {
                     if (!itemBoxSetIdsLookup.TryGetValue(watchedId, out var negBoxSetIds))
                     {
@@ -1041,6 +1021,21 @@ internal static class TrainingDataBuilder
         }
 
         return (examples, organicCount, randomNegativeCount, discoveryCount);
+    }
+
+    /// <summary>
+    ///     Builds the union of watched item IDs and watched series IDs for BoxSet-count computation.
+    ///     Shared by Phase 1 and Phase 3 to avoid duplicating the null-safe union pattern.
+    /// </summary>
+    private static HashSet<Guid> BuildWatchedIdSet(HashSet<Guid> watchedIds, HashSet<Guid>? watchedSeriesIds)
+    {
+        var set = new HashSet<Guid>(watchedIds);
+        if (watchedSeriesIds is not null)
+        {
+            set.UnionWith(watchedSeriesIds);
+        }
+
+        return set;
     }
 
     /// <summary>

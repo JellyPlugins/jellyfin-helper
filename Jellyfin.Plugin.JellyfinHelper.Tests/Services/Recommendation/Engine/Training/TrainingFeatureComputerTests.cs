@@ -580,7 +580,7 @@ public class TrainingFeatureComputerTests
             Played = true,
             LastPlayedDate = new DateTime(2026, 1, 3, 12, 0, 0, DateTimeKind.Utc)
         };
-        Assert.Equal(0.5, TrainingFeatureComputer.ComputeTrainingTemporalAffinity(target, null, profile, true));
+        Assert.Equal(0.5, TrainingFeatureComputer.ComputeTrainingTemporalAffinity(target, (IReadOnlyList<string>?)null, profile, true));
         Assert.Equal(0.5, TrainingFeatureComputer.ComputeTrainingTemporalAffinity(target, Array.Empty<string>(), profile, true));
     }
 

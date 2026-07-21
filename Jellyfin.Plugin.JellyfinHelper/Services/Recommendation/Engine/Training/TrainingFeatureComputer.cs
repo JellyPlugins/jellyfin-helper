@@ -30,7 +30,7 @@ internal static class TrainingFeatureComputer
 
         foreach (var w in userProfile.WatchedItems)
         {
-            if (!w.IsFavorite && !w.Played && w.PlayCount <= 0)
+            if (!w.HasMeaningfulInteraction())
             {
                 continue;
             }
@@ -74,7 +74,7 @@ internal static class TrainingFeatureComputer
 
         foreach (var w in userProfile.WatchedItems)
         {
-            if (!w.IsFavorite && !w.Played && w.PlayCount <= 0)
+            if (!w.HasMeaningfulInteraction())
             {
                 continue;
             }
@@ -124,8 +124,26 @@ internal static class TrainingFeatureComputer
             return 0.5;
         }
 
-        var watchDate = watchedItem.LastPlayedDate.Value;
         var candidateGenreSet = new HashSet<string>(candidateGenres, StringComparer.OrdinalIgnoreCase);
+        return ComputeTrainingTemporalAffinity(watchedItem, candidateGenreSet, userProfile, isDay);
+    }
+
+    /// <summary>
+    ///     Core implementation — accepts a pre-built genre set to avoid re-allocating it when
+    ///     computing both DayOfWeek and HourOfDay affinity for the same candidate in one call chain.
+    /// </summary>
+    internal static double ComputeTrainingTemporalAffinity(
+        WatchedItemInfo? watchedItem,
+        HashSet<string> candidateGenreSet,
+        UserWatchProfile userProfile,
+        bool isDay)
+    {
+        if (watchedItem?.LastPlayedDate is null || candidateGenreSet.Count == 0)
+        {
+            return 0.5;
+        }
+
+        var watchDate = watchedItem.LastPlayedDate.Value;
 
         var matchCount = 0;
         var totalInBucket = 0;
@@ -295,8 +313,8 @@ internal static class TrainingFeatureComputer
             StudioMatch = studioMatch,
             SeriesProgressionBoost = seriesProgressionBoost,
             PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
-            DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: true),
-            HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, genreList, userProfile, isDay: false),
+            DayOfWeekAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: true),
+            HourOfDayAffinity = ComputeTrainingTemporalAffinity(mostRecent, allGenres, userProfile, isDay: false),
             // Shared IsWeekend resolver: user-anchored, falls back to the most recently played
             // episode's LastPlayedDate when the profile carries no anchor yet.
             IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, mostRecent?.LastPlayedDate),
