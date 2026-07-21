@@ -1068,6 +1068,129 @@ public class ConfigurationControllerTests
 
     // ===== Fix #1 (inline masking + sentinel guard) end =====
 
+    // ===== Fix #2 (Radarr/Sonarr sentinel round-trip key preservation) =====
+
+    [Fact]
+    public async Task UpdateConfiguration_SentinelRadarrApiKey_PreservesStoredKey()
+    {
+        // Contract: GET masks Radarr keys as "***". When the user saves Settings without
+        // touching the key field the browser echoes "***" back. The POST must leave the
+        // real stored key untouched — identical to the Seerr sentinel contract.
+        _config.RadarrInstances.Add(new ArrInstanceConfig
+        {
+            Name = "R1",
+            Url = "http://radarr:7878",
+            ApiKey = "original-radarr-secret"
+        });
+
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig
+                {
+                    Name = "R1",
+                    Url = "http://radarr:7878",
+                    ApiKey = ConfigurationResponse.ApiKeyMask // echoed sentinel
+                }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.Single(_config.RadarrInstances);
+        Assert.Equal("original-radarr-secret", _config.RadarrInstances[0].ApiKey);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SentinelSonarrApiKey_PreservesStoredKey()
+    {
+        // Same round-trip contract as Radarr, but for Sonarr.
+        _config.SonarrInstances.Add(new ArrInstanceConfig
+        {
+            Name = "S1",
+            Url = "http://sonarr:8989",
+            ApiKey = "original-sonarr-secret"
+        });
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SonarrInstances =
+            [
+                new ArrInstanceConfig
+                {
+                    Name = "S1",
+                    Url = "http://sonarr:8989",
+                    ApiKey = ConfigurationResponse.ApiKeyMask // echoed sentinel
+                }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.Single(_config.SonarrInstances);
+        Assert.Equal("original-sonarr-secret", _config.SonarrInstances[0].ApiKey);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_RealRadarrApiKey_OverwritesStoredKey()
+    {
+        // Complementary case: a genuine new key (not the sentinel) must overwrite the stored key.
+        _config.RadarrInstances.Add(new ArrInstanceConfig
+        {
+            Name = "R1",
+            Url = "http://radarr:7878",
+            ApiKey = "old-radarr-key"
+        });
+
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig
+                {
+                    Name = "R1",
+                    Url = "http://radarr:7878",
+                    ApiKey = "brand-new-radarr-key"
+                }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.Equal("brand-new-radarr-key", _config.RadarrInstances[0].ApiKey);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SentinelArrApiKey_MultipleInstances_PreservesAllStoredKeys()
+    {
+        // Edge case: multiple instances of the same type — each sentinel must resolve
+        // to its own stored key, not bleed across instances or collapse to empty.
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "R1", Url = "http://r1:7878", ApiKey = "key-r1" });
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "R2", Url = "http://r2:7878", ApiKey = "key-r2" });
+
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = "R1", Url = "http://r1:7878", ApiKey = ConfigurationResponse.ApiKeyMask },
+                new ArrInstanceConfig { Name = "R2", Url = "http://r2:7878", ApiKey = ConfigurationResponse.ApiKeyMask }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.Equal(2, _config.RadarrInstances.Count);
+        Assert.Equal("key-r1", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("key-r2", _config.RadarrInstances[1].ApiKey);
+    }
+
+    // ===== Fix #2 (Radarr/Sonarr sentinel round-trip key preservation) end =====
+
     // ===== Diagnostic logging for rejected saves =====
 
     // Model-binding diagnostics (invalid ModelState / null request body) are exercised in

@@ -520,14 +520,20 @@ public class ConfigurationController : ControllerBase
             config.PluginLogLevel = config.PluginLogLevel.Trim().ToUpperInvariant();
         }
 
-        // Update Radarr instances (clear + re-add from request)
+        // Update Radarr instances (clear + re-add from request).
+        // Snapshot existing keys by index BEFORE clearing — the sentinel guard below
+        // needs the prior value and config.RadarrInstances[i] is gone after Clear().
+        var previousRadarrKeys = config.RadarrInstances.Select(i => i.ApiKey).ToList();
         config.RadarrInstances.Clear();
-        foreach (var instance in request.RadarrInstances ?? [])
+        var radarrRequestList = request.RadarrInstances ?? [];
+        for (var i = 0; i < radarrRequestList.Count; i++)
         {
-            // If the client echoes the mask sentinel, the key was unchanged — keep whatever was stored.
-            // For a fresh add there is no prior value, so treat the sentinel as an empty key.
+            var instance = radarrRequestList[i];
+            // Sentinel "***" means the UI echoed back the masked placeholder without
+            // changing the field.  Restore the key that was stored at this index;
+            // fall back to empty string when the index is brand-new (no prior entry).
             var apiKey = string.Equals(instance.ApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
-                ? string.Empty
+                ? (i < previousRadarrKeys.Count ? previousRadarrKeys[i] : string.Empty)
                 : instance.ApiKey;
             config.RadarrInstances.Add(new ArrInstanceConfig
             {
@@ -537,12 +543,16 @@ public class ConfigurationController : ControllerBase
             });
         }
 
-        // Update Sonarr instances (clear + re-add from request)
+        // Update Sonarr instances (clear + re-add from request).
+        // Same sentinel-preservation pattern as Radarr above.
+        var previousSonarrKeys = config.SonarrInstances.Select(i => i.ApiKey).ToList();
         config.SonarrInstances.Clear();
-        foreach (var instance in request.SonarrInstances ?? [])
+        var sonarrRequestList = request.SonarrInstances ?? [];
+        for (var i = 0; i < sonarrRequestList.Count; i++)
         {
+            var instance = sonarrRequestList[i];
             var apiKey = string.Equals(instance.ApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
-                ? string.Empty
+                ? (i < previousSonarrKeys.Count ? previousSonarrKeys[i] : string.Empty)
                 : instance.ApiKey;
             config.SonarrInstances.Add(new ArrInstanceConfig
             {
