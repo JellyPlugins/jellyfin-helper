@@ -840,6 +840,7 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
              message: errorMsg, snippet: diag.snippet});
 
         if (quiet) {
+            _saveBandSaving = false;
             showAutoSaveIndicatorOverlay(indicatorEl, false);
             renderSaveBand('error');
             if (options && typeof options.onError === 'function') {
