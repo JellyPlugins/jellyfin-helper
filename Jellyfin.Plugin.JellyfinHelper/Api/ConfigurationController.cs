@@ -84,56 +84,7 @@ public class ConfigurationController : ControllerBase
     public ActionResult<ConfigurationResponse> GetConfiguration()
     {
         var config = _configHelper.GetConfig();
-
-        // Build a masked copy inline — no raw key ever leaves the server.
-        // Sentinel "***" signals "key is already set"; empty string signals "no key configured".
-        var maskedRadarr = config.RadarrInstances
-            .Select(i => new MaskedArrInstanceConfig
-            {
-                Name = i.Name,
-                Url = i.Url,
-                ApiKey = string.IsNullOrWhiteSpace(i.ApiKey) ? string.Empty : ConfigurationResponse.ApiKeyMask
-            })
-            .ToList();
-
-        var maskedSonarr = config.SonarrInstances
-            .Select(i => new MaskedArrInstanceConfig
-            {
-                Name = i.Name,
-                Url = i.Url,
-                ApiKey = string.IsNullOrWhiteSpace(i.ApiKey) ? string.Empty : ConfigurationResponse.ApiKeyMask
-            })
-            .ToList();
-
-        var response = new ConfigurationResponse
-        {
-            ExcludedLibraries = config.ExcludedLibraries,
-            OrphanMinAgeDays = config.OrphanMinAgeDays,
-            TrickplayTaskMode = config.TrickplayTaskMode,
-            EmptyMediaFolderTaskMode = config.EmptyMediaFolderTaskMode,
-            OrphanedSubtitleTaskMode = config.OrphanedSubtitleTaskMode,
-            LinkRepairTaskMode = config.LinkRepairTaskMode,
-            SeerrCleanupTaskMode = config.SeerrCleanupTaskMode,
-            SeerrCleanupAgeDays = config.SeerrCleanupAgeDays,
-            SeerrUrl = config.SeerrUrl,
-            SeerrApiKey = string.IsNullOrWhiteSpace(config.SeerrApiKey) ? string.Empty : ConfigurationResponse.ApiKeyMask,
-            UseTrash = config.UseTrash,
-            TrashFolderPath = config.TrashFolderPath,
-            TrashRetentionDays = config.TrashRetentionDays,
-            Language = config.Language,
-            PluginLogLevel = config.PluginLogLevel,
-            RecommendationsTaskMode = config.RecommendationsTaskMode,
-            MaxRecommendationsPerUser = config.MaxRecommendationsPerUser,
-            SyncRecommendationsToPlaylist = config.SyncRecommendationsToPlaylist,
-            DiscoveryUserAccessEnabled = config.DiscoveryUserAccessEnabled,
-            TotalBytesFreed = config.TotalBytesFreed,
-            TotalItemsDeleted = config.TotalItemsDeleted,
-            LastCleanupTimestamp = config.LastCleanupTimestamp,
-            RadarrInstances = maskedRadarr,
-            SonarrInstances = maskedSonarr
-        };
-
-        return Ok(response);
+        return Ok(ConfigurationResponse.FromConfig(config));
     }
 
     /// <summary>
@@ -539,19 +490,22 @@ public class ConfigurationController : ControllerBase
         }
 
         // Update Radarr instances (clear + re-add from request).
-        // Snapshot existing keys by index BEFORE clearing — the sentinel guard below
-        // needs the prior value and config.RadarrInstances[i] is gone after Clear().
-        var previousRadarrKeys = config.RadarrInstances.Select(i => i.ApiKey).ToList();
+        // Snapshot existing instances BEFORE clearing so the sentinel guard can look up
+        // the stored key by Name+Url rather than positional index. Index-based restoration
+        // would silently assign the wrong key when the admin removes or reorders instances.
+        var previousRadarrInstances = config.RadarrInstances.ToList();
         config.RadarrInstances.Clear();
         var radarrRequestList = request.RadarrInstances ?? [];
         for (var i = 0; i < radarrRequestList.Count; i++)
         {
             var instance = radarrRequestList[i];
             // Sentinel "***" means the UI echoed back the masked placeholder without
-            // changing the field.  Restore the key that was stored at this index;
-            // fall back to empty string when the index is brand-new (no prior entry).
+            // changing the field. Restore the key for the matching Name+Url pair;
+            // fall back to empty string when no prior entry matches.
             var apiKey = string.Equals(instance.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
-                ? (i < previousRadarrKeys.Count ? previousRadarrKeys[i] : string.Empty)
+                ? previousRadarrInstances
+                    .FirstOrDefault(p => p.Name == instance.Name && p.Url == instance.Url)?.ApiKey
+                    ?? string.Empty
                 : instance.ApiKey ?? string.Empty;
             config.RadarrInstances.Add(new ArrInstanceConfig
             {
@@ -563,14 +517,16 @@ public class ConfigurationController : ControllerBase
 
         // Update Sonarr instances (clear + re-add from request).
         // Same sentinel-preservation pattern as Radarr above.
-        var previousSonarrKeys = config.SonarrInstances.Select(i => i.ApiKey).ToList();
+        var previousSonarrInstances = config.SonarrInstances.ToList();
         config.SonarrInstances.Clear();
         var sonarrRequestList = request.SonarrInstances ?? [];
         for (var i = 0; i < sonarrRequestList.Count; i++)
         {
             var instance = sonarrRequestList[i];
             var apiKey = string.Equals(instance.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
-                ? (i < previousSonarrKeys.Count ? previousSonarrKeys[i] : string.Empty)
+                ? previousSonarrInstances
+                    .FirstOrDefault(p => p.Name == instance.Name && p.Url == instance.Url)?.ApiKey
+                    ?? string.Empty
                 : instance.ApiKey ?? string.Empty;
             config.SonarrInstances.Add(new ArrInstanceConfig
             {

@@ -1,4 +1,4 @@
-﻿<!--
+<!--
   CONTRIBUTING.md - Contributor guidelines for the Jellyfin Helper plugin.
   This file uses UTF-8 encoding and may contain emoji characters.
   If your editor shows garbled characters, ensure UTF-8 is set.

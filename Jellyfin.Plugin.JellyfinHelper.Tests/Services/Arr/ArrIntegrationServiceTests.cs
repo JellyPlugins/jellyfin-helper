@@ -622,4 +622,24 @@ public class ArrIntegrationServiceTests
             service.TestConnectionAsync("http://radarr.local", "key\r\nX-Injected: evil", CancellationToken.None));
         Assert.Contains("CR or LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public async Task GetRadarrMoviesAsync_ApiKeyWithCrLf_ThrowsArgumentException()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        var service = CreateService(handler.Object);
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.GetRadarrMoviesAsync("http://radarr.local", "key\r\nX-Injected: evil", CancellationToken.None));
+        Assert.Contains("CR or LF", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetSonarrSeriesAsync_ApiKeyWithCrLf_ThrowsArgumentException()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        var service = CreateService(handler.Object);
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.GetSonarrSeriesAsync("http://sonarr.local", "key\nX-Injected: evil", CancellationToken.None));
+        Assert.Contains("CR or LF", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

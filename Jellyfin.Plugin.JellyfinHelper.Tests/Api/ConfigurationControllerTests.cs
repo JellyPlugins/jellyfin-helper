@@ -1259,4 +1259,80 @@ public class ConfigurationControllerTests
             Times.Never);
         Assert.Equal("real-radarr-key", _config.RadarrInstances[0].ApiKey);
     }
+
+    [Fact]
+    public async Task UpdateConfiguration_SentinelRadarrApiKey_ReorderedInstances_ResolvesKeyByNameUrl()
+    {
+        // BUG GUARD (fix #5): sentinel restoration must match by Name+Url, not position.
+        // When the admin reorders instances while leaving keys masked, each instance must
+        // get back its OWN stored key — not the key at its previous positional index.
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "A", Url = "http://a:7878", ApiKey = "key-A" });
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "B", Url = "http://b:7878", ApiKey = "key-B" });
+
+        // Admin reorders: B comes first, A comes second
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = "B", Url = "http://b:7878", ApiKey = ConfigurationResponse.ApiKeyMask },
+                new ArrInstanceConfig { Name = "A", Url = "http://a:7878", ApiKey = ConfigurationResponse.ApiKeyMask }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.Equal(2, _config.RadarrInstances.Count);
+        Assert.Equal("key-B", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("key-A", _config.RadarrInstances[1].ApiKey);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SentinelRadarrApiKey_RemovedInstance_NewInstanceGetsEmptyKey()
+    {
+        // BUG GUARD (fix #5): when the admin removes instance[0] and leaves instance[1] masked,
+        // the positional approach would restore the key of the removed instance into the surviving one.
+        // The Name+Url approach correctly gives the surviving instance its own key.
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Removed", Url = "http://removed:7878", ApiKey = "key-removed" });
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Kept", Url = "http://kept:7878", ApiKey = "key-kept" });
+
+        // Admin removes "Removed", saves with "Kept" still masked
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = "Kept", Url = "http://kept:7878", ApiKey = ConfigurationResponse.ApiKeyMask }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.Single(_config.RadarrInstances);
+        Assert.Equal("key-kept", _config.RadarrInstances[0].ApiKey);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_SentinelSonarrApiKey_ReorderedInstances_ResolvesKeyByNameUrl()
+    {
+        // Same Name+Url matching contract for Sonarr.
+        _config.SonarrInstances.Add(new ArrInstanceConfig { Name = "X", Url = "http://x:8989", ApiKey = "key-X" });
+        _config.SonarrInstances.Add(new ArrInstanceConfig { Name = "Y", Url = "http://y:8989", ApiKey = "key-Y" });
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SonarrInstances =
+            [
+                new ArrInstanceConfig { Name = "Y", Url = "http://y:8989", ApiKey = ConfigurationResponse.ApiKeyMask },
+                new ArrInstanceConfig { Name = "X", Url = "http://x:8989", ApiKey = ConfigurationResponse.ApiKeyMask }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.Equal(2, _config.SonarrInstances.Count);
+        Assert.Equal("key-Y", _config.SonarrInstances[0].ApiKey);
+        Assert.Equal("key-X", _config.SonarrInstances[1].ApiKey);
+    }
 }
