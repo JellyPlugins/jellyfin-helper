@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -300,6 +301,41 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         var users = await _sut.GetSeerrUsersAsync(CancellationToken.None);
         Assert.Equal(2, users.Count);
         Assert.Equal("alice", users[0].DisplayName);
+    }
+
+    [Fact]
+    public async Task GetSeerrUsersAsync_MultiPage_FetchesAllPages()
+    {
+        // BUG GUARD: pagination loop must continue when results.Count == take AND currentPage < totalPages.
+        // Page 1 must return exactly 50 results (== take) so the loop does not early-exit on the
+        // "fewer than take results" guard before checking totalPages.
+
+        // Build 50 users for page 1 (ids 1–50)
+        var page1Results = string.Join(",\n", Enumerable.Range(1, 50).Select(i =>
+            $"{{ \"id\": {i}, \"displayName\": \"user{i:D3}\", \"jellyfinUserId\": \"{i:D32}\" }}"));
+        var page1Json = $$"""
+        {
+          "pageInfo": { "pages": 2, "pageSize": 50, "results": 51, "page": 1 },
+          "results": [{{page1Results}}]
+        }
+        """;
+        const string page2Json = """
+        {
+          "pageInfo": { "pages": 2, "pageSize": 50, "results": 51, "page": 2 },
+          "results": [
+            { "id": 51, "displayName": "carol", "jellyfinUserId": "cccccccccccccccccccccccccccccccc" }
+          ]
+        }
+        """;
+
+        _handler.RegisterResponse(HttpMethod.Get, "skip=0&sort=displayname", HttpStatusCode.OK, page1Json);
+        _handler.RegisterResponse(HttpMethod.Get, "skip=50&sort=displayname", HttpStatusCode.OK, page2Json);
+
+        var users = await _sut.GetSeerrUsersAsync(CancellationToken.None);
+
+        Assert.Equal(51, users.Count);
+        Assert.Contains(users, u => u.DisplayName == "user001");
+        Assert.Contains(users, u => u.DisplayName == "carol");
     }
 
     [Fact]
@@ -663,9 +699,12 @@ internal sealed class ScriptedHttpHandler : HttpMessageHandler
         }
 
         var url = request.RequestUri?.AbsolutePath ?? string.Empty;
+        var fullUrl = request.RequestUri?.PathAndQuery ?? string.Empty;
         foreach (var kvp in _routes)
         {
-            if (kvp.Key.Method == request.Method && url.EndsWith(kvp.Key.PathSuffix, StringComparison.Ordinal))
+            if (kvp.Key.Method == request.Method &&
+                (url.EndsWith(kvp.Key.PathSuffix, StringComparison.Ordinal) ||
+                 fullUrl.EndsWith(kvp.Key.PathSuffix, StringComparison.Ordinal)))
             {
                 return new HttpResponseMessage(kvp.Value.Status)
                 {

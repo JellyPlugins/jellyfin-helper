@@ -159,7 +159,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false };
 
     private readonly ILogger? _logger;
-    private readonly ReaderWriterLockSlim _rwLock = new(LockRecursionPolicy.SupportsRecursion);
+    private readonly ReaderWriterLockSlim _rwLock = new(LockRecursionPolicy.NoRecursion);
     private readonly Lock _syncRoot = new();
     private readonly string? _weightsPath;
 

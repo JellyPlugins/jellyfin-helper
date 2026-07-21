@@ -39,8 +39,9 @@ public sealed class FolderBrowserServiceTests : IDisposable
         var enabled = TestMockFactory.CreateLogger<FolderBrowserService>().Object;
         var disabled = TestMockFactory.CreateDisabledLogger<FolderBrowserService>().Object;
 
-        Assert.NotNull(new FolderBrowserService(enabled));
-        Assert.NotNull(new FolderBrowserService(disabled));
+        // Constructor must not throw for either logger variant.
+        _ = new FolderBrowserService(enabled);
+        _ = new FolderBrowserService(disabled);
     }
 
     // ===== GetRoots =====
@@ -831,11 +832,14 @@ public sealed class FolderBrowserServiceTests : IDisposable
         {
             var result = _service.ValidatePath(parent);
 
-            // Directory exists but is not readable — ValidatePath may return either
-            // "Cannot access this directory." or null (permission checks are best-effort).
-            // We only assert the shape: either a clear error string or a passthrough.
-            Assert.True(result is null or "Cannot access this directory.",
-                        $"Unexpected validation result: '{result}'");
+            // On most Windows environments TryDenyReadAccess blocks the current user and
+            // ValidatePath returns the access error. On runners with elevated privileges
+            // (e.g. SYSTEM/Administrator) the ACL denial may be bypassed, in which case
+            // ValidatePath returns null (no error). Both outcomes are permitted — the
+            // assertion ensures we never return a *different* unexpected error string.
+            Assert.True(
+                result is null or "Cannot access this directory.",
+                $"Unexpected validation result: '{result}'");
         }
         finally
         {

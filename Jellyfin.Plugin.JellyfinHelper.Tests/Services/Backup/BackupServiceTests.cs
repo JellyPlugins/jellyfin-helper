@@ -298,6 +298,51 @@ public class BackupServiceTests
         Assert.Contains(result.Errors, e => e.Contains("dangerous characters") || e.Contains("TrashFolderPath"));
     }
 
+    [Fact]
+    public void Validate_PathTraversalInTrashPath_UseTrashFalse_ReturnsError()
+    {
+        // BUG GUARD: injection checks must run even when UseTrash=false so a malicious path
+        // cannot be stored in config and later activated without re-validation.
+        var backup = new BackupData
+        {
+            BackupVersion = 1, CreatedAt = DateTime.UtcNow, PluginVersion = "1.0.0",
+            Language = "en", OrphanMinAgeDays = 7, PluginLogLevel = "INFO",
+            TrickplayTaskMode = "DryRun", EmptyMediaFolderTaskMode = "Activate",
+            OrphanedSubtitleTaskMode = "Deactivate", LinkRepairTaskMode = "DryRun",
+            SeerrCleanupTaskMode = "DryRun", RecommendationsTaskMode = "DryRun",
+            UseTrash = false,
+            TrashFolderPath = "../../../etc/cron.d/evil",
+            TrashRetentionDays = 30
+        };
+        var result = BackupValidator.Validate(backup);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Contains("traversal", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("path|cmd")]
+    [InlineData("$(evil)")]
+    [InlineData("path;rm -rf /")]
+    public void Validate_CommandInjectionInTrashPath_UseTrashFalse_ReturnsError(string injectedPath)
+    {
+        var backup = new BackupData
+        {
+            BackupVersion = 1, CreatedAt = DateTime.UtcNow, PluginVersion = "1.0.0",
+            Language = "en", OrphanMinAgeDays = 7, PluginLogLevel = "INFO",
+            TrickplayTaskMode = "DryRun", EmptyMediaFolderTaskMode = "Activate",
+            OrphanedSubtitleTaskMode = "Deactivate", LinkRepairTaskMode = "DryRun",
+            SeerrCleanupTaskMode = "DryRun", RecommendationsTaskMode = "DryRun",
+            UseTrash = false,
+            TrashFolderPath = injectedPath,
+            TrashRetentionDays = 30
+        };
+        var result = BackupValidator.Validate(backup);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Contains("dangerous characters") || e.Contains("TrashFolderPath"));
+    }
+
     // ===== Security: String length overflow =====
 
     [Fact]

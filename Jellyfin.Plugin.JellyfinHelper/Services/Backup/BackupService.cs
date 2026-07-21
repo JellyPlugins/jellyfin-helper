@@ -284,7 +284,13 @@ public class BackupService : IBackupService
         config.SeerrCleanupTaskMode = ParseTaskMode(backup.SeerrCleanupTaskMode, TaskMode.Deactivate);
 
         // Seerr settings
-        config.SeerrUrl = BackupSanitizer.TruncateString(backup.SeerrUrl, BackupValidator.MaxUrlLength);
+        // An empty backup URL means "leave the existing URL in place", mirroring the API key
+        // guard below — a backup created without Seerr must not silently wipe a working URL.
+        if (!string.IsNullOrEmpty(backup.SeerrUrl))
+        {
+            config.SeerrUrl = BackupSanitizer.TruncateString(backup.SeerrUrl, BackupValidator.MaxUrlLength);
+        }
+
         // API keys: an empty backup value means "leave the existing key in place"; a
         // non-empty value is applied after the same length-truncation as other fields.
         // When the incoming value actually differs from the current stored value, emit an
@@ -345,8 +351,10 @@ public class BackupService : IBackupService
         var radarrKeysChanged = 0;
         foreach (var instance in backup.RadarrInstances.Take(BackupValidator.MaxArrInstances))
         {
+            // An empty backup key means "preserve the live key" — fall back to the previously
+            // stored key for this instance name, consistent with the SeerrApiKey guard above.
             var apiKey = string.IsNullOrEmpty(instance.ApiKey)
-                ? string.Empty
+                ? (previousRadarrKeys[instance.Name].FirstOrDefault() ?? string.Empty)
                 : BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength);
 
             // Detect credential change: non-empty incoming key not found in any prior entry
@@ -388,8 +396,9 @@ public class BackupService : IBackupService
         var sonarrKeysChanged = 0;
         foreach (var instance in backup.SonarrInstances.Take(BackupValidator.MaxArrInstances))
         {
+            // Same preserve-live-key logic as the Radarr block above.
             var apiKey = string.IsNullOrEmpty(instance.ApiKey)
-                ? string.Empty
+                ? (previousSonarrKeys[instance.Name].FirstOrDefault() ?? string.Empty)
                 : BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength);
 
             if (!string.IsNullOrEmpty(apiKey))

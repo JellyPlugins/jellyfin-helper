@@ -196,17 +196,17 @@ public static class BackupValidator
         }
 
         // Path validation for trash folder — defence in depth:
-        // 1. ValidatePathSafety catches injection patterns (|, `, ;, $(...), ${...})
-        // 2. ValidateTrashPathStrict applies the same structural rules as the settings save API
-        // Always run strict validation when UseTrash is enabled (even if path is empty),
-        // matching the live save flow which rejects empty paths when trash is on.
+        // 1. ValidatePathSafety (traversal + injection) always runs when path is non-empty so a
+        //    backup with UseTrash=false cannot sneak an unsafe path into the live config.
+        // 2. ValidateTrashPathStrict (structural rules) only runs when UseTrash is enabled —
+        //    it rejects empty paths, which is correct only for an active trash configuration.
+        if (!string.IsNullOrEmpty(backup.TrashFolderPath))
+        {
+            ValidatePathSafety(result, backup.TrashFolderPath, "TrashFolderPath");
+        }
+
         if (backup.UseTrash)
         {
-            if (!string.IsNullOrEmpty(backup.TrashFolderPath))
-            {
-                ValidatePathSafety(result, backup.TrashFolderPath, "TrashFolderPath");
-            }
-
             var trashPathError = ConfigurationRequestValidator.ValidateTrashPathStrict(
                 backup.TrashFolderPath, backup.UseTrash);
             if (trashPathError != null)

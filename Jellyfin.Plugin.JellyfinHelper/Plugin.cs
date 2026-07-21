@@ -121,6 +121,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             return;
         }
 
+        // Normalize alpha range BEFORE draining reports so any Min > Max swap is included
+        // in this drain rather than being silently discarded (PluginServiceRegistrator calls
+        // NormalizeAlphaRange during DI build, after the constructor drain already ran).
+        config.NormalizeAlphaRange();
+
         var reports = config.DrainClampReports();
         if (reports.Count == 0)
         {

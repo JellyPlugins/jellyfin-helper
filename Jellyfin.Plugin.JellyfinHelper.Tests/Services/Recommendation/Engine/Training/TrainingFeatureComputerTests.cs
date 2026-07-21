@@ -196,8 +196,11 @@ public class TrainingFeatureComputerTests
         var result = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, lookup);
 
         Assert.Equal(2, result.Count);
-        Assert.Contains("Cyberpunk", result);
-        Assert.Contains("dystopia", result);
+        // Exact stored form: first-insert wins for dedup, tags kept in original casing.
+        // "Cyberpunk" (from itemId) wins over "CYBERPUNK" (from seriesId).
+        // "Dystopia" stored as-is from seriesId input.
+        Assert.True(result.Contains("Cyberpunk", StringComparer.Ordinal), "Expected exact casing 'Cyberpunk'");
+        Assert.True(result.Contains("Dystopia", StringComparer.Ordinal), "Expected exact casing 'Dystopia'");
     }
 
     // -----------------------------------------------------------------------
@@ -308,8 +311,7 @@ public class TrainingFeatureComputerTests
             watchedPeople,
             watchedStudios);
 
-        Assert.InRange(result, 0.0, 1.0);
-        Assert.True(result > 0.0);
+        Assert.Equal(0.5, result, precision: 10);
     }
 
     [Fact]
@@ -344,9 +346,9 @@ public class TrainingFeatureComputerTests
             watchedPeople,
             watchedStudios);
 
-        Assert.InRange(result, 0.0, 1.0);
-        // Full overlap on all three dimensions of the first watched item → strictly > 0.
-        Assert.True(result > 0.0);
+        // Full overlap on all three dimensions of the first watched item:
+        // genreJaccard=1.0, peopleJaccard=1.0, studioJaccard=1.0 → composite = 0.50+0.30+0.20 = 1.0
+        Assert.Equal(1.0, result, precision: 10);
     }
 
     // -----------------------------------------------------------------------

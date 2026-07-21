@@ -30,7 +30,7 @@ internal static class TrainingFeatureComputer
 
         foreach (var w in userProfile.WatchedItems)
         {
-            if (!w.HasMeaningfulInteraction())
+            if (!w.IsFavorite && !w.Played && w.PlayCount <= 0)
             {
                 continue;
             }
@@ -74,7 +74,7 @@ internal static class TrainingFeatureComputer
 
         foreach (var w in userProfile.WatchedItems)
         {
-            if (!w.HasMeaningfulInteraction())
+            if (!w.IsFavorite && !w.Played && w.PlayCount <= 0)
             {
                 continue;
             }

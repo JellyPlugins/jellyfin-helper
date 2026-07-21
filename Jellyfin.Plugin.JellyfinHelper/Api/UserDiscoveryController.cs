@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net.Mime;
 using System.Reflection;
@@ -113,7 +114,7 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<UserRequestPermissionResult>> GetMyRequestPermissions(
-        string serviceType,
+        [RegularExpression("^(radarr|sonarr)$")] string serviceType,
         [FromQuery] string mediaType,
         CancellationToken cancellationToken)
     {
@@ -160,7 +161,7 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<IReadOnlyList<SeerrServiceInfo>>> GetMyServiceInfo(
-        string serviceType,
+        [RegularExpression("^(radarr|sonarr)$")] string serviceType,
         CancellationToken cancellationToken)
     {
         if (!IsDiscoveryUserAccessEnabled())

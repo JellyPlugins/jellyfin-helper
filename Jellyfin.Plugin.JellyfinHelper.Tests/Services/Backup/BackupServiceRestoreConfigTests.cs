@@ -267,6 +267,79 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     }
 
     [Fact]
+    public void RestoreBackup_NonZeroSeerrCleanupAgeDays_OverwritesLiveValue()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrCleanupAgeDays = 45;
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrCleanupAgeDays = 20;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(20, liveConfig.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void RestoreBackup_EmptySeerrUrlInBackup_PreservesLiveUrl()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrUrl = "https://live.seerr.example.com";
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrUrl = string.Empty;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal("https://live.seerr.example.com", liveConfig.SeerrUrl);
+    }
+
+    [Fact]
+    public void RestoreBackup_NonEmptySeerrUrl_OverwritesLiveUrl()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrUrl = "https://old.seerr.example.com";
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrUrl = "https://new.seerr.example.com";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal("https://new.seerr.example.com", liveConfig.SeerrUrl);
+    }
+
+    [Fact]
+    public void RestoreBackup_EmptyArrApiKeyInBackup_PreservesLiveKey()
+    {
+        // When the backup has an empty key for a named instance that already has a key
+        // configured live, the live key must be preserved — not wiped.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.RadarrInstances.Add(new ArrInstanceConfig
+            { Name = "R1", Url = "http://r:7878", ApiKey = "live-key" });
+        var backup = MakeMinimalValidBackup();
+        backup.RadarrInstances.Add(new BackupArrInstance
+            { Name = "R1", Url = "http://r:7878", ApiKey = string.Empty });
+
+        service.RestoreBackup(backup);
+
+        Assert.Single(liveConfig.RadarrInstances);
+        Assert.Equal("live-key", liveConfig.RadarrInstances[0].ApiKey);
+    }
+
+    [Fact]
+    public void RestoreBackup_EmptySonarrApiKeyInBackup_PreservesLiveKey()
+    {
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SonarrInstances.Add(new ArrInstanceConfig
+            { Name = "S1", Url = "http://s:8989", ApiKey = "sonarr-live-key" });
+        var backup = MakeMinimalValidBackup();
+        backup.SonarrInstances.Add(new BackupArrInstance
+            { Name = "S1", Url = "http://s:8989", ApiKey = string.Empty });
+
+        service.RestoreBackup(backup);
+
+        Assert.Single(liveConfig.SonarrInstances);
+        Assert.Equal("sonarr-live-key", liveConfig.SonarrInstances[0].ApiKey);
+    }
+
+    [Fact]
     public void RestoreBackup_ZeroSeerrCleanupAgeDays_LeavesConfigUnchanged()
     {
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();

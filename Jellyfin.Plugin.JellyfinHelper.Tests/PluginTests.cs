@@ -172,8 +172,8 @@ public sealed class PluginTests : IDisposable
         warningCount = 0;
         method!.Invoke(plugin, []);
 
-        // Exactly 2 clamped values were recorded, so exactly 2 warnings expected.
-        Assert.Equal(2, warningCount);
+        // 2 clamped values + 1 NormalizeAlphaRange swap (clamped alphaMin=1.0 > default alphaMax=0.75).
+        Assert.Equal(3, warningCount);
     }
 
     [Fact]

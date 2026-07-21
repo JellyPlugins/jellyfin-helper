@@ -11,8 +11,7 @@ on:
     - "Directory.Build.props"
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 env:
   PLUGIN_NAME: JellyfinHelper
@@ -322,6 +321,8 @@ jobs:
     - name: Create tag
       if: env.TAG_EXISTS == 'false'
       run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
         git tag $VERSION
         git push origin $VERSION
 
