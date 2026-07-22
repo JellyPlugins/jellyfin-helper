@@ -21,7 +21,7 @@ public static class ConfigurationRequestValidator
     /// <summary>Supported UI language codes. Must stay in sync with the translation file set.</summary>
     private static readonly HashSet<string> SupportedLanguages = new(StringComparer.Ordinal)
     {
-        "en", "de", "fr", "es", "pt", "zh", "tr"
+        "en", "de", "fr", "es", "pt", "zh", "tr", "sv"
     };
 
     /// <summary>
