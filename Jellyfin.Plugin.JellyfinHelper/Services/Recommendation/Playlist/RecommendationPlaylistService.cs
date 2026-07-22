@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -158,7 +159,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             {
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 syncResult.PlaylistsFailed++;
                 _pluginLog.LogWarning(
@@ -201,7 +202,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             {
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning(
                     "PlaylistSync",

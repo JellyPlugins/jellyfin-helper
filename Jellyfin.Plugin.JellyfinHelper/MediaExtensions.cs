@@ -93,26 +93,6 @@ public static class MediaExtensions
     };
 
     /// <summary>
-    ///     Gets the set of known audio/theme file extensions (with leading dot, case-insensitive).
-    /// </summary>
-    internal static HashSet<string> AudioExtensions { get; } = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp3",
-        ".flac",
-        ".wav",
-        ".aac",
-        ".ogg",
-        ".wma",
-        ".m4a",
-        ".opus",
-        ".ape",
-        ".wv",
-        ".mka",
-        ".dsf",
-        ".dff"
-    };
-
-    /// <summary>
     ///     Gets a mapping from audio file extension (with leading dot) to a human-readable codec name.
     ///     Used as a fallback when no codec tag is found in the filename.
     /// </summary>

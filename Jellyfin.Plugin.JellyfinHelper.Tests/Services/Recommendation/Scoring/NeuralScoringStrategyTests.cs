@@ -6,7 +6,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 /// <summary>
 ///     Tests for <see cref="NeuralScoringStrategy"/>: Forward-Pass, Backprop/Training,
 ///     Adam optimizer, Weight Persistence, Xavier initialization, Sigmoid, Dropout.
-///     Architecture (roadmap v3 A1, WeightsVersion 3):
+///     Architecture
 ///     <see cref="CandidateFeatures.FeatureCount"/> inputs → 62 hidden₁ → 96 hidden₂ →
 ///     48 hidden₃ → 24 hidden₄ → 1 output.
 /// </summary>
@@ -806,14 +806,14 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Hidden1Size_IsV3Value()
     {
-        // Roadmap v3 A1: 48 → 62 (≈ 2× InputSize expansion factor for tabular MLPs).
+        // 48 → 62 (≈ 2× InputSize expansion factor for tabular MLPs).
         Assert.Equal(62, NeuralScoringStrategy.Hidden1Size);
     }
 
     [Fact]
     public void Hidden2Size_IsV3Value()
     {
-        // Roadmap v3 A1: 24 → 96 (widest layer; feature-interaction composition capacity).
+        // 24 → 96 (widest layer; feature-interaction composition capacity).
         Assert.Equal(96, NeuralScoringStrategy.Hidden2Size);
     }
 
@@ -1458,6 +1458,126 @@ public sealed class NeuralScoringStrategyTests : IDisposable
                     SubtitleLanguageAffinity = rng.NextDouble()
                 },
                 Label = genreSim > 0.5 ? 1.0 : 0.0
+            });
+        }
+
+        return examples;
+    }
+}
+
+// TEST-2: A structurally valid weights JSON containing NaN or Infinity in a single weight
+// value must be rejected — the strategy must fall back to defaults and still return a
+// finite score rather than silently propagating NaN through forward-pass arithmetic.
+// TEST-3: ScoreVector() called concurrently with Train() must not observe partially-updated
+// weights and must always return a finite score.
+public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
+{
+    private readonly string _tempDir;
+
+    public NeuralScoringStrategyRobustnessTests()
+    {
+        _tempDir = Path.Combine(Path.GetTempPath(), $"neural_robust_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempDir);
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempDir))
+        {
+            Directory.Delete(_tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TryLoadWeights_NaNInSingleWeight_FallsBackToDefaults()
+    {
+        // Train a strategy to produce a valid weights file, then corrupt one weight with NaN.
+        var weightsPath = Path.Join(_tempDir, "nan_weight.json");
+        var strategy1 = new NeuralScoringStrategy(weightsPath);
+        var rng = new Random(42);
+        var examples = BuildExamples(rng, 20);
+        strategy1.Train(examples);
+
+        var json = File.ReadAllText(weightsPath);
+        // Replace the first numeric weight value with NaN — structurally valid JSON.
+        var corrupted = System.Text.RegularExpressions.Regex.Replace(
+            json, @"""WeightsIH""\s*:\s*\[([^,\]]+)", m =>
+                m.Value.Replace(m.Groups[1].Value, "NaN"),
+            System.Text.RegularExpressions.RegexOptions.None,
+            TimeSpan.FromSeconds(2));
+        File.WriteAllText(weightsPath, corrupted);
+
+        // Load into a fresh strategy — must reject the NaN file and not crash.
+        var strategy2 = new NeuralScoringStrategy(weightsPath);
+        var score = strategy2.Score(new CandidateFeatures { GenreSimilarity = 0.7 });
+
+        Assert.True(double.IsFinite(score), $"Score must be finite after NaN-weight rejection, got {score}");
+        Assert.InRange(score, 0.0, 1.0);
+    }
+
+    [Fact]
+    public async Task ScoreVector_ConcurrentWithTrain_AlwaysReturnsFiniteScore()
+    {
+        var strategy = new NeuralScoringStrategy(null);
+        var rng = new Random(1);
+        var examples = BuildExamples(rng, 40);
+
+        // Prime the strategy with one train pass so ScoreVector has non-default weights.
+        strategy.Train(examples);
+
+        var vector = new double[CandidateFeatures.FeatureCount];
+        for (var i = 0; i < vector.Length; i++)
+        {
+            vector[i] = rng.NextDouble();
+        }
+
+        var scores = new System.Collections.Concurrent.ConcurrentBag<double>();
+        var trainTask = Task.Run(() =>
+        {
+            for (var i = 0; i < 5; i++)
+            {
+                strategy.Train(examples);
+            }
+        });
+
+        var scoreTask = Task.Run(() =>
+        {
+            for (var i = 0; i < 200; i++)
+            {
+                var v = (double[])vector.Clone();
+                scores.Add(strategy.ScoreVector(v));
+            }
+        });
+
+        await Task.WhenAll(trainTask, scoreTask);
+
+        foreach (var s in scores)
+        {
+            Assert.True(double.IsFinite(s), $"ScoreVector returned non-finite value {s} during concurrent Train");
+            Assert.InRange(s, 0.0, 1.0);
+        }
+    }
+
+    private static List<TrainingExample> BuildExamples(Random rng, int count)
+    {
+        var examples = new List<TrainingExample>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var g = rng.NextDouble();
+            examples.Add(new TrainingExample
+            {
+                Features = new CandidateFeatures
+                {
+                    GenreSimilarity = g,
+                    CollaborativeScore = rng.NextDouble(),
+                    CombinedCriticScore = rng.NextDouble(),
+                    RecencyScore = rng.NextDouble(),
+                    YearProximityScore = rng.NextDouble(),
+                    PopularityScore = rng.NextDouble(),
+                    LanguageAffinity = rng.NextDouble(),
+                    LibraryAddedRecency = rng.NextDouble()
+                },
+                Label = g > 0.5 ? 1.0 : 0.0
             });
         }
 

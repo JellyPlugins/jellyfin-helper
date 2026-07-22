@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -8,6 +8,7 @@ using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
@@ -173,7 +174,7 @@ public class HelperCleanupTask : IScheduledTask
                 _pluginLog.LogWarning("HelperCleanup", $"Helper Cleanup was cancelled during {name}.", logger: _logger);
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 succeeded = false;
                 _pluginLog.LogError("HelperCleanup", $"Error executing {name}. Continuing with next task.", ex, _logger);
@@ -221,7 +222,7 @@ public class HelperCleanupTask : IScheduledTask
                 _pluginLog.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during trash purge.", logger: _logger);
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogError("HelperCleanup", "Error during trash purge. Continuing.", ex, _logger);
             }
@@ -240,7 +241,7 @@ public class HelperCleanupTask : IScheduledTask
             _pluginLog.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during post-cleanup statistics scan.", logger: _logger);
             throw;
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning("HelperCleanup", "Failed to run post-cleanup statistics scan.", ex, _logger);
         }
@@ -257,7 +258,7 @@ public class HelperCleanupTask : IScheduledTask
             _pluginLog.LogWarning("HelperCleanup", "Helper Cleanup was cancelled during growth timeline computation.", logger: _logger);
             throw;
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning("HelperCleanup", "Failed to recompute growth timeline.", ex, _logger);
         }

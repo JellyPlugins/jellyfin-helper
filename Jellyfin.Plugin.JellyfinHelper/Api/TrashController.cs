@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Mime;
+using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
@@ -21,7 +22,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Authorize(Policy = "RequiresElevation")]
 [Route("JellyfinHelper/Trash")]
 [Produces(MediaTypeNames.Application.Json)]
-public class TrashController : ControllerBase
+public sealed class TrashController : ControllerBase
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IPluginLogService _pluginLog;
@@ -138,7 +139,7 @@ public class TrashController : ControllerBase
         if (!string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathRooted(config.TrashFolderPath))
         {
             var fullPath = Path.GetFullPath(config.TrashFolderPath);
-            if (!IsPathSafeForDeletion(fullPath, libraryFolders))
+            if (!PathValidator.IsPathSafeForDeletion(fullPath, libraryFolders))
             {
                 _pluginLog.LogWarning("API", $"Refusing to delete unsafe trash path: {fullPath}", logger: _logger);
                 return BadRequest(new { Error = "Configured trash path is unsafe for deletion (filesystem root or library root)." });
@@ -299,12 +300,12 @@ public class TrashController : ControllerBase
         if (Path.IsPathRooted(oldPath) && Path.IsPathRooted(newPath))
         {
             // Both absolute: single relocation
-            if (!IsPathSafeForDeletion(sanitizedOld, libraryFolders))
+            if (!PathValidator.IsPathSafeForDeletion(sanitizedOld, libraryFolders))
             {
                 return BadRequest(new { Error = "Old trash path is unsafe for relocation." });
             }
 
-            if (!IsPathSafeForDeletion(sanitizedNew, libraryFolders))
+            if (!PathValidator.IsPathSafeForDeletion(sanitizedNew, libraryFolders))
             {
                 return BadRequest(new { Error = "New trash path is unsafe for relocation." });
             }
@@ -341,7 +342,7 @@ public class TrashController : ControllerBase
         else if (Path.IsPathRooted(oldPath) && !Path.IsPathRooted(newPath))
         {
             // Old is absolute, new is relative: move from single old to first library's new path
-            if (!IsPathSafeForDeletion(sanitizedOld, libraryFolders))
+            if (!PathValidator.IsPathSafeForDeletion(sanitizedOld, libraryFolders))
             {
                 return BadRequest(new { Error = "Old trash path is unsafe for relocation." });
             }
@@ -365,7 +366,7 @@ public class TrashController : ControllerBase
         else
         {
             // Old is relative, new is absolute: merge all library trash folders into one
-            if (!IsPathSafeForDeletion(sanitizedNew, libraryFolders))
+            if (!PathValidator.IsPathSafeForDeletion(sanitizedNew, libraryFolders))
             {
                 return BadRequest(new { Error = "New trash path is unsafe for relocation." });
             }
@@ -428,46 +429,6 @@ public class TrashController : ControllerBase
         {
             return null;
         }
-    }
-
-    /// <summary>
-    /// Validates that a path is safe for recursive deletion.
-    /// Rejects filesystem roots and paths that match or contain library root folders.
-    /// </summary>
-    private static bool IsPathSafeForDeletion(string fullPath, IReadOnlyList<string> libraryFolders)
-    {
-        var comparison = OperatingSystem.IsWindows()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-
-        // Reject filesystem roots (e.g., "/", "C:\")
-        var root = Path.GetPathRoot(fullPath);
-        var normalizedPath = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var normalizedRoot = root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (string.Equals(normalizedPath, normalizedRoot, comparison))
-        {
-            return false;
-        }
-
-        // Reject if the path equals any library root
-        foreach (var folder in libraryFolders)
-        {
-            var libraryRoot = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var candidate = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-            if (string.Equals(candidate, libraryRoot, comparison))
-            {
-                return false;
-            }
-
-            // Reject if a library root is inside the trash path (would delete library contents)
-            if (libraryRoot.StartsWith(candidate + Path.DirectorySeparatorChar, comparison))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /// <summary>

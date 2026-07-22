@@ -1352,15 +1352,17 @@ public class ConfigurationControllerTests
             ApiKey = "real-secret-key"
         });
 
+        // Name changed but URL unchanged — URL-only fallback must restore the key so the
+        // admin does not have to re-enter it after a rename.
         var request = new ConfigurationUpdateRequest
         {
             RadarrInstances =
             [
                 new ArrInstanceConfig
                 {
-                    Name = "Primary Radarr", // renamed
-                    Url = "http://radarr:7878", // same URL
-                    ApiKey = ConfigurationResponse.ApiKeyMask // sentinel echoed back
+                    Name = "Primary Radarr",
+                    Url = "http://radarr:7878",
+                    ApiKey = ConfigurationResponse.ApiKeyMask
                 }
             ]
         };
@@ -1386,15 +1388,16 @@ public class ConfigurationControllerTests
             ApiKey = "sonarr-secret-key"
         });
 
+        // Same contract as Radarr: URL-only fallback preserves the key after a rename.
         var request = new ConfigurationUpdateRequest
         {
             SonarrInstances =
             [
                 new ArrInstanceConfig
                 {
-                    Name = "Primary Sonarr", // renamed
-                    Url = "http://sonarr:8989", // same URL
-                    ApiKey = ConfigurationResponse.ApiKeyMask // sentinel echoed back
+                    Name = "Primary Sonarr",
+                    Url = "http://sonarr:8989",
+                    ApiKey = ConfigurationResponse.ApiKeyMask
                 }
             ]
         };
@@ -1444,5 +1447,32 @@ public class ConfigurationControllerTests
         Assert.Single(_config.RadarrInstances);
         // No prior instance at http://new:7878, so the sentinel resolves to empty string.
         Assert.Equal(string.Empty, _config.RadarrInstances[0].ApiKey);
+    }
+
+    // TEST-6: Two Radarr instances share the same URL but have different names.
+    // The sentinel must restore each instance's own key — not always the first match.
+    [Fact]
+    public async Task ApplyRequestToConfig_TwoRadarrInstancesSameUrl_SentinelRestoresCorrectKey()
+    {
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Primary",   Url = "http://radarr:7878", ApiKey = "key-primary" });
+        _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Secondary", Url = "http://radarr:7878", ApiKey = "key-secondary" });
+
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig { Name = "Primary",   Url = "http://radarr:7878", ApiKey = ConfigurationResponse.ApiKeyMask },
+                new ArrInstanceConfig { Name = "Secondary", Url = "http://radarr:7878", ApiKey = ConfigurationResponse.ApiKeyMask }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.Equal(2, _config.RadarrInstances.Count);
+        var primary   = _config.RadarrInstances.First(i => i.Name == "Primary");
+        var secondary = _config.RadarrInstances.First(i => i.Name == "Secondary");
+        Assert.Equal("key-primary",   primary.ApiKey);
+        Assert.Equal("key-secondary", secondary.ApiKey);
     }
 }

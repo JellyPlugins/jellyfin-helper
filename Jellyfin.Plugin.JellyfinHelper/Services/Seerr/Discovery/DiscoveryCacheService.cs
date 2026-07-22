@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -268,7 +268,7 @@ public sealed class DiscoveryCacheService : IDisposable
                 ReinsertAtOriginalIndices(recommendations, itemsToRemove);
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 // Rollback: re-insert removed items at their ORIGINAL positions so the
                 // ranking order is preserved. On next restart the disk state (which still
@@ -284,8 +284,15 @@ public sealed class DiscoveryCacheService : IDisposable
                     _logger);
             }
         }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is not OperationCanceledException
+                                       and not OutOfMemoryException
+                                       and not StackOverflowException)
         {
+            // Broad filter matches MarkAsRequestedLocked: EnsureLoadedLocked and JsonSerializer
+            // can surface SecurityException, NotSupportedException, and ArgumentException in
+            // addition to IOException / UnauthorizedAccessException / JsonException. Narrowing
+            // the filter would let those escape unlogged with _memoryCache in an unknown state.
+            // OperationCanceledException is excluded so cancellation propagates to the caller.
             _pluginLog.LogWarning(
                 "DiscoveryCache",
                 $"Could not remove TMDb#{tmdbId} from cache: {ex.Message}",
@@ -434,7 +441,7 @@ public sealed class DiscoveryCacheService : IDisposable
 
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 // Rollback in-memory mutations on ANY persistence failure. AtomicFile.WriteAllText
                 // can surface more than IOException/UnauthorizedAccessException (e.g. SecurityException,
@@ -450,14 +457,9 @@ public sealed class DiscoveryCacheService : IDisposable
                 throw;
             }
         }
-        catch (OperationCanceledException)
-        {
-            // Cancellation must propagate to the caller (honours the CancellationToken contract);
-            // it is NOT a persistence failure and must not be logged-and-swallowed by the broad
-            // catch below. The inner cancellation handler already rolled back the mutation.
-            throw;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (ex is not OperationCanceledException
+                                       and not OutOfMemoryException
+                                       and not StackOverflowException)
         {
             _pluginLog.LogWarning(
                 "DiscoveryCache",
@@ -588,9 +590,11 @@ public sealed class DiscoveryCacheService : IDisposable
                 AtomicFile.WriteAllText(_filePath, json);
 
                 // Update in-memory cache to match persisted state.
-                // Always create a detached copy — never alias the caller's list to prevent
-                // external mutation bypassing _fileLock synchronization.
-                _memoryCache = new List<DiscoveryResult>(results);
+                // Deep-copy every element so a caller that holds a reference to one of the
+                // DiscoveryResult objects it passed in cannot silently mutate the live cache
+                // without going through _fileLock. new List<T>(results) would share element
+                // references, bypassing the same isolation guarantee that Load() enforces.
+                _memoryCache = results.Select(r => r.Clone()).ToList();
 
                 _pluginLog.LogDebug(
                     "DiscoveryCache",
@@ -599,7 +603,18 @@ public sealed class DiscoveryCacheService : IDisposable
 
                 return true;
             }
-            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+
+            // Broader filter than IOException/JsonException/UnauthorizedAccessException because
+            // AtomicFile.WriteAllText can also surface SecurityException, NotSupportedException,
+            // and ArgumentException from the OS path layer. Narrowing the filter here would let
+            // those escape and crash the scheduled task. Mirrors the equivalent filter in
+            // RecommendationCacheService.SaveResults (see the comment there for full rationale).
+            catch (Exception ex) when (ex is IOException
+                                        or JsonException
+                                        or UnauthorizedAccessException
+                                        or System.Security.SecurityException
+                                        or NotSupportedException
+                                        or ArgumentException)
             {
                 _pluginLog.LogWarning(
                     "DiscoveryCache",

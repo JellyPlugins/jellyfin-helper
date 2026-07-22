@@ -97,13 +97,16 @@ public static class BackupSanitizer
             return fallback;
         }
 
-        // Normalize casing
+        // Normalize casing. Every value that reaches this point is guaranteed to be a
+        // case-insensitive member of ValidTaskModes, so the exhaustive arms always match.
+        // The throw arm is intentionally unreachable today; it will surface a compile-time
+        // gap if a new mode is added to ValidTaskModes without updating this switch.
         return value switch
         {
             _ when value.Equals("Activate", StringComparison.OrdinalIgnoreCase) => "Activate",
             _ when value.Equals("DryRun", StringComparison.OrdinalIgnoreCase) => "DryRun",
             _ when value.Equals("Deactivate", StringComparison.OrdinalIgnoreCase) => "Deactivate",
-            _ => fallback
+            _ => throw new InvalidOperationException($"ValidTaskModes contains '{value}' but SanitizeTaskMode has no normalization arm for it.")
         };
     }
 

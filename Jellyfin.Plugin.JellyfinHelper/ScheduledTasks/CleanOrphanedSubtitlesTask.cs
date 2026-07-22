@@ -79,57 +79,49 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
         try
         {
             // Process directories: for each directory, check all subtitle files
-            var allDirs = new List<string> { libraryPath };
-            try
-            {
-                allDirs.AddRange(
-                    FileSystem.GetDirectories(libraryPath, true)
-                        .Select(d => d.FullName));
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {libraryPath}", ex, Logger);
-            }
-
-            // Cache files per directory
-            var fileCache = new Dictionary<string, FileSystemMetadata[]>(StringComparer.OrdinalIgnoreCase);
+            var allDirs = new[] { libraryPath }.Concat(
+                TryGetSubdirectories(libraryPath));
 
             // Hoist trash path computation out of loop – libraryPath is constant per iteration
             var trashFullPath = ConfigHelper.GetTrashPath(libraryPath);
             var normalizedTrash = trashFullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var normalizedTrashSep = normalizedTrash + Path.DirectorySeparatorChar;
+            var normalizedTrashAlt = normalizedTrash + Path.AltDirectorySeparatorChar;
 
-            foreach (var dirPath in from dirPath in allDirs.TakeWhile(_ => !cancellationToken.IsCancellationRequested)
-                                    where !Path.GetFileName(dirPath).EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase)
-                                    let normalizedDir = dirPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                                    where !normalizedDir.Equals(normalizedTrash, StringComparison.OrdinalIgnoreCase)
-                                          && !normalizedDir.StartsWith(
-                                              normalizedTrash + Path.DirectorySeparatorChar,
-                                              StringComparison.OrdinalIgnoreCase)
-                                          && !normalizedDir.StartsWith(
-                                              normalizedTrash + Path.AltDirectorySeparatorChar,
-                                              StringComparison.OrdinalIgnoreCase)
-                                    select dirPath)
+            foreach (var dirPath in allDirs)
             {
-                if (!fileCache.TryGetValue(dirPath, out var files))
+                if (cancellationToken.IsCancellationRequested)
                 {
-                    try
-                    {
-                        files = FileSystem.GetFiles(dirPath).ToArray();
-                        fileCache[dirPath] = files;
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        PluginLog.LogWarning(TaskName, $"Could not list files in: {dirPath}", ex, Logger);
-                        continue;
-                    }
+                    break;
+                }
+
+                // Skip .trickplay folders – handled by CleanTrickplayTask
+                if (Path.GetFileName(dirPath).EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // Skip the trash folder and everything inside it
+                var normalizedDir = dirPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (normalizedDir.Equals(normalizedTrash, StringComparison.OrdinalIgnoreCase)
+                    || normalizedDir.StartsWith(normalizedTrashSep, StringComparison.OrdinalIgnoreCase)
+                    || normalizedDir.StartsWith(normalizedTrashAlt, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                FileSystemMetadata[] files;
+                try
+                {
+                    files = FileSystem.GetFiles(dirPath).ToArray();
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    PluginLog.LogWarning(TaskName, $"Could not list files in: {dirPath}", ex, Logger);
+                    continue;
                 }
 
                 // Get all video base names in this directory
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    return (deletedCount, bytesFreed);
-                }
-
                 var videoBaseNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var file in files)
                 {
@@ -322,5 +314,22 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 
         // subtags.Length == 3: {lang}-{script}-{region}
         return IsScript(subtags[1]) && (IsAlphaRegion(subtags[2]) || IsNumericRegion(subtags[2]));
+    }
+
+    /// <summary>
+    ///     Returns all subdirectories under <paramref name="libraryPath" /> recursively,
+    ///     swallowing access errors so a single unreadable folder does not abort the scan.
+    /// </summary>
+    private IEnumerable<string> TryGetSubdirectories(string libraryPath)
+    {
+        try
+        {
+            return FileSystem.GetDirectories(libraryPath, true).Select(d => d.FullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {libraryPath}", ex, Logger);
+            return [];
+        }
     }
 }

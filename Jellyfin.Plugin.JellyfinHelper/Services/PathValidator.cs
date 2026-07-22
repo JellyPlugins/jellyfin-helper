@@ -49,21 +49,60 @@ internal static class PathValidator
             var fullPath = Path.GetFullPath(path);
             var basePath = Path.GetFullPath(allowedBaseDirectory);
 
-            // Ensure trailing separator for correct prefix matching
-            if (!basePath.EndsWith(Path.DirectorySeparatorChar))
-            {
-                basePath += Path.DirectorySeparatorChar;
-            }
-
             var comparison = OperatingSystem.IsWindows()
                 ? StringComparison.OrdinalIgnoreCase
                 : StringComparison.Ordinal;
-            return fullPath.StartsWith(basePath, comparison);
+
+            // Accept the base directory itself, or anything strictly inside it.
+            var baseWithSep = basePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                              + Path.DirectorySeparatorChar;
+            return fullPath.Equals(basePath, comparison)
+                   || fullPath.StartsWith(baseWithSep, comparison);
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Validates that <paramref name="fullPath"/> is safe for recursive deletion.
+    /// Rejects filesystem roots and paths that equal or contain any library root folder.
+    /// </summary>
+    /// <param name="fullPath">Fully-resolved absolute path to validate.</param>
+    /// <param name="libraryFolders">Library root folders that must not be deleted.</param>
+    /// <returns><c>true</c> if deletion is safe; <c>false</c> otherwise.</returns>
+    internal static bool IsPathSafeForDeletion(string fullPath, IReadOnlyList<string> libraryFolders)
+    {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        var root = Path.GetPathRoot(fullPath);
+        var normalizedPath = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedRoot = root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (string.Equals(normalizedPath, normalizedRoot, comparison))
+        {
+            return false;
+        }
+
+        foreach (var folder in libraryFolders)
+        {
+            var libraryRoot = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var candidate = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            if (string.Equals(candidate, libraryRoot, comparison))
+            {
+                return false;
+            }
+
+            if (libraryRoot.StartsWith(candidate + Path.DirectorySeparatorChar, comparison))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -78,18 +117,14 @@ internal static class PathValidator
             return "export";
         }
 
-        // Replace invalid filename characters in a single pass (except directory separators,
-        // which are needed by Path.GetFileName to strip directory components).
-        // This avoids passing characters like '\0' into Path.GetFileName, which
-        // can behave unexpectedly on some platforms.
-        var name = new string(fileName.Select(ch => InvalidFileNameChars.Contains(ch) ? '_' : ch).ToArray());
+        // Single pass: replace invalid filename characters with '_' and treat '\' as a
+        // directory separator (on Linux '\' is legal but must not appear in a filename).
+        // Directory separators are preserved here so Path.GetFileName can strip them next.
+        var name = new string(fileName.Select(ch =>
+            ch == '\\' ? '/' :
+            InvalidFileNameChars.Contains(ch) ? '_' : ch).ToArray());
 
-        // Normalize backslashes to forward slashes for cross-platform safety.
-        // On Linux, '\' is a valid filename character but could be used in
-        // path traversal attempts - always treat it as a directory separator.
-        name = name.Replace('\\', '/');
-
-        // Strip any directory separators
+        // Strip any directory components left after the pass above.
         name = Path.GetFileName(name);
 
         return string.IsNullOrWhiteSpace(name) ? "export" : name;

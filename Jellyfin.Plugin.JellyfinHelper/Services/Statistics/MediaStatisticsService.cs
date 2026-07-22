@@ -254,7 +254,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                     stats.NfoFileCount++;
                     hasNfo = true;
                 }
-                else if (MediaExtensions.AudioExtensions.Contains(ext))
+                else if (MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
                 {
                     stats.AudioSize += size;
                     stats.AudioFileCount++;

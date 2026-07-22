@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -125,7 +126,7 @@ internal sealed class TrainingService
             {
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning(
                     "Recommendations",

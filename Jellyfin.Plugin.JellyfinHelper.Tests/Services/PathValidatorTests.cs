@@ -92,4 +92,35 @@ public class PathValidatorTests
         var result = PathValidator.SanitizeFileName("subdir\\file.txt");
         Assert.Equal("file.txt", result);
     }
+
+    // TEST-5: IsSafePath(base, base) must return true — the path IS the allowed root.
+    [Fact]
+    public void IsSafePath_PathEqualsBase_ReturnsTrue()
+    {
+        var dir = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        Assert.True(PathValidator.IsSafePath(dir, dir));
+    }
+
+    [Fact]
+    public void IsSafePath_PathInsideBase_ReturnsTrue()
+    {
+        var dir = Path.GetTempPath();
+        var child = Path.Combine(dir, "subdir");
+        Assert.True(PathValidator.IsSafePath(child, dir));
+    }
+
+    [Fact]
+    public void IsSafePath_PathOutsideBase_ReturnsFalse()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "allowed");
+        var outside = Path.Combine(Path.GetTempPath(), "other");
+        Assert.False(PathValidator.IsSafePath(outside, dir));
+    }
+
+    [Fact]
+    public void IsSafePath_TraversalInPath_ReturnsFalse()
+    {
+        var dir = Path.GetTempPath();
+        Assert.False(PathValidator.IsSafePath(Path.Combine(dir, "..", "escape"), dir));
+    }
 }

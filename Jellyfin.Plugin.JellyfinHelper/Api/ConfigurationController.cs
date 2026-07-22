@@ -501,11 +501,11 @@ public class ConfigurationController : ControllerBase
         {
             var instance = radarrRequestList[i];
             // Sentinel "***" means the UI echoed back the masked placeholder without
-            // changing the field. Restore the key for the matching Name+Url pair;
-            // fall back to empty string when no prior entry matches.
+            // changing the field. Try Name+URL first (exact match, handles same-URL collision),
+            // then fall back to URL-only (handles rename — admin keeps key without re-entering).
             var apiKey = string.Equals(instance.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
-                ? previousRadarrInstances
-                    .FirstOrDefault(p => p.Url == instance.Url)?.ApiKey
+                ? (previousRadarrInstances.FirstOrDefault(p => p.Url == instance.Url && p.Name == instance.Name)
+                   ?? previousRadarrInstances.FirstOrDefault(p => p.Url == instance.Url))?.ApiKey
                     ?? string.Empty
                 : instance.ApiKey ?? string.Empty;
             config.RadarrInstances.Add(new ArrInstanceConfig
@@ -525,8 +525,8 @@ public class ConfigurationController : ControllerBase
         {
             var instance = sonarrRequestList[i];
             var apiKey = string.Equals(instance.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
-                ? previousSonarrInstances
-                    .FirstOrDefault(p => p.Url == instance.Url)?.ApiKey
+                ? (previousSonarrInstances.FirstOrDefault(p => p.Url == instance.Url && p.Name == instance.Name)
+                   ?? previousSonarrInstances.FirstOrDefault(p => p.Url == instance.Url))?.ApiKey
                     ?? string.Empty
                 : instance.ApiKey ?? string.Empty;
             config.SonarrInstances.Add(new ArrInstanceConfig

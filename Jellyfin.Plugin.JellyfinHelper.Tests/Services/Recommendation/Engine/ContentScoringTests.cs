@@ -23,7 +23,7 @@ public sealed class ContentScoringGlobalStateCollection
 /// <summary>
 ///     Tests for <see cref="ContentScoring"/> static helper methods.
 ///     <para>
-///         Roadmap v3 (C3): the previously-tested
+///         The previously-tested
 ///         <c>TrainingDataBuilder.ComputeCollectionProgressionBoostFromCache</c> legacy method
 ///         was removed because it was dead code — only reflection-based tests referenced it and
 ///         its 0.0/0.3/0.5 flat heuristic had already been superseded by the diminishing-returns

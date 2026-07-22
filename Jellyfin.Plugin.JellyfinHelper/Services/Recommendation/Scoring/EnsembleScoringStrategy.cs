@@ -1105,6 +1105,18 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             return;
         }
 
+        // Guard against corrupted/replaced oversized files before reading into memory.
+        // Ensemble state JSON is small (~50 KB with history); a 10 MB ceiling gives ample headroom.
+        const long MaxStateFileSizeBytes = 10 * 1024 * 1024;
+        if (new FileInfo(_statePath).Length > MaxStateFileSizeBytes)
+        {
+            _logger?.LogWarning(
+                "EnsembleScoringStrategy: State file exceeds {LimitMB}MB ({Path}). Skipping load.",
+                MaxStateFileSizeBytes / (1024 * 1024),
+                _statePath);
+            return;
+        }
+
         try
         {
             var json = File.ReadAllText(_statePath);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
@@ -67,6 +68,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     Family/Kids/Animation content from discovery queries.
     /// </summary>
     private const int ChildAccountMaxParentalRating = 60;
+
+    /// <summary>TMDb genre ID for Family content (movies and TV).</summary>
+    private const int TmdbGenreFamily = 10751;
+
+    /// <summary>TMDb genre ID for Animation (movies).</summary>
+    private const int TmdbGenreAnimation = 16;
+
+    /// <summary>TMDb genre ID for Kids TV.</summary>
+    private const int TmdbGenreTvKids = 10762;
 
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
 
@@ -211,7 +221,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning(
                     "SeerrDiscovery",
@@ -249,7 +259,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     {
                         _feedbackStore.RecordShown(result.UserId, result.UserName, result.Recommendations);
                     }
-                    catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+                    catch (Exception ex) when (!ex.IsFatal())
                     {
                         _pluginLog.LogDebug(
                             "SeerrDiscovery",
@@ -724,7 +734,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             throw;
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning(
                 "SeerrDiscovery",
@@ -1092,34 +1102,34 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             {
                 if (isChildAccount)
                 {
-                    // For child accounts: query Family (10751) genre for movies, Kids (10762) for TV
+                    // For child accounts: query Family genre for movies, Kids for TV
                     var familyItems = await ExecuteDiscoverQueryAsync(
-                        client, "api/v1/discover/movies/genre/10751?page=1", cancellationToken).ConfigureAwait(false);
+                        client, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=1", cancellationToken).ConfigureAwait(false);
                     allCandidates.AddRange(familyItems);
 
                     var familyItems2 = await ExecuteDiscoverQueryAsync(
-                        client, "api/v1/discover/movies/genre/10751?page=2", cancellationToken).ConfigureAwait(false);
+                        client, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=2", cancellationToken).ConfigureAwait(false);
                     allCandidates.AddRange(familyItems2);
 
                     // Animation + Family for movies (children's animation)
                     var animItems = await ExecuteDiscoverQueryAsync(
-                        client, "api/v1/discover/movies/genre/16?page=1", cancellationToken).ConfigureAwait(false);
+                        client, $"api/v1/discover/movies/genre/{TmdbGenreAnimation}?page=1", cancellationToken).ConfigureAwait(false);
                     allCandidates.AddRange(animItems);
 
                     // Kids TV genre
                     var kidsItems = await ExecuteDiscoverQueryAsync(
-                        client, "api/v1/discover/tv/genre/10762?page=1", cancellationToken).ConfigureAwait(false);
+                        client, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=1", cancellationToken).ConfigureAwait(false);
                     StampMediaType(kidsItems, "tv");
                     allCandidates.AddRange(kidsItems);
 
                     var kidsItems2 = await ExecuteDiscoverQueryAsync(
-                        client, "api/v1/discover/tv/genre/10762?page=2", cancellationToken).ConfigureAwait(false);
+                        client, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=2", cancellationToken).ConfigureAwait(false);
                     StampMediaType(kidsItems2, "tv");
                     allCandidates.AddRange(kidsItems2);
 
                     // Family TV genre
                     var familyTvItems = await ExecuteDiscoverQueryAsync(
-                        client, "api/v1/discover/tv/genre/10751?page=1", cancellationToken).ConfigureAwait(false);
+                        client, $"api/v1/discover/tv/genre/{TmdbGenreFamily}?page=1", cancellationToken).ConfigureAwait(false);
                     StampMediaType(familyTvItems, "tv");
                     allCandidates.AddRange(familyTvItems);
                 }
@@ -1189,7 +1199,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     userExcluded.UnionWith(requested);
                 }
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogDebug(
                     "SeerrDiscovery",
@@ -1352,7 +1362,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             // no point sleeping when the entire operation is being torn down.
             if (!cancellationToken.IsCancellationRequested)
             {
-                await Task.Delay(InterQueryDelay, CancellationToken.None).ConfigureAwait(false);
+                await Task.Delay(InterQueryDelay, cancellationToken).ConfigureAwait(false);
             }
         }
     }
@@ -1660,7 +1670,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 // no point sleeping when the entire operation is being torn down.
                 if (!cancellationToken.IsCancellationRequested)
                 {
-                    await Task.Delay(InterQueryDelay, CancellationToken.None).ConfigureAwait(false);
+                    await Task.Delay(InterQueryDelay, cancellationToken).ConfigureAwait(false);
                 }
             }
         }

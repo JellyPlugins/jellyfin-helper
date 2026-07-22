@@ -167,7 +167,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   └── TrashServiceInternalHelpersTests.cs # TruncateToSize / MeasureString / ExtractOriginalName / TryParseTrashTimestamp edge cases
 │   ├── Common/                    # Shared cross-service helper tests
 │   │   ├── AtomicFileTests.cs             # UTF-8 no-BOM, temp-file cleanup, transient-IO retry, async CancellationToken
-│   │   └── BatchFallbackHelperTests.cs    # try-batch/fall-back: cancellation propagates, non-fatal exceptions degrade gracefully
+│   │   ├── BatchFallbackHelperTests.cs    # try-batch/fall-back: cancellation propagates, non-fatal exceptions degrade gracefully
+│   │   └── ExceptionExtensionsTests.cs    # IsFatal: OOM + StackOverflow → true; all other exception types → false
 │   ├── ConfigAccess/              # Configuration access tests
 │   ├── FileTransformation/        # File Transformation plugin integration tests
 │   │   ├── DiscoveryScriptTagTests.cs      # Build() well-formed HTML, RemovalRegex round-trips, must not eat unrelated script tags
@@ -323,7 +324,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   └── BackupSanitizer.cs         # Clamp/normalize values
 │   ├── Common/                      # Shared cross-service helpers
 │   │   ├── AtomicFile.cs            # Atomic text-file write (temp+move) with bounded retry on transient AV/indexer sharing violations
-│   │   └── BatchFallbackHelper.cs   # try-batch/fall-back-per-item wrapper (Jellyfin 12+ batch APIs)
+│   │   ├── BatchFallbackHelper.cs   # try-batch/fall-back-per-item wrapper (Jellyfin 12+ batch APIs)
+│   │   └── ExceptionExtensions.cs   # IsFatal() catch-filter: OOM + StackOverflow must never be swallowed
 │   ├── FolderBrowser/               # Server-side folder browsing
 │   │   ├── IFolderBrowserService.cs # Interface for folder listing
 │   │   ├── FolderBrowserService.cs  # Implementation: lists directories with safety guards

@@ -189,12 +189,12 @@ public class TrashServiceTests : IDisposable
     // ===== Extended PurgeExpiredTrash Tests (Retention Logic) =====
 
     [Fact]
-    public void PurgeExpiredTrash_RetentionDaysZero_PurgesEverything()
+    public void PurgeExpiredTrash_RetentionDaysZero_IsDisabled_NothingPurged()
     {
         var trashPath = Path.Join(_testRoot, "trash");
 
-        // RetentionDays = 0 means cutoff = Now, so everything with timestamp < Now is purged.
-        // Item 1 second before Now → gets purged.
+        // RetentionDays = 0 means the auto-purge feature is disabled entirely.
+        // Items are never purged regardless of their age.
         var oldTimestamp = Now.AddSeconds(-1).ToString(TimestampFormat, CultureInfo.InvariantCulture);
         var oldDir = Path.Join(trashPath, $"{oldTimestamp}_OldMovie");
         Directory.CreateDirectory(oldDir);
@@ -202,9 +202,9 @@ public class TrashServiceTests : IDisposable
 
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 0, _loggerMock, Now);
 
-        Assert.Equal(1, itemsPurged);
-        Assert.Equal(300, bytesFreed);
-        Assert.False(Directory.Exists(oldDir));
+        Assert.Equal(0, itemsPurged);
+        Assert.Equal(0, bytesFreed);
+        Assert.True(Directory.Exists(oldDir), "RetentionDays=0 disables auto-purge; item must still exist");
     }
 
     [Fact]

@@ -60,9 +60,9 @@ public class MediaExtensionsTests
     [InlineData(".flac")]
     [InlineData(".opus")]
     [InlineData(".m4a")]
-    public void AudioExtensions_ContainsKnownFormats(string ext)
+    public void AudioExtensionToCodec_ContainsKnownFormats(string ext)
     {
-        Assert.Contains(ext, MediaExtensions.AudioExtensions);
+        Assert.True(MediaExtensions.AudioExtensionToCodec.ContainsKey(ext));
     }
 
     [Theory]

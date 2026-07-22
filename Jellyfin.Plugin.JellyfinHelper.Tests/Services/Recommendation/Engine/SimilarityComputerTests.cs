@@ -357,7 +357,7 @@ public sealed class SimilarityComputerTests
         library.Verify(l => l.GetPeople(It.IsAny<BaseItem>()), Times.Never);
     }
 
-    // === Roadmap v3 (C2): weighted ComputePeopleSimilarity overload ===
+    // Weighted ComputePeopleSimilarity overload ===
     // These tests exercise the weighted-budget denominator introduced in the C2 hardening
     // pass: matched-weight / max(|candidate| × avg(preferredWeight), MinDenominatorFloor).
     // See SimilarityComputer.WeightedPeopleSimilarityMinDenominator for the floor rationale.
@@ -402,7 +402,7 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void ComputePeopleSimilarityWeighted_HeavyCollaboratorMatch_OutscoresRareCameo()
     {
-        // Core roadmap v3 (C2) contract: a candidate featuring the user's dominant collaborator
+        // A candidate featuring the user's dominant collaborator
         // (weight 8) must score STRICTLY higher than a candidate featuring only a rare cameo
         // person (weight 1). The unweighted overlap coefficient would treat both as identical.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)

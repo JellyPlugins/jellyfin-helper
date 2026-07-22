@@ -179,7 +179,7 @@ internal static class PreferenceBuilder
             }
 
             // PlayCount boost: re-watched items signal stronger preference.
-            // Roadmap v3 (C1) with hardening pass: switched from linear
+            // With hardening pass: switched from linear
             // (min(PlayCount,5) × 0.2, capped at 1.0) to log1p so that a 30×-rewatched
             // item does not linearly dominate the genre vector, then raised the ceiling
             // to 2.0 so the signal survives the +3.0 favorite additive further below.
@@ -585,7 +585,7 @@ internal static class PreferenceBuilder
     ///     they appear on, i.e. an "Actor X" that shows up in 8 different Nolan films gets weight 8, while
     ///     an actor from a single one-off watch gets weight 1.
     ///     <para>
-    ///         Roadmap v3 (C2): the previous <see cref="BuildPeoplePreferenceSet"/> flattens all people
+    ///         The previous <see cref="BuildPeoplePreferenceSet"/> flattens all people
     ///         into a HashSet, giving a one-off appearance the same influence as a director the user
     ///         has watched dozens of times. This weighted variant preserves the frequency signal so
     ///         <see cref="SimilarityComputer.ComputePeopleSimilarity(System.Collections.Generic.HashSet{string},System.Collections.Generic.IReadOnlyDictionary{string,double})"/>

@@ -1367,14 +1367,14 @@ public class MediaStatisticsServiceTests
     // ===== MediaExtensions Codec Mapping Tests =====
 
     [Fact]
-    public void MediaExtensions_AudioExtensionToCodec_ContainsAllAudioExtensions()
+    public void MediaExtensions_AudioExtensionToCodec_KeysAreLowercaseDotPrefixed()
     {
-        // Every audio extension should have a codec mapping
-        foreach (var ext in MediaExtensions.AudioExtensions)
+        // All keys must be dot-prefixed lowercase strings (e.g. ".mp3") so
+        // case-insensitive lookups using Path.GetExtension() always match.
+        foreach (var key in MediaExtensions.AudioExtensionToCodec.Keys)
         {
-            Assert.True(
-                MediaExtensions.AudioExtensionToCodec.ContainsKey(ext),
-                $"Audio extension '{ext}' has no codec mapping in AudioExtensionToCodec");
+            Assert.True(key.StartsWith('.'), $"Key '{key}' is missing leading dot");
+            Assert.True(key == key.ToLowerInvariant(), $"Key '{key}' is not lowercase");
         }
     }
 

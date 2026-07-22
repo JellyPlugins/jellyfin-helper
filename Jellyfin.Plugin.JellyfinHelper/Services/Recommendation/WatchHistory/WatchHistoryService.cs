@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -80,7 +80,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             {
                 profiles.Add(BuildProfile(user, allItems, allSeries));
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning(
                     "WatchHistory",
@@ -371,7 +371,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 // Same contract as BatchFallbackHelper enforces for the batch call sites above.
                 throw;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 // Graceful: skip items where stream lookup fails (e.g. corrupted metadata)
                 continue;
@@ -605,7 +605,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             // any cooperative cancellation the caller relies on.
             throw;
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             // Graceful: skip items where people lookup fails
             return;

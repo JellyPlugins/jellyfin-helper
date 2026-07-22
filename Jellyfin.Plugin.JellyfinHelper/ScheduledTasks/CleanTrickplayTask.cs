@@ -60,15 +60,14 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
     {
         var deletedCount = 0;
         long bytesFreed = 0;
-        var config = ConfigHelper.GetConfig();
 
         try
         {
-            // Get all directories recursively
-            List<FileSystemMetadata> directories;
+            // Get all directories recursively (lazy — avoids materialising the full tree up front)
+            IEnumerable<FileSystemMetadata> directories;
             try
             {
-                directories = FileSystem.GetDirectories(libraryPath, true).ToList();
+                directories = FileSystem.GetDirectories(libraryPath, true);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -95,10 +94,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 // Normalize dir.FullName the same way to ensure consistent comparison on all platforms.
                 var normalizedDirPath = Path.GetFullPath(dir.FullName)
                     .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (normalizedDirPath.StartsWith(normalizedTrash, StringComparison.OrdinalIgnoreCase)
-                    || normalizedDirPath.Equals(
-                        normalizedTrash.TrimEnd(Path.DirectorySeparatorChar),
-                        StringComparison.OrdinalIgnoreCase))
+                if (normalizedDirPath.StartsWith(normalizedTrash, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -153,7 +149,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 {
                     PluginLog.LogDebug(
                         TaskName,
-                        $"Skipping too-new orphan (min age {config.OrphanMinAgeDays}d): {dir.FullName}",
+                        $"Skipping too-new orphan (min age {ConfigHelper.GetConfig().OrphanMinAgeDays}d): {dir.FullName}",
                         Logger);
                     continue;
                 }
@@ -166,7 +162,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                         Logger);
                     deletedCount++;
                 }
-                else if (config.UseTrash)
+                else if (ConfigHelper.GetConfig().UseTrash)
                 {
                     PluginLog.LogInfo(TaskName, $"Moving orphaned trickplay folder to trash: {dir.FullName}", Logger);
                     var size = TrashService.MoveToTrash(dir.FullName, trashPath, Logger);

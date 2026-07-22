@@ -743,6 +743,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Computes the weighted training loss across all examples (used when no validation split).
+    ///     Iterates directly by index to avoid allocating a scratch index array.
     /// </summary>
     private static double ComputeTrainingLoss(
         IReadOnlyList<TrainingExample> examples,
@@ -751,13 +752,19 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         double[] weights,
         double bias)
     {
-        var allIndices = new int[examples.Count];
-        for (var i = 0; i < allIndices.Length; i++)
+        var totalLoss = 0.0;
+        var totalWeight = 0.0;
+
+        for (var idx = 0; idx < examples.Count; idx++)
         {
-            allIndices[i] = i;
+            var predicted = Math.Clamp(ScoringHelper.ComputeRawScore(precomputedVectors[idx], weights, bias), 0.0, 1.0);
+            var error = predicted - examples[idx].Label;
+            var w = effectiveWeights[idx];
+            totalLoss += w * error * error;
+            totalWeight += w;
         }
 
-        return ComputeMseLoss(examples, precomputedVectors, effectiveWeights, allIndices, weights, bias);
+        return totalWeight > 0 ? totalLoss / totalWeight : 0.0;
     }
 
     /// <summary>
@@ -818,6 +825,18 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
     {
         if (string.IsNullOrEmpty(_weightsPath) || !File.Exists(_weightsPath))
         {
+            return;
+        }
+
+        // Guard against corrupted/replaced oversized files before reading into memory.
+        // Linear weights JSON is tiny (~10 KB); a 5 MB ceiling gives ample headroom.
+        const long MaxWeightsFileSizeBytes = 5 * 1024 * 1024;
+        if (new FileInfo(_weightsPath).Length > MaxWeightsFileSizeBytes)
+        {
+            _logger?.LogWarning(
+                "LearnedScoringStrategy: Weights file exceeds {LimitMB}MB ({Path}). Skipping load.",
+                MaxWeightsFileSizeBytes / (1024 * 1024),
+                _weightsPath);
             return;
         }
 

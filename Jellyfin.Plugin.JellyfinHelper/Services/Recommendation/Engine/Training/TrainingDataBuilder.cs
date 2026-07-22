@@ -184,7 +184,15 @@ internal static class TrainingDataBuilder
         {
             var gp = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
             var co = CollaborativeFilter.BuildCollaborativeMap(profile, allProfiles, precomputedUserSets);
-            var cm = co.Count > 0 ? co.Values.Max() : 0;
+            var cm = 0.0;
+            foreach (var v in co.Values)
+            {
+                if (double.IsFinite(v) && v > cm)
+                {
+                    cm = v;
+                }
+            }
+
             var ay = ContentScoring.ComputeAverageYear(profile);
             var ge = PreferenceBuilder.BuildGenreExposureAnalysis(gp, profile);
             var pw = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, cachedPeopleLookup, seriesEpisodeCounts);
@@ -550,37 +558,36 @@ internal static class TrainingDataBuilder
                 recommendedItemIds = [];
             }
 
-            // Build series episode lookup for series progression boost
+            // Build series episode lookup, seriesWithOrgEpisodes set, and watched-id sets
+            // in a single pass over WatchedItems to avoid four separate iterations.
             var seriesEpisodeLookupOrganic = new Dictionary<Guid, List<WatchedItemInfo>>();
+            var seriesWithOrgEpisodes = new HashSet<Guid>();
+            var watchedItemIds = new HashSet<Guid>();
+            var watchedSeriesIds = new HashSet<Guid>();
+
             foreach (var ep in userProfile.WatchedItems)
             {
-                if (!ep.SeriesId.HasValue)
+                watchedItemIds.Add(ep.ItemId);
+
+                if (ep.SeriesId.HasValue)
                 {
-                    continue;
+                    watchedSeriesIds.Add(ep.SeriesId.Value);
+
+                    if (!seriesEpisodeLookupOrganic.TryGetValue(ep.SeriesId.Value, out var epList))
+                    {
+                        epList = [];
+                        seriesEpisodeLookupOrganic[ep.SeriesId.Value] = epList;
+                    }
+
+                    epList.Add(ep);
+
+                    if (ep.HasMeaningfulInteraction()
+                        && !recommendedItemIds.Contains(ep.ItemId)
+                        && !recommendedItemIds.Contains(ep.SeriesId.Value))
+                    {
+                        seriesWithOrgEpisodes.Add(ep.SeriesId.Value);
+                    }
                 }
-
-                if (!seriesEpisodeLookupOrganic.TryGetValue(ep.SeriesId.Value, out var epList))
-                {
-                    epList = [];
-                    seriesEpisodeLookupOrganic[ep.SeriesId.Value] = epList;
-                }
-
-                epList.Add(ep);
-            }
-
-            // Pre-compute which series have organic episode rows available.
-            // This prevents standalone series-type rows from winning the aggregatedSeriesIds
-            // race when they appear before episode rows in the iteration. If episode data
-            // exists, the episode-based aggregation path should always be preferred because
-            // it produces richer training signals (per-episode completion, temporal features).
-            var seriesWithOrgEpisodes = new HashSet<Guid>();
-            foreach (var candidate in userProfile.WatchedItems.Where(candidate =>
-                         candidate.SeriesId.HasValue
-                         && candidate.HasMeaningfulInteraction()
-                         && !recommendedItemIds.Contains(candidate.ItemId)
-                         && !recommendedItemIds.Contains(candidate.SeriesId.Value)))
-            {
-                seriesWithOrgEpisodes.Add(candidate.SeriesId!.Value);
             }
 
             // === Series aggregation: collapse episodes into one example per series ===
@@ -595,12 +602,7 @@ internal static class TrainingDataBuilder
             // hardcoded 0.0 that would create a train/serve skew (the live scoring path always
             // computes the real boost via Engine.ComputeCollectionProgressionBoostLive).
             var watchedBoxSetCountsOrganic = new Dictionary<Guid, int>();
-            foreach (var watchedId in BuildWatchedIdSet(
-                         userProfile.WatchedItems.Select(w => w.ItemId).ToHashSet(),
-                         userProfile.WatchedItems
-                             .Where(w => w.SeriesId.HasValue)
-                             .Select(w => w.SeriesId!.Value)
-                             .ToHashSet()))
+            foreach (var watchedId in BuildWatchedIdSet(watchedItemIds, watchedSeriesIds))
             {
                 if (!itemBoxSetIdsLookup.TryGetValue(watchedId, out var orgBoxSetIds))
                 {

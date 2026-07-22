@@ -316,9 +316,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     {
         get
         {
-            lock (_syncRoot)
+            _rwLock.EnterReadLock();
+            try
             {
                 return (double[])_weightsIH.Clone();
+            }
+            finally
+            {
+                ReleaseReadLockSafely();
             }
         }
     }
@@ -328,9 +333,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     {
         get
         {
-            lock (_syncRoot)
+            _rwLock.EnterReadLock();
+            try
             {
                 return (double[])_weightsH4O.Clone();
+            }
+            finally
+            {
+                ReleaseReadLockSafely();
             }
         }
     }
@@ -340,9 +350,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     {
         get
         {
-            lock (_syncRoot)
+            _rwLock.EnterReadLock();
+            try
             {
                 return (double[])_weightsH1H2.Clone();
+            }
+            finally
+            {
+                ReleaseReadLockSafely();
             }
         }
     }
@@ -352,9 +367,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     {
         get
         {
-            lock (_syncRoot)
+            _rwLock.EnterReadLock();
+            try
             {
                 return (double[])_weightsH2H3.Clone();
+            }
+            finally
+            {
+                ReleaseReadLockSafely();
             }
         }
     }
@@ -364,9 +384,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     {
         get
         {
-            lock (_syncRoot)
+            _rwLock.EnterReadLock();
+            try
             {
                 return (double[])_weightsH3H4.Clone();
+            }
+            finally
+            {
+                ReleaseReadLockSafely();
             }
         }
     }
@@ -648,6 +673,16 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 attr[(int)FeatureIndex.SeriesProgressionBoost] +
                 attr[(int)FeatureIndex.PopularityScore] +
                 attr[(int)FeatureIndex.DayOfWeekAffinity] +
+                attr[(int)FeatureIndex.HourOfDayAffinity] +
+                attr[(int)FeatureIndex.IsWeekend] +
+                attr[(int)FeatureIndex.TagSimilarity] +
+                attr[(int)FeatureIndex.PeopleGenreInteraction] +
+                attr[(int)FeatureIndex.RecencyCriticInteraction] +
+                attr[(int)FeatureIndex.GenreUnderexposure] +
+                attr[(int)FeatureIndex.GenreDominanceRatio] +
+                attr[(int)FeatureIndex.GenreAffinityGap] +
+                attr[(int)FeatureIndex.LibraryAddedRecency] +
+                attr[(int)FeatureIndex.ContentNearestNeighborScore] +
                 attr[(int)FeatureIndex.LanguageAffinity] +
                 attr[(int)FeatureIndex.CollectionProgressionBoost] +
                 attr[(int)FeatureIndex.SubtitleLanguageAffinity];
@@ -1195,8 +1230,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
             _featureMeans = featureMeans;
             _featureStdDevs = featureStdDevs;
-
-            LogFeatureImportance(inputSize);
         }
         finally
         {
@@ -1205,6 +1238,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _rwLock.ExitWriteLock();
             }
         }
+
+        LogFeatureImportance(inputSize);
 
         // Persist weights outside the write lock so concurrent Score() calls are not blocked
         // by disk I/O. TrySaveWeights() reads the weight fields without a lock; this is safe
@@ -1720,6 +1755,18 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     {
         if (string.IsNullOrEmpty(_weightsPath) || !File.Exists(_weightsPath))
         {
+            return;
+        }
+
+        // Guard against corrupted/replaced oversized files before reading into memory.
+        // Neural weights JSON is ~120 KB; a 10 MB ceiling gives ample headroom.
+        const long MaxWeightsFileSizeBytes = 10 * 1024 * 1024;
+        if (new FileInfo(_weightsPath).Length > MaxWeightsFileSizeBytes)
+        {
+            _logger?.LogWarning(
+                "NeuralScoringStrategy: Weights file exceeds {LimitMB}MB ({Path}). Skipping load.",
+                MaxWeightsFileSizeBytes / (1024 * 1024),
+                _weightsPath);
             return;
         }
 

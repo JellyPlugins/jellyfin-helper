@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -64,7 +64,7 @@ internal static class BatchFallbackHelper
             // OCE so the caller's cancellation token contract is preserved.
             throw agg.Flatten().InnerExceptions.OfType<OperationCanceledException>().First();
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             // The whole reason this helper exists is that callers always get fallbackValue
             // back on non-cancellation failures. If onFailure itself throws (e.g. a
@@ -85,8 +85,7 @@ internal static class BatchFallbackHelper
                 // the cancellation contract by unwrapping and rethrowing the inner OCE.
                 throw agg.Flatten().InnerExceptions.OfType<OperationCanceledException>().First();
             }
-            catch (Exception callbackEx) when (callbackEx is not OutOfMemoryException
-                                                and not StackOverflowException)
+            catch (Exception callbackEx) when (!callbackEx.IsFatal())
             {
                 // Intentionally swallowed. There's nothing sensible we can do with an
                 // exception thrown by the diagnostic callback itself.

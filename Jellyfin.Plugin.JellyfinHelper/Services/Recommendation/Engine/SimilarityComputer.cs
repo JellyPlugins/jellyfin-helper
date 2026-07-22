@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Jellyfin.Data.Enums;
@@ -193,7 +193,7 @@ internal sealed class SimilarityComputer
             {
                 throw; // Do not swallow cancellation - propagate to caller
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 // Graceful fallback: skip this candidate's people data rather than failing the entire lookup.
                 // Some item types or corrupted metadata may cause GetPeople to throw.

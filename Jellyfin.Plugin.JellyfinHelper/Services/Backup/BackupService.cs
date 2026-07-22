@@ -19,7 +19,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 ///     Validation is provided by <see cref="BackupValidator" /> and
 ///     sanitization by <see cref="BackupSanitizer" />.
 /// </summary>
-public class BackupService : IBackupService
+public sealed class BackupService : IBackupService
 {
     /// <summary>
     ///     Maximum allowed size of a backup JSON payload in bytes (10 MB).
@@ -89,7 +89,7 @@ public class BackupService : IBackupService
         var config = _configService.GetConfiguration();
         var backup = new BackupData
         {
-            BackupVersion = 1,
+            BackupVersion = BackupValidator.CurrentBackupVersion,
             CreatedAt = DateTime.UtcNow,
             PluginVersion = _configService.PluginVersion,
 

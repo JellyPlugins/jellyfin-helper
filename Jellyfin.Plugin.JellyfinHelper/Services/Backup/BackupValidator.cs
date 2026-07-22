@@ -20,6 +20,11 @@ public static class BackupValidator
     private const int MaxBackupVersion = 1;
 
     /// <summary>
+    ///     The backup version written by this build of the plugin.
+    /// </summary>
+    internal const int CurrentBackupVersion = 1;
+
+    /// <summary>
     ///     Maximum number of growth timeline data points allowed in a backup.
     /// </summary>
     internal const int MaxTimelineDataPoints = 5000;

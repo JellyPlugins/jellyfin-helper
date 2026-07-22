@@ -1,10 +1,11 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Mime;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -448,7 +449,7 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             // Best-effort cache update — log but do not fail the request.
             _logger.LogWarning(ex, "[Discovery] Failed to mark item {TmdbId}/{MediaType} as requested in cache for user {UserId}", dto.TmdbId, mediaType, currentJellyfinUserId);
@@ -458,7 +459,7 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             _feedbackStore.RecordRequested(currentJellyfinUserId, dto.TmdbId, mediaType);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _logger.LogWarning(ex, "[Discovery] Failed to record requested item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, mediaType, currentJellyfinUserId);
         }
@@ -510,7 +511,7 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             _feedbackStore.RecordDismissed(currentUserId, dto.TmdbId, mediaType);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _logger.LogWarning(ex, "[Discovery] Failed to record dismissed item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, mediaType, currentUserId);
         }
@@ -591,7 +592,7 @@ public sealed class UserDiscoveryController : ControllerBase
                 excluded.Add(item);
             }
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _logger.LogWarning(ex, "[Discovery] Failed to load excluded item keys for user {UserId}", userId);
         }

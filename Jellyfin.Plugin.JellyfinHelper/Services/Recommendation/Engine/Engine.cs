@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -24,7 +24,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 /// <summary>
 ///     Recommendation engine orchestrator. Delegates to specialized components.
 /// </summary>
-public sealed class Engine : IRecommendationEngine
+public sealed class Engine : IRecommendationEngine, IDisposable
 {
     // File name for the persisted batch-generation counter. Sits in the plugin data folder.
     private const string BatchGenerationFileName = "jellyfin-helper-batch-generation.txt";
@@ -439,7 +439,7 @@ public sealed class Engine : IRecommendationEngine
                 {
                     throw;
                 }
-                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+                catch (Exception ex) when (!ex.IsFatal())
                 {
                     _pluginLog.LogWarning(
                         "Recommendations",
@@ -1093,14 +1093,13 @@ public sealed class Engine : IRecommendationEngine
         var userRatingScore = ContentScoring.ComputeUserRatingScore(watchedItem);
         var completionRatio = hasUserInteraction ? ContentScoring.ComputeCompletionRatio(watchedItem) : 0.5;
 
-        var studioMatch = candidate.Studios is { Length: > 0 } &&
-                          candidate.Studios.Any(s => preferredStudios.Contains(s));
-
-        // Pre-build candidate genre/studio sets once; reused for ContentNearestNeighborScore below.
+        // Pre-build candidate genre/studio sets once; reused for studioMatch and ContentNearestNeighborScore.
         var candidateGenreSet = new HashSet<string>(candidate.Genres ?? [], StringComparer.OrdinalIgnoreCase);
         var candidateStudioSet = candidate.Studios is { Length: > 0 }
             ? new HashSet<string>(candidate.Studios, StringComparer.OrdinalIgnoreCase)
             : null;
+
+        var studioMatch = candidateStudioSet is not null && candidateStudioSet.Any(preferredStudios.Contains);
 
         // Roadmap v3 (C2): use the weighted overload so a candidate carrying the user's
         // heavy-hitter collaborators (e.g. a director the user has watched 8 times) drives
@@ -1319,7 +1318,7 @@ public sealed class Engine : IRecommendationEngine
 
             return (audioLanguages, subtitleLanguages);
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             return ([], []); // Graceful: no stream data available
         }
@@ -1357,7 +1356,7 @@ public sealed class Engine : IRecommendationEngine
 
             return boxSetIds;
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             return []; // Graceful fallback
         }
@@ -1618,6 +1617,20 @@ public sealed class Engine : IRecommendationEngine
     }
 
     /// <summary>
+    ///     Test seam: invokes <see cref="TryPublishSnapshot"/> with a minimal snapshot carrying
+    ///     only <paramref name="publicationSequence"/>. Lets unit tests exercise the publish-ordering
+    ///     contract without needing to construct a full <see cref="CandidateSnapshot"/>.
+    /// </summary>
+    /// <param name="publicationSequence">The sequence number to publish.</param>
+    /// <returns><c>true</c> if the snapshot was published; <c>false</c> if a newer one was already present.</returns>
+    internal bool TryPublishSnapshotForTest(long publicationSequence)
+    {
+        var snapshot = new CandidateSnapshot(
+            [], [], [], [], null, false, 0, publicationSequence, DateTime.UtcNow);
+        return TryPublishSnapshot(snapshot);
+    }
+
+    /// <summary>
     ///     Reads the community-popularity map from the given snapshot, computing it on-demand
     ///     when the snapshot has not yet published one and caching the result back onto
     ///     <see cref="_cachedSnapshot"/> so subsequent cold-start hits get an O(1) hand-off.
@@ -1834,7 +1847,7 @@ public sealed class Engine : IRecommendationEngine
                 {
                     throw;
                 }
-                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+                catch (Exception ex) when (!ex.IsFatal())
                 {
                     _pluginLog.LogDebug(
                         "Recommendations",
@@ -1847,7 +1860,7 @@ public sealed class Engine : IRecommendationEngine
         {
             throw;
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
                 "Recommendations",
@@ -1955,7 +1968,8 @@ public sealed class Engine : IRecommendationEngine
         // no external dependency. Guid.GetHashCode() uses SipHash on .NET 6+ and changes
         // every process restart, which would reshuffle exploration picks for the same
         // (userId, dayNumber) pair after a Jellyfin restart.
-        var bytes = id.ToByteArray();
+        Span<byte> bytes = stackalloc byte[16];
+        id.TryWriteBytes(bytes);
         unchecked
         {
             var hash = (int)2166136261u;
@@ -1988,7 +2002,7 @@ public sealed class Engine : IRecommendationEngine
                 ? value
                 : 0;
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
                 "Recommendations",
@@ -2015,7 +2029,7 @@ public sealed class Engine : IRecommendationEngine
 
             AtomicFile.WriteAllText(path, value.ToString(CultureInfo.InvariantCulture));
         }
-        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogDebug(
                 "Recommendations",
@@ -2044,6 +2058,15 @@ public sealed class Engine : IRecommendationEngine
 
         return !candidate.InheritedParentalRatingValue.HasValue
                || candidate.InheritedParentalRatingValue.Value > maxRating.Value;
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (_strategy is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
     }
 
     /// <summary>

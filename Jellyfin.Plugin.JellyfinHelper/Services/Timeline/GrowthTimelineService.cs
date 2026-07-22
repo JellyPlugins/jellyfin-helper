@@ -465,7 +465,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                 {
                     var ext = Path.GetExtension(file.FullName);
                     if (!MediaExtensions.VideoExtensions.Contains(ext) &&
-                        !MediaExtensions.AudioExtensions.Contains(ext))
+                        !MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))
                     {
                         continue;
                     }

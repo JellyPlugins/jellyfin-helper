@@ -275,12 +275,15 @@ public class PluginLogService : IPluginLogService
             return;
         }
 
+        // Strip CR/LF so a server-returned multi-line error message cannot inject fake log entries.
+        var sanitizedMessage = message.Replace('\r', ' ').Replace('\n', ' ');
+
         var entry = new PluginLogEntry
         {
             Timestamp = DateTime.UtcNow,
             Level = level,
             Source = source,
-            Message = message,
+            Message = sanitizedMessage,
             Exception = exception?.ToString()
         };
 

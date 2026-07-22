@@ -197,6 +197,13 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
+        // retentionDays == 0 means "disabled" — never auto-purge.
+        // An admin who wants "purge immediately" should use the manual empty-trash endpoint.
+        if (retentionDays <= 0)
+        {
+            return (0, 0);
+        }
+
         var cutoff = (utcNow ?? DateTime.UtcNow).AddDays(-retentionDays);
 
         try
@@ -803,18 +810,15 @@ public class TrashService : ITrashService
     /// </summary>
     private static long CalculateDirectorySize(string path)
     {
-        long size = 0;
         try
         {
             var dirInfo = new DirectoryInfo(path);
-            size += dirInfo.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+            return dirInfo.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Access errors are expected for inaccessible directories during size calculation
+            return 0;
         }
-
-        return size;
     }
 
     /// <inheritdoc />
