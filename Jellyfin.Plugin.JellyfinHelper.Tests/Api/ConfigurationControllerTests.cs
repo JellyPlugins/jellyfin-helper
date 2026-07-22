@@ -1288,7 +1288,7 @@ public class ConfigurationControllerTests
     }
 
     [Fact]
-    public async Task UpdateConfiguration_SentinelRadarrApiKey_RemovedInstance_NewInstanceGetsEmptyKey()
+    public async Task UpdateConfiguration_SentinelRadarrApiKey_RemovedInstance_SurvivorKeepsOwnKey()
     {
         // BUG GUARD (fix #5): when the admin removes instance[0] and leaves instance[1] masked,
         // the positional approach would restore the key of the removed instance into the surviving one.

@@ -1323,4 +1323,23 @@ public class PluginLogServiceTests : IDisposable
         Assert.Single(entries);
         Assert.Equal("INFO", entries[0].Level);
     }
+
+    [Fact]
+    public void LogWarning_ExceptionWithCrLf_SanitizesExceptionString()
+    {
+        const string src = "__PLT_ExSanitize__";
+        var ex = new Exception("line1\r\nline2\nline3");
+
+        _sut.LogWarning(src, "msg", ex);
+
+        var entries = _sut.GetEntries(source: src);
+        Assert.Single(entries);
+        Assert.NotNull(entries[0].Exception);
+        var exStr = entries[0].Exception!;
+        Assert.DoesNotContain('\n', exStr);
+        Assert.DoesNotContain('\r', exStr);
+        Assert.Contains("line1", exStr, StringComparison.Ordinal);
+        Assert.Contains("line2", exStr, StringComparison.Ordinal);
+        Assert.Contains("line3", exStr, StringComparison.Ordinal);
+    }
 }

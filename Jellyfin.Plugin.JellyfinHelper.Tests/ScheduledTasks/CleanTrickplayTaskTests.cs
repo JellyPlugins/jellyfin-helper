@@ -591,4 +591,23 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         _fileSystemMock.Verify(f => f.GetFiles(expectedParentPath, false), Times.Once);
         VerifyLogNeverContains("Deleting orphaned trickplay folder", LogLevel.Information);
     }
+
+    [Fact]
+    public async Task ExecuteInternalAsync_DirectoryScanError_CaughtAtInnerTryCatch_DoesNotPropagateToOuterHandler()
+    {
+        // Verifies that IOException during GetDirectories is caught by the inner try/catch
+        // (materialized .ToList()) and triggers the warning/return path, not the broad outer error handler.
+        var libraryPath = TestPath("media");
+
+        var virtualFolder = new VirtualFolderInfo { Locations = [libraryPath] };
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
+
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Throws(new IOException("Access denied"));
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        // Inner catch logs a Warning and returns (0, 0) — outer catch would log an Error.
+        VerifyLogContains("Could not enumerate subdirectories of", LogLevel.Warning);
+        VerifyLogNeverContains("Error scanning directory", LogLevel.Error);
+    }
 }

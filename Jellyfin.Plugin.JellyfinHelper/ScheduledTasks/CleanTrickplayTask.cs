@@ -63,11 +63,11 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
 
         try
         {
-            // Get all directories recursively (lazy — avoids materialising the full tree up front)
+            // Get all directories recursively, materialized so exceptions during enumeration are caught here.
             IEnumerable<FileSystemMetadata> directories;
             try
             {
-                directories = FileSystem.GetDirectories(libraryPath, true);
+                directories = FileSystem.GetDirectories(libraryPath, true).ToList();
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {

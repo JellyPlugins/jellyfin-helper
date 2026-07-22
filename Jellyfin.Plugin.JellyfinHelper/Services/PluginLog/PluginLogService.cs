@@ -277,6 +277,7 @@ public class PluginLogService : IPluginLogService
 
         // Strip CR/LF so a server-returned multi-line error message cannot inject fake log entries.
         var sanitizedMessage = message.Replace('\r', ' ').Replace('\n', ' ');
+        var sanitizedException = exception?.ToString().Replace('\r', ' ').Replace('\n', ' ');
 
         var entry = new PluginLogEntry
         {
@@ -284,7 +285,7 @@ public class PluginLogService : IPluginLogService
             Level = level,
             Source = source,
             Message = sanitizedMessage,
-            Exception = exception?.ToString()
+            Exception = sanitizedException
         };
 
         lock (_lock)

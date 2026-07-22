@@ -320,11 +320,11 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     ///     Returns all subdirectories under <paramref name="libraryPath" /> recursively,
     ///     swallowing access errors so a single unreadable folder does not abort the scan.
     /// </summary>
-    private IEnumerable<string> TryGetSubdirectories(string libraryPath)
+    private List<string> TryGetSubdirectories(string libraryPath)
     {
         try
         {
-            return FileSystem.GetDirectories(libraryPath, true).Select(d => d.FullName);
+            return FileSystem.GetDirectories(libraryPath, true).Select(d => d.FullName).ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
