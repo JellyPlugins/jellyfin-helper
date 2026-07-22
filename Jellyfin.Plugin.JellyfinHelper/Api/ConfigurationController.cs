@@ -505,7 +505,7 @@ public class ConfigurationController : ControllerBase
             // fall back to empty string when no prior entry matches.
             var apiKey = string.Equals(instance.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
                 ? previousRadarrInstances
-                    .FirstOrDefault(p => p.Name == instance.Name && p.Url == instance.Url)?.ApiKey
+                    .FirstOrDefault(p => p.Url == instance.Url)?.ApiKey
                     ?? string.Empty
                 : instance.ApiKey ?? string.Empty;
             config.RadarrInstances.Add(new ArrInstanceConfig
@@ -526,7 +526,7 @@ public class ConfigurationController : ControllerBase
             var instance = sonarrRequestList[i];
             var apiKey = string.Equals(instance.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
                 ? previousSonarrInstances
-                    .FirstOrDefault(p => p.Name == instance.Name && p.Url == instance.Url)?.ApiKey
+                    .FirstOrDefault(p => p.Url == instance.Url)?.ApiKey
                     ?? string.Empty
                 : instance.ApiKey ?? string.Empty;
             config.SonarrInstances.Add(new ArrInstanceConfig

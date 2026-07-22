@@ -150,7 +150,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void IsSymlink_BrokenSymlink_ReturnsTrue_OnAllPlatforms()
     {
-        // BUG FIX ANCHOR: the whole raison d'être of LinkRepairService is to *repair broken
+        // The whole raison d'être of LinkRepairService is to *repair broken
         // symlinks*, so IsSymlink MUST detect them. The implementation now uses
         // File.GetAttributes + FileAttributes.ReparsePoint (rather than FileInfo.Exists +
         // LinkTarget), which inspects the link node itself and therefore behaves the same

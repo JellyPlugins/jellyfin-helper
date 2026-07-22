@@ -1335,4 +1335,114 @@ public class ConfigurationControllerTests
         Assert.Equal("key-Y", _config.SonarrInstances[0].ApiKey);
         Assert.Equal("key-X", _config.SonarrInstances[1].ApiKey);
     }
+
+    /// <summary>
+    ///     When the admin renames a Radarr instance (Name changes)
+    ///     but keeps the same URL, and the client echoes the sentinel "***" for the key, the
+    ///     stored key must be preserved. The lookup matches by URL, so a rename alone must not
+    ///     clear the API key.
+    /// </summary>
+    [Fact]
+    public async Task ApplyRequestToConfig_RenameRadarrInstance_WithSentinel_PreservesApiKey()
+    {
+        _config.RadarrInstances.Add(new ArrInstanceConfig
+        {
+            Name = "Main Radarr",
+            Url = "http://radarr:7878",
+            ApiKey = "real-secret-key"
+        });
+
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig
+                {
+                    Name = "Primary Radarr", // renamed
+                    Url = "http://radarr:7878", // same URL
+                    ApiKey = ConfigurationResponse.ApiKeyMask // sentinel echoed back
+                }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.Single(_config.RadarrInstances);
+        Assert.Equal("real-secret-key", _config.RadarrInstances[0].ApiKey);
+        Assert.Equal("Primary Radarr", _config.RadarrInstances[0].Name);
+    }
+
+    /// <summary>
+    ///     Same rename-with-sentinel contract for Sonarr.
+    /// </summary>
+    [Fact]
+    public async Task ApplyRequestToConfig_RenameSonarrInstance_WithSentinel_PreservesApiKey()
+    {
+        _config.SonarrInstances.Add(new ArrInstanceConfig
+        {
+            Name = "Main Sonarr",
+            Url = "http://sonarr:8989",
+            ApiKey = "sonarr-secret-key"
+        });
+
+        var request = new ConfigurationUpdateRequest
+        {
+            SonarrInstances =
+            [
+                new ArrInstanceConfig
+                {
+                    Name = "Primary Sonarr", // renamed
+                    Url = "http://sonarr:8989", // same URL
+                    ApiKey = ConfigurationResponse.ApiKeyMask // sentinel echoed back
+                }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.Single(_config.SonarrInstances);
+        Assert.Equal("sonarr-secret-key", _config.SonarrInstances[0].ApiKey);
+        Assert.Equal("Primary Sonarr", _config.SonarrInstances[0].Name);
+    }
+
+    /// <summary>
+    ///     When the URL changes, the sentinel
+    ///     cannot find a prior match and must NOT restore a stale key — the result must be an
+    ///     empty API key, signalling that the new instance needs its real key supplied.
+    /// </summary>
+    [Fact]
+    public async Task ApplyRequestToConfig_ChangeRadarrUrl_WithSentinel_ClearsApiKey()
+    {
+        _config.RadarrInstances.Add(new ArrInstanceConfig
+        {
+            Name = "R1",
+            Url = "http://old:7878",
+            ApiKey = "real-key"
+        });
+
+        // URL changed: no prior entry at the new URL, so sentinel cannot restore a key.
+        // The validator rejects a URL-present + empty-key combo, so supply a real key here
+        // to let the request through validation — then assert the stored key was not the sentinel.
+        var request = new ConfigurationUpdateRequest
+        {
+            RadarrInstances =
+            [
+                new ArrInstanceConfig
+                {
+                    Name = "R1",
+                    Url = "http://new:7878", // URL changed — no prior entry at this URL
+                    ApiKey = ConfigurationResponse.ApiKeyMask
+                }
+            ]
+        };
+
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(result);
+
+        Assert.Single(_config.RadarrInstances);
+        // No prior instance at http://new:7878, so the sentinel resolves to empty string.
+        Assert.Equal(string.Empty, _config.RadarrInstances[0].ApiKey);
+    }
 }

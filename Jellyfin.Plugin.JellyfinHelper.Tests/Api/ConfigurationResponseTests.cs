@@ -177,4 +177,52 @@ public class ConfigurationResponseTests
         Assert.NotEqual(realKey, response.RadarrInstances[0].ApiKey);
         Assert.NotEqual(realKey, response.SonarrInstances[0].ApiKey);
     }
+
+    /// <summary>
+    ///     ConfigVersion was not mapped in FromConfig and always
+    ///     returned 0. Verify that the actual stored value flows through to the response.
+    /// </summary>
+    [Fact]
+    public void FromConfig_IncludesConfigVersion()
+    {
+        var config = new PluginConfiguration { ConfigVersion = 42 };
+        var response = ConfigurationResponse.FromConfig(config);
+        Assert.Equal(42, response.ConfigVersion);
+    }
+
+    /// <summary>
+    ///     EnsembleAlphaMin was not mapped in FromConfig and always
+    ///     returned the default 0. Verify the stored value flows through to the response.
+    /// </summary>
+    [Fact]
+    public void FromConfig_IncludesEnsembleAlphaMin()
+    {
+        var config = new PluginConfiguration { EnsembleAlphaMin = 0.25 };
+        var response = ConfigurationResponse.FromConfig(config);
+        Assert.Equal(0.25, response.EnsembleAlphaMin);
+    }
+
+    /// <summary>
+    ///     EnsembleAlphaMax was not mapped in FromConfig and always
+    ///     returned the default 0. Verify the stored value flows through to the response.
+    /// </summary>
+    [Fact]
+    public void FromConfig_IncludesEnsembleAlphaMax()
+    {
+        var config = new PluginConfiguration { EnsembleAlphaMax = 0.8 };
+        var response = ConfigurationResponse.FromConfig(config);
+        Assert.Equal(0.8, response.EnsembleAlphaMax);
+    }
+
+    /// <summary>
+    ///     EnsembleGenrePenaltyFloor was not mapped in FromConfig
+    ///     and always returned the default 0. Verify the stored value flows through to the response.
+    /// </summary>
+    [Fact]
+    public void FromConfig_IncludesEnsembleGenrePenaltyFloor()
+    {
+        var config = new PluginConfiguration { EnsembleGenrePenaltyFloor = 0.15 };
+        var response = ConfigurationResponse.FromConfig(config);
+        Assert.Equal(0.15, response.EnsembleGenrePenaltyFloor);
+    }
 }

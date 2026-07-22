@@ -76,6 +76,18 @@ public sealed class ConfigurationResponse
     /// <summary>Gets a value indicating whether non-admin users can access the discovery page.</summary>
     public bool DiscoveryUserAccessEnabled { get; init; }
 
+    /// <summary>Gets the configuration version for migration tracking.</summary>
+    public int ConfigVersion { get; init; }
+
+    /// <summary>Gets the minimum alpha value for the ensemble scoring strategy.</summary>
+    public double EnsembleAlphaMin { get; init; }
+
+    /// <summary>Gets the maximum alpha value for the ensemble scoring strategy.</summary>
+    public double EnsembleAlphaMax { get; init; }
+
+    /// <summary>Gets the genre penalty floor for the ensemble scoring strategy.</summary>
+    public double EnsembleGenrePenaltyFloor { get; init; }
+
     /// <summary>Gets the total bytes freed by all cleanup operations.</summary>
     public long TotalBytesFreed { get; init; }
 
@@ -120,6 +132,10 @@ public sealed class ConfigurationResponse
             MaxRecommendationsPerUser = config.MaxRecommendationsPerUser,
             SyncRecommendationsToPlaylist = config.SyncRecommendationsToPlaylist,
             DiscoveryUserAccessEnabled = config.DiscoveryUserAccessEnabled,
+            ConfigVersion = config.ConfigVersion,
+            EnsembleAlphaMin = config.EnsembleAlphaMin,
+            EnsembleAlphaMax = config.EnsembleAlphaMax,
+            EnsembleGenrePenaltyFloor = config.EnsembleGenrePenaltyFloor,
             TotalBytesFreed = config.TotalBytesFreed,
             TotalItemsDeleted = config.TotalItemsDeleted,
             LastCleanupTimestamp = config.LastCleanupTimestamp,
