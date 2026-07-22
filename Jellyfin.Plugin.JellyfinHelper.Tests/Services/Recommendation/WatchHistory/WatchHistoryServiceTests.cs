@@ -670,6 +670,72 @@ public sealed class WatchHistoryServiceTests
         Assert.Contains("Meaningful Actor", profile!.PeopleProfile.Keys);
     }
 
+    [Fact]
+    public void BuildPeopleProfile_MissingSeriesMetadata_SkipsEpisodeFallback()
+    {
+        // Regression guard for the series-level people aggregation skip fix.
+        // When an episode has a SeriesId but the series is NOT present in the series lookup
+        // (e.g. the series was deleted, not yet indexed, or returned by a different library
+        // query), BuildPeopleProfile must skip entirely — it must NOT fall back to the
+        // episode's own guest-cast people data.
+        //
+        // The original bug: if we had fallen back to episode-level data, we would either
+        // (a) count only limited guest cast instead of the full main cast, or
+        // (b) double-count people when a synthetic favourite-series row (ItemId == seriesId,
+        //     SeriesId == null) is processed later and the processedItemIds guard blocks it.
+        // The fix: the code now unconditionally continues when seriesLookup lookup misses.
+        var user = CreateTestUser("missingSeriesUser");
+        _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
+
+        var episodeId = Guid.NewGuid();
+        var seriesId = Guid.NewGuid();
+
+        var episode = new Episode
+        {
+            Id = episodeId,
+            Name = "Pilot",
+            SeriesId = seriesId,
+            RunTimeTicks = TimeSpan.FromMinutes(45).Ticks
+        };
+
+        // First GetItemList call → video items (the episode)
+        // Second GetItemList call → series items (empty — series NOT in lookup)
+        _mockLibraryManager
+            .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(new List<BaseItem> { episode })
+            .Returns(new List<BaseItem>()); // <-- series lookup is empty
+
+        _mockUserDataManager
+            .Setup(m => m.GetUserData(user, It.IsAny<BaseItem>()))
+            .Returns(new UserItemData { Key = "k", Played = true, PlayCount = 1 });
+
+        // Episode-level people that must NOT appear in the profile when series is missing.
+        _mockLibraryManager.Setup(m => m.GetPeople(It.Is<BaseItem>(i => i.Id == episodeId)))
+            .Returns(new List<PersonInfo>
+            {
+                new() { Name = "Guest Actor Only", Type = PersonKind.Actor },
+                new() { Name = "Guest Director Only", Type = PersonKind.Director }
+            });
+
+        var profile = _service.GetUserWatchProfile(user.Id);
+
+        Assert.NotNull(profile);
+
+        // The episode was played, so it appears in WatchedItems.
+        Assert.Contains(profile!.WatchedItems, w => w.ItemId == episodeId && w.Played);
+
+        // But because the series is absent from the series lookup, BuildPeopleProfile skips
+        // entirely rather than falling back to episode-level cast data.
+        Assert.DoesNotContain("Guest Actor Only", profile.PeopleProfile.Keys);
+        Assert.DoesNotContain("Guest Director Only", profile.PeopleProfile.Keys);
+        Assert.Empty(profile.PeopleProfile);
+
+        // Confirm GetPeople was never called for the episode (skip path was taken).
+        _mockLibraryManager.Verify(
+            m => m.GetPeople(It.Is<BaseItem>(i => i.Id == episodeId)),
+            Times.Never);
+    }
+
     private static Jellyfin.Database.Implementations.Entities.User CreateTestUser(string username)
     {
         return new Jellyfin.Database.Implementations.Entities.User(username, "default", "default") { Id = Guid.NewGuid() };

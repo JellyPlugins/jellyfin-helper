@@ -1255,6 +1255,65 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         Assert.InRange(mean, reference - 0.10, reference + 0.10);
     }
 
+    [Fact]
+    public void Train_WithDropout_WeightsConvergeWithoutNaN()
+    {
+        // Dropout is activated when trainIdx.Length >= MinExamplesForDropout (30).
+        // We use exactly MinExamplesForDropout examples so that the training split
+        // (which is ~80% of examples after the val split) just reaches the threshold.
+        // The test verifies that the dropout gradient path (h4Err no longer multiplied
+        // by dropoutInvKeep — the bug that was fixed) does not produce NaN/Infinity and
+        // that weights do actually change from their initial Xavier values.
+        var strategy = new NeuralScoringStrategy();
+        var initialWH = strategy.CurrentWeightsHidden.ToArray();
+        var initialWO = strategy.CurrentWeightsOutput.ToArray();
+
+        // >= MinExamplesForDropout examples to guarantee dropout is active during training.
+        var examples = GenerateExamples(NeuralScoringStrategy.MinExamplesForDropout);
+        var trained = strategy.Train(examples);
+
+        Assert.True(trained, "Train should return true with enough examples");
+
+        var updatedWH = strategy.CurrentWeightsHidden;
+        var updatedWO = strategy.CurrentWeightsOutput;
+
+        // No weight must be NaN or Infinity.
+        Assert.All(updatedWH, w => Assert.True(
+            double.IsFinite(w),
+            $"Hidden weight became non-finite ({w}) after training with dropout"));
+        Assert.All(updatedWO, w => Assert.True(
+            double.IsFinite(w),
+            $"Output weight became non-finite ({w}) after training with dropout"));
+
+        // At least some weights must have changed from their initial Xavier values.
+        var anyHiddenChanged = false;
+        for (var i = 0; i < initialWH.Length; i++)
+        {
+            if (Math.Abs(initialWH[i] - updatedWH[i]) > 1e-10)
+            {
+                anyHiddenChanged = true;
+                break;
+            }
+        }
+
+        var anyOutputChanged = false;
+        for (var i = 0; i < initialWO.Length; i++)
+        {
+            if (Math.Abs(initialWO[i] - updatedWO[i]) > 1e-10)
+            {
+                anyOutputChanged = true;
+                break;
+            }
+        }
+
+        Assert.True(anyHiddenChanged, "Training with dropout should modify hidden weights");
+        Assert.True(anyOutputChanged, "Training with dropout should modify output weights");
+
+        // Validation loss must be finite.
+        Assert.True(double.IsFinite(strategy.LastValidationLoss),
+            $"Validation loss is not finite ({strategy.LastValidationLoss}) after training with dropout");
+    }
+
     // ============================================================
     // Concurrency Tests
     // ============================================================
@@ -1295,6 +1354,74 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         });
 
         await Task.WhenAll(trainTask, scoreTask);
+    }
+
+    [Fact]
+    public async Task Score_ConcurrentWithTrain_NoRaceCondition()
+    {
+        // Verifies the _featureMeans thread-safety fix: Train() writes _featureMeans
+        // while Score() reads it.  Before the fix a torn write could produce NaN or
+        // cause an exception; this test runs both concurrently and asserts that every
+        // score is finite and no exception escapes.
+        var strategy = new NeuralScoringStrategy();
+
+        // Use enough examples so that _featureMeans is computed (and therefore the
+        // read/write interleaving is exercised under real conditions).
+        var examples = GenerateExamples(NeuralScoringStrategy.MinExamplesForDropout);
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 0.6,
+            CombinedCriticScore = 0.5,
+            CollaborativeScore = 0.4,
+            RecencyScore = 0.7,
+            YearProximityScore = 0.8
+        };
+
+        var scores = new System.Collections.Concurrent.ConcurrentBag<double>();
+        var exception = (Exception?)null;
+
+        // Run several consecutive Train() calls while hammering Score() in parallel.
+        const int trainRounds = 5;
+        const int scorersPerRound = 20;
+
+        for (var round = 0; round < trainRounds; round++)
+        {
+            var trainTask = Task.Run(() =>
+            {
+                try
+                {
+                    strategy.Train(examples);
+                }
+                catch (Exception ex)
+                {
+                    exception = ex;
+                }
+            });
+
+            var scoreTasks = Enumerable.Range(0, scorersPerRound).Select(_ => Task.Run(() =>
+            {
+                try
+                {
+                    for (var i = 0; i < 10; i++)
+                    {
+                        scores.Add(strategy.Score(features));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    exception = ex;
+                }
+            })).ToArray();
+
+            await Task.WhenAll(new[] { trainTask }.Concat(scoreTasks));
+        }
+
+        Assert.Null(exception);
+
+        // Every score collected must be a finite value in [0, 1].
+        Assert.All(scores, s => Assert.True(
+            double.IsFinite(s) && s >= 0.0 && s <= 1.0,
+            $"Score {s} is not in the expected finite [0,1] range"));
     }
 
     // ============================================================

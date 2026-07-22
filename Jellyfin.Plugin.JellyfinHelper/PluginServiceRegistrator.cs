@@ -92,12 +92,13 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         });
         serviceCollection.AddSingleton(_ =>
         {
-            // Read the config-driven floor at DI build time so the heuristic sub-strategy
-            // and the ensemble wrapper always use the same value. Previously hardcoded to 1.0,
-            // which silently ignored the admin-configured EnsembleGenrePenaltyFloor.
-            var hConfig = Plugin.Instance?.Configuration;
-            var hFloor = hConfig?.EnsembleGenrePenaltyFloor ?? EnsembleScoringStrategy.DefaultGenrePenaltyFloor;
-            return new HeuristicScoringStrategy(genrePenaltyFloor: hFloor);
+            // The heuristic sub-strategy inside EnsembleScoringStrategy MUST have its genre
+            // penalty disabled (floor = 1.0). The ensemble applies the genre penalty centrally
+            // via ComputeSoftGenrePenalty after blending; passing any value < 1.0 here would
+            // cause double-penalization and is explicitly rejected by EnsembleScoringStrategy's
+            // constructor guard. The config-driven EnsembleGenrePenaltyFloor controls only the
+            // ensemble-level penalty, not this sub-strategy.
+            return new HeuristicScoringStrategy(genrePenaltyFloor: 1.0);
         });
         serviceCollection.AddSingleton(sp =>
         {

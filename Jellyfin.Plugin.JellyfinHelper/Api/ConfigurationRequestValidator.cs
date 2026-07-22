@@ -18,6 +18,12 @@ public static class ConfigurationRequestValidator
     /// <summary>Maximum number of Arr instances per type (Radarr / Sonarr).</summary>
     private const int MaxArrInstances = 3;
 
+    /// <summary>Supported UI language codes. Must stay in sync with the translation file set.</summary>
+    private static readonly HashSet<string> SupportedLanguages = new(StringComparer.Ordinal)
+    {
+        "en", "de", "fr", "es", "pt", "zh", "tr"
+    };
+
     /// <summary>
     ///     Validates the given <paramref name="request" /> and returns the first error found, or <c>null</c> if valid.
     /// </summary>
@@ -63,12 +69,12 @@ public static class ConfigurationRequestValidator
         }
 
         // If Seerr URL is set, API key must also be set.
-        // The mask sentinel ("***") echoed back by the client is not a real credential;
-        // treat it the same as whitespace so a first-time save (or a URL change where
-        // the stored key could not be restored) is rejected rather than silently accepted
-        // and then written as an empty key by ApplyRequestToConfig.
-        var apiKeyBlank = string.IsNullOrWhiteSpace(request.SeerrApiKey) ||
-                          string.Equals(request.SeerrApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal);
+        // The mask sentinel ("***") echoed back by the client means "keep the stored key" — it
+        // is NOT treated as blank here. ApplyRequestToConfig preserves the real stored key when
+        // it sees the sentinel, so accepting it is safe. Rejecting it would break the round-trip
+        // where a user saves without changing their existing key (GET returns "***", POST echoes
+        // "***", and the result should be OK with the real key left intact).
+        var apiKeyBlank = string.IsNullOrWhiteSpace(request.SeerrApiKey);
         if (!string.IsNullOrWhiteSpace(request.SeerrUrl) && apiKeyBlank)
         {
             return "Seerr API key is required when a Seerr URL is configured.";
@@ -98,13 +104,11 @@ public static class ConfigurationRequestValidator
         return error;
     }
 
-    /// <summary>Supported UI language codes. Must stay in sync with the translation file set.</summary>
-    private static readonly HashSet<string> SupportedLanguages = new(StringComparer.Ordinal)
-    {
-        "en", "de", "fr", "es", "pt", "zh", "tr"
-    };
-
-    /// <summary>Returns <c>true</c> when <paramref name="language"/> is a supported UI locale code.</summary>
+    /// <summary>
+    ///     Returns <c>true</c> when <paramref name="language"/> is a supported UI locale code.
+    /// </summary>
+    /// <param name="language">The UI locale code to check (e.g. "en", "de").</param>
+    /// <returns><c>true</c> if the locale is supported; otherwise <c>false</c>.</returns>
     public static bool IsLanguageSupported(string language) => SupportedLanguages.Contains(language);
 
     /// <summary>

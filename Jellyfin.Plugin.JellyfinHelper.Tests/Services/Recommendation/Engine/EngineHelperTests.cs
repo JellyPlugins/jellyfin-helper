@@ -119,15 +119,25 @@ public sealed class EngineHelperTests
     }
 
     [Fact]
-    public void ComputeStableSeed_SuffixZero_YieldsGuidHashCodeTimes397()
+    public void ComputeStableSeed_SuffixZero_YieldsFnv1aHash()
     {
-        // XOR with 0 is identity, so seed with suffix=0 must equal (GuidHash * 397).
-        // Verifies the fold order (multiplier applies to the Guid, not the suffix).
+        // The implementation uses FNV-1a over the raw Guid bytes (process-stable, no hash
+        // randomisation). With suffix=0 (XOR identity) the result must equal the FNV-1a hash
+        // of the Guid's byte representation. This golden value was computed by running the
+        // same FNV-1a loop as the production code against the fixed test Guid.
         var id = Guid.Parse("aabbccdd-0011-2233-4455-66778899aabb");
         var seed = InvokeComputeStableSeed(id, 0);
         unchecked
         {
-            Assert.Equal(id.GetHashCode() * 397, seed);
+            // Recompute inline so the test is self-documenting and not a naked literal.
+            var bytes = id.ToByteArray();
+            var expected = (int)2166136261u;
+            foreach (var b in bytes)
+            {
+                expected ^= b;
+                expected *= 16777619;
+            }
+            Assert.Equal(expected, seed);
         }
     }
 

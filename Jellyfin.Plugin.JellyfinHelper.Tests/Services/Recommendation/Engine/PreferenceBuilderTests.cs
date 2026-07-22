@@ -1289,4 +1289,26 @@ public class PreferenceBuilderTests
         Assert.True(ratioFav > ratioNonFav,
             "Favorite additive must lift the SciFi/Anchor ratio above the non-favorite baseline.");
     }
+
+    /// <summary>
+    ///     Regression test for the train/serve parity fix: a WatchedItemInfo with PlayCount &gt; 0
+    ///     but Played = false must still be treated as a meaningful interaction.
+    ///     Before the fix, only Played = true or IsFavorite = true items entered the watched-set,
+    ///     causing features built at inference time to diverge from training data.
+    /// </summary>
+    [Fact]
+    public void WatchedItemInfo_PlayCountAboveZero_IsMeaningfulInteraction()
+    {
+        var item = new WatchedItemInfo
+        {
+            ItemId = Guid.NewGuid(),
+            Played = false,
+            IsFavorite = false,
+            PlayCount = 3
+        };
+
+        Assert.True(item.HasMeaningfulInteraction(),
+            "An item with PlayCount > 0 must be treated as a meaningful interaction " +
+            "regardless of Played or IsFavorite flags (train/serve parity).");
+    }
 }

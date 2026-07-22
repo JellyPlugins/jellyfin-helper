@@ -881,6 +881,7 @@ public sealed class Engine : IRecommendationEngine
                 collaborativeMax = v;
             }
         }
+
         var averageYear = ContentScoring.ComputeAverageYear(userProfile);
         var preferredStudios = PreferenceBuilder.BuildStudioPreferenceSet(userProfile, candidateLookup);
         // preferredPeople (HashSet): used by ReasonResolver to surface a concrete matched-person name
