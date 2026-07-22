@@ -211,7 +211,7 @@ internal static class DiversityReranker
             if (yearA.HasValue && yearB.HasValue)
             {
                 var diff = Math.Abs(yearA.Value - yearB.Value);
-                var yearSim = Math.Exp(-diff * diff / EngineConstants.YearProximityDenominator);
+                var yearSim = Math.Exp(-(double)diff * diff / EngineConstants.YearProximityDenominator);
                 weightedSimilarity += 0.2 * yearSim;
                 availableWeight += 0.2;
             }

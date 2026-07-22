@@ -820,7 +820,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             // slice is held out so its rows do not receive gradient updates; counting them
             // toward MinExamplesForDropout would activate dropout on training splits below
             // the documented starvation threshold.
-            var dropoutActive = DropoutKeepProbability < 1.0 && trainIdx.Length >= MinExamplesForDropout;
+            var dropoutActive = trainIdx.Length >= MinExamplesForDropout;
             // Dedicated RNG for the dropout draw so the shuffle-RNG's determinism (seeded by
             // _trainingGeneration) is preserved for reviewers who need reproducible shuffle order
             // when debugging. Both RNGs are seeded off the same generation counter so an entire
@@ -935,7 +935,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     // Hidden2 layer error (backprop through ReLU + dropout mask from hidden3)
                     for (var k = 0; k < Hidden2Size; k++)
                     {
-                        if (h2Pre[k] <= 0 || h2Mask[k] == 0.0)
+                        if (h2Pre[k] <= 0 || h2Mask[k] <= 0.0)
                         {
                             h2Err[k] = 0.0;
                             continue;
@@ -953,7 +953,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     // Hidden1 layer error (backprop through ReLU + dropout mask from hidden2)
                     for (var j = 0; j < Hidden1Size; j++)
                     {
-                        if (h1Pre[j] <= 0 || h1Mask[j] == 0.0)
+                        if (h1Pre[j] <= 0 || h1Mask[j] <= 0.0)
                         {
                             h1Err[j] = 0.0;
                             continue;

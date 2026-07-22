@@ -72,17 +72,20 @@ public sealed class DiscoveryCacheService : IDisposable
     }
 
     /// <summary>
-    ///     Loads cached discovery results. Returns a read-only wrapper of the in-memory cache if available,
-    ///     otherwise reads from disk and populates the cache.
+    ///     Loads cached discovery results. Returns a deep-copied snapshot of the in-memory cache
+    ///     if available, otherwise reads from disk and populates the cache first.
     ///     <para>
-    ///         <b>Important:</b> The returned list is a shallow read-only wrapper (<see cref="System.Collections.ObjectModel.ReadOnlyCollection{T}"/>).
-    ///         The outer list cannot be modified, but the <see cref="DiscoveryResult"/> objects within
-    ///         are shared references to the cache. Callers MUST NOT mutate properties of the returned items.
-    ///         Mutation operations (e.g., <see cref="MarkAsRequested"/>) must go through this service
-    ///         under <see cref="_fileLock"/> to ensure thread-safe, atomic updates.
+    ///         <b>Deep copy guarantee:</b> each <see cref="DiscoveryResult"/> and each nested
+    ///         <see cref="DiscoveryRecommendation"/> in the returned list is a detached clone
+    ///         produced via <see cref="DiscoveryResult.Clone"/>. Callers may freely read or even
+    ///         mutate the returned objects — those changes will never propagate back to the live
+    ///         <see cref="_memoryCache"/> or the on-disk file. Authoritative mutation operations
+    ///         (e.g. <see cref="MarkAsRequested"/>) must still go through this service so that
+    ///         both the in-memory cache and the on-disk file are updated atomically under
+    ///         <see cref="_fileLock"/>.
     ///     </para>
     /// </summary>
-    /// <returns>The deserialized results, or an empty list if the file does not exist or is invalid.</returns>
+    /// <returns>A deep-copied list of discovery results, or an empty list if the file does not exist or is invalid.</returns>
     public IReadOnlyList<DiscoveryResult> Load()
     {
         _fileLock.Wait();
@@ -92,7 +95,7 @@ public sealed class DiscoveryCacheService : IDisposable
             {
                 EnsureLoadedLocked();
                 var cache = _memoryCache ??= [];
-                return cache.AsReadOnly();
+                return cache.ConvertAll(r => r.Clone());
             }
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
@@ -104,7 +107,7 @@ public sealed class DiscoveryCacheService : IDisposable
                 // Cache empty result to prevent repeated failed disk reads on every API call.
                 // Next Save() will repopulate the cache with fresh data.
                 _memoryCache = [];
-                return _memoryCache.AsReadOnly();
+                return [];
             }
         }
         finally

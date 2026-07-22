@@ -117,4 +117,30 @@ public sealed class DiscoveryRecommendation
         get;
         set => field = double.IsFinite(value) && value > 0 ? value : 0.0;
     }
+
+    /// <summary>
+    ///     Returns a detached shallow copy of this recommendation. All scalar fields are copied
+    ///     by value. <see cref="Genres"/> and <see cref="KnownPeople"/> are already
+    ///     <see cref="IReadOnlyList{T}"/> of immutable <see cref="string"/> elements, so the
+    ///     references are safe to share — no string copy is needed.
+    /// </summary>
+    /// <returns>A detached copy of this <see cref="DiscoveryRecommendation"/>.</returns>
+    public DiscoveryRecommendation Clone() => new()
+    {
+        TmdbId = TmdbId,
+        MediaType = MediaType,
+        Title = Title,
+        Year = Year,
+        Score = Score,
+        Reason = Reason,
+        ReasonKey = ReasonKey,
+        RelatedInfo = RelatedInfo,
+        Genres = Genres,
+        TmdbRating = TmdbRating,
+        PosterPath = PosterPath,
+        Overview = Overview,
+        AlreadyRequested = AlreadyRequested,
+        KnownPeople = KnownPeople,
+        Popularity = Popularity,
+    };
 }
