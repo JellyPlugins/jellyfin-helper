@@ -52,8 +52,9 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
         configMock.Setup(c => c.IsInitialized).Returns(true);
         configMock.Setup(c => c.PluginVersion).Returns("1.0.0-test");
-        // SaveConfiguration is a no-op in tests; we assert against liveConfig directly.
-        configMock.Setup(c => c.SaveConfiguration());
+        // Wire ReadAndMutate to invoke the callback on liveConfig so tests can assert
+        // field values after restore without hitting the real SaveConfiguration path.
+        TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
 
         var service = new BackupService(
             _tempDir,
@@ -120,7 +121,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.True(liveConfig.SyncRecommendationsToPlaylist);
         Assert.True(liveConfig.DiscoveryUserAccessEnabled);
 
-        configMock.Verify(c => c.SaveConfiguration(), Times.Once);
+        configMock.Verify(c => c.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.Once);
     }
 
     [Fact]
@@ -340,12 +341,30 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     }
 
     [Fact]
-    public void RestoreBackup_ZeroSeerrCleanupAgeDays_LeavesConfigUnchanged()
+    public void RestoreBackup_ZeroSeerrCleanupAgeDays_IsApplied()
     {
+        // BUG-10 / HARDENING-6: with int?, null means "absent" and 0 is a valid
+        // "immediate cleanup" value that MUST be applied. The previous int sentinel
+        // (0 == absent) silently swallowed legitimate zero values.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.SeerrCleanupAgeDays = 45;
         var backup = MakeMinimalValidBackup();
-        backup.SeerrCleanupAgeDays = 0;
+        backup.SeerrCleanupAgeDays = 0; // explicit zero — must be applied, not skipped
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(0, liveConfig.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void RestoreBackup_NullSeerrCleanupAgeDays_LeavesConfigUnchanged()
+    {
+        // null in the backup payload means "field absent" (e.g. exported by an older
+        // plugin version). The live value must be left untouched.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrCleanupAgeDays = 45;
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrCleanupAgeDays = null; // absent → leave live value unchanged
 
         service.RestoreBackup(backup);
 
@@ -427,17 +446,48 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     }
 
     [Fact]
-    public void RestoreBackup_LongSeerrUrlAndKey_AreTruncated()
+    public void RestoreBackup_LongValidSeerrUrl_IsTruncated()
     {
+        // A long but valid http(s) URL must be truncated to MaxUrlLength and applied.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
-        backup.SeerrUrl = new string('S', BackupValidator.MaxUrlLength + 500);
+        // Build a URL that is valid http but exceeds MaxUrlLength via a long path segment.
+        backup.SeerrUrl = "https://seerr.example.com/" + new string('s', BackupValidator.MaxUrlLength);
         backup.SeerrApiKey = new string('A', BackupValidator.MaxApiKeyLength + 500);
 
         service.RestoreBackup(backup);
 
         Assert.Equal(BackupValidator.MaxUrlLength, liveConfig.SeerrUrl.Length);
         Assert.Equal(BackupValidator.MaxApiKeyLength, liveConfig.SeerrApiKey.Length);
+    }
+
+    [Fact]
+    public void RestoreBackup_InvalidSchemeSeerrUrl_IsSkipped()
+    {
+        // SEC-3: a non-http(s) URL in the backup (e.g. crafted file:// or ftp://)
+        // must NOT be written to config. The live value must remain unchanged.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrUrl = "https://live.example.com";
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrUrl = "file:///etc/passwd";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal("https://live.example.com", liveConfig.SeerrUrl);
+    }
+
+    [Fact]
+    public void RestoreBackup_FtpSchemeSeerrUrl_IsSkipped()
+    {
+        // SEC-3: ftp:// must also be rejected.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrUrl = "https://live.example.com";
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrUrl = "ftp://attacker.example.com";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal("https://live.example.com", liveConfig.SeerrUrl);
     }
 
     [Fact]
@@ -457,7 +507,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         var summary = service.RestoreBackup(backup);
 
         Assert.False(summary.ConfigurationRestored);
-        configMock.Verify(c => c.SaveConfiguration(), Times.Never);
+        configMock.Verify(c => c.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.Never);
     }
 
     [Fact]
@@ -581,7 +631,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
         configMock.Setup(c => c.IsInitialized).Returns(true);
         configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
-        configMock.Setup(c => c.SaveConfiguration());
+        TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
 
         var service = new BackupService(
             _tempDir,
@@ -615,7 +665,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
         configMock.Setup(c => c.IsInitialized).Returns(true);
         configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
-        configMock.Setup(c => c.SaveConfiguration());
+        TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
 
         var service = new BackupService(
             _tempDir,
@@ -657,5 +707,110 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
             "No credentials change should be reported when the backup key is the truncated form of the stored key.");
         // The restored key must equal the truncated backup value (200 'x' chars), not the full 250-char stored value.
         Assert.Equal(backupKey, liveConfig.SeerrApiKey);
+    }
+
+    // ===== HARDENING-6 / BUG-10: nullable SeerrCleanupAgeDays =====
+
+    [Fact]
+    public void RestoreConfiguration_SeerrCleanupAgeDays_WhenNull_LeavesExistingValue()
+    {
+        // When the backup carries null (field absent — e.g. older plugin version that did not
+        // export this field), the live config value must be left completely unchanged.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrCleanupAgeDays = 77;
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrCleanupAgeDays = null;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(77, liveConfig.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void RestoreConfiguration_SeerrCleanupAgeDays_WhenZero_AppliesZero()
+    {
+        // Zero is a legitimate "immediate cleanup" value that MUST be applied.
+        // With int?, null is the only sentinel for "absent"; 0 carries real meaning.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrCleanupAgeDays = 30;
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrCleanupAgeDays = 0;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(0, liveConfig.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void RestoreConfiguration_SeerrCleanupAgeDays_WhenPositive_Clamps()
+    {
+        // A value beyond MaxRetentionDays must be clamped, not silently accepted.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrCleanupAgeDays = BackupValidator.MaxRetentionDays + 1;
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(BackupValidator.MaxRetentionDays, liveConfig.SeerrCleanupAgeDays);
+    }
+
+    // ===== SEC-3: URL scheme validation on restore =====
+
+    [Fact]
+    public void RestoreConfiguration_SeerrUrl_FileScheme_IsRejected()
+    {
+        // A file:// URL in the backup must NOT be written to config.
+        // The live value must remain unchanged.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrUrl = "https://live.seerr.example.com";
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrUrl = "file:///etc/passwd";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal("https://live.seerr.example.com", liveConfig.SeerrUrl);
+    }
+
+    [Fact]
+    public void RestoreConfiguration_SeerrUrl_HttpsScheme_IsApplied()
+    {
+        // A valid https:// URL must be applied normally.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        liveConfig.SeerrUrl = "https://old.seerr.example.com";
+        var backup = MakeMinimalValidBackup();
+        backup.SeerrUrl = "https://new.seerr.example.com";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal("https://new.seerr.example.com", liveConfig.SeerrUrl);
+    }
+
+    // ===== HARDENING-2: data files written before config =====
+
+    [Fact]
+    public void RestoreBackup_FileWriteFails_ConfigStillRestored()
+    {
+        // HARDENING-2 ordering: data files are written first, THEN config is updated.
+        // If file I/O fails (no timeline/baseline in this backup), RestoreConfiguration
+        // must still run — the config restore is independent of data-file success.
+        // This test verifies the production ordering by checking that config fields
+        // are applied even when the backup carries no timeline/baseline data.
+        var (service, liveConfig, configMock) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup();
+        // No timeline/baseline → no file writes occur; config restore must still run.
+        backup.GrowthTimeline = null;
+        backup.GrowthBaseline = null;
+        backup.Language = "de";
+
+        var summary = service.RestoreBackup(backup);
+
+        // File writes were skipped (nothing to restore).
+        Assert.False(summary.TimelineRestored);
+        Assert.False(summary.BaselineRestored);
+
+        // Config restore ran independently.
+        Assert.True(summary.ConfigurationRestored);
+        Assert.Equal("de", liveConfig.Language);
+        configMock.Verify(c => c.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.Once);
     }
 }

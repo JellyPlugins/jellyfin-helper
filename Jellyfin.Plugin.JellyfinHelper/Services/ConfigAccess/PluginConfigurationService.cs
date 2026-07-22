@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
@@ -20,6 +21,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 public class PluginConfigurationService : IPluginConfigurationService
 {
     private readonly IPluginAccessor _accessor;
+
+    // Guards the read-mutate-save triple in ReadAndMutate so concurrent callers
+    // cannot interleave their mutations on the shared PluginConfiguration object.
+    private readonly Lock _mutateLock = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfigurationService"/> class
@@ -83,6 +88,25 @@ public class PluginConfigurationService : IPluginConfigurationService
     public void SaveConfiguration()
     {
         _accessor.SaveConfiguration();
+    }
+
+    /// <inheritdoc />
+    public void ReadAndMutate(Action<PluginConfiguration> mutate)
+    {
+        ArgumentNullException.ThrowIfNull(mutate);
+
+        lock (_mutateLock)
+        {
+            var config = _accessor.Configuration;
+            if (config == null)
+            {
+                // Plugin not initialised — nothing to mutate or save.
+                return;
+            }
+
+            mutate(config);
+            _accessor.SaveConfiguration();
+        }
     }
 
     /// <summary>

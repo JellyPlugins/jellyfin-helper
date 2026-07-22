@@ -133,9 +133,12 @@ public class BackupData
 
     /// <summary>
     ///     Gets or sets the Seerr cleanup age threshold in days.
+    ///     <c>null</c> means the field was absent in the backup (e.g. exported by an older
+    ///     plugin version) and the live value should be left unchanged on restore.
+    ///     A value of <c>0</c> is a legitimate "immediate cleanup" setting.
     /// </summary>
     [JsonPropertyName("seerrCleanupAgeDays")]
-    public int SeerrCleanupAgeDays { get; set; } = 365;
+    public int? SeerrCleanupAgeDays { get; set; }
 
     // === Arr Integration ===
 

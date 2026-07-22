@@ -184,8 +184,9 @@ public sealed class BackupService : IBackupService
 
         _pluginLog.LogInfo("Backup", "Starting backup restore...", _logger);
 
-        // Restore configuration
-        RestoreConfiguration(backup, summary);
+        // HARDENING-2: write data files FIRST so that if a file-write fails,
+        // the live configuration has not yet been replaced.  Only after all
+        // I/O completes do we commit the new configuration to disk.
 
         // Restore growth timeline
         if (backup.GrowthTimeline != null &&
@@ -212,6 +213,10 @@ public sealed class BackupService : IBackupService
                 $"Restored growth baseline ({backup.GrowthBaseline.Directories.Count} directories)",
                 _logger);
         }
+
+        // Restore configuration last — uses ReadAndMutate so the entire
+        // read-mutate-save sequence is atomic with respect to concurrent callers.
+        RestoreConfiguration(backup, summary);
 
         _pluginLog.LogInfo(
             "Backup",
@@ -267,83 +272,103 @@ public sealed class BackupService : IBackupService
             return;
         }
 
-        var config = _configService.GetConfiguration();
-
-        // Restore preferences
-        config.Language = BackupValidator.ValidLanguages.Contains(backup.Language) ? backup.Language : "en";
-        config.ExcludedLibraries = backup.ExcludedLibraries;
-        config.OrphanMinAgeDays = Math.Clamp(backup.OrphanMinAgeDays, 0, BackupValidator.MaxRetentionDays);
-        config.PluginLogLevel = BackupValidator.ValidLogLevels.Contains(backup.PluginLogLevel)
-            ? backup.PluginLogLevel
-            : "INFO";
-
-        // Task modes
-        config.TrickplayTaskMode = ParseTaskMode(backup.TrickplayTaskMode);
-        config.EmptyMediaFolderTaskMode = ParseTaskMode(backup.EmptyMediaFolderTaskMode);
-        config.OrphanedSubtitleTaskMode = ParseTaskMode(backup.OrphanedSubtitleTaskMode);
-        config.LinkRepairTaskMode = ParseTaskMode(backup.LinkRepairTaskMode);
-        config.SeerrCleanupTaskMode = ParseTaskMode(backup.SeerrCleanupTaskMode, TaskMode.Deactivate);
-
-        // Seerr settings
-        // An empty backup URL means "leave the existing URL in place", mirroring the API key
-        // guard below — a backup created without Seerr must not silently wipe a working URL.
-        if (!string.IsNullOrEmpty(backup.SeerrUrl))
+        // BUG-6: use ReadAndMutate so the entire read-mutate-save sequence runs
+        // under a lock, preventing a concurrent UpdateConfigurationAsync or
+        // UpdateLogLevel call from interleaving mutations on the same config object.
+        _configService.ReadAndMutate(config =>
         {
-            config.SeerrUrl = BackupSanitizer.TruncateString(backup.SeerrUrl, BackupValidator.MaxUrlLength);
-        }
+            // Restore preferences
+            config.Language = BackupValidator.ValidLanguages.Contains(backup.Language) ? backup.Language : "en";
+            config.ExcludedLibraries = backup.ExcludedLibraries;
+            config.OrphanMinAgeDays = Math.Clamp(backup.OrphanMinAgeDays, 0, BackupValidator.MaxRetentionDays);
+            config.PluginLogLevel = BackupValidator.ValidLogLevels.Contains(backup.PluginLogLevel)
+                ? backup.PluginLogLevel
+                : "INFO";
 
-        // API keys: an empty backup value means "leave the existing key in place"; a
-        // non-empty value is applied after the same length-truncation as other fields.
-        // When the incoming value actually differs from the current stored value, emit an
-        // audit warning and set the CredentialsChanged flag so callers can surface a
-        // notification to the operator.
-        if (!string.IsNullOrEmpty(backup.SeerrApiKey))
-        {
-            var truncatedSeerrKey = BackupSanitizer.TruncateString(backup.SeerrApiKey, BackupValidator.MaxApiKeyLength);
-            var truncatedStoredKey = BackupSanitizer.TruncateString(config.SeerrApiKey, BackupValidator.MaxApiKeyLength);
-            if (truncatedSeerrKey != truncatedStoredKey)
+            // Task modes
+            config.TrickplayTaskMode = ParseTaskMode(backup.TrickplayTaskMode);
+            config.EmptyMediaFolderTaskMode = ParseTaskMode(backup.EmptyMediaFolderTaskMode);
+            config.OrphanedSubtitleTaskMode = ParseTaskMode(backup.OrphanedSubtitleTaskMode);
+            config.LinkRepairTaskMode = ParseTaskMode(backup.LinkRepairTaskMode);
+            config.SeerrCleanupTaskMode = ParseTaskMode(backup.SeerrCleanupTaskMode, TaskMode.Deactivate);
+
+            // Seerr settings
+            // An empty backup URL means "leave the existing URL in place", mirroring the API key
+            // guard below — a backup created without Seerr must not silently wipe a working URL.
+            // SEC-3: also validate the URL scheme so a crafted backup cannot persist a non-http(s)
+            // URL (e.g. "file:///etc/passwd") into the live configuration.
+            if (!string.IsNullOrEmpty(backup.SeerrUrl))
             {
-                _pluginLog.LogWarning(
-                    "Backup",
-                    "Backup restore is replacing credentials: Seerr API key changed.",
-                    logger: _logger);
-                summary.CredentialsChanged = true;
+                var truncatedUrl = BackupSanitizer.TruncateString(backup.SeerrUrl, BackupValidator.MaxUrlLength);
+                if (Uri.TryCreate(truncatedUrl, UriKind.Absolute, out var parsedUrl)
+                    && (parsedUrl.Scheme == Uri.UriSchemeHttp || parsedUrl.Scheme == Uri.UriSchemeHttps))
+                {
+                    config.SeerrUrl = truncatedUrl;
+                }
+                else
+                {
+                    _pluginLog.LogWarning(
+                        "Backup",
+                        $"Backup SeerrUrl '{truncatedUrl}' is not a valid http/https URL — skipping to avoid persisting an unsafe scheme.",
+                        logger: _logger);
+                }
             }
 
-            config.SeerrApiKey = truncatedSeerrKey;
-        }
+            // API keys: an empty backup value means "leave the existing key in place"; a
+            // non-empty value is applied after the same length-truncation as other fields.
+            // When the incoming value actually differs from the current stored value, emit an
+            // audit warning and set the CredentialsChanged flag so callers can surface a
+            // notification to the operator.
+            if (!string.IsNullOrEmpty(backup.SeerrApiKey))
+            {
+                var truncatedSeerrKey = BackupSanitizer.TruncateString(backup.SeerrApiKey, BackupValidator.MaxApiKeyLength);
+                var truncatedStoredKey = BackupSanitizer.TruncateString(config.SeerrApiKey, BackupValidator.MaxApiKeyLength);
+                if (truncatedSeerrKey != truncatedStoredKey)
+                {
+                    _pluginLog.LogWarning(
+                        "Backup",
+                        "Backup restore is replacing credentials: Seerr API key changed.",
+                        logger: _logger);
+                    summary.CredentialsChanged = true;
+                }
 
-        if (backup.SeerrCleanupAgeDays != 0)
-        {
-            config.SeerrCleanupAgeDays = Math.Clamp(
-                backup.SeerrCleanupAgeDays,
-                1,
-                BackupValidator.MaxRetentionDays);
-        }
+                config.SeerrApiKey = truncatedSeerrKey;
+            }
 
-        // Trash settings
-        config.UseTrash = backup.UseTrash;
-        config.TrashFolderPath = string.IsNullOrWhiteSpace(backup.TrashFolderPath)
-            ? ".jellyfin-trash"
-            : backup.TrashFolderPath;
-        config.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
+            // HARDENING-6/BUG-10: null means "absent in backup" (older plugin version or
+            // field omitted), so leave the live value unchanged. A non-null value — including
+            // 0 ("immediate cleanup") — is always applied after clamping.
+            if (backup.SeerrCleanupAgeDays.HasValue)
+            {
+                config.SeerrCleanupAgeDays = Math.Clamp(
+                    backup.SeerrCleanupAgeDays.Value,
+                    0,
+                    BackupValidator.MaxRetentionDays);
+            }
 
-        // Smart Recommendations (only task mode - count and strategy use sensible defaults).
-        // Default to DryRun so importing an older backup enables the Discover UI in read-only mode.
-        config.RecommendationsTaskMode = ParseTaskMode(backup.RecommendationsTaskMode);
+            // Trash settings
+            config.UseTrash = backup.UseTrash;
+            config.TrashFolderPath = string.IsNullOrWhiteSpace(backup.TrashFolderPath)
+                ? ".jellyfin-trash"
+                : backup.TrashFolderPath;
+            config.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
 
-        // Playlist sync toggle - defaults to false for older backups without this field
-        config.SyncRecommendationsToPlaylist = backup.SyncRecommendationsToPlaylist;
+            // Smart Recommendations (only task mode - count and strategy use sensible defaults).
+            // Default to DryRun so importing an older backup enables the Discover UI in read-only mode.
+            config.RecommendationsTaskMode = ParseTaskMode(backup.RecommendationsTaskMode);
 
-        // Discovery user access - defaults to false for older backups without this field
-        config.DiscoveryUserAccessEnabled = backup.DiscoveryUserAccessEnabled;
+            // Playlist sync toggle - defaults to false for older backups without this field
+            config.SyncRecommendationsToPlaylist = backup.SyncRecommendationsToPlaylist;
 
-        // Arr instances — preserve live keys when the backup omitted them, and flag any
-        // credential replacements via CredentialsChanged on the summary.
-        RestoreArrInstances(backup.RadarrInstances, config.RadarrInstances, "Radarr", summary);
-        RestoreArrInstances(backup.SonarrInstances, config.SonarrInstances, "Sonarr", summary);
+            // Discovery user access - defaults to false for older backups without this field
+            config.DiscoveryUserAccessEnabled = backup.DiscoveryUserAccessEnabled;
 
-        _configService.SaveConfiguration();
+            // Arr instances — preserve live keys when the backup omitted them, and flag any
+            // credential replacements via CredentialsChanged on the summary.
+            RestoreArrInstances(backup.RadarrInstances, config.RadarrInstances, "Radarr", summary);
+            RestoreArrInstances(backup.SonarrInstances, config.SonarrInstances, "Sonarr", summary);
+        });
+
         summary.ConfigurationRestored = true;
         _pluginLog.LogInfo("Backup", "Configuration restored from backup.", _logger);
     }

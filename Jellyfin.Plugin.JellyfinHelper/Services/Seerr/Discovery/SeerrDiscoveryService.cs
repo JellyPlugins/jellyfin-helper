@@ -51,7 +51,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <summary>
     ///     Number of top candidates (by pre-score) to enrich with credits data.
-    ///     Credits calls are expensive (1 API call per item × 500ms delay), so we only
+    ///     Credits calls are expensive (1 API call per item), so we only
     ///     enrich the most promising candidates after an initial genre/rating-based pre-score.
     /// </summary>
     private const int CreditsEnrichmentBudget = 20;
@@ -61,6 +61,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     Only top-billed actors (by order) and directors are included.
     /// </summary>
     private const int MaxCastPerCandidate = 10;
+
+    /// <summary>
+    ///     Maximum degree of parallelism for credits enrichment fetches.
+    ///     3 concurrent requests balances throughput against Seerr/TMDb rate limits.
+    /// </summary>
+    private const int CreditsEnrichmentParallelism = 3;
+
+    /// <summary>
+    ///     Per-request timeout for credits enrichment calls, in milliseconds.
+    ///     A single slow Seerr response must not stall the entire enrichment pass.
+    /// </summary>
+    private const int CreditsEnrichmentTimeoutMs = 8_000;
 
     /// <summary>
     ///     Maximum Jellyfin parental rating value that triggers the child-account discovery path.
@@ -321,10 +333,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return (false, "profileId must be 0 or greater.");
         }
 
-        HttpClient client;
+        Uri baseUri;
+        string apiKey;
         try
         {
-            client = CreateClient(config.SeerrUrl, config.SeerrApiKey);
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -336,114 +349,104 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return (false, "Invalid Seerr configuration.");
         }
 
-        using (client)
+        var client = GetSeerrClient();
+        try
         {
-            try
+            var payloadDict = new Dictionary<string, object>
             {
-                var payloadDict = new Dictionary<string, object>
-                {
-                    ["mediaType"] = mediaType,
-                    ["mediaId"] = tmdbId,
-                    ["is4k"] = false
-                };
+                ["mediaType"] = mediaType,
+                ["mediaId"] = tmdbId,
+                ["is4k"] = false
+            };
 
-                // For TV requests, include "seasons": "all" to request all available seasons.
-                // Jellyseerr/Overseerr requires the seasons field to be present for TV requests;
-                // omitting it causes a server-side crash ("Cannot read properties of undefined
-                // (reading 'filter')") because the backend assumes seasons is always defined.
-                // The string "all" is the canonical way to request all seasons in Overseerr API v1.
-                if (mediaType == "tv")
-                {
-                    payloadDict["seasons"] = "all";
-                }
+            // For TV requests, include "seasons": "all" to request all available seasons.
+            // Jellyseerr/Overseerr requires the seasons field to be present for TV requests;
+            // omitting it causes a server-side crash ("Cannot read properties of undefined
+            // (reading 'filter')") because the backend assumes seasons is always defined.
+            // The string "all" is the canonical way to request all seasons in Overseerr API v1.
+            if (mediaType == "tv")
+            {
+                payloadDict["seasons"] = "all";
+            }
 
-                if (seerrUserId is > 0)
-                {
-                    payloadDict["userId"] = seerrUserId.Value;
-                }
+            if (seerrUserId is > 0)
+            {
+                payloadDict["userId"] = seerrUserId.Value;
+            }
 
-                if (serverId.HasValue)
-                {
-                    payloadDict["serverId"] = serverId.Value;
-                }
+            if (serverId.HasValue)
+            {
+                payloadDict["serverId"] = serverId.Value;
+            }
 
-                if (profileId.HasValue)
-                {
-                    payloadDict["profileId"] = profileId.Value;
-                }
+            if (profileId.HasValue)
+            {
+                payloadDict["profileId"] = profileId.Value;
+            }
 
-                if (!string.IsNullOrWhiteSpace(rootFolder))
-                {
-                    payloadDict["rootFolder"] = rootFolder;
-                }
+            if (!string.IsNullOrWhiteSpace(rootFolder))
+            {
+                payloadDict["rootFolder"] = rootFolder;
+            }
 
-                using var content = new StringContent(
-                    JsonSerializer.Serialize(payloadDict, JsonOptions),
-                    Encoding.UTF8,
-                    "application/json");
+            using var content = new StringContent(
+                JsonSerializer.Serialize(payloadDict, JsonOptions),
+                Encoding.UTF8,
+                "application/json");
 
-                using var response = await client.PostAsync(
-                    new Uri("api/v1/request", UriKind.Relative),
-                    content,
-                    cancellationToken).ConfigureAwait(false);
+            using var request = BuildRequest(HttpMethod.Post, baseUri, "api/v1/request", apiKey, content);
+            using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
-                if (response.IsSuccessStatusCode)
-                {
-                    var userInfo = seerrUserId is > 0 ? $" (as user #{seerrUserId})" : string.Empty;
-                    _pluginLog.LogInfo(
-                        "SeerrDiscovery",
-                        $"Request submitted: {mediaType} TMDb#{tmdbId}{userInfo}",
-                        _logger);
-                    return (true, "Request submitted successfully.");
-                }
-
-                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                _pluginLog.LogWarning(
+            if (response.IsSuccessStatusCode)
+            {
+                var userInfo = seerrUserId is > 0 ? $" (as user #{seerrUserId})" : string.Empty;
+                _pluginLog.LogInfo(
                     "SeerrDiscovery",
-                    $"Request failed for TMDb#{tmdbId}: HTTP {(int)response.StatusCode} - {body}",
-                    null,
+                    $"Request submitted: {mediaType} TMDb#{tmdbId}{userInfo}",
                     _logger);
+                return (true, "Request submitted successfully.");
+            }
 
-                // The full error body is already logged above for admin diagnostics.
-                // Only return a generic status code to the client to avoid leaking
-                // internal Seerr server details (hostnames, config paths, stack traces).
-                return (false, $"Seerr returned HTTP {(int)response.StatusCode}. Check the plugin log for details.");
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                _pluginLog.LogWarning(
-                    "SeerrDiscovery",
-                    $"Request timed out for TMDb#{tmdbId}",
-                    ex,
-                    _logger);
-                return (false, "Request timed out.");
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TimeoutException or JsonException)
-            {
-                _pluginLog.LogWarning(
-                    "SeerrDiscovery",
-                    $"Request failed for TMDb#{tmdbId}: {ex.Message}",
-                    ex,
-                    _logger);
-                return (false, "Request failed.");
-            }
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            _pluginLog.LogWarning(
+                "SeerrDiscovery",
+                $"Request failed for TMDb#{tmdbId}: HTTP {(int)response.StatusCode} - {body}",
+                null,
+                _logger);
+
+            // The full error body is already logged above for admin diagnostics.
+            // Only return a generic status code to the client to avoid leaking
+            // internal Seerr server details (hostnames, config paths, stack traces).
+            return (false, $"Seerr returned HTTP {(int)response.StatusCode}. Check the plugin log for details.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _pluginLog.LogWarning(
+                "SeerrDiscovery",
+                $"Request timed out for TMDb#{tmdbId}",
+                ex,
+                _logger);
+            return (false, "Request timed out.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TimeoutException or JsonException)
+        {
+            _pluginLog.LogWarning(
+                "SeerrDiscovery",
+                $"Request failed for TMDb#{tmdbId}: {ex.Message}",
+                ex,
+                _logger);
+            return (false, "Request failed.");
         }
     }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<SeerrUser>> GetSeerrUsersAsync(CancellationToken cancellationToken)
     {
-        var (users, complete) = await FetchSeerrUsersInternalAsync(cancellationToken).ConfigureAwait(false);
-
-        // Only return the roster when all pages were fetched successfully.
-        // A partial result would cause callers to incorrectly treat users on
-        // unfetched pages as "not linked to Seerr". Return empty to signal
-        // that the upstream is temporarily unavailable.
-        return complete ? users : [];
+        return await GetCachedSeerrUsersAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -463,10 +466,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return ([], false);
         }
 
-        HttpClient client;
+        Uri baseUri;
+        string apiKey;
         try
         {
-            client = CreateClient(config.SeerrUrl, config.SeerrApiKey);
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -478,81 +482,83 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return ([], false);
         }
 
-        using (client)
+        var client = GetSeerrClient();
+        try
         {
-            try
+            var allUsers = new List<SeerrUser>();
+            var skip = 0;
+            const int take = 50;
+            const int maxPages = 20; // Safety limit to prevent infinite loops
+            var fetchComplete = true;
+
+            for (var page = 0; page < maxPages; page++)
             {
-                var allUsers = new List<SeerrUser>();
-                var skip = 0;
-                const int take = 50;
-                const int maxPages = 20; // Safety limit to prevent infinite loops
-                var fetchComplete = true;
+                cancellationToken.ThrowIfCancellationRequested();
 
-                for (var page = 0; page < maxPages; page++)
+                using var userRequest = BuildRequest(
+                    HttpMethod.Get,
+                    baseUri,
+                    $"api/v1/user?take={take}&skip={skip}&sort=displayname",
+                    apiKey,
+                    content: null);
+                using var response = await client.SendAsync(userRequest, cancellationToken).ConfigureAwait(false);
+
+                if (!response.IsSuccessStatusCode)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    using var response = await client.GetAsync(
-                        new Uri($"api/v1/user?take={take}&skip={skip}&sort=displayname", UriKind.Relative),
-                        cancellationToken).ConfigureAwait(false);
-
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        _pluginLog.LogWarning(
-                            "SeerrDiscovery",
-                            $"User list pagination failed at skip={skip}: HTTP {(int)response.StatusCode}. Returning partial result ({allUsers.Count} users fetched so far).",
-                            null,
-                            _logger);
-                        fetchComplete = false;
-                        break;
-                    }
-
-                    var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                    var pageResult = JsonSerializer.Deserialize<SeerrUserPage>(json, JsonOptions);
-                    if (pageResult?.Results == null || pageResult.Results.Count == 0)
-                    {
-                        break;
-                    }
-
-                    allUsers.AddRange(pageResult.Results);
-
-                    // Stop if we've fetched all pages or no more results
-                    var totalPages = pageResult.PageInfo?.Pages ?? 1;
-                    var currentPage = (skip / take) + 1;
-                    if (currentPage >= totalPages || pageResult.Results.Count < take)
-                    {
-                        break;
-                    }
-
-                    skip += take;
-
-                    // Safety: if this is the last allowed iteration, mark as incomplete
-                    if (page == maxPages - 1)
-                    {
-                        _pluginLog.LogWarning(
-                            "SeerrDiscovery",
-                            $"User list pagination hit the {maxPages}-page safety cap ({allUsers.Count} users fetched). Returning partial result.",
-                            null,
-                            _logger);
-                        fetchComplete = false;
-                    }
+                    _pluginLog.LogWarning(
+                        "SeerrDiscovery",
+                        $"User list pagination failed at skip={skip}: HTTP {(int)response.StatusCode}. Returning partial result ({allUsers.Count} users fetched so far).",
+                        null,
+                        _logger);
+                    fetchComplete = false;
+                    break;
                 }
 
-                return (allUsers, fetchComplete);
+                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var pageResult = JsonSerializer.Deserialize<SeerrUserPage>(json, JsonOptions);
+                if (pageResult?.Results == null || pageResult.Results.Count == 0)
+                {
+                    break;
+                }
+
+                allUsers.AddRange(pageResult.Results);
+
+                // Stop if we've fetched all pages or no more results
+                var totalPages = pageResult.PageInfo?.Pages ?? 1;
+                var currentPage = (skip / take) + 1;
+                if (currentPage >= totalPages || pageResult.Results.Count < take)
+                {
+                    break;
+                }
+
+                skip += take;
+
+                // Safety: if this is the last allowed iteration, mark as incomplete
+                if (page == maxPages - 1)
+                {
+                    _pluginLog.LogWarning(
+                        "SeerrDiscovery",
+                        $"User list pagination hit the {maxPages}-page safety cap ({allUsers.Count} users fetched). Returning partial result.",
+                        null,
+                        _logger);
+                    fetchComplete = false;
+                }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
-            {
-                _pluginLog.LogWarning(
-                    "SeerrDiscovery",
-                    $"Failed to fetch Seerr users: {ex.Message}",
-                    ex,
-                    _logger);
-                return ([], false);
-            }
+
+            return (allUsers, fetchComplete);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            _pluginLog.LogWarning(
+                "SeerrDiscovery",
+                $"Failed to fetch Seerr users: {ex.Message}",
+                ex,
+                _logger);
+            return ([], false);
         }
     }
 
@@ -589,10 +595,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return ([], true);
         }
 
-        HttpClient client;
+        Uri baseUri;
+        string apiKey;
         try
         {
-            client = CreateClient(config.SeerrUrl, config.SeerrApiKey);
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -604,92 +611,89 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return ([], false);
         }
 
-        using (client)
+        var client = GetSeerrClient();
+        try
         {
-            try
-            {
-                using var listResponse = await client.GetAsync(
-                    new Uri($"api/v1/service/{serviceType}", UriKind.Relative),
-                    cancellationToken).ConfigureAwait(false);
+            using var listRequest = BuildRequest(HttpMethod.Get, baseUri, $"api/v1/service/{serviceType}", apiKey);
+            using var listResponse = await client.SendAsync(listRequest, cancellationToken).ConfigureAwait(false);
 
-                if (!listResponse.IsSuccessStatusCode)
-                {
-                    _pluginLog.LogWarning(
-                        "SeerrDiscovery",
-                        $"Failed to fetch Seerr {serviceType} services: HTTP {(int)listResponse.StatusCode}.",
-                        null,
-                        _logger);
-                    return ([], false);
-                }
-
-                var listJson = await listResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var servers = JsonSerializer.Deserialize<List<SeerrServiceInfo>>(listJson, JsonOptions);
-                if (servers == null || servers.Count == 0)
-                {
-                    // Successfully fetched but no servers configured
-                    return ([], true);
-                }
-
-                const int maxServerIterations = 10;
-                var enrichedServers = new List<SeerrServiceInfo>();
-                foreach (var server in servers.Take(maxServerIterations))
-                {
-                    try
-                    {
-                        using var detailResponse = await client.GetAsync(
-                            new Uri($"api/v1/service/{serviceType}/{server.Id}", UriKind.Relative),
-                            cancellationToken).ConfigureAwait(false);
-
-                        if (detailResponse.IsSuccessStatusCode)
-                        {
-                            var detailJson = await detailResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                            var detail = JsonSerializer.Deserialize<SeerrServiceInfo>(detailJson, JsonOptions);
-                            if (detail != null)
-                            {
-                                server.Profiles = detail.Profiles;
-                                server.RootFolders = detail.RootFolders;
-                                server.ActiveProfileId = detail.ActiveProfileId;
-                                server.ActiveDirectory = detail.ActiveDirectory;
-                            }
-                        }
-                        else
-                        {
-                            _pluginLog.LogDebug(
-                                "SeerrDiscovery",
-                                $"Failed to fetch profiles for {serviceType} server #{server.Id}: HTTP {(int)detailResponse.StatusCode}.",
-                                _logger);
-                        }
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
-                    {
-                        _pluginLog.LogDebug(
-                            "SeerrDiscovery",
-                            $"Failed to fetch profiles for {serviceType} server #{server.Id}: {ex.Message}",
-                            _logger);
-                    }
-
-                    enrichedServers.Add(server);
-                }
-
-                return (enrichedServers, true);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+            if (!listResponse.IsSuccessStatusCode)
             {
                 _pluginLog.LogWarning(
                     "SeerrDiscovery",
-                    $"Failed to fetch Seerr {serviceType} service info: {ex.Message}",
-                    ex,
+                    $"Failed to fetch Seerr {serviceType} services: HTTP {(int)listResponse.StatusCode}.",
+                    null,
                     _logger);
                 return ([], false);
             }
+
+            var listJson = await listResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var servers = JsonSerializer.Deserialize<List<SeerrServiceInfo>>(listJson, JsonOptions);
+            if (servers == null || servers.Count == 0)
+            {
+                // Successfully fetched but no servers configured
+                return ([], true);
+            }
+
+            const int maxServerIterations = 10;
+            var enrichedServers = new List<SeerrServiceInfo>();
+            foreach (var server in servers.Take(maxServerIterations))
+            {
+                try
+                {
+                    using var detailRequest = BuildRequest(
+                        HttpMethod.Get, baseUri, $"api/v1/service/{serviceType}/{server.Id}", apiKey);
+                    using var detailResponse = await client.SendAsync(detailRequest, cancellationToken).ConfigureAwait(false);
+
+                    if (detailResponse.IsSuccessStatusCode)
+                    {
+                        var detailJson = await detailResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                        var detail = JsonSerializer.Deserialize<SeerrServiceInfo>(detailJson, JsonOptions);
+                        if (detail != null)
+                        {
+                            server.Profiles = detail.Profiles;
+                            server.RootFolders = detail.RootFolders;
+                            server.ActiveProfileId = detail.ActiveProfileId;
+                            server.ActiveDirectory = detail.ActiveDirectory;
+                        }
+                    }
+                    else
+                    {
+                        _pluginLog.LogDebug(
+                            "SeerrDiscovery",
+                            $"Failed to fetch profiles for {serviceType} server #{server.Id}: HTTP {(int)detailResponse.StatusCode}.",
+                            _logger);
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
+                {
+                    _pluginLog.LogDebug(
+                        "SeerrDiscovery",
+                        $"Failed to fetch profiles for {serviceType} server #{server.Id}: {ex.Message}",
+                        _logger);
+                }
+
+                enrichedServers.Add(server);
+            }
+
+            return (enrichedServers, true);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            _pluginLog.LogWarning(
+                "SeerrDiscovery",
+                $"Failed to fetch Seerr {serviceType} service info: {ex.Message}",
+                ex,
+                _logger);
+            return ([], false);
         }
     }
 
@@ -1073,10 +1077,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Determine user's primary language for language-based discovery
         var primaryLanguage = GetPrimaryLanguageForDiscovery(profile);
 
-        HttpClient client;
+        Uri baseUri;
+        string apiKey;
         try
         {
-            client = CreateClient(config.SeerrUrl, config.SeerrApiKey);
+            (baseUri, apiKey) = ValidateSeerrConfig(config.SeerrUrl, config.SeerrApiKey);
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException)
         {
@@ -1088,7 +1093,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             return null;
         }
 
-        using (client)
+        var client = GetSeerrClient();
         {
             var allCandidates = new List<TmdbDiscoverItem>();
 
@@ -1104,32 +1109,32 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 {
                     // For child accounts: query Family genre for movies, Kids for TV
                     var familyItems = await ExecuteDiscoverQueryAsync(
-                        client, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=1", cancellationToken).ConfigureAwait(false);
+                        client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=1", cancellationToken).ConfigureAwait(false);
                     allCandidates.AddRange(familyItems);
 
                     var familyItems2 = await ExecuteDiscoverQueryAsync(
-                        client, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=2", cancellationToken).ConfigureAwait(false);
+                        client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreFamily}?page=2", cancellationToken).ConfigureAwait(false);
                     allCandidates.AddRange(familyItems2);
 
                     // Animation + Family for movies (children's animation)
                     var animItems = await ExecuteDiscoverQueryAsync(
-                        client, $"api/v1/discover/movies/genre/{TmdbGenreAnimation}?page=1", cancellationToken).ConfigureAwait(false);
+                        client, baseUri, apiKey, $"api/v1/discover/movies/genre/{TmdbGenreAnimation}?page=1", cancellationToken).ConfigureAwait(false);
                     allCandidates.AddRange(animItems);
 
                     // Kids TV genre
                     var kidsItems = await ExecuteDiscoverQueryAsync(
-                        client, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=1", cancellationToken).ConfigureAwait(false);
+                        client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=1", cancellationToken).ConfigureAwait(false);
                     StampMediaType(kidsItems, "tv");
                     allCandidates.AddRange(kidsItems);
 
                     var kidsItems2 = await ExecuteDiscoverQueryAsync(
-                        client, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=2", cancellationToken).ConfigureAwait(false);
+                        client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreTvKids}?page=2", cancellationToken).ConfigureAwait(false);
                     StampMediaType(kidsItems2, "tv");
                     allCandidates.AddRange(kidsItems2);
 
                     // Family TV genre
                     var familyTvItems = await ExecuteDiscoverQueryAsync(
-                        client, $"api/v1/discover/tv/genre/{TmdbGenreFamily}?page=1", cancellationToken).ConfigureAwait(false);
+                        client, baseUri, apiKey, $"api/v1/discover/tv/genre/{TmdbGenreFamily}?page=1", cancellationToken).ConfigureAwait(false);
                     StampMediaType(familyTvItems, "tv");
                     allCandidates.AddRange(familyTvItems);
                 }
@@ -1140,7 +1145,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     foreach (var genreId in movieGenreIds)
                     {
                         var items = await ExecuteDiscoverQueryAsync(
-                            client, $"api/v1/discover/movies/genre/{genreId}?page=1", cancellationToken).ConfigureAwait(false);
+                            client, baseUri, apiKey, $"api/v1/discover/movies/genre/{genreId}?page=1", cancellationToken).ConfigureAwait(false);
                         allCandidates.AddRange(items);
                     }
 
@@ -1148,7 +1153,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     foreach (var genreId in tvGenreIds)
                     {
                         var items = await ExecuteDiscoverQueryAsync(
-                            client, $"api/v1/discover/tv/genre/{genreId}?page=1", cancellationToken).ConfigureAwait(false);
+                            client, baseUri, apiKey, $"api/v1/discover/tv/genre/{genreId}?page=1", cancellationToken).ConfigureAwait(false);
                         StampMediaType(items, "tv");
                         allCandidates.AddRange(items);
                     }
@@ -1157,14 +1162,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     if (movieGenreIds.Count > 0)
                     {
                         var items = await ExecuteDiscoverQueryAsync(
-                            client, $"api/v1/discover/movies/genre/{movieGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
+                            client, baseUri, apiKey, $"api/v1/discover/movies/genre/{movieGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
                         allCandidates.AddRange(items);
                     }
 
                     if (tvGenreIds.Count > 0)
                     {
                         var items = await ExecuteDiscoverQueryAsync(
-                            client, $"api/v1/discover/tv/genre/{tvGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
+                            client, baseUri, apiKey, $"api/v1/discover/tv/genre/{tvGenreIds[0]}?page=2", cancellationToken).ConfigureAwait(false);
                         StampMediaType(items, "tv");
                         allCandidates.AddRange(items);
                     }
@@ -1173,11 +1178,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     if (!string.IsNullOrEmpty(primaryLanguage))
                     {
                         var langMovies = await ExecuteDiscoverQueryAsync(
-                            client, $"api/v1/discover/movies/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
+                            client, baseUri, apiKey, $"api/v1/discover/movies/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
                         allCandidates.AddRange(langMovies);
 
                         var langTv = await ExecuteDiscoverQueryAsync(
-                            client, $"api/v1/discover/tv/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
+                            client, baseUri, apiKey, $"api/v1/discover/tv/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
                         StampMediaType(langTv, "tv");
                         allCandidates.AddRange(langTv);
                     }
@@ -1249,7 +1254,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             if (preferredPeople.Count > 0 && enrichmentCandidates.Count > 0)
             {
                 await EnrichTopCandidatesWithCreditsAsync(
-                    client, enrichmentCandidates, cancellationToken).ConfigureAwait(false);
+                    client, baseUri, apiKey, enrichmentCandidates, cancellationToken).ConfigureAwait(false);
 
                 var enrichedCount = enrichmentCandidates.Count(c => c.KnownPeople != null);
                 _pluginLog.LogDebug(
@@ -1317,6 +1322,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     private async Task<List<TmdbDiscoverItem>> ExecuteDiscoverQueryAsync(
         HttpClient client,
+        Uri baseUri,
+        string apiKey,
         string queryPath,
         CancellationToken cancellationToken)
     {
@@ -1324,9 +1331,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         try
         {
-            using var response = await client.GetAsync(
-                new Uri(queryPath, UriKind.Relative),
-                cancellationToken).ConfigureAwait(false);
+            using var request = BuildRequest(HttpMethod.Get, baseUri, queryPath, apiKey);
+            using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -1581,99 +1587,104 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     ///     Enriches the top candidates with credits (cast/director) data from Seerr.
     ///     Fetches /api/v1/movie/{id} or /api/v1/tv/{id} for each candidate and populates
     ///     the <see cref="TmdbDiscoverItem.KnownPeople"/> list with top-billed actors and directors.
-    ///     Respects rate limiting with inter-query delay.
+    ///     Runs up to <see cref="CreditsEnrichmentParallelism"/> fetches concurrently, each
+    ///     bounded by <see cref="CreditsEnrichmentTimeoutMs"/> so a single slow response
+    ///     cannot stall the whole enrichment pass.
     /// </summary>
     private async Task EnrichTopCandidatesWithCreditsAsync(
         HttpClient client,
+        Uri baseUri,
+        string apiKey,
         List<TmdbDiscoverItem> candidates,
         CancellationToken cancellationToken)
     {
-        foreach (var candidate in candidates)
+        var semaphore = new SemaphoreSlim(CreditsEnrichmentParallelism, CreditsEnrichmentParallelism);
+        var tasks = candidates.Select(async candidate =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            var mediaPath = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
-                ? $"api/v1/tv/{candidate.Id}"
-                : $"api/v1/movie/{candidate.Id}";
-
+            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                using var response = await client.GetAsync(
-                    new Uri(mediaPath, UriKind.Relative),
-                    cancellationToken).ConfigureAwait(false);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(TimeSpan.FromMilliseconds(CreditsEnrichmentTimeoutMs));
 
-                if (!response.IsSuccessStatusCode)
+                var mediaPath = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
+                    ? $"api/v1/tv/{candidate.Id}"
+                    : $"api/v1/movie/{candidate.Id}";
+
+                try
                 {
-                    continue;
-                }
+                    using var req = BuildRequest(HttpMethod.Get, baseUri, mediaPath, apiKey);
+                    using var response = await client.SendAsync(req, cts.Token).ConfigureAwait(false);
 
-                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>(json, JsonOptions);
-
-                if (detail?.Credits == null)
-                {
-                    continue;
-                }
-
-                var people = new List<string>(MaxCastPerCandidate);
-
-                // Add directors first (high signal value), capped to leave room for actors.
-                if (detail.Credits.Crew is { Count: > 0 })
-                {
-                    foreach (var crew in detail.Credits.Crew.Where(
-                        c => string.Equals(c.Job, "Director", StringComparison.OrdinalIgnoreCase)
-                             && !string.IsNullOrWhiteSpace(c.Name)))
+                    if (!response.IsSuccessStatusCode)
                     {
-                        if (people.Count >= MaxCastPerCandidate)
+                        return;
+                    }
+
+                    var json = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+                    var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>(json, JsonOptions);
+
+                    if (detail?.Credits == null)
+                    {
+                        return;
+                    }
+
+                    var people = new List<string>(MaxCastPerCandidate);
+
+                    if (detail.Credits.Crew is { Count: > 0 })
+                    {
+                        foreach (var crew in detail.Credits.Crew.Where(
+                            c => string.Equals(c.Job, "Director", StringComparison.OrdinalIgnoreCase)
+                                 && !string.IsNullOrWhiteSpace(c.Name)))
                         {
-                            break;
+                            if (people.Count >= MaxCastPerCandidate)
+                            {
+                                break;
+                            }
+
+                            people.Add(crew.Name);
                         }
-
-                        people.Add(crew.Name);
                     }
-                }
 
-                // Add top-billed actors (sorted by order)
-                if (detail.Credits.Cast is { Count: > 0 })
-                {
-                    var actorsToTake = MaxCastPerCandidate - people.Count;
-                    if (actorsToTake > 0)
+                    if (detail.Credits.Cast is { Count: > 0 })
                     {
-                        var topActors = detail.Credits.Cast
-                            .Where(c => !string.IsNullOrWhiteSpace(c.Name))
-                            .OrderBy(c => c.Order)
-                            .Take(actorsToTake)
-                            .Select(c => c.Name);
-                        people.AddRange(topActors);
+                        var actorsToTake = MaxCastPerCandidate - people.Count;
+                        if (actorsToTake > 0)
+                        {
+                            var topActors = detail.Credits.Cast
+                                .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+                                .OrderBy(c => c.Order)
+                                .Take(actorsToTake)
+                                .Select(c => c.Name);
+                            people.AddRange(topActors);
+                        }
+                    }
+
+                    if (people.Count > 0)
+                    {
+                        candidate.KnownPeople = people;
                     }
                 }
-
-                if (people.Count > 0)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    candidate.KnownPeople = people;
+                    throw;
                 }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
-            {
-                _pluginLog.LogDebug(
-                    "SeerrDiscovery",
-                    $"Credits enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
-                    _logger);
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException or OperationCanceledException)
+                {
+                    _pluginLog.LogDebug(
+                        "SeerrDiscovery",
+                        $"Credits enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
+                        _logger);
+                }
             }
             finally
             {
-                // Skip the rate-limit delay if cancellation has been requested —
-                // no point sleeping when the entire operation is being torn down.
-                if (!cancellationToken.IsCancellationRequested)
-                {
-                    await Task.Delay(InterQueryDelay, cancellationToken).ConfigureAwait(false);
-                }
+                semaphore.Release();
             }
-        }
+        }).ToList();
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1711,10 +1722,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         return ("reasonPopular", null);
     }
 
-    private HttpClient CreateClient(string baseUrl, string apiKey)
+    /// <summary>
+    ///     Validates the Seerr base URL and API key and returns a pre-computed base
+    ///     <see cref="Uri"/> and the sanitised key.  Does NOT retrieve or mutate an
+    ///     <see cref="HttpClient"/> — callers obtain the client separately via
+    ///     <see cref="GetSeerrClient"/> and attach headers per-request with
+    ///     <see cref="BuildRequest"/>.
+    /// </summary>
+    /// <returns>A tuple of (normalised base URI, apiKey).</returns>
+    /// <exception cref="UriFormatException">Thrown when the URL is not a valid http/https URI.</exception>
+    /// <exception cref="ArgumentException">Thrown when the API key is empty or contains CR/LF.</exception>
+    private static (Uri BaseUri, string ApiKey) ValidateSeerrConfig(string baseUrl, string apiKey)
     {
-        var client = _httpClientFactory.CreateClient("SeerrDiscovery");
-
         if (!Uri.TryCreate(baseUrl?.Trim(), UriKind.Absolute, out var parsedBaseUrl) ||
             (parsedBaseUrl.Scheme != Uri.UriSchemeHttp && parsedBaseUrl.Scheme != Uri.UriSchemeHttps))
         {
@@ -1728,13 +1747,41 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         EnsureApiKeyHeaderSafe(apiKey);
 
-        client.BaseAddress = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
+        var baseUri = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
+        return (baseUri, apiKey);
+    }
 
-        client.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", apiKey);
-        client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/json"));
+    /// <summary>
+    ///     Returns a non-owning <see cref="HttpClient"/> from the factory.
+    ///     The client must NOT be disposed — its lifetime is managed by
+    ///     <see cref="IHttpClientFactory"/>.
+    /// </summary>
+    private HttpClient GetSeerrClient() =>
+        _httpClientFactory.CreateClient("SeerrDiscovery");
 
-        return client;
+    /// <summary>
+    ///     Builds an <see cref="HttpRequestMessage"/> with per-request authentication headers.
+    ///     Headers are set on the message, never on <c>HttpClient.DefaultRequestHeaders</c>,
+    ///     so concurrent callers sharing the same pooled handler cannot observe each other's
+    ///     headers and duplicate-header accumulation is eliminated.
+    /// </summary>
+    private static HttpRequestMessage BuildRequest(
+        HttpMethod method,
+        Uri baseUri,
+        string relPath,
+        string apiKey,
+        HttpContent? content = null)
+    {
+        var requestUri = new Uri(baseUri, relPath);
+        var request = new HttpRequestMessage(method, requestUri);
+        request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        if (content != null)
+        {
+            request.Content = content;
+        }
+
+        return request;
     }
 
     /// <summary>

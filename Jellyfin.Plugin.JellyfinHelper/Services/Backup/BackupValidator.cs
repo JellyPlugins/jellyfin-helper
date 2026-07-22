@@ -192,12 +192,13 @@ public static class BackupValidator
                 $"TrashRetentionDays out of range: {backup.TrashRetentionDays}. Must be 0–{MaxRetentionDays}.");
         }
 
-        // Older backups do not contain this field and deserialize it as 0 - treat as absent.
-        if (backup.SeerrCleanupAgeDays != 0 &&
-            backup.SeerrCleanupAgeDays is < 1 or > MaxRetentionDays)
+        // null means absent (older backup version) — no range validation needed.
+        // 0 is a valid "immediate cleanup" value; the upper bound is MaxRetentionDays.
+        if (backup.SeerrCleanupAgeDays.HasValue &&
+            backup.SeerrCleanupAgeDays.Value is < 0 or > MaxRetentionDays)
         {
             result.Errors.Add(
-                $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 1–{MaxRetentionDays}.");
+                $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays.Value}. Must be 0–{MaxRetentionDays}.");
         }
 
         // Path validation for trash folder — defence in depth:

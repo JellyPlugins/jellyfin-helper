@@ -29,12 +29,21 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 ### Fixed
 - **Recommendations sometimes silently drifted** - Four subtle bugs where training and live scoring used slightly different formulas (weekend detection, popularity, box-set progression, discovery feedback). Your recommendations are now trained on exactly the same signals they're scored on.
 - **Rare "lost save" on Windows** - Cache and state files could occasionally be dropped when an antivirus scanner briefly held the target file. All writes now retry automatically.
+- **HTTP connection pool exhaustion under load** - The Seerr HTTP client was incorrectly disposed after each call, destroying the connection pool. All calls now share the factory-managed handler correctly.
+- **Duplicate API-key headers on repeated Seerr calls** - The `X-Api-Key` header was appended to the shared client on every call instead of being set per request, causing header accumulation. Each request now carries its own headers.
+- **Backup restore credential race** - A concurrent config save during restore could silently mix fields from two sources. The entire read-mutate-save sequence is now lock-guarded.
+- **Partial restore inconsistency** - Historical data files (timeline, baseline) are now written *before* the configuration is saved, eliminating the window where credentials were updated but data was still stale on a failed file write.
+- **`SeerrCleanupAgeDays = 0` treated as absent in backup** - A legitimate zero value was silently skipped during restore. The field is now nullable so `null` means absent and `0` means immediate cleanup.
+- **Backup restore accepted `file://` URLs** - The `SeerrUrl` field in a backup was applied without scheme validation. Only `http://` and `https://` URLs are now accepted during restore.
+
+### Improved
+- **Discovery credits enrichment 15× faster** - The per-user credits enrichment loop (up to 20 Seerr API calls) now runs with 3-way concurrency instead of sequentially. Worst-case per-user time drops from ~610 s to ~40 s. Each call also has a 5 s individual timeout so a single slow response no longer blocks the rest.
 
 ### Breaking
 - **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.6 (served from the same plugin repository).
 
 ### Tests
-- Total: **3953 tests** (+1628 vs. v2.1.0.6).
+- Total: **3970 tests** (+1645 vs. v2.1.0.6).
 
 ---
 

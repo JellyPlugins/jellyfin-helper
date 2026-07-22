@@ -1,3 +1,4 @@
+using System;
 using System.Net;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
@@ -186,6 +187,8 @@ public static class TestMockFactory
     /// <summary>
     /// Creates a new <see cref="Mock{IPluginConfigurationService}"/> with sensible defaults.
     /// Returns a fresh <see cref="PluginConfiguration"/> so tests don't depend on Plugin.Instance.
+    /// <see cref="IPluginConfigurationService.ReadAndMutate"/> is stubbed to immediately invoke
+    /// the delegate on the same config object returned by <see cref="IPluginConfigurationService.GetConfiguration"/>.
     /// </summary>
     public static Mock<IPluginConfigurationService> CreateConfigurationService(PluginConfiguration? config = null)
     {
@@ -194,7 +197,20 @@ public static class TestMockFactory
         mock.Setup(s => s.GetConfiguration()).Returns(cfg);
         mock.Setup(s => s.IsInitialized).Returns(true);
         mock.Setup(s => s.PluginVersion).Returns("1.0.0-test");
+        SetupReadAndMutate(mock, cfg);
         return mock;
+    }
+
+    /// <summary>
+    /// Wires <see cref="IPluginConfigurationService.ReadAndMutate"/> on <paramref name="mock"/>
+    /// so that the callback is immediately invoked on <paramref name="cfg"/>.
+    /// Call this whenever a test mock needs to support the atomic read-mutate-save path used
+    /// by <c>BackupService.RestoreConfiguration</c> (and any future callers of ReadAndMutate).
+    /// </summary>
+    public static void SetupReadAndMutate(Mock<IPluginConfigurationService> mock, PluginConfiguration cfg)
+    {
+        mock.Setup(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()))
+            .Callback<Action<PluginConfiguration>>(mutate => mutate(cfg));
     }
 
     /// <summary>

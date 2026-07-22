@@ -1290,7 +1290,7 @@ public class BackupServiceTests
             configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
             configMock.Setup(c => c.IsInitialized).Returns(true);
             configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
-            configMock.Setup(c => c.SaveConfiguration());
+            TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
 
             var service = new BackupService(tempDir, configMock.Object,
                 TestMockFactory.CreatePluginLogService(),
@@ -1330,7 +1330,7 @@ public class BackupServiceTests
             configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
             configMock.Setup(c => c.IsInitialized).Returns(true);
             configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
-            configMock.Setup(c => c.SaveConfiguration());
+            TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
 
             var service = new BackupService(tempDir, configMock.Object,
                 TestMockFactory.CreatePluginLogService(),
@@ -1365,7 +1365,7 @@ public class BackupServiceTests
             configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
             configMock.Setup(c => c.IsInitialized).Returns(true);
             configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
-            configMock.Setup(c => c.SaveConfiguration());
+            TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
 
             var service = new BackupService(tempDir, configMock.Object,
                 pluginLogMock.Object,
