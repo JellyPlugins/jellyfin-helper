@@ -239,10 +239,14 @@ internal static class TrainingDataBuilder
 
             // Build watched genre/people/studio sets for ContentNearestNeighborScore computation.
             // Mirrors Engine.GenerateForUser() logic: parallel lists indexed by watched item.
+            // Use HasMeaningfulInteraction() to match the live inference path (which includes
+            // PlayCount > 0 and PlaybackPositionTicks > 0 items, not just Played || IsFavorite).
+            // Using a narrower filter here would produce a smaller watched set at training time
+            // than at inference, creating a train/serve skew for ContentNearestNeighborScore.
             var watchedGenreSets = new List<HashSet<string>>();
             var watchedPeopleSets = new List<HashSet<string>>();
             var watchedStudioSets = new List<HashSet<string>>();
-            foreach (var w in userProfile.WatchedItems.Where(w => w.Played || w.IsFavorite))
+            foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
             {
                 watchedGenreSets.Add(
                     w.Genres is { Count: > 0 }
@@ -586,6 +590,30 @@ internal static class TrainingDataBuilder
             // items (movies, series-level favorites without SeriesId) are emitted 1:1 as before.
             var aggregatedSeriesIds = new HashSet<Guid>();
 
+            // Build per-user BoxSet counts for Phase 2 organic items so that standalone organic
+            // movies/series receive a real CollectionProgressionBoost feature rather than the
+            // hardcoded 0.0 that would create a train/serve skew (the live scoring path always
+            // computes the real boost via Engine.ComputeCollectionProgressionBoostLive).
+            var watchedBoxSetCountsOrganic = new Dictionary<Guid, int>();
+            foreach (var watchedId in BuildWatchedIdSet(
+                         userProfile.WatchedItems.Select(w => w.ItemId).ToHashSet(),
+                         userProfile.WatchedItems
+                             .Where(w => w.SeriesId.HasValue)
+                             .Select(w => w.SeriesId!.Value)
+                             .ToHashSet()))
+            {
+                if (!itemBoxSetIdsLookup.TryGetValue(watchedId, out var orgBoxSetIds))
+                {
+                    continue;
+                }
+
+                foreach (var boxSetId in orgBoxSetIds)
+                {
+                    watchedBoxSetCountsOrganic.TryGetValue(boxSetId, out var cnt);
+                    watchedBoxSetCountsOrganic[boxSetId] = cnt + 1;
+                }
+            }
+
             foreach (var w in userProfile.WatchedItems)
             {
                 // Include played OR favorited items that were NEVER recommended (organic discoveries).
@@ -734,7 +762,9 @@ internal static class TrainingDataBuilder
                     PeopleSimilarity = peopleSimilarity,
                     StudioMatch = studioMatch,
                     SeriesProgressionBoost = seriesProgressionBoost,
-                    PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
+                    CollectionProgressionBoost = itemBoxSetIdsLookup.TryGetValue(w.ItemId, out var orgBoxSetIds2)
+                        ? ComputeCollectionProgressionBoostWithCounts(orgBoxSetIds2, watchedBoxSetCountsOrganic)
+                        : 0.0,
                     DayOfWeekAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenreSet, userProfile, isDay: true),
                     HourOfDayAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenreSet, userProfile, isDay: false),
                     // Shared IsWeekend resolver: user-anchored, falls back to organic LastPlayedDate. See FIX-1.
@@ -832,10 +862,11 @@ internal static class TrainingDataBuilder
                     perUserCache[userProfile.UserId];
 
                 // Build watched genre/people/studio sets for ContentNearestNeighborScore (mirrors Phase 1).
+                // Use HasMeaningfulInteraction() for train/serve parity — see Phase 1 comment above.
                 var watchedGenreSetsNeg = new List<HashSet<string>>();
                 var watchedPeopleSetsNeg = new List<HashSet<string>>();
                 var watchedStudioSetsNeg = new List<HashSet<string>>();
-                foreach (var w in userProfile.WatchedItems.Where(w => w.Played || w.IsFavorite))
+                foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
                 {
                     watchedGenreSetsNeg.Add(
                         w.Genres is { Count: > 0 }

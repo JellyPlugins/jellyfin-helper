@@ -62,8 +62,14 @@ public static class ConfigurationRequestValidator
             return "Seerr URL must be a valid http:// or https:// URL.";
         }
 
-        // If Seerr URL is set, API key must also be set
-        if (!string.IsNullOrWhiteSpace(request.SeerrUrl) && string.IsNullOrWhiteSpace(request.SeerrApiKey))
+        // If Seerr URL is set, API key must also be set.
+        // The mask sentinel ("***") echoed back by the client is not a real credential;
+        // treat it the same as whitespace so a first-time save (or a URL change where
+        // the stored key could not be restored) is rejected rather than silently accepted
+        // and then written as an empty key by ApplyRequestToConfig.
+        var apiKeyBlank = string.IsNullOrWhiteSpace(request.SeerrApiKey) ||
+                          string.Equals(request.SeerrApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal);
+        if (!string.IsNullOrWhiteSpace(request.SeerrUrl) && apiKeyBlank)
         {
             return "Seerr API key is required when a Seerr URL is configured.";
         }
@@ -75,6 +81,15 @@ public static class ConfigurationRequestValidator
             return trashPathError;
         }
 
+        // Language must be one of the supported UI locales. Rejecting arbitrary values prevents
+        // a path-traversal risk when downstream code constructs a translation file path by
+        // combining the base directory with the language key.
+        if (!string.IsNullOrWhiteSpace(request.Language) &&
+            !SupportedLanguages.Contains(request.Language))
+        {
+            return $"Language '{request.Language}' is not supported. Allowed values: {string.Join(", ", SupportedLanguages)}.";
+        }
+
         // Arr instance format validation (multi-instance lists)
         var error = ValidateArrInstances(request.RadarrInstances, "Radarr");
 
@@ -82,6 +97,15 @@ public static class ConfigurationRequestValidator
 
         return error;
     }
+
+    /// <summary>Supported UI language codes. Must stay in sync with the translation file set.</summary>
+    private static readonly HashSet<string> SupportedLanguages = new(StringComparer.Ordinal)
+    {
+        "en", "de", "fr", "es", "pt", "zh", "tr"
+    };
+
+    /// <summary>Returns <c>true</c> when <paramref name="language"/> is a supported UI locale code.</summary>
+    public static bool IsLanguageSupported(string language) => SupportedLanguages.Contains(language);
 
     /// <summary>
     ///     Performs strict validation of the trash folder path and returns an error message for obviously

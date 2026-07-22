@@ -121,6 +121,13 @@ public sealed class DiscoveryCacheService : IDisposable
     /// <param name="tmdbId">The TMDb ID of the item to remove.</param>
     /// <param name="mediaType">The media type ("movie" or "tv").</param>
     /// <param name="userId">The Jellyfin user ID. Only removes from this user's list.</param>
+    /// <remarks>
+    ///     <b>Do not call from a thread with a synchronization context (e.g. an ASP.NET request
+    ///     thread).</b>  The underlying <see cref="RemoveItemLocked"/> is async; bridging async→sync
+    ///     via <c>GetAwaiter().GetResult()</c> inside a SemaphoreSlim can deadlock when the
+    ///     continuation tries to resume on the same context that is blocked on GetResult().
+    ///     Use <see cref="RemoveItemAsync"/> on all request-driven paths.
+    /// </remarks>
     public void RemoveItem(int tmdbId, string mediaType, Guid userId)
     {
         _fileLock.Wait();
@@ -291,6 +298,12 @@ public sealed class DiscoveryCacheService : IDisposable
     /// </summary>
     /// <param name="tmdbId">The TMDb ID of the requested item.</param>
     /// <param name="mediaType">The media type ("movie" or "tv") to match against. Required because TMDb movie and TV IDs are separate namespaces.</param>
+    /// <remarks>
+    ///     <b>Do not call from a thread with a synchronization context (e.g. an ASP.NET request
+    ///     thread).</b>  The underlying <see cref="MarkAsRequestedLocked"/> is async; bridging
+    ///     async→sync via <c>GetAwaiter().GetResult()</c> inside a SemaphoreSlim can deadlock.
+    ///     Use <see cref="MarkAsRequestedAsync"/> on all request-driven paths.
+    /// </remarks>
     public void MarkAsRequested(int tmdbId, string mediaType)
     {
         _fileLock.Wait();

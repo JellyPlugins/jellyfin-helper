@@ -869,7 +869,18 @@ public sealed class Engine : IRecommendationEngine
         var coOccurrence = collaborativeContext is not null
             ? CollaborativeFilter.BuildCollaborativeMap(userProfile, allProfiles, collaborativeContext)
             : CollaborativeFilter.BuildCollaborativeMap(userProfile, allProfiles, precomputedUserSets);
-        var collaborativeMax = coOccurrence.Count > 0 ? coOccurrence.Values.Max() : 0;
+        // Compute the collaborative-score ceiling in a NaN-safe loop.
+        // LINQ Max() propagates NaN (IEEE 754) if any entry is non-finite, which would silently
+        // poison all ComputeCollaborativeScore calls for this user. Skipping non-finite values
+        // ensures a degenerate Jaccard edge case cannot collapse the entire collaborative signal.
+        var collaborativeMax = 0.0;
+        foreach (var v in coOccurrence.Values)
+        {
+            if (double.IsFinite(v) && v > collaborativeMax)
+            {
+                collaborativeMax = v;
+            }
+        }
         var averageYear = ContentScoring.ComputeAverageYear(userProfile);
         var preferredStudios = PreferenceBuilder.BuildStudioPreferenceSet(userProfile, candidateLookup);
         // preferredPeople (HashSet): used by ReasonResolver to surface a concrete matched-person name
@@ -1939,13 +1950,21 @@ public sealed class Engine : IRecommendationEngine
     /// <returns>A deterministic 32-bit seed for RNG consumers.</returns>
     internal static int ComputeStableSeed(Guid id, int suffix)
     {
-        // Guid.GetHashCode() is deterministic within a process but .NET does not guarantee
-        // stability across processes or runtimes. Seeds derived here are used only for
-        // exploration shuffling — no cryptographic strength required, only intra-run consistency.
+        // FNV-1a over the raw Guid bytes: process-stable (no hash randomisation), cheap,
+        // no external dependency. Guid.GetHashCode() uses SipHash on .NET 6+ and changes
+        // every process restart, which would reshuffle exploration picks for the same
+        // (userId, dayNumber) pair after a Jellyfin restart.
+        var bytes = id.ToByteArray();
         unchecked
         {
-            var h = id.GetHashCode();
-            return (h * 397) ^ suffix;
+            var hash = (int)2166136261u;
+            foreach (var b in bytes)
+            {
+                hash ^= b;
+                hash *= 16777619;
+            }
+
+            return hash ^ suffix;
         }
     }
 

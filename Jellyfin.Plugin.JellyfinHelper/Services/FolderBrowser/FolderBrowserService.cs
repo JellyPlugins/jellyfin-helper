@@ -267,9 +267,11 @@ public class FolderBrowserService : IFolderBrowserService
             return "Path must not be empty.";
         }
 
-        // Reject path traversal patterns (segment-aware to avoid false positives on names like "my..folder")
+        // Reject path traversal patterns (segment-aware to avoid false positives on names like "my..folder").
+        // Always split on both separators explicitly so backslash-encoded traversal is caught on Linux too
+        // (on Linux Path.AltDirectorySeparatorChar == Path.DirectorySeparatorChar == '/').
         var segments = path.Split(
-            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            ['/', '\\'],
             StringSplitOptions.RemoveEmptyEntries);
         if (segments.Any(static s => s == ".."))
         {

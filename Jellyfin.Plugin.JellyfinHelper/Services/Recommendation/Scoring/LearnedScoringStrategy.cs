@@ -448,9 +448,12 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
                 StandardizeVectors(finalVectors, featureMeans, featureStdDevs);
             }
 
-            // Reset weights to defaults for a clean final training pass
-            _weights = DefaultWeights.CreateWeightArray();
-            _bias = DefaultWeights.Bias;
+            // Warm-start final pass: begin from the previously-learned weights (restored above
+            // from savedWeights) rather than resetting to defaults. This lets each Train() call
+            // refine the model incrementally instead of discarding all accumulated learning.
+            // Only reset to defaults when standardizationModeChanged was true (handled earlier,
+            // at which point savedWeights already holds defaults).
+            // _weights and _bias are already set to savedWeights/savedBias from the restore above.
 
             var finalLoss = TrainSingleSplit(
                 examples,

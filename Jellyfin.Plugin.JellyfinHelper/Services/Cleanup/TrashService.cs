@@ -156,11 +156,12 @@ public class TrashService : ITrashService
             var trashItemName = $"{timestamp}_{fileName}";
             var trashItemPath = Path.Join(trashBasePath, trashItemName);
 
+            // Ensure trash folder exists before collision check so File.Exists inside
+            // ResolveCollision sees a real filesystem state (mirrors MoveDirectoryToTrash order).
+            Directory.CreateDirectory(trashBasePath);
+
             // Avoid collision if an item with the same name was already trashed in the same second
             trashItemPath = ResolveCollision(trashItemPath);
-
-            // Ensure trash folder exists
-            Directory.CreateDirectory(trashBasePath);
 
             // Get size before moving
             var size = new FileInfo(sourceFilePath).Length;

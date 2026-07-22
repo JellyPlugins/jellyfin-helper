@@ -551,126 +551,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string serviceType,
         CancellationToken cancellationToken)
     {
-        if (serviceType is not ("radarr" or "sonarr"))
-        {
-            return [];
-        }
-
-        var config = Plugin.Instance?.Configuration;
-        if (config == null
-            || string.IsNullOrWhiteSpace(config.SeerrUrl)
-            || string.IsNullOrWhiteSpace(config.SeerrApiKey))
-        {
-            return [];
-        }
-
-        HttpClient client;
-        try
-        {
-            client = CreateClient(config.SeerrUrl, config.SeerrApiKey);
-        }
-        catch (Exception ex) when (ex is UriFormatException or ArgumentException)
-        {
-            _pluginLog.LogWarning(
-                "SeerrDiscovery",
-                $"Invalid Seerr configuration for service info ({serviceType}): {ex.Message}",
-                ex,
-                _logger);
-            return [];
-        }
-
-        using (client)
-        {
-            try
-            {
-                // Step 1: Get the server list (basic info without profiles)
-                // Seerr API: GET /service/radarr → server list (id, name, isDefault, is4k)
-                using var listResponse = await client.GetAsync(
-                    new Uri($"api/v1/service/{serviceType}", UriKind.Relative),
-                    cancellationToken).ConfigureAwait(false);
-
-                if (!listResponse.IsSuccessStatusCode)
-                {
-                    _pluginLog.LogWarning(
-                        "SeerrDiscovery",
-                        $"Failed to fetch Seerr {serviceType} services: HTTP {(int)listResponse.StatusCode}.",
-                        null,
-                        _logger);
-                    return [];
-                }
-
-                var listJson = await listResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var servers = JsonSerializer.Deserialize<List<SeerrServiceInfo>>(listJson, JsonOptions);
-                if (servers == null || servers.Count == 0)
-                {
-                    return [];
-                }
-
-                // Step 2: For each server, fetch quality profiles and root folders
-                // Seerr API: GET /service/radarr/{radarrId} → { profiles: [...], rootFolders: [...] }
-                // Safety limit: no realistic setup has >10 Radarr/Sonarr servers
-                const int maxServerIterations = 10;
-                var enrichedServers = new List<SeerrServiceInfo>();
-                foreach (var server in servers.Take(maxServerIterations))
-                {
-                    try
-                    {
-                        using var detailResponse = await client.GetAsync(
-                            new Uri($"api/v1/service/{serviceType}/{server.Id}", UriKind.Relative),
-                            cancellationToken).ConfigureAwait(false);
-
-                        if (detailResponse.IsSuccessStatusCode)
-                        {
-                            var detailJson = await detailResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                            var detail = JsonSerializer.Deserialize<SeerrServiceInfo>(detailJson, JsonOptions);
-                            if (detail != null)
-                            {
-                                // Merge: keep the server-level info but add profiles/rootFolders from detail
-                                server.Profiles = detail.Profiles;
-                                server.RootFolders = detail.RootFolders;
-                                server.ActiveProfileId = detail.ActiveProfileId;
-                                server.ActiveDirectory = detail.ActiveDirectory;
-                            }
-                        }
-                        else
-                        {
-                            _pluginLog.LogDebug(
-                                "SeerrDiscovery",
-                                $"Failed to fetch profiles for {serviceType} server #{server.Id}: HTTP {(int)detailResponse.StatusCode}.",
-                                _logger);
-                        }
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
-                    {
-                        _pluginLog.LogDebug(
-                            "SeerrDiscovery",
-                            $"Failed to fetch profiles for {serviceType} server #{server.Id}: {ex.Message}",
-                            _logger);
-                    }
-
-                    enrichedServers.Add(server);
-                }
-
-                return enrichedServers;
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
-            {
-                _pluginLog.LogWarning(
-                    "SeerrDiscovery",
-                    $"Failed to fetch Seerr {serviceType} service info: {ex.Message}",
-                    ex,
-                    _logger);
-                return [];
-            }
-        }
+        var (services, _) = await GetServiceInfoWithStatusAsync(serviceType, cancellationToken).ConfigureAwait(false);
+        return services;
     }
 
     /// <summary>
@@ -951,23 +833,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        // Step 4: If user has advanced profile selection permission, expose all profiles
-        if (seerrUser.CanSelectQualityProfile())
-        {
-            var allProfiles = BuildAllowedProfileList(services, filterToDefault: false);
-            return new UserRequestPermissionResult
-            {
-                CanRequest = true,
-                Profiles = allProfiles
-            };
-        }
-
-        // Step 5: Normal user — only expose the default profile per server
-        var defaultProfiles = BuildAllowedProfileList(services, filterToDefault: true);
+        // Step 4: Expose quality profiles — all profiles for advanced users, default only for normal users.
+        var filterToDefault = !seerrUser.CanSelectQualityProfile();
+        var profiles = BuildAllowedProfileList(services, filterToDefault);
         return new UserRequestPermissionResult
         {
             CanRequest = true,
-            Profiles = defaultProfiles
+            Profiles = profiles
         };
     }
 
@@ -1216,7 +1088,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             // WRONG:   /api/v1/discover/movies?genre=16&sortBy=... (causes HTTP 400!)
 
             // Query A: Top genres (use all top-3 genres for movies + TV)
-            if (topGenres.Count >= 1)
+            if (topGenres.Count > 0)
             {
                 if (isChildAccount)
                 {
@@ -1313,15 +1185,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 {
                     // Create a per-user copy to avoid mutating the shared set across users
                     userExcluded = new HashSet<(int TmdbId, string MediaType)>(excludedTmdbIds);
-                    foreach (var item in dismissed)
-                    {
-                        userExcluded.Add(item);
-                    }
-
-                    foreach (var item in requested)
-                    {
-                        userExcluded.Add(item);
-                    }
+                    userExcluded.UnionWith(dismissed);
+                    userExcluded.UnionWith(requested);
                 }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
@@ -1376,9 +1241,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 await EnrichTopCandidatesWithCreditsAsync(
                     client, enrichmentCandidates, cancellationToken).ConfigureAwait(false);
 
+                var enrichedCount = enrichmentCandidates.Count(c => c.KnownPeople != null);
                 _pluginLog.LogDebug(
                     "SeerrDiscovery",
-                    $"User {profile.UserName}: Enriched {enrichmentCandidates.Count(c => c.KnownPeople != null)}/{enrichmentCandidates.Count} candidates with credits data.",
+                    $"User {profile.UserName}: Enriched {enrichedCount}/{enrichmentCandidates.Count} candidates with credits data.",
                     _logger);
             }
 
@@ -1850,14 +1716,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             throw new ArgumentException("API key is required.", nameof(apiKey));
         }
 
-        // TryAddWithoutValidation tolerates non-ASCII API keys (rejected by strict Add()).
-        // It does NOT sanitize CRLF sequences, which would allow header injection. Reject keys
-        // containing CR or LF before they reach the header so the non-ASCII tolerance cannot
-        // become a security hole.
-        if (apiKey.Contains('\r', StringComparison.Ordinal) || apiKey.Contains('\n', StringComparison.Ordinal))
-        {
-            throw new ArgumentException("API key must not contain CR or LF characters.", nameof(apiKey));
-        }
+        EnsureApiKeyHeaderSafe(apiKey);
 
         client.BaseAddress = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");
 
@@ -1866,5 +1725,18 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             new MediaTypeWithQualityHeaderValue("application/json"));
 
         return client;
+    }
+
+    /// <summary>
+    ///     Throws <see cref="ArgumentException"/> if <paramref name="apiKey"/> contains CR or LF.
+    ///     <c>HttpRequestHeaders.TryAddWithoutValidation</c> tolerates non-ASCII keys but does
+    ///     not strip CRLF sequences, which would allow HTTP header injection.
+    /// </summary>
+    private static void EnsureApiKeyHeaderSafe(string apiKey)
+    {
+        if (apiKey.Contains('\r', StringComparison.Ordinal) || apiKey.Contains('\n', StringComparison.Ordinal))
+        {
+            throw new ArgumentException("API key must not contain CR or LF characters.", nameof(apiKey));
+        }
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -337,39 +338,55 @@ public class BackupService : IBackupService
         // Discovery user access - defaults to false for older backups without this field
         config.DiscoveryUserAccessEnabled = backup.DiscoveryUserAccessEnabled;
 
-        // Arr instances — for each instance, preserve the existing API key when the backup
-        // omitted it (empty string), so that a restore does not wipe live credentials.
-        // When a non-empty key is present and it differs from the current stored value,
-        // emit an audit warning and set CredentialsChanged on the summary.
-        // ToLookup preserves all entries per name, so duplicate instance names do not
-        // cause false credential-changed warnings.
-        var previousRadarrKeys = config.RadarrInstances
+        // Arr instances — preserve live keys when the backup omitted them, and flag any
+        // credential replacements via CredentialsChanged on the summary.
+        RestoreArrInstances(backup.RadarrInstances, config.RadarrInstances, "Radarr", summary);
+        RestoreArrInstances(backup.SonarrInstances, config.SonarrInstances, "Sonarr", summary);
+
+        _configService.SaveConfiguration();
+        summary.ConfigurationRestored = true;
+        _pluginLog.LogInfo("Backup", "Configuration restored from backup.", _logger);
+    }
+
+    /// <summary>
+    ///     Restores a single Arr instance list (Radarr or Sonarr) from backup into the live config list.
+    ///     Preserves the live API key when the backup omits it (empty string), and emits an audit
+    ///     warning plus sets <see cref="BackupRestoreSummary.CredentialsChanged"/> when a non-empty
+    ///     backup key differs from the previously stored value.
+    ///     ToLookup is used so duplicate instance names do not cause false credential-change warnings.
+    /// </summary>
+    private void RestoreArrInstances(
+        IReadOnlyList<BackupArrInstance> backupInstances,
+        List<ArrInstanceConfig> liveInstances,
+        string label,
+        BackupRestoreSummary summary)
+    {
+        // Snapshot existing keys (truncated to MaxApiKeyLength for apples-to-apples comparison).
+        var previousKeys = liveInstances
             .ToLookup(
                 i => i.Name,
                 i => BackupSanitizer.TruncateString(i.ApiKey, BackupValidator.MaxApiKeyLength));
-        config.RadarrInstances.Clear();
-        var radarrKeysChanged = 0;
-        foreach (var instance in backup.RadarrInstances.Take(BackupValidator.MaxArrInstances))
+
+        liveInstances.Clear();
+        var keysChanged = 0;
+
+        foreach (var instance in backupInstances.Take(BackupValidator.MaxArrInstances))
         {
             // An empty backup key means "preserve the live key" — fall back to the previously
             // stored key for this instance name, consistent with the SeerrApiKey guard above.
             var apiKey = string.IsNullOrEmpty(instance.ApiKey)
-                ? (previousRadarrKeys[instance.Name].FirstOrDefault() ?? string.Empty)
+                ? (previousKeys[instance.Name].FirstOrDefault() ?? string.Empty)
                 : BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength);
 
             // Detect credential change: non-empty incoming key not found in any prior entry
             // for this name. Both sides are truncated to the same length so a key that was
             // stored full-length but backed up at MaxApiKeyLength is not a false positive.
-            if (!string.IsNullOrEmpty(apiKey))
+            if (!string.IsNullOrEmpty(apiKey) && !previousKeys[instance.Name].Any(k => k == apiKey))
             {
-                var priorKeys = previousRadarrKeys[instance.Name];
-                if (!priorKeys.Any(k => k == apiKey))
-                {
-                    radarrKeysChanged++;
-                }
+                keysChanged++;
             }
 
-            config.RadarrInstances.Add(
+            liveInstances.Add(
                 new ArrInstanceConfig
                 {
                     Name = BackupSanitizer.TruncateString(instance.Name, BackupValidator.MaxInstanceNameLength),
@@ -378,59 +395,14 @@ public class BackupService : IBackupService
                 });
         }
 
-        if (radarrKeysChanged > 0)
+        if (keysChanged > 0)
         {
             _pluginLog.LogWarning(
                 "Backup",
-                $"Backup restore is replacing credentials: {radarrKeysChanged} Radarr instance API key(s) changed.",
+                $"Backup restore is replacing credentials: {keysChanged} {label} instance API key(s) changed.",
                 logger: _logger);
             summary.CredentialsChanged = true;
         }
-
-        // Use ToLookup for the same duplicate-name safety as the Radarr block above.
-        var previousSonarrKeys = config.SonarrInstances
-            .ToLookup(
-                i => i.Name,
-                i => BackupSanitizer.TruncateString(i.ApiKey, BackupValidator.MaxApiKeyLength));
-        config.SonarrInstances.Clear();
-        var sonarrKeysChanged = 0;
-        foreach (var instance in backup.SonarrInstances.Take(BackupValidator.MaxArrInstances))
-        {
-            // Same preserve-live-key logic as the Radarr block above.
-            var apiKey = string.IsNullOrEmpty(instance.ApiKey)
-                ? (previousSonarrKeys[instance.Name].FirstOrDefault() ?? string.Empty)
-                : BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength);
-
-            if (!string.IsNullOrEmpty(apiKey))
-            {
-                var priorKeys = previousSonarrKeys[instance.Name];
-                if (!priorKeys.Any(k => k == apiKey))
-                {
-                    sonarrKeysChanged++;
-                }
-            }
-
-            config.SonarrInstances.Add(
-                new ArrInstanceConfig
-                {
-                    Name = BackupSanitizer.TruncateString(instance.Name, BackupValidator.MaxInstanceNameLength),
-                    Url = BackupSanitizer.TruncateString(instance.Url, BackupValidator.MaxUrlLength),
-                    ApiKey = apiKey
-                });
-        }
-
-        if (sonarrKeysChanged > 0)
-        {
-            _pluginLog.LogWarning(
-                "Backup",
-                $"Backup restore is replacing credentials: {sonarrKeysChanged} Sonarr instance API key(s) changed.",
-                logger: _logger);
-            summary.CredentialsChanged = true;
-        }
-
-        _configService.SaveConfiguration();
-        summary.ConfigurationRestored = true;
-        _pluginLog.LogInfo("Backup", "Configuration restored from backup.", _logger);
     }
 
     private static TaskMode ParseTaskMode(string? value, TaskMode fallback = TaskMode.DryRun)

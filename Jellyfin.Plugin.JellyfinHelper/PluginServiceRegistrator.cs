@@ -90,7 +90,15 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
             var logger = sp.GetRequiredService<ILogger<NeuralScoringStrategy>>();
             return new NeuralScoringStrategy(neuralWeightsPath, logger);
         });
-        serviceCollection.AddSingleton(_ => new HeuristicScoringStrategy(genrePenaltyFloor: 1.0));
+        serviceCollection.AddSingleton(_ =>
+        {
+            // Read the config-driven floor at DI build time so the heuristic sub-strategy
+            // and the ensemble wrapper always use the same value. Previously hardcoded to 1.0,
+            // which silently ignored the admin-configured EnsembleGenrePenaltyFloor.
+            var hConfig = Plugin.Instance?.Configuration;
+            var hFloor = hConfig?.EnsembleGenrePenaltyFloor ?? EnsembleScoringStrategy.DefaultGenrePenaltyFloor;
+            return new HeuristicScoringStrategy(genrePenaltyFloor: hFloor);
+        });
         serviceCollection.AddSingleton(sp =>
         {
             var dataPath = Plugin.Instance?.DataFolderPath;

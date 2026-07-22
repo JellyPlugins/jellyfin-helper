@@ -148,6 +148,10 @@ public sealed class EngineFullPipelineTests
 
         Assert.NotNull(result);
         Assert.Equal("strategyColdStart", result!.ScoringStrategyKey);
+        // Guard against vacuous Assert.All on an empty collection: if all candidates are dropped
+        // by LoadCandidateItems the cold-start scoring pipeline (rating filter, popularity sort,
+        // RecommendedItem projection) is never exercised and the test provides false coverage.
+        Assert.NotEmpty(result.Recommendations);
         Assert.All(result.Recommendations, r =>
         {
             Assert.NotEqual(Guid.Empty, r.ItemId);
@@ -189,6 +193,10 @@ public sealed class EngineFullPipelineTests
         // Warm path uses the strategy passed via DI (HeuristicScoringStrategy from the
         // factory default). Its NameKey is stable across strategy-formula refactors.
         Assert.False(string.IsNullOrEmpty(result.ScoringStrategy));
+        // At least one recommendation must be produced: if result.Recommendations is empty
+        // the warm scoring pipeline (GenerateForUser → ScoreCandidate → DiversityReranker)
+        // was never actually exercised and the test provides no coverage of those ~800 lines.
+        Assert.NotEmpty(result.Recommendations);
     }
 
     [Fact]

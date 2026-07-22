@@ -62,6 +62,7 @@ internal static class DiversityReranker
                 if (entry.Score > result[existingIdx].Score)
                 {
                     result[existingIdx] = entry;
+                    bestPerSeries[seriesId.Value] = existingIdx;
                 }
             }
             else

@@ -36,6 +36,6 @@ internal static class DiscoveryScriptTag
     public static string Build(string version)
     {
         var safeVersion = Uri.EscapeDataString(version ?? string.Empty);
-        return $"<script plugin=\"{PluginName}\" version=\"{version}\" src=\"{ScriptBaseUrl}?v={safeVersion}\" defer></script>";
+        return $"<script plugin=\"{PluginName}\" version=\"{safeVersion}\" src=\"{ScriptBaseUrl}?v={safeVersion}\" defer></script>";
     }
 }

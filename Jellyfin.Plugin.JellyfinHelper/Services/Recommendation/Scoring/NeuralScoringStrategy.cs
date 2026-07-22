@@ -181,6 +181,12 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     [ThreadStatic]
     private static double[]? _tlsH4Act;
 
+    /// <summary>Thread-local scratch buffer for the input feature vector on the Score() path.
+    /// Avoids a heap allocation per scored candidate; safe because Score() fully overwrites
+    /// the buffer via WriteToVector before reading it.</summary>
+    [ThreadStatic]
+    private static double[]? _tlsInput;
+
     private int _adamTimestep;
     private double[] _biasH1;
     private double[] _biasH2;
@@ -385,7 +391,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             return 0.5;
         }
 
-        var vector = new double[CandidateFeatures.FeatureCount];
+        // Reuse a thread-local input buffer to avoid a heap allocation per scored candidate.
+        // WriteToVector fully overwrites every element so no stale data can leak between calls.
+        _tlsInput ??= new double[CandidateFeatures.FeatureCount];
+        var vector = _tlsInput;
         features.WriteToVector(vector);
 
         _tlsH1Pre ??= new double[Hidden1Size];
@@ -895,8 +904,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     // Hidden4 layer error (backprop through ReLU + dropout mask from output)
                     for (var k = 0; k < Hidden4Size; k++)
                     {
+                        // outErr already contains the sigmoid derivative and sample weight.
+                        // Do NOT multiply by dropoutInvKeep here: the inverted-dropout scale is
+                        // already embedded in h4Act[k] (used for the output-layer weight update).
+                        // Applying it again would give (1/keep)^2 scaling instead of (1/keep),
+                        // biasing hidden-layer gradients and causing training instability.
                         h4Err[k] = (h4Pre[k] > 0 && h4Mask[k] > 0)
-                            ? outErr * _weightsH4O[k] * dropoutInvKeep
+                            ? outErr * _weightsH4O[k]
                             : 0.0;
                     }
 

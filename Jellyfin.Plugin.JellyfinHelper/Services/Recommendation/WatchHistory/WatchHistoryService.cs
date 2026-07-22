@@ -406,28 +406,27 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
                 if (!string.IsNullOrEmpty(usedAudioLanguage))
                 {
+                    // availableAudioLanguages is always >= 1 here (usedAudioLanguage was resolved
+                    // from the same audioStreams list), so the old "> 0" guard was dead code.
                     var availableAudioLanguages = audioStreams
                         .Select(s => NormalizeLanguage(s.Language))
                         .Where(l => !string.IsNullOrEmpty(l))
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .Count();
 
-                    if (availableAudioLanguages > 0)
+                    if (!profile.LanguageProfile.TryGetValue(usedAudioLanguage, out var audioEntry))
                     {
-                        if (!profile.LanguageProfile.TryGetValue(usedAudioLanguage, out var audioEntry))
-                        {
-                            audioEntry = new LanguageProfileEntry();
-                            profile.LanguageProfile[usedAudioLanguage] = audioEntry;
-                        }
+                        audioEntry = new LanguageProfileEntry();
+                        profile.LanguageProfile[usedAudioLanguage] = audioEntry;
+                    }
 
-                        if (availableAudioLanguages > 1)
-                        {
-                            audioEntry.ChosenCount++;
-                        }
-                        else
-                        {
-                            audioEntry.ForcedCount++;
-                        }
+                    if (availableAudioLanguages > 1)
+                    {
+                        audioEntry.ChosenCount++;
+                    }
+                    else
+                    {
+                        audioEntry.ForcedCount++;
                     }
                 }
             }
@@ -558,14 +557,15 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 // (which have ItemId = seriesId, SeriesId = null) don't double-count.
                 processedItemIds.Add(seriesId);
 
-                // Try to get series people; fall back to episode item if series metadata unavailable
+                // Use series-level metadata only. If the series is not in the lookup, skip entirely
+                // rather than falling back to episode-level data. Falling back would count only the
+                // limited guest cast of a single episode instead of the full main cast, and would
+                // also cause a double-count if a synthetic favourite-series row (ItemId == seriesId,
+                // SeriesId == null) is processed later and the processedItemIds guard at line 559
+                // already blocked it from reaching the people aggregation path.
                 if (seriesLookup != null && seriesLookup.TryGetValue(seriesId, out var seriesItem))
                 {
                     AggregatePeopleFromItem(profile, seriesItem, maxActorsPerItem);
-                }
-                else if (itemLookup.TryGetValue(watchedItem.ItemId, out var episodeItem))
-                {
-                    AggregatePeopleFromItem(profile, episodeItem, maxActorsPerItem);
                 }
 
                 continue;

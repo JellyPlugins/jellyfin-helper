@@ -45,14 +45,14 @@ public class DiscoveryScriptTagTests
     }
 
     [Fact]
-    public void Build_VersionWithPlusSign_UrlEscapesInSrcQueryButKeepsRawInAttribute()
+    public void Build_VersionWithPlusSign_UrlEscapesBothSrcQueryAndAttribute()
     {
-        // Bug guard: a "+" in a query string is interpreted as a space. Uri.EscapeDataString
-        // must convert "+" to "%2B" so the client fetches the exact same versioned URL.
+        // The version attribute uses the same URL-escaped value as the query string so that
+        // special characters (e.g. "+") cannot break the HTML attribute boundary.
         var tag = InvokeBuild("1.0.0+beta");
         Assert.Contains("v=1.0.0%2Bbeta", tag, StringComparison.Ordinal);
-        // The version attribute itself is intentionally NOT escaped (it's just a display value).
-        Assert.Contains("version=\"1.0.0+beta\"", tag, StringComparison.Ordinal);
+        // Both src query param and version attribute must use the escaped form.
+        Assert.Contains("version=\"1.0.0%2Bbeta\"", tag, StringComparison.Ordinal);
     }
 
     [Fact]

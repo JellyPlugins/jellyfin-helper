@@ -454,7 +454,8 @@ public class ConfigurationController : ControllerBase
             : request.TrashFolderPath;
         config.TrashRetentionDays = request.TrashRetentionDays;
 
-        config.Language = string.IsNullOrWhiteSpace(request.Language) ? "en" : request.Language;
+        config.Language = string.IsNullOrWhiteSpace(request.Language) ? "en" :
+                          ConfigurationRequestValidator.IsLanguageSupported(request.Language) ? request.Language : "en";
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
