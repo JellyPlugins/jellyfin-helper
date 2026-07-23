@@ -123,7 +123,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
 
     private DiscoveryController CreateController(Guid? userId = null)
     {
-        var controller = new DiscoveryController(_cache, _discoveryMock.Object, _feedbackStoreMock.Object);
+        var controller = new DiscoveryController(_cache, _discoveryMock.Object, _feedbackStoreMock.Object, new Mock<ILogger<DiscoveryController>>().Object);
         var claims = new List<Claim>();
         if (userId.HasValue)
         {

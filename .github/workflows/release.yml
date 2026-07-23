@@ -102,9 +102,11 @@ jobs:
       run: dotnet build --configuration Release --no-restore
 
     - name: "Run ${{ matrix.bucket.name }} tests"
+      env:
+        TEST_FILTER: ${{ matrix.bucket.filter }}
       run: |
         dotnet test --configuration Release --no-build --verbosity normal \
-          --filter "${{ matrix.bucket.filter }}" \
+          --filter "$TEST_FILTER" \
           --logger "trx;LogFileName=${{ matrix.bucket.name }}.trx"
 
     - name: Upload test results

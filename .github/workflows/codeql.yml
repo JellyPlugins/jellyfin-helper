@@ -9,6 +9,8 @@ on:
     - cron: '0 6 * * 1'  # Weekly on Monday at 06:00 UTC
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   analyze:
     name: Analyze C#

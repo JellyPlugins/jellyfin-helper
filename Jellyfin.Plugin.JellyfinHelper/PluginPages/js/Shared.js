@@ -216,16 +216,16 @@ function renderFileTree(result, title) {
     var totalFiles = (result.movies ? result.movies.length : 0) + (result.tvShows ? result.tvShows.length : 0) + (result.music ? result.music.length : 0) + (result.other ? result.other.length : 0);
 
     if (totalFiles === 0) {
-        return '<div class="file-tree-empty">' + T('noFilesFound', 'No files found.') + '</div>';
+        return '<div class="file-tree-empty">' + escHtml(T('noFilesFound', 'No files found.')) + '</div>';
     }
 
     var sectionCount = (hasMovies ? 1 : 0) + (hasTvShows ? 1 : 0) + (hasMusic ? 1 : 0) + (hasOther ? 1 : 0);
     var html = '<div class="file-tree-header">';
     html += '<span class="file-tree-title">' + escHtml(title) + '</span>';
     html += '<div style="display:flex;gap:0.5em;align-items:center;">';
-    html += '<button class="tree-action-btn" data-tree-action="expand">' + T('expandAll', 'Expand All') + '</button>';
-    html += '<button class="tree-action-btn" data-tree-action="collapse">' + T('collapseAll', 'Collapse All') + '</button>';
-    html += '<span class="file-tree-count">' + totalFiles + ' ' + (totalFiles === 1 ? T('file', 'file') : T('files', 'files')) + '</span>';
+    html += '<button class="tree-action-btn" data-tree-action="expand">' + escHtml(T('expandAll', 'Expand All')) + '</button>';
+    html += '<button class="tree-action-btn" data-tree-action="collapse">' + escHtml(T('collapseAll', 'Collapse All')) + '</button>';
+    html += '<span class="file-tree-count">' + totalFiles + ' ' + (totalFiles === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</span>';
     html += '</div></div>';
 
     html += '<div class="file-tree-columns' + (sectionCount > 1 ? ' file-tree-multi' : '') + '">';

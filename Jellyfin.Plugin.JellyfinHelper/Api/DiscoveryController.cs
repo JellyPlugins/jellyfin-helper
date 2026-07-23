@@ -11,6 +11,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
@@ -26,6 +27,7 @@ public sealed class DiscoveryController : ControllerBase
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
+    private readonly ILogger<DiscoveryController> _logger;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="DiscoveryController"/> class.
@@ -33,11 +35,13 @@ public sealed class DiscoveryController : ControllerBase
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="discovery">The discovery service.</param>
     /// <param name="feedbackStore">The discovery feedback store.</param>
-    public DiscoveryController(DiscoveryCacheService cache, ISeerrDiscoveryService discovery, IDiscoveryFeedbackStore feedbackStore)
+    /// <param name="logger">The logger.</param>
+    public DiscoveryController(DiscoveryCacheService cache, ISeerrDiscoveryService discovery, IDiscoveryFeedbackStore feedbackStore, ILogger<DiscoveryController> logger)
     {
         _cache = cache;
         _discovery = discovery;
         _feedbackStore = feedbackStore;
+        _logger = logger;
     }
 
     /// <summary>
@@ -223,7 +227,7 @@ public sealed class DiscoveryController : ControllerBase
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
-            // Best-effort
+            _logger.LogWarning(ex, "Failed to build excluded item keys for user {UserId}; discovery may show already-requested items", userId);
         }
 
         return excluded;

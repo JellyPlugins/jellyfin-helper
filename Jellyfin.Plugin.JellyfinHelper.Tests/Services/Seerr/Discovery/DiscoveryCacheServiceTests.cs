@@ -512,6 +512,79 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         Assert.Equal(userId, results[0].UserId);
     }
 
+    [Fact]
+    public async Task MarkAsRequestedAsync_WithUserId_OnlyMarksThatUsersEntry()
+    {
+        var userA = Guid.NewGuid();
+        var userB = Guid.NewGuid();
+        _sut.Save([
+            new DiscoveryResult
+            {
+                UserId = userA,
+                Recommendations = [new DiscoveryRecommendation { TmdbId = 42, MediaType = "movie" }]
+            },
+            new DiscoveryResult
+            {
+                UserId = userB,
+                Recommendations = [new DiscoveryRecommendation { TmdbId = 42, MediaType = "movie" }]
+            }
+        ]);
+
+        await _sut.MarkAsRequestedAsync(42, "movie", userA, CancellationToken.None);
+
+        var loaded = _sut.Load();
+        var recA = loaded.First(r => r.UserId == userA).Recommendations[0];
+        var recB = loaded.First(r => r.UserId == userB).Recommendations[0];
+        Assert.True(recA.AlreadyRequested, "user A's entry must be marked");
+        Assert.False(recB.AlreadyRequested, "user B's entry must not be touched");
+    }
+
+    [Fact]
+    public async Task MarkAsRequestedAsync_WithUserId_DoesNotMarkOtherTmdbIds()
+    {
+        var userId = Guid.NewGuid();
+        _sut.Save([
+            new DiscoveryResult
+            {
+                UserId = userId,
+                Recommendations =
+                [
+                    new DiscoveryRecommendation { TmdbId = 1, MediaType = "movie" },
+                    new DiscoveryRecommendation { TmdbId = 2, MediaType = "movie" }
+                ]
+            }
+        ]);
+
+        await _sut.MarkAsRequestedAsync(1, "movie", userId, CancellationToken.None);
+
+        var loaded = _sut.Load();
+        var recs = loaded[0].Recommendations;
+        Assert.True(recs.First(r => r.TmdbId == 1).AlreadyRequested);
+        Assert.False(recs.First(r => r.TmdbId == 2).AlreadyRequested);
+    }
+
+    [Fact]
+    public async Task MarkAsRequestedAsync_WithUserId_CancelledBeforeStart_ThrowsAndDoesNotMutate()
+    {
+        var userId = Guid.NewGuid();
+        _sut.Save([
+            new DiscoveryResult
+            {
+                UserId = userId,
+                Recommendations = [new DiscoveryRecommendation { TmdbId = 99, MediaType = "movie" }]
+            }
+        ]);
+
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _sut.MarkAsRequestedAsync(99, "movie", userId, cts.Token));
+
+        var loaded = _sut.Load();
+        Assert.False(loaded[0].Recommendations[0].AlreadyRequested);
+    }
+
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 
     // -----------------------------------------------------------------------

@@ -35,7 +35,7 @@ public class DiscoveryControllerTests
     private DiscoveryController CreateController(Mock<ISeerrDiscoveryService>? discovery = null)
     {
         var disc = discovery ?? _discoveryMock;
-        return new DiscoveryController(_cache, disc.Object, _feedbackStoreMock.Object);
+        return new DiscoveryController(_cache, disc.Object, _feedbackStoreMock.Object, new Mock<ILogger<DiscoveryController>>().Object);
     }
 
     [Fact]

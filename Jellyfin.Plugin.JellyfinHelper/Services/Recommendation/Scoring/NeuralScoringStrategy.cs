@@ -773,6 +773,11 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
         var useStandardization = examples.Count >= MinExamplesForStandardization;
 
+        // Hoisted so values are readable after the write-lock finally block when publishing
+        // _lastValidationLoss outside the lock (avoids nested _syncRoot-inside-write-lock).
+        var capturedUseEarlyStopping = false;
+        var capturedBestLoss = double.MaxValue;
+
         try
         {
             _rwLock.EnterWriteLock();
@@ -1241,24 +1246,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             _featureMeans = featureMeans;
             _featureStdDevs = featureStdDevs;
 
-            // Published under _syncRoot to match the read path in LastValidationLoss getter.
-            lock (_syncRoot)
-            {
-                if (!useEarlyStopping)
-                {
-                    _lastValidationLoss = double.NaN;
-                }
-                else if (bestLoss < double.MaxValue)
-                {
-                    _lastValidationLoss = bestLoss;
-                }
-                else
-                {
-                    // Training ran the full budget without ever improving val loss.
-                    // Publish a "definitely bad" number so downstream quality gates disengage.
-                    _lastValidationLoss = EnsembleScoringStrategy.ValidationLossCeiling;
-                }
-            }
+            capturedUseEarlyStopping = useEarlyStopping;
+            capturedBestLoss = bestLoss;
 
             LogFeatureImportance(inputSize);
         }
@@ -1283,6 +1272,19 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         var (pAtK, rAtK, nAtK) = RankingMetrics.ComputeAll(metricsSource, this);
         lock (_syncRoot)
         {
+            if (!capturedUseEarlyStopping)
+            {
+                _lastValidationLoss = double.NaN;
+            }
+            else if (capturedBestLoss < double.MaxValue)
+            {
+                _lastValidationLoss = capturedBestLoss;
+            }
+            else
+            {
+                _lastValidationLoss = EnsembleScoringStrategy.ValidationLossCeiling;
+            }
+
             _lastPrecisionAtK = pAtK;
             _lastRecallAtK = rAtK;
             _lastNdcgAtK = nAtK;
