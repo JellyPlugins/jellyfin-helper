@@ -431,7 +431,7 @@ public class PluginConfigurationSerializationTests
     }
 
     [Theory]
-    [InlineData(-1, 1)]
+    [InlineData(-1, 0)]
     [InlineData(3651, 3650)]
     [InlineData(999999, 3650)]
     public void SeerrCleanupAgeDays_OutOfRange_IsClamped(int raw, int expected)
@@ -440,8 +440,22 @@ public class PluginConfigurationSerializationTests
         Assert.Equal(expected, config.SeerrCleanupAgeDays);
     }
 
+    [Fact]
+    public void SeerrCleanupAgeDays_Zero_StoresZeroAndProducesNoClampReport()
+    {
+        var config = new PluginConfiguration { SeerrCleanupAgeDays = 0 };
+        Assert.Equal(0, config.SeerrCleanupAgeDays);
+        Assert.Empty(config.DrainClampReports());
+    }
+
+    [Fact]
+    public void SeerrCleanupAgeDays_Negative_CollapseToDisabledSentinel()
+    {
+        var config = new PluginConfiguration { SeerrCleanupAgeDays = -5 };
+        Assert.Equal(0, config.SeerrCleanupAgeDays);
+    }
+
     [Theory]
-    [InlineData(-1, 1)]
     [InlineData(3651, 3650)]
     public void SeerrCleanupAgeDays_OutOfRange_AppearsInClampReport(int raw, int expected)
     {

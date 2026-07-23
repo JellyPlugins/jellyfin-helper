@@ -952,7 +952,7 @@ function showTrashDisableDialog(payload) {
             + '\n\n' + T('trashDisableQuestion', 'What should happen with these folders?');
 
         removeTrashDialog();
-        var d = createDialogOverlay('trashDialogOverlay', T('trashDisableTitle', 'Trash Folders Detected'), getCssVar('--color-danger', '#e74c3c'), bodyText, false);
+        var d = createDialogOverlay('trashDialogOverlay', T('trashDisableTitle', 'Trash Folders Detected'), getCssVar('--color-danger', '#e74c3c'), bodyText);
 
         d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
             removeTrashDialog();
@@ -983,7 +983,7 @@ function showTrashDeleteConfirmation(payload, paths) {
         + formatPathList(paths)
         + '\n\n' + T('trashDeleteConfirmWarn', 'This action cannot be undone!');
 
-    var d = createDialogOverlay('trashDialogOverlay', T('trashDeleteConfirmTitle', 'Are you sure?'), getCssVar('--color-danger', '#e74c3c'), bodyText, false);
+    var d = createDialogOverlay('trashDialogOverlay', T('trashDeleteConfirmTitle', 'Are you sure?'), getCssVar('--color-danger', '#e74c3c'), bodyText);
 
     d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
         removeTrashDialog();
@@ -1098,11 +1098,23 @@ function triggerBackupImport(file) {
 function showBackupImportConfirmation(file) {
     removeBackupDialog();
 
-    var bodyHtml = '<p>' + T('backupImportConfirmMsg', 'This will overwrite your current settings, Arr integrations, and trend data with the backup data.') + '</p>'
-        + '<p><strong>' + T('backupImportConfirmFile', 'File') + ':</strong> ' + escHtml(file.name) + ' (' + formatBytes(file.size) + ')</p>'
-        + '<p class="color-danger">' + T('backupImportConfirmWarn', 'This action cannot be undone!') + '</p>';
+    var d = createDialogOverlay('backupDialogOverlay', T('backupImportConfirmTitle', 'Import Backup'), getCssVar('--color-primary', '#00a4dc'), '');
 
-    var d = createDialogOverlay('backupDialogOverlay', T('backupImportConfirmTitle', 'Import Backup'), getCssVar('--color-primary', '#00a4dc'), bodyHtml, true);
+    var p1 = document.createElement('p');
+    p1.textContent = T('backupImportConfirmMsg', 'This will overwrite your current settings, Arr integrations, and trend data with the backup data.');
+    d.body.appendChild(p1);
+
+    var p2 = document.createElement('p');
+    var strong = document.createElement('strong');
+    strong.textContent = T('backupImportConfirmFile', 'File') + ': ';
+    p2.appendChild(strong);
+    p2.appendChild(document.createTextNode(file.name + ' (' + formatBytes(file.size) + ')'));
+    d.body.appendChild(p2);
+
+    var p3 = document.createElement('p');
+    p3.className = 'color-danger';
+    p3.textContent = T('backupImportConfirmWarn', 'This action cannot be undone!');
+    d.body.appendChild(p3);
 
     d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
         removeBackupDialog();
@@ -1910,7 +1922,7 @@ function showTrashPathChangeDialog(payload, options) {
             + '\n\n' + T('trashPathChangeQuestion', 'What should happen with the existing trash content?');
 
         removeTrashDialog();
-        var d = createDialogOverlay('trashDialogOverlay', T('trashPathChangeTitle', 'Trash Path Changed'), getCssVar('--color-primary', '#00a4dc'), bodyText, false);
+        var d = createDialogOverlay('trashDialogOverlay', T('trashPathChangeTitle', 'Trash Path Changed'), getCssVar('--color-primary', '#00a4dc'), bodyText);
 
         // Cancel button — revert the path in the input
         d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {

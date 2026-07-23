@@ -250,8 +250,8 @@ public sealed class UserDiscoveryController : ControllerBase
             return Unauthorized();
         }
 
-        var config = Plugin.Instance?.Configuration;
-        var seerrUrl = config?.SeerrUrl?.Trim().TrimEnd('/') ?? string.Empty;
+        var config = _configurationService.GetConfiguration();
+        var seerrUrl = config.SeerrUrl?.Trim().TrimEnd('/') ?? string.Empty;
 
         return Ok(new { SeerrUrl = seerrUrl });
     }

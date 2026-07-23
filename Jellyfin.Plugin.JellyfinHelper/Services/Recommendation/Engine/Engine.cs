@@ -67,7 +67,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     // is the authoritative source of the snapshot and must not defer to a stale live-path build.
     // Declared before _cachedSnapshot so StyleCop's readonly-fields-first ordering (SA1214) is
     // satisfied — the two fields are semantically paired.
-    private readonly object _snapshotRefreshLock = new();
+    private readonly Lock _snapshotRefreshLock = new();
 
     // Stored as a single immutable snapshot to prevent concurrent readers from mixing data across batches.
     private volatile CandidateSnapshot? _cachedSnapshot;

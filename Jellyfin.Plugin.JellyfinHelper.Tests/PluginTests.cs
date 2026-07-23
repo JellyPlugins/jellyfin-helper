@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Playlist;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging;
@@ -484,7 +485,7 @@ public sealed class PluginTests : IDisposable
     {
         var playlistsRoot = Path.Combine(_dataPath, "playlists");
         Directory.CreateDirectory(playlistsRoot);
-        var managed = Path.Combine(playlistsRoot, "🎬 Recommended for Alice");
+        var managed = Path.Combine(playlistsRoot, RecommendationPlaylistService.PlaylistNamePrefix + " for Alice");
         var userOwned = Path.Combine(playlistsRoot, "My Awesome Playlist");
         Directory.CreateDirectory(managed);
         Directory.CreateDirectory(userOwned);

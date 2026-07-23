@@ -327,11 +327,13 @@ function bindPageLifecycle() {
     }
     pageEl.addEventListener('pageshow', function () {
         _pageInitialized = false;
+        _handlersBound = false;
         _initRetries = 0;
         setTimeout(initPage, 0);
     });
     pageEl.addEventListener('viewshow', function () {
         _pageInitialized = false;
+        _handlersBound = false;
         _initRetries = 0;
         setTimeout(initPage, 0);
     });

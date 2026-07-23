@@ -886,9 +886,10 @@ public class SeerrIntegrationServiceTests : IDisposable
             .ThrowsAsync(new InvalidOperationException("Should not be called"));
 
         var service = CreateService(mock.Object, out _, out _);
-        using var httpClient = new HttpClient(mock.Object) { BaseAddress = new Uri(BaseUrl + "/") };
+        using var httpClient = new HttpClient(mock.Object);
+        var baseUri = new Uri(BaseUrl + "/");
 
-        var title = await service.ResolveMediaTitleAsync(httpClient, null, CancellationToken.None);
+        var title = await service.ResolveMediaTitleAsync(httpClient, baseUri, ApiKey, null, CancellationToken.None);
         Assert.Equal("Unknown", title);
         // Sentinel-exception observation alone is insufficient: a future broad catch could
         // swallow it and still return "Unknown". An explicit Times.Never verify ensures
@@ -914,10 +915,13 @@ public class SeerrIntegrationServiceTests : IDisposable
             .ThrowsAsync(new InvalidOperationException("Should not be called"));
 
         var service = CreateService(mock.Object, out _, out _);
-        using var httpClient = new HttpClient(mock.Object) { BaseAddress = new Uri(BaseUrl + "/") };
+        using var httpClient = new HttpClient(mock.Object);
+        var baseUri = new Uri(BaseUrl + "/");
 
         var title = await service.ResolveMediaTitleAsync(
             httpClient,
+            baseUri,
+            ApiKey,
             new SeerrMedia { MediaType = "movie", TmdbId = 0 },
             CancellationToken.None);
 
@@ -938,10 +942,13 @@ public class SeerrIntegrationServiceTests : IDisposable
         // never propagate a stack trace up into the cleanup summary.
         var handler = CreateMockHandler(HttpStatusCode.InternalServerError, string.Empty);
         var service = CreateService(handler.Object, out _, out _);
-        using var httpClient = new HttpClient(handler.Object) { BaseAddress = new Uri(BaseUrl + "/") };
+        using var httpClient = new HttpClient(handler.Object);
+        var baseUri = new Uri(BaseUrl + "/");
 
         var title = await service.ResolveMediaTitleAsync(
             httpClient,
+            baseUri,
+            ApiKey,
             new SeerrMedia { MediaType = "movie", TmdbId = 42 },
             CancellationToken.None);
 
@@ -961,10 +968,13 @@ public class SeerrIntegrationServiceTests : IDisposable
             .ThrowsAsync(new HttpRequestException("timeout"));
 
         var service = CreateService(mock.Object, out _, out _);
-        using var httpClient = new HttpClient(mock.Object) { BaseAddress = new Uri(BaseUrl + "/") };
+        using var httpClient = new HttpClient(mock.Object);
+        var baseUri = new Uri(BaseUrl + "/");
 
         var title = await service.ResolveMediaTitleAsync(
             httpClient,
+            baseUri,
+            ApiKey,
             new SeerrMedia { MediaType = "movie", TmdbId = 42 },
             CancellationToken.None);
 

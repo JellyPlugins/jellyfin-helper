@@ -91,9 +91,12 @@ public class RecommendationController : ControllerBase
         }
 
         // No cache — acquire lock so only one caller generates at a time (double-check inside).
-        await CacheFillLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var acquired = false;
         try
         {
+            await CacheFillLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            acquired = true;
+
             // Re-check under lock: another waiter may have filled the cache while we waited.
             cached = _cacheService.LoadResults();
             if (cached is not null)
@@ -115,7 +118,10 @@ public class RecommendationController : ControllerBase
         }
         finally
         {
-            CacheFillLock.Release();
+            if (acquired)
+            {
+                CacheFillLock.Release();
+            }
         }
     }
 

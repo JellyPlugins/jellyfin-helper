@@ -119,6 +119,44 @@ public class TrashServiceTests : IDisposable
         Assert.Contains("subtitle.srt", Path.GetFileName(trashFiles[0]));
     }
 
+    [Fact]
+    public void MoveFileToTrash_TrashDirNotYetExist_CreatesAndMovesSuccessfully()
+    {
+        // Regression: trash dir must be created BEFORE ResolveCollision so the File.Exists
+        // check inside collision resolution has a real directory to probe.
+        var sourceFile = Path.Join(_testRoot, "subtitle2.srt");
+        File.WriteAllBytes(sourceFile, new byte[256]);
+
+        var freshTrashPath = Path.Join(_testRoot, "brand_new_trash_" + Guid.NewGuid().ToString("N"));
+        Assert.False(Directory.Exists(freshTrashPath));
+
+        var result = _trashService.MoveFileToTrash(sourceFile, freshTrashPath, _loggerMock, Now);
+
+        Assert.Equal(256, result);
+        Assert.False(File.Exists(sourceFile));
+        Assert.True(Directory.Exists(freshTrashPath));
+        Assert.Single(Directory.GetFiles(freshTrashPath));
+    }
+
+    [Fact]
+    public void MoveFileToTrash_TwoFilesInSameSecond_BothMovedWithoutCollision()
+    {
+        // Regression: when trash dir did not exist before ResolveCollision, the second file
+        // would collide because File.Exists returned false for both candidates.
+        var file1 = Path.Join(_testRoot, "ep1.srt");
+        var file2 = Path.Join(_testRoot, "ep2.srt");
+        File.WriteAllBytes(file1, new byte[100]);
+        File.WriteAllBytes(file2, new byte[200]);
+
+        var trashPath = Path.Join(_testRoot, "same_second_trash_" + Guid.NewGuid().ToString("N"));
+
+        _trashService.MoveFileToTrash(file1, trashPath, _loggerMock, Now);
+        _trashService.MoveFileToTrash(file2, trashPath, _loggerMock, Now);
+
+        var trashFiles = Directory.GetFiles(trashPath);
+        Assert.Equal(2, trashFiles.Length);
+    }
+
     // ===== PurgeExpiredTrash Tests =====
 
     [Fact]

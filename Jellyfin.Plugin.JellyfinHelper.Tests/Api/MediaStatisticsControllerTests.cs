@@ -21,8 +21,9 @@ public class MediaStatisticsControllerTests : IDisposable
     public MediaStatisticsControllerTests()
     {
         // Reset the static rate-limit timestamp so tests are not affected by previous runs
-        var field = typeof(MediaStatisticsController).GetField("_lastScanTime", BindingFlags.Static | BindingFlags.NonPublic);
-        field?.SetValue(null, DateTime.MinValue);
+        var field = typeof(MediaStatisticsController).GetField("_lastScanTime", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Static field '_lastScanTime' not found on MediaStatisticsController.");
+        field.SetValue(null, DateTime.MinValue);
 
         _cache = TestMockFactory.CreateMemoryCache();
         _statsService = TestMockFactory.CreateMediaStatisticsService();

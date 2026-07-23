@@ -34,11 +34,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
-        Instance = this;
         _applicationPaths = applicationPaths;
         _logger = logger;
         ReportClampedConfigValues();
         InjectScript();
+        Instance = this;
     }
 
     /// <inheritdoc />

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 namespace Jellyfin.Plugin.JellyfinHelper;
 
@@ -16,7 +17,7 @@ public static class MediaExtensions
     /// <summary>
     ///     Gets the set of known video/media file extensions (with leading dot, case-insensitive).
     /// </summary>
-    internal static HashSet<string> VideoExtensions { get; } = new(StringComparer.OrdinalIgnoreCase)
+    internal static IReadOnlySet<string> VideoExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         ".3g2",
         ".3gp",
@@ -48,13 +49,20 @@ public static class MediaExtensions
         ".vob",
         ".webm",
         ".wmv",
-        ".wtv"
+        ".wtv",
+        // Additional real-world formats
+        ".dav",
+        ".m2p",
+        ".264",
+        ".265",
+        ".h264",
+        ".h265"
     };
 
     /// <summary>
     ///     Gets the set of known subtitle file extensions (with leading dot, case-insensitive).
     /// </summary>
-    internal static HashSet<string> SubtitleExtensions { get; } = new(StringComparer.OrdinalIgnoreCase)
+    internal static IReadOnlySet<string> SubtitleExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         ".srt",
         ".ass",
@@ -64,13 +72,17 @@ public static class MediaExtensions
         ".vtt",
         ".smi",
         ".pgs",
-        ".sup"
+        ".sup",
+        // Additional formats supported by Jellyfin
+        ".dfxp",
+        ".ttml",
+        ".sbv"
     };
 
     /// <summary>
     ///     Gets the set of known image file extensions (with leading dot, case-insensitive).
     /// </summary>
-    internal static HashSet<string> ImageExtensions { get; } = new(StringComparer.OrdinalIgnoreCase)
+    internal static IReadOnlySet<string> ImageExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         ".jpg",
         ".jpeg",
@@ -86,7 +98,7 @@ public static class MediaExtensions
     /// <summary>
     ///     Gets the set of known metadata/NFO file extensions (with leading dot, case-insensitive).
     /// </summary>
-    internal static HashSet<string> NfoExtensions { get; } = new(StringComparer.OrdinalIgnoreCase)
+    internal static IReadOnlySet<string> NfoExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         ".nfo",
         ".xml"
@@ -96,28 +108,29 @@ public static class MediaExtensions
     ///     Gets a mapping from audio file extension (with leading dot) to a human-readable codec name.
     ///     Used as a fallback when no codec tag is found in the filename.
     /// </summary>
-    internal static Dictionary<string, string> AudioExtensionToCodec { get; } = new(StringComparer.OrdinalIgnoreCase)
-    {
-        { ".mp3", "MP3" },
-        { ".flac", "FLAC" },
-        { ".wav", "WAV" },
-        { ".aac", "AAC" },
-        { ".ogg", "Vorbis" },
-        { ".wma", "WMA" },
-        { ".m4a", "AAC" },
-        { ".opus", "Opus" },
-        { ".ape", "APE" },
-        { ".wv", "WavPack" },
-        { ".mka", "Unknown" },
-        { ".dsf", "DSD" },
-        { ".dff", "DSD" }
-    };
+    internal static IReadOnlyDictionary<string, string> AudioExtensionToCodec { get; } = new ReadOnlyDictionary<string, string>(
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { ".mp3", "MP3" },
+            { ".flac", "FLAC" },
+            { ".wav", "WAV" },
+            { ".aac", "AAC" },
+            { ".ogg", "Vorbis" },
+            { ".wma", "WMA" },
+            { ".m4a", "AAC" },
+            { ".opus", "Opus" },
+            { ".ape", "APE" },
+            { ".wv", "WavPack" },
+            { ".mka", "Unknown" },
+            { ".dsf", "DSD" },
+            { ".dff", "DSD" }
+        });
 
     /// <summary>
     ///     Gets the set of common subtitle flags that are appended to subtitle filenames
     ///     (e.g., "forced", "sdh", "hi").
     /// </summary>
-    internal static HashSet<string> SubtitleFlags { get; } = new(StringComparer.OrdinalIgnoreCase)
+    internal static IReadOnlySet<string> SubtitleFlags { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "forced", "sdh", "hi", "cc", "default", "foreign", "commentary", "full"
     };
@@ -127,7 +140,7 @@ public static class MediaExtensions
     ///     used in subtitle filenames. This is an explicit allowlist to prevent false positives
     ///     (e.g., "DTS", "HDR", "S01" would incorrectly match a naive "2-3 letter" heuristic).
     /// </summary>
-    internal static HashSet<string> KnownLanguageCodes { get; } = new(StringComparer.OrdinalIgnoreCase)
+    internal static IReadOnlySet<string> KnownLanguageCodes { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         // ISO 639-1 (2-letter) - most common languages
         "aa", "ab", "af", "ak", "am", "an", "ar", "as", "av", "ay", "az",

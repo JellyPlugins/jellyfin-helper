@@ -890,7 +890,7 @@
             if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
                 Dashboard.alert(t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.'));
             } else {
-                alert(t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.'));
+                showToast(t('discoveryTabNotFound', 'The Discovery tab could not be found. Please ensure the Custom Tabs plugin is installed, or contact your server administrator.'));
             }
         });
         section.appendChild(navItem);

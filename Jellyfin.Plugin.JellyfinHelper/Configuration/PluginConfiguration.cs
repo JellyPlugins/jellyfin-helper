@@ -85,7 +85,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public int SeerrCleanupAgeDays
     {
         get => _seerrCleanupAgeDays;
-        set => _seerrCleanupAgeDays = value == 0 ? 0 : ClampAndReport(nameof(SeerrCleanupAgeDays), value, 1, 3650);
+        set => _seerrCleanupAgeDays = value <= 0 ? 0 : ClampAndReport(nameof(SeerrCleanupAgeDays), value, 1, 3650);
     }
 
     /// <summary>
@@ -253,7 +253,7 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Gets or sets the timestamp of the last cleanup run.
     ///     Always stored and compared as UTC (<see cref="DateTimeKind.Utc"/>).
     /// </summary>
-    public DateTime LastCleanupTimestamp { get; set; } = DateTime.MinValue;
+    public DateTime LastCleanupTimestamp { get; set; } = DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc);
 
     /// <summary>
     ///     Normalizes the alpha range to ensure <see cref="EnsembleAlphaMin"/> ≤ <see cref="EnsembleAlphaMax"/>
@@ -278,8 +278,7 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
-    ///     Migrates legacy single-instance Radarr/Sonarr settings to the new multi-instance lists
-    ///     and returns the effective list of configured Radarr instances (max 3).
+    ///     Returns the list of configured Radarr instances that have both a URL and an API key, capped at 3.
     /// </summary>
     /// <returns>A read-only list of configured Radarr instances.</returns>
     public IReadOnlyList<ArrInstanceConfig> GetEffectiveRadarrInstances()
@@ -292,8 +291,7 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
-    ///     Migrates legacy single-instance Sonarr settings to the new multi-instance lists
-    ///     and returns the effective list of configured Sonarr instances (max 3).
+    ///     Returns the list of configured Sonarr instances that have both a URL and an API key, capped at 3.
     /// </summary>
     /// <returns>A read-only list of configured Sonarr instances.</returns>
     public IReadOnlyList<ArrInstanceConfig> GetEffectiveSonarrInstances()

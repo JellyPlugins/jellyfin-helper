@@ -524,7 +524,11 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     public void GetExternalLinksConfig_ReturnsSeerrUrl_TrimmedAndNormalised()
     {
         // Trailing slash and surrounding whitespace must be stripped.
-        Plugin.Instance!.Configuration.SeerrUrl = "  https://seerr.example.com/  ";
+        _configServiceMock.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration
+        {
+            DiscoveryUserAccessEnabled = true,
+            SeerrUrl = "  https://seerr.example.com/  "
+        });
         var result = CreateController(Guid.NewGuid()).GetExternalLinksConfig();
         var ok = Assert.IsType<OkObjectResult>(result);
         Assert.NotNull(ok.Value);
@@ -536,12 +540,11 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public void GetExternalLinksConfig_NoSeerrUrlConfigured_ReturnsEmpty()
     {
-        // Deliberately probe the null-guard in the controller. SeerrUrl is declared
-        // non-nullable on the config DTO, but the production code guards with
-        // `SeerrUrl?.Trim().TrimEnd('/') ?? string.Empty` — that null-conditional is the
-        // exact branch we want to exercise. `null!` silences the nullable-analysis
-        // warning without changing runtime behaviour.
-        Plugin.Instance!.Configuration.SeerrUrl = null!;
+        _configServiceMock.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration
+        {
+            DiscoveryUserAccessEnabled = true,
+            SeerrUrl = null!
+        });
         var result = CreateController(Guid.NewGuid()).GetExternalLinksConfig();
         var ok = Assert.IsType<OkObjectResult>(result);
         var seerrUrlProp = ok.Value!.GetType().GetProperty("SeerrUrl");

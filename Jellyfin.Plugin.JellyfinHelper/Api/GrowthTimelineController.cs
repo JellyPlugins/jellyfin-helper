@@ -64,6 +64,12 @@ public class GrowthTimelineController : ControllerBase
             var now = DateTime.UtcNow;
             if (now - _lastRefreshTime < MinRefreshInterval)
             {
+                var retryAfter = (int)Math.Ceiling((MinRefreshInterval - (now - _lastRefreshTime)).TotalSeconds);
+                if (Response != null)
+                {
+                    Response.Headers["Retry-After"] = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+
                 return StatusCode(
                     StatusCodes.Status429TooManyRequests,
                     new { message = "Please wait before requesting another timeline computation." });

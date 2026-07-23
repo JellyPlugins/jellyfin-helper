@@ -401,7 +401,7 @@ function showAutoSaveIndicatorOverlay(element, success) {
  * @return {void} This function does not return any value.
  */
 function removeExistingSaveIndicatorOverlay(element) {
-    const existing = element.previousElementSibling;
+    var existing = element.previousElementSibling;
 
     if (existing && existing.classList.contains('fade-element')) {
         clearTimeout(existing._fadeTimer);
@@ -809,9 +809,11 @@ function collectDictPaths(libraries, prop, key) {
 
 /**
  * Creates a modal dialog overlay with title, body, and button row.
- * Returns { overlay, dialog, btnRow } so callers can add buttons.
+ * Returns { overlay, dialog, body, btnRow } so callers can add content or buttons.
+ * bodyContent is always set via textContent — callers needing rich content
+ * should leave bodyContent empty and append child elements to the returned body element.
  */
-function createDialogOverlay(overlayId, titleText, titleColor, bodyContent, bodyUseHtml) {
+function createDialogOverlay(overlayId, titleText, titleColor, bodyContent) {
     var overlay = document.createElement('div');
     overlay.id = overlayId;
     overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;';
@@ -826,9 +828,7 @@ function createDialogOverlay(overlayId, titleText, titleColor, bodyContent, body
 
     var body = document.createElement('div');
     body.style.cssText = 'white-space:pre-wrap;margin-bottom:1.2em;line-height:1.5;opacity:0.9;';
-    if (bodyUseHtml) {
-        body.innerHTML = bodyContent;
-    } else {
+    if (bodyContent) {
         body.textContent = bodyContent;
     }
     dialog.appendChild(body);
@@ -838,7 +838,7 @@ function createDialogOverlay(overlayId, titleText, titleColor, bodyContent, body
     dialog.appendChild(btnRow);
     overlay.appendChild(dialog);
 
-    return {overlay: overlay, dialog: dialog, btnRow: btnRow};
+    return {overlay: overlay, dialog: dialog, body: body, btnRow: btnRow};
 }
 
 /**

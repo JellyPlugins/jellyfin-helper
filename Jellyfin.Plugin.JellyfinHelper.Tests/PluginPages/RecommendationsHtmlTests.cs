@@ -154,11 +154,12 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
-    public void Html_RenderDiscoveryCard_EscapesPosterPath()
+    public void Html_RenderDiscoveryCard_ValidatesPosterPath()
     {
-        // rec.PosterPath is concatenated into an <img src>. escHtml prevents URL injection.
+        // PosterPath must be validated against a safe pattern before use in src URL.
+        // The safe approach uses a regex test + encodeURI rather than escHtml.
         Assert.Matches(
-            new Regex(@"function\s+renderDiscoveryCard[\s\S]*?escHtml\(rec\.PosterPath"),
+            new Regex(@"function\s+renderDiscoveryCard[\s\S]*?encodeURI\s*\(rawPoster\)"),
             HtmlContent);
     }
 

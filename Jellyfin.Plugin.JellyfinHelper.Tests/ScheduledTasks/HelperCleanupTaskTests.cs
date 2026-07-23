@@ -20,21 +20,18 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 /// <summary>
 ///     Tests for <see cref="HelperCleanupTask" />, the master orchestration task.
 /// </summary>
-public class HelperCleanupTaskTests : IDisposable
+public class HelperCleanupTaskTests
 {
     private readonly Mock<ILogger<HelperCleanupTask>> _loggerMock;
     private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
     private readonly Mock<ISeerrDiscoveryService> _seerrDiscoveryServiceMock;
     private readonly HelperCleanupTask _task;
-    private readonly string _testDataPath;
     private PluginConfiguration _config;
 
     public HelperCleanupTaskTests()
     {
         var libraryManagerMock = TestMockFactory.CreateLibraryManager();
         var fileSystemMock = TestMockFactory.CreateFileSystem();
-        _testDataPath = Path.Join(Path.GetTempPath(), "JellyfinHelperTests_Data_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_testDataPath);
         var loggerFactoryMock = new Mock<ILoggerFactory>();
         _loggerMock = TestMockFactory.CreateLogger<HelperCleanupTask>();
 
@@ -132,27 +129,6 @@ public class HelperCleanupTaskTests : IDisposable
             recsCacheMock.Object,
             playlistServiceMock.Object,
             _seerrDiscoveryServiceMock.Object);
-    }
-
-    public void Dispose()
-    {
-        if (!Directory.Exists(_testDataPath))
-        {
-            return;
-        }
-
-        try
-        {
-            Directory.Delete(_testDataPath, true);
-        }
-        catch (IOException)
-        {
-            /* best effort cleanup */
-        }
-        catch (UnauthorizedAccessException)
-        {
-            /* best effort cleanup */
-        }
     }
 
     [Fact]
@@ -322,6 +298,7 @@ public class HelperCleanupTaskTests : IDisposable
         await _task.ExecuteAsync(progress, CancellationToken.None);
 
         Assert.Contains(100.0, reportedValues);
+        Assert.Equal(100.0, reportedValues[^1]);
     }
 
     [Fact]
