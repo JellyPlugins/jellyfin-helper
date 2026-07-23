@@ -1092,6 +1092,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         watchedItemLookup.TryGetValue(candidate.Id, out var watchedItem);
         var hasUserInteraction = watchedItem is not null;
         var userRatingScore = ContentScoring.ComputeUserRatingScore(watchedItem);
+        // No interaction: no completion data, use 0.0 (not 0.5 which implies 50% progress)
         var completionRatio = hasUserInteraction ? ContentScoring.ComputeCompletionRatio(watchedItem) : 0.0;
 
         // Pre-build candidate genre/studio sets once; reused for studioMatch and ContentNearestNeighborScore.

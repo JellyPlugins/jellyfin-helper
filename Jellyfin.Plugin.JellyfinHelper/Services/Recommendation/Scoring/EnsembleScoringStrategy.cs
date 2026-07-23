@@ -1155,6 +1155,18 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 return;
             }
 
+            // Schema version guard: if the persisted file was written by an older (or newer)
+            // incompatible schema, discard it and start from defaults rather than applying
+            // potentially mis-mapped fields that could corrupt runtime state.
+            if (data.SchemaVersion != EnsembleStateData.CurrentSchemaVersion)
+            {
+                _logger?.LogWarning(
+                    "EnsembleScoringStrategy: State schema version mismatch (file={FileVersion}, expected={Expected}). Resetting to defaults.",
+                    data.SchemaVersion,
+                    EnsembleStateData.CurrentSchemaVersion);
+                return;
+            }
+
             // Reject only when the state is entirely empty. A run that produced ONLY cold-start
             // placeholder snapshots persists TrainingExampleCount = 0 (no successful training
             // happened yet) but non-empty MetricsHistory (each failed Train() call recorded one

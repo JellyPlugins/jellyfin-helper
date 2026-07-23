@@ -44,6 +44,14 @@ public class SymlinkHandler : ILinkHandler
     public void WriteTarget(string filePath, string targetPath)
     {
         var previousTarget = _symlinkHelper.GetSymlinkTarget(filePath);
+        if (string.IsNullOrWhiteSpace(previousTarget))
+        {
+            _pluginLog.LogWarning(
+                "SymlinkHandler",
+                $"No existing symlink target found for '{filePath}'. Rollback will not be possible if the write fails.",
+                null);
+        }
+
         var deleted = false;
         try
         {

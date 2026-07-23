@@ -363,115 +363,96 @@ public sealed class DiscoveryCacheService : IDisposable
     /// </summary>
     private async Task MarkAsRequestedLocked(int tmdbId, string mediaType, bool useAsyncWrite, CancellationToken cancellationToken)
     {
-        try
+        EnsureLoadedLocked();
+        var cache = _memoryCache ??= [];
+
+        if (cache.Count == 0)
         {
-            EnsureLoadedLocked();
-            var cache = _memoryCache ??= [];
+            return;
+        }
 
-            if (cache.Count == 0)
+        // Determine which items need updating WITHOUT mutating the live cache yet.
+        // This avoids leaving _memoryCache in an inconsistent state if persistence fails.
+        var indicesToMark = new List<(int UserIdx, int RecIdx)>();
+        for (var u = 0; u < cache.Count; u++)
+        {
+            var recs = cache[u].Recommendations;
+            for (var r = 0; r < recs.Count; r++)
             {
-                return;
-            }
-
-            // Determine which items need updating WITHOUT mutating the live cache yet.
-            // This avoids leaving _memoryCache in an inconsistent state if persistence fails.
-            var indicesToMark = new List<(int UserIdx, int RecIdx)>();
-            for (var u = 0; u < cache.Count; u++)
-            {
-                var recs = cache[u].Recommendations;
-                for (var r = 0; r < recs.Count; r++)
+                if (recs[r].TmdbId == tmdbId
+                    && string.Equals(recs[r].MediaType, mediaType, StringComparison.OrdinalIgnoreCase)
+                    && !recs[r].AlreadyRequested)
                 {
-                    if (recs[r].TmdbId == tmdbId
-                        && string.Equals(recs[r].MediaType, mediaType, StringComparison.OrdinalIgnoreCase)
-                        && !recs[r].AlreadyRequested)
-                    {
-                        indicesToMark.Add((u, r));
-                    }
+                    indicesToMark.Add((u, r));
                 }
-            }
-
-            if (indicesToMark.Count == 0)
-            {
-                return;
-            }
-
-            // Apply mutations
-            foreach (var (userIdx, recIdx) in indicesToMark)
-            {
-                cache[userIdx].Recommendations[recIdx].AlreadyRequested = true;
-            }
-
-            try
-            {
-                var updatedJson = JsonSerializer.Serialize(cache, JsonOptions);
-
-                // Use AtomicFile: bounded retry on transient AV/indexer locks +
-                // internal temp-file cleanup, so no manual .tmp handling required.
-                if (useAsyncWrite)
-                {
-                    // cancellationToken is passed by name because AtomicFile.WriteAllTextAsync
-                    // orders parameters as (path, contents, maxAttempts, cancellationToken)
-                    // to satisfy the CA1068 "CancellationToken is last" convention.
-                    await AtomicFile.WriteAllTextAsync(_filePath, updatedJson, cancellationToken: cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    // CA1849 is intentionally suppressed here: same rationale as the identical
-                    // branch in RemoveItemLocked — the sync branch is only entered from the
-                    // synchronous MarkAsRequested overload via .GetAwaiter().GetResult() on a
-                    // background thread. Sync-over-async-over-sync would gain nothing.
-#pragma warning disable CA1849 // Call async methods when in an async method
-                    AtomicFile.WriteAllText(_filePath, updatedJson);
-#pragma warning restore CA1849
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Cancellation on the async path: roll back the in-memory mutations so the
-                // caller's view of the cache is consistent with the on-disk state, then
-                // propagate. Matches the transient-IO rollback below in shape and intent.
-                foreach (var (userIdx, recIdx) in indicesToMark)
-                {
-                    cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
-                }
-
-                throw;
-            }
-            catch (Exception ex) when (!ex.IsFatal())
-            {
-                // Rollback in-memory mutations on ANY persistence failure. AtomicFile.WriteAllText
-                // can surface more than IOException/UnauthorizedAccessException (e.g. SecurityException,
-                // NotSupportedException, ArgumentException from the OS path layer). Narrowing the
-                // filter here would let those escape with AlreadyRequested=true still applied in
-                // _memoryCache while disk was never updated — a memory/disk divergence that survives
-                // until restart. Matches the broad rollback filter in RemoveItemLocked.
-                foreach (var (userIdx, recIdx) in indicesToMark)
-                {
-                    cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
-                }
-
-                _pluginLog.LogWarning(
-                    "DiscoveryCache",
-                    $"Could not persist mark-as-requested for TMDb#{tmdbId} in cache: {ex.Message}",
-                    ex,
-                    _logger);
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException
-                                       and not OutOfMemoryException
-                                       and not StackOverflowException)
+
+        if (indicesToMark.Count == 0)
         {
-            // Broad outer filter matches RemoveItemLocked: EnsureLoadedLocked and JsonSerializer
-            // can surface SecurityException, NotSupportedException, and ArgumentException in
-            // addition to IOException / UnauthorizedAccessException / JsonException. Narrowing
-            // the filter would let those escape unlogged with _memoryCache in an unknown state.
-            // OperationCanceledException is excluded so cancellation propagates to the caller.
+            return;
+        }
+
+        // Apply mutations
+        foreach (var (userIdx, recIdx) in indicesToMark)
+        {
+            cache[userIdx].Recommendations[recIdx].AlreadyRequested = true;
+        }
+
+        try
+        {
+            var updatedJson = JsonSerializer.Serialize(cache, JsonOptions);
+
+            // Use AtomicFile: bounded retry on transient AV/indexer locks +
+            // internal temp-file cleanup, so no manual .tmp handling required.
+            if (useAsyncWrite)
+            {
+                // cancellationToken is passed by name because AtomicFile.WriteAllTextAsync
+                // orders parameters as (path, contents, maxAttempts, cancellationToken)
+                // to satisfy the CA1068 "CancellationToken is last" convention.
+                await AtomicFile.WriteAllTextAsync(_filePath, updatedJson, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                // CA1849 is intentionally suppressed here: same rationale as the identical
+                // branch in RemoveItemLocked — the sync branch is only entered from the
+                // synchronous MarkAsRequested overload via .GetAwaiter().GetResult() on a
+                // background thread. Sync-over-async-over-sync would gain nothing.
+#pragma warning disable CA1849 // Call async methods when in an async method
+                AtomicFile.WriteAllText(_filePath, updatedJson);
+#pragma warning restore CA1849
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation on the async path: roll back the in-memory mutations so the
+            // caller's view of the cache is consistent with the on-disk state, then
+            // propagate. Matches the transient-IO rollback below in shape and intent.
+            foreach (var (userIdx, recIdx) in indicesToMark)
+            {
+                cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
+            }
+
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            // Rollback in-memory mutations on ANY persistence failure. AtomicFile.WriteAllText
+            // can surface more than IOException/UnauthorizedAccessException (e.g. SecurityException,
+            // NotSupportedException, ArgumentException from the OS path layer). Narrowing the
+            // filter here would let those escape with AlreadyRequested=true still applied in
+            // _memoryCache while disk was never updated — a memory/disk divergence that survives
+            // until restart. Matches the broad rollback filter in RemoveItemLocked.
+            foreach (var (userIdx, recIdx) in indicesToMark)
+            {
+                cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
+            }
+
             _pluginLog.LogWarning(
                 "DiscoveryCache",
-                $"Could not mark TMDb#{tmdbId} as requested in cache: {ex.Message}",
+                $"Could not persist mark-as-requested for TMDb#{tmdbId} in cache: {ex.Message}",
                 ex,
                 _logger);
-            _memoryCache ??= [];
         }
     }
 

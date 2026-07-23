@@ -183,6 +183,31 @@ public class MediaStatisticsService : IMediaStatisticsService
         return lookup;
     }
 
+    private long CalculateTrickplaySize(string directoryPath)
+    {
+        long total = 0;
+        try
+        {
+            foreach (var file in _fileSystem.GetFiles(directoryPath, false))
+            {
+                total += file.Length;
+            }
+
+            foreach (var sub in _fileSystem.GetDirectories(directoryPath, false))
+            {
+                total += CalculateTrickplaySize(sub.FullName);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return total;
+    }
+
     /// <summary>
     ///     Recursively analyzes a directory and accumulates file size statistics.
     /// </summary>
@@ -308,7 +333,7 @@ public class MediaStatisticsService : IMediaStatisticsService
 
                 if (subDir.Name.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
                 {
-                    var trickplaySize = FileSystemHelper.CalculateDirectorySize(_fileSystem, subDir.FullName);
+                    var trickplaySize = CalculateTrickplaySize(subDir.FullName);
                     stats.TrickplaySize += trickplaySize;
                     stats.TrickplayFolderCount++;
                 }

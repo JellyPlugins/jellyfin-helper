@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 
@@ -42,7 +43,7 @@ public static class BackupSanitizer
         // Numeric clamping
         backup.OrphanMinAgeDays = Math.Clamp(backup.OrphanMinAgeDays, 0, BackupValidator.MaxRetentionDays);
         backup.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
-        if (backup.SeerrCleanupAgeDays.HasValue && backup.SeerrCleanupAgeDays.Value != 0)
+        if (backup.SeerrCleanupAgeDays.HasValue)
         {
             backup.SeerrCleanupAgeDays = Math.Clamp(backup.SeerrCleanupAgeDays.Value, 1, BackupValidator.MaxRetentionDays);
         }
@@ -62,32 +63,17 @@ public static class BackupSanitizer
         SanitizeArrInstances(backup.SonarrInstances);
 
         // Timeline data points limit - keep only the newest MaxTimelineDataPoints entries
-        if (backup.GrowthTimeline is { DataPoints.Count: > BackupValidator.MaxTimelineDataPoints })
+        int excess = backup.GrowthTimeline?.DataPoints?.Count - BackupValidator.MaxTimelineDataPoints ?? 0;
+        if (excess > 0)
         {
-            // Sort ascending, drop the oldest (front), keep only the newest MaxTimelineDataPoints.
-            // Collection<T> has no Sort/RemoveRange, so we rebuild in two passes without an
-            // extra intermediate List: sort all in place via index-swap, then trim the front.
-            var pts = backup.GrowthTimeline.DataPoints;
-            var count = pts.Count;
-
-            // Insertion sort — the list is nearly sorted in practice, so this is O(n) typical.
-            for (var i = 1; i < count; i++)
+            var trimmed = backup.GrowthTimeline!.DataPoints
+                .OrderBy(p => p.Date)
+                .Skip(excess)
+                .ToList();
+            backup.GrowthTimeline.DataPoints.Clear();
+            foreach (var point in trimmed)
             {
-                var key = pts[i];
-                var j = i - 1;
-                while (j >= 0 && pts[j].Date > key.Date)
-                {
-                    pts[j + 1] = pts[j];
-                    j--;
-                }
-
-                pts[j + 1] = key;
-            }
-
-            var excess = count - BackupValidator.MaxTimelineDataPoints;
-            for (var i = 0; i < excess; i++)
-            {
-                pts.RemoveAt(0);
+                backup.GrowthTimeline.DataPoints.Add(point);
             }
         }
 

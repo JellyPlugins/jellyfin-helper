@@ -45,6 +45,21 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
     {
         ArgumentNullException.ThrowIfNull(results);
 
+        string json;
+        try
+        {
+            json = JsonSerializer.Serialize(results, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            _pluginLog.LogWarning(
+                "RecommendationCache",
+                $"Could not serialize recommendation results for {_cacheFilePath}",
+                ex,
+                _logger);
+            return;
+        }
+
         lock (_fileLock)
         {
             try
@@ -54,8 +69,6 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
                 {
                     Directory.CreateDirectory(directory);
                 }
-
-                var json = JsonSerializer.Serialize(results, JsonOptions);
 
                 // Use AtomicFile so a transient Windows AV/indexer sharing violation on the
                 // final File.Move gets a bounded retry instead of silently dropping the save.

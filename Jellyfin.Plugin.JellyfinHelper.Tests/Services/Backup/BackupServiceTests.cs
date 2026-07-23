@@ -857,6 +857,58 @@ public class BackupServiceTests
     }
 
     [Fact]
+    public void SeerrCleanupAgeDays_BelowMin_ClampedTo1()
+    {
+        var backup = CreateValidBackup();
+        backup.SeerrCleanupAgeDays = -5;
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Equal(1, backup.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void SeerrCleanupAgeDays_AboveMax_ClampedToMax()
+    {
+        var backup = CreateValidBackup();
+        backup.SeerrCleanupAgeDays = 99999;
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Equal(BackupValidator.MaxRetentionDays, backup.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void SeerrCleanupAgeDays_Null_LeftNull()
+    {
+        var backup = CreateValidBackup();
+        backup.SeerrCleanupAgeDays = null;
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Null(backup.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void TimelineTrimming_OverLimit_OldestRemoved()
+    {
+        var backup = CreateValidBackup();
+        backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
+        var totalPoints = BackupValidator.MaxTimelineDataPoints + 5;
+        for (var i = 0; i < totalPoints; i++)
+            backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
+            {
+                Date = ReferenceTime.AddDays(-i),
+                CumulativeSize = i * 1000,
+                CumulativeFileCount = i
+            });
+
+        BackupSanitizer.Sanitize(backup);
+
+        Assert.Equal(BackupValidator.MaxTimelineDataPoints, backup.GrowthTimeline.DataPoints.Count);
+        // All remaining points should be the newest (closest to ReferenceTime)
+        Assert.All(backup.GrowthTimeline.DataPoints,
+            p => Assert.True(p.Date >= ReferenceTime.AddDays(-(BackupValidator.MaxTimelineDataPoints - 1))));
+    }
+
+    [Fact]
     public void Sanitize_InvalidSeerrCleanupTaskMode_DefaultsToDeactivate()
     {
         var backup = CreateValidBackup();

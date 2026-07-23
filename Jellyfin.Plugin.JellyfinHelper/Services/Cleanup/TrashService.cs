@@ -94,7 +94,7 @@ public class TrashService : ITrashService
                 return 0;
             }
 
-            var dirName = Path.GetFileName(normalizedSource);
+            var dirName = Path.GetFileName(normalizedSource.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             var timestamp = (utcNow ?? DateTime.UtcNow).ToString(TimestampFormat, CultureInfo.InvariantCulture);
             var trashItemName = $"{timestamp}_{dirName}";
             var trashItemPath = Path.Join(trashBasePath, trashItemName);
@@ -153,7 +153,7 @@ public class TrashService : ITrashService
                 return 0;
             }
 
-            var fileName = Path.GetFileName(normalizedFile);
+            var fileName = Path.GetFileName(normalizedFile.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             var timestamp = (utcNow ?? DateTime.UtcNow).ToString(TimestampFormat, CultureInfo.InvariantCulture);
             var trashItemName = $"{timestamp}_{fileName}";
             var trashItemPath = Path.Join(trashBasePath, trashItemName);
@@ -330,7 +330,7 @@ public class TrashService : ITrashService
                 if (TryParseTrashTimestamp(dirName, out var timestamp))
                 {
                     trashedAt = timestamp;
-                    purgesAt = retentionDays > 0 ? timestamp.AddDays(retentionDays) : null;
+                    purgesAt = retentionDays > 0 ? timestamp.AddDays(retentionDays) : (DateTime?)null;
                 }
 
                 items.Add(
@@ -357,7 +357,7 @@ public class TrashService : ITrashService
                 if (TryParseTrashTimestamp(fileName, out var timestamp))
                 {
                     trashedAt = timestamp;
-                    purgesAt = retentionDays > 0 ? timestamp.AddDays(retentionDays) : null;
+                    purgesAt = retentionDays > 0 ? timestamp.AddDays(retentionDays) : (DateTime?)null;
                 }
 
                 items.Add(

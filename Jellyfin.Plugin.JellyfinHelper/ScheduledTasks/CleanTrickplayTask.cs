@@ -187,7 +187,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                     PluginLog.LogInfo(TaskName, $"Deleting orphaned trickplay folder: {dir.FullName}", Logger);
                     try
                     {
-                        var size = FileSystemHelper.CalculateDirectorySize(FileSystem, dir.FullName);
+                        var size = FileSystemHelper.CalculateDirectorySize(dir.FullName);
                         Directory.Delete(dir.FullName, true);
                         bytesFreed += size;
                         deletedCount++;

@@ -256,7 +256,7 @@ public sealed class BackupService : IBackupService
         }
         catch (JsonException ex)
         {
-            logger?.LogWarning(ex, "Backup deserialization failed — the JSON is invalid or does not match the expected schema.");
+            logger?.LogWarning(ex, "Failed to deserialize backup JSON.");
             return null;
         }
     }

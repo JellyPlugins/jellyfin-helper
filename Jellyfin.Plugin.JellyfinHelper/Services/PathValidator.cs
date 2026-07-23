@@ -99,7 +99,7 @@ internal static class PathValidator
         foreach (var folder in libraryFolders)
         {
             var libraryRoot = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var candidate = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var candidate = Path.GetFullPath(fullPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
             // Reject if candidate IS the library root
             if (string.Equals(candidate, libraryRoot, comparison))

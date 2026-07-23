@@ -447,6 +447,49 @@ public class UserActivityInsightsServiceTests
     }
 
     [Fact]
+    public void BuildActivityReport_UserDataThrowsObjectDisposedException_OtherUsersStillProcessed()
+    {
+        // Contract: ObjectDisposedException from GetUserData for one user must not abort the
+        // whole report. The affected user is skipped for that item; other users are still
+        // included in the summary. This mirrors the InvalidOperationException resilience test
+        // but exercises the ObjectDisposedException branch of the same catch clause.
+        //
+        // Setup: both users hit the per-item fallback path (batch throws for both so that
+        // GetUserData is exercised for each). User1's GetUserData throws
+        // ObjectDisposedException; user2's GetUserData succeeds with a played entry.
+        var (svc, lib, um, ud) = CreateSut();
+        var user1 = User("user1");
+        var user2 = User("user2");
+        var movie = NewMovie("Shared Movie");
+        um.Setup(m => m.GetUsers()).Returns(new[] { user1, user2 });
+        lib.Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>())).Returns([movie]);
+
+        // Force both users onto the per-item fallback path by making the batch call throw.
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user1))
+          .Throws(new InvalidOperationException("batch unavailable"));
+        ud.Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user2))
+          .Throws(new InvalidOperationException("batch unavailable"));
+
+        // Per-item: user1 throws ObjectDisposedException; user2 succeeds.
+        ud.Setup(m => m.GetUserData(user1, movie))
+          .Throws(new ObjectDisposedException("userDataRepo"));
+        ud.Setup(m => m.GetUserData(user2, movie))
+          .Returns(Played(count: 2));
+
+        var r = svc.BuildActivityReport();
+
+        // The report must not throw and must include user2's activity.
+        Assert.Single(r.Items);
+        var s = r.Items.Single();
+        Assert.Equal(movie.Id, s.ItemId);
+        Assert.Equal(1, s.UniqueViewers);
+        Assert.Single(s.UserActivities);
+        Assert.Equal(user2.Id, s.UserActivities[0].UserId);
+        // user1 must be absent from the item's activity list.
+        Assert.DoesNotContain(s.UserActivities, a => a.UserId == user1.Id);
+    }
+
+    [Fact]
     public void BuildActivityReport_BatchApiHappyPath_ConsumesBatchAndSkipsPerItemLookup()
     {
         // Happy path: a populated batch dictionary must be consumed via the O(1) lookup,

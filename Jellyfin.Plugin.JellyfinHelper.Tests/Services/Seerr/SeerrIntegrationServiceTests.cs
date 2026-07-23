@@ -1015,4 +1015,106 @@ public class SeerrIntegrationServiceTests : IDisposable
             service.TestConnectionAsync("http://seerr.local", "key\r\nX-Injected: evil", CancellationToken.None));
         Assert.Contains("CR or LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    // ===== Pagination behaviour =====
+
+    [Fact]
+    public async Task CleanupExpiredRequests_PartialPageResponse_UsesPageSizeForOffset()
+    {
+        // Arrange: first page returns 30 results (< PageSize=50) but pageInfo.Results=80
+        // so hasMore is true after page 1 (skip=0 < 80).  The second page fetch must use
+        // skip=50 (PageSize), NOT skip=30 (page1.Results.Count).
+        // This verifies that skip is advanced by the constant PageSize, not by the
+        // variable number of items actually returned in a page.
+
+        var page1Requests = Enumerable.Range(1, 30)
+            .Select(i => (i, DateTimeOffset.UtcNow.AddDays(-10))) // young — not expired
+            .ToList();
+
+        // Build a page JSON with 30 results but totalResults=80 so pagination continues.
+        var results1 = page1Requests.Select(r => new
+        {
+            id = r.i,
+            createdAt = r.Item2.ToString("O"),
+            status = 2,
+            media = new { mediaType = "movie", tmdbId = r.i * 100, status = 5 }
+        }).ToList<object>();
+
+        var page1Json = JsonSerializer.Serialize(new
+        {
+            pageInfo = new { page = 1, pages = 2, results = 80, pageSize = 50 },
+            results = results1
+        });
+
+        // Second page: also young requests; totalResults=80, skip will be 50 after page1.
+        var page2Requests = Enumerable.Range(51, 30)
+            .Select(i => (i, DateTimeOffset.UtcNow.AddDays(-10)))
+            .ToList();
+
+        var results2 = page2Requests.Select(r => new
+        {
+            id = r.i,
+            createdAt = r.Item2.ToString("O"),
+            status = 2,
+            media = new { mediaType = "movie", tmdbId = r.i * 100, status = 5 }
+        }).ToList<object>();
+
+        var page2Json = JsonSerializer.Serialize(new
+        {
+            pageInfo = new { page = 2, pages = 2, results = 80, pageSize = 50 },
+            results = results2
+        });
+
+        var capturedUrls = new List<string>();
+        var mock = new Mock<HttpMessageHandler>();
+        var seq = mock.Protected()
+            .SetupSequence<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>());
+
+        // Track every outgoing request URI before returning the canned responses.
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Callback<HttpRequestMessage, CancellationToken>((req, _) =>
+            {
+                if (req.RequestUri != null)
+                {
+                    capturedUrls.Add(req.RequestUri.ToString());
+                }
+            })
+            .ReturnsAsync(() =>
+            {
+                // Return page1 for the first call, page2 for the second.
+                var responseIndex = capturedUrls.Count - 1;
+                var (statusCode, content) = responseIndex == 0
+                    ? (HttpStatusCode.OK, page1Json)
+                    : (HttpStatusCode.OK, page2Json);
+                return CreateResponse(statusCode, content);
+            });
+
+        var service = CreateService(mock.Object, out _, out _);
+
+        // Act
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 365, false, CancellationToken.None);
+
+        // Assert: two page GETs were made (pagination really continued past the partial page)
+        var pageGetUrls = capturedUrls.Where(u => u.Contains("api/v1/request")).ToList();
+        Assert.Equal(2, pageGetUrls.Count);
+
+        // The first GET must use skip=0
+        Assert.Contains("skip=0", pageGetUrls[0]);
+
+        // The second GET must use skip=50 (PageSize), NOT skip=30 (count of results returned)
+        Assert.Contains("skip=50", pageGetUrls[1]);
+        Assert.DoesNotContain("skip=30", pageGetUrls[1]);
+
+        // Sanity: all 60 requests were young so none should be marked expired
+        Assert.Equal(60, result.TotalChecked);
+        Assert.Equal(0, result.ExpiredFound);
+    }
 }

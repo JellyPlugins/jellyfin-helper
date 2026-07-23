@@ -599,11 +599,11 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
         if (normalized != "movie" && normalized != "tv")
         {
-            // Unexpected media type: defaults to movie to avoid breaking keying.
-            _pluginLog.LogDebug(
-                "DiscoveryFeedback",
-                $"NormalizeMediaType: unexpected value '{mediaType}' — defaulting to 'movie'",
-                _logger);
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug("Unexpected mediaType value '{Value}' normalized to 'movie'.", mediaType);
+            }
+
             return "movie";
         }
 

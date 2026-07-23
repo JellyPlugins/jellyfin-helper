@@ -27,6 +27,9 @@ internal static class DiversityReranker
     /// </summary>
     internal const int ExplorationPoolFactor = 20;
 
+    // Precondition: result list must not contain duplicate objects (same reference).
+    // bestPerSeries maps seriesId to index in result; index validity relies on no mid-loop list compaction.
+
     /// <summary>
     ///     Deduplicates series entries: when episodes or seasons from the same series
     ///     appear as separate candidates, keeps only the highest-scored entry per series.

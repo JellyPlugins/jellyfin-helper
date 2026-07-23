@@ -404,7 +404,7 @@ public static class BackupValidator
 
             if (warnedNegativeSize && warnedNegativeCount)
             {
-                break;
+                continue;
             }
         }
     }

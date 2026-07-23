@@ -392,6 +392,34 @@ public sealed class AtomicFileTests : IDisposable
     }
 
     [Fact]
+    public async Task WriteAllTextAsync_DirectoryDoesNotExist_CreatesDirectoryAndWrites()
+    {
+        // Write to a path inside a non-existent subdirectory that is a direct child of
+        // Path.GetTempPath() — deliberately outside _tempDir so the directory is guaranteed
+        // not to exist before the call.
+        var subdir = Path.Combine(Path.GetTempPath(), "AtomicFileTests_NewDir_" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(subdir, "output.txt");
+        const string expectedContent = "directory created automatically";
+
+        try
+        {
+            Assert.False(Directory.Exists(subdir), "Precondition: directory must not exist before the call.");
+
+            await AtomicFile.WriteAllTextAsync(path, expectedContent);
+
+            Assert.True(File.Exists(path), "File should have been created.");
+            Assert.Equal(expectedContent, await File.ReadAllTextAsync(path));
+        }
+        finally
+        {
+            if (Directory.Exists(subdir))
+            {
+                Directory.Delete(subdir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void WriteAllText_AndReadBack_Utf8SpecialChars()
     {
         // Cross-check with a manual utf-8 read to guarantee no double-encoding

@@ -601,6 +601,25 @@ public class TrashServiceTests : IDisposable
         Assert.Null(result[0].PurgesAt);
     }
 
+    [Fact]
+    public void GetTrashContents_RetentionZero_PurgesAtIsNull()
+    {
+        // A directory item with retentionDays=0 must have PurgesAt=null because
+        // zero is the "disabled" sentinel — no purge date should ever be projected.
+        var trashPath = Path.Join(_testRoot, "trash");
+        var dirName = "20260315-140000_SomeMovie";
+        var dir = Path.Join(trashPath, dirName);
+        Directory.CreateDirectory(dir);
+        File.WriteAllBytes(Path.Join(dir, "movie.mkv"), new byte[512]);
+
+        var result = _trashService.GetTrashContents(trashPath, 0);
+
+        Assert.Single(result);
+        var item = result[0];
+        Assert.NotNull(item.TrashedAt);
+        Assert.Null(item.PurgesAt);
+    }
+
     // ===== ExtractOriginalName Tests =====
 
     [Theory]
@@ -628,6 +647,16 @@ public class TrashServiceTests : IDisposable
     {
         var result = TrashService.ExtractOriginalName(null!);
         Assert.Null(result);
+    }
+
+    [Fact]
+    public void ExtractOriginalName_EmptyOriginal_ReturnsFallback()
+    {
+        // "yyyyMMdd-HHmmss_" is a valid timestamp prefix followed by an empty original name.
+        // ExtractOriginalName must fall back to returning the full input rather than an empty string.
+        const string input = "20260101-120000_";
+        var result = TrashService.ExtractOriginalName(input);
+        Assert.Equal(input, result);
     }
 
     [Fact]

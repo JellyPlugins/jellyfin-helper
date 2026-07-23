@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Linq;
-using MediaBrowser.Model.IO;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
 
@@ -19,43 +17,37 @@ public static class FileSystemHelper
     ///     Symlinks and junction points are skipped to prevent cycles.
     ///     Inaccessible directories are silently skipped.
     /// </summary>
-    /// <param name="fileSystem">The Jellyfin file system abstraction.</param>
-    /// <param name="directoryPath">The root directory path.</param>
+    /// <param name="path">The root directory path.</param>
     /// <returns>The total size in bytes.</returns>
-    internal static long CalculateDirectorySize(IFileSystem fileSystem, string directoryPath)
+    public static long CalculateDirectorySize(string path)
     {
-        long totalSize = 0;
+        long total = 0;
         var stack = new Stack<string>();
-        stack.Push(directoryPath);
-
+        stack.Push(path);
         while (stack.Count > 0)
         {
-            var current = stack.Pop();
+            var dir = stack.Pop();
             try
             {
-                totalSize += fileSystem.GetFiles(current).Sum(f => f.Length);
-
-                foreach (var subDir in fileSystem.GetDirectories(current))
+                foreach (var file in Directory.GetFiles(dir))
                 {
-                    // Skip symlinks/junctions to prevent infinite cycles.
-                    // DirectoryInfo.Attributes returns (FileAttributes)(-1) when the path
-                    // does not exist on the real filesystem (e.g. mock-backed paths in tests);
-                    // treat that sentinel as "not a reparse point" and traverse normally.
                     try
                     {
-                        var attrs = new DirectoryInfo(subDir.FullName).Attributes;
-                        if (attrs != (FileAttributes)(-1) && (attrs & FileAttributes.ReparsePoint) != 0)
-                        {
-                            continue;
-                        }
+                        total += new FileInfo(file).Length;
                     }
-                    catch (UnauthorizedAccessException)
+                    catch (IOException)
                     {
-                        // Cannot read attributes — skip to be safe.
+                    }
+                }
+
+                foreach (var sub in Directory.GetDirectories(dir))
+                {
+                    if ((new DirectoryInfo(sub).Attributes & FileAttributes.ReparsePoint) != 0)
+                    {
                         continue;
                     }
 
-                    stack.Push(subDir.FullName);
+                    stack.Push(sub);
                 }
             }
             catch (IOException)
@@ -66,7 +58,7 @@ public static class FileSystemHelper
             }
         }
 
-        return totalSize;
+        return total;
     }
 
     /// <summary>

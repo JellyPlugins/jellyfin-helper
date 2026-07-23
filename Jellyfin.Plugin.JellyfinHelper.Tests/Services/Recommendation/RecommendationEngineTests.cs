@@ -263,8 +263,8 @@ public class RecommendationEngineTests
     public void ComputeYearProximity_TenYearsDiff_DecaysExpected()
     {
         var score = ContentScoring.ComputeYearProximity(2010, 2020);
-        // e^(-100/200) = e^(-0.5) ~= 0.6065
-        Assert.True(score > 0.55 && score < 0.65, $"Expected ~0.607 but got {score}");
+        // e^(-100/200) = e^(-0.5) = 0.60653...
+        Assert.Equal(0.607, score, 3);
     }
 
     [Fact]
@@ -601,7 +601,8 @@ public class RecommendationEngineTests
         var oneYearAgo = now.AddDays(-365);
 
         var score = ContentScoring.ComputeRecencyScore(oneYearAgo, now);
-        Assert.True(score > 0.4 && score < 0.6, $"Expected ~0.5 for 1-year decay, got {score}");
+        // exp(-ln(2)/365 * 365) = exp(-ln(2)) = 0.5 exactly
+        Assert.Equal(0.500, score, 3);
     }
 
     [Fact]

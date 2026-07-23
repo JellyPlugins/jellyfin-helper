@@ -451,6 +451,19 @@ public class GrowthTimelineModelTests
     }
 
     [Fact]
+    public void CumulativeFileCount_AcceptsLongValues()
+    {
+        var point = new GrowthTimelinePoint
+        {
+            Date = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            CumulativeSize = 0,
+            CumulativeFileCount = long.MaxValue,
+        };
+
+        Assert.Equal(long.MaxValue, point.CumulativeFileCount);
+    }
+
+    [Fact]
     public void GrowthTimelineResult_DataPointsCumulativeSizeGrows()
     {
         var result = new GrowthTimelineResult();

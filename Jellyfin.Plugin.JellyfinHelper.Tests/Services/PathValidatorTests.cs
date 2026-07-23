@@ -123,4 +123,43 @@ public class PathValidatorTests
         var dir = Path.GetTempPath();
         Assert.False(PathValidator.IsSafePath(Path.Combine(dir, "..", "escape"), dir));
     }
+
+    // ===== IsPathSafeForDeletion =====
+
+    /// <summary>
+    /// A path whose folder name contains ".." as a substring (but has no ".." segment)
+    /// must not be rejected — that would be a false positive.
+    /// </summary>
+    [Fact]
+    public void IsPathSafeForDeletion_PathWithDotDotInName_NotFalsePositive()
+    {
+        // "/media/my..folder/file" contains ".." as a substring but not as a path segment.
+        var path = Path.Combine(Path.DirectorySeparatorChar.ToString(), "media", "my..folder", "file");
+        Assert.True(PathValidator.IsPathSafeForDeletion(path, []));
+    }
+
+    /// <summary>
+    /// A path that is a direct child of a library root must be rejected to prevent
+    /// deleting content that lives inside a library.
+    /// </summary>
+    [Fact]
+    public void IsPathSafeForDeletion_PathInsideLibraryRoot_Rejected()
+    {
+        var libraryRoot = Path.Combine(Path.DirectorySeparatorChar.ToString(), "media", "movies");
+        var candidate   = Path.Combine(libraryRoot, "Inception");
+        Assert.False(PathValidator.IsPathSafeForDeletion(candidate, [libraryRoot]));
+    }
+
+    /// <summary>
+    /// IsSafePath must reject a path that contains a ".." segment, even when the
+    /// segment-split logic is the primary guard (early-exit before GetFullPath).
+    /// </summary>
+    [Fact]
+    public void IsSafePath_DotDotAsSegment_Rejected()
+    {
+        // "/media/../etc" contains ".." as an explicit path segment.
+        var path = Path.Combine(
+            Path.DirectorySeparatorChar.ToString(), "media", "..", "etc");
+        Assert.False(PathValidator.IsSafePath(path, Path.Combine(Path.DirectorySeparatorChar.ToString(), "media")));
+    }
 }
