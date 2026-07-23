@@ -113,6 +113,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── DiscoveryControllerTests.cs
 │   ├── DiscoveryControllerExtendedTests.cs           # Seerr users/services, request submission, filter logic, feedback-store error paths
 │   ├── FolderBrowserControllerTests.cs               # Root/list/validate flows and library-path resolution
+│   ├── ResponseDtoTests.cs                           # Default values, round-trip, null-safety and collection-default coverage for all 17 typed response DTOs
 │   ├── ModelBindingLogFilterTests.cs                 # IAsyncActionFilter contract; Order = int.MinValue lock; drives filter directly
 │   ├── PingControllerTests.cs                        # 200 with { ok, plugin, version }
 │   ├── RecommendationControllerTests.cs
@@ -319,8 +320,25 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── SeerrController.cs              # Jellyseerr/Overseerr integration API
 │   ├── TranslationsController.cs        # i18n translations API
 │   ├── TrashController.cs               # Trash bin API
+│   ├── ConfigurationSaveResponse.cs     # PUT /Configuration response: message + warnings list
+│   ├── ConnectionTestResponse.cs        # Arr/Seerr connection-test response: success flag + message
+│   ├── FolderBrowserResponse.cs         # GET /Configuration/LibraryPaths response: list of LibraryPathEntry
+│   ├── LibraryEntry.cs                  # Library name + collectionType entry (used in LibraryListResponse)
+│   ├── LibraryListResponse.cs           # GET /Configuration/Libraries response: list of LibraryEntry
+│   ├── LibraryPathEntry.cs              # Library name + filesystem path entry (used in FolderBrowserResponse)
+│   ├── LogLevelResponse.cs              # PUT /Configuration/LogLevel response: message + active log level
+│   ├── PingResponse.cs                  # GET /Ping response: ok flag, plugin name, version string
+│   ├── SeerrUrlResponse.cs              # GET /UserDiscovery/ExternalLinks response: Seerr base URL
+│   ├── TrashAccessEntry.cs              # Per-path access result entry (used in TrashAccessResponse)
+│   ├── TrashAccessResponse.cs           # POST /Trash/CheckAccess response: allAccessible flag + results
+│   ├── TrashConfigResponse.cs           # GET /Trash/Contents response: useTrash, retentionDays, libraries
+│   ├── TrashDeleteResponse.cs           # DELETE /Trash/Folders response: deleted + failed counts
+│   ├── TrashFoldersResponse.cs          # GET /Trash/Folders and POST /Trash/FoldersForPath response: paths + isAbsolute
+│   ├── TrashLibraryInfo.cs              # Per-library trash info entry (used in TrashConfigResponse)
 │   ├── TrashPathQueryRequest.cs         # DTO for querying trash folders at a specific path
 │   ├── TrashRelocateRequest.cs          # DTO for relocating trash between paths
+│   ├── TrashRelocateResponse.cs         # POST /Trash/Relocate response: moved + failed counts
+│   ├── TrashSizeResponse.cs             # GET /Trash/Summary response: totalSize + totalItems
 │   └── UserActivityController.cs        # User activity insights API
 ├── Configuration/
 │   ├── PluginConfiguration.cs   # All config properties with defaults
