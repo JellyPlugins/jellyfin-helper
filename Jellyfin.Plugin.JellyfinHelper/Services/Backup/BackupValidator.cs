@@ -368,7 +368,7 @@ public static class BackupValidator
 
         if (timeline.DataPoints == null)
         {
-            result.Warnings.Add("GrowthTimeline has null DataPoints collection; timeline data will be ignored.");
+            result.Warnings.Add("GrowthTimeline has no DataPoints.");
             return;
         }
 

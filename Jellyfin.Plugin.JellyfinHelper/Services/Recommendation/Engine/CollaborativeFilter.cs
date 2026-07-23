@@ -241,7 +241,14 @@ internal static class CollaborativeFilter
             var (smaller, larger) = userCombinedIds.Count <= otherCombinedIds.Count
                 ? (userCombinedIds, otherCombinedIds)
                 : (otherCombinedIds, userCombinedIds);
-            var overlap = smaller.Count(larger.Contains);
+            int overlap = 0;
+            foreach (var id in smaller)
+            {
+                if (larger.Contains(id))
+                {
+                    overlap++;
+                }
+            }
 
             if (overlap < EngineConstants.MinCollaborativeOverlap)
             {

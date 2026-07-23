@@ -99,6 +99,7 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
     /// <inheritdoc />
     public IReadOnlyList<RecommendationResult>? LoadResults()
     {
+        string json;
         lock (_fileLock)
         {
             try
@@ -108,19 +109,9 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
                     return null;
                 }
 
-                var json = File.ReadAllText(_cacheFilePath);
-                var results = JsonSerializer.Deserialize<List<RecommendationResult>>(json, JsonOptions);
-                if (results is null)
-                {
-                    _pluginLog.LogWarning(
-                        "RecommendationCache",
-                        $"Cache file {_cacheFilePath} deserialized to null.",
-                        logger: _logger);
-                }
-
-                return results;
+                json = File.ReadAllText(_cacheFilePath);
             }
-            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 _pluginLog.LogWarning(
                     "RecommendationCache",
@@ -129,6 +120,29 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
                     _logger);
                 return null;
             }
+        }
+
+        try
+        {
+            var results = JsonSerializer.Deserialize<List<RecommendationResult>>(json, JsonOptions);
+            if (results is null)
+            {
+                _pluginLog.LogWarning(
+                    "RecommendationCache",
+                    $"Cache file {_cacheFilePath} deserialized to null.",
+                    logger: _logger);
+            }
+
+            return results;
+        }
+        catch (JsonException ex)
+        {
+            _pluginLog.LogWarning(
+                "RecommendationCache",
+                $"Could not load recommendation results from {_cacheFilePath}",
+                ex,
+                _logger);
+            return null;
         }
     }
 }

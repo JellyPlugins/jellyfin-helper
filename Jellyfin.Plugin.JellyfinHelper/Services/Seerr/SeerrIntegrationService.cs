@@ -279,10 +279,16 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 }
 
                 // Small delay between DELETE calls to avoid overwhelming the Seerr API.
-                // CancellationToken.None: the delay is a courtesy throttle, not user-visible work.
-                // Cancelling mid-batch would leave a partial result with no indication of how
-                // many requests were skipped; it is safer to let each short sleep complete.
-                await Task.Delay(100, CancellationToken.None).ConfigureAwait(false);
+                // Break on cancellation so the caller receives partial results with an accurate
+                // count rather than silently skipping remaining items without indication.
+                try
+                {
+                    await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
             }
         }
 

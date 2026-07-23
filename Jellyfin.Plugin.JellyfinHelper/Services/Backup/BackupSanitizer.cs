@@ -64,20 +64,19 @@ public static class BackupSanitizer
         // Timeline data points limit - keep only the newest MaxTimelineDataPoints entries
         if (backup.GrowthTimeline is { DataPoints.Count: > BackupValidator.MaxTimelineDataPoints })
         {
-            var kept = backup.GrowthTimeline.DataPoints
-                .OrderByDescending(p => p.Date)
-                .Take(BackupValidator.MaxTimelineDataPoints)
+            var sorted = backup.GrowthTimeline.DataPoints
                 .OrderBy(p => p.Date)
+                .Skip(backup.GrowthTimeline.DataPoints.Count - BackupValidator.MaxTimelineDataPoints)
                 .ToList();
-
             backup.GrowthTimeline.DataPoints.Clear();
-            foreach (var point in kept)
+            foreach (var p in sorted)
             {
-                backup.GrowthTimeline.DataPoints.Add(point);
+                backup.GrowthTimeline.DataPoints.Add(p);
             }
         }
 
         // Baseline directories limit
+        // Oldest entries lexicographically are trimmed when over MaxBaselineDirectories
         if (backup.GrowthBaseline == null || backup.GrowthBaseline.Directories.Count <= BackupValidator.MaxBaselineDirectories)
         {
             return;

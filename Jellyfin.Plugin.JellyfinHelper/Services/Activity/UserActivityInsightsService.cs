@@ -161,7 +161,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
                         mostRecent = lastPlayedUtc;
                     }
                 }
-                catch (InvalidOperationException ex)
+                catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
                 {
                     _pluginLog.LogWarning(
                         "UserActivity",

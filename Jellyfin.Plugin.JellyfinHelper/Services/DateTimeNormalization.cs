@@ -22,6 +22,9 @@ internal static class DateTimeNormalization
         {
             DateTimeKind.Utc => value,
             DateTimeKind.Local => value.ToUniversalTime(),
+            // WARNING: Unspecified kind is assumed to be UTC (no offset conversion).
+            // If the value is actually local time marked as Unspecified, the result will be
+            // wrong by the server's UTC offset. Callers must guarantee this does not happen.
             _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
         };
 

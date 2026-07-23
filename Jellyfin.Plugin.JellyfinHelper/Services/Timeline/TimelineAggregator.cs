@@ -160,8 +160,8 @@ public static class TimelineAggregator
             }
         }
 
-        // Remove deleted directories from baseline so they don't generate
-        // spurious negative diffs on future scans
+        // Collect keys to remove in a separate list first (LINQ ToList) to avoid mutating the
+        // dictionary while enumerating it, then remove in a second pass.
         var toRemove = baseline.Directories.Keys.Where(k => !currentPaths.Contains(k)).ToList();
         foreach (var key in toRemove)
         {
@@ -226,6 +226,11 @@ public static class TimelineAggregator
     ///     All existing data points whose bucket date is strictly before the current bucket
     ///     are preserved as immutable history. The current bucket is replaced (or added)
     ///     with the actual current total size and count.
+    ///     <para>
+    ///         Note: the last scan within a bucket is authoritative; intra-bucket history
+    ///         is not preserved. Multiple scans within the same bucket overwrite each other,
+    ///         and only the most recent snapshot for that bucket is retained.
+    ///     </para>
     /// </summary>
     /// <param name="existingPoints">The previously persisted data points (chronologically sorted).</param>
     /// <param name="now">The current scan timestamp.</param>
@@ -391,8 +396,9 @@ public static class TimelineAggregator
 
     /// <summary>
     ///     Removes consecutive data points that have identical CumulativeSize and CumulativeFileCount.
-    ///     Only the first point of each "plateau" is kept, plus the last point is always preserved
-    ///     so the timeline's time span remains correct.
+    ///     Only the first point of each "plateau" is kept. The last point is preserved only when it
+    ///     differs from the last already-kept point, so the timeline's end date is not extended with
+    ///     a redundant duplicate.
     /// </summary>
     /// <param name="points">The data points (already sorted chronologically).</param>
     /// <returns>A deduplicated list with redundant consecutive points removed.</returns>

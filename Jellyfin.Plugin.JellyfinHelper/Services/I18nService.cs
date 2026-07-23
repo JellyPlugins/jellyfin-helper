@@ -56,7 +56,10 @@ public static class I18NService
         var lazy = Cache.GetOrAdd(lang, static key => new Lazy<Dictionary<string, string>>(() => LoadFromResource(key)));
         var cached = lazy.Value;
 
-        pluginLog?.LogDebug("I18n", $"Loaded {cached.Count} translation keys for '{lang}'.");
+        if (pluginLog != null)
+        {
+            pluginLog.LogDebug("I18n", $"Loaded {cached.Count} translation keys for '{lang}'.");
+        }
 
         // Return a defensive copy so callers cannot mutate the cache.
         return new Dictionary<string, string>(cached, StringComparer.Ordinal);

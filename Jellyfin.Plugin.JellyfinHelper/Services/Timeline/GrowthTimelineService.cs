@@ -438,8 +438,12 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                     {
                         // Fall back to last-write time on filesystems that don't track creation
                         // time (e.g. Linux ext4), matching the same pattern used for files below.
-                        createdUtc = Directory.GetLastWriteTimeUtc(subDir.FullName);
-                        if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
+                        var fallback = Directory.GetLastWriteTimeUtc(subDir.FullName);
+                        if (fallback.Year >= 1990)
+                        {
+                            createdUtc = DateTime.SpecifyKind(fallback, DateTimeKind.Utc);
+                        }
+                        else
                         {
                             continue;
                         }

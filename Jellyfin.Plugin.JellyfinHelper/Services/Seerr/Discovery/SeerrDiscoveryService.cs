@@ -1675,7 +1675,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 {
                     throw;
                 }
-                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException or OperationCanceledException)
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException
+                    // OperationCanceledException here = per-request timeout (not outer cancellation - that is explicitly rethrown above)
+                    or OperationCanceledException)
                 {
                     _pluginLog.LogDebug(
                         "SeerrDiscovery",

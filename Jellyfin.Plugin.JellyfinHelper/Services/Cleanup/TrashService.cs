@@ -40,6 +40,8 @@ public class TrashService : ITrashService
         OperatingSystem.IsMacOS() ? 1023 :
         4095;
 
+    private static readonly int SeparatorSize = MeasureString(Path.DirectorySeparatorChar.ToString());
+
     private readonly IPluginLogService _pluginLog;
 
     /// <summary>
@@ -282,13 +284,19 @@ public class TrashService : ITrashService
 
         try
         {
-            var dirs = Directory.GetDirectories(trashBasePath);
-            itemCount += dirs.Length;
-            totalSize += dirs.Sum(CalculateDirectorySize);
+            var dirs = Directory.EnumerateDirectories(trashBasePath);
+            foreach (var dir in dirs)
+            {
+                itemCount++;
+                totalSize += CalculateDirectorySize(dir);
+            }
 
-            var files = Directory.GetFiles(trashBasePath);
-            itemCount += files.Length;
-            totalSize += files.Sum(f => new FileInfo(f).Length);
+            var files = Directory.EnumerateFiles(trashBasePath);
+            foreach (var f in files)
+            {
+                itemCount++;
+                totalSize += new FileInfo(f).Length;
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -705,9 +713,8 @@ public class TrashService : ITrashService
     {
         // +1 accounts for the path separator between directory and name
         var directorySize = MeasureString(directory);
-        var separatorSize = MeasureString(Path.DirectorySeparatorChar.ToString());
         return Math.Min(
-            MaxPathLimit - directorySize - separatorSize,
+            MaxPathLimit - directorySize - SeparatorSize,
             MaxPathComponentLimit);
     }
 

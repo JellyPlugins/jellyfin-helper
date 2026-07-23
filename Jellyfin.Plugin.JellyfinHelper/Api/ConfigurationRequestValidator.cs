@@ -62,6 +62,11 @@ public static class ConfigurationRequestValidator
         }
 
         // Validate Seerr URL if provided
+        if (!string.IsNullOrWhiteSpace(request.SeerrUrl) && request.SeerrUrl.Length > 2048)
+        {
+            return "Seerr URL must be 2048 characters or fewer.";
+        }
+
         if (!string.IsNullOrWhiteSpace(request.SeerrUrl) &&
             (!Uri.TryCreate(request.SeerrUrl, UriKind.Absolute, out var seerrUri) ||
              (seerrUri.Scheme != "http" && seerrUri.Scheme != "https")))
@@ -246,7 +251,24 @@ public static class ConfigurationRequestValidator
                 continue;
             }
 
-            // If URL is provided, validate format
+            // Validate instance Name length and content
+            if (instance.Name?.Length > 100)
+            {
+                return $"{typeName} instance #{i + 1} name must be 100 characters or fewer.";
+            }
+
+            if (instance.Name != null && instance.Name.Any(c => char.IsControl(c)))
+            {
+                return $"{typeName} instance #{i + 1} name contains invalid characters.";
+            }
+
+            // If URL is provided, validate max length then format
+            if (!string.IsNullOrWhiteSpace(instance.Url) && instance.Url.Length > 2048)
+            {
+                var instanceName = !string.IsNullOrWhiteSpace(instance.Name) ? instance.Name : $"#{i + 1}";
+                return $"{typeName} instance '{instanceName}' URL must be 2048 characters or fewer.";
+            }
+
             if (!string.IsNullOrWhiteSpace(instance.Url) &&
                 (!Uri.TryCreate(instance.Url, UriKind.Absolute, out var uri) ||
                  (uri.Scheme != "http" && uri.Scheme != "https")))

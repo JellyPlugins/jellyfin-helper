@@ -593,8 +593,27 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     ///     Normalizes a media type string to lowercase for consistent lookup/dedup.
     ///     Defensive: handles null/whitespace gracefully.
     /// </summary>
-    private static string NormalizeMediaType(string? mediaType) =>
-        string.IsNullOrWhiteSpace(mediaType) ? "movie" : mediaType.Trim().ToLowerInvariant();
+    private string NormalizeMediaType(string? mediaType)
+    {
+        if (string.IsNullOrWhiteSpace(mediaType))
+        {
+            return "movie";
+        }
+
+        var normalized = mediaType.Trim().ToLowerInvariant();
+
+        if (normalized != "movie" && normalized != "tv")
+        {
+            // Unexpected media type: defaults to movie to avoid breaking keying.
+            _pluginLog.LogDebug(
+                "DiscoveryFeedback",
+                $"NormalizeMediaType: unexpected value '{mediaType}' — defaulting to 'movie'",
+                _logger);
+            return "movie";
+        }
+
+        return normalized;
+    }
 
     private void TryDeleteFile()
     {

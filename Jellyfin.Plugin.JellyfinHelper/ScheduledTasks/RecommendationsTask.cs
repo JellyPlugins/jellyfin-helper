@@ -167,7 +167,11 @@ public class RecommendationsTask
                         $"Playlist sync: {syncResult.PlaylistsCreated} created, {syncResult.TotalItemsAdded} items added, {syncResult.OldPlaylistsRemoved} old removed.",
                         _logger);
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException && !ex.IsFatal())
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (!ex.IsFatal())
                 {
                     _pluginLog.LogWarning("Recommendations", "Playlist sync failed - recommendations were saved but playlists could not be updated.", ex, _logger);
                 }
@@ -210,7 +214,11 @@ public class RecommendationsTask
                 _pluginLog.LogInfo("Recommendations", $"Cleaned up {removed} old recommendation playlists (sync disabled).", _logger);
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException && !ex.IsFatal())
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
         {
             _pluginLog.LogWarning("Recommendations", "Failed to clean up old recommendation playlists.", ex, _logger);
         }

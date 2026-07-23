@@ -62,6 +62,8 @@ internal static class BatchFallbackHelper
             // graceful-degradation branch silently swallow the cancel signal, which is
             // exactly the failure mode that Finding #37 flagged. Rethrow the innermost
             // OCE so the caller's cancellation token contract is preserved.
+            // Known limitation: when multiple OperationCanceledExceptions are present,
+            // the first one is rethrown. Its CancellationToken may differ from the caller's.
             throw agg.Flatten().InnerExceptions.OfType<OperationCanceledException>().First();
         }
         catch (Exception ex) when (!ex.IsFatal())
@@ -83,6 +85,8 @@ internal static class BatchFallbackHelper
             {
                 // Async loggers can surface cancellation wrapped in AggregateException. Preserve
                 // the cancellation contract by unwrapping and rethrowing the inner OCE.
+                // Known limitation: when multiple OperationCanceledExceptions are present,
+                // the first one is rethrown. Its CancellationToken may differ from the caller's.
                 throw agg.Flatten().InnerExceptions.OfType<OperationCanceledException>().First();
             }
             catch (Exception callbackEx) when (!callbackEx.IsFatal())

@@ -2041,6 +2041,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
     private static string? ResolveBatchGenerationFilePath()
     {
+        // DataFolderPath accessed from Plugin.Instance; cached in constructor to be considered.
         var dataFolder = Plugin.Instance?.DataFolderPath;
         return string.IsNullOrEmpty(dataFolder) ? null : Path.Join(dataFolder, BatchGenerationFileName);
     }

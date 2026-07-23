@@ -35,7 +35,7 @@ public static class ControllerTestFactory
         var configServiceMock = new Mock<IPluginConfigurationService>();
         configServiceMock.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration());
         configServiceMock.Setup(c => c.PluginVersion).Returns("1.0.0-test");
-        var backupService = new BackupService(appPathsMock.Object, configServiceMock.Object, log, new Mock<ILogger<BackupService>>().Object);
+        var backupService = new BackupService(appPathsMock.Object, configServiceMock.Object, log, TestMockFactory.CreateLogger<BackupService>().Object);
 
         var controller = new BackupController(
             backupService,

@@ -234,6 +234,11 @@ public class ArrIntegrationController : ControllerBase
 
     /// <summary>
     ///     Gets the set of top-level folder names for a given collection type from Jellyfin libraries.
+    ///     Deduplication is by folder name only (not full path), using a case-insensitive HashSet.
+    ///     Known limitation: if two library locations contain different directories that share the same
+    ///     name (e.g. "/movies/Action" and "/archive/Action"), only one entry is kept. This is intentional
+    ///     for matching against Arr titles, which are also name-based, but may cause missed matches when
+    ///     the same folder name appears across different library types or root paths.
     /// </summary>
     private HashSet<string> GetJellyfinFolderNames(string collectionType)
     {

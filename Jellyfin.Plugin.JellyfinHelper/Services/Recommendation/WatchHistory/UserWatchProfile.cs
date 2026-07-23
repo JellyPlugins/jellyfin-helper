@@ -142,6 +142,8 @@ public sealed class UserWatchProfile
     ///     Callers must reassign <see cref="LanguageProfile"/> to guarantee cache coherence
     ///     after in-place modifications.
     /// </summary>
+    /// <remarks>WARNING: This cache is only invalidated when <see cref="LanguageProfile"/> is reassigned.
+    /// In-place mutation of LanguageProfileEntry objects will produce stale values. Always reassign the property after mutation.</remarks>
     [JsonIgnore]
     public string? PrimaryLanguage => _primaryLanguage ??= LanguageProfile.Count > 0
         ? LanguageProfile.MaxBy(kv => kv.Value.WeightedScore).Key

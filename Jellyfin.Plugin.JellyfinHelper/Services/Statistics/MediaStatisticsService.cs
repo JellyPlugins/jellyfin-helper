@@ -222,6 +222,9 @@ public class MediaStatisticsService : IMediaStatisticsService
             {
                 var ext = Path.GetExtension(file.FullName);
                 var size = file.Length;
+                // Set for any non-trickplay file regardless of type (not video-only).
+                // Orphaned-metadata detection uses this flag, so it may produce false positives
+                // in audio-only or image-only directories that contain no video files.
                 hasAnyNonTrickplayFile = true;
 
                 if (MediaExtensions.VideoExtensions.Contains(ext))

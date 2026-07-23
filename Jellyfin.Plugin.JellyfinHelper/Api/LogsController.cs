@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Mime;
 using System.Text;
@@ -19,6 +20,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class LogsController : ControllerBase
 {
+    private static readonly HashSet<string> ValidLogLevels =
+        new(StringComparer.OrdinalIgnoreCase) { "TRACE", "DEBUG", "INFO", "WARN", "ERROR" };
+
     private readonly ILogger<LogsController> _logger;
     private readonly IPluginLogService _pluginLog;
 
@@ -36,17 +40,28 @@ public class LogsController : ControllerBase
     /// <summary>
     ///     Gets the plugin-specific log entries from the in-memory ring buffer.
     /// </summary>
-    /// <param name="minLevel">Optional minimum log level filter (DEBUG, INFO, WARN, ERROR).</param>
-    /// <param name="source">Optional source component filter (partial match).</param>
+    /// <param name="minLevel">Optional minimum log level filter (TRACE, DEBUG, INFO, WARN, ERROR).</param>
+    /// <param name="source">Optional source component filter (partial match, max 200 chars).</param>
     /// <param name="limit">Maximum number of entries to return (default 500, max 2000).</param>
     /// <returns>A list of log entries, newest first.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult GetLogs(
         [FromQuery] string? minLevel = null,
         [FromQuery] string? source = null,
         [FromQuery] int limit = 500)
     {
+        if (minLevel != null && !ValidLogLevels.Contains(minLevel))
+        {
+            return BadRequest(new { message = "Invalid minLevel. Allowed values: TRACE, DEBUG, INFO, WARN, ERROR." });
+        }
+
+        if (source?.Length > 200)
+        {
+            return BadRequest(new { message = "source parameter too long." });
+        }
+
         if (limit < 1)
         {
             limit = 1;
@@ -70,14 +85,25 @@ public class LogsController : ControllerBase
     /// <summary>
     ///     Downloads the plugin logs as a plain-text file.
     /// </summary>
-    /// <param name="minLevel">Optional minimum log level filter (DEBUG, INFO, WARN, ERROR).</param>
-    /// <param name="source">Optional source filter (partial match).</param>
+    /// <param name="minLevel">Optional minimum log level filter (TRACE, DEBUG, INFO, WARN, ERROR).</param>
+    /// <param name="source">Optional source filter (partial match, max 200 chars).</param>
     /// <returns>A text file containing the log entries.</returns>
     [HttpGet("Download")]
     [Produces("text/plain")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult DownloadLogs([FromQuery] string? minLevel = null, [FromQuery] string? source = null)
     {
+        if (minLevel != null && !ValidLogLevels.Contains(minLevel))
+        {
+            return BadRequest(new { message = "Invalid minLevel. Allowed values: TRACE, DEBUG, INFO, WARN, ERROR." });
+        }
+
+        if (source?.Length > 200)
+        {
+            return BadRequest(new { message = "source parameter too long." });
+        }
+
         var text = _pluginLog.ExportAsText(minLevel, source);
         var bytes = Encoding.UTF8.GetBytes(text);
         var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
