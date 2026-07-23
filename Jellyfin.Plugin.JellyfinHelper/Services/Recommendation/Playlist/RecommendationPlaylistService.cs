@@ -81,7 +81,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 if (result.Recommendations.Count == 0)
                 {
                     // Still clean up old playlists when there are no new recommendations
-                    var removedEmpty = RemoveUserPlaylistsAsync(result.UserId, cancellationToken);
+                    var removedEmpty = RemoveUserPlaylists(result.UserId, cancellationToken);
                     syncResult.OldPlaylistsRemoved += removedEmpty;
 
                     _pluginLog.LogDebug(
@@ -102,7 +102,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 {
                     // Clean up stale playlists when no playable items resolve,
                     // so users don't keep seeing outdated recommendations.
-                    var removedStale = RemoveUserPlaylistsAsync(result.UserId, cancellationToken);
+                    var removedStale = RemoveUserPlaylists(result.UserId, cancellationToken);
                     syncResult.OldPlaylistsRemoved += removedStale;
 
                     _pluginLog.LogDebug(
@@ -130,7 +130,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 if (!string.IsNullOrEmpty(playlistResult.Id))
                 {
                     // New playlist created - now safe to remove old playlists.
-                    var removed = RemoveUserPlaylistsExceptAsync(
+                    var removed = RemoveUserPlaylistsExcept(
                         result.UserId,
                         playlistResult.Id,
                         cancellationToken);
@@ -193,7 +193,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
             try
             {
-                var removed = RemoveUserPlaylistsAsync(user.Id, cancellationToken);
+                var removed = RemoveUserPlaylists(user.Id, cancellationToken);
                 totalRemoved += removed;
             }
             catch (OperationCanceledException)
@@ -347,16 +347,16 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     /// <param name="userId">The user ID whose playlists to remove.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of playlists removed.</returns>
-    private int RemoveUserPlaylistsAsync(Guid userId, CancellationToken cancellationToken)
+    private int RemoveUserPlaylists(Guid userId, CancellationToken cancellationToken)
     {
-        return RemoveUserPlaylistsExceptAsync(userId, excludePlaylistId: null, cancellationToken);
+        return RemoveUserPlaylistsExcept(userId, excludePlaylistId: null, cancellationToken);
     }
 
     /// <summary>
     ///     Finds and removes recommendation playlists, optionally excluding one.
     ///     ILibraryManager.DeleteItem is synchronous; no async overload exists.
     /// </summary>
-    private int RemoveUserPlaylistsExceptAsync(
+    private int RemoveUserPlaylistsExcept(
         Guid userId,
         string? excludePlaylistId,
         CancellationToken cancellationToken)

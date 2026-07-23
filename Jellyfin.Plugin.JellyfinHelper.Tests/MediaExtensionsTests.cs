@@ -102,4 +102,42 @@ public class MediaExtensionsTests
         Assert.Contains("EN", MediaExtensions.KnownLanguageCodes);
         Assert.Contains("ENG", MediaExtensions.KnownLanguageCodes);
     }
+
+    // ===== Negative tests =====
+
+    [Theory]
+    [InlineData(".srt")]
+    [InlineData(".ass")]
+    [InlineData(".vtt")]
+    public void VideoExtensions_DoesNotContainSubtitleExtensions(string ext)
+    {
+        Assert.DoesNotContain(ext, MediaExtensions.VideoExtensions);
+    }
+
+    [Theory]
+    [InlineData(".mkv")]
+    [InlineData(".mp4")]
+    [InlineData(".avi")]
+    public void SubtitleExtensions_DoesNotContainVideoExtensions(string ext)
+    {
+        Assert.DoesNotContain(ext, MediaExtensions.SubtitleExtensions);
+    }
+
+    [Fact]
+    public void AudioExtensionToCodec_DoesNotContainVideoExtension()
+    {
+        Assert.False(MediaExtensions.AudioExtensionToCodec.ContainsKey(".mkv"));
+    }
+
+    [Fact]
+    public void VideoExtensions_DoesNotContainStrm()
+    {
+        Assert.DoesNotContain(MediaExtensions.StrmExtension, MediaExtensions.VideoExtensions);
+    }
+
+    [Fact]
+    public void KnownLanguageCodes_DoesNotContainGibberish()
+    {
+        Assert.DoesNotContain("xyz_invalid", MediaExtensions.KnownLanguageCodes);
+    }
 }

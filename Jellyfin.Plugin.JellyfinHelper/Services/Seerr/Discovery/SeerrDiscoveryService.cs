@@ -1032,8 +1032,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         {
             lock (_userCacheLock)
             {
-                _cachedSeerrUsers = freshUsers;
-                _cachedSeerrUsersExpiry = DateTime.UtcNow.Add(SeerrUserCacheTtl);
+                // Double-checked: another concurrent caller may have already populated
+                // the cache while we were fetching outside the lock.
+                if (_cachedSeerrUsers == null || DateTime.UtcNow >= _cachedSeerrUsersExpiry)
+                {
+                    _cachedSeerrUsers = freshUsers;
+                    _cachedSeerrUsersExpiry = DateTime.UtcNow.Add(SeerrUserCacheTtl);
+                }
             }
         }
 

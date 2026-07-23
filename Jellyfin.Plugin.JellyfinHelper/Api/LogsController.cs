@@ -113,13 +113,13 @@ public class LogsController : ControllerBase
     /// <summary>
     ///     Clears all plugin log entries from the in-memory buffer.
     /// </summary>
-    /// <returns>A status result.</returns>
+    /// <returns>204 No Content.</returns>
     [HttpDelete]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public ActionResult ClearLogs()
     {
         _logger.LogDebug("Plugin log buffer cleared by admin");
         _pluginLog.Clear();
-        return Ok(new { message = "Logs cleared." });
+        return NoContent();
     }
 }

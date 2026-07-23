@@ -26,14 +26,18 @@
     var EXTERNAL_LINKS_URL = '/JellyfinHelper/Discovery/My/ExternalLinks';
 
     var _waitForApiRetries = 0;
-    var MAX_FAST_RETRIES = 60; // 30 seconds at 500ms intervals (fast polling)
-    var SLOW_POLL_INTERVAL = 3000; // After fast phase: poll every 3 seconds
+    var MAX_FAST_RETRIES = 60;  // 30 seconds at 500ms intervals (fast polling)
+    var MAX_SLOW_RETRIES = 40;  // 2 minutes at 3s intervals (slow polling); total cap ~150s
+    var SLOW_POLL_INTERVAL = 3000;
 
     function waitForApi(callback) {
         if (typeof ApiClient === 'undefined' || !ApiClient.getCurrentUserId || !ApiClient.getCurrentUserId()) {
             _waitForApiRetries++;
-            // Fast polling (500ms) for the first 30 seconds, then switch to slow polling (3s).
-            // This handles both quick page loads and delayed logins without permanent bail-out.
+            if (_waitForApiRetries > MAX_FAST_RETRIES + MAX_SLOW_RETRIES) {
+                // ApiClient did not become available within ~150 seconds — bail out to
+                // prevent an indefinite timer leak on unauthenticated/guest sessions.
+                return;
+            }
             var delay = _waitForApiRetries <= MAX_FAST_RETRIES ? 500 : SLOW_POLL_INTERVAL;
             setTimeout(function () { waitForApi(callback); }, delay);
             return;

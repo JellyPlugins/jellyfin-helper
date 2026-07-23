@@ -58,7 +58,7 @@ public class LogsControllerTests : IDisposable
 
         var result = _controller.ClearLogs();
 
-        Assert.IsType<OkObjectResult>(result);
+        Assert.IsType<NoContentResult>(result);
         Assert.Equal(0, _log.GetCount());
     }
 

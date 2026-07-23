@@ -1,12 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
         <AssemblyName>Jellyfin.Plugin.JellyfinHelper</AssemblyName>
         <RootNamespace>Jellyfin.Plugin.JellyfinHelper</RootNamespace>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
-        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-        <Nullable>enable</Nullable>
         <AnalysisMode>AllEnabledByDefault</AnalysisMode>
         <CodeAnalysisRuleSet>../jellyfin.ruleset</CodeAnalysisRuleSet>
     </PropertyGroup>

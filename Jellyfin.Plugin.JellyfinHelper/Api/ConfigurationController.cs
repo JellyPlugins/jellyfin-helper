@@ -271,24 +271,20 @@ public class ConfigurationController : ControllerBase
         ConfigurationUpdateRequest request,
         CancellationToken cancellationToken)
     {
-        var warnings = new List<string>();
+        // Each group gets its own list to avoid shared-state races when run concurrently.
+        var radarrWarnings = new List<string>();
+        var sonarrWarnings = new List<string>();
+        var seerrWarnings = new List<string>();
 
-        await TestArrInstanceGroupAsync(request.RadarrInstances, "Radarr", warnings, cancellationToken)
-            .ConfigureAwait(false);
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return warnings;
-        }
+        await Task.WhenAll(
+            TestArrInstanceGroupAsync(request.RadarrInstances, "Radarr", radarrWarnings, cancellationToken),
+            TestArrInstanceGroupAsync(request.SonarrInstances, "Sonarr", sonarrWarnings, cancellationToken),
+            TestSeerrConnectionAsync(request, seerrWarnings, cancellationToken)).ConfigureAwait(false);
 
-        await TestArrInstanceGroupAsync(request.SonarrInstances, "Sonarr", warnings, cancellationToken)
-            .ConfigureAwait(false);
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return warnings;
-        }
-
-        await TestSeerrConnectionAsync(request, warnings, cancellationToken).ConfigureAwait(false);
-
+        var warnings = new List<string>(radarrWarnings.Count + sonarrWarnings.Count + seerrWarnings.Count);
+        warnings.AddRange(radarrWarnings);
+        warnings.AddRange(sonarrWarnings);
+        warnings.AddRange(seerrWarnings);
         return warnings;
     }
 
