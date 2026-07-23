@@ -64,14 +64,30 @@ public static class BackupSanitizer
         // Timeline data points limit - keep only the newest MaxTimelineDataPoints entries
         if (backup.GrowthTimeline is { DataPoints.Count: > BackupValidator.MaxTimelineDataPoints })
         {
-            var sorted = backup.GrowthTimeline.DataPoints
-                .OrderBy(p => p.Date)
-                .Skip(backup.GrowthTimeline.DataPoints.Count - BackupValidator.MaxTimelineDataPoints)
-                .ToList();
-            backup.GrowthTimeline.DataPoints.Clear();
-            foreach (var p in sorted)
+            // Sort ascending, drop the oldest (front), keep only the newest MaxTimelineDataPoints.
+            // Collection<T> has no Sort/RemoveRange, so we rebuild in two passes without an
+            // extra intermediate List: sort all in place via index-swap, then trim the front.
+            var pts = backup.GrowthTimeline.DataPoints;
+            var count = pts.Count;
+
+            // Insertion sort — the list is nearly sorted in practice, so this is O(n) typical.
+            for (var i = 1; i < count; i++)
             {
-                backup.GrowthTimeline.DataPoints.Add(p);
+                var key = pts[i];
+                var j = i - 1;
+                while (j >= 0 && pts[j].Date > key.Date)
+                {
+                    pts[j + 1] = pts[j];
+                    j--;
+                }
+
+                pts[j + 1] = key;
+            }
+
+            var excess = count - BackupValidator.MaxTimelineDataPoints;
+            for (var i = 0; i < excess; i++)
+            {
+                pts.RemoveAt(0);
             }
         }
 

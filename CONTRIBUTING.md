@@ -156,7 +156,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── Backup/                    # Backup/restore tests
 │   │   ├── BackupServiceTests.cs                       # Validation, sanitization + credential contracts: ContainsSecrets, CredentialsChanged, audit Warning
 │   │   ├── BackupServicePerformanceTests.cs
-│   │   └── BackupServiceRestoreConfigTests.cs          # RestoreBackup round-trip: language fallback, clamping, task-mode rejection, credential preserve/overwrite
+│   │   ├── BackupServiceRestoreConfigTests.cs          # RestoreBackup round-trip: language fallback, clamping, task-mode rejection, credential preserve/overwrite
+│   │   └── BackupSanitizerTests.cs                     # Timeline-trimming path: under-limit no-op, over-limit trims to MaxTimelineDataPoints, newest points kept, result sorted ascending
 │   ├── Cleanup/                   # Cleanup task tests
 │   │   ├── TrashControllerAccessTests.cs  # CheckAccess API endpoint tests (permission probing)
 │   │   ├── TrashControllerRelocateTests.cs # Trash path relocation API endpoint tests

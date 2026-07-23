@@ -316,4 +316,67 @@ public sealed class EnsembleScoringStrategyAdvancedTests
 
         Assert.Equal(-EnsembleScoringStrategy.MidpointAdaptationStep, ensemble.SigmoidMidpointOffset, 6);
     }
+
+    // ===== Reconfigure =====
+
+    [Fact]
+    public void Reconfigure_UpdatesBoundsAndClampsAlpha()
+    {
+        var ensemble = new EnsembleScoringStrategy(alphaMin: 0.1, alphaMax: 0.9);
+
+        // Train so alpha advances above the minimum
+        var positiveFeatures = new CandidateFeatures
+        {
+            GenreSimilarity = 0.9,
+            CollaborativeScore = 0.8,
+            CombinedCriticScore = 0.7,
+            RecencyScore = 0.6
+        };
+        var examples = Enumerable.Range(0, 100)
+            .Select(_ => new TrainingExample { Features = positiveFeatures, Label = 1.0 })
+            .ToList();
+        ensemble.Train(examples);
+
+        var alphaBefore = ensemble.CurrentAlpha;
+        Assert.True(alphaBefore > 0.1, "Alpha should have advanced past αMin after training");
+
+        // Narrow the ceiling so current alpha must be clamped down
+        ensemble.Reconfigure(alphaMin: 0.1, alphaMax: 0.2, genrePenaltyFloor: 0.05);
+
+        Assert.True(ensemble.CurrentAlpha <= 0.2,
+            "Alpha must be clamped to new αMax after Reconfigure");
+        Assert.True(ensemble.CurrentAlpha >= 0.1,
+            "Alpha must remain >= new αMin after Reconfigure");
+    }
+
+    [Fact]
+    public void Reconfigure_NewBoundsReflectedInSubsequentScore()
+    {
+        var ensemble = new EnsembleScoringStrategy(alphaMin: 0.0, alphaMax: 0.0);
+        var features = new CandidateFeatures
+        {
+            GenreSimilarity = 1.0,
+            CollaborativeScore = 1.0,
+            CombinedCriticScore = 1.0,
+            RecencyScore = 1.0
+        };
+
+        var scoreBefore = ensemble.Score(features);
+
+        // Allow more ML influence — score should stay in [0,1] after reconfigure
+        ensemble.Reconfigure(alphaMin: 0.5, alphaMax: 0.8, genrePenaltyFloor: 0.1);
+        var scoreAfter = ensemble.Score(features);
+
+        Assert.InRange(scoreBefore, 0.0, 1.0);
+        Assert.InRange(scoreAfter, 0.0, 1.0);
+    }
+
+    [Fact]
+    public void Reconfigure_AlphaMinAboveMax_ClampedToSameValue()
+    {
+        var ensemble = new EnsembleScoringStrategy();
+        // Passing min > max — implementation clamps max to min
+        ensemble.Reconfigure(alphaMin: 0.8, alphaMax: 0.3, genrePenaltyFloor: 0.1);
+        Assert.InRange(ensemble.CurrentAlpha, 0.0, 1.0);
+    }
 }

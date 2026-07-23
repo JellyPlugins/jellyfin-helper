@@ -123,7 +123,9 @@ public class LinkRepairService : ILinkRepairService
     }
 
     /// <summary>
-    ///     Recursively scans a directory for files that any registered handler recognizes.
+    ///     Iteratively scans a directory tree for files that any registered handler recognizes.
+    ///     Uses an explicit stack instead of recursion to avoid StackOverflowException on deep
+    ///     or symlink-looped directory trees.
     /// </summary>
     private void FindLinkFilesRecursive(
         string directory,
@@ -132,77 +134,80 @@ public class LinkRepairService : ILinkRepairService
         HashSet<string>? visited = null)
     {
         visited ??= new HashSet<string>(PathComparer);
-        var normalized = _fileSystem.Path.GetFullPath(directory);
+        var stack = new Stack<string>();
+        stack.Push(directory);
 
-        // Resolve symlink targets so that two different symlinked paths
-        // pointing to the same physical directory are recognized as duplicates.
-        try
+        while (stack.Count > 0)
         {
-            var dirInfo = _fileSystem.DirectoryInfo.New(normalized);
-            var resolved = dirInfo.ResolveLinkTarget(returnFinalTarget: true);
-            if (resolved != null)
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var current = stack.Pop();
+            string normalized;
+            try
             {
-                normalized = _fileSystem.Path.GetFullPath(resolved.FullName);
-            }
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
-        {
-            // If symlink resolution fails (permissions, unsupported FS, etc.),
-            // fall back to the lexically normalized path.
-        }
-
-        if (!visited.Add(normalized))
-        {
-            return;
-        }
-
-        // Guard against excessively deep directory trees (e.g. unresolved symlink loops)
-        if (visited.Count > MaxVisitedDirectories)
-        {
-            _pluginLog.LogWarning(
-                "LinkRepair",
-                $"Visited directory limit ({MaxVisitedDirectories}) reached - aborting deeper traversal at: {directory}",
-                logger: _logger);
-            return;
-        }
-
-        try
-        {
-            foreach (var file in _fileSystem.Directory.EnumerateFiles(directory))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                try
+                normalized = _fileSystem.Path.GetFullPath(current);
+                var dirInfo = _fileSystem.DirectoryInfo.New(normalized);
+                var resolved = dirInfo.ResolveLinkTarget(returnFinalTarget: true);
+                if (resolved != null)
                 {
-                    var matchingHandler = _handlers.FirstOrDefault(h => h.CanHandle(file));
-                    if (matchingHandler != null)
+                    normalized = _fileSystem.Path.GetFullPath(resolved.FullName);
+                }
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
+            {
+                normalized = _fileSystem.Path.GetFullPath(current);
+            }
+
+            if (!visited.Add(normalized))
+            {
+                continue;
+            }
+
+            if (visited.Count > MaxVisitedDirectories)
+            {
+                _pluginLog.LogWarning(
+                    "LinkRepair",
+                    $"Visited directory limit ({MaxVisitedDirectories}) reached - aborting deeper traversal at: {current}",
+                    logger: _logger);
+                break;
+            }
+
+            try
+            {
+                foreach (var file in _fileSystem.Directory.EnumerateFiles(current))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
                     {
-                        result.Add((file, matchingHandler));
+                        var matchingHandler = _handlers.FirstOrDefault(h => h.CanHandle(file));
+                        if (matchingHandler != null)
+                        {
+                            result.Add((file, matchingHandler));
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _pluginLog.LogWarning(
+                            "LinkRepair",
+                            $"Cannot inspect file: {file} - {ex.Message}",
+                            ex,
+                            _logger);
                     }
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+                foreach (var subDir in _fileSystem.Directory.EnumerateDirectories(current))
                 {
-                    _pluginLog.LogWarning(
-                        "LinkRepair",
-                        $"Cannot inspect file: {file} - {ex.Message}",
-                        ex,
-                        _logger);
+                    stack.Push(subDir);
                 }
             }
-
-            foreach (var subDir in _fileSystem.Directory.EnumerateDirectories(directory))
+            catch (OperationCanceledException)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                FindLinkFilesRecursive(subDir, result, cancellationToken, visited);
+                throw;
             }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
-        {
-            _pluginLog.LogWarning("LinkRepair", $"Cannot access directory: {directory} - {ex.Message}", ex, _logger);
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)
+            {
+                _pluginLog.LogWarning("LinkRepair", $"Cannot access directory: {current} - {ex.Message}", ex, _logger);
+            }
         }
     }
 

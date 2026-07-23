@@ -763,4 +763,51 @@ public class LinkRepairServiceTests
         Assert.Single(result.FileResults);
         Assert.Equal(LinkFileStatus.Valid, result.FileResults[0].Status);
     }
+
+    // ===== Iterative traversal (no stack overflow on deep trees) =====
+
+    [Fact]
+    public void FindLinkFiles_DeepDirectoryTree_DoesNotOverflow()
+    {
+        // Build a 200-level deep chain: /root/d0/d1/.../d199/file.strm
+        var root = _fileSystem.Path.GetFullPath("/deep-root");
+        var current = root;
+        for (var i = 0; i < 200; i++)
+        {
+            current = _fileSystem.Path.Combine(current, $"d{i}");
+        }
+
+        var strmPath = _fileSystem.Path.Combine(current, "deep.strm");
+        _fileSystem.AddFile(strmPath, new MockFileData("/media/movie.mkv"));
+
+        // Should complete without StackOverflowException
+        var found = _service.FindLinkFiles([root]);
+
+        Assert.Single(found);
+        Assert.Equal(strmPath, found[0].FilePath);
+    }
+
+    [Fact]
+    public void FindLinkFiles_VisitedDirectoryLimit_StopsAndReturnsPartialResults()
+    {
+        // Build a wide tree with many siblings (not deep) — verifies visited-set guard works
+        var root = _fileSystem.Path.GetFullPath("/wide-root");
+        var strmPaths = new List<string>();
+        for (var i = 0; i < 10; i++)
+        {
+            var dir = _fileSystem.Path.Combine(root, $"dir{i}");
+            var strm = _fileSystem.Path.Combine(dir, $"movie{i}.strm");
+            _fileSystem.AddFile(strm, new MockFileData("/media/movie.mkv"));
+            strmPaths.Add(strm);
+        }
+
+        var found = _service.FindLinkFiles([root]);
+
+        // All 10 .strm files should be found (well within the visited-directory limit)
+        Assert.Equal(10, found.Count);
+        foreach (var expected in strmPaths)
+        {
+            Assert.Contains(found, r => r.FilePath == expected);
+        }
+    }
 }

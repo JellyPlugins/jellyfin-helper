@@ -178,19 +178,19 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
     private readonly HeuristicScoringStrategy _heuristic;
     private readonly LearnedScoringStrategy _learned;
-    private readonly NeuralScoringStrategy? _neural;
     private readonly ILogger? _logger;
-    private readonly object _syncRoot = new();
-    private readonly double _alphaMax;
-    private readonly double _alphaMin;
-    private readonly double _genrePenaltyFloor;
+    private readonly NeuralScoringStrategy? _neural;
     private readonly string? _statePath;
+    private readonly object _syncRoot = new();
     private double _alpha;
-    private double _neuralBeta;
-    private double _sigmoidMidpointOffset;
-    private bool _qualityGateFrozen;
-    private int _trainingExampleCount;
+    private double _alphaMax;
+    private double _alphaMin;
+    private double _genrePenaltyFloor;
     private List<MetricsSnapshot> _metricsHistory = [];
+    private double _neuralBeta;
+    private bool _qualityGateFrozen;
+    private double _sigmoidMidpointOffset;
+    private int _trainingExampleCount;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="EnsembleScoringStrategy" /> class
@@ -422,6 +422,30 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     ///     Gets the effective sigmoid midpoint (default + adaptive offset) for testing/debugging.
     /// </summary>
     internal double EffectiveSigmoidMidpoint => DefaultSigmoidMidpoint + SigmoidMidpointOffset;
+
+    /// <summary>
+    ///     Updates the alpha bounds and genre-penalty floor from the current plugin configuration
+    ///     without requiring a server restart. Called by <c>ConfigurationController</c> after
+    ///     saving new ensemble settings. The running alpha is re-clamped to the new bounds so it
+    ///     is never left outside [alphaMin, alphaMax].
+    /// </summary>
+    /// <param name="alphaMin">New minimum blending factor.</param>
+    /// <param name="alphaMax">New maximum blending factor.</param>
+    /// <param name="genrePenaltyFloor">New minimum genre-penalty multiplier.</param>
+    public void Reconfigure(double alphaMin, double alphaMax, double genrePenaltyFloor)
+    {
+        var newMin = Math.Clamp(alphaMin, 0.0, 1.0);
+        var newMax = Math.Clamp(alphaMax, newMin, 1.0);
+        var newFloor = Math.Clamp(genrePenaltyFloor, 0.0, 1.0);
+
+        lock (_syncRoot)
+        {
+            _alphaMin = newMin;
+            _alphaMax = newMax;
+            _genrePenaltyFloor = newFloor;
+            _alpha = Math.Clamp(_alpha, newMin, newMax);
+        }
+    }
 
     /// <inheritdoc />
     public double Score(CandidateFeatures features)

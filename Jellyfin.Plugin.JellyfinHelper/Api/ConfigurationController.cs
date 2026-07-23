@@ -10,6 +10,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -37,6 +38,7 @@ public class ConfigurationController : ControllerBase
     private readonly IArrIntegrationService _arrService;
     private readonly ICleanupConfigHelper _configHelper;
     private readonly IPluginConfigurationService _configService;
+    private readonly EnsembleScoringStrategy _ensemble;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<ConfigurationController> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -52,6 +54,7 @@ public class ConfigurationController : ControllerBase
     /// <param name="configService">The plugin configuration service for read/write access.</param>
     /// <param name="seerrService">The Seerr integration service for connection testing.</param>
     /// <param name="libraryManager">The Jellyfin library manager for listing available libraries.</param>
+    /// <param name="ensemble">The ensemble scoring strategy — notified on config save so alpha bounds take effect without restart.</param>
     public ConfigurationController(
         IArrIntegrationService arrService,
         IPluginLogService pluginLog,
@@ -59,7 +62,8 @@ public class ConfigurationController : ControllerBase
         ICleanupConfigHelper configHelper,
         IPluginConfigurationService configService,
         ISeerrIntegrationService seerrService,
-        ILibraryManager libraryManager)
+        ILibraryManager libraryManager,
+        EnsembleScoringStrategy ensemble)
     {
         _arrService = arrService;
         _pluginLog = pluginLog;
@@ -68,6 +72,7 @@ public class ConfigurationController : ControllerBase
         _configService = configService;
         _seerrService = seerrService;
         _libraryManager = libraryManager;
+        _ensemble = ensemble;
     }
 
     /// <summary>
@@ -217,6 +222,9 @@ public class ConfigurationController : ControllerBase
 
         ApplyRequestToConfig(request, config);
         _configService.SaveConfiguration();
+
+        // Propagate ensemble alpha bounds to the running singleton immediately — no restart needed.
+        _ensemble.Reconfigure(config.EnsembleAlphaMin, config.EnsembleAlphaMax, config.EnsembleGenrePenaltyFloor);
 
         _pluginLog.LogInfo("API", "Plugin configuration updated.", _logger);
 

@@ -81,8 +81,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 if (result.Recommendations.Count == 0)
                 {
                     // Still clean up old playlists when there are no new recommendations
-                    var removedEmpty = await RemoveUserPlaylistsAsync(result.UserId, cancellationToken)
-                        .ConfigureAwait(false);
+                    var removedEmpty = RemoveUserPlaylistsAsync(result.UserId, cancellationToken);
                     syncResult.OldPlaylistsRemoved += removedEmpty;
 
                     _pluginLog.LogDebug(
@@ -103,8 +102,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 {
                     // Clean up stale playlists when no playable items resolve,
                     // so users don't keep seeing outdated recommendations.
-                    var removedStale = await RemoveUserPlaylistsAsync(result.UserId, cancellationToken)
-                        .ConfigureAwait(false);
+                    var removedStale = RemoveUserPlaylistsAsync(result.UserId, cancellationToken);
                     syncResult.OldPlaylistsRemoved += removedStale;
 
                     _pluginLog.LogDebug(
@@ -132,10 +130,10 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 if (!string.IsNullOrEmpty(playlistResult.Id))
                 {
                     // New playlist created - now safe to remove old playlists.
-                    var removed = await RemoveUserPlaylistsExceptAsync(
+                    var removed = RemoveUserPlaylistsExceptAsync(
                         result.UserId,
                         playlistResult.Id,
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken);
                     syncResult.OldPlaylistsRemoved += removed;
 
                     syncResult.PlaylistsCreated++;
@@ -195,7 +193,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
             try
             {
-                var removed = await RemoveUserPlaylistsAsync(user.Id, cancellationToken).ConfigureAwait(false);
+                var removed = RemoveUserPlaylistsAsync(user.Id, cancellationToken);
                 totalRemoved += removed;
             }
             catch (OperationCanceledException)
@@ -349,15 +347,16 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
     /// <param name="userId">The user ID whose playlists to remove.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of playlists removed.</returns>
-    private Task<int> RemoveUserPlaylistsAsync(Guid userId, CancellationToken cancellationToken)
+    private int RemoveUserPlaylistsAsync(Guid userId, CancellationToken cancellationToken)
     {
         return RemoveUserPlaylistsExceptAsync(userId, excludePlaylistId: null, cancellationToken);
     }
 
     /// <summary>
     ///     Finds and removes recommendation playlists, optionally excluding one.
+    ///     ILibraryManager.DeleteItem is synchronous; no async overload exists.
     /// </summary>
-    private Task<int> RemoveUserPlaylistsExceptAsync(
+    private int RemoveUserPlaylistsExceptAsync(
         Guid userId,
         string? excludePlaylistId,
         CancellationToken cancellationToken)
@@ -367,7 +366,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
         var user = _userManager.GetUserById(userId);
         if (user is null)
         {
-            return Task.FromResult(0);
+            return 0;
         }
 
         var expectedName = BuildPlaylistName(user.Username);
@@ -425,6 +424,6 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                 _logger);
         }
 
-        return Task.FromResult(removed);
+        return removed;
     }
 }

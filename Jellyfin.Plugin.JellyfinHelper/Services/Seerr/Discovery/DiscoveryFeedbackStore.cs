@@ -198,28 +198,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         lock (_fileLock)
         {
             var data = LoadInternal();
-            var userResult = data.FirstOrDefault(r => r.UserId == userId);
-            if (userResult == null)
-            {
-                userResult = new DiscoveryFeedbackResult { UserId = userId };
-                data.Add(userResult);
-            }
-
+            var userResult = GetOrCreateUserResult(data, userId, userName: null);
             var normalizedType = NormalizeMediaType(mediaType);
-            var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId && e.MediaType == normalizedType);
-            if (entry == null)
-            {
-                entry = new DiscoveryFeedbackEntry
-                {
-                    TmdbId = tmdbId,
-                    MediaType = normalizedType,
-                    ShownAtUtc = DateTime.UtcNow
-                };
-                userResult.Entries.Add(entry);
-            }
-
+            var entry = GetOrCreateEntry(userResult, tmdbId, normalizedType);
             entry.DismissedAtUtc = DateTime.UtcNow;
-
             SaveInternal(data);
         }
     }
@@ -235,28 +217,10 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         lock (_fileLock)
         {
             var data = LoadInternal();
-            var userResult = data.FirstOrDefault(r => r.UserId == userId);
-            if (userResult == null)
-            {
-                userResult = new DiscoveryFeedbackResult { UserId = userId };
-                data.Add(userResult);
-            }
-
+            var userResult = GetOrCreateUserResult(data, userId, userName: null);
             var normalizedType = NormalizeMediaType(mediaType);
-            var entry = userResult.Entries.FirstOrDefault(e => e.TmdbId == tmdbId && e.MediaType == normalizedType);
-            if (entry == null)
-            {
-                entry = new DiscoveryFeedbackEntry
-                {
-                    TmdbId = tmdbId,
-                    MediaType = normalizedType,
-                    ShownAtUtc = DateTime.UtcNow
-                };
-                userResult.Entries.Add(entry);
-            }
-
+            var entry = GetOrCreateEntry(userResult, tmdbId, normalizedType);
             entry.RequestedAtUtc = DateTime.UtcNow;
-
             SaveInternal(data);
         }
     }
@@ -544,23 +508,54 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     private static DiscoveryFeedbackResult GetOrCreateUserResult(
         List<DiscoveryFeedbackResult> data,
         Guid userId,
-        string userName)
+        string? userName)
     {
         var existing = data.FirstOrDefault(r => r.UserId == userId);
         if (existing != null)
         {
-            // Update username in case it changed
-            existing.UserName = userName;
+            // Update username in case it changed (only when caller supplies one)
+            if (userName != null)
+            {
+                existing.UserName = userName;
+            }
+
             return existing;
         }
 
         var newResult = new DiscoveryFeedbackResult
         {
             UserId = userId,
-            UserName = userName
+            UserName = userName ?? string.Empty
         };
         data.Add(newResult);
         return newResult;
+    }
+
+    /// <summary>
+    ///     Returns the existing feedback entry for (tmdbId, mediaType), or creates and registers a new one.
+    ///     Must be called under <see cref="_fileLock"/>.
+    /// </summary>
+    private static DiscoveryFeedbackEntry GetOrCreateEntry(
+        DiscoveryFeedbackResult userResult,
+        int tmdbId,
+        string normalizedMediaType)
+    {
+        foreach (var e in userResult.Entries)
+        {
+            if (e.TmdbId == tmdbId && e.MediaType == normalizedMediaType)
+            {
+                return e;
+            }
+        }
+
+        var entry = new DiscoveryFeedbackEntry
+        {
+            TmdbId = tmdbId,
+            MediaType = normalizedMediaType,
+            ShownAtUtc = DateTime.UtcNow
+        };
+        userResult.Entries.Add(entry);
+        return entry;
     }
 
     /// <summary>

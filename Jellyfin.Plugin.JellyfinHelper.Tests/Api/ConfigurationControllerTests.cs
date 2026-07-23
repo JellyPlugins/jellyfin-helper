@@ -5,6 +5,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.AspNetCore.Mvc;
@@ -56,7 +57,8 @@ public class ConfigurationControllerTests
             configHelperMock.Object,
             _configServiceMock.Object,
             _seerrServiceMock.Object,
-            libraryManagerMock.Object);
+            libraryManagerMock.Object,
+            new EnsembleScoringStrategy());
     }
 
     [Fact]
@@ -458,7 +460,8 @@ public class ConfigurationControllerTests
             localConfigHelper.Object,
             _configServiceMock.Object,
             _seerrServiceMock.Object,
-            libraryManagerMock.Object);
+            libraryManagerMock.Object,
+            new EnsembleScoringStrategy());
 
         var result = controller.GetAvailableLibraries();
         var ok = Assert.IsType<OkObjectResult>(result);
@@ -502,7 +505,8 @@ public class ConfigurationControllerTests
             localConfigHelper.Object,
             _configServiceMock.Object,
             _seerrServiceMock.Object,
-            libraryManagerMock.Object);
+            libraryManagerMock.Object,
+            new EnsembleScoringStrategy());
 
         var result = controller.GetAvailableLibraries();
         var ok = Assert.IsType<OkObjectResult>(result);

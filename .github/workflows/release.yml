@@ -242,6 +242,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
+        persist-credentials: true
 
     - name: Read version from manifest
       run: |
@@ -261,6 +262,7 @@ jobs:
       if: env.TAG_EXISTS == 'false'
       env:
         YQ_VERSION: v4.53.2
+        YQ_SHA256: "3571c1e6b8e21e0cb3048c0e56fdb7ebdac7efde25cb1c862e0dcb1af1aa46bc"
       run: |
         sudo apt-get update && sudo apt-get install -y jq
         TMP_DIR=$(mktemp -d)
@@ -271,22 +273,11 @@ jobs:
           echo "::error::Failed to download yq binary ${YQ_VERSION}. Check if this version exists at https://github.com/mikefarah/yq/releases"
           exit 1
         }
-        curl -fsSL -o checksums "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/checksums" || {
-          echo "::error::Failed to download yq checksums for ${YQ_VERSION}."
-          exit 1
-        }
         ACTUAL_HASH=$(sha256sum yq_linux_amd64 | awk '{print $1}')
-        CHECKSUM_LINE=$(grep -E '(^|\s)yq_linux_amd64(\s|$)' checksums | head -n1)
-        if [ -z "$CHECKSUM_LINE" ]; then
-          echo "::error::Could not find yq_linux_amd64 in checksums file."
-          echo "Checksums file content:"
-          cat checksums
-          exit 1
-        fi
-        if ! echo "$CHECKSUM_LINE" | grep -qF "$ACTUAL_HASH"; then
+        if [ "$ACTUAL_HASH" != "$YQ_SHA256" ]; then
           echo "::error::yq checksum verification failed!"
+          echo "Expected SHA256: $YQ_SHA256"
           echo "Computed SHA256: $ACTUAL_HASH"
-          echo "Checksums line:  $CHECKSUM_LINE"
           exit 1
         fi
         echo "Checksum verified: $ACTUAL_HASH"
@@ -313,9 +304,7 @@ jobs:
     - name: Generate checksums
       if: env.TAG_EXISTS == 'false'
       run: |
-        md5sum ${PLUGIN_NAME}_${VERSION}.zip | cut -d ' ' -f1 > checksum_md5.txt
         sha256sum ${PLUGIN_NAME}_${VERSION}.zip | cut -d ' ' -f1 > checksum_sha256.txt
-        echo "CHECKSUM=$(cat checksum_md5.txt)" >> $GITHUB_ENV
         echo "CHECKSUM_SHA256=$(cat checksum_sha256.txt)" >> $GITHUB_ENV
 
     - name: Create tag
@@ -337,7 +326,6 @@ jobs:
           ${{ env.CHANGELOG }}
 
           ## Checksums
-          - **MD5:** `${{ env.CHECKSUM }}`
           - **SHA256:** `${{ env.CHECKSUM_SHA256 }}`
 
           ## Installation
@@ -351,8 +339,7 @@ jobs:
       run: |
         DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${VERSION}/${PLUGIN_NAME}_${VERSION}.zip"
 
-        jq --arg checksum "$CHECKSUM" \
-           --arg sha256 "$CHECKSUM_SHA256" \
+        jq --arg sha256 "$CHECKSUM_SHA256" \
            --arg url "$DOWNLOAD_URL" \
            '
            .[0].versions[0].checksum = $sha256 |
@@ -370,7 +357,6 @@ jobs:
           .changelog = strenv(CHANGELOG)
         ' build.yaml
 
-        echo "$CHECKSUM" > checksum_md5.txt
         echo "$CHECKSUM_SHA256" > checksum_sha256.txt
 
     - name: Create metadata update PR
@@ -382,7 +368,7 @@ jobs:
         body: |
           Automated PR to update `manifest.json` and `build.yaml` with release metadata for version `${{ env.VERSION }}`.
 
-          - [PASS] Checksum: `${{ env.CHECKSUM }}`
+          - [PASS] SHA256: `${{ env.CHECKSUM_SHA256 }}`
           - [PASS] Timestamp: updated
           - [PASS] Source URL: updated
 

@@ -1006,4 +1006,106 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Contains(liveResult!.Entries, e => e.TmdbId == 2);
         Assert.Contains(liveResult.Entries, e => e.TmdbId == 3);
     }
+
+    // ===== RecordDismissed / RecordRequested O(1) path via GetOrCreateEntry =====
+
+    [Fact]
+    public void RecordDismissed_NewUser_CreatesEntryWithDismissedTimestamp()
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        store.RecordDismissed(userId, 101, "movie");
+
+        var result = store.LoadForUser(userId);
+        Assert.NotNull(result);
+        var entry = Assert.Single(result!.Entries);
+        Assert.Equal(101, entry.TmdbId);
+        Assert.Equal("movie", entry.MediaType);
+        Assert.NotNull(entry.DismissedAtUtc);
+    }
+
+    [Fact]
+    public void RecordDismissed_ExistingEntry_UpdatesDismissedTimestamp()
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        store.RecordDismissed(userId, 101, "movie");
+        var firstDismiss = store.LoadForUser(userId)!.Entries[0].DismissedAtUtc;
+
+        store.RecordDismissed(userId, 101, "movie");
+        var secondDismiss = store.LoadForUser(userId)!.Entries[0].DismissedAtUtc;
+
+        // Entry is reused, not duplicated
+        Assert.Single(store.LoadForUser(userId)!.Entries);
+        Assert.True(secondDismiss >= firstDismiss);
+    }
+
+    [Fact]
+    public void RecordDismissed_SameTmdbId_DifferentMediaType_CreatesDistinctEntries()
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        store.RecordDismissed(userId, 202, "movie");
+        store.RecordDismissed(userId, 202, "tv");
+
+        var entries = store.LoadForUser(userId)!.Entries;
+        Assert.Equal(2, entries.Count);
+        Assert.Contains(entries, e => e.MediaType == "movie");
+        Assert.Contains(entries, e => e.MediaType == "tv");
+    }
+
+    [Fact]
+    public void RecordRequested_NewUser_CreatesEntryWithRequestedTimestamp()
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        store.RecordRequested(userId, 303, "tv");
+
+        var result = store.LoadForUser(userId);
+        Assert.NotNull(result);
+        var entry = Assert.Single(result!.Entries);
+        Assert.Equal(303, entry.TmdbId);
+        Assert.Equal("tv", entry.MediaType);
+        Assert.NotNull(entry.RequestedAtUtc);
+    }
+
+    [Fact]
+    public void RecordRequested_ExistingEntry_DoesNotDuplicateEntry()
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        store.RecordRequested(userId, 404, "movie");
+        store.RecordRequested(userId, 404, "movie");
+
+        Assert.Single(store.LoadForUser(userId)!.Entries);
+    }
+
+    [Fact]
+    public void RecordDismissed_InvalidTmdbId_Ignored()
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        store.RecordDismissed(userId, 0, "movie");
+        store.RecordDismissed(userId, -1, "movie");
+
+        Assert.Null(store.LoadForUser(userId));
+    }
+
+    [Fact]
+    public void RecordRequested_InvalidTmdbId_Ignored()
+    {
+        var store = CreateStore();
+        var userId = Guid.NewGuid();
+
+        store.RecordRequested(userId, 0, "tv");
+        store.RecordRequested(userId, -5, "tv");
+
+        Assert.Null(store.LoadForUser(userId));
+    }
 }
