@@ -86,7 +86,9 @@ function loadLatestStatistics() {
             updateLastScanBadge(data.ScanTimestamp);
         }
     }, function () {
-        // 204 - no persisted data yet, auto-trigger initial scan
+        // 204 - no persisted data yet, auto-trigger initial scan.
+        // loadStatistics() will call loadTrendData(true) and loadInsightsData()
+        // on its own success path, so do not issue those calls here too.
         console.log('Jellyfin Helper: No persisted statistics (204), triggering initial scan...');
         loadStatistics();
     });
@@ -119,19 +121,19 @@ function renderShell() {
     // === OVERVIEW TAB (placeholder until scan) ===
     html += '<div class="tab-content active" id="tab-overview">';
     html += '<div id="overviewContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
-        + escHtml(T('initializingScan', 'Initializing media scan\u2026')) + '</p></div>';
+        + escHtml(T('initializingScan', 'Initializing media scan…')) + '</p></div>';
     html += '</div>';
 
     // === CODECS TAB (placeholder until scan) ===
     html += '<div class="tab-content" id="tab-codecs">';
     html += '<div id="codecsContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
-        + escHtml(T('initializingScan', 'Initializing media scan\u2026')) + '</p></div>';
+        + escHtml(T('initializingScan', 'Initializing media scan…')) + '</p></div>';
     html += '</div>';
 
     // === HEALTH TAB (placeholder until scan) ===
     html += '<div class="tab-content" id="tab-health">';
     html += '<div id="healthContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
-        + escHtml(T('initializingScan', 'Initializing media scan\u2026')) + '</p></div>';
+        + escHtml(T('initializingScan', 'Initializing media scan…')) + '</p></div>';
     html += '</div>';
 
     // === TRENDS TAB ===
@@ -186,16 +188,23 @@ function fillScanData(data) {
     loadCleanupStats();
 }
 
-// Re-entrancy guard: prevents a second scan from starting while one is already in-flight.
-// Both the success and error callbacks clear this flag so subsequent calls work normally.
-var _statisticsInFlight = false;
+// Namespace all page-level state to avoid polluting the global scope and
+// colliding with other Jellyfin plugins loaded on the same page.
+window.JellyfinHelper = window.JellyfinHelper || {};
+window.JellyfinHelper._statisticsInFlight = false;
+window.JellyfinHelper._pageInitialized = false;
+window.JellyfinHelper._initRetries = 0;
+window.JellyfinHelper._handlersBound = false;
+window.JellyfinHelper._pageLifecycleBound = false;
+
+var _maxInitRetries = 20;
 
 function loadStatistics() {
-    if (_statisticsInFlight) {
+    if (window.JellyfinHelper._statisticsInFlight) {
         console.warn('Jellyfin Helper: loadStatistics called while a scan is already in-flight; ignoring.');
         return;
     }
-    _statisticsInFlight = true;
+    window.JellyfinHelper._statisticsInFlight = true;
 
     var btn = document.getElementById('btnScanLibraries');
     var loading = document.getElementById('loadingIndicator');
@@ -213,7 +222,7 @@ function loadStatistics() {
     }
 
     apiGet('JellyfinHelper/MediaStatistics/ScanLibraries', function (data) {
-        _statisticsInFlight = false;
+        window.JellyfinHelper._statisticsInFlight = false;
         if (loading) {
             loading.style.display = 'none';
         }
@@ -230,7 +239,7 @@ function loadStatistics() {
         loadTrendData(true);
         loadInsightsData();
     }, function (err) {
-        _statisticsInFlight = false;
+        window.JellyfinHelper._statisticsInFlight = false;
         if (loading) {
             loading.style.display = 'none';
         }
@@ -248,29 +257,17 @@ function loadStatistics() {
     });
 }
 
-// --- Page initialization state machine ---
-// _pageInitialized: guards against duplicate init calls once the page is fully set up.
-// _initRetries / _maxInitRetries: retry counter for deferred DOM-ready detection
-//   (Jellyfin may inject the plugin page asynchronously, so required elements
-//    might not exist on the first call to initPage).
-// _handlersBound: prevents duplicate event-handler registration when the view
-//   is re-entered without a full page reload (SPA navigation).
-var _pageInitialized = false;
-var _initRetries = 0;
-var _maxInitRetries = 20;
-var _handlersBound = false;
-
 function initPage() {
-    if (_pageInitialized) {
+    if (window.JellyfinHelper._pageInitialized) {
         return;
     }
 
     var btnScanLibraries = document.getElementById('btnScanLibraries');
 
     if (!btnScanLibraries) {
-        _initRetries++;
-        if (_initRetries < _maxInitRetries) {
-            console.warn('Jellyfin Helper: DOM not ready, retry ' + _initRetries + '/'
+        window.JellyfinHelper._initRetries++;
+        if (window.JellyfinHelper._initRetries < _maxInitRetries) {
+            console.warn('Jellyfin Helper: DOM not ready, retry ' + window.JellyfinHelper._initRetries + '/'
                 + _maxInitRetries);
             setTimeout(initPage, 250);
         } else {
@@ -283,7 +280,7 @@ function initPage() {
 
     btnScanLibraries.innerHTML = SVG.REFRESH;
 
-    _pageInitialized = true;
+    window.JellyfinHelper._pageInitialized = true;
 
     // Load translations first, then render the shell UI immediately
     loadTranslations(function () {
@@ -310,28 +307,30 @@ function initPage() {
         // Load settings and arr buttons immediately (no scan needed)
         loadSettings();
 
-        // Load persisted statistics from server (if any previous scan exists)
+        // Load persisted statistics from server (if any previous scan exists).
+        // When no data exists (204 path), loadLatestStatistics triggers loadStatistics(),
+        // which calls loadTrendData(true) and loadInsightsData() on its own success path.
+        // When data does exist, load trend/insights only if no scan is in-flight to
+        // avoid a double-fetch race with a concurrent loadStatistics() call.
         loadLatestStatistics();
-
-        // Load trend data async
-        loadTrendData();
-        loadInsightsData();
+        if (!window.JellyfinHelper._statisticsInFlight) {
+            loadTrendData();
+            loadInsightsData();
+        }
     });
 
-    if (!_handlersBound) {
+    if (!window.JellyfinHelper._handlersBound) {
         btnScanLibraries.addEventListener('click', function (e) {
             e.preventDefault();
             loadStatistics();
         });
-        _handlersBound = true;
+        window.JellyfinHelper._handlersBound = true;
     }
 }
 
 // Use Jellyfin's page lifecycle events
-var _pageLifecycleBound = false;
-
 function bindPageLifecycle() {
-    if (_pageLifecycleBound) {
+    if (window.JellyfinHelper._pageLifecycleBound) {
         return;
     }
     var pageEl = document.querySelector('#JellyfinHelperConfigPage');
@@ -339,15 +338,15 @@ function bindPageLifecycle() {
         return;
     }
     pageEl.addEventListener('pageshow', function () {
-        _pageInitialized = false;
-        _handlersBound = false;
-        _initRetries = 0;
+        window.JellyfinHelper._pageInitialized = false;
+        window.JellyfinHelper._handlersBound = false;
+        window.JellyfinHelper._initRetries = 0;
         setTimeout(initPage, 0);
     });
     pageEl.addEventListener('viewshow', function () {
-        _pageInitialized = false;
-        _handlersBound = false;
-        _initRetries = 0;
+        window.JellyfinHelper._pageInitialized = false;
+        window.JellyfinHelper._handlersBound = false;
+        window.JellyfinHelper._initRetries = 0;
         setTimeout(initPage, 0);
     });
     // Teardown when navigating away from the plugin page
@@ -361,7 +360,7 @@ function bindPageLifecycle() {
             destroyLogsTab();
         }
     });
-    _pageLifecycleBound = true;
+    window.JellyfinHelper._pageLifecycleBound = true;
 }
 
 bindPageLifecycle();

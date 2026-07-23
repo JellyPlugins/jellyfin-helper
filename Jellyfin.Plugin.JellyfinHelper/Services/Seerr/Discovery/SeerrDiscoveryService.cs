@@ -103,13 +103,6 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private static readonly TimeSpan SeerrUserCacheTtl = TimeSpan.FromMinutes(5);
 
-    /// <summary>
-    ///     Matches exactly 2 lowercase ASCII letters (ISO 639-1 language code).
-    ///     Compiled once to avoid repeated pattern construction in the per-user hot path.
-    /// </summary>
-    private static readonly System.Text.RegularExpressions.Regex Iso6391Regex =
-        new(@"^[a-z]{2}$", System.Text.RegularExpressions.RegexOptions.Compiled);
-
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IArrIntegrationService _arrIntegration;
@@ -166,6 +159,9 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         _pluginLog = pluginLog;
         _logger = logger;
     }
+
+    /// <inheritdoc />
+    int ISeerrDiscoveryService.MaxVisiblePerUser => MaxVisiblePerUser;
 
     /// <inheritdoc />
     public async Task GenerateDiscoveryRecommendationsAsync(CancellationToken cancellationToken)
@@ -1375,11 +1371,15 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         finally
         {
-            // Skip the rate-limit delay if cancellation has been requested —
-            // no point sleeping when the entire operation is being torn down.
             if (!cancellationToken.IsCancellationRequested)
             {
-                await Task.Delay(InterQueryDelay, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await Task.Delay(InterQueryDelay, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
             }
         }
     }
@@ -1574,7 +1574,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             var lang = primaryLang.ToLowerInvariant();
             // Validate ISO 639-1 format here — the canonical place that owns the "primary language"
             // decision — so downstream URL-building receives a pre-validated code.
-            return Iso6391Regex.IsMatch(lang) ? lang : null;
+            return lang.Length == 2 && char.IsAsciiLetter(lang[0]) && char.IsAsciiLetter(lang[1]) ? lang : null;
         }
 
         return null;
@@ -1682,11 +1682,11 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                             candidate.KnownPeople = people;
                         }
                     }
-                    catch (OperationCanceledException)
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
                         throw;
                     }
-                    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
+                    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException or OperationCanceledException)
                     {
                         _pluginLog.LogDebug(
                             "SeerrDiscovery",

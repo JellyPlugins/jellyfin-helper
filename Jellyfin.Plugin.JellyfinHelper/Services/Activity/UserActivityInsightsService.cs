@@ -50,7 +50,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     /// <inheritdoc />
     public UserActivityResult BuildActivityReport()
     {
-        var users = _userManager.GetUsers().ToList();
+        var users = _userManager.GetUsers()?.ToList() ?? new List<Jellyfin.Database.Implementations.Entities.User>();
         _pluginLog.LogInfo(
             "UserActivity",
             $"Building activity report for {users.Count} users",
@@ -80,7 +80,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
         foreach (var item in allItems)
         {
             var itemActivities = new List<UserItemActivity>();
-            var itemTotalPlays = 0;
+            var itemTotalPlays = 0L;
             var completionSum = 0.0;
             var viewerCount = 0;
             var favoriteCount = 0;
@@ -161,7 +161,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
                         mostRecent = lastPlayedUtc;
                     }
                 }
-                catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+                catch (Exception ex)
                 {
                     _pluginLog.LogWarning(
                         "UserActivity",

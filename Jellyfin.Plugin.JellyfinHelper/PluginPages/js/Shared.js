@@ -5,6 +5,7 @@ var DONUT_COLORS = [
     '#f1c40f', '#1abc9c', '#3498db', '#e91e63', '#ff9800',
     '#795548', '#607d8b', '#8bc34a', '#00bcd4', '#ff5722'
 ];
+var _forceScrollOnPanelOpen = false;
 
 // --- Material Icon helper ---
 // Returns an inline SVG icon. No external font/CDN required.
@@ -233,7 +234,7 @@ function renderFileTree(result, title) {
 
     if (hasMovies) {
         html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-movies">' + T('movies', 'Movies') + '</span> <span class="file-tree-section-count">(' + result.movies.length + ')</span></div>';
+        html += '<div class="file-tree-section-header"><span class="badge badge-movies">' + escHtml(T('movies', 'Movies')) + '</span> <span class="file-tree-section-count">(' + result.movies.length + ')</span></div>';
         html += '<div class="tree-view">';
         html += renderTreeLevel(buildPathTree(result.movies, roots.movies), 0, mi('movie'));
         html += '</div></div>';
@@ -241,7 +242,7 @@ function renderFileTree(result, title) {
 
     if (hasTvShows) {
         html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-tvshows">' + T('tvShows', 'TV Shows') + '</span> <span class="file-tree-section-count">(' + result.tvShows.length + ')</span></div>';
+        html += '<div class="file-tree-section-header"><span class="badge badge-tvshows">' + escHtml(T('tvShows', 'TV Shows')) + '</span> <span class="file-tree-section-count">(' + result.tvShows.length + ')</span></div>';
         html += '<div class="tree-view">';
         html += renderTreeLevel(buildPathTree(result.tvShows, roots.tvShows), 0, mi('tv'));
         html += '</div></div>';
@@ -249,7 +250,7 @@ function renderFileTree(result, title) {
 
     if (hasMusic) {
         html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-music">' + T('music', 'Music') + '</span> <span class="file-tree-section-count">(' + result.music.length + ')</span></div>';
+        html += '<div class="file-tree-section-header"><span class="badge badge-music">' + escHtml(T('music', 'Music')) + '</span> <span class="file-tree-section-count">(' + result.music.length + ')</span></div>';
         html += '<div class="tree-view">';
         html += renderTreeLevel(buildPathTree(result.music, roots.music), 0, mi('music_note'));
         html += '</div></div>';
@@ -257,7 +258,7 @@ function renderFileTree(result, title) {
 
     if (hasOther) {
         html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-other">' + T('other', 'Other') + '</span> <span class="file-tree-section-count">(' + result.other.length + ')</span></div>';
+        html += '<div class="file-tree-section-header"><span class="badge badge-other">' + escHtml(T('other', 'Other')) + '</span> <span class="file-tree-section-count">(' + result.other.length + ')</span></div>';
         html += '<div class="tree-view">';
         html += renderTreeLevel(buildPathTree(result.other, roots.other), 0, mi('description'));
         html += '</div></div>';

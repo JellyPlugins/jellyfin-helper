@@ -1,10 +1,13 @@
+using System.Collections.Generic;
 using System.IO;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -69,6 +72,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
         _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
         _discoveryMock = new Mock<ISeerrDiscoveryService>();
+        _discoveryMock.SetupGet(d => d.MaxVisiblePerUser).Returns(10);
         _feedbackStoreMock = new Mock<IDiscoveryFeedbackStore>();
     }
 
@@ -117,8 +121,24 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         }
     }
 
-    private DiscoveryController CreateController() =>
-        new(_cache, _discoveryMock.Object, _feedbackStoreMock.Object);
+    private DiscoveryController CreateController(Guid? userId = null)
+    {
+        var controller = new DiscoveryController(_cache, _discoveryMock.Object, _feedbackStoreMock.Object);
+        var claims = new List<Claim>();
+        if (userId.HasValue)
+        {
+            claims.Add(new Claim("Jellyfin-UserId", userId.Value.ToString()));
+        }
+
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Test"))
+            }
+        };
+        return controller;
+    }
 
     [Fact]
     public async Task GetSeerrUsers_ReturnsOkWithUserList()
@@ -473,7 +493,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
             .Returns(new HashSet<(int, string)>());
 
         var recs = new List<DiscoveryRecommendation>();
-        for (var i = 0; i < SeerrDiscoveryService.MaxVisiblePerUser + 5; i++)
+        for (var i = 0; i < _discoveryMock.Object.MaxVisiblePerUser + 5; i++)
         {
             recs.Add(new DiscoveryRecommendation { TmdbId = i + 1, MediaType = "movie", Title = $"m{i}" });
         }
@@ -486,6 +506,63 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
         var ok = Assert.IsType<OkObjectResult>(response.Result);
         var filtered = Assert.IsAssignableFrom<IReadOnlyList<DiscoveryResult>>(ok.Value);
         var user = Assert.Single(filtered);
-        Assert.Equal(SeerrDiscoveryService.MaxVisiblePerUser, user.Recommendations.Count);
+        Assert.Equal(_discoveryMock.Object.MaxVisiblePerUser, user.Recommendations.Count);
+    }
+
+    [Fact]
+    public async Task PostRequest_SubmitRequest_PassesCallerUserIdToMarkAsRequested()
+    {
+        // Finding #36: DiscoveryController.SubmitRequest must pass the authenticated admin
+        // caller's Jellyfin user ID to MarkAsRequestedAsync (three-argument overload), not
+        // null (which marks ALL users). The mark must be scoped to the caller's cache entry.
+        var adminUserId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+
+        _discoveryMock.Setup(d => d.SubmitRequestAsync(
+                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(),
+                It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "Request submitted successfully."));
+
+        // Seed two users with the same item so we can verify only the caller's entry is marked.
+        _cache.Save(
+        [
+            new DiscoveryResult
+            {
+                UserId = adminUserId,
+                UserName = "admin",
+                Recommendations = new List<DiscoveryRecommendation>
+                {
+                    new() { TmdbId = 42, MediaType = "movie", Title = "Target", AlreadyRequested = false }
+                }
+            },
+            new DiscoveryResult
+            {
+                UserId = otherUserId,
+                UserName = "other",
+                Recommendations = new List<DiscoveryRecommendation>
+                {
+                    new() { TmdbId = 42, MediaType = "movie", Title = "Target", AlreadyRequested = false }
+                }
+            }
+        ]);
+
+        var controller = CreateController(adminUserId);
+        var dto = new DiscoveryRequestDto { TmdbId = 42, MediaType = "movie" };
+        var result = await controller.SubmitRequest(dto, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+
+        var reload = _cache.Load();
+        var adminEntry = reload.Single(r => r.UserId == adminUserId);
+        var otherEntry = reload.Single(r => r.UserId == otherUserId);
+
+        // The admin caller's entry must be marked as requested.
+        Assert.True(adminEntry.Recommendations[0].AlreadyRequested,
+            "admin caller's cache entry must be marked as requested");
+
+        // The other user's entry must NOT be affected (null/all-user mark would fail this).
+        Assert.False(otherEntry.Recommendations[0].AlreadyRequested,
+            "other user's cache entry must not be marked by admin's request");
     }
 }

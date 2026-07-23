@@ -94,7 +94,7 @@ public class TrashService : ITrashService
                 return 0;
             }
 
-            var dirName = Path.GetFileName(normalizedSource.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            var dirName = Path.GetFileName(normalizedSource);
             var timestamp = (utcNow ?? DateTime.UtcNow).ToString(TimestampFormat, CultureInfo.InvariantCulture);
             var trashItemName = $"{timestamp}_{dirName}";
             var trashItemPath = Path.Join(trashBasePath, trashItemName);
@@ -153,7 +153,7 @@ public class TrashService : ITrashService
                 return 0;
             }
 
-            var fileName = Path.GetFileName(normalizedFile.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            var fileName = Path.GetFileName(normalizedFile);
             var timestamp = (utcNow ?? DateTime.UtcNow).ToString(TimestampFormat, CultureInfo.InvariantCulture);
             var trashItemName = $"{timestamp}_{fileName}";
             var trashItemPath = Path.Join(trashBasePath, trashItemName);
@@ -272,7 +272,7 @@ public class TrashService : ITrashService
     }
 
     /// <inheritdoc />
-    public (long TotalSize, int ItemCount) GetTrashSummary(string trashBasePath)
+    public (long TotalSize, int ItemCount) GetTrashSummary(string trashBasePath, ILogger? logger = null)
     {
         if (!Directory.Exists(trashBasePath))
         {
@@ -300,14 +300,14 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Access errors are expected for inaccessible trash directories
+            _pluginLog.LogWarning("Trash", $"Partial trash summary — could not fully enumerate {trashBasePath}: {ex.Message}", ex, logger);
         }
 
         return (totalSize, itemCount);
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<TrashItemInfo> GetTrashContents(string trashBasePath, int retentionDays)
+    public IReadOnlyList<TrashItemInfo> GetTrashContents(string trashBasePath, int retentionDays, ILogger? logger = null)
     {
         var items = new List<TrashItemInfo>();
 
@@ -374,7 +374,7 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Access errors are expected for inaccessible trash directories
+            _pluginLog.LogWarning("Trash", $"Partial trash contents — could not fully enumerate {trashBasePath}: {ex.Message}", ex, logger);
         }
 
         // Sort by trashed date descending (newest first)

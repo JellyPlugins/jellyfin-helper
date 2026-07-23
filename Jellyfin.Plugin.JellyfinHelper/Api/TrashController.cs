@@ -98,9 +98,10 @@ public class TrashController : ControllerBase
         if (!string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathRooted(config.TrashFolderPath))
         {
             // Absolute path: only one trash folder
-            if (Directory.Exists(config.TrashFolderPath))
+            var normalizedPath = Path.GetFullPath(config.TrashFolderPath);
+            if (Directory.Exists(normalizedPath))
             {
-                existingPaths.Add(config.TrashFolderPath);
+                existingPaths.Add(normalizedPath);
             }
         }
         else
@@ -287,17 +288,17 @@ public class TrashController : ControllerBase
         var oldPath = request.OldTrashPath.Trim();
         var newPath = request.NewTrashPath.Trim();
 
-        if (request.OldTrashPath.Contains("..", StringComparison.Ordinal) || request.NewTrashPath.Contains("..", StringComparison.Ordinal))
+        if (request.OldTrashPath.Contains("..", StringComparison.OrdinalIgnoreCase) || request.NewTrashPath.Contains("..", StringComparison.OrdinalIgnoreCase))
         {
             return BadRequest("Path traversal not allowed");
         }
 
-        string sanitizedOld;
-        string sanitizedNew;
+        string resolvedOld;
+        string resolvedNew;
         try
         {
-            sanitizedOld = Path.IsPathRooted(oldPath) ? Path.GetFullPath(oldPath) : oldPath;
-            sanitizedNew = Path.IsPathRooted(newPath) ? Path.GetFullPath(newPath) : newPath;
+            resolvedOld = Path.IsPathRooted(oldPath) ? Path.GetFullPath(oldPath) : oldPath;
+            resolvedNew = Path.IsPathRooted(newPath) ? Path.GetFullPath(newPath) : newPath;
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
@@ -311,17 +312,17 @@ public class TrashController : ControllerBase
         if (Path.IsPathRooted(oldPath) && Path.IsPathRooted(newPath))
         {
             // Both absolute: single relocation
-            if (!IsPathSafeForDeletion(sanitizedOld, libraryFolders))
+            if (!IsPathSafeForDeletion(resolvedOld, libraryFolders))
             {
                 return BadRequest(new { Error = "Old trash path is unsafe for relocation." });
             }
 
-            if (!IsPathSafeForDeletion(sanitizedNew, libraryFolders))
+            if (!IsPathSafeForDeletion(resolvedNew, libraryFolders))
             {
                 return BadRequest(new { Error = "New trash path is unsafe for relocation." });
             }
 
-            var (moved, failed) = _trashService.RelocateTrashContents(sanitizedOld, sanitizedNew, _logger);
+            var (moved, failed) = _trashService.RelocateTrashContents(resolvedOld, resolvedNew, _logger);
             totalMoved += moved;
             totalFailed += failed;
         }
@@ -331,21 +332,21 @@ public class TrashController : ControllerBase
             var existingOldFolders = _configHelper.GetExistingTrashFoldersForPath(_libraryManager, oldPath);
             foreach (var folder in libraryFolders)
             {
-                var resolvedOld = ResolveRelativeTrashPath(folder, oldPath);
-                var resolvedNew = ResolveRelativeTrashPath(folder, newPath);
+                var perLibraryOld = ResolveRelativeTrashPath(folder, oldPath);
+                var perLibraryNew = ResolveRelativeTrashPath(folder, newPath);
 
-                if (resolvedOld == null || resolvedNew == null)
+                if (perLibraryOld == null || perLibraryNew == null)
                 {
                     continue;
                 }
 
                 // Only relocate if old trash folder actually exists on disk
-                if (!existingOldFolders.Contains(resolvedOld))
+                if (!existingOldFolders.Contains(perLibraryOld))
                 {
                     continue;
                 }
 
-                var (moved, failed) = _trashService.RelocateTrashContents(resolvedOld, resolvedNew, _logger);
+                var (moved, failed) = _trashService.RelocateTrashContents(perLibraryOld, perLibraryNew, _logger);
                 totalMoved += moved;
                 totalFailed += failed;
             }
@@ -353,7 +354,7 @@ public class TrashController : ControllerBase
         else if (Path.IsPathRooted(oldPath) && !Path.IsPathRooted(newPath))
         {
             // Old is absolute, new is relative: move from single old to first library's new path
-            if (!IsPathSafeForDeletion(sanitizedOld, libraryFolders))
+            if (!IsPathSafeForDeletion(resolvedOld, libraryFolders))
             {
                 return BadRequest(new { Error = "Old trash path is unsafe for relocation." });
             }
@@ -362,13 +363,13 @@ public class TrashController : ControllerBase
             // move all to the first library that resolves successfully)
             foreach (var folder in libraryFolders)
             {
-                var resolvedNew = ResolveRelativeTrashPath(folder, newPath);
-                if (resolvedNew == null)
+                var perLibraryNew = ResolveRelativeTrashPath(folder, newPath);
+                if (perLibraryNew == null)
                 {
                     continue;
                 }
 
-                var (moved, failed) = _trashService.RelocateTrashContents(sanitizedOld, resolvedNew, _logger);
+                var (moved, failed) = _trashService.RelocateTrashContents(resolvedOld, perLibraryNew, _logger);
                 totalMoved += moved;
                 totalFailed += failed;
                 break; // Only move once from absolute source
@@ -377,7 +378,7 @@ public class TrashController : ControllerBase
         else
         {
             // Old is relative, new is absolute: merge all library trash folders into one
-            if (!IsPathSafeForDeletion(sanitizedNew, libraryFolders))
+            if (!IsPathSafeForDeletion(resolvedNew, libraryFolders))
             {
                 return BadRequest(new { Error = "New trash path is unsafe for relocation." });
             }
@@ -385,13 +386,13 @@ public class TrashController : ControllerBase
             var existingOldFoldersForMerge = _configHelper.GetExistingTrashFoldersForPath(_libraryManager, oldPath);
             foreach (var folder in libraryFolders)
             {
-                var resolvedOld = ResolveRelativeTrashPath(folder, oldPath);
-                if (resolvedOld == null || !existingOldFoldersForMerge.Contains(resolvedOld))
+                var perLibraryOld = ResolveRelativeTrashPath(folder, oldPath);
+                if (perLibraryOld == null || !existingOldFoldersForMerge.Contains(perLibraryOld))
                 {
                     continue;
                 }
 
-                var (moved, failed) = _trashService.RelocateTrashContents(resolvedOld, sanitizedNew, _logger);
+                var (moved, failed) = _trashService.RelocateTrashContents(perLibraryOld, resolvedNew, _logger);
                 totalMoved += moved;
                 totalFailed += failed;
             }

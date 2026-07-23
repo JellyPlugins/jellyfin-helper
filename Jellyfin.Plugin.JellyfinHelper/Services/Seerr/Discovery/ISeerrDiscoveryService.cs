@@ -12,6 +12,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 public interface ISeerrDiscoveryService
 {
     /// <summary>
+    ///     Gets the maximum number of visible discovery recommendations served to the frontend per user.
+    /// </summary>
+    int MaxVisiblePerUser { get; }
+
+    /// <summary>
     ///     Generates discovery recommendations for all users and persists results.
     ///     Called by the scheduled task.
     /// </summary>

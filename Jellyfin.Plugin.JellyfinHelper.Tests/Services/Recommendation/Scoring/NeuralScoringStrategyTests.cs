@@ -1583,4 +1583,125 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
 
         return examples;
     }
+
+    // ============================================================
+    // Data race: _featureMeans / _featureStdDevs consistency
+    // ============================================================
+
+    /// <summary>
+    ///     Concurrent Train() + Score() must never produce NaN and scores must stay in [0,1].
+    ///     Covers the fix that moved _featureMeans/_featureStdDevs writes inside the _rwLock
+    ///     write block so scorers holding the read lock always observe a coherent pair.
+    /// </summary>
+    [Fact]
+    public async Task ConcurrentTrainAndScore_NoNanAndScoresInRange()
+    {
+        const int exampleCount = 60;
+        const int scoreThreads = 8;
+        const int scoresPerThread = 200;
+
+        var rng = new Random(77);
+        var examples = BuildExamples(rng, exampleCount);
+        var strategy = new NeuralScoringStrategy();
+
+        // Prime with one round so _featureMeans is non-null before concurrent access starts.
+        strategy.Train(examples);
+
+        var scores = new System.Collections.Concurrent.ConcurrentBag<double>();
+        var cts = new CancellationTokenSource();
+
+        var scoreTasks = Enumerable.Range(0, scoreThreads).Select(_ => Task.Run(() =>
+        {
+            for (var i = 0; i < scoresPerThread && !cts.Token.IsCancellationRequested; i++)
+            {
+                var features = new CandidateFeatures
+                {
+                    GenreSimilarity = 0.6,
+                    CollaborativeScore = 0.4,
+                    CombinedCriticScore = 0.7,
+                    RecencyScore = 0.5
+                };
+                scores.Add(strategy.Score(features));
+            }
+        })).ToArray();
+
+        var trainTask = Task.Run(() =>
+        {
+            for (var round = 0; round < 5; round++)
+            {
+                strategy.Train(examples);
+            }
+
+            cts.Cancel();
+        });
+
+        await Task.WhenAll(scoreTasks.Append(trainTask));
+
+        foreach (var s in scores)
+        {
+            Assert.True(double.IsFinite(s), $"Score() returned non-finite {s} during concurrent Train()");
+            Assert.InRange(s, 0.0, 1.0);
+        }
+    }
+
+    // ============================================================
+    // Backprop: dropout invKeep must not compound across layers
+    // ============================================================
+
+    /// <summary>
+    ///     Verifies that removing the spurious * dropoutInvKeep from h3Err/h2Err/h1Err
+    ///     eliminates the (1/keep)^(L-1) compound gradient inflation.
+    ///     Strategy: compare normalised input-layer weight-delta magnitudes between a run
+    ///     with dropout active (>= MinExamplesForDropout examples) and one with dropout
+    ///     inactive (fewer examples). The bug inflated the active-dropout run by ~(1/0.8)^3
+    ///     ≈ 1.95×; after the fix the ratio (per-example) stays well below 2.0.
+    /// </summary>
+    [Fact]
+    public void Backprop_DropoutInvKeep_NotCompoundedAcrossLayers()
+    {
+        var rngOff = new Random(42);
+        var examplesOff = BuildExamples(rngOff, NeuralScoringStrategy.MinExamplesForDropout - 1);
+
+        var rngOn = new Random(42);
+        var examplesOn = BuildExamples(rngOn, NeuralScoringStrategy.MinExamplesForDropout + 5);
+
+        var strategyOff = new NeuralScoringStrategy();
+        var wBefore = (double[])strategyOff.CurrentWeightsHidden.Clone();
+        strategyOff.Train(examplesOff);
+        var wAfterOff = strategyOff.CurrentWeightsHidden;
+
+        var deltaOff = 0.0;
+        for (var i = 0; i < wBefore.Length; i++)
+        {
+            deltaOff += Math.Abs(wAfterOff[i] - wBefore[i]);
+        }
+
+        var strategyOn = new NeuralScoringStrategy();
+        var wBeforeOn = (double[])strategyOn.CurrentWeightsHidden.Clone();
+        strategyOn.Train(examplesOn);
+        var wAfterOn = strategyOn.CurrentWeightsHidden;
+
+        var deltaOn = 0.0;
+        for (var i = 0; i < wBeforeOn.Length; i++)
+        {
+            deltaOn += Math.Abs(wAfterOn[i] - wBeforeOn[i]);
+        }
+
+        Assert.True(double.IsFinite(deltaOff) && deltaOff > 0,
+            $"dropout-off delta should be finite and positive, got {deltaOff}");
+        Assert.True(double.IsFinite(deltaOn) && deltaOn > 0,
+            $"dropout-on delta should be finite and positive, got {deltaOn}");
+
+        // Normalise by example count so the comparison is per-example gradient magnitude.
+        // With the compound-scaling bug the ratio would be ~1.95*(35/29) ≈ 2.35.
+        // After the fix it must stay below 2.0.
+        var normOff = deltaOff / examplesOff.Count;
+        var normOn = deltaOn / examplesOn.Count;
+        if (normOff > 0)
+        {
+            var ratio = normOn / normOff;
+            Assert.True(ratio < 2.0,
+                $"Normalised gradient ratio (dropout-on/dropout-off) = {ratio:F4} exceeds 2.0 — compound dropoutInvKeep scaling bug likely present");
+        }
+    }
 }

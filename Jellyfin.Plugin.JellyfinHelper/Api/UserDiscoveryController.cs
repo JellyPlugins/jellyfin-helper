@@ -31,6 +31,8 @@ public sealed class UserDiscoveryController : ControllerBase
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTime> LastRequestTime = new();
 
+    private static int _acceptedRequestCount;
+
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
@@ -100,7 +102,7 @@ public sealed class UserDiscoveryController : ControllerBase
                     : r.MediaType.Trim().ToLowerInvariant();
                 return !r.AlreadyRequested && !excluded.Contains((r.TmdbId, normalizedMediaType));
             })
-            .Take(SeerrDiscoveryService.MaxVisiblePerUser)
+            .Take(_discovery.MaxVisiblePerUser)
             .ToList();
 
         return Ok(new DiscoveryResult
@@ -389,13 +391,17 @@ public sealed class UserDiscoveryController : ControllerBase
             });
         }
 
-        // Opportunistic sweep: evict entries that are past the rate-limit window to prevent
-        // the dictionary from growing unboundedly on servers with many distinct users.
-        foreach (var entry in LastRequestTime)
+        // Opportunistic sweep: evict expired entries every 100 accepted requests to avoid
+        // an O(n) full-dictionary scan on every non-rate-limited call. With RequestRateLimit
+        // of 10 seconds the dictionary is naturally small, so deferred cleanup is sufficient.
+        if ((Interlocked.Increment(ref _acceptedRequestCount) % 100) == 0)
         {
-            if (now - entry.Value > RequestRateLimit)
+            foreach (var entry in LastRequestTime)
             {
-                LastRequestTime.TryRemove(entry.Key, out _);
+                if (now - entry.Value > RequestRateLimit)
+                {
+                    LastRequestTime.TryRemove(entry.Key, out _);
+                }
             }
         }
 
@@ -576,7 +582,8 @@ public sealed class UserDiscoveryController : ControllerBase
 
     /// <summary>
     ///     Clears all per-user rate-limit state held in the static dictionary.
-    ///     Called by <see cref="Plugin.OnUninstalling"/> so stale entries from a previous
+    ///     Called from <see cref="Plugin"/>'s constructor on every plugin load and from
+    ///     <see cref="Plugin.OnUninstalling"/> so stale entries from a previous
     ///     plugin load do not leak into a subsequent reload (finding #313/#77/#117).
     /// </summary>
     internal static void ClearRateLimitState() => LastRequestTime.Clear();
@@ -622,6 +629,11 @@ public sealed class UserDiscoveryController : ControllerBase
                     .Select(path => new SeerrRootFolder { Path = path })
                     .ToList());
 
+            // IsDefault (server-level Seerr "default server" flag) is intentionally not
+            // restored here: AllowedQualityProfile carries only profile-level IsDefault
+            // (active profile+directory combination), not the server-level flag. The
+            // frontend profile-selection popup reads IsDefault from AllowedQualityProfile
+            // via the RequestPermissions endpoint, not from SeerrServiceInfo returned here.
             return new SeerrServiceInfo
             {
                 Id = firstProfile.ServerId,

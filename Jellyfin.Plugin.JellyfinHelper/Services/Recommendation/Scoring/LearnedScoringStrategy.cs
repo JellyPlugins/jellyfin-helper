@@ -444,6 +444,14 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
             if (useStandardization)
             {
+                // Intentional design trade-off: standardization stats here are computed from the
+                // FULL dataset (all examples), whereas each k-fold fold computed stats from its
+                // training-fold subset only (to prevent leakage). This means the mean/stddev used
+                // by the deployed model (persisted below as _featureMeans/_featureStdDevs) differ
+                // slightly from the per-fold stats that produced the k-fold loss estimate used for
+                // quality gating. In practice the difference is negligible when the dataset is
+                // representative, but callers should be aware that the k-fold loss is an estimate
+                // under fold-only normalization while inference runs under full-dataset normalization.
                 (featureMeans, featureStdDevs) = ComputeFeatureStatistics(finalVectors);
                 StandardizeVectors(finalVectors, featureMeans, featureStdDevs);
             }
@@ -636,7 +644,9 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Trains a single train/validation split with optional early stopping.
-    ///     Returns the best validation loss (or training loss if no validation set).
+    ///     Returns the best observed validation loss when early stopping was used and improved at
+    ///     least once; otherwise returns the final-epoch training loss (when early stopping is
+    ///     disabled, validation is absent, or no improvement was ever recorded).
     ///     Modifies _weights and _bias in-place. Must be called under lock.
     /// </summary>
     private double TrainSingleSplit(

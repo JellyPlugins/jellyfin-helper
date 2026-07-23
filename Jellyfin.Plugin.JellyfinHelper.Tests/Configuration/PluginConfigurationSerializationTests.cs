@@ -497,8 +497,30 @@ public class PluginConfigurationSerializationTests
     }
 
     [Fact]
-    public void NormalizeAlphaRange_MinGreaterThanMax_AppearsInClampReport()
+    public void NormalizeAlphaRange_MinGreaterThanMax_SwappedAutomaticallyByMaxSetter()
     {
+        // With Fix 3: EnsembleAlphaMax setter calls NormalizeAlphaRange internally.
+        // Setting Min=0.8 then Max=0.3 triggers the swap inside the Max setter.
+        // The values are already correct WITHOUT an explicit NormalizeAlphaRange() call.
+        var config = new PluginConfiguration
+        {
+            EnsembleAlphaMin = 0.8,
+            EnsembleAlphaMax = 0.3
+        };
+
+        Assert.Equal(0.3, config.EnsembleAlphaMin, precision: 10);
+        Assert.Equal(0.8, config.EnsembleAlphaMax, precision: 10);
+
+        var reports = config.DrainClampReports();
+        Assert.Contains(reports, r => r.PropertyName.Contains("EnsembleAlphaRange",
+            StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void NormalizeAlphaRange_CalledManually_IsIdempotentWhenAlreadyOrdered()
+    {
+        // After the setter has already normalized, calling NormalizeAlphaRange() again
+        // must be a no-op: values stay the same and no extra report is emitted.
         var config = new PluginConfiguration
         {
             EnsembleAlphaMin = 0.8,
@@ -509,7 +531,7 @@ public class PluginConfigurationSerializationTests
         config.NormalizeAlphaRange();
 
         var reports = config.DrainClampReports();
-        Assert.Contains(reports, r => r.PropertyName.Contains("EnsembleAlphaRange",
+        Assert.DoesNotContain(reports, r => r.PropertyName.Contains("EnsembleAlphaRange",
             StringComparison.OrdinalIgnoreCase));
         Assert.Equal(0.3, config.EnsembleAlphaMin, precision: 10);
         Assert.Equal(0.8, config.EnsembleAlphaMax, precision: 10);
@@ -524,5 +546,31 @@ public class PluginConfigurationSerializationTests
         var reports = config.DrainClampReports();
         Assert.DoesNotContain(reports, r => r.PropertyName.Contains("EnsembleAlphaRange",
             StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void EnsembleAlphaRange_InvariantHolds_WithoutManualNormalizeCall()
+    {
+        // Regression test for Fix 3: constructing with inverted alpha values must
+        // produce a consistent min<=max range even without calling NormalizeAlphaRange().
+        var config = new PluginConfiguration
+        {
+            EnsembleAlphaMin = 0.8,
+            EnsembleAlphaMax = 0.4
+        };
+
+        Assert.True(config.EnsembleAlphaMin <= config.EnsembleAlphaMax,
+            $"Expected Min({config.EnsembleAlphaMin}) <= Max({config.EnsembleAlphaMax})");
+    }
+
+    [Fact]
+    public void SeerrCleanupAgeDays_Negative_EnqueuesClampReport()
+    {
+        // Regression test for Fix 2: negative values must go through ClampAndReport
+        // so the admin sees a diagnostic on startup, not a silent coercion to 0.
+        var config = new PluginConfiguration { SeerrCleanupAgeDays = -5 };
+        Assert.Equal(0, config.SeerrCleanupAgeDays);
+        var reports = config.DrainClampReports();
+        Assert.Contains(reports, r => r.PropertyName == nameof(PluginConfiguration.SeerrCleanupAgeDays));
     }
 }

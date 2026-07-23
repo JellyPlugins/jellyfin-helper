@@ -32,7 +32,13 @@ jobs:
       uses: github/codeql-action/init@v4
       with:
         languages: csharp
-        build-mode: none
+        build-mode: manual
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4

@@ -64,7 +64,7 @@ public sealed class UserActivitySummary
     /// <summary>
     ///     Gets or sets the total number of plays across all users.
     /// </summary>
-    public int TotalPlayCount { get; set; }
+    public long TotalPlayCount { get; set; }
 
     /// <summary>
     ///     Gets or sets the number of unique users who interacted with this item.

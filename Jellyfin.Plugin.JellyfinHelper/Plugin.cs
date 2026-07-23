@@ -37,6 +37,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Instance = this;
         _applicationPaths = applicationPaths;
         _logger = logger;
+        Api.UserDiscoveryController.ClearRateLimitState();
         ReportClampedConfigValues();
         InjectScript();
     }
@@ -80,7 +81,18 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         CleanupDataFiles();
         CleanupWebPathTempFiles();
         CleanupRecommendationPlaylists();
-        Api.UserDiscoveryController.ClearRateLimitState();
+        try
+        {
+            Api.UserDiscoveryController.ClearRateLimitState();
+        }
+        catch (Exception ex)
+        {
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(ex, "[OnUninstalling] ClearRateLimitState failed (best-effort)");
+            }
+        }
+
         base.OnUninstalling();
     }
 
@@ -116,7 +128,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             config = Configuration;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or IOException)
+        catch (Exception ex)
         {
             // Guarded like the rest of the LogDebug calls in this class so a future
             // parameterized message does not accidentally regress the CA1873 pattern.
@@ -387,7 +399,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 var closingBodyTag = "</body>";
                 var htmlCloseIndex = content.LastIndexOf("</html>", StringComparison.OrdinalIgnoreCase);
-                var searchBound = htmlCloseIndex >= 0 ? htmlCloseIndex : content.Length;
+                var searchBound = htmlCloseIndex >= 0 ? htmlCloseIndex - 1 : content.Length - 1;
                 var closingBodyIndex = content.LastIndexOf(closingBodyTag, searchBound, StringComparison.OrdinalIgnoreCase);
                 if (closingBodyIndex >= 0)
                 {
@@ -475,7 +487,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             // Best effort - if the data directory is inaccessible, nothing we can do.
         }

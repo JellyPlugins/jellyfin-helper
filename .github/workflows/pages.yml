@@ -11,6 +11,8 @@ on:
       - '.github/scripts/prepare-demo-site.ps1'
   workflow_dispatch:
 
+permissions: {}
+
 concurrency:
   group: github-pages
   cancel-in-progress: true

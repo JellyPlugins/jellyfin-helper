@@ -96,27 +96,32 @@ public class StatisticsCacheService : IStatisticsCacheService
     /// <returns>The last saved statistics result, or null if none exists.</returns>
     public MediaStatisticsResult? LoadLatestResult()
     {
-        lock (_fileLock)
+        try
         {
-            try
+            string json;
+            lock (_fileLock)
             {
                 if (!File.Exists(_latestResultFilePath))
                 {
                     return null;
                 }
 
-                var json = File.ReadAllText(_latestResultFilePath);
-                return JsonSerializer.Deserialize<MediaStatisticsResult>(json, JsonOptions);
+                json = File.ReadAllText(_latestResultFilePath);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-            {
-                _pluginLog.LogWarning(
-                    "StatisticsCache",
-                    $"Could not load latest statistics result from {_latestResultFilePath}",
-                    ex,
-                    _logger);
-                return null;
-            }
+
+            return JsonSerializer.Deserialize<MediaStatisticsResult>(json, JsonOptions);
+        }
+        catch (Exception ex) when (ex is IOException
+                                    or UnauthorizedAccessException
+                                    or System.Security.SecurityException
+                                    or JsonException)
+        {
+            _pluginLog.LogWarning(
+                "StatisticsCache",
+                $"Could not load latest statistics result from {_latestResultFilePath}",
+                ex,
+                _logger);
+            return null;
         }
     }
 }

@@ -63,10 +63,11 @@ public static class BackupSanitizer
         SanitizeArrInstances(backup.SonarrInstances);
 
         // Timeline data points limit - keep only the newest MaxTimelineDataPoints entries
-        int excess = backup.GrowthTimeline?.DataPoints?.Count - BackupValidator.MaxTimelineDataPoints ?? 0;
-        if (excess > 0)
+        if (backup.GrowthTimeline?.DataPoints != null &&
+            backup.GrowthTimeline.DataPoints.Count > BackupValidator.MaxTimelineDataPoints)
         {
-            var trimmed = backup.GrowthTimeline!.DataPoints
+            int excess = backup.GrowthTimeline.DataPoints.Count - BackupValidator.MaxTimelineDataPoints;
+            var trimmed = backup.GrowthTimeline.DataPoints
                 .OrderBy(p => p.Date)
                 .Skip(excess)
                 .ToList();
@@ -78,14 +79,14 @@ public static class BackupSanitizer
         }
 
         // Baseline directories limit
-        // Oldest entries lexicographically are trimmed when over MaxBaselineDirectories
+        // Oldest entries by CreatedUtc are trimmed when over MaxBaselineDirectories
         if (backup.GrowthBaseline == null || backup.GrowthBaseline.Directories.Count <= BackupValidator.MaxBaselineDirectories)
         {
             return;
         }
 
         var keysToRemove = backup.GrowthBaseline.Directories
-            .OrderBy(kvp => kvp.Key, StringComparer.Ordinal)
+            .OrderBy(kvp => kvp.Value.CreatedUtc)
             .Skip(BackupValidator.MaxBaselineDirectories)
             .Select(kvp => kvp.Key)
             .ToList();

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net.Mime;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
@@ -55,8 +56,8 @@ public sealed class DiscoveryController : ControllerBase
         {
             var excluded = BuildExcludedItemKeys(userResult.UserId);
             var visible = userResult.Recommendations
-                .Where(r => !r.AlreadyRequested && !excluded.Contains((r.TmdbId, r.MediaType?.ToLowerInvariant() ?? "movie")))
-                .Take(SeerrDiscoveryService.MaxVisiblePerUser)
+                .Where(r => !r.AlreadyRequested && !excluded.Contains((r.TmdbId, string.IsNullOrWhiteSpace(r.MediaType) ? "movie" : r.MediaType.Trim().ToLowerInvariant())))
+                .Take(_discovery.MaxVisiblePerUser)
                 .ToList();
 
             filtered.Add(new DiscoveryResult
@@ -158,6 +159,8 @@ public sealed class DiscoveryController : ControllerBase
             }
         }
 
+        var callerUserId = GetCurrentUserId();
+
         var (success, message) = await _discovery.SubmitRequestAsync(
             dto.TmdbId,
             mediaType,
@@ -187,9 +190,12 @@ public sealed class DiscoveryController : ControllerBase
         // on the next discovery-page refresh, and the user gets a phantom "please request
         // this again" prompt for an item they already successfully requested. See the
         // similar rationale in UserDiscoveryController.SubmitMyRequest.
+        //
+        // Pass the admin caller's Jellyfin user ID so the mark is scoped to their cache
+        // entry, matching the behaviour of UserDiscoveryController.SubmitMyRequest.
         try
         {
-            await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, CancellationToken.None).ConfigureAwait(false);
+            await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, callerUserId, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
@@ -221,5 +227,17 @@ public sealed class DiscoveryController : ControllerBase
         }
 
         return excluded;
+    }
+
+    private Guid? GetCurrentUserId()
+    {
+        var claim = User?.FindFirst("Jellyfin-UserId")
+            ?? User?.FindFirst(ClaimTypes.NameIdentifier);
+        if (claim != null && Guid.TryParse(claim.Value, out var parsedUserId))
+        {
+            return parsedUserId;
+        }
+
+        return null;
     }
 }

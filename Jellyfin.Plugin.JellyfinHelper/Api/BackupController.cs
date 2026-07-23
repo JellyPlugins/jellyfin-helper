@@ -61,6 +61,18 @@ public class BackupController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult ExportBackup([FromQuery] bool includeSecrets = false)
     {
+        if (_backupService.AnySourceFileOversized())
+        {
+            _pluginLog.LogWarning(
+                "API",
+                $"Backup export rejected: a source data file exceeds the {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB limit.",
+                logger: _logger);
+            return BadRequest(new
+            {
+                message = $"Backup is too large to export. Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB. Check the plugin logs for details."
+            });
+        }
+
         var backup = _backupService.CreateBackup(includeSecrets);
         var json = BackupService.SerializeBackup(backup);
 
@@ -115,27 +127,32 @@ public class BackupController : ControllerBase
 
         try
         {
-            // Early rejection based on Content-Length header (before reading entire body)
-            var contentLength = Request.ContentLength ?? 0;
-            switch (contentLength)
+            // Early rejection based on Content-Length header (before reading entire body).
+            // Only act when Content-Length is explicitly provided; absent headers (chunked
+            // transfer encoding) fall through to the streaming size-enforcement below.
+            if (Request.ContentLength is long cl)
             {
-                case > BackupService.MaxBackupSizeBytes:
+                if (cl > BackupService.MaxBackupSizeBytes)
+                {
                     _pluginLog.LogWarning(
                         "API",
-                        $"Backup import rejected: Content-Length too large ({FormatBackupSize(contentLength)}, max {FormatBackupSize(BackupService.MaxBackupSizeBytes)}).",
+                        $"Backup import rejected: Content-Length too large ({FormatBackupSize(cl)}, max {FormatBackupSize(BackupService.MaxBackupSizeBytes)}).",
                         logger: _logger);
                     return BadRequest(
                         new
                         {
                             message =
-                                $"Backup too large ({FormatBackupSize(contentLength)}). Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB."
+                                $"Backup too large ({FormatBackupSize(cl)}). Maximum size is {BackupService.MaxBackupSizeBytes / (1024 * 1024)} MB."
                         });
-                case >= BackupService.LargeBackupWarningThresholdBytes:
+                }
+
+                if (cl >= BackupService.LargeBackupWarningThresholdBytes)
+                {
                     _pluginLog.LogWarning(
                         "API",
-                        $"Large backup import detected: {FormatBackupSize(contentLength)} of {FormatBackupSize(BackupService.MaxBackupSizeBytes)} limit.",
+                        $"Large backup import detected: {FormatBackupSize(cl)} of {FormatBackupSize(BackupService.MaxBackupSizeBytes)} limit.",
                         logger: _logger);
-                    break;
+                }
             }
 
             string json;

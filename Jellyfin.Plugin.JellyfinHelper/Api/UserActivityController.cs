@@ -24,30 +24,26 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Authorize(Policy = "RequiresElevation")]
 [Route("JellyfinHelper/UserActivity")]
 [Produces(MediaTypeNames.Application.Json)]
-public class UserActivityController : ControllerBase
+public class UserActivityController : ControllerBase, IDisposable
 {
-    private static readonly SemaphoreSlim _buildLock = new(1, 1);
-
+    private readonly SemaphoreSlim _buildLock = new(1, 1);
     private readonly IUserActivityCacheService _cacheService;
     private readonly IPluginConfigurationService _configService;
-    private readonly IUserActivityInsightsService _insightsService;
     private readonly IUserManager _userManager;
+    private bool _disposed;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="UserActivityController" /> class.
     /// </summary>
     /// <param name="cacheService">The user activity cache service.</param>
-    /// <param name="insightsService">The user activity insights service.</param>
     /// <param name="configService">The plugin configuration service.</param>
     /// <param name="userManager">The user manager.</param>
     public UserActivityController(
         IUserActivityCacheService cacheService,
-        IUserActivityInsightsService insightsService,
         IPluginConfigurationService configService,
         IUserManager userManager)
     {
         _cacheService = cacheService;
-        _insightsService = insightsService;
         _configService = configService;
         _userManager = userManager;
     }
@@ -55,7 +51,7 @@ public class UserActivityController : ControllerBase
     /// <summary>
     ///     Gets the latest cached user activity report.
     ///     Returns the full report with per-item/per-user breakdowns.
-    ///     If no cache exists, generates a fresh report on the fly.
+    ///     Cache is populated by the scheduled task; returns 503 when no cache is available.
     ///     Only available when Recommendations TaskMode is not Deactivate.
     /// </summary>
     /// <returns>The user activity result.</returns>
@@ -76,8 +72,7 @@ public class UserActivityController : ControllerBase
             var cached = _cacheService.LoadResult();
             if (cached == null)
             {
-                cached = _insightsService.BuildActivityReport();
-                _cacheService.SaveResult(cached);
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Activity report cache is not yet available. Run the scheduled task to populate it.");
             }
 
             return Ok(cached);
@@ -92,6 +87,7 @@ public class UserActivityController : ControllerBase
     ///     Gets activity data filtered for a specific user.
     ///     Returns only items where the specified user has activity.
     ///     Aggregate fields are recalculated from the filtered user's activities only.
+    ///     Cache is populated by the scheduled task; returns 503 when no cache is available.
     ///     Only available when Recommendations TaskMode is not Deactivate.
     /// </summary>
     /// <param name="userId">The Jellyfin user ID to filter by.</param>
@@ -130,8 +126,7 @@ public class UserActivityController : ControllerBase
             var cached = _cacheService.LoadResult();
             if (cached == null)
             {
-                cached = _insightsService.BuildActivityReport();
-                _cacheService.SaveResult(cached);
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Activity report cache is not yet available. Run the scheduled task to populate it.");
             }
 
             source = cached;
@@ -202,5 +197,31 @@ public class UserActivityController : ControllerBase
     {
         var config = _configService.GetConfiguration();
         return config.RecommendationsTaskMode != TaskMode.Deactivate;
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    ///     Releases managed resources.
+    /// </summary>
+    /// <param name="disposing">True when called from <see cref="Dispose()"/>; false when called from a finalizer.</param>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (disposing)
+        {
+            _buildLock.Dispose();
+        }
+
+        _disposed = true;
     }
 }

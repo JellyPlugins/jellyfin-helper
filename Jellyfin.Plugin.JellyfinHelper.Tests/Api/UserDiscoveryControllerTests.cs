@@ -48,7 +48,7 @@ public class UserDiscoveryControllerTests
     {
         var pluginLog = new Mock<JellyfinHelper.Services.PluginLog.IPluginLogService>();
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
-        _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
+        _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object, filePath: Path.GetTempFileName());
         _discoveryMock = new Mock<ISeerrDiscoveryService>();
         _feedbackStoreMock = new Mock<IDiscoveryFeedbackStore>();
         _loggerMock = new Mock<ILogger<UserDiscoveryController>>();

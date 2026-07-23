@@ -43,7 +43,6 @@ function renderRecommendations(container, results) {
     // Cache results (including empty) so tab re-visits don't re-trigger API calls.
     // Timestamp tracks when the cache was populated for TTL-based invalidation.
     _recsResults = results || [];
-    _recsTimestamp = _recsTimestamp || Date.now();
     if (!results || results.length === 0) {
         container.innerHTML = '<div class="recs-empty"><div class="recs-empty-icon">' + mi('smart_toy') + '</div><p>' + T('recsEmpty', 'No recommendations available yet. Run the "Helper Cleanup" scheduled task first.') + '</p></div>';
         return;
@@ -692,6 +691,7 @@ function handleDiscoveryRequestResponse(res, btn, tmdbId, mediaType) {
                         countSpan.textContent = '' + Math.max(0, current - 1);
                     }
                     // Show empty state when all cards have been removed
+                    if (!document.contains(grid)) return;
                     if (grid && grid.querySelectorAll('.discovery-card').length === 0) {
                         grid.innerHTML = '<div class="recs-empty"><div class="recs-empty-icon">' + mi('smart_toy') + '</div><p>' + T('discoveryNoResults', 'No suggestions available yet. Results will appear after the next scheduled task run.') + '</p></div>';
                     }

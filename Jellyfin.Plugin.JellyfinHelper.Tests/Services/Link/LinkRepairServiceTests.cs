@@ -810,4 +810,77 @@ public class LinkRepairServiceTests
             Assert.Contains(found, r => r.FilePath == expected);
         }
     }
+
+    // ===== Fix 1: double-enumeration of libraryPaths in RepairLinks =====
+
+    [Fact]
+    public void RepairLinks_YieldReturnLibraryPaths_RelativeTargetOutsideLibraryRoot_ReturnsInvalidContent()
+    {
+        // Regression: when libraryPaths is a non-replayable IEnumerable (yield-return),
+        // the second enumeration in RepairLinks produced an empty normalizedLibraryPaths,
+        // which caused the path-traversal guard (Count > 0) to be skipped — so a relative
+        // target that resolves outside the library root was silently treated as Broken instead
+        // of InvalidContent. Materializing to a list before both uses must fix this.
+        var libDir = _fileSystem.Path.GetFullPath("/series/Show1");
+        var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
+
+        // Relative target that resolves to /etc/passwd — outside /series/Show1
+        _fileSystem.AddFile(linkFile, new MockFileData("../../../etc/passwd"));
+
+        // Use a yield-return sequence so the second enumeration would be empty without the fix
+        IEnumerable<string> YieldPaths()
+        {
+            yield return libDir;
+        }
+
+        var result = _service.RepairLinks(YieldPaths(), dryRun: true);
+
+        Assert.Single(result.FileResults);
+        Assert.Equal(LinkFileStatus.InvalidContent, result.FileResults[0].Status);
+    }
+
+    // ===== Fix 2: MaxVisitedDirectories cap stops outer foreach in FindLinkFiles =====
+
+    [Fact]
+    public void FindLinkFiles_VisitedDirectoryCapReached_DoesNotSilentlyProcessSubsequentLibraryPaths()
+    {
+        // Regression: when the visited-directory cap was hit inside FindLinkFilesRecursive,
+        // the inner while-loop broke but FindLinkFiles continued iterating further library
+        // paths. Each subsequent call immediately hit the accumulated cap and silently
+        // returned — processing no files from those paths. The fix propagates limitReached
+        // out and breaks the outer foreach.
+        //
+        // A service subclass overrides VisitedDirectoryCap to 2 so the cap is hit while
+        // traversing lib1 (root + 2 subdirs = 3 visited entries), then lib2 must not be
+        // processed.
+        var fs = new MockFileSystem();
+        var service = new LowCapLinkRepairService(
+            fs,
+            [new StrmLinkHandler(fs)],
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<LinkRepairService>().Object);
+
+        // lib1: root + 2 subdirs = 3 visited entries, exceeds cap of 2
+        var lib1 = fs.Path.GetFullPath("/lib1");
+        fs.AddFile(fs.Path.Combine(lib1, "subA", "a.strm"), new MockFileData("/t.mkv"));
+        fs.AddFile(fs.Path.Combine(lib1, "subB", "b.strm"), new MockFileData("/t.mkv"));
+
+        // lib2: must NOT be processed once cap is hit in lib1
+        var lib2 = fs.Path.GetFullPath("/lib2");
+        fs.AddFile(fs.Path.Combine(lib2, "c.strm"), new MockFileData("/t.mkv"));
+
+        var found = service.FindLinkFiles([lib1, lib2]);
+
+        Assert.DoesNotContain(found, r => r.FilePath.StartsWith(lib2, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private sealed class LowCapLinkRepairService(
+        System.IO.Abstractions.IFileSystem fileSystem,
+        IEnumerable<ILinkHandler> handlers,
+        Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService pluginLog,
+        Microsoft.Extensions.Logging.ILogger<LinkRepairService> logger)
+        : LinkRepairService(fileSystem, handlers, pluginLog, logger)
+    {
+        protected override int VisitedDirectoryCap => 2;
+    }
 }

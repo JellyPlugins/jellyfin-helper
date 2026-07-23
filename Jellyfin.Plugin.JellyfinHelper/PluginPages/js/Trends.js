@@ -534,19 +534,18 @@ var _insightsLoadSeq = 0;
  */
 function loadInsightsData() {
     var seq = ++_insightsLoadSeq;
-    var apiClient = ApiClient;
-    var url = apiClient.getUrl('JellyfinHelper/LibraryInsights');
 
     var container = document.getElementById('insightsContainer');
     if (container) {
         container.innerHTML = '<div class="trend-empty">' + T('loadingInsights', 'Loading insights…') + '</div>';
     }
 
-    apiClient.ajax({type: 'GET', url: url, dataType: 'json'}).then(function (data) {
+    apiGet('JellyfinHelper/LibraryInsights', function (data) {
         if (seq !== _insightsLoadSeq) return;
         renderInsightCards(data);
-    }, function () {
+    }, function (err) {
         if (seq !== _insightsLoadSeq) return;
+        _apiDefaultError('GET', 'JellyfinHelper/LibraryInsights')(err);
         var c = document.getElementById('insightsContainer');
         if (c) c.innerHTML = '<div class="trend-empty">' + T('insightsError', 'Could not load insights.') + '</div>';
     });
@@ -764,17 +763,9 @@ var _trendLoadRequestSeq = 0;
 
 function loadTrendData(forceRefresh) {
     var requestSeq = ++_trendLoadRequestSeq;
-    var apiClient = ApiClient;
-    var url = apiClient.getUrl('JellyfinHelper/GrowthTimeline');
-    if (forceRefresh) {
-        url += (url.indexOf('?') === -1 ? '?' : '&') + 'forceRefresh=true';
-    }
+    var path = 'JellyfinHelper/GrowthTimeline' + (forceRefresh ? '?forceRefresh=true' : '');
 
-    apiClient.ajax({
-        type: 'GET',
-        url: url,
-        dataType: 'json'
-    }).then(function (timeline) {
+    apiGet(path, function (timeline) {
         if (requestSeq !== _trendLoadRequestSeq) return;
         var container = document.getElementById('trendChartContainer');
         if (container) {
@@ -782,8 +773,9 @@ function loadTrendData(forceRefresh) {
             container.innerHTML = result.html;
             attachTrendInteraction(container, result.pointData);
         }
-    }, function () {
+    }, function (err) {
         if (requestSeq !== _trendLoadRequestSeq) return;
+        _apiDefaultError('GET', path)(err);
         var container = document.getElementById('trendChartContainer');
         if (container) {
             container.innerHTML = '<div class="trend-empty">' + T('trendError', 'Could not load trend data.') + '</div>';

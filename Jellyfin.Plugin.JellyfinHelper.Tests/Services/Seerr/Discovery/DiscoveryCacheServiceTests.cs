@@ -489,6 +489,29 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         Assert.Equal(6, recs[0].TmdbId);
     }
 
+    [Fact]
+    public void Load_CacheFileContainsNullEntries_FiltersNullsAndReturnsValidEntries()
+    {
+        // A JSON array with a null element (e.g. [null, {valid}]) must not produce
+        // NullReferenceException when downstream code accesses r.UserId on every element.
+        // EnsureLoadedLocked must strip nulls after deserialisation so _memoryCache never
+        // contains a null DiscoveryResult.
+        var userId = Guid.NewGuid();
+        var json = $$"""[null, {"UserId":"{{userId}}","Recommendations":[]}]""";
+        Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
+        File.WriteAllText(_cacheFilePath, json);
+
+        // Re-instantiate so there is no pre-warmed _memoryCache and the file is actually read.
+        using var freshSut = new DiscoveryCacheService(
+            new Mock<IPluginLogService>().Object,
+            new Mock<ILogger<DiscoveryCacheService>>().Object);
+
+        var results = freshSut.Load();
+
+        Assert.Single(results);
+        Assert.Equal(userId, results[0].UserId);
+    }
+
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
 
     // -----------------------------------------------------------------------

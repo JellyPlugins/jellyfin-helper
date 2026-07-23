@@ -55,6 +55,11 @@ public class LinkRepairService : ILinkRepairService
     }
 
     /// <summary>
+    ///     Gets the maximum number of directories to visit. Overridable for testing.
+    /// </summary>
+    protected virtual int VisitedDirectoryCap => MaxVisitedDirectories;
+
+    /// <summary>
     ///     Scans the given library paths for link files, validates their target paths,
     ///     and repairs broken references by searching the parent directory for a media file.
     /// </summary>
@@ -68,11 +73,12 @@ public class LinkRepairService : ILinkRepairService
         CancellationToken cancellationToken = default)
     {
         var result = new LinkRepairResult();
-        var linkFiles = FindLinkFiles(libraryPaths, cancellationToken);
+        var paths = libraryPaths.ToList();
+        var linkFiles = FindLinkFiles(paths, cancellationToken);
 
         _pluginLog.LogInfo("LinkRepair", $"Found {linkFiles.Count} link files to check", _logger);
 
-        var normalizedLibraryPaths = libraryPaths
+        var normalizedLibraryPaths = paths
             .Select(p => _fileSystem.Path.GetFullPath(p))
             .ToList();
 
@@ -116,7 +122,11 @@ public class LinkRepairService : ILinkRepairService
                 continue;
             }
 
-            FindLinkFilesRecursive(libraryPath, linkFiles, cancellationToken, visitedDirectories);
+            FindLinkFilesRecursive(libraryPath, linkFiles, visitedDirectories, out var limitReached, cancellationToken);
+            if (limitReached)
+            {
+                break;
+            }
         }
 
         return linkFiles;
@@ -130,9 +140,11 @@ public class LinkRepairService : ILinkRepairService
     private void FindLinkFilesRecursive(
         string directory,
         List<(string FilePath, ILinkHandler Handler)> result,
-        CancellationToken cancellationToken,
-        HashSet<string>? visited = null)
+        HashSet<string>? visited,
+        out bool limitReached,
+        CancellationToken cancellationToken)
     {
+        limitReached = false;
         visited ??= new HashSet<string>(PathComparer);
         var stack = new Stack<string>();
         stack.Push(directory);
@@ -163,12 +175,13 @@ public class LinkRepairService : ILinkRepairService
                 continue;
             }
 
-            if (visited.Count > MaxVisitedDirectories)
+            if (visited.Count > VisitedDirectoryCap)
             {
                 _pluginLog.LogWarning(
                     "LinkRepair",
-                    $"Visited directory limit ({MaxVisitedDirectories}) reached - aborting deeper traversal at: {current}",
+                    $"Visited directory limit ({VisitedDirectoryCap}) reached - aborting deeper traversal at: {current}",
                     logger: _logger);
+                limitReached = true;
                 break;
             }
 

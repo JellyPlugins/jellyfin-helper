@@ -784,8 +784,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             var useEarlyStopping = valCount >= MinValidationExamples
                                    && examples.Count - valCount >= MinTrainingExamples;
 
-            var rng = new Random(42 + _trainingGeneration);
+            var gen = _trainingGeneration;
             _trainingGeneration++;
+            var rng = new Random(42 + gen);
 
             var indices = new int[examples.Count];
             for (var j = 0; j < indices.Length; j++)
@@ -879,10 +880,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             // the documented starvation threshold.
             var dropoutActive = trainIdx.Length >= MinExamplesForDropout;
             // Dedicated RNG for the dropout draw so the shuffle-RNG's determinism (seeded by
-            // _trainingGeneration) is preserved for reviewers who need reproducible shuffle order
+            // gen) is preserved for reviewers who need reproducible shuffle order
             // when debugging. Both RNGs are seeded off the same generation counter so an entire
             // training run is deterministic given the persisted _trainingGeneration.
-            var dropoutRng = new Random(1337 + _trainingGeneration);
+            var dropoutRng = new Random(1337 + gen);
             var dropoutInvKeep = dropoutActive ? 1.0 / DropoutKeepProbability : 1.0;
 
             var maxEpochs = useEarlyStopping
@@ -986,7 +987,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                             sum += h4Err[m] * _weightsH3H4[(m * Hidden3Size) + k];
                         }
 
-                        h3Err[k] = sum * dropoutInvKeep;
+                        h3Err[k] = sum;
                     }
 
                     // Hidden2 layer error (backprop through ReLU + dropout mask from hidden3)
@@ -1004,7 +1005,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                             sum += h3Err[l] * _weightsH2H3[(l * Hidden2Size) + k];
                         }
 
-                        h2Err[k] = sum * dropoutInvKeep;
+                        h2Err[k] = sum;
                     }
 
                     // Hidden1 layer error (backprop through ReLU + dropout mask from hidden2)
@@ -1022,7 +1023,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                             sum += h2Err[k] * _weightsH1H2[(k * Hidden1Size) + j];
                         }
 
-                        h1Err[j] = sum * dropoutInvKeep;
+                        h1Err[j] = sum;
                     }
 
                     // === Now update all weights using the pre-computed error signals ===
@@ -1231,6 +1232,15 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             //                                            (2× threshold) so the ensemble's
             //                                            soft-damping formula naturally rolls
             //                                            alpha back to alphaMin.
+            // Publish standardization stats while the write lock is still held so scorers
+            // that acquire the read lock always see a consistent pair (both null, or both
+            // pointing to the same-generation arrays). Moving this out of the write-lock
+            // region and into _syncRoot would create a window where a scorer holds the read
+            // lock and reads the old _featureMeans while _featureStdDevs has already been
+            // updated, or vice-versa.
+            _featureMeans = featureMeans;
+            _featureStdDevs = featureStdDevs;
+
             // Published under _syncRoot to match the read path in LastValidationLoss getter.
             lock (_syncRoot)
             {
@@ -1248,13 +1258,9 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     // Publish a "definitely bad" number so downstream quality gates disengage.
                     _lastValidationLoss = EnsembleScoringStrategy.ValidationLossCeiling;
                 }
-
-                // Keep _featureMeans/_featureStdDevs update inside the same lock so all three
-                // fields are published atomically — readers that observe _lastValidationLoss
-                // will also see the matching standardisation stats (finding #306).
-                _featureMeans = featureMeans;
-                _featureStdDevs = featureStdDevs;
             }
+
+            LogFeatureImportance(inputSize);
         }
         finally
         {
@@ -1263,8 +1269,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 _rwLock.ExitWriteLock();
             }
         }
-
-        LogFeatureImportance(inputSize);
 
         // Persist weights outside the write lock so concurrent Score() calls are not blocked
         // by disk I/O. TrySaveWeights() reads the weight fields without a lock; this is safe

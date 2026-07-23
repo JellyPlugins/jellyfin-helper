@@ -12,6 +12,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 public interface IBackupService
 {
     /// <summary>
+    /// Returns <c>true</c> if any source data file exceeds the maximum backup size.
+    /// Call before <see cref="CreateBackup"/> to reject oversized exports early.
+    /// </summary>
+    /// <returns><c>true</c> when at least one source file exceeds the size limit.</returns>
+    bool AnySourceFileOversized();
+
+    /// <summary>
     /// Creates a backup of all exportable plugin data.
     /// </summary>
     /// <param name="includeSecrets">

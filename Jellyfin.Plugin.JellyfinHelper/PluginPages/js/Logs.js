@@ -16,7 +16,7 @@ function renderLogsTab() {
     h += '<div class="logs-toolbar">';
 
     h += '<div class="logs-toolbar-item">';
-    h += '<label for="logsLevelFilter">' + T('logsLevel', 'Level') + ':</label>';
+    h += '<label for="logsLevelFilter">' + escHtml(T('logsLevel', 'Level')) + ':</label>';
     h += '<div>';
     h += '<select id="logsLevelFilter" style="min-width: 100px">';
     h += '<option value="DEBUG">DEBUG</option>';
@@ -28,9 +28,9 @@ function renderLogsTab() {
     h += '</div>';
 
     h += '<div class="logs-toolbar-item">';
-    h += '<label for="logsSourceFilter">' + T('logsSource', 'Source') + ':</label>';
-    h += '<input type="text" id="logsSourceFilter" placeholder="' + T(
-            'logsSourcePlaceholder', 'e.g. TrickplayCleaner')
+    h += '<label for="logsSourceFilter">' + escHtml(T('logsSource', 'Source')) + ':</label>';
+    h += '<input type="text" id="logsSourceFilter" placeholder="' + escHtml(T(
+            'logsSourcePlaceholder', 'e.g. TrickplayCleaner'))
         + '" style="width:130px;">';
 
     h += '<span class="logs-count" id="logsCount"></span>';
@@ -38,23 +38,23 @@ function renderLogsTab() {
 
     h += '<div class="logs-auto-refresh" id="logsAutoRefreshIndicator">';
     h += '<span class="dot"></span>';
-    h += '<span>' + T('logsAutoRefresh', 'Auto-refresh') + '</span>';
+    h += '<span>' + escHtml(T('logsAutoRefresh', 'Auto-refresh')) + '</span>';
     h += '</div>';
 
     h += '<div class="logs-btn-group">';
-    h += '<button class="logs-btn primary" id="btnLogsDownload" title="' + T(
-            'logsDownload', 'Download') + '">' + mi('download') + ' ' + T('logsDownload', 'Download')
+    h += '<button class="logs-btn primary" id="btnLogsDownload" title="' + escHtml(T(
+            'logsDownload', 'Download')) + '">' + mi('download') + ' ' + escHtml(T('logsDownload', 'Download'))
         + '</button>';
-    h += '<button class="logs-btn danger" id="btnLogsClear" title="' + T(
-        'logsClear', 'Clear') + '">' + T('logsClear', 'Clear') + '</button>';
+    h += '<button class="logs-btn danger" id="btnLogsClear" title="' + escHtml(T(
+        'logsClear', 'Clear')) + '">' + escHtml(T('logsClear', 'Clear')) + '</button>';
     h += '</div>';
 
     h += '</div>'; // toolbar
 
     // Table
     h += '<div class="logs-table-wrapper" id="logsTableWrapper">';
-    h += '<div class="logs-empty"><div class="logs-empty-icon">' + mi('assignment') + '</div>' + T(
-        'logsLoading', 'Loading logs...') + '</div>';
+    h += '<div class="logs-empty"><div class="logs-empty-icon">' + mi('assignment') + '</div>' + escHtml(T(
+        'logsLoading', 'Loading logs...')) + '</div>';
     h += '</div>';
 
     h += '</div>'; // container
@@ -226,16 +226,16 @@ function loadLogs() {
 
         if (entries.length === 0) {
             wrapper.innerHTML = '<div class="logs-empty"><div class="logs-empty-icon">' + mi('assignment') + '</div>'
-                + T('logsEmpty', 'No log entries.') + '</div>';
+                + escHtml(T('logsEmpty', 'No log entries.')) + '</div>';
             return;
         }
 
         var h = '<table class="logs-table">';
         h += '<thead><tr>';
-        h += '<th class="col-time">' + T('logsTime', 'Time') + '</th>';
-        h += '<th class="col-level">' + T('logsLevelCol', 'Level') + '</th>';
-        h += '<th class="col-source">' + T('logsSourceCol', 'Source') + '</th>';
-        h += '<th class="col-message">' + T('logsMessage', 'Message') + '</th>';
+        h += '<th class="col-time">' + escHtml(T('logsTime', 'Time')) + '</th>';
+        h += '<th class="col-level">' + escHtml(T('logsLevelCol', 'Level')) + '</th>';
+        h += '<th class="col-source">' + escHtml(T('logsSourceCol', 'Source')) + '</th>';
+        h += '<th class="col-message">' + escHtml(T('logsMessage', 'Message')) + '</th>';
         h += '</tr></thead><tbody>';
 
         for (var i = 0; i < entries.length; i++) {
@@ -243,7 +243,7 @@ function loadLogs() {
             var ts = formatLogTimestamp(entry.Timestamp);
             var safeLevels = ['debug', 'info', 'warn', 'error'];
             var rawLevel = (entry.Level || 'info').toLowerCase();
-            var safeLevel = safeLevels.includes(rawLevel) ? rawLevel : 'info';
+            var safeLevel = safeLevels.indexOf(rawLevel) !== -1 ? rawLevel : 'info';
             var levelClass = 'log-level-' + safeLevel;
 
             h += '<tr>';
@@ -263,12 +263,12 @@ function loadLogs() {
         h += '</tbody></table>';
         wrapper.innerHTML = h;
     }, function (err) {
-        console.error('JellyfinHelper: Failed to load logs', err);
         if (requestSeq !== _logsLoadSeq) {
             return;
         }
+        console.error('JellyfinHelper: Failed to load logs', err);
         wrapper.innerHTML = '<div class="logs-empty"><div class="logs-empty-icon">' + mi('warning') + '</div>'
-            + T('logsLoadError', 'Failed to load logs.') + '</div>';
+            + escHtml(T('logsLoadError', 'Failed to load logs.')) + '</div>';
     });
 }
 
@@ -301,7 +301,7 @@ function downloadLogs() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(objUrl);
+        setTimeout(function () { URL.revokeObjectURL(objUrl); }, 100);
         if (btn) {
             btn.disabled = false;
         }

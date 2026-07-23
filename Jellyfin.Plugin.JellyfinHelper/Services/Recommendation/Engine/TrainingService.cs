@@ -86,6 +86,7 @@ internal sealed class TrainingService : IDisposable
         }
 
         // Non-blocking guard: skip if another training run is already in progress.
+        // Timeout=0 means non-blocking; CancellationToken not applicable for a zero-wait.
         if (!_trainGate.Wait(0, CancellationToken.None))
         {
             _pluginLog.LogInfo(
@@ -160,7 +161,7 @@ internal sealed class TrainingService : IDisposable
         List<TrainingExample> trainingExamples = examples;
         if (incremental && examples.Count >= EngineConstants.IncrementalMinExamplesThreshold)
         {
-            var latestGeneratedAt = previousResults.Max(r => r.GeneratedAt);
+            var latestGeneratedAt = previousResults.Max(r => (DateTime?)r.GeneratedAt) ?? DateTime.UtcNow;
             var cutoff = latestGeneratedAt.AddDays(-1);
 
             var newExamples = new List<TrainingExample>();

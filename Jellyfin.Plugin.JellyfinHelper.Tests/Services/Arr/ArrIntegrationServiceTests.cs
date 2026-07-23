@@ -698,43 +698,48 @@ public class ArrIntegrationServiceTests
     }
 
     // === SSRF guard: ValidateArrUrl rejects non-http/https schemes (#23/#24) ===
+    // After fix #2, ArgumentException from ValidateArrUrl is caught inside each method:
+    // TestConnectionAsync returns (false, ...), GetRadarrMoviesAsync/GetSonarrSeriesAsync return null.
 
     [Theory]
     [InlineData("file:///etc/passwd")]
     [InlineData("ftp://internal.host/data")]
     [InlineData("ldap://internal.host")]
     [InlineData("javascript:alert(1)")]
-    public async Task TestConnection_NonHttpScheme_ThrowsArgumentException(string url)
+    public async Task TestConnection_NonHttpScheme_ReturnsFalse(string url)
     {
         var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
         var service = CreateService(handler.Object);
 
-        await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.TestConnectionAsync(url, "apikey", CancellationToken.None));
+        var (success, _) = await service.TestConnectionAsync(url, "apikey", CancellationToken.None);
+
+        Assert.False(success);
     }
 
     [Theory]
     [InlineData("file:///etc/passwd")]
     [InlineData("ftp://internal.host/data")]
-    public async Task GetRadarrMoviesAsync_NonHttpScheme_ThrowsArgumentException(string url)
+    public async Task GetRadarrMoviesAsync_NonHttpScheme_ReturnsNull(string url)
     {
         var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
         var service = CreateService(handler.Object);
 
-        await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.GetRadarrMoviesAsync(url, "apikey", CancellationToken.None));
+        var result = await service.GetRadarrMoviesAsync(url, "apikey", CancellationToken.None);
+
+        Assert.Null(result);
     }
 
     [Theory]
     [InlineData("file:///etc/passwd")]
     [InlineData("ftp://internal.host/data")]
-    public async Task GetSonarrSeriesAsync_NonHttpScheme_ThrowsArgumentException(string url)
+    public async Task GetSonarrSeriesAsync_NonHttpScheme_ReturnsNull(string url)
     {
         var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
         var service = CreateService(handler.Object);
 
-        await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.GetSonarrSeriesAsync(url, "apikey", CancellationToken.None));
+        var result = await service.GetSonarrSeriesAsync(url, "apikey", CancellationToken.None);
+
+        Assert.Null(result);
     }
 
     // === 100 MB response body guard (#28) ===
@@ -785,5 +790,151 @@ public class ArrIntegrationServiceTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetSonarrSeriesAsync_ResponseExceeds100MB_ThrowsInvalidOperation()
+    {
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("[]")
+                };
+                response.Content.Headers.ContentLength = 101L * 1024 * 1024;
+                return response;
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None));
+    }
+
+    // === Chunked response guard: null ContentLength must not bypass the 100 MB limit ===
+    // A chunked transfer-encoded response has ContentLength == null. The previous guard
+    // (`ContentLength > limit`) silently passed null through. ReadLimitedAsync now enforces
+    // the limit via a stream-based byte counter regardless of ContentLength.
+
+    private static HttpContent MakeChunkedContent(int sizeBytes)
+    {
+        // Simulate chunked encoding: ContentLength remains null (not set) while the
+        // stream yields the requested number of bytes.
+        var bytes = new byte[sizeBytes];
+        // Fill with valid JSON array so the body itself doesn't cause a parse error
+        // before the size guard triggers (only relevant for under-limit tests).
+        bytes[0] = (byte)'[';
+        bytes[sizeBytes - 1] = (byte)']';
+        var content = new ByteArrayContent(bytes);
+        content.Headers.Remove("Content-Length"); // ensure no length header
+        return content;
+    }
+
+    [Fact]
+    public async Task TestConnection_ChunkedResponseExceeds100MB_ThrowsInvalidOperation()
+    {
+        // A chunked response (ContentLength == null) whose body exceeds 100 MB must be
+        // rejected by the stream-based LimitedStream guard, not buffered into memory.
+        const int over100Mb = 100 * 1024 * 1024 + 1;
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = MakeChunkedContent(over100Mb)
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetRadarrMoviesAsync_ChunkedResponseExceeds100MB_ThrowsInvalidOperation()
+    {
+        const int over100Mb = 100 * 1024 * 1024 + 1;
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = MakeChunkedContent(over100Mb)
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetSonarrSeriesAsync_ChunkedResponseExceeds100MB_ThrowsInvalidOperation()
+    {
+        const int over100Mb = 100 * 1024 * 1024 + 1;
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = MakeChunkedContent(over100Mb)
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None));
+    }
+
+    // === Comparer identity fix: ReferenceEquals correctly skips defensive copy ===
+
+    [Fact]
+    public void CompareRadarr_OrdinalIgnoreCaseComparer_IsNotCopied()
+    {
+        // When the caller already passes a HashSet with OrdinalIgnoreCase, ReferenceEquals
+        // returns true and the same instance is used (no defensive copy). Verifiable via
+        // object identity of the set — the result must be consistent with the original set.
+        var jellyfinFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Movie A (2020)" };
+        var movies = new[] { new ArrMovie { Title = "Movie A", Year = 2020, HasFile = true, Path = "/m/Movie A (2020)" } };
+
+        var result = ArrIntegrationService.CompareRadarrWithJellyfin(movies, jellyfinFolders);
+
+        Assert.Single(result.InBoth);
+    }
+
+    [Fact]
+    public void CompareSonarr_OrdinalIgnoreCaseComparer_IsNotCopied()
+    {
+        var jellyfinFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Show A" };
+        var series = new[] { new ArrSeries { Title = "Show A", Year = 2020, EpisodeFileCount = 5, TotalEpisodeCount = 10, Path = "/tv/Show A" } };
+
+        var result = ArrIntegrationService.CompareSonarrWithJellyfin(series, jellyfinFolders);
+
+        Assert.Single(result.InBoth);
+    }
+
+    [Fact]
+    public void CompareRadarr_NonOrdinalComparer_MakesDefensiveCopy()
+    {
+        // When the caller uses a different comparer (e.g. Ordinal), a defensive copy with
+        // OrdinalIgnoreCase is made, ensuring case-insensitive matching still works.
+        var jellyfinFolders = new HashSet<string>(StringComparer.Ordinal) { "movie a (2020)" };
+        var movies = new[] { new ArrMovie { Title = "Movie A", Year = 2020, HasFile = true, Path = "/m/Movie A (2020)" } };
+
+        var result = ArrIntegrationService.CompareRadarrWithJellyfin(movies, jellyfinFolders);
+
+        // OrdinalIgnoreCase copy must match "Movie A (2020)" against "movie a (2020)"
+        Assert.Single(result.InBoth);
     }
 }

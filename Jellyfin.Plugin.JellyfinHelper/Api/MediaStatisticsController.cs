@@ -77,10 +77,7 @@ public class MediaStatisticsController : ControllerBase
             {
                 _pluginLog.LogWarning("API", "Rate limit exceeded for statistics scan", logger: _logger);
                 var retryAfter = (int)Math.Ceiling((MinScanInterval - (now - _lastScanTime)).TotalSeconds);
-                if (Response != null)
-                {
-                    Response.Headers["Retry-After"] = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                }
+                Response.Headers["Retry-After"] = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
                 return StatusCode(
                     StatusCodes.Status429TooManyRequests,
@@ -97,7 +94,7 @@ public class MediaStatisticsController : ControllerBase
         {
             result = _statisticsService.CalculateStatistics();
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Release the rate-limit slot so callers are not locked out after a failed scan.
             lock (RateLimitLock)

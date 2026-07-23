@@ -63,11 +63,39 @@ public sealed class DiscoveryCacheService : IDisposable
     public DiscoveryCacheService(
         IPluginLogService pluginLog,
         ILogger<DiscoveryCacheService> logger)
+        : this(pluginLog, logger, filePath: null)
+    {
+    }
+
+    /// <summary>
+    ///     Initializes a new instance of the <see cref="DiscoveryCacheService"/> class with an
+    ///     explicit file path. Intended for testing — avoids the <see cref="Plugin.Instance"/>
+    ///     requirement.
+    /// </summary>
+    /// <param name="pluginLog">The plugin log service.</param>
+    /// <param name="logger">The logger instance.</param>
+    /// <param name="filePath">Explicit cache file path, or <c>null</c> to resolve from <see cref="Plugin.Instance"/>.</param>
+    internal DiscoveryCacheService(
+        IPluginLogService pluginLog,
+        ILogger<DiscoveryCacheService> logger,
+        string? filePath)
     {
         _pluginLog = pluginLog;
         _logger = logger;
 
-        var dataPath = Plugin.Instance?.DataFolderPath ?? string.Empty;
+        if (filePath != null)
+        {
+            _filePath = filePath;
+            return;
+        }
+
+        var dataPath = Plugin.Instance?.DataFolderPath;
+        if (string.IsNullOrEmpty(dataPath))
+        {
+            throw new InvalidOperationException(
+                "DiscoveryCacheService: Plugin.Instance is not initialized; cannot resolve data folder path.");
+        }
+
         _filePath = Path.Join(dataPath, FileName);
     }
 
@@ -129,6 +157,10 @@ public sealed class DiscoveryCacheService : IDisposable
     ///     pattern) and calls synchronous I/O, avoiding the sync-over-async pitfall that the
     ///     previous <c>Task.Run</c> wrapper was designed to work around.
     ///     Use <see cref="RemoveItemAsync"/> directly on all request-driven paths.
+    ///     <b>Do not call from a thread with a synchronization context (e.g. an ASP.NET request
+    ///     thread).</b>  The underlying <see cref="RemoveItemLocked"/> is async; bridging
+    ///     async→sync via <c>GetAwaiter().GetResult()</c> inside a SemaphoreSlim can deadlock.
+    ///     Use <see cref="RemoveItemAsync"/> on all request-driven paths.
     /// </remarks>
     public void RemoveItem(int tmdbId, string mediaType, Guid userId)
     {
@@ -573,7 +605,8 @@ public sealed class DiscoveryCacheService : IDisposable
         }
 
         var json = File.ReadAllText(_filePath);
-        _memoryCache = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions) ?? [];
+        _memoryCache = JsonSerializer.Deserialize<List<DiscoveryResult>>(json, JsonOptions)
+                           ?.Where(r => r != null).ToList() ?? [];
     }
 
     /// <summary>

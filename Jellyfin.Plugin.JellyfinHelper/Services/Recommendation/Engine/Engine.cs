@@ -1217,37 +1217,64 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
     /// <summary>
     ///     Resolves the normalized audio language codes available for a candidate item.
-    ///     Delegates to <see cref="ResolveMediaLanguages"/> for a single-pass stream scan.
+    ///     Delegates to a static stream scan (no series fallback).
     ///     Returns an empty list if no audio stream data is available (graceful fallback).
     /// </summary>
     /// <param name="candidate">The candidate item.</param>
     /// <returns>A list of distinct, normalized ISO 639 language codes.</returns>
     private static List<string> ResolveAudioLanguages(BaseItem candidate)
     {
-        return ResolveMediaLanguages(candidate).Audio;
+        return ResolveStreamsLanguages(candidate).Audio;
     }
 
     /// <summary>
     ///     Resolves the normalized subtitle language codes available for a candidate item.
-    ///     Delegates to <see cref="ResolveMediaLanguages"/> for a single-pass stream scan.
+    ///     Delegates to a static stream scan (no series fallback).
     ///     Returns an empty list if no subtitle stream data is available (graceful fallback).
     /// </summary>
     /// <param name="candidate">The candidate item.</param>
     /// <returns>A list of distinct, normalized ISO 639 subtitle language codes.</returns>
     private static List<string> ResolveSubtitleLanguages(BaseItem candidate)
     {
-        return ResolveMediaLanguages(candidate).Subtitles;
+        return ResolveStreamsLanguages(candidate).Subtitles;
+    }
+
+    /// <summary>
+    ///     Resolves both audio and subtitle language codes from a candidate item's media streams
+    ///     in a single pass, without a series child-episode fallback.
+    ///     Used by the <c>internal static</c> scoring helpers that have no access to the library manager.
+    ///     Returns empty lists if no stream data is available (graceful fallback).
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>A tuple of (Audio languages, Subtitle languages) as distinct, normalized ISO 639 codes.</returns>
+    private static (List<string> Audio, List<string> Subtitles) ResolveStreamsLanguages(BaseItem candidate)
+    {
+        try
+        {
+            var streams = candidate.GetMediaStreams();
+            if (streams is null)
+            {
+                return ([], []);
+            }
+
+            return ParseLanguagesFromStreams(streams);
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return ([], []); // Graceful: no stream data available
+        }
     }
 
     /// <summary>
     ///     Resolves both audio and subtitle language codes from a candidate item's media streams
     ///     in a single pass. Avoids calling <see cref="BaseItem.GetMediaStreams"/> twice per item
     ///     in the scoring hot path (1000+ candidates per user).
+    ///     Includes a series child-episode fallback via the library manager.
     ///     Returns empty lists if no stream data is available (graceful fallback).
     /// </summary>
     /// <param name="candidate">The candidate item.</param>
     /// <returns>A tuple of (Audio languages, Subtitle languages) as distinct, normalized ISO 639 codes.</returns>
-    private static (List<string> Audio, List<string> Subtitles) ResolveMediaLanguages(BaseItem candidate)
+    private (List<string> Audio, List<string> Subtitles) ResolveMediaLanguages(BaseItem candidate)
     {
         try
         {
@@ -1256,15 +1283,16 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             // Series items have no direct media streams — resolve from first child episode as fallback.
             // This enables LanguageAffinity and SubtitleLanguageAffinity to produce real signals
             // for series candidates instead of defaulting to 0.5 (neutral).
-            // Series.Children returns Season objects in Jellyfin 10.11+.
-            // Navigate Series → first Season → first Episode with a valid file path
-            // to extract representative audio/subtitle language metadata.
             if ((streams is null || streams.Count == 0) && candidate is Series series)
             {
-                var firstEpisode = series.Children?
-                    .OfType<Season>()
-                    .SelectMany(season => season.Children?.OfType<Episode>() ?? [])
-                    .FirstOrDefault(e => !string.IsNullOrEmpty(e.Path));
+                var episodes = _libraryManager.GetItemList(new InternalItemsQuery
+                {
+                    ParentId = series.Id,
+                    IncludeItemTypes = [BaseItemKind.Episode],
+                    IsFolder = false,
+                    Limit = 1,
+                });
+                var firstEpisode = episodes.Count > 0 ? episodes[0] : null;
                 if (firstEpisode is not null)
                 {
                     streams = firstEpisode.GetMediaStreams();
@@ -1276,36 +1304,46 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 return ([], []);
             }
 
-            var audioLanguages = new List<string>();
-            var audioSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var subtitleLanguages = new List<string>();
-            var subtitleSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var s in streams)
-            {
-                var normalized = WatchHistoryService.NormalizeLanguage(s.Language);
-                if (string.IsNullOrEmpty(normalized))
-                {
-                    continue;
-                }
-
-                switch (s.Type)
-                {
-                    case MediaStreamType.Audio when audioSeen.Add(normalized):
-                        audioLanguages.Add(normalized);
-                        break;
-                    case MediaStreamType.Subtitle when subtitleSeen.Add(normalized):
-                        subtitleLanguages.Add(normalized);
-                        break;
-                }
-            }
-
-            return (audioLanguages, subtitleLanguages);
+            return ParseLanguagesFromStreams(streams);
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
             return ([], []); // Graceful: no stream data available
         }
+    }
+
+    /// <summary>
+    ///     Parses distinct, normalized audio and subtitle language codes from a list of media streams.
+    /// </summary>
+    /// <param name="streams">The media streams to parse.</param>
+    /// <returns>A tuple of (Audio languages, Subtitle languages).</returns>
+    private static (List<string> Audio, List<string> Subtitles) ParseLanguagesFromStreams(IReadOnlyList<MediaStream> streams)
+    {
+        var audioLanguages = new List<string>();
+        var audioSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var subtitleLanguages = new List<string>();
+        var subtitleSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var s in streams)
+        {
+            var normalized = WatchHistoryService.NormalizeLanguage(s.Language);
+            if (string.IsNullOrEmpty(normalized))
+            {
+                continue;
+            }
+
+            switch (s.Type)
+            {
+                case MediaStreamType.Audio when audioSeen.Add(normalized):
+                    audioLanguages.Add(normalized);
+                    break;
+                case MediaStreamType.Subtitle when subtitleSeen.Add(normalized):
+                    subtitleLanguages.Add(normalized);
+                    break;
+            }
+        }
+
+        return (audioLanguages, subtitleLanguages);
     }
 
     /// <summary>
@@ -1389,7 +1427,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     from the same data without a second stream scan.
     /// </param>
     /// <returns>A language affinity score between 0.1 and 1.0, or 0.5 if no data available.</returns>
-    private static double ComputeLanguageAffinityFromStreams(
+    private double ComputeLanguageAffinityFromStreams(
         UserWatchProfile userProfile,
         BaseItem candidate,
         out (List<string> Audio, List<string> Subtitles) mediaLanguages)
@@ -1732,11 +1770,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="cancellationToken">Token for cooperative cancellation.</param>
     private void UpdateDiscoveryWatchedStatus(CancellationToken cancellationToken)
     {
-        if (_discoveryFeedbackStore == null)
-        {
-            return;
-        }
-
         try
         {
             var allFeedback = _discoveryFeedbackStore.LoadAll();

@@ -19,14 +19,12 @@ public class UserActivityControllerTests
 {
     private readonly Mock<IUserActivityCacheService> _mockCache;
     private readonly UserActivityController _controller;
-    private readonly Mock<IUserActivityInsightsService> _mockInsights;
     private readonly Mock<IPluginConfigurationService> _mockConfig;
     private readonly Mock<IUserManager> _mockUserManager;
 
     public UserActivityControllerTests()
     {
         _mockCache = new Mock<IUserActivityCacheService>();
-        _mockInsights = new Mock<IUserActivityInsightsService>();
         _mockConfig = new Mock<IPluginConfigurationService>();
         _mockUserManager = new Mock<IUserManager>();
         // Default: feature enabled (TaskMode = Activate)
@@ -37,7 +35,7 @@ public class UserActivityControllerTests
         // Default: any userId resolves to a non-null user
         _mockUserManager.Setup(m => m.GetUserById(It.IsAny<Guid>()))
             .Returns(new User("testuser", "Default", "Default"));
-        _controller = new UserActivityController(_mockCache.Object, _mockInsights.Object, _mockConfig.Object, _mockUserManager.Object);
+        _controller = new UserActivityController(_mockCache.Object, _mockConfig.Object, _mockUserManager.Object);
     }
 
     // === GetLatestActivity ===
@@ -58,28 +56,18 @@ public class UserActivityControllerTests
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<UserActivityResult>(ok.Value);
         Assert.Equal(5, data.TotalItemsWithActivity);
-        _mockInsights.Verify(i => i.BuildActivityReport(), Times.Never);
     }
 
     [Fact]
-    public async Task GetLatestActivity_CacheMiss_GeneratesAndCaches()
+    public async Task GetLatestActivity_CacheMiss_Returns503()
     {
         _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
 
-        var generated = new UserActivityResult
-        {
-            TotalItemsWithActivity = 3,
-            TotalUsersAnalyzed = 1,
-            TotalPlayCount = 10
-        };
-        _mockInsights.Setup(i => i.BuildActivityReport()).Returns(generated);
-
         var result = await _controller.GetLatestActivity(CancellationToken.None);
 
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var data = Assert.IsType<UserActivityResult>(ok.Value);
-        Assert.Equal(3, data.TotalItemsWithActivity);
-        _mockCache.Verify(c => c.SaveResult(generated), Times.Once);
+        var statusResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(503, statusResult.StatusCode);
+        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
     }
 
     // === GetUserActivity ===
@@ -248,7 +236,7 @@ public class UserActivityControllerTests
     }
 
     [Fact]
-    public async Task GetLatestActivity_DryRun_CacheMiss_DoesPersistCache()
+    public async Task GetLatestActivity_DryRun_CacheMiss_Returns503()
     {
         _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
         {
@@ -256,22 +244,11 @@ public class UserActivityControllerTests
         });
         _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
 
-        var generated = new UserActivityResult
-        {
-            TotalItemsWithActivity = 7,
-            TotalUsersAnalyzed = 3,
-            TotalPlayCount = 25
-        };
-        _mockInsights.Setup(i => i.BuildActivityReport()).Returns(generated);
-
         var result = await _controller.GetLatestActivity(CancellationToken.None);
 
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var data = Assert.IsType<UserActivityResult>(ok.Value);
-        Assert.Equal(7, data.TotalItemsWithActivity);
-        // UserActivityController always caches on cache-miss to avoid expensive rebuilds,
-        // independent of TaskMode (see UserActivityController.GetLatestActivity).
-        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Once);
+        var statusResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(503, statusResult.StatusCode);
+        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
     }
 
     [Fact]
@@ -289,7 +266,7 @@ public class UserActivityControllerTests
     }
 
     [Fact]
-    public async Task GetUserActivity_DryRun_CacheMiss_DoesPersistCache()
+    public async Task GetUserActivity_DryRun_CacheMiss_Returns503()
     {
         var userId = Guid.NewGuid();
         _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
@@ -298,77 +275,24 @@ public class UserActivityControllerTests
         });
         _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
 
-        var generated = new UserActivityResult
-        {
-            Items = new Collection<UserActivitySummary>
-            {
-                new()
-                {
-                    ItemId = Guid.NewGuid(),
-                    ItemName = "Movie DryRun",
-                    UserActivities = new Collection<UserItemActivity>
-                    {
-                        new()
-                        {
-                            UserId = userId,
-                            UserName = "TestUser",
-                            PlayCount = 1,
-                            Played = true,
-                            LastPlayedDate = DateTime.UtcNow
-                        }
-                    }
-                }
-            }
-        };
-        _mockInsights.Setup(i => i.BuildActivityReport()).Returns(generated);
-
         var result = await _controller.GetUserActivity(userId, cancellationToken: CancellationToken.None);
 
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
-        Assert.Single(data);
-        // UserActivityController always caches on cache-miss to avoid expensive rebuilds,
-        // independent of TaskMode (see UserActivityController.GetUserActivity).
-        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Once);
+        var statusResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(503, statusResult.StatusCode);
+        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
     }
 
     [Fact]
-    public async Task GetUserActivity_CacheMiss_GeneratesAndCaches()
+    public async Task GetUserActivity_CacheMiss_Returns503()
     {
         var userId = Guid.NewGuid();
         _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
 
-        var generated = new UserActivityResult
-        {
-            Items = new Collection<UserActivitySummary>
-            {
-                new()
-                {
-                    ItemId = Guid.NewGuid(),
-                    ItemName = "Movie C",
-                    UserActivities = new Collection<UserItemActivity>
-                    {
-                        new()
-                        {
-                            UserId = userId,
-                            UserName = "Alice",
-                            PlayCount = 1,
-                            Played = true,
-                            LastPlayedDate = DateTime.UtcNow
-                        }
-                    }
-                }
-            }
-        };
-        _mockInsights.Setup(i => i.BuildActivityReport()).Returns(generated);
-
         var result = await _controller.GetUserActivity(userId, cancellationToken: CancellationToken.None);
 
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
-        Assert.Single(data);
-        Assert.Equal("Movie C", data[0].ItemName);
-        _mockCache.Verify(c => c.SaveResult(generated), Times.Once);
+        var statusResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(503, statusResult.StatusCode);
+        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
     }
 
     [Fact]
@@ -381,6 +305,5 @@ public class UserActivityControllerTests
         var result = await _controller.GetUserActivity(unknownUserId, cancellationToken: CancellationToken.None);
 
         Assert.IsType<NotFoundResult>(result.Result);
-        _mockInsights.Verify(i => i.BuildActivityReport(), Times.Never);
     }
 }

@@ -86,7 +86,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public int SeerrCleanupAgeDays
     {
         get => _seerrCleanupAgeDays;
-        set => _seerrCleanupAgeDays = value <= 0 ? 0 : ClampAndReport(nameof(SeerrCleanupAgeDays), value, 1, 3650);
+        set => _seerrCleanupAgeDays = value < 0
+            ? (int)ClampAndReport(nameof(SeerrCleanupAgeDays), value, 0, 3650)
+            : (value == 0 ? 0 : ClampAndReport(nameof(SeerrCleanupAgeDays), value, 1, 3650));
     }
 
     /// <summary>
@@ -135,7 +137,7 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
-    ///     Gets the list of Radarr instances (max 3).
+    ///     Gets or sets the list of Radarr instances (max 3).
     ///     Using <see cref="List{T}" /> instead of <c>Collection&lt;T&gt;</c> because
     ///     <c>System.Text.Json</c> cannot reliably round-trip <c>Collection&lt;T&gt;</c>
     ///     (items are lost on deserialization when the property has a default initializer).
@@ -145,10 +147,10 @@ public class PluginConfiguration : BasePluginConfiguration
         "Usage",
         "CA1002:DoNotExposeGenericLists",
         Justification = "Collection<T> breaks System.Text.Json round-trip deserialization")]
-    public List<ArrInstanceConfig> RadarrInstances { get; init; } = [];
+    public List<ArrInstanceConfig> RadarrInstances { get; set; } = [];
 
     /// <summary>
-    ///     Gets the list of Sonarr instances (max 3).
+    ///     Gets or sets the list of Sonarr instances (max 3).
     ///     Using <see cref="List{T}" /> instead of <c>Collection&lt;T&gt;</c> because
     ///     <c>System.Text.Json</c> cannot reliably round-trip <c>Collection&lt;T&gt;</c>
     ///     (items are lost on deserialization when the property has a default initializer).
@@ -158,7 +160,7 @@ public class PluginConfiguration : BasePluginConfiguration
         "Usage",
         "CA1002:DoNotExposeGenericLists",
         Justification = "Collection<T> breaks System.Text.Json round-trip deserialization")]
-    public List<ArrInstanceConfig> SonarrInstances { get; init; } = [];
+    public List<ArrInstanceConfig> SonarrInstances { get; set; } = [];
 
     /// <summary>
     ///     Gets or sets the UI language code. Default is "en".
@@ -200,8 +202,7 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Gets or sets the minimum alpha value for the ensemble scoring strategy.
     ///     Controls the lower bound of learned model blending (0-1). Default is 0.3.
     ///     Out-of-range values are clamped to [0, 1].
-    ///     The min ≤ max invariant is enforced by <see cref="NormalizeAlphaRange"/>
-    ///     after deserialization, not by the setter, to avoid XML element-order dependency.
+    ///     The min ≤ max invariant is enforced automatically by the <see cref="EnsembleAlphaMax"/> setter.
     /// </summary>
     public double EnsembleAlphaMin
     {
@@ -213,13 +214,17 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Gets or sets the maximum alpha value for the ensemble scoring strategy.
     ///     Controls the upper bound of learned model blending (0-1). Default is 0.75.
     ///     Out-of-range values are clamped to [0, 1].
-    ///     The min ≤ max invariant is enforced by <see cref="NormalizeAlphaRange"/>
-    ///     after deserialization, not by the setter, to avoid XML element-order dependency.
+    ///     Setting this property automatically enforces the min ≤ max invariant via
+    ///     <see cref="NormalizeAlphaRange"/> so all code paths see a consistent range.
     /// </summary>
     public double EnsembleAlphaMax
     {
         get => _ensembleAlphaMax;
-        set => _ensembleAlphaMax = ClampAndReport(nameof(EnsembleAlphaMax), value, 0.0, 1.0);
+        set
+        {
+            _ensembleAlphaMax = ClampAndReport(nameof(EnsembleAlphaMax), value, 0.0, 1.0);
+            NormalizeAlphaRange();
+        }
     }
 
     /// <summary>

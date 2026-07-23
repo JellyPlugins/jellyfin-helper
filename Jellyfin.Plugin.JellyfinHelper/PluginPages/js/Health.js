@@ -190,7 +190,7 @@ function loadTrashHealthSection() {
             html += '</div>';
             container.insertAdjacentHTML('beforeend', html);
         }, function () {
-            console.log(
+            console.warn(
                 'Jellyfin Helper: Could not load trash contents for health tab');
         });
     }, function () { /* Config load failed - silently skip */

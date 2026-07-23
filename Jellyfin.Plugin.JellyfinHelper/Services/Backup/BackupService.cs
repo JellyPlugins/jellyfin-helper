@@ -79,6 +79,21 @@ public sealed class BackupService : IBackupService
     }
 
     /// <summary>
+    ///     Returns <c>true</c> if any source data file exceeds <see cref="MaxBackupSizeBytes"/>.
+    ///     Call before <see cref="CreateBackup"/> to reject oversized exports early.
+    /// </summary>
+    /// <returns><c>true</c> when at least one source file exceeds the size limit.</returns>
+    public bool AnySourceFileOversized()
+    {
+        var paths = new[]
+        {
+            Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json"),
+            Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"),
+        };
+        return paths.Any(p => File.Exists(p) && new FileInfo(p).Length > MaxBackupSizeBytes);
+    }
+
+    /// <summary>
     ///     Creates a backup of all exportable plugin data.
     /// </summary>
     /// <param name="includeSecrets">
@@ -155,11 +170,13 @@ public sealed class BackupService : IBackupService
 
         // Growth timeline
         backup.GrowthTimeline = LoadJsonFile<GrowthTimelineResult>(
-            Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json"));
+            Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json"),
+            out _);
 
         // Growth baseline (required to preserve diff-based trend history after restore)
         backup.GrowthBaseline = LoadJsonFile<GrowthTimelineBaseline>(
-            Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"));
+            Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"),
+            out _);
 
         // When the caller opts out of secrets, redact all API key values so the exported
         // file cannot be used to harvest plaintext credentials.  The empty-string convention
@@ -219,14 +236,15 @@ public sealed class BackupService : IBackupService
         var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
         var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
 
-        var firstWriteSucceeded = false;
+        var timelineWriteOk = false;
+        var baselineWriteOk = false;
         try
         {
             // Restore growth timeline
             if (backup.GrowthTimeline != null &&
                 SaveJsonFile(timelinePath, backup.GrowthTimeline))
             {
-                firstWriteSucceeded = true;
+                timelineWriteOk = true;
                 summary.TimelineRestored = true;
                 _pluginLog.LogInfo(
                     "Backup",
@@ -238,6 +256,7 @@ public sealed class BackupService : IBackupService
             if (backup.GrowthBaseline != null &&
                 SaveJsonFile(baselinePath, backup.GrowthBaseline))
             {
+                baselineWriteOk = true;
                 summary.BaselineRestored = true;
                 _pluginLog.LogInfo(
                     "Backup",
@@ -251,7 +270,8 @@ public sealed class BackupService : IBackupService
         }
         catch (Exception ex)
         {
-            if (firstWriteSucceeded)
+            var anyWriteSucceeded = timelineWriteOk || baselineWriteOk;
+            if (anyWriteSucceeded)
             {
                 _pluginLog.LogWarning(
                     "Backup",
@@ -447,7 +467,7 @@ public sealed class BackupService : IBackupService
                 i => i.Name,
                 i => BackupSanitizer.TruncateString(i.ApiKey, BackupValidator.MaxApiKeyLength));
 
-        liveInstances.Clear();
+        var newList = new List<ArrInstanceConfig>();
         var keysChanged = 0;
 
         foreach (var instance in backupInstances.Take(BackupValidator.MaxArrInstances))
@@ -466,7 +486,7 @@ public sealed class BackupService : IBackupService
                 keysChanged++;
             }
 
-            liveInstances.Add(
+            newList.Add(
                 new ArrInstanceConfig
                 {
                     Name = BackupSanitizer.TruncateString(instance.Name, BackupValidator.MaxInstanceNameLength),
@@ -474,6 +494,9 @@ public sealed class BackupService : IBackupService
                     ApiKey = apiKey
                 });
         }
+
+        liveInstances.Clear();
+        liveInstances.AddRange(newList);
 
         if (keysChanged > 0)
         {
@@ -500,13 +523,25 @@ public sealed class BackupService : IBackupService
         return fallback;
     }
 
-    private T? LoadJsonFile<T>(string filePath)
+    private T? LoadJsonFile<T>(string filePath, out bool oversized)
         where T : class
     {
+        oversized = false;
         try
         {
             if (!File.Exists(filePath))
             {
+                return null;
+            }
+
+            var fileInfo = new FileInfo(filePath);
+            if (fileInfo.Length > MaxBackupSizeBytes)
+            {
+                oversized = true;
+                _pluginLog.LogWarning(
+                    "Backup",
+                    $"Skipping {filePath} for backup: file size {fileInfo.Length} bytes exceeds {MaxBackupSizeBytes} byte limit.",
+                    logger: _logger);
                 return null;
             }
 
@@ -539,7 +574,7 @@ public sealed class BackupService : IBackupService
             AtomicFile.WriteAllText(filePath, json);
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
             _pluginLog.LogError("Backup", $"Could not save {filePath} during restore", ex, _logger);
             return false;

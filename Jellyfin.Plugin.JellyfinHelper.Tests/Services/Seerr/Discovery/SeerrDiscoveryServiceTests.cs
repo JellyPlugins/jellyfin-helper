@@ -28,7 +28,7 @@ public class SeerrDiscoveryServiceTests
             new Mock<ILogger<EnsembleScoringStrategy>>().Object);
         var pluginLog = new Mock<IPluginLogService>();
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
-        var cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object);
+        var cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object, filePath: Path.GetTempFileName());
         var feedbackStore = new Mock<IDiscoveryFeedbackStore>();
         var logger = new Mock<ILogger<SeerrDiscoveryService>>();
         return new SeerrDiscoveryService(

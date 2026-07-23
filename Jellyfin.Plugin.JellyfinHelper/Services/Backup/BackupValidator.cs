@@ -124,6 +124,11 @@ public static class BackupValidator
         // Timestamp sanity
         // Normalise Kind before comparing — JSON without a 'Z' suffix deserialises as Unspecified,
         // which .NET does NOT automatically treat as UTC in comparisons, causing incorrect results.
+        if (backup.CreatedAt.Kind == DateTimeKind.Unspecified)
+        {
+            result.Warnings.Add("Backup CreatedAt has no timezone indicator; treating as UTC.");
+        }
+
         var createdAtUtc = backup.CreatedAt.Kind == DateTimeKind.Utc
             ? backup.CreatedAt
             : DateTime.SpecifyKind(backup.CreatedAt, DateTimeKind.Utc);
@@ -193,12 +198,11 @@ public static class BackupValidator
                 $"TrashRetentionDays out of range: {backup.TrashRetentionDays}. Must be 0–{MaxRetentionDays}.");
         }
 
-        // Older backups do not contain this field and deserialize it as 0 - treat as absent.
-        if (backup.SeerrCleanupAgeDays != 0 &&
-            backup.SeerrCleanupAgeDays is < 1 or > MaxRetentionDays)
+        if (backup.SeerrCleanupAgeDays.HasValue &&
+            backup.SeerrCleanupAgeDays is < 0 or > MaxRetentionDays)
         {
             result.Errors.Add(
-                $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 1–{MaxRetentionDays}.");
+                $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 0–{MaxRetentionDays}.");
         }
 
         // Path validation for trash folder — defence in depth:
