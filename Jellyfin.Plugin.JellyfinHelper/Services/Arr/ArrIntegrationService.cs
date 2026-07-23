@@ -63,7 +63,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         try
         {
             var url = $"{baseUrl.TrimEnd('/')}/api/v3/system/status";
-            using var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
+            var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             EnsureApiKeyHeaderSafe(apiKey);
             request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);

@@ -103,15 +103,8 @@ public static class TimelineAggregator
             }
             else
             {
-                // New group (not in baseline)
+                // New directory (not in baseline). Add at its creation date with full size.
                 var count = dir.Count > 0 ? dir.Count : 1;
-                if (dir.CreatedUtc > baseline.FirstScanTimestamp)
-                {
-                    // Created after baseline: add full size at creation date
-                }
-
-                // Created before baseline but wasn't in the baseline
-                // (e.g. a new library location was added). Treat as baseline-era entry.
                 entries.Add(
                     new GrowthTimelineService.FileEntry
                     {
@@ -153,7 +146,7 @@ public static class TimelineAggregator
             {
                 // Update size and count to current values (creation date stays the same)
                 existing.Size = dir.Size;
-                existing.Count = dir.Count;
+                existing.Count = (int)dir.Count;
             }
             else
             {
@@ -162,7 +155,7 @@ public static class TimelineAggregator
                 {
                     CreatedUtc = dir.CreatedUtc,
                     Size = dir.Size,
-                    Count = dir.Count
+                    Count = (int)dir.Count
                 };
             }
         }
@@ -201,7 +194,7 @@ public static class TimelineAggregator
 
         var fileIndex = 0;
         long cumulativeSize = 0;
-        var cumulativeCount = 0;
+        var cumulativeCount = 0L;
 
         for (var b = 0; b < bucketStarts.Count; b++)
         {
@@ -244,7 +237,7 @@ public static class TimelineAggregator
         List<GrowthTimelinePoint> existingPoints,
         DateTime now,
         long currentTotalSize,
-        int currentTotalCount,
+        long currentTotalCount,
         string granularity)
     {
         var currentBucketStart = GetBucketStart(now, granularity);
@@ -425,8 +418,15 @@ public static class TimelineAggregator
             }
         }
 
-        // Always keep the last point to preserve the timeline's end date
-        result.Add(points[^1]);
+        // Always keep the last point to preserve the timeline's end date,
+        // unless it is identical to the last already-kept point.
+        var last = points[^1];
+        var tail = result[^1];
+        if (last.CumulativeSize != tail.CumulativeSize ||
+            last.CumulativeFileCount != tail.CumulativeFileCount)
+        {
+            result.Add(last);
+        }
 
         return result;
     }

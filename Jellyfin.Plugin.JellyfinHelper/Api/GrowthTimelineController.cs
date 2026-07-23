@@ -1,3 +1,4 @@
+using System;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,6 +19,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class GrowthTimelineController : ControllerBase
 {
+    private static readonly TimeSpan MinRefreshInterval = TimeSpan.FromSeconds(30);
+    private static readonly Lock RateLimitLock = new();
+    private static DateTime _lastRefreshTime = DateTime.MinValue;
+
     private readonly IGrowthTimelineService _growthTimelineService;
 
     /// <summary>
@@ -40,6 +45,7 @@ public class GrowthTimelineController : ControllerBase
     /// <returns>The growth timeline with cumulative data points.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<GrowthTimelineResult>> GetGrowthTimelineAsync(
         [FromQuery] bool forceRefresh = false,
         CancellationToken cancellationToken = default)
@@ -51,6 +57,19 @@ public class GrowthTimelineController : ControllerBase
             {
                 return Ok(cached);
             }
+        }
+
+        lock (RateLimitLock)
+        {
+            var now = DateTime.UtcNow;
+            if (now - _lastRefreshTime < MinRefreshInterval)
+            {
+                return StatusCode(
+                    StatusCodes.Status429TooManyRequests,
+                    new { message = "Please wait before requesting another timeline computation." });
+            }
+
+            _lastRefreshTime = now;
         }
 
         var result = await _growthTimelineService.ComputeTimelineAsync(cancellationToken).ConfigureAwait(false);

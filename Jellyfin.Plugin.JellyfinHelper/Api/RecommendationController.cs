@@ -67,14 +67,14 @@ public class RecommendationController : ControllerBase
         [FromQuery] int maxPerUser = 0,
         CancellationToken cancellationToken = default)
     {
-        if (!IsRecommendationsEnabled())
+        var config = _configService.GetConfiguration();
+        if (config.RecommendationsTaskMode == TaskMode.Deactivate)
         {
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
                 "Smart Recommendations are disabled in plugin configuration.");
         }
 
-        var config = _configService.GetConfiguration();
         var configuredMax = Math.Clamp(config.MaxRecommendationsPerUser, 1, 100);
         // Use config default if not specified via query parameter; used only for trimming the response
         var requestedMax = Math.Clamp(maxPerUser <= 0 ? configuredMax : maxPerUser, 1, 100);

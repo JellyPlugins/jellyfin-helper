@@ -67,12 +67,23 @@ public class ArrIntegrationController : ControllerBase
     /// <returns>A result indicating success or failure with a message.</returns>
     [HttpPost("TestConnection")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> TestArrConnectionAsync(
         [FromBody] ArrTestConnectionRequest request,
         CancellationToken cancellationToken)
     {
+        var url = request.Url ?? string.Empty;
+
+        // SSRF guard: only allow HTTP/HTTPS scheme so callers cannot trigger requests
+        // to file://, ftp://, ldap://, or other internal-network protocols.
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsedUrl) ||
+            (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
+        {
+            return BadRequest(new { success = false, message = "A valid HTTP(S) URL is required." });
+        }
+
         var (success, message) = await _arrService.TestConnectionAsync(
-            request.Url ?? string.Empty,
+            url,
             request.ApiKey ?? string.Empty,
             cancellationToken).ConfigureAwait(false);
 

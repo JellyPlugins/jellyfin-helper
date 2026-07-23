@@ -15,7 +15,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services;
 public static class FileSystemHelper
 {
     /// <summary>
-    ///     Calculates the total size of all files in a directory tree.
+    ///     Calculates the total size of all files in a directory tree (iterative, no recursion).
+    ///     Symlinks and junction points are skipped to prevent cycles.
     ///     Inaccessible directories are silently skipped.
     /// </summary>
     /// <param name="fileSystem">The Jellyfin file system abstraction.</param>
@@ -24,20 +25,45 @@ public static class FileSystemHelper
     internal static long CalculateDirectorySize(IFileSystem fileSystem, string directoryPath)
     {
         long totalSize = 0;
+        var stack = new Stack<string>();
+        stack.Push(directoryPath);
 
-        try
+        while (stack.Count > 0)
         {
-            var files = fileSystem.GetFiles(directoryPath);
-            totalSize += files.Sum(f => f.Length);
+            var current = stack.Pop();
+            try
+            {
+                totalSize += fileSystem.GetFiles(current).Sum(f => f.Length);
 
-            var subDirs = fileSystem.GetDirectories(directoryPath);
-            totalSize += subDirs.Sum(subDir => CalculateDirectorySize(fileSystem, subDir.FullName));
-        }
-        catch (IOException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
+                foreach (var subDir in fileSystem.GetDirectories(current))
+                {
+                    // Skip symlinks/junctions to prevent infinite cycles.
+                    // DirectoryInfo.Attributes returns (FileAttributes)(-1) when the path
+                    // does not exist on the real filesystem (e.g. mock-backed paths in tests);
+                    // treat that sentinel as "not a reparse point" and traverse normally.
+                    try
+                    {
+                        var attrs = new DirectoryInfo(subDir.FullName).Attributes;
+                        if (attrs != (FileAttributes)(-1) && (attrs & FileAttributes.ReparsePoint) != 0)
+                        {
+                            continue;
+                        }
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        // Cannot read attributes — skip to be safe.
+                        continue;
+                    }
+
+                    stack.Push(subDir.FullName);
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
         }
 
         return totalSize;

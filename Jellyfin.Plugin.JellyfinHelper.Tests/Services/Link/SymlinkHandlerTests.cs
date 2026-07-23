@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Moq;
 using Xunit;
 
@@ -17,7 +18,7 @@ public class SymlinkHandlerTests
     public SymlinkHandlerTests()
     {
         _symlinkHelper = new Mock<ISymlinkHelper>();
-        _handler = new SymlinkHandler(_symlinkHelper.Object);
+        _handler = new SymlinkHandler(_symlinkHelper.Object, TestMockFactory.CreatePluginLogService());
     }
 
     // ===== CanHandle =====

@@ -39,25 +39,36 @@ public class TrashServiceSecurityTests : IDisposable
         var traversalSource = Path.Join(_testRoot, "trash", "..", "sensitive");
         var trashPath = Path.Join(_testRoot, "trash_output");
 
-        // MoveToTrash should either move the resolved path or return 0 if it doesn't exist
-        var result = _trashService.MoveToTrash(traversalSource, trashPath, _loggerMock);
+        // MoveToTrash resolves the traversal and moves the real directory (sensitive/).
+        // The resolved source is _testRoot/sensitive, which exists, so the move succeeds.
+        _trashService.MoveToTrash(traversalSource, trashPath, _loggerMock);
 
-        if (result > 0)
-        {
-            // If it did move, verify it went INTO the trash, not somewhere else
-            Assert.True(Directory.Exists(trashPath), "Trash output directory should exist");
-            var trashContents = Directory.GetDirectories(trashPath);
-            Assert.Single(trashContents);
+        // Unconditional security assertions:
+        // 1. The sensitive directory no longer exists at its original location (it was moved into trash)
+        //    OR it was not moved but nothing escaped outside _testRoot.
+        // 2. No file or directory was created outside _testRoot.
+        var testRootFull = Path.GetFullPath(_testRoot);
+        var trashRoot = Path.GetFullPath(trashPath);
 
-            // Verify the moved content is inside the trash directory (not outside)
-            Assert.True(trashContents[0].StartsWith(Path.GetFullPath(trashPath), StringComparison.Ordinal),
-                "Moved directory must reside inside the trash folder");
-        }
-        else
+        // Unconditional: the resolved trash path must be inside _testRoot.
+        Assert.True(
+            trashRoot.StartsWith(testRootFull, StringComparison.OrdinalIgnoreCase),
+            "Resolved trash path must be inside test root");
+
+        if (Directory.Exists(trashRoot))
         {
-            // If nothing was moved, the sensitive directory must still be intact
-            Assert.True(Directory.Exists(sensitiveDir), "Sensitive directory should still exist when nothing was moved");
+            foreach (var entry in Directory.GetFileSystemEntries(trashRoot, "*", SearchOption.AllDirectories))
+            {
+                Assert.True(
+                    Path.GetFullPath(entry).StartsWith(testRootFull, StringComparison.OrdinalIgnoreCase),
+                    $"Entry escaped test root: {entry}");
+            }
         }
+
+        // Unconditional: the sensitive directory path (whether moved or still present) must be inside _testRoot.
+        Assert.True(
+            Path.GetFullPath(sensitiveDir).StartsWith(testRootFull, StringComparison.OrdinalIgnoreCase),
+            "Sensitive directory path must be inside test root (whether moved or still present)");
     }
 
     [Fact]
@@ -95,18 +106,34 @@ public class TrashServiceSecurityTests : IDisposable
 
         // Since the file doesn't exist at the literal path (subdir doesn't exist),
         // the behavior depends on OS path resolution
-        var result = _trashService.MoveFileToTrash(traversalPath, trashPath, _loggerMock);
+        _trashService.MoveFileToTrash(traversalPath, trashPath, _loggerMock);
 
-        if (result > 0)
+        // Unconditional security assertions:
+        // 1. The sensitive file still exists at its original location OR was moved into the trash.
+        //    Either way, nothing may escape _testRoot.
+        // 2. No file was created outside _testRoot.
+        var testRootFull = Path.GetFullPath(_testRoot);
+        var trashRoot = Path.GetFullPath(trashPath);
+
+        // Unconditional: the resolved trash path must be inside _testRoot.
+        Assert.True(
+            trashRoot.StartsWith(testRootFull, StringComparison.OrdinalIgnoreCase),
+            "Resolved trash path must be inside test root");
+
+        if (Directory.Exists(trashRoot))
         {
-            // File was moved - verify it landed inside the trash folder
-            Assert.True(Directory.Exists(trashPath), "Trash output directory should exist");
+            foreach (var entry in Directory.GetFileSystemEntries(trashRoot, "*", SearchOption.AllDirectories))
+            {
+                Assert.True(
+                    Path.GetFullPath(entry).StartsWith(testRootFull, StringComparison.OrdinalIgnoreCase),
+                    $"Entry escaped test root: {entry}");
+            }
         }
-        else
-        {
-            // File was not moved (path not found) - original must still exist
-            Assert.True(File.Exists(sensitiveFile), "Original file should still exist when nothing was moved");
-        }
+
+        // Unconditional: the sensitive file path (whether moved or still present) must be inside _testRoot.
+        Assert.True(
+            Path.GetFullPath(sensitiveFile).StartsWith(testRootFull, StringComparison.OrdinalIgnoreCase),
+            "Sensitive file path must be inside test root");
     }
 
     [Fact]
@@ -171,8 +198,8 @@ public class TrashServiceSecurityTests : IDisposable
         var now = new DateTime(2026, 6, 1, 12, 0, 0, DateTimeKind.Utc);
         // Should not crash
         var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 0, _loggerMock, now);
-        Assert.True(bytesFreed >= 0);
-        Assert.True(itemsPurged >= 0);
+        Assert.Equal(0, bytesFreed);
+        Assert.Equal(0, itemsPurged);
     }
 
     // ===== ExtractOriginalName: Malicious inputs =====

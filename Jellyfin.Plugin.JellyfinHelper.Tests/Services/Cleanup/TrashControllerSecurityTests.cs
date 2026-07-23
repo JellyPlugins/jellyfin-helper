@@ -165,4 +165,61 @@ public class TrashControllerSecurityTests : IDisposable
         Assert.NotNull(okResult.Value);
         Assert.False(Directory.Exists(trashDir), "Trash directory should be deleted");
     }
+
+    // ===== T2: PathValidator child-of-library check =====
+
+    /// <summary>
+    ///     T2a: A path that IS a library root must be rejected.
+    ///     Example: trash configured to /media/movies where /media/movies is a library root.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Security")]
+    public void IsPathSafeForDeletion_PathInsideLibraryRoot_ReturnsFalse()
+    {
+        // Arrange: trash path equals the library root itself
+        var libraryRoot = Path.Join(_testRoot, "media", "movies");
+        Directory.CreateDirectory(libraryRoot);
+
+        // Configure trash to point exactly at the library root
+        var config = new PluginConfiguration { TrashFolderPath = libraryRoot };
+        var libraryFolders = new List<string> { libraryRoot };
+
+        var controller = CreateController(config, libraryFolders);
+
+        // Act
+        var result = controller.DeleteTrashFolders();
+
+        // Assert: library root cannot be deleted — controller returns 400
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    /// <summary>
+    ///     T2b: A trash folder that is a child of a library root (the normal happy path)
+    ///     must NOT be blocked by the parent-of-library check.
+    ///     Example: /media/movies/.jellyfin-trash where /media/movies is the library root.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Security")]
+    public void IsPathSafeForDeletion_TrashInsideLibrary_IsNotBlockedByParentCheck()
+    {
+        // Arrange: trash is a subdirectory of the library, not a parent
+        var libraryRoot = Path.Join(_testRoot, "media", "movies");
+        var trashPath = Path.Join(libraryRoot, ".jellyfin-trash");
+        Directory.CreateDirectory(trashPath);
+        // Put a sentinel file so the deletion result can be confirmed
+        File.WriteAllBytes(Path.Join(trashPath, "item.nfo"), new byte[4]);
+
+        var config = new PluginConfiguration { TrashFolderPath = trashPath };
+        var libraryFolders = new List<string> { libraryRoot };
+
+        var controller = CreateController(config, libraryFolders);
+
+        // Act
+        var result = controller.DeleteTrashFolders();
+
+        // Assert: trash inside a library is safe — should succeed (200), not 400
+        Assert.IsNotType<BadRequestObjectResult>(result);
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.NotNull(okResult.Value);
+    }
 }

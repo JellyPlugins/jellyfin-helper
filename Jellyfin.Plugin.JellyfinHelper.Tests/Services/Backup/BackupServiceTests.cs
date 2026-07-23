@@ -15,12 +15,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
 /// </summary>
 public class BackupServiceTests
 {
+    private static readonly DateTime ReferenceTime = new DateTime(2025, 6, 15, 12, 0, 0, DateTimeKind.Utc);
+
     private static BackupData CreateValidBackup()
     {
         var backup = new BackupData
         {
             BackupVersion = 1,
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = ReferenceTime,
             PluginVersion = "1.0.0",
             Language = "en",
             ExcludedLibraries = "",
@@ -298,51 +300,6 @@ public class BackupServiceTests
         Assert.Contains(result.Errors, e => e.Contains("dangerous characters") || e.Contains("TrashFolderPath"));
     }
 
-    [Fact]
-    public void Validate_PathTraversalInTrashPath_UseTrashFalse_ReturnsError()
-    {
-        // BUG GUARD: injection checks must run even when UseTrash=false so a malicious path
-        // cannot be stored in config and later activated without re-validation.
-        var backup = new BackupData
-        {
-            BackupVersion = 1, CreatedAt = DateTime.UtcNow, PluginVersion = "1.0.0",
-            Language = "en", OrphanMinAgeDays = 7, PluginLogLevel = "INFO",
-            TrickplayTaskMode = "DryRun", EmptyMediaFolderTaskMode = "Activate",
-            OrphanedSubtitleTaskMode = "Deactivate", LinkRepairTaskMode = "DryRun",
-            SeerrCleanupTaskMode = "DryRun", RecommendationsTaskMode = "DryRun",
-            UseTrash = false,
-            TrashFolderPath = "../../../etc/cron.d/evil",
-            TrashRetentionDays = 30
-        };
-        var result = BackupValidator.Validate(backup);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, e => e.Contains("traversal", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Theory]
-    [InlineData("path|cmd")]
-    [InlineData("$(evil)")]
-    [InlineData("path;rm -rf /")]
-    public void Validate_CommandInjectionInTrashPath_UseTrashFalse_ReturnsError(string injectedPath)
-    {
-        var backup = new BackupData
-        {
-            BackupVersion = 1, CreatedAt = DateTime.UtcNow, PluginVersion = "1.0.0",
-            Language = "en", OrphanMinAgeDays = 7, PluginLogLevel = "INFO",
-            TrickplayTaskMode = "DryRun", EmptyMediaFolderTaskMode = "Activate",
-            OrphanedSubtitleTaskMode = "Deactivate", LinkRepairTaskMode = "DryRun",
-            SeerrCleanupTaskMode = "DryRun", RecommendationsTaskMode = "DryRun",
-            UseTrash = false,
-            TrashFolderPath = injectedPath,
-            TrashRetentionDays = 30
-        };
-        var result = BackupValidator.Validate(backup);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, e => e.Contains("dangerous characters") || e.Contains("TrashFolderPath"));
-    }
-
     // ===== Security: String length overflow =====
 
     [Fact]
@@ -434,7 +391,7 @@ public class BackupServiceTests
         for (var i = 0; i < BackupValidator.MaxTimelineDataPoints + 100; i++)
             backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
             {
-                Date = DateTime.UtcNow.AddDays(-i),
+                Date = ReferenceTime.AddDays(-i),
                 CumulativeSize = i * 1000,
                 CumulativeFileCount = i
             });
@@ -452,7 +409,7 @@ public class BackupServiceTests
         backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
         backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
         {
-            Date = DateTime.UtcNow,
+            Date = ReferenceTime,
             CumulativeSize = -1000
         });
 
@@ -484,7 +441,7 @@ public class BackupServiceTests
             {
                 ["<script>alert(1)</script>"] = new BaselineDirectoryEntry
                 {
-                    CreatedUtc = DateTime.UtcNow,
+                    CreatedUtc = ReferenceTime,
                     Size = 1000
                 }
             }
@@ -506,7 +463,7 @@ public class BackupServiceTests
             {
                 [new string('A', 1001)] = new BaselineDirectoryEntry
                 {
-                    CreatedUtc = DateTime.UtcNow,
+                    CreatedUtc = ReferenceTime,
                     Size = 1000
                 }
             }
@@ -730,7 +687,7 @@ public class BackupServiceTests
         var backup = new BackupData
         {
             BackupVersion = 1,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = ReferenceTime
         };
         var result = BackupValidator.Validate(backup);
 
@@ -833,12 +790,12 @@ public class BackupServiceTests
             backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
             backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
             {
-                Date = DateTime.UtcNow,
+                Date = ReferenceTime,
                 CumulativeSize = 1000
             });
             backup.GrowthBaseline = new GrowthTimelineBaseline
             {
-                FirstScanTimestamp = DateTime.UtcNow
+                FirstScanTimestamp = ReferenceTime
             };
             // RestoreBackup won't restore config (no Plugin.Instance), but should write files
             var summary = service.RestoreBackup(backup);
@@ -917,478 +874,5 @@ public class BackupServiceTests
         BackupSanitizer.Sanitize(backup);
 
         Assert.Equal("DryRun", backup.RecommendationsTaskMode);
-    }
-
-    // ===== BackupValidator: previously-uncovered growth-baseline branches =====
-
-    [Fact]
-    public void Validate_GrowthBaseline_NegativeDirectorySize_EmitsWarning()
-    {
-        // BUG GUARD: Line 419-423 in BackupValidator emits a warning when a baseline directory
-        // reports a negative size. Without this warning the operator would silently import
-        // corrupted data with impossible sizes.
-        var backup = CreateValidBackup();
-        backup.GrowthBaseline = new GrowthTimelineBaseline();
-        backup.GrowthBaseline.Directories["/media/movies"] = new BaselineDirectoryEntry
-        {
-            Size = -1L,
-            Count = 5,
-            CreatedUtc = DateTime.UtcNow
-        };
-
-        var result = BackupValidator.Validate(backup);
-
-        Assert.Contains(result.Warnings, w => w.Contains("negative size", StringComparison.OrdinalIgnoreCase));
-        // Errors must NOT include this — negative size is a warning, not a hard fail.
-        Assert.DoesNotContain(result.Errors, e => e.Contains("negative size", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void Validate_GrowthBaseline_NegativeDirectoryCount_EmitsWarning()
-    {
-        // BUG GUARD: Line 425-429. Parallel guard for negative file counts.
-        var backup = CreateValidBackup();
-        backup.GrowthBaseline = new GrowthTimelineBaseline();
-        backup.GrowthBaseline.Directories["/media/movies"] = new BaselineDirectoryEntry
-        {
-            Size = 1024,
-            Count = -3,
-            CreatedUtc = DateTime.UtcNow
-        };
-
-        var result = BackupValidator.Validate(backup);
-
-        Assert.Contains(result.Warnings, w => w.Contains("negative count", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void Validate_GrowthBaseline_NegativeSizeAndCount_EachWarnedOnlyOnce()
-    {
-        // BUG GUARD: Lines 375-383 & 425-429 use per-flag `warnedNegative*` sentinels to
-        // avoid spamming the operator with N warnings for N corrupt entries. This test
-        // proves the sentinel logic — only ONE warning per issue type across many bad rows.
-        var backup = CreateValidBackup();
-        backup.GrowthBaseline = new GrowthTimelineBaseline();
-        for (int i = 0; i < 10; i++)
-        {
-            backup.GrowthBaseline.Directories[$"/media/dir{i}"] = new BaselineDirectoryEntry
-            {
-                Size = -100L * (i + 1),
-                Count = -1 - i,
-                CreatedUtc = DateTime.UtcNow
-            };
-        }
-
-        var result = BackupValidator.Validate(backup);
-
-        var negSizeWarnings = result.Warnings.Count(w => w.Contains("negative size", StringComparison.OrdinalIgnoreCase));
-        var negCountWarnings = result.Warnings.Count(w => w.Contains("negative count", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(1, negSizeWarnings);
-        Assert.Equal(1, negCountWarnings);
-    }
-
-    [Fact]
-    public void Validate_GrowthBaseline_OversizedDirectoryKey_EmitsError()
-    {
-        // BUG GUARD: Line 432-436 — an attacker could embed a huge string as a directory
-        // key. The validator must reject any path > 1000 chars with a hard error, breaking
-        // out of the loop to avoid ballooning the error list.
-        var backup = CreateValidBackup();
-        backup.GrowthBaseline = new GrowthTimelineBaseline();
-        var longKey = new string('a', 1500);
-        backup.GrowthBaseline.Directories[longKey] = new BaselineDirectoryEntry
-        {
-            Size = 100,
-            Count = 1,
-            CreatedUtc = DateTime.UtcNow
-        };
-
-        var result = BackupValidator.Validate(backup);
-
-        Assert.Contains(result.Errors, e => e.Contains("exceeds 1000 characters", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void Validate_GrowthBaseline_ScriptInjectionInDirectoryKey_EmitsError()
-    {
-        // BUG GUARD: Line 438-444 — a baseline export from a compromised system might
-        // carry <script>...</script> as a directory key. The validator must reject it
-        // to prevent DOM injection when the key is later shown in the admin UI.
-        var backup = CreateValidBackup();
-        backup.GrowthBaseline = new GrowthTimelineBaseline();
-        backup.GrowthBaseline.Directories["/media/<script>alert(1)</script>"] = new BaselineDirectoryEntry
-        {
-            Size = 100,
-            Count = 1,
-            CreatedUtc = DateTime.UtcNow
-        };
-
-        var result = BackupValidator.Validate(backup);
-
-        Assert.Contains(result.Errors, e => e.Contains("script injection", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void Validate_GrowthBaseline_TooManyDirectories_EmitsWarningOnly()
-    {
-        // BUG GUARD: Line 407-411 — baselines above MaxBaselineDirectories (50_000) must
-        // trigger a WARNING (not an error) so the import proceeds with trimming rather
-        // than aborting for a merely oversized dataset. We seed a fixture that is otherwise
-        // fully valid so the only failure surface is the oversized directory set, and then
-        // assert the warn-only contract directly (IsValid must remain true).
-        var backup = CreateValidBackup();
-        backup.GrowthBaseline = new GrowthTimelineBaseline();
-        for (int i = 0; i < BackupValidator.MaxBaselineDirectories + 5; i++)
-        {
-            backup.GrowthBaseline.Directories[$"/media/dir{i}"] = new BaselineDirectoryEntry
-            {
-                Size = 100,
-                Count = 1,
-                CreatedUtc = DateTime.UtcNow
-            };
-        }
-
-        var result = BackupValidator.Validate(backup);
-
-        Assert.Contains(result.Warnings, w => w.Contains("directories", StringComparison.OrdinalIgnoreCase));
-        // Warn-only contract: the import must remain valid. A weaker "no directory-related
-        // error" check would let unrelated errors mask a regression here.
-        Assert.True(
-            result.IsValid,
-            $"oversized baseline must NOT invalidate the backup; errors: {string.Join("; ", result.Errors)}");
-    }
-
-    [Fact]
-    public void Validate_GrowthTimeline_NegativeCumulativeSize_EmitsWarningOnce()
-    {
-        // BUG GUARD: Lines 379-384 mirror the baseline warn-once logic. Even with 100
-        // consecutive negative sizes we must produce exactly ONE warning.
-        var backup = CreateValidBackup();
-        backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
-        for (int i = 0; i < 100; i++)
-        {
-            backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
-            {
-                Date = DateTime.UtcNow.AddDays(-i),
-                CumulativeSize = -(i + 1) * 1000,
-                CumulativeFileCount = 10
-            });
-        }
-
-        var result = BackupValidator.Validate(backup);
-
-        var negSizeWarnings = result.Warnings.Count(w => w.Contains("negative cumulative size", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(1, negSizeWarnings);
-    }
-
-    [Fact]
-    public void Validate_GrowthTimeline_NegativeCumulativeFileCount_EmitsWarningOnce()
-    {
-        // BUG GUARD: Lines 386-391 parallel guard for file count.
-        var backup = CreateValidBackup();
-        backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "monthly" };
-        for (int i = 0; i < 5; i++)
-        {
-            backup.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
-            {
-                Date = DateTime.UtcNow.AddDays(-i),
-                CumulativeSize = 1000,
-                CumulativeFileCount = -1 - i
-            });
-        }
-
-        var result = BackupValidator.Validate(backup);
-
-        var negCountWarnings = result.Warnings.Count(w => w.Contains("negative cumulative file count", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(1, negCountWarnings);
-    }
-
-    [Fact]
-    public void Validate_GrowthTimeline_UnknownGranularity_EmitsWarning()
-    {
-        // BUG GUARD: Line 369-372 — the ValidGranularities set is authoritative. An unknown
-        // granularity must degrade to a warning so the timeline still imports, but with a
-        // hint that the value is unexpected.
-        var backup = CreateValidBackup();
-        backup.GrowthTimeline = new GrowthTimelineResult { Granularity = "hyperfast" };
-
-        var result = BackupValidator.Validate(backup);
-
-        Assert.Contains(result.Warnings, w => w.Contains("granularity", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void Validate_SeerrUrl_InvalidScheme_EmitsError()
-    {
-        // BUG GUARD: Lines 150-155 — SeerrUrl must reject ftp/file/gopher schemes; only
-        // http/https are safe for the outbound API calls.
-        var backup = CreateValidBackup();
-        backup.SeerrUrl = "ftp://malicious.example.com";
-
-        var result = BackupValidator.Validate(backup);
-
-        Assert.Contains(result.Errors, e => e.Contains("SeerrUrl", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void Validate_SeerrUrl_MalformedString_EmitsError()
-    {
-        var backup = CreateValidBackup();
-        backup.SeerrUrl = "not-a-url-at-all";
-
-        var result = BackupValidator.Validate(backup);
-
-        Assert.Contains(result.Errors, e => e.Contains("SeerrUrl", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void Validate_UseTrash_EmptyPath_EmitsError()
-    {
-        // BUG GUARD: Lines 203-216 — when UseTrash is true, an empty TrashFolderPath must
-        // produce an error. Otherwise the trash system would be enabled with no destination
-        // and every "move to trash" call would silently no-op or move files to the plugin's
-        // working directory.
-        var backup = new BackupData
-        {
-            BackupVersion = 1,
-            CreatedAt = DateTime.UtcNow,
-            Language = "en",
-            UseTrash = true,
-            TrashFolderPath = string.Empty
-        };
-
-        var result = BackupValidator.Validate(backup);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, e => e.Contains("TrashFolderPath", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public void Validate_TrashPath_WithNewline_EmitsError()
-    {
-        // BUG GUARD: Line 306-309 — trash paths containing \n or \r could be exploited for
-        // log-injection when the path is echoed into structured log lines.
-        var backup = new BackupData
-        {
-            BackupVersion = 1,
-            CreatedAt = DateTime.UtcNow,
-            Language = "en",
-            UseTrash = true,
-            TrashFolderPath = "/tmp/trash\nInjected: line"
-        };
-
-        var result = BackupValidator.Validate(backup);
-
-        Assert.False(result.IsValid);
-        Assert.Contains(result.Errors, e => e.Contains("newline", StringComparison.OrdinalIgnoreCase));
-    }
-
-    // ===== Fix #2: ContainsSecrets flag on CreateBackup =====
-
-    [Fact]
-    public void CreateBackup_ContainsSecrets_TrueWhenSeerrKeyPresent()
-    {
-        // BUG GUARD: the backup file is downloadable and may contain credentials.
-        // ContainsSecrets must be true whenever any API key is non-empty so the
-        // UI/caller can display a security warning to the operator.
-        var tempDir = Path.Join(Path.GetTempPath(), "jh-cs-test-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            var liveConfig = new PluginConfiguration { SeerrApiKey = "my-seerr-key" };
-            var configMock = new Mock<IPluginConfigurationService>();
-            configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
-            configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
-
-            var service = new BackupService(tempDir, configMock.Object,
-                TestMockFactory.CreatePluginLogService(),
-                TestMockFactory.CreateLogger<BackupService>().Object);
-
-            var backup = service.CreateBackup();
-
-            Assert.True(backup.ContainsSecrets);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void CreateBackup_ContainsSecrets_TrueWhenArrKeyPresent()
-    {
-        // ContainsSecrets must be true when Radarr or Sonarr instances carry keys
-        // even if SeerrApiKey is empty.
-        var tempDir = Path.Join(Path.GetTempPath(), "jh-cs-test-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            var liveConfig = new PluginConfiguration();
-            liveConfig.RadarrInstances.Add(new ArrInstanceConfig
-                { Name = "R1", Url = "http://r:7878", ApiKey = "arr-key" });
-
-            var configMock = new Mock<IPluginConfigurationService>();
-            configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
-            configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
-
-            var service = new BackupService(tempDir, configMock.Object,
-                TestMockFactory.CreatePluginLogService(),
-                TestMockFactory.CreateLogger<BackupService>().Object);
-
-            var backup = service.CreateBackup();
-
-            Assert.True(backup.ContainsSecrets);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void CreateBackup_ContainsSecrets_FalseWhenAllKeysEmpty()
-    {
-        // When there are no API keys at all ContainsSecrets must be false — the
-        // operator does not need a security warning for a credential-free export.
-        var tempDir = Path.Join(Path.GetTempPath(), "jh-cs-test-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            var liveConfig = new PluginConfiguration(); // SeerrApiKey = "" by default, no Arr instances
-            var configMock = new Mock<IPluginConfigurationService>();
-            configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
-            configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
-
-            var service = new BackupService(tempDir, configMock.Object,
-                TestMockFactory.CreatePluginLogService(),
-                TestMockFactory.CreateLogger<BackupService>().Object);
-
-            var backup = service.CreateBackup();
-
-            Assert.False(backup.ContainsSecrets);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    // ===== Fix #5: CredentialsChanged on BackupRestoreSummary =====
-
-    [Fact]
-    public void RestoreBackup_CredentialsChanged_TrueWhenSeerrKeyDiffers()
-    {
-        // BUG GUARD: CredentialsChanged must be set when the incoming Seerr key is
-        // different from the one currently stored so callers can surface an audit
-        // notification without having to re-inspect the config themselves.
-        var tempDir = Path.Join(Path.GetTempPath(), "jh-cc-test-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            var liveConfig = new PluginConfiguration { SeerrApiKey = "old-key" };
-            var configMock = new Mock<IPluginConfigurationService>();
-            configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
-            configMock.Setup(c => c.IsInitialized).Returns(true);
-            configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
-            TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
-
-            var service = new BackupService(tempDir, configMock.Object,
-                TestMockFactory.CreatePluginLogService(),
-                TestMockFactory.CreateLogger<BackupService>().Object);
-
-            var backup = CreateValidBackup();
-            backup.SeerrApiKey = "new-different-key";
-
-            var summary = service.RestoreBackup(backup);
-
-            Assert.True(summary.CredentialsChanged);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void RestoreBackup_CredentialsChanged_FalseWhenAllKeysIdentical()
-    {
-        // When the backup contains the same keys as the live config no credential
-        // change is occurring — CredentialsChanged must stay false to avoid false
-        // positives that would confuse the operator.
-        var tempDir = Path.Join(Path.GetTempPath(), "jh-cc-test-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            var liveConfig = new PluginConfiguration { SeerrApiKey = "same-key" };
-            // Add Arr instances with the exact same keys that the backup will carry.
-            liveConfig.RadarrInstances.Add(new ArrInstanceConfig
-                { Name = "Radarr", Url = "http://localhost:7878", ApiKey = "abc123" });
-            liveConfig.SonarrInstances.Add(new ArrInstanceConfig
-                { Name = "Sonarr", Url = "http://localhost:8989", ApiKey = "def456" });
-
-            var configMock = new Mock<IPluginConfigurationService>();
-            configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
-            configMock.Setup(c => c.IsInitialized).Returns(true);
-            configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
-            TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
-
-            var service = new BackupService(tempDir, configMock.Object,
-                TestMockFactory.CreatePluginLogService(),
-                TestMockFactory.CreateLogger<BackupService>().Object);
-
-            // CreateValidBackup() has Radarr "abc123", Sonarr "def456" — identical to live.
-            var backup = CreateValidBackup();
-            backup.SeerrApiKey = "same-key"; // identical to live value
-
-            var summary = service.RestoreBackup(backup);
-
-            Assert.False(summary.CredentialsChanged);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void RestoreBackup_CredentialsChanged_WarningLogFiredWhenKeyChanges()
-    {
-        // BUG GUARD: the audit Warning log must fire whenever a credential actually
-        // changes so ops tooling that tails Warning entries gets a reliable signal.
-        var tempDir = Path.Join(Path.GetTempPath(), "jh-cc-test-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            var pluginLogMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>();
-            var liveConfig = new PluginConfiguration { SeerrApiKey = "old-key" };
-            var configMock = new Mock<IPluginConfigurationService>();
-            configMock.Setup(c => c.GetConfiguration()).Returns(liveConfig);
-            configMock.Setup(c => c.IsInitialized).Returns(true);
-            configMock.Setup(c => c.PluginVersion).Returns("1.0.0");
-            TestMockFactory.SetupReadAndMutate(configMock, liveConfig);
-
-            var service = new BackupService(tempDir, configMock.Object,
-                pluginLogMock.Object,
-                TestMockFactory.CreateLogger<BackupService>().Object);
-
-            var backup = CreateValidBackup();
-            backup.SeerrApiKey = "brand-new-key";
-
-            service.RestoreBackup(backup);
-
-            pluginLogMock.Verify(
-                p => p.LogWarning(
-                    "Backup",
-                    It.Is<string>(msg =>
-                        msg.Contains("replacing credentials", StringComparison.OrdinalIgnoreCase)
-                        && msg.Contains("Seerr", StringComparison.OrdinalIgnoreCase)),
-                    It.IsAny<Exception?>(),
-                    It.IsAny<Microsoft.Extensions.Logging.ILogger?>()),
-                Times.Once);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
     }
 }

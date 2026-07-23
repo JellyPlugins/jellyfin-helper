@@ -36,11 +36,20 @@ internal static class PathValidator
             return false;
         }
 
-        // Reject obvious traversal patterns
-        if (path.Contains("..", StringComparison.Ordinal) ||
-            path.Contains('\0', StringComparison.Ordinal))
+        // Reject null bytes and segment-level ".." traversal.
+        // A substring Contains("..") would produce false positives for names like "my..folder",
+        // so split on both separators and check each segment individually.
+        // The real protection is Path.GetFullPath + StartsWith below; this is an early-exit guard.
+        if (path.Contains('\0', StringComparison.Ordinal))
         {
-            pluginLog?.LogWarning("PathValidator", $"Path validation failed: traversal pattern detected in '{path}'.");
+            pluginLog?.LogWarning("PathValidator", $"Path validation failed: null byte detected in '{path}'.");
+            return false;
+        }
+
+        var segments = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (Array.Exists(segments, s => s == ".."))
+        {
+            pluginLog?.LogWarning("PathValidator", $"Path validation failed: traversal segment detected in '{path}'.");
             return false;
         }
 
@@ -67,7 +76,8 @@ internal static class PathValidator
 
     /// <summary>
     /// Validates that <paramref name="fullPath"/> is safe for recursive deletion.
-    /// Rejects filesystem roots and paths that equal or contain any library root folder.
+    /// Rejects filesystem roots, paths that equal or are an ancestor of any library root,
+    /// and paths that are a child of any library root (would delete content inside a library).
     /// </summary>
     /// <param name="fullPath">Fully-resolved absolute path to validate.</param>
     /// <param name="libraryFolders">Library root folders that must not be deleted.</param>
@@ -91,12 +101,22 @@ internal static class PathValidator
             var libraryRoot = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var candidate = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
+            // Reject if candidate IS the library root
             if (string.Equals(candidate, libraryRoot, comparison))
             {
                 return false;
             }
 
+            // Reject if candidate is an ANCESTOR of the library root (deleting it removes the root's parent)
             if (libraryRoot.StartsWith(candidate + Path.DirectorySeparatorChar, comparison))
+            {
+                return false;
+            }
+
+            // Reject if candidate is a CHILD of the library root (deleting it removes content inside the library)
+            // Note: callers that legitimately manage a trash sub-folder inside a library must confirm
+            // the path is the configured trash folder before calling this method.
+            if (candidate.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison))
             {
                 return false;
             }

@@ -229,11 +229,12 @@ public class FolderBrowserService : IFolderBrowserService
                     _logger.LogDebug(ex, "Cannot enumerate children of {Path}", normalizedPath);
                 }
 
+                var errorParentPath = GetParentPath(normalizedPath);
                 return new FolderBrowseResult
                 {
                     CurrentPath = normalizedPath,
-                    ParentPath = GetParentPath(normalizedPath),
-                    CanGoUp = GetParentPath(normalizedPath) != null,
+                    ParentPath = errorParentPath,
+                    CanGoUp = errorParentPath != null,
                     Directories = [],
                     Error = "Cannot access this directory."
                 };

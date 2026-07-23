@@ -42,6 +42,10 @@ public static class BackupSanitizer
         // Numeric clamping
         backup.OrphanMinAgeDays = Math.Clamp(backup.OrphanMinAgeDays, 0, BackupValidator.MaxRetentionDays);
         backup.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
+        if (backup.SeerrCleanupAgeDays.HasValue && backup.SeerrCleanupAgeDays.Value != 0)
+        {
+            backup.SeerrCleanupAgeDays = Math.Clamp(backup.SeerrCleanupAgeDays.Value, 1, BackupValidator.MaxRetentionDays);
+        }
 
         // String truncation
         backup.ExcludedLibraries = TruncateString(backup.ExcludedLibraries, BackupValidator.MaxStringLength);

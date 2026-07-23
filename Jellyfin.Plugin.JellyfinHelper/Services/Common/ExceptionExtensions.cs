@@ -18,5 +18,5 @@ internal static class ExceptionExtensions
     ///     <see langword="false"/> otherwise.
     /// </returns>
     internal static bool IsFatal(this Exception ex)
-        => ex is OutOfMemoryException or StackOverflowException;
+        => ex is OutOfMemoryException or StackOverflowException or AccessViolationException;
 }

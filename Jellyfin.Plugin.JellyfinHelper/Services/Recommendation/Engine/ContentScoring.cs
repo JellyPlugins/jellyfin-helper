@@ -147,13 +147,10 @@ internal static class ContentScoring
     /// <returns>A recency score between 0 and 1.</returns>
     internal static double ComputeRecencyScore(DateTime itemDate, DateTime? now = null)
     {
-        var ageInDays = ((now ?? DateTime.UtcNow) - itemDate).TotalDays;
-        if (ageInDays <= 0)
-        {
-            return 1.0;
-        }
+        var ageInDays = Math.Max(0.0, ((now ?? DateTime.UtcNow) - itemDate).TotalDays);
 
-        // Exponential decay: half-life of ~365 days
+        // Exponential decay: half-life of ~365 days. ageInDays is clamped to >= 0, so
+        // future dates and exact-now dates both return 1.0 (exp(0) == 1) without special-casing.
         return Math.Exp(-EngineConstants.RecencyDecayConstant * ageInDays);
     }
 
@@ -363,7 +360,7 @@ internal static class ContentScoring
                 && i < watchedStudioSets.Count
                 && watchedStudioSets[i].Count > 0)
             {
-                studioOverlap = candidateStudios.Any(s => watchedStudioSets[i].Contains(s)) ? 1.0 : 0.0;
+                studioOverlap = candidateStudios.Overlaps(watchedStudioSets[i]) ? 1.0 : 0.0;
             }
 
             var composite = (0.50 * genreJaccard) + (0.30 * peopleJaccard) + (0.20 * studioOverlap);

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
@@ -61,9 +62,9 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     protected override string ItemLabel => "files";
 
     /// <inheritdoc />
-    protected override bool IsDryRun()
+    protected override TaskMode GetTaskMode()
     {
-        return ConfigHelper.IsDryRunOrphanedSubtitles();
+        return ConfigHelper.GetOrphanedSubtitleTaskMode();
     }
 
     /// <inheritdoc />
@@ -84,16 +85,14 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 
             // Hoist trash path computation out of loop – libraryPath is constant per iteration
             var trashFullPath = ConfigHelper.GetTrashPath(libraryPath);
-            var normalizedTrash = trashFullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var normalizedTrash = Path.GetFullPath(trashFullPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var normalizedTrashSep = normalizedTrash + Path.DirectorySeparatorChar;
             var normalizedTrashAlt = normalizedTrash + Path.AltDirectorySeparatorChar;
 
             foreach (var dirPath in allDirs)
             {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    break;
-                }
+                cancellationToken.ThrowIfCancellationRequested();
 
                 // Skip .trickplay folders – handled by CleanTrickplayTask
                 if (Path.GetFileName(dirPath).EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
@@ -102,7 +101,8 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                 }
 
                 // Skip the trash folder and everything inside it
-                var normalizedDir = dirPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var normalizedDir = Path.GetFullPath(dirPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 if (normalizedDir.Equals(normalizedTrash, StringComparison.OrdinalIgnoreCase)
                     || normalizedDir.StartsWith(normalizedTrashSep, StringComparison.OrdinalIgnoreCase)
                     || normalizedDir.StartsWith(normalizedTrashAlt, StringComparison.OrdinalIgnoreCase))
@@ -142,10 +142,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                 // Check each subtitle file
                 foreach (var file in files)
                 {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
+                    cancellationToken.ThrowIfCancellationRequested();
 
                     if (!MediaExtensions.SubtitleExtensions.Contains(Path.GetExtension(file.FullName)))
                     {

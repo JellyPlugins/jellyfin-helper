@@ -49,6 +49,10 @@ public abstract class CleanupTaskTestBase : IDisposable
 
         MockConfigHelper = new Mock<ICleanupConfigHelper>();
         MockConfigHelper.Setup(x => x.GetConfig()).Returns(() => Config);
+        MockConfigHelper.Setup(x => x.GetTrickplayTaskMode()).Returns(() => Config.TrickplayTaskMode);
+        MockConfigHelper.Setup(x => x.GetEmptyMediaFolderTaskMode()).Returns(() => Config.EmptyMediaFolderTaskMode);
+        MockConfigHelper.Setup(x => x.GetOrphanedSubtitleTaskMode()).Returns(() => Config.OrphanedSubtitleTaskMode);
+        MockConfigHelper.Setup(x => x.GetLinkRepairTaskMode()).Returns(() => Config.LinkRepairTaskMode);
         MockConfigHelper.Setup(x => x.IsDryRunTrickplay()).Returns(() => Config.TrickplayTaskMode == TaskMode.DryRun);
         MockConfigHelper.Setup(x => x.IsDryRunEmptyMediaFolders()).Returns(() => Config.EmptyMediaFolderTaskMode == TaskMode.DryRun);
         MockConfigHelper.Setup(x => x.IsDryRunOrphanedSubtitles()).Returns(() => Config.OrphanedSubtitleTaskMode == TaskMode.DryRun);

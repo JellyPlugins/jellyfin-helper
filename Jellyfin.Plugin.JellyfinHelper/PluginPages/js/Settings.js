@@ -854,7 +854,7 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
             // (server message > proxy/network/auth hint > generic fallback).
             var band = getSaveBand();
             var errText = band ? band.querySelector('.settings-save-band-text') : null;
-            if (errText) errText.textContent = buildSaveErrorLabel(diag, errorMsg);
+            if (errText) errText.textContent = buildSaveErrorLabel(diag, errorMsg); // textContent intentional — prevents XSS from server error messages
         }
 
         // When the HTTP layer looks like something between the browser and Jellyfin
@@ -999,10 +999,10 @@ function showTrashDeleteConfirmation(payload, paths) {
             var summary = '';
             var statusClass = 'success-msg';
             if (result.deleted > 0) {
-                summary += mi('check_circle') + ' ' + T('trashDeletedCount', 'Deleted') + ': ' + result.deleted + ' ' + T('folders', 'folders');
+                summary += mi('check_circle') + ' ' + T('trashDeletedCount', 'Deleted') + ': ' + (Math.max(0, parseInt(result.deleted, 10) || 0)) + ' ' + T('folders', 'folders');
             }
             if (result.failed > 0) {
-                summary += (summary ? ' | ' : '') + mi('error') + ' ' + T('trashFailedCount', 'Failed') + ': ' + result.failed;
+                summary += (summary ? ' | ' : '') + mi('error') + ' ' + T('trashFailedCount', 'Failed') + ': ' + (Math.max(0, parseInt(result.failed, 10) || 0));
                 statusClass = 'error-msg';
             }
             if (!summary) {

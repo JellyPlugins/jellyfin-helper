@@ -85,7 +85,21 @@ public class MediaStatisticsController : ControllerBase
             SetLastScanTime(now);
         }
 
-        var result = _statisticsService.CalculateStatistics();
+        MediaStatisticsResult result;
+        try
+        {
+            result = _statisticsService.CalculateStatistics();
+        }
+        catch
+        {
+            // Release the rate-limit slot so callers are not locked out after a failed scan.
+            lock (RateLimitLock)
+            {
+                SetLastScanTime(DateTime.MinValue);
+            }
+
+            throw;
+        }
 
         _cache.Set(StatsCacheKey, result, CacheDuration);
         _cacheService.SaveLatestResult(result);

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -47,9 +48,9 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
     protected override string ItemLabel => "folders";
 
     /// <inheritdoc />
-    protected override bool IsDryRun()
+    protected override TaskMode GetTaskMode()
     {
-        return ConfigHelper.IsDryRunTrickplay();
+        return ConfigHelper.GetTrickplayTaskMode();
     }
 
     /// <inheritdoc />
@@ -60,6 +61,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
     {
         var deletedCount = 0;
         long bytesFreed = 0;
+        var config = ConfigHelper.GetConfig();
 
         try
         {
@@ -67,6 +69,11 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
             IEnumerable<FileSystemMetadata> directories;
             try
             {
+                // Intentional: materializes the full recursive enumeration so that any
+                // IOException / UnauthorizedAccessException thrown during traversal is caught
+                // by the enclosing catch block rather than escaping into the foreach loop.
+                // Trade-off: all FileSystemMetadata objects for the library tree are allocated
+                // upfront. For very large libraries this increases peak memory usage.
                 directories = FileSystem.GetDirectories(libraryPath, true).ToList();
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -88,8 +95,9 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
             // Cache files per parent directory to avoid repeated filesystem calls
             var fileCache = new Dictionary<string, FileSystemMetadata[]>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var dir in directories.TakeWhile(_ => !cancellationToken.IsCancellationRequested))
+            foreach (var dir in directories)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 // Skip directories inside the trash folder to prevent re-trashing already-trashed items.
                 // Normalize dir.FullName the same way to ensure consistent comparison on all platforms.
                 var normalizedDirPath = Path.GetFullPath(dir.FullName)
@@ -149,7 +157,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                 {
                     PluginLog.LogDebug(
                         TaskName,
-                        $"Skipping too-new orphan (min age {ConfigHelper.GetConfig().OrphanMinAgeDays}d): {dir.FullName}",
+                        $"Skipping too-new orphan (min age {config.OrphanMinAgeDays}d): {dir.FullName}",
                         Logger);
                     continue;
                 }
@@ -162,7 +170,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
                         Logger);
                     deletedCount++;
                 }
-                else if (ConfigHelper.GetConfig().UseTrash)
+                else if (config.UseTrash)
                 {
                     PluginLog.LogInfo(TaskName, $"Moving orphaned trickplay folder to trash: {dir.FullName}", Logger);
                     var size = TrashService.MoveToTrash(dir.FullName, trashPath, Logger);

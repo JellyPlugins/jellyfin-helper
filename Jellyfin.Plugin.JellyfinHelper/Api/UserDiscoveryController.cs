@@ -1,11 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net.Mime;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -28,6 +30,7 @@ public sealed class UserDiscoveryController : ControllerBase
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
+    private readonly IPluginConfigurationService _configurationService;
     private readonly ILogger<UserDiscoveryController> _logger;
 
     /// <summary>
@@ -36,16 +39,19 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="cache">The discovery cache service.</param>
     /// <param name="discovery">The discovery service.</param>
     /// <param name="feedbackStore">The discovery feedback store for training data collection.</param>
+    /// <param name="configurationService">The plugin configuration service.</param>
     /// <param name="logger">The logger instance.</param>
     public UserDiscoveryController(
         DiscoveryCacheService cache,
         ISeerrDiscoveryService discovery,
         IDiscoveryFeedbackStore feedbackStore,
+        IPluginConfigurationService configurationService,
         ILogger<UserDiscoveryController> logger)
     {
         _cache = cache;
         _discovery = discovery;
         _feedbackStore = feedbackStore;
+        _configurationService = configurationService;
         _logger = logger;
     }
 
@@ -114,7 +120,7 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<UserRequestPermissionResult>> GetMyRequestPermissions(
-        string serviceType,
+        [RegularExpression("^(radarr|sonarr)$")] string serviceType,
         [FromQuery] string mediaType,
         CancellationToken cancellationToken)
     {
@@ -161,7 +167,7 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<IReadOnlyList<SeerrServiceInfo>>> GetMyServiceInfo(
-        string serviceType,
+        [RegularExpression("^(radarr|sonarr)$")] string serviceType,
         CancellationToken cancellationToken)
     {
         if (!IsDiscoveryUserAccessEnabled())
@@ -603,9 +609,9 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <summary>
     ///     Checks whether the admin has enabled user-level discovery access in plugin settings.
     /// </summary>
-    private static bool IsDiscoveryUserAccessEnabled()
+    private bool IsDiscoveryUserAccessEnabled()
     {
-        return Plugin.Instance?.Configuration?.DiscoveryUserAccessEnabled == true;
+        return _configurationService.GetConfiguration().DiscoveryUserAccessEnabled;
     }
 
     /// <summary>

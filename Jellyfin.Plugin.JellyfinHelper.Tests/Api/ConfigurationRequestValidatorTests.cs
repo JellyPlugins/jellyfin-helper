@@ -352,11 +352,20 @@ public class ConfigurationRequestValidatorTests
     [Fact]
     public void ValidateTrashPathStrict_ReturnsNull_WhenTrashDisabled()
     {
-        // When trash is disabled, any path is acceptable (validation is skipped)
-        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict("/*", false));
-        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict("/\\", false));
+        // Empty/null paths are accepted even when trash is disabled (nothing to validate).
         Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict("", false));
         Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict(null, false));
+        // Safe paths are also accepted when trash is disabled.
+        Assert.Null(ConfigurationRequestValidator.ValidateTrashPathStrict(".jellyfin-trash", false));
+    }
+
+    [Fact]
+    public void ValidateTrashPathStrict_RejectsInvalidChars_EvenWhenTrashDisabled()
+    {
+        // SEC: format checks run regardless of useTrash so a malicious path cannot be
+        // stored when trash is disabled and activated later when trash is re-enabled.
+        Assert.NotNull(ConfigurationRequestValidator.ValidateTrashPathStrict("/*", false));
+        Assert.NotNull(ConfigurationRequestValidator.ValidateTrashPathStrict("/\\", false));
     }
 
     [Fact]
@@ -437,9 +446,10 @@ public class ConfigurationRequestValidatorTests
     }
 
     [Fact]
-    public void Validate_ReturnsNull_ForInvalidTrashPath_WhenTrashDisabled()
+    public void Validate_RejectsInvalidTrashPath_EvenWhenTrashDisabled()
     {
-        // When UseTrash is false, invalid paths are allowed (they're irrelevant)
+        // SEC: format checks run regardless of useTrash so a malicious path cannot be
+        // persisted while disabled and activated later.
         var req = new ConfigurationUpdateRequest
         {
             OrphanMinAgeDays = 7,
@@ -447,7 +457,7 @@ public class ConfigurationRequestValidatorTests
             UseTrash = false,
             TrashFolderPath = "/*"
         };
-        Assert.Null(ConfigurationRequestValidator.Validate(req));
+        Assert.NotNull(ConfigurationRequestValidator.Validate(req));
     }
 
     [Fact]

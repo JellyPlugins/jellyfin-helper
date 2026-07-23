@@ -59,6 +59,13 @@ internal static class EngineConstants
     internal const double RecencyHalfLifeDays = 365.0;
 
     /// <summary>
+    ///     Half-life (in days) for genre preference temporal decay (~180 days).
+    ///     Genres watched recently contribute more than genres watched months ago.
+    ///     Used by <see cref="PreferenceBuilder"/> to compute per-item temporal weights.
+    /// </summary>
+    internal const double GenreDecayHalfLifeDays = 180.0;
+
+    /// <summary>
     ///     Gaussian denominator for year proximity (σ² × 2 = 200, so σ ≈ 10 years).
     /// </summary>
     internal const double YearProximityDenominator = 200.0;

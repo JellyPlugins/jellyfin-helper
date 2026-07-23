@@ -12,6 +12,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 /// </summary>
 public class StrmLinkHandler : ILinkHandler
 {
+    // A valid .strm target (path or URL) is never more than a few hundred characters.
+    // Reading beyond 4 KB would only happen for accidentally misnamed files (e.g. a
+    // media file with a .strm extension) and would allocate a large string for nothing.
+    private const int MaxStrmFileSizeBytes = 32 * 1024;
+
     private readonly IFileSystem _fileSystem;
 
     /// <summary>
@@ -37,6 +42,12 @@ public class StrmLinkHandler : ILinkHandler
     {
         try
         {
+            var fileInfo = _fileSystem.FileInfo.New(filePath);
+            if (!fileInfo.Exists || fileInfo.Length > MaxStrmFileSizeBytes)
+            {
+                return null;
+            }
+
             var content = _fileSystem.File.ReadAllText(filePath).Trim();
             return string.IsNullOrWhiteSpace(content) ? null : content;
         }

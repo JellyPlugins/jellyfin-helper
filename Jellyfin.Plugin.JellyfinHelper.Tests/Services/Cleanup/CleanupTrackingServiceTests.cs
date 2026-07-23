@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Cleanup;
 
 /// <summary>
 /// Tests for <see cref="CleanupTrackingService"/>.
-/// Uses a mock <see cref="ICleanupConfigHelper"/> that returns a shared <see cref="PluginConfiguration"/>
+/// Uses a mock <see cref="IPluginConfigurationService"/> that targets a shared <see cref="PluginConfiguration"/>
 /// instance so that mutations in <see cref="CleanupTrackingService.RecordCleanup"/> are visible
 /// in subsequent <see cref="CleanupTrackingService.GetStatistics"/> calls (Plugin.Instance is null in tests).
 /// </summary>
@@ -22,12 +22,9 @@ public class CleanupTrackingServiceTests
 
     public CleanupTrackingServiceTests()
     {
-        var configHelperMock = new Mock<ICleanupConfigHelper>();
-        configHelperMock.Setup(c => c.GetConfig()).Returns(_config);
-
-        var configServiceMock = TestMockFactory.CreateConfigurationService();
+        var configServiceMock = TestMockFactory.CreateConfigurationService(_config);
         var pluginLog = new PluginLogService(configServiceMock.Object);
-        _trackingService = new CleanupTrackingService(configHelperMock.Object, configServiceMock.Object, pluginLog);
+        _trackingService = new CleanupTrackingService(configServiceMock.Object, pluginLog);
     }
 
     [Fact]

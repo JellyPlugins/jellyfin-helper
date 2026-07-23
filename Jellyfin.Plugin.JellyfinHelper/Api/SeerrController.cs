@@ -49,6 +49,8 @@ public class SeerrController : ControllerBase
     [HttpPost("Test")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(StatusCodes.Status504GatewayTimeout)]
     public async Task<IActionResult> TestConnection([FromBody] SeerrTestRequest request)
     {
         if (request is null)
@@ -78,23 +80,23 @@ public class SeerrController : ControllerBase
             if (success)
             {
                 _pluginLog.LogInfo("API", $"Connection test OK for Seerr: {message}", _logger);
+                return Ok(new { success, message });
             }
             else
             {
                 _pluginLog.LogWarning("API", $"Connection test failed for Seerr: {message}", logger: _logger);
+                return StatusCode(StatusCodes.Status502BadGateway, new { success, message });
             }
-
-            return Ok(new { success, message });
         }
         catch (HttpRequestException ex)
         {
             _pluginLog.LogWarning("API", $"Connection test failed for Seerr: {ex.Message}", ex, _logger);
-            return Ok(new { success = false, message = "Connection failed. Please verify URL and API Key and try again." });
+            return StatusCode(StatusCodes.Status502BadGateway, new { success = false, message = "Connection failed. Please verify URL and API Key and try again." });
         }
         catch (OperationCanceledException) when (!HttpContext.RequestAborted.IsCancellationRequested)
         {
             _pluginLog.LogWarning("API", "Connection test timed out for Seerr after 10 seconds.", logger: _logger);
-            return Ok(new { success = false, message = "Connection timed out after 10 seconds." });
+            return StatusCode(StatusCodes.Status504GatewayTimeout, new { success = false, message = "Connection timed out after 10 seconds." });
         }
     }
 }

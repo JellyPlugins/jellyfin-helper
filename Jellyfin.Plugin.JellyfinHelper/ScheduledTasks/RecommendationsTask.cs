@@ -127,7 +127,11 @@ public class RecommendationsTask
                         _logger);
                 }
             }
-            catch (Exception ex) when (!ex.IsFatal() && ex is not OperationCanceledException)
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (!ex.IsFatal())
             {
                 _pluginLog.LogWarning("Recommendations", "Strategy training failed - continuing with current weights.", ex, _logger);
             }

@@ -6,6 +6,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -34,6 +35,7 @@ public class ConfigurationControllerTests
         _configServiceMock = new Mock<IPluginConfigurationService>();
         _configServiceMock.Setup(s => s.IsInitialized).Returns(true);
         _configServiceMock.Setup(s => s.GetConfiguration()).Returns(_config);
+        TestMockFactory.SetupReadAndMutate(_configServiceMock, _config);
         _pluginLogMock = new Mock<IPluginLogService>();
         _arrServiceMock = new Mock<IArrIntegrationService>();
         _arrServiceMock
@@ -264,7 +266,7 @@ public class ConfigurationControllerTests
         var result = _controller.UpdateLogLevel(request);
         Assert.IsType<OkObjectResult>(result);
         Assert.Equal("DEBUG", _config.PluginLogLevel);
-        _configServiceMock.Verify(s => s.SaveConfiguration(), Times.Once);
+        _configServiceMock.Verify(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.Once);
     }
 
     [Fact]
@@ -884,13 +886,27 @@ public class ConfigurationControllerTests
     }
 
     [Fact]
-    public async Task UpdateConfiguration_UseTrashDisabledWithBadPath_StillAccepts()
+    public async Task UpdateConfiguration_UseTrashDisabledWithTraversalPath_ReturnsBadRequest()
     {
-        // Contract: when UseTrash=false, the path is not validated (irrelevant field).
+        // SEC: traversal sequences in TrashFolderPath are rejected even when UseTrash=false,
+        // so a malicious path cannot be stored and activated later when trash is re-enabled.
         var request = new ConfigurationUpdateRequest
         {
             UseTrash = false,
-            TrashFolderPath = "../../etc" // Would be rejected if UseTrash=true, but not here
+            TrashFolderPath = "../../etc"
+        };
+        var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task UpdateConfiguration_UseTrashDisabledWithSafePath_StillAccepts()
+    {
+        // Non-traversal paths are still accepted when UseTrash=false (path stored for future use).
+        var request = new ConfigurationUpdateRequest
+        {
+            UseTrash = false,
+            TrashFolderPath = ".jellyfin-trash"
         };
         var result = await _controller.UpdateConfigurationAsync(request, CancellationToken.None);
         Assert.IsType<OkObjectResult>(result);

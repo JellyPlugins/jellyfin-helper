@@ -24,7 +24,7 @@ public class LinkRepairServiceTests
         _fileSystem = new MockFileSystem();
         _strmHandler = new StrmLinkHandler(_fileSystem);
         _symlinkHelper = new Mock<ISymlinkHelper>();
-        _symlinkHandler = new SymlinkHandler(_symlinkHelper.Object);
+        _symlinkHandler = new SymlinkHandler(_symlinkHelper.Object, TestMockFactory.CreatePluginLogService());
         _service = new LinkRepairService(
             _fileSystem,
             [_strmHandler, _symlinkHandler],

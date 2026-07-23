@@ -431,7 +431,7 @@ public class PluginConfigurationSerializationTests
     }
 
     [Theory]
-    [InlineData(-1, 0)]
+    [InlineData(-1, 1)]
     [InlineData(3651, 3650)]
     [InlineData(999999, 3650)]
     public void SeerrCleanupAgeDays_OutOfRange_IsClamped(int raw, int expected)
@@ -441,7 +441,7 @@ public class PluginConfigurationSerializationTests
     }
 
     [Theory]
-    [InlineData(-1, 0)]
+    [InlineData(-1, 1)]
     [InlineData(3651, 3650)]
     public void SeerrCleanupAgeDays_OutOfRange_AppearsInClampReport(int raw, int expected)
     {

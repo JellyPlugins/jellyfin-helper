@@ -84,6 +84,11 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         return IsDryRun(GetConfig().LinkRepairTaskMode);
     }
 
+    // NOTE: each IsDryRun* method above fetches config independently via GetConfig().
+    // If a caller needs to check multiple modes in one task execution, call GetConfig()
+    // once at the call site and read the TaskMode properties directly to avoid
+    // redundant configuration fetches.
+
     /// <inheritdoc />
     public IReadOnlyList<string> GetFilteredLibraryLocations(ILibraryManager libraryManager)
     {
@@ -400,14 +405,14 @@ public class CleanupConfigHelper : ICleanupConfigHelper
 
     /// <summary>
     ///     Determines whether a task should run in dry-run mode based on its <see cref="TaskMode" />.
-    ///     Returns true for <see cref="TaskMode.DryRun" />, false for <see cref="TaskMode.Activate" />.
-    ///     Should NOT be called if the task mode is <see cref="TaskMode.Deactivate" /> (check first).
+    ///     Returns true only for <see cref="TaskMode.DryRun" />; false for all other modes.
+    ///     Callers must handle <see cref="TaskMode.Deactivate" /> separately before calling this.
     /// </summary>
     /// <param name="mode">The task mode.</param>
     /// <returns>True if the task should run in dry-run mode.</returns>
     public static bool IsDryRun(TaskMode mode)
     {
-        return mode != TaskMode.Activate;
+        return mode == TaskMode.DryRun;
     }
 
     /// <summary>

@@ -176,7 +176,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                 {
                     CreatedUtc = dir.CreatedUtc,
                     Size = dir.Size,
-                    Count = dir.Count
+                    Count = (int)dir.Count
                 };
             }
 
@@ -214,7 +214,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
             // Calculate current absolute totals in a single pass (avoids two iterations)
             long currentTotalSize = 0;
-            var currentTotalCount = 0;
+            long currentTotalCount = 0;
             foreach (var dir in currentDirs)
             {
                 currentTotalSize += dir.Size;
@@ -436,7 +436,13 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                     var createdUtc = Directory.GetCreationTimeUtc(subDir.FullName);
                     if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
                     {
-                        continue;
+                        // Fall back to last-write time on filesystems that don't track creation
+                        // time (e.g. Linux ext4), matching the same pattern used for files below.
+                        createdUtc = Directory.GetLastWriteTimeUtc(subDir.FullName);
+                        if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
+                        {
+                            continue;
+                        }
                     }
 
                     // Sum up all file sizes recursively within this directory
@@ -719,7 +725,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     {
         public DateTime CreatedUtc;
         public long Size;
-        public int CountDelta;
+        public long CountDelta;
     }
 
     /// <summary>
@@ -731,6 +737,6 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         public string Path;
         public DateTime CreatedUtc;
         public long Size;
-        public int Count;
+        public long Count;
     }
 }

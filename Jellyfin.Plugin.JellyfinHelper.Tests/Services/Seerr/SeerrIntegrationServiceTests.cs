@@ -695,8 +695,10 @@ public class SeerrIntegrationServiceTests : IDisposable
         {
             (3, DateTimeOffset.UtcNow.AddDays(-600))
         };
-        var page1 = MakeRequestPage(page1Requests, 3, page: 1, pages: 2);
-        var page2 = MakeRequestPage(page2Requests, 3, page: 2, pages: 2);
+        // totalResults must exceed PageSize (50) so that skip += PageSize keeps hasMore true
+        // after the first page, allowing the second page to be fetched.
+        var page1 = MakeRequestPage(page1Requests, 51, page: 1, pages: 2);
+        var page2 = MakeRequestPage(page2Requests, 51, page: 2, pages: 2);
 
         // Phase 1: two pages fetched, Phase 2: three title resolutions
         var handler = CreateSequenceHandler(

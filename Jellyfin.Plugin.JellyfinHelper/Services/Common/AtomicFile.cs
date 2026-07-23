@@ -81,6 +81,14 @@ internal static class AtomicFile
             maxAttempts = 1;
         }
 
+        // Ensure the target directory exists before attempting to write the temp file.
+        // CreateDirectory is idempotent — it does nothing if the directory already exists.
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
             // A fresh temp name per attempt avoids colliding with a temp file left behind
@@ -149,6 +157,13 @@ internal static class AtomicFile
         if (maxAttempts < 1)
         {
             maxAttempts = 1;
+        }
+
+        // Ensure the target directory exists before attempting to write the temp file.
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
         }
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)

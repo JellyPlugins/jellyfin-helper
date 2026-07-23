@@ -57,7 +57,7 @@ public class UserActivityController : ControllerBase
     {
         if (!IsFeatureEnabled())
         {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "User activity feature is disabled in plugin configuration.");
         }
 
         var cached = _cacheService.LoadResult();
@@ -90,7 +90,7 @@ public class UserActivityController : ControllerBase
     {
         if (!IsFeatureEnabled())
         {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "User activity feature is disabled in plugin configuration.");
         }
 
         if (userId == Guid.Empty)

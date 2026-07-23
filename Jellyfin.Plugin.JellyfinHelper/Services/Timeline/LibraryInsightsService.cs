@@ -357,7 +357,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     }
 
     /// <summary>
-    ///     Calculates the total size and newest file modification time within a directory (recursively).
+    ///     Calculates the total size and newest file modification time within a directory (iterative, stack-based).
     /// </summary>
     private (long Size, DateTime NewestFileTime) GetDirectorySizeAndNewestTime(
         string directoryPath,
@@ -367,48 +367,71 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     {
         long total = 0;
         var newestTime = DateTime.MinValue;
-        try
+        var stack = new Stack<string>();
+        stack.Push(directoryPath);
+
+        while (stack.Count > 0)
         {
-            foreach (var file in _fileSystem.GetFiles(directoryPath))
+            var current = stack.Pop();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                total += file.Length;
-                if (file.LastWriteTimeUtc > newestTime)
+                foreach (var file in _fileSystem.GetFiles(current))
                 {
-                    newestTime = file.LastWriteTimeUtc;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    total += file.Length;
+                    if (file.LastWriteTimeUtc > newestTime)
+                    {
+                        newestTime = file.LastWriteTimeUtc;
+                    }
+                }
+
+                foreach (var subDir in _fileSystem.GetDirectories(current))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var dirName = Path.GetFileName(subDir.FullName);
+
+                    // Check for reparse point (symlink/junction) to avoid cycles
+                    FileAttributes attributes;
+                    try
+                    {
+                        attributes = new DirectoryInfo(subDir.FullName).Attributes;
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _pluginLog.LogDebug(
+                            "LibraryInsights",
+                            $"Skipping inaccessible subdirectory during attribute check: {subDir.FullName}: {ex.Message}",
+                            _logger);
+                        continue;
+                    }
+
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        continue;
+                    }
+
+                    if (dirName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (ShouldSkipAsTrash(subDir.FullName, dirName, trashFolderName, fullTrashPath))
+                    {
+                        continue;
+                    }
+
+                    stack.Push(subDir.FullName);
                 }
             }
-
-            foreach (var subDir in _fileSystem.GetDirectories(directoryPath))
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var dirName = Path.GetFileName(subDir.FullName);
-
-                if (dirName.EndsWith(".trickplay", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (ShouldSkipAsTrash(subDir.FullName, dirName, trashFolderName, fullTrashPath))
-                {
-                    continue;
-                }
-
-                var (subSize, subNewest) = GetDirectorySizeAndNewestTime(
-                    subDir.FullName, trashFolderName, fullTrashPath, cancellationToken);
-                total += subSize;
-                if (subNewest > newestTime)
-                {
-                    newestTime = subNewest;
-                }
+                _pluginLog.LogDebug(
+                    "LibraryInsights",
+                    $"Skipping inaccessible directory: {current}: {ex.Message}",
+                    _logger);
             }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _pluginLog.LogDebug(
-                "LibraryInsights",
-                $"Skipping inaccessible directory: {directoryPath}: {ex.Message}",
-                _logger);
         }
 
         return (total, newestTime);

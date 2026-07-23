@@ -100,8 +100,9 @@ public class SeerrControllerTests
         var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = "bad" };
         var result = await _controller.TestConnection(request);
 
-        var okResult = Assert.IsType<OkObjectResult>(result);
-        var payload = ParsePayload(okResult);
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status502BadGateway, objectResult.StatusCode);
+        var payload = ParsePayload(objectResult);
         Assert.False(payload.GetProperty("success").GetBoolean());
         Assert.Equal("Auth failed", payload.GetProperty("message").GetString());
     }
@@ -116,8 +117,9 @@ public class SeerrControllerTests
         var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = "abc" };
         var result = await _controller.TestConnection(request);
 
-        var okResult = Assert.IsType<OkObjectResult>(result);
-        var payload = ParsePayload(okResult);
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status502BadGateway, objectResult.StatusCode);
+        var payload = ParsePayload(objectResult);
         Assert.False(payload.GetProperty("success").GetBoolean());
         Assert.Contains("Connection failed", payload.GetProperty("message").GetString());
     }
@@ -132,8 +134,9 @@ public class SeerrControllerTests
         var request = new SeerrTestRequest { Url = "http://seerr.local", ApiKey = "abc" };
         var result = await _controller.TestConnection(request);
 
-        var okResult = Assert.IsType<OkObjectResult>(result);
-        var payload = ParsePayload(okResult);
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status504GatewayTimeout, objectResult.StatusCode);
+        var payload = ParsePayload(objectResult);
         Assert.False(payload.GetProperty("success").GetBoolean());
         Assert.Contains("timed out", payload.GetProperty("message").GetString());
     }
@@ -145,6 +148,12 @@ public class SeerrControllerTests
     private static JsonElement ParsePayload(OkObjectResult okResult)
     {
         var json = JsonSerializer.Serialize(okResult.Value);
+        return JsonDocument.Parse(json).RootElement;
+    }
+
+    private static JsonElement ParsePayload(ObjectResult result)
+    {
+        var json = JsonSerializer.Serialize(result.Value);
         return JsonDocument.Parse(json).RootElement;
     }
 }

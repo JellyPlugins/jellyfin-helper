@@ -83,7 +83,7 @@ function formatBytes(bytes) {
 }
 
 function escAttr(s) {
-    return (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    return (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/'/g, '&#39;');
 }
 
 function escHtml(s) {

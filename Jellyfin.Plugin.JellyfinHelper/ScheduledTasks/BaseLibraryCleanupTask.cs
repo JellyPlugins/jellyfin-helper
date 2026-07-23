@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
@@ -90,10 +91,17 @@ public abstract class BaseLibraryCleanupTask
     protected abstract string ItemLabel { get; }
 
     /// <summary>
+    ///     Gets the current task mode (Activate / DryRun / Deactivate).
+    /// </summary>
+    /// <returns>The configured <see cref="TaskMode" />.</returns>
+    protected abstract TaskMode GetTaskMode();
+
+    /// <summary>
     ///     Determines whether this task is currently in dry-run mode.
+    ///     Returns <see langword="true"/> only when <see cref="GetTaskMode"/> returns <see cref="TaskMode.DryRun"/>.
     /// </summary>
     /// <returns>True if dry-run mode is active; otherwise false.</returns>
-    protected abstract bool IsDryRun();
+    protected bool IsDryRun() => CleanupConfigHelper.IsDryRun(GetTaskMode());
 
     /// <summary>
     ///     Processes a single library location, scanning for orphaned items and deleting/trashing them.
@@ -116,6 +124,12 @@ public abstract class BaseLibraryCleanupTask
     /// <returns>A completed task.</returns>
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
+        if (GetTaskMode() == TaskMode.Deactivate)
+        {
+            progress.Report(100);
+            return Task.CompletedTask;
+        }
+
         var dryRun = IsDryRun();
         var config = ConfigHelper.GetConfig();
 

@@ -72,10 +72,14 @@ public class LinkRepairService : ILinkRepairService
 
         _pluginLog.LogInfo("LinkRepair", $"Found {linkFiles.Count} link files to check", _logger);
 
+        var normalizedLibraryPaths = libraryPaths
+            .Select(p => _fileSystem.Path.GetFullPath(p))
+            .ToList();
+
         foreach (var (filePath, handler) in linkFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var fileResult = ProcessLinkFile(filePath, handler, dryRun);
+            var fileResult = ProcessLinkFile(filePath, handler, dryRun, normalizedLibraryPaths);
             result.FileResults.Add(fileResult);
         }
 
@@ -209,8 +213,9 @@ public class LinkRepairService : ILinkRepairService
     /// <param name="linkFilePath">The path to the link file.</param>
     /// <param name="handler">The handler that owns this link type.</param>
     /// <param name="dryRun">If true, no files will be modified.</param>
+    /// <param name="normalizedLibraryPaths">Normalized absolute library root paths used to validate relative targets.</param>
     /// <returns>The result for this file.</returns>
-    internal LinkFileResult ProcessLinkFile(string linkFilePath, ILinkHandler handler, bool dryRun)
+    internal LinkFileResult ProcessLinkFile(string linkFilePath, ILinkHandler handler, bool dryRun, IReadOnlyList<string>? normalizedLibraryPaths = null)
     {
         var fileResult = new LinkFileResult { LinkFilePath = linkFilePath };
 
@@ -252,20 +257,12 @@ public class LinkRepairService : ILinkRepairService
 
         fileResult.OriginalTargetPath = targetPath;
 
-        // Guard: NUL bytes are structurally invalid in every filesystem path on every
-        // supported platform (POSIX and NT both reserve 0x00 as a string terminator).
-        // Modern .NET versions no longer throw ArgumentException from Path.GetFullPath
-        // for embedded NULs — the path silently propagates through normalisation and
-        // eventually fails the existence check, causing the entry to be misclassified
-        // as Broken instead of InvalidContent. Rejecting NUL up front keeps the
-        // classification semantically correct AND avoids leaking a corrupted path into
-        // the downstream File.Exists / TryRepair pipeline.
+        // Reject null bytes before normalization — .NET no longer throws ArgumentException
+        // from Path.GetFullPath for embedded NULs on modern runtimes, so we must check
+        // explicitly. A NUL byte is a structural path-grammar violation → InvalidContent.
         if (targetPath.Contains('\0', StringComparison.Ordinal))
         {
-            _pluginLog.LogWarning(
-                "LinkRepair",
-                $"Invalid target path in link file {linkFilePath}: contains NUL byte",
-                logger: _logger);
+            _pluginLog.LogWarning("LinkRepair", $"Target path contains null byte in link file {linkFilePath}", logger: _logger);
             fileResult.Status = LinkFileStatus.InvalidContent;
             return fileResult;
         }
@@ -281,28 +278,39 @@ public class LinkRepairService : ILinkRepairService
                 pathToNormalize = fileUri.LocalPath;
             }
 
-            // Second NUL guard: the pre-normalisation check above only sees the RAW
-            // target string. A file:// URI like `file:///tmp/name%00video.mkv` contains
-            // no literal NUL byte, so it bypasses the first guard — but `Uri.LocalPath`
-            // percent-decodes `%00` back into a real NUL. Re-check here so an encoded
-            // NUL cannot leak into GetFullPath / File.Exists and get misclassified as
-            // a "Broken" link.
-            if (pathToNormalize.Contains('\0', StringComparison.Ordinal))
-            {
-                _pluginLog.LogWarning(
-                    "LinkRepair",
-                    $"Invalid target path in link file {linkFilePath}: contains NUL byte (decoded from file:// URI)",
-                    logger: _logger);
-                fileResult.Status = LinkFileStatus.InvalidContent;
-                return fileResult;
-            }
-
             normalizedTargetPath = _fileSystem.Path.IsPathRooted(pathToNormalize)
                 ? _fileSystem.Path.GetFullPath(pathToNormalize)
                 : _fileSystem.Path.GetFullPath(
                     _fileSystem.Path.Combine(
                         _fileSystem.Path.GetDirectoryName(linkFilePath) ?? string.Empty,
                         pathToNormalize));
+            // If the original path was relative, verify the resolved absolute path
+            // falls within one of the configured library roots. A relative target that
+            // escapes outside the library tree (e.g. "../../etc/passwd") is treated as
+            // invalid content rather than a broken link to avoid path-traversal abuse.
+            if (!_fileSystem.Path.IsPathRooted(pathToNormalize)
+                && normalizedLibraryPaths != null
+                && normalizedLibraryPaths.Count > 0)
+            {
+                var separator = _fileSystem.Path.DirectorySeparatorChar;
+                var isUnderLibrary = normalizedLibraryPaths.Any(lib =>
+                {
+                    var libWithSep = lib.EndsWith(separator) ? lib : lib + separator;
+                    return normalizedTargetPath.StartsWith(libWithSep, OperatingSystem.IsLinux()
+                        ? StringComparison.Ordinal
+                        : StringComparison.OrdinalIgnoreCase);
+                });
+
+                if (!isUnderLibrary)
+                {
+                    _pluginLog.LogWarning(
+                        "LinkRepair",
+                        $"Relative target path in link file {linkFilePath} resolves outside all library roots: {normalizedTargetPath}",
+                        logger: _logger);
+                    fileResult.Status = LinkFileStatus.InvalidContent;
+                    return fileResult;
+                }
+            }
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {

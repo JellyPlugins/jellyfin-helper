@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO.Abstractions.TestingHelpers;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
@@ -157,7 +158,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         symlinkHelper.Setup(h => h.IsSymlink(It.IsAny<string>()))
             .Returns<string>(symlinkPaths.Contains);
 
-        var service = CreateService(fs, new SymlinkHandler(symlinkHelper.Object));
+        var service = CreateService(fs, new SymlinkHandler(symlinkHelper.Object, TestMockFactory.CreatePluginLogService()));
 
         var sw = Stopwatch.StartNew();
         var result = service.FindLinkFiles(new List<string> { basePath });
@@ -197,7 +198,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         symlinkHelper.Setup(h => h.GetSymlinkTarget(It.IsAny<string>()))
             .Returns<string>(symlinkTargets.GetValueOrDefault);
 
-        var service = CreateService(fs, new SymlinkHandler(symlinkHelper.Object));
+        var service = CreateService(fs, new SymlinkHandler(symlinkHelper.Object, TestMockFactory.CreatePluginLogService()));
 
         var sw = Stopwatch.StartNew();
         var result = service.RepairLinks(new List<string> { basePath }, true);
@@ -252,7 +253,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         symlinkHelper.Setup(h => h.IsSymlink(It.IsAny<string>()))
             .Returns<string>(symlinkPaths.Contains);
 
-        var handlers = new ILinkHandler[] { new StrmLinkHandler(fs), new SymlinkHandler(symlinkHelper.Object) };
+        var handlers = new ILinkHandler[] { new StrmLinkHandler(fs), new SymlinkHandler(symlinkHelper.Object, TestMockFactory.CreatePluginLogService()) };
         var service = CreateServiceMultiHandler(fs, handlers);
 
         var sw = Stopwatch.StartNew();

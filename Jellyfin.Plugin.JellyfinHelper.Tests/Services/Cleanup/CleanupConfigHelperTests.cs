@@ -107,10 +107,12 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
-    public void IsDryRunTrickplay_ReturnsTrue_WhenDeactivate()
+    public void IsDryRunTrickplay_ReturnsFalse_WhenDeactivate()
     {
+        // Deactivate means the task is skipped entirely (early-exit in the base class);
+        // IsDryRun is never consulted in that path and correctly returns false for Deactivate.
         var cfg = new PluginConfiguration { TrickplayTaskMode = TaskMode.Deactivate };
-        Assert.True(CreateHelper(cfg).IsDryRunTrickplay());
+        Assert.False(CreateHelper(cfg).IsDryRunTrickplay());
     }
 
     [Fact]
@@ -128,10 +130,11 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
-    public void IsDryRunEmptyMediaFolders_ReturnsTrue_WhenDeactivate()
+    public void IsDryRunEmptyMediaFolders_ReturnsFalse_WhenDeactivate()
     {
+        // Deactivate means the task is skipped entirely; IsDryRun correctly returns false.
         var cfg = new PluginConfiguration { EmptyMediaFolderTaskMode = TaskMode.Deactivate };
-        Assert.True(CreateHelper(cfg).IsDryRunEmptyMediaFolders());
+        Assert.False(CreateHelper(cfg).IsDryRunEmptyMediaFolders());
     }
 
     [Fact]
@@ -149,10 +152,11 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
-    public void IsDryRunOrphanedSubtitles_ReturnsTrue_WhenDeactivate()
+    public void IsDryRunOrphanedSubtitles_ReturnsFalse_WhenDeactivate()
     {
+        // Deactivate means the task is skipped entirely; IsDryRun correctly returns false.
         var cfg = new PluginConfiguration { OrphanedSubtitleTaskMode = TaskMode.Deactivate };
-        Assert.True(CreateHelper(cfg).IsDryRunOrphanedSubtitles());
+        Assert.False(CreateHelper(cfg).IsDryRunOrphanedSubtitles());
     }
 
     [Fact]
@@ -170,10 +174,11 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
-    public void IsDryRunLinkRepair_ReturnsTrue_WhenDeactivate()
+    public void IsDryRunLinkRepair_ReturnsFalse_WhenDeactivate()
     {
+        // Deactivate means the task is skipped entirely; IsDryRun correctly returns false.
         var cfg = new PluginConfiguration { LinkRepairTaskMode = TaskMode.Deactivate };
-        Assert.True(CreateHelper(cfg).IsDryRunLinkRepair());
+        Assert.False(CreateHelper(cfg).IsDryRunLinkRepair());
     }
 
     // ===== Static IsDryRun =====
@@ -191,9 +196,11 @@ public class CleanupConfigHelperTests
     }
 
     [Fact]
-    public void IsDryRun_DeactivateMode_ReturnsTrue()
+    public void IsDryRun_DeactivateMode_ReturnsFalse()
     {
-        Assert.True(CleanupConfigHelper.IsDryRun(TaskMode.Deactivate));
+        // Deactivate triggers an early-exit in the base task before IsDryRun is consulted.
+        // IsDryRun correctly returns false — only DryRun mode returns true.
+        Assert.False(CleanupConfigHelper.IsDryRun(TaskMode.Deactivate));
     }
 
     // ===== ParseCommaSeparated =====

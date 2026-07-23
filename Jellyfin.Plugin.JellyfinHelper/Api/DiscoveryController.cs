@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -190,15 +191,7 @@ public sealed class DiscoveryController : ControllerBase
         {
             await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (OutOfMemoryException)
-        {
-            throw;
-        }
-        catch (StackOverflowException)
-        {
-            throw;
-        }
-        catch (Exception)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             // Already logged inside MarkAsRequestedAsync; swallow to preserve the 200 response
             // that the client will (or would have, absent cancellation) receive.
@@ -222,15 +215,7 @@ public sealed class DiscoveryController : ControllerBase
                 excluded.Add(item);
             }
         }
-        catch (OutOfMemoryException)
-        {
-            throw;
-        }
-        catch (StackOverflowException)
-        {
-            throw;
-        }
-        catch (Exception)
+        catch (Exception ex) when (!ex.IsFatal())
         {
             // Best-effort
         }

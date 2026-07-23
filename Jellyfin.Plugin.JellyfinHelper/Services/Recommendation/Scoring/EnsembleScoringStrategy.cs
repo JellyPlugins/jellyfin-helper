@@ -1354,7 +1354,13 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
     /// </summary>
     internal sealed class EnsembleStateData
     {
+        /// <summary>Increment this constant whenever the persisted schema changes.</summary>
+        internal const int CurrentSchemaVersion = 1;
+
         private List<MetricsSnapshot> _metricsHistory = [];
+
+        /// <summary>Gets or sets the schema version written when this state was last saved.</summary>
+        public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
         /// <summary>Gets or sets the cumulative number of training examples seen.</summary>
         public int TrainingExampleCount { get; set; }

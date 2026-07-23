@@ -89,7 +89,7 @@ public sealed class BackupService : IBackupService
         var config = _configService.GetConfiguration();
         var backup = new BackupData
         {
-            BackupVersion = BackupValidator.CurrentBackupVersion,
+            BackupVersion = 1,
             CreatedAt = DateTime.UtcNow,
             PluginVersion = _configService.PluginVersion,
 
@@ -241,8 +241,9 @@ public sealed class BackupService : IBackupService
     ///     Returns null if the JSON is invalid.
     /// </summary>
     /// <param name="json">The JSON string.</param>
+    /// <param name="logger">Optional logger for diagnostic output on parse failure.</param>
     /// <returns>The backup data, or null if deserialization fails.</returns>
-    public static BackupData? DeserializeBackup(string json)
+    public static BackupData? DeserializeBackup(string json, ILogger? logger = null)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
@@ -253,8 +254,9 @@ public sealed class BackupService : IBackupService
         {
             return JsonSerializer.Deserialize<BackupData>(json, JsonOptions);
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            logger?.LogWarning(ex, "Backup deserialization failed — the JSON is invalid or does not match the expected schema.");
             return null;
         }
     }
@@ -348,9 +350,14 @@ public sealed class BackupService : IBackupService
 
             // Trash settings
             config.UseTrash = backup.UseTrash;
-            config.TrashFolderPath = string.IsNullOrWhiteSpace(backup.TrashFolderPath)
+            // Reject traversal sequences so a crafted backup cannot escape the library root.
+            var rawTrashPath = backup.TrashFolderPath;
+            var hasTraversal = !string.IsNullOrWhiteSpace(rawTrashPath) &&
+                rawTrashPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                            .Any(s => s is "..");
+            config.TrashFolderPath = string.IsNullOrWhiteSpace(rawTrashPath) || hasTraversal
                 ? ".jellyfin-trash"
-                : backup.TrashFolderPath;
+                : rawTrashPath;
             config.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
 
             // Smart Recommendations (only task mode - count and strategy use sensible defaults).

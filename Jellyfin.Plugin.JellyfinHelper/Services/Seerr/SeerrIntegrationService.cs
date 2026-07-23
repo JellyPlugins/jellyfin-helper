@@ -59,7 +59,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
         try
         {
-            using var client = CreateClient(baseUrl, apiKey);
+            var client = CreateClient(baseUrl, apiKey);
             using var response = await client.GetAsync(
                 new Uri("api/v1/settings/main", UriKind.Relative),
                 cancellationToken).ConfigureAwait(false);
@@ -104,10 +104,10 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         var result = new SeerrCleanupResult { DryRun = dryRun };
         var cutoffDate = DateTimeOffset.UtcNow.AddDays(-maxAgeDays);
 
-        HttpClient unsafeClient;
+        HttpClient client;
         try
         {
-            unsafeClient = CreateClient(baseUrl, apiKey);
+            client = CreateClient(baseUrl, apiKey);
         }
         catch (Exception ex) when (ex is UriFormatException or ArgumentException or FormatException)
         {
@@ -119,8 +119,6 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             result.Failed = 1;
             return result;
         }
-
-        using var client = unsafeClient;
 
         // Phase 1: Paginate through all requests and collect expired ones
         var expiredRequests = new List<SeerrRequest>();
@@ -209,7 +207,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 expiredRequests.Add(request);
             }
 
-            skip += page.Results.Count;
+            skip += PageSize;
             hasMore = skip < page.PageInfo.Results;
         }
         while (hasMore);

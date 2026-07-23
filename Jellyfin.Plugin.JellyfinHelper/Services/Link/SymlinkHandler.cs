@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 
@@ -11,14 +12,17 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 public class SymlinkHandler : ILinkHandler
 {
     private readonly ISymlinkHelper _symlinkHelper;
+    private readonly IPluginLogService _pluginLog;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="SymlinkHandler" /> class.
     /// </summary>
     /// <param name="symlinkHelper">The symlink helper for filesystem operations.</param>
-    public SymlinkHandler(ISymlinkHelper symlinkHelper)
+    /// <param name="pluginLog">Plugin log service for warning on rollback failure.</param>
+    public SymlinkHandler(ISymlinkHelper symlinkHelper, IPluginLogService pluginLog)
     {
         _symlinkHelper = symlinkHelper;
+        _pluginLog = pluginLog;
     }
 
     /// <inheritdoc />
@@ -60,7 +64,12 @@ public class SymlinkHandler : ILinkHandler
             }
             catch (Exception rollbackEx) when (rollbackEx is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
             {
-                // best-effort rollback - ignore errors restoring the original symlink
+                // Rollback failed: the original symlink at filePath is permanently gone.
+                // Log at Warning so operators can detect and remediate manually.
+                _pluginLog.LogWarning(
+                    "SymlinkHandler",
+                    $"Rollback failed for '{filePath}': could not restore symlink to '{previousTarget}'. The link is permanently removed.",
+                    rollbackEx);
             }
 
             throw;

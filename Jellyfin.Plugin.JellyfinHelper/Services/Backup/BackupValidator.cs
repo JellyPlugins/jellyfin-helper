@@ -20,11 +20,6 @@ public static class BackupValidator
     private const int MaxBackupVersion = 1;
 
     /// <summary>
-    ///     The backup version written by this build of the plugin.
-    /// </summary>
-    internal const int CurrentBackupVersion = 1;
-
-    /// <summary>
     ///     Maximum number of growth timeline data points allowed in a backup.
     /// </summary>
     internal const int MaxTimelineDataPoints = 5000;
@@ -127,12 +122,18 @@ public static class BackupValidator
         }
 
         // Timestamp sanity
-        if (backup.CreatedAt < new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+        // Normalise Kind before comparing — JSON without a 'Z' suffix deserialises as Unspecified,
+        // which .NET does NOT automatically treat as UTC in comparisons, causing incorrect results.
+        var createdAtUtc = backup.CreatedAt.Kind == DateTimeKind.Utc
+            ? backup.CreatedAt
+            : DateTime.SpecifyKind(backup.CreatedAt, DateTimeKind.Utc);
+
+        if (createdAtUtc < new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc))
         {
             result.Warnings.Add($"Backup timestamp is suspiciously old: {backup.CreatedAt:O}");
         }
 
-        if (backup.CreatedAt > DateTime.UtcNow.AddDays(1))
+        if (createdAtUtc > DateTime.UtcNow.AddDays(1))
         {
             result.Warnings.Add($"Backup timestamp is in the future: {backup.CreatedAt:O}");
         }
@@ -192,27 +193,26 @@ public static class BackupValidator
                 $"TrashRetentionDays out of range: {backup.TrashRetentionDays}. Must be 0–{MaxRetentionDays}.");
         }
 
-        // null means absent (older backup version) — no range validation needed.
-        // 0 is a valid "immediate cleanup" value; the upper bound is MaxRetentionDays.
-        if (backup.SeerrCleanupAgeDays.HasValue &&
-            backup.SeerrCleanupAgeDays.Value is < 0 or > MaxRetentionDays)
+        // Older backups do not contain this field and deserialize it as 0 - treat as absent.
+        if (backup.SeerrCleanupAgeDays != 0 &&
+            backup.SeerrCleanupAgeDays is < 1 or > MaxRetentionDays)
         {
             result.Errors.Add(
-                $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays.Value}. Must be 0–{MaxRetentionDays}.");
+                $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 1–{MaxRetentionDays}.");
         }
 
         // Path validation for trash folder — defence in depth:
-        // 1. ValidatePathSafety (traversal + injection) always runs when path is non-empty so a
-        //    backup with UseTrash=false cannot sneak an unsafe path into the live config.
-        // 2. ValidateTrashPathStrict (structural rules) only runs when UseTrash is enabled —
-        //    it rejects empty paths, which is correct only for an active trash configuration.
-        if (!string.IsNullOrEmpty(backup.TrashFolderPath))
-        {
-            ValidatePathSafety(result, backup.TrashFolderPath, "TrashFolderPath");
-        }
-
+        // 1. ValidatePathSafety catches injection patterns (|, `, ;, $(...), ${...})
+        // 2. ValidateTrashPathStrict applies the same structural rules as the settings save API
+        // Always run strict validation when UseTrash is enabled (even if path is empty),
+        // matching the live save flow which rejects empty paths when trash is on.
         if (backup.UseTrash)
         {
+            if (!string.IsNullOrEmpty(backup.TrashFolderPath))
+            {
+                ValidatePathSafety(result, backup.TrashFolderPath, "TrashFolderPath");
+            }
+
             var trashPathError = ConfigurationRequestValidator.ValidateTrashPathStrict(
                 backup.TrashFolderPath, backup.UseTrash);
             if (trashPathError != null)
@@ -366,6 +366,12 @@ public static class BackupValidator
             return;
         }
 
+        if (timeline.DataPoints == null)
+        {
+            result.Warnings.Add("GrowthTimeline has null DataPoints collection; timeline data will be ignored.");
+            return;
+        }
+
         if (timeline.DataPoints.Count > MaxTimelineDataPoints)
         {
             result.Warnings.Add(
@@ -438,16 +444,13 @@ public static class BackupValidator
             if (kvp.Key.Length > 1000)
             {
                 result.Errors.Add("Baseline directory path exceeds 1000 characters.");
-                break;
-            }
-
-            if (!ContainsScriptInjection(kvp.Key))
-            {
                 continue;
             }
 
-            result.Errors.Add("Baseline directory path contains potential script injection content.");
-            break;
+            if (ContainsScriptInjection(kvp.Key))
+            {
+                result.Errors.Add("Baseline directory path contains potential script injection content.");
+            }
         }
     }
 

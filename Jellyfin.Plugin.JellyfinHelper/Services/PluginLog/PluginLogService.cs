@@ -276,14 +276,21 @@ public class PluginLogService : IPluginLogService
         }
 
         // Strip CR/LF so a server-returned multi-line error message cannot inject fake log entries.
+        // Cap the exception string at 8192 chars to prevent ExportAsText memory bloat when an
+        // exception carries a very large stack trace or inner-exception chain.
+        const int MaxExceptionLength = 8192;
+        var sanitizedSource = source.Replace('\r', ' ').Replace('\n', ' ');
         var sanitizedMessage = message.Replace('\r', ' ').Replace('\n', ' ');
-        var sanitizedException = exception?.ToString().Replace('\r', ' ').Replace('\n', ' ');
+        var rawException = exception?.ToString().Replace('\r', ' ').Replace('\n', ' ');
+        var sanitizedException = rawException is { Length: > MaxExceptionLength }
+            ? rawException[..MaxExceptionLength] + " [truncated]"
+            : rawException;
 
         var entry = new PluginLogEntry
         {
             Timestamp = DateTime.UtcNow,
             Level = level,
-            Source = source,
+            Source = sanitizedSource,
             Message = sanitizedMessage,
             Exception = sanitizedException
         };

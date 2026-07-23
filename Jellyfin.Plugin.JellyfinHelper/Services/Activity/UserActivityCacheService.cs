@@ -68,7 +68,12 @@ public sealed class UserActivityCacheService : IUserActivityCacheService
                     $"Saved activity result with {result.TotalItemsWithActivity} items to {_cacheFilePath}",
                     _logger);
             }
-            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException
+                                        or UnauthorizedAccessException
+                                        or System.Security.SecurityException
+                                        or NotSupportedException
+                                        or ArgumentException
+                                        or JsonException)
             {
                 _pluginLog.LogWarning(
                     "UserActivityCache",
@@ -100,7 +105,12 @@ public sealed class UserActivityCacheService : IUserActivityCacheService
 
                 return result;
             }
-            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException
+                                        or UnauthorizedAccessException
+                                        or System.Security.SecurityException
+                                        or NotSupportedException
+                                        or ArgumentException
+                                        or JsonException)
             {
                 _pluginLog.LogWarning(
                     "UserActivityCache",

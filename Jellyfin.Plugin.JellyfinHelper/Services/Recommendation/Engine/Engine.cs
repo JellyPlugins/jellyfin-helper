@@ -1077,8 +1077,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, coOccurrence, collaborativeMax);
         var combinedCriticScore =
             ContentScoring.ComputeCombinedCriticScore(candidate.CommunityRating, candidate.CriticRating);
-        var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? candidate.DateCreated);
-        var libraryAddedRecency = ContentScoring.ComputeRecencyScore(candidate.DateCreated);
+        var dateCreated = candidate.DateCreated;
+        var recencyScore = ContentScoring.ComputeRecencyScore(candidate.PremiereDate ?? dateCreated);
+        var libraryAddedRecency = ContentScoring.ComputeRecencyScore(dateCreated);
         var yearScore = ContentScoring.ComputeYearProximity(candidate.ProductionYear, averageYear);
 
         // Compute user-specific signals. Series with meaningful interaction have already been
@@ -1091,7 +1092,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         watchedItemLookup.TryGetValue(candidate.Id, out var watchedItem);
         var hasUserInteraction = watchedItem is not null;
         var userRatingScore = ContentScoring.ComputeUserRatingScore(watchedItem);
-        var completionRatio = hasUserInteraction ? ContentScoring.ComputeCompletionRatio(watchedItem) : 0.5;
+        var completionRatio = hasUserInteraction ? ContentScoring.ComputeCompletionRatio(watchedItem) : 0.0;
 
         // Pre-build candidate genre/studio sets once; reused for studioMatch and ContentNearestNeighborScore.
         var candidateGenreSet = new HashSet<string>(candidate.Genres ?? [], StringComparer.OrdinalIgnoreCase);

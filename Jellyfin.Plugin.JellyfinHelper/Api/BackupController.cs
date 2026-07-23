@@ -86,7 +86,6 @@ public class BackupController : ControllerBase
             "API",
             $"Backup exported ({FormatBackupSize(bytes.LongLength)}, timelinePoints={backup.GrowthTimeline?.DataPoints.Count ?? 0}, baselineDirs={backup.GrowthBaseline?.Directories.Count ?? 0})",
             _logger);
-        HttpContext?.Response.Headers.Append("Cache-Control", "no-store");
         return File(bytes, "application/json", $"jellyfin-helper-backup-{timestamp}.json");
     }
 
@@ -103,6 +102,11 @@ public class BackupController : ControllerBase
     [Consumes("application/json")]
     public async Task<ActionResult> ImportBackupAsync()
     {
+        if (!Request.HasJsonContentType())
+        {
+            return BadRequest(new { message = "Expected Content-Type: application/json" });
+        }
+
         try
         {
             // Early rejection based on Content-Length header (before reading entire body)
@@ -199,7 +203,7 @@ public class BackupController : ControllerBase
             }
 
             // Deserialize
-            var backup = BackupService.DeserializeBackup(json);
+            var backup = BackupService.DeserializeBackup(json, _logger);
             if (backup == null)
             {
                 _pluginLog.LogWarning(
@@ -263,8 +267,7 @@ public class BackupController : ControllerBase
                     {
                         summary.ConfigurationRestored,
                         summary.TimelineRestored,
-                        summary.BaselineRestored,
-                        summary.CredentialsChanged
+                        summary.BaselineRestored
                     }
                 });
         }

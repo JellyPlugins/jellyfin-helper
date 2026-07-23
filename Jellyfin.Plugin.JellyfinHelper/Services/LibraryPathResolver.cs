@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using MediaBrowser.Controller.Library;
 
@@ -19,11 +20,10 @@ public static class LibraryPathResolver
     {
         ArgumentNullException.ThrowIfNull(libraryManager);
 
-        var locations = libraryManager.GetVirtualFolders()
+        return libraryManager.GetVirtualFolders()
             .SelectMany(f => f.Locations)
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(Path.GetFullPath)
             .ToList();
-
-        return locations;
     }
 }

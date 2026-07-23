@@ -1177,12 +1177,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     // Query C: Language-based discovery if user has clear preference
                     if (!string.IsNullOrEmpty(primaryLanguage))
                     {
+                        // Validate against ISO 639-1 (exactly 2 lowercase letters) before URL injection.
+                        var safeLang = System.Text.RegularExpressions.Regex.IsMatch(primaryLanguage, @"^[a-z]{2}$")
+                            ? primaryLanguage
+                            : "en";
+
                         var langMovies = await ExecuteDiscoverQueryAsync(
-                            client, baseUri, apiKey, $"api/v1/discover/movies/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
+                            client, baseUri, apiKey, $"api/v1/discover/movies/language/{safeLang}?page=1", cancellationToken).ConfigureAwait(false);
                         allCandidates.AddRange(langMovies);
 
                         var langTv = await ExecuteDiscoverQueryAsync(
-                            client, baseUri, apiKey, $"api/v1/discover/tv/language/{primaryLanguage}?page=1", cancellationToken).ConfigureAwait(false);
+                            client, baseUri, apiKey, $"api/v1/discover/tv/language/{safeLang}?page=1", cancellationToken).ConfigureAwait(false);
                         StampMediaType(langTv, "tv");
                         allCandidates.AddRange(langTv);
                     }

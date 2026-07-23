@@ -13,7 +13,7 @@ internal static class JsonDefaults
     /// Gets the shared JSON serializer options used by all plugin services.
     /// Configured with camelCase property naming, indented output, and case-insensitive deserialization.
     /// </summary>
-    internal static JsonSerializerOptions Options { get; } = new()
+    internal static JsonSerializerOptions Options { get; } = new JsonSerializerOptions
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,

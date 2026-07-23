@@ -142,15 +142,15 @@ public sealed class AtomicFileTests : IDisposable
     }
 
     [Fact]
-    public void WriteAllText_InvalidDirectory_ThrowsAfterExhaustedRetries()
+    public void WriteAllText_InvalidDirectory_CreatesDirectoryAndSucceeds()
     {
-        // Non-existent parent directory → DirectoryNotFoundException (a subtype of IOException).
-        // The helper retries because the IO check accepts IOException, then rethrows after
-        // exhausting the attempts.
+        // AtomicFile.WriteAllText now calls Directory.CreateDirectory before writing,
+        // so a missing parent directory is created rather than causing an exception.
         var path = Path.Join(_tempDir, "does-not-exist", "subdir", "file.txt");
 
-        Assert.Throws<DirectoryNotFoundException>(
-            () => AtomicFile.WriteAllText(path, "x", maxAttempts: 2));
+        AtomicFile.WriteAllText(path, "x", maxAttempts: 2);
+
+        Assert.Equal("x", File.ReadAllText(path));
     }
 
     [Fact]
@@ -261,12 +261,15 @@ public sealed class AtomicFileTests : IDisposable
     }
 
     [Fact]
-    public async Task WriteAllTextAsync_InvalidDirectory_ThrowsAfterExhaustedRetries()
+    public async Task WriteAllTextAsync_InvalidDirectory_CreatesDirectoryAndSucceeds()
     {
+        // AtomicFile.WriteAllTextAsync now calls Directory.CreateDirectory before writing,
+        // so a missing parent directory is created rather than causing an exception.
         var path = Path.Join(_tempDir, "no-such-subdir", "file.txt");
 
-        await Assert.ThrowsAsync<DirectoryNotFoundException>(
-            () => AtomicFile.WriteAllTextAsync(path, "x", maxAttempts: 2));
+        await AtomicFile.WriteAllTextAsync(path, "x", maxAttempts: 2);
+
+        Assert.Equal("x", await File.ReadAllTextAsync(path));
     }
 
     [Fact]

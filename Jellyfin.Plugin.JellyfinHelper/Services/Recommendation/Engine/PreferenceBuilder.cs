@@ -13,12 +13,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 internal static class PreferenceBuilder
 {
     /// <summary>
-    ///     Half-life for genre preference temporal decay in days (~180 days).
-    ///     Genres watched recently contribute more than genres watched months ago.
-    /// </summary>
-    private const double GenreDecayHalfLifeDays = 180.0;
-
-    /// <summary>
     ///     Upper cap for the raw <c>PlayCount</c> value fed into the log1p transform.
     ///     Guards against pathological metadata (e.g. stuck counters) that would otherwise
     ///     let a single genre balloon its raw weight before normalization.
@@ -81,7 +75,7 @@ internal static class PreferenceBuilder
     private const double PlayCountLog1pCeiling = 2.0;
 
     /// <summary>Decay constant derived from half-life: ln(2) / halfLife.</summary>
-    private static readonly double GenreDecayConstant = Math.Log(2.0) / GenreDecayHalfLifeDays;
+    private static readonly double GenreDecayConstant = Math.Log(2.0) / EngineConstants.GenreDecayHalfLifeDays;
 
     /// <summary>
     ///     Scale factor for the log1p PlayCount contribution. Calibrated so a fully-capped

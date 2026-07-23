@@ -152,8 +152,6 @@ public class ConfigurationController : ControllerBase
             return BadRequest(new { message = "Plugin not initialized." });
         }
 
-        var config = _configService.GetConfiguration();
-
         var level = string.IsNullOrWhiteSpace(request.PluginLogLevel)
             ? "INFO"
             : request.PluginLogLevel.Trim().ToUpperInvariant();
@@ -164,8 +162,7 @@ public class ConfigurationController : ControllerBase
                 new { message = $"Invalid log level '{request.PluginLogLevel}'. Allowed: DEBUG, INFO, WARN, ERROR." });
         }
 
-        config.PluginLogLevel = level;
-        _configService.SaveConfiguration();
+        _configService.ReadAndMutate(config => config.PluginLogLevel = level);
 
         _pluginLog.LogInfo("API", $"Plugin log level updated to {level}.", _logger);
 

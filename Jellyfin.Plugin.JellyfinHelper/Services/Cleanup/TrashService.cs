@@ -92,7 +92,7 @@ public class TrashService : ITrashService
                 return 0;
             }
 
-            var dirName = Path.GetFileName(sourcePath);
+            var dirName = Path.GetFileName(normalizedSource);
             var timestamp = (utcNow ?? DateTime.UtcNow).ToString(TimestampFormat, CultureInfo.InvariantCulture);
             var trashItemName = $"{timestamp}_{dirName}";
             var trashItemPath = Path.Join(trashBasePath, trashItemName);
@@ -151,17 +151,16 @@ public class TrashService : ITrashService
                 return 0;
             }
 
-            var fileName = Path.GetFileName(sourceFilePath);
+            var fileName = Path.GetFileName(normalizedFile);
             var timestamp = (utcNow ?? DateTime.UtcNow).ToString(TimestampFormat, CultureInfo.InvariantCulture);
             var trashItemName = $"{timestamp}_{fileName}";
             var trashItemPath = Path.Join(trashBasePath, trashItemName);
 
-            // Ensure trash folder exists before collision check so File.Exists inside
-            // ResolveCollision sees a real filesystem state (mirrors MoveDirectoryToTrash order).
-            Directory.CreateDirectory(trashBasePath);
-
             // Avoid collision if an item with the same name was already trashed in the same second
             trashItemPath = ResolveCollision(trashItemPath);
+
+            // Ensure trash folder exists
+            Directory.CreateDirectory(trashBasePath);
 
             // Get size before moving
             var size = new FileInfo(sourceFilePath).Length;
@@ -197,8 +196,10 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
-        // retentionDays == 0 means "disabled" — never auto-purge.
-        // An admin who wants "purge immediately" should use the manual empty-trash endpoint.
+        // retentionDays <= 0 is treated as "disabled" — never purge anything.
+        // Callers that want to purge everything immediately should pass retentionDays = 1
+        // (or use a positive value). Zero and negative values are sentinel "off" states
+        // consistent with how SeerrCleanupAgeDays = 0 means "feature disabled".
         if (retentionDays <= 0)
         {
             return (0, 0);
@@ -289,13 +290,9 @@ public class TrashService : ITrashService
             itemCount += files.Length;
             totalSize += files.Sum(f => new FileInfo(f).Length);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _pluginLog.LogWarning("Trash", $"Could not read trash summary for '{trashBasePath}': {ex.Message}", ex);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            _pluginLog.LogWarning("Trash", $"Access denied reading trash summary for '{trashBasePath}': {ex.Message}", ex);
+            // Access errors are expected for inaccessible trash directories
         }
 
         return (totalSize, itemCount);
@@ -325,7 +322,7 @@ public class TrashService : ITrashService
                 if (TryParseTrashTimestamp(dirName, out var timestamp))
                 {
                     trashedAt = timestamp;
-                    purgesAt = timestamp.AddDays(retentionDays);
+                    purgesAt = retentionDays > 0 ? timestamp.AddDays(retentionDays) : null;
                 }
 
                 items.Add(
@@ -352,7 +349,7 @@ public class TrashService : ITrashService
                 if (TryParseTrashTimestamp(fileName, out var timestamp))
                 {
                     trashedAt = timestamp;
-                    purgesAt = timestamp.AddDays(retentionDays);
+                    purgesAt = retentionDays > 0 ? timestamp.AddDays(retentionDays) : null;
                 }
 
                 items.Add(
@@ -367,11 +364,7 @@ public class TrashService : ITrashService
                     });
             }
         }
-        catch (IOException)
-        {
-            // Access errors are expected for inaccessible trash directories
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Access errors are expected for inaccessible trash directories
         }
@@ -549,7 +542,9 @@ public class TrashService : ITrashService
         if (trashItemName[TimestampFormat.Length] == '_' &&
             TryParseTrashTimestamp(trashItemName, out _))
         {
-            return trashItemName[(TimestampFormat.Length + 1)..];
+            var original = trashItemName[(TimestampFormat.Length + 1)..];
+            // Fall back to the full name when the original part is empty (e.g. item named "")
+            return string.IsNullOrEmpty(original) ? trashItemName : original;
         }
 
         return trashItemName;
@@ -810,15 +805,18 @@ public class TrashService : ITrashService
     /// </summary>
     private static long CalculateDirectorySize(string path)
     {
+        long size = 0;
         try
         {
             var dirInfo = new DirectoryInfo(path);
-            return dirInfo.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+            size += dirInfo.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return 0;
+            // Access errors are expected for inaccessible directories during size calculation
         }
+
+        return size;
     }
 
     /// <inheritdoc />
@@ -944,6 +942,7 @@ public class TrashService : ITrashService
     private static bool CanWriteDirectory(string directoryPath)
     {
         var probePath = Path.Join(directoryPath, $".jfh-access-probe-{Guid.NewGuid():N}");
+        var created = false;
         try
         {
             using (File.Create(probePath))
@@ -951,12 +950,26 @@ public class TrashService : ITrashService
                 // File created successfully — write access confirmed.
             }
 
-            File.Delete(probePath);
+            created = true;
             return true;
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
             return false;
+        }
+        finally
+        {
+            if (created)
+            {
+                try
+                {
+                    File.Delete(probePath);
+                }
+                catch
+                {
+                    // best-effort cleanup
+                }
+            }
         }
     }
 }

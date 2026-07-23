@@ -25,5 +25,5 @@ public class GrowthTimelinePoint
     /// Gets or sets the cumulative total file count up to and including this time bucket.
     /// </summary>
     [JsonPropertyName("cumulativeFileCount")]
-    public int CumulativeFileCount { get; set; }
+    public long CumulativeFileCount { get; set; }
 }

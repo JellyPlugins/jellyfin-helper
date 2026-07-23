@@ -137,6 +137,10 @@ public sealed class UserWatchProfile
     ///     Gets the user's primary audio language (highest weighted score), or null if no data.
     ///     Excluded from JSON serialization to avoid redundant data in API responses.
     ///     Computed lazily and cached to avoid repeated LINQ evaluation.
+    ///     Note: the cache is invalidated when <see cref="LanguageProfile"/> is reassigned via
+    ///     its setter, but not when entries are mutated in-place on the underlying dictionary.
+    ///     Callers must reassign <see cref="LanguageProfile"/> to guarantee cache coherence
+    ///     after in-place modifications.
     /// </summary>
     [JsonIgnore]
     public string? PrimaryLanguage => _primaryLanguage ??= LanguageProfile.Count > 0

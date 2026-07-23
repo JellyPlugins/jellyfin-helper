@@ -79,12 +79,13 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the maximum age in days for Seerr requests before they are cleaned up.
-    ///     Default is 365 days (1 year). Valid range: 1–3650. Out-of-range values are clamped.
+    ///     Default is 365 days (1 year). Valid range: 1–3650 when Seerr is enabled; 0 means disabled.
+    ///     Out-of-range values are clamped.
     /// </summary>
     public int SeerrCleanupAgeDays
     {
         get => _seerrCleanupAgeDays;
-        set => _seerrCleanupAgeDays = ClampAndReport(nameof(SeerrCleanupAgeDays), value, 0, 3650);
+        set => _seerrCleanupAgeDays = value == 0 ? 0 : ClampAndReport(nameof(SeerrCleanupAgeDays), value, 1, 3650);
     }
 
     /// <summary>
@@ -137,8 +138,7 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Using <see cref="List{T}" /> instead of <c>Collection&lt;T&gt;</c> because
     ///     <c>System.Text.Json</c> cannot reliably round-trip <c>Collection&lt;T&gt;</c>
     ///     (items are lost on deserialization when the property has a default initializer).
-    ///     The setter coalesces null to an empty list to prevent NullReferenceException
-    ///     when JSON deserialization provides an explicit null value.
+    ///     Null-safety is provided by the <c>= []</c> default initializer.
     /// </summary>
     [SuppressMessage(
         "Usage",
@@ -151,8 +151,7 @@ public class PluginConfiguration : BasePluginConfiguration
     ///     Using <see cref="List{T}" /> instead of <c>Collection&lt;T&gt;</c> because
     ///     <c>System.Text.Json</c> cannot reliably round-trip <c>Collection&lt;T&gt;</c>
     ///     (items are lost on deserialization when the property has a default initializer).
-    ///     The setter coalesces null to an empty list to prevent NullReferenceException
-    ///     when JSON deserialization provides an explicit null value.
+    ///     Null-safety is provided by the <c>= []</c> default initializer.
     /// </summary>
     [SuppressMessage(
         "Usage",
@@ -252,6 +251,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     ///     Gets or sets the timestamp of the last cleanup run.
+    ///     Always stored and compared as UTC (<see cref="DateTimeKind.Utc"/>).
     /// </summary>
     public DateTime LastCleanupTimestamp { get; set; } = DateTime.MinValue;
 

@@ -189,13 +189,13 @@ public class TrashServiceTests : IDisposable
     // ===== Extended PurgeExpiredTrash Tests (Retention Logic) =====
 
     [Fact]
-    public void PurgeExpiredTrash_RetentionDaysZero_IsDisabled_NothingPurged()
+    public void PurgeExpiredTrash_RetentionDaysZero_Disabled_NothingPurged()
     {
         var trashPath = Path.Join(_testRoot, "trash");
 
-        // RetentionDays = 0 means the auto-purge feature is disabled entirely.
-        // Items are never purged regardless of their age.
-        var oldTimestamp = Now.AddSeconds(-1).ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        // RetentionDays = 0 is the "disabled" sentinel — nothing should be purged,
+        // regardless of how old the item is.
+        var oldTimestamp = Now.AddDays(-9999).ToString(TimestampFormat, CultureInfo.InvariantCulture);
         var oldDir = Path.Join(trashPath, $"{oldTimestamp}_OldMovie");
         Directory.CreateDirectory(oldDir);
         File.WriteAllBytes(Path.Join(oldDir, "movie.mkv"), new byte[300]);
@@ -204,7 +204,43 @@ public class TrashServiceTests : IDisposable
 
         Assert.Equal(0, itemsPurged);
         Assert.Equal(0, bytesFreed);
-        Assert.True(Directory.Exists(oldDir), "RetentionDays=0 disables auto-purge; item must still exist");
+        Assert.True(Directory.Exists(oldDir), "Item must not be purged when retentionDays=0 (disabled)");
+    }
+
+    [Fact]
+    public void PurgeExpiredTrash_RetentionDaysZero_MaximallyOldItem_IsNeverPurged()
+    {
+        // retentionDays = 0 is the "disabled" sentinel — purge should never run regardless of item age.
+        var trashPath = Path.Join(_testRoot, "trash");
+
+        var ancientTimestamp = Now.AddDays(-9999).ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        var ancientDir = Path.Join(trashPath, $"{ancientTimestamp}_AncientMovie");
+        Directory.CreateDirectory(ancientDir);
+        File.WriteAllBytes(Path.Join(ancientDir, "movie.mkv"), new byte[400]);
+
+        var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, 0, _loggerMock, Now);
+
+        Assert.Equal(0, itemsPurged);
+        Assert.Equal(0, bytesFreed);
+        Assert.True(Directory.Exists(ancientDir), "Maximally old item must not be purged when retention is disabled (0)");
+    }
+
+    [Fact]
+    public void PurgeExpiredTrash_RetentionDaysMinus1_Disabled()
+    {
+        // retentionDays = -1 is an out-of-range / disabled value — nothing should be purged.
+        var trashPath = Path.Join(_testRoot, "trash");
+
+        var oldTimestamp = Now.AddDays(-365).ToString(TimestampFormat, CultureInfo.InvariantCulture);
+        var oldDir = Path.Join(trashPath, $"{oldTimestamp}_OldMovie");
+        Directory.CreateDirectory(oldDir);
+        File.WriteAllBytes(Path.Join(oldDir, "movie.mkv"), new byte[200]);
+
+        var (bytesFreed, itemsPurged) = _trashService.PurgeExpiredTrash(trashPath, -1, _loggerMock, Now);
+
+        Assert.Equal(0, itemsPurged);
+        Assert.Equal(0, bytesFreed);
+        Assert.True(Directory.Exists(oldDir), "No items should be purged when retentionDays is -1 (disabled)");
     }
 
     [Fact]
@@ -551,8 +587,9 @@ public class TrashServiceTests : IDisposable
     }
 
     [Fact]
-    public void GetTrashContents_RetentionDaysZero_PurgeDateEqualsTrashDate()
+    public void GetTrashContents_RetentionDaysZero_PurgeDateIsNull()
     {
+        // retentionDays = 0 means retention is disabled — PurgesAt must be null, not equal to TrashedAt.
         var trashPath = Path.Join(_testRoot, "trash");
         Directory.CreateDirectory(trashPath);
         File.WriteAllBytes(Path.Join(trashPath, "20260101-120000_test.txt"), new byte[10]);
@@ -560,7 +597,8 @@ public class TrashServiceTests : IDisposable
         var result = _trashService.GetTrashContents(trashPath, 0);
 
         Assert.Single(result);
-        Assert.Equal(result[0].TrashedAt, result[0].PurgesAt);
+        Assert.NotNull(result[0].TrashedAt);
+        Assert.Null(result[0].PurgesAt);
     }
 
     // ===== ExtractOriginalName Tests =====

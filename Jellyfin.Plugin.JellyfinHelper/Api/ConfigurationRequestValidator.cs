@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
@@ -18,11 +19,11 @@ public static class ConfigurationRequestValidator
     /// <summary>Maximum number of Arr instances per type (Radarr / Sonarr).</summary>
     private const int MaxArrInstances = 3;
 
-    /// <summary>Supported UI language codes. Must stay in sync with the translation file set.</summary>
-    private static readonly HashSet<string> SupportedLanguages = new(StringComparer.Ordinal)
-    {
-        "en", "de", "fr", "es", "pt", "zh", "tr", "sv"
-    };
+    /// <summary>Returns <c>true</c> when <paramref name="language"/> is in the plugin's supported locale list.</summary>
+    /// <param name="language">The language code to check (e.g. "en", "de").</param>
+    /// <returns><c>true</c> if supported; <c>false</c> otherwise.</returns>
+    public static bool IsLanguageSupported(string? language)
+        => !string.IsNullOrWhiteSpace(language) && I18NService.SupportedLanguages.Contains(language.Trim());
 
     /// <summary>
     ///     Validates the given <paramref name="request" /> and returns the first error found, or <c>null</c> if valid.
@@ -68,14 +69,8 @@ public static class ConfigurationRequestValidator
             return "Seerr URL must be a valid http:// or https:// URL.";
         }
 
-        // If Seerr URL is set, API key must also be set.
-        // The mask sentinel ("***") echoed back by the client means "keep the stored key" — it
-        // is NOT treated as blank here. ApplyRequestToConfig preserves the real stored key when
-        // it sees the sentinel, so accepting it is safe. Rejecting it would break the round-trip
-        // where a user saves without changing their existing key (GET returns "***", POST echoes
-        // "***", and the result should be OK with the real key left intact).
-        var apiKeyBlank = string.IsNullOrWhiteSpace(request.SeerrApiKey);
-        if (!string.IsNullOrWhiteSpace(request.SeerrUrl) && apiKeyBlank)
+        // If Seerr URL is set, API key must also be set
+        if (!string.IsNullOrWhiteSpace(request.SeerrUrl) && string.IsNullOrWhiteSpace(request.SeerrApiKey))
         {
             return "Seerr API key is required when a Seerr URL is configured.";
         }
@@ -87,15 +82,6 @@ public static class ConfigurationRequestValidator
             return trashPathError;
         }
 
-        // Language must be one of the supported UI locales. Rejecting arbitrary values prevents
-        // a path-traversal risk when downstream code constructs a translation file path by
-        // combining the base directory with the language key.
-        if (!string.IsNullOrWhiteSpace(request.Language) &&
-            !SupportedLanguages.Contains(request.Language))
-        {
-            return $"Language '{request.Language}' is not supported. Allowed values: {string.Join(", ", SupportedLanguages)}.";
-        }
-
         // Arr instance format validation (multi-instance lists)
         var error = ValidateArrInstances(request.RadarrInstances, "Radarr");
 
@@ -103,13 +89,6 @@ public static class ConfigurationRequestValidator
 
         return error;
     }
-
-    /// <summary>
-    ///     Returns <c>true</c> when <paramref name="language"/> is a supported UI locale code.
-    /// </summary>
-    /// <param name="language">The UI locale code to check (e.g. "en", "de").</param>
-    /// <returns><c>true</c> if the locale is supported; otherwise <c>false</c>.</returns>
-    public static bool IsLanguageSupported(string language) => SupportedLanguages.Contains(language);
 
     /// <summary>
     ///     Performs strict validation of the trash folder path and returns an error message for obviously
@@ -121,16 +100,17 @@ public static class ConfigurationRequestValidator
     /// <returns>An error message string, or <c>null</c> when the path is valid.</returns>
     public static string? ValidateTrashPathStrict(string? trashFolderPath, bool useTrash)
     {
-        // When trash is disabled, path is irrelevant — allow save
-        if (!useTrash)
-        {
-            return null;
-        }
-
-        // When trash is enabled, path must not be empty
-        if (string.IsNullOrWhiteSpace(trashFolderPath))
+        // "Path is required" only applies when trash is enabled
+        if (useTrash && string.IsNullOrWhiteSpace(trashFolderPath))
         {
             return "Trash folder path is required when trash is enabled.";
+        }
+
+        // Format checks always run for any non-empty path, regardless of useTrash,
+        // so that a path containing traversal sequences is rejected even when UseTrash=false.
+        if (string.IsNullOrWhiteSpace(trashFolderPath))
+        {
+            return null;
         }
 
         // Reject paths that consist only of slashes/backslashes (e.g. "/*", "/\", "\/", "/", "\")

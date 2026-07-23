@@ -399,6 +399,16 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     /// <summary>
     ///     Loads the feedback data from the in-memory cache or disk.
     ///     Must be called under <see cref="_fileLock"/>.
+    ///     <para>
+    ///         <b>Live reference warning:</b> when the cache is already populated this method
+    ///         returns the exact <see cref="_memoryCache"/> list — not a copy. All mutations
+    ///         made by callers (e.g. <c>Add</c>, <c>RemoveAll</c>, property assignments on
+    ///         nested entries) operate directly on the shared cache and MUST be performed
+    ///         while holding <see cref="_fileLock"/>. <see cref="SaveInternal"/> assigns a
+    ///         shallow copy (<c>data.ToList()</c>) back to <see cref="_memoryCache"/> after
+    ///         eviction so that subsequent mutations via the same caller reference do not
+    ///         silently corrupt the post-save cache state.
+    ///     </para>
     /// </summary>
     private List<DiscoveryFeedbackResult> LoadInternal()
     {
@@ -494,8 +504,9 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             // temp-file cleanup internally.
             AtomicFile.WriteAllText(_filePath, json);
 
-            // Update memory cache
-            _memoryCache = data;
+            // Update memory cache with a copy so mutations to the caller's list
+            // cannot corrupt the cached state after SaveInternal returns.
+            _memoryCache = data.ToList();
         }
 
         // Broader filter than plain IOException / UnauthorizedAccessException / JsonException

@@ -125,25 +125,21 @@ public sealed class DiscoveryCacheService : IDisposable
     /// <param name="mediaType">The media type ("movie" or "tv").</param>
     /// <param name="userId">The Jellyfin user ID. Only removes from this user's list.</param>
     /// <remarks>
-    ///     <b>Do not call from a thread with a synchronization context (e.g. an ASP.NET request
-    ///     thread).</b>  The underlying <see cref="RemoveItemLocked"/> is async; bridging async→sync
-    ///     via <c>GetAwaiter().GetResult()</c> inside a SemaphoreSlim can deadlock when the
-    ///     continuation tries to resume on the same context that is blocked on GetResult().
-    ///     Use <see cref="RemoveItemAsync"/> on all request-driven paths.
+    ///     Runs the async <see cref="RemoveItemAsync"/> on a thread-pool thread to avoid
+    ///     blocking the calling synchronization context while the semaphore and async I/O
+    ///     are both held. Sync-over-async inside a <see cref="SemaphoreSlim"/> guard would
+    ///     deadlock if the continuation tried to resume on the same context blocked by
+    ///     <c>GetResult()</c>. The <c>Task.Run</c> trampoline ensures the async work executes
+    ///     on a thread-pool thread where no synchronization context is present.
+    ///     Use <see cref="RemoveItemAsync"/> directly on all request-driven paths.
     /// </remarks>
     public void RemoveItem(int tmdbId, string mediaType, Guid userId)
     {
-        _fileLock.Wait();
-        try
-        {
-            RemoveItemLocked(tmdbId, mediaType, userId, useAsyncWrite: false, CancellationToken.None)
-                .GetAwaiter()
-                .GetResult();
-        }
-        finally
-        {
-            _fileLock.Release();
-        }
+        // Run on a thread-pool thread to avoid blocking the calling synchronization
+        // context while the semaphore and async I/O are both held.
+        Task.Run(() => RemoveItemAsync(tmdbId, mediaType, userId, CancellationToken.None))
+            .GetAwaiter()
+            .GetResult();
     }
 
     /// <summary>
@@ -454,20 +450,27 @@ public sealed class DiscoveryCacheService : IDisposable
                     cache[userIdx].Recommendations[recIdx].AlreadyRequested = false;
                 }
 
-                throw;
+                _pluginLog.LogWarning(
+                    "DiscoveryCache",
+                    $"Could not persist mark-as-requested for TMDb#{tmdbId} in cache: {ex.Message}",
+                    ex,
+                    _logger);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException
                                        and not OutOfMemoryException
                                        and not StackOverflowException)
         {
+            // Broad outer filter matches RemoveItemLocked: EnsureLoadedLocked and JsonSerializer
+            // can surface SecurityException, NotSupportedException, and ArgumentException in
+            // addition to IOException / UnauthorizedAccessException / JsonException. Narrowing
+            // the filter would let those escape unlogged with _memoryCache in an unknown state.
+            // OperationCanceledException is excluded so cancellation propagates to the caller.
             _pluginLog.LogWarning(
                 "DiscoveryCache",
                 $"Could not mark TMDb#{tmdbId} as requested in cache: {ex.Message}",
                 ex,
                 _logger);
-
-            // Match Load() behavior: prevent repeated failed disk reads on subsequent calls.
             _memoryCache ??= [];
         }
     }
@@ -581,7 +584,11 @@ public sealed class DiscoveryCacheService : IDisposable
                     Directory.CreateDirectory(directory);
                 }
 
-                var json = JsonSerializer.Serialize(results, JsonOptions);
+                // Snapshot first so the serialized JSON and the in-memory cache are
+                // guaranteed to be the same object graph, even if the caller mutates
+                // one of the passed-in DiscoveryResult objects between Serialize and Clone.
+                var snapshot = results.Select(r => r.Clone()).ToList();
+                var json = JsonSerializer.Serialize(snapshot, JsonOptions);
 
                 // Use AtomicFile so a transient sharing violation on the final File.Move
                 // (typical when an AV scanner or the Search indexer briefly holds the file
@@ -589,12 +596,7 @@ public sealed class DiscoveryCacheService : IDisposable
                 // temp-file cleanup internally.
                 AtomicFile.WriteAllText(_filePath, json);
 
-                // Update in-memory cache to match persisted state.
-                // Deep-copy every element so a caller that holds a reference to one of the
-                // DiscoveryResult objects it passed in cannot silently mutate the live cache
-                // without going through _fileLock. new List<T>(results) would share element
-                // references, bypassing the same isolation guarantee that Load() enforces.
-                _memoryCache = results.Select(r => r.Clone()).ToList();
+                _memoryCache = snapshot;
 
                 _pluginLog.LogDebug(
                     "DiscoveryCache",

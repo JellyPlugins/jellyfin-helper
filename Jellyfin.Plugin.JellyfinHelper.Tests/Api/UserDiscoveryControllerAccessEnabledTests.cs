@@ -4,6 +4,8 @@ using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
+using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -28,6 +30,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStoreMock;
     private readonly DiscoveryCacheService _cache;
     private readonly Mock<ILogger<UserDiscoveryController>> _loggerMock;
+    private readonly Mock<IPluginConfigurationService> _configServiceMock;
 
     public UserDiscoveryControllerAccessEnabledTests()
     {
@@ -44,6 +47,8 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
         _feedbackStoreMock.Setup(f => f.GetRequestedItems(It.IsAny<Guid>()))
             .Returns(new HashSet<(int, string)>());
         _loggerMock = new Mock<ILogger<UserDiscoveryController>>();
+        _configServiceMock = new Mock<IPluginConfigurationService>();
+        _configServiceMock.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration { DiscoveryUserAccessEnabled = true });
     }
 
     public void Dispose()
@@ -55,7 +60,7 @@ public sealed class UserDiscoveryControllerAccessEnabledTests : IDisposable
     private UserDiscoveryController CreateController(Guid? userId = null)
     {
         var controller = new UserDiscoveryController(
-            _cache, _discoveryMock.Object, _feedbackStoreMock.Object, _loggerMock.Object);
+            _cache, _discoveryMock.Object, _feedbackStoreMock.Object, _configServiceMock.Object, _loggerMock.Object);
         var claims = new List<Claim>();
         if (userId.HasValue)
         {
