@@ -536,10 +536,10 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     }
 
     /// <summary>
-    ///     Calculates the total size of all files within a directory (recursively).
-    ///     Discovered child directories that are symlinks or junction points are skipped
-    ///     to prevent infinite loops caused by circular directory structures (A → B → A).
-    ///     Note: the root <paramref name="directoryPath"/> itself is not checked for reparse points.
+    ///     Calculates the total size of all files within a directory tree (iterative, stack-based).
+    ///     Symlinks and junction points are skipped to prevent cycles. The explicit stack eliminates
+    ///     the StackOverflowException risk that a recursive implementation would carry on very deep
+    ///     or pathologically wide library trees.
     /// </summary>
     /// <param name="directoryPath">The directory to measure.</param>
     /// <param name="trashFolderName">Leaf name of the trash folder to skip (may be empty).</param>
@@ -553,55 +553,63 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         CancellationToken cancellationToken)
     {
         long total = 0;
-        try
+        var stack = new Stack<string>();
+        stack.Push(directoryPath);
+
+        while (stack.Count > 0)
         {
-            foreach (var file in _fileSystem.GetFiles(directoryPath))
+            cancellationToken.ThrowIfCancellationRequested();
+            var current = stack.Pop();
+
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                total += file.Length;
-            }
+                foreach (var file in _fileSystem.GetFiles(current))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    total += file.Length;
+                }
 
-            foreach (var subDir in _fileSystem.GetDirectories(directoryPath))
+                foreach (var subDir in _fileSystem.GetDirectories(current))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var dirName = Path.GetFileName(subDir.FullName);
+
+                    // Skip .trickplay and trash subdirectories
+                    if (ShouldSkipDirectory(subDir.FullName, dirName, trashFolderName, fullTrashPath))
+                    {
+                        continue;
+                    }
+
+                    // Never follow symlinks or junction points — they can form cycles (A → B → A).
+                    FileAttributes attributes;
+                    try
+                    {
+                        attributes = new DirectoryInfo(subDir.FullName).Attributes;
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _pluginLog.LogDebug(
+                            "GrowthTimeline",
+                            $"Skipping inaccessible subdirectory during attribute check: {subDir.FullName}: {ex.Message}",
+                            _logger);
+                        continue;
+                    }
+
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        continue;
+                    }
+
+                    stack.Push(subDir.FullName);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var dirName = Path.GetFileName(subDir.FullName);
-
-                // Skip .trickplay and trash subdirectories
-                if (ShouldSkipDirectory(subDir.FullName, dirName, trashFolderName, fullTrashPath))
-                {
-                    continue;
-                }
-
-                // Never follow symlinks or junction points — they can form cycles (A → B → A)
-                // that cause infinite recursion and a StackOverflowException.
-                FileAttributes attributes;
-                try
-                {
-                    attributes = new DirectoryInfo(subDir.FullName).Attributes;
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    _pluginLog.LogDebug(
-                        "GrowthTimeline",
-                        $"Skipping inaccessible subdirectory during attribute check: {subDir.FullName}: {ex.Message}",
-                        _logger);
-                    continue;
-                }
-
-                if ((attributes & FileAttributes.ReparsePoint) != 0)
-                {
-                    continue;
-                }
-
-                total += GetDirectorySize(subDir.FullName, trashFolderName, fullTrashPath, cancellationToken);
+                _pluginLog.LogDebug(
+                    "GrowthTimeline",
+                    $"Skipping inaccessible directory: {current}: {ex.Message}",
+                    _logger);
             }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _pluginLog.LogDebug(
-                "GrowthTimeline",
-                $"Skipping inaccessible directory: {directoryPath}: {ex.Message}",
-                _logger);
         }
 
         return total;

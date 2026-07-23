@@ -374,9 +374,12 @@ public sealed class BackupService : IBackupService
             // credential replacements via CredentialsChanged on the summary.
             RestoreArrInstances(backup.RadarrInstances, config.RadarrInstances, "Radarr", summary);
             RestoreArrInstances(backup.SonarrInstances, config.SonarrInstances, "Sonarr", summary);
+
+            // Set only after the entire mutation has been applied; if ReadAndMutate throws,
+            // this flag stays false so the caller does not falsely report success.
+            summary.ConfigurationRestored = true;
         });
 
-        summary.ConfigurationRestored = true;
         _pluginLog.LogInfo("Backup", "Configuration restored from backup.", _logger);
     }
 

@@ -223,9 +223,9 @@ function loadStatistics() {
         }
         var overviewContainer = document.getElementById('overviewContent');
         if (overviewContainer) {
-            overviewContainer.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('statsLoadError',
-                    'Failed to load statistics. Make sure you are an administrator.')
-                + '</div>'; // T() sourced from plugin bundle, not user/server data — safe
+            overviewContainer.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('statsLoadError',
+                    'Failed to load statistics. Make sure you are an administrator.'))
+                + '</div>';
         }
         if (btn) {
             btn.disabled = false;

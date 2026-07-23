@@ -1603,7 +1603,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         List<TmdbDiscoverItem> candidates,
         CancellationToken cancellationToken)
     {
-        var semaphore = new SemaphoreSlim(CreditsEnrichmentParallelism, CreditsEnrichmentParallelism);
+        using var semaphore = new SemaphoreSlim(CreditsEnrichmentParallelism, CreditsEnrichmentParallelism);
         var tasks = candidates.Select(async candidate =>
         {
             cancellationToken.ThrowIfCancellationRequested();

@@ -68,7 +68,9 @@ function applyStaticTranslations() {
     var loadingText = document.querySelector('#loadingIndicator p');
     if (loadingText) loadingText.textContent = T('scanDescription', 'Scanning libraries\u2026 This may take a while for large collections.');
     var placeholder = document.querySelector('#statsPlaceholder p');
-    if (placeholder) placeholder.innerHTML = T('scanPlaceholder', 'Click <strong>Scan Libraries</strong> to analyze your media folders.');
+    // allowSafeHtml permits only <strong> and <br> from the translation value while escaping
+    // all other markup, preventing injection if the translations endpoint were compromised.
+    if (placeholder) placeholder.innerHTML = allowSafeHtml(T('scanPlaceholder', 'Click <strong>Scan Libraries</strong> to analyze your media folders.'));
 }
 
 function formatBytes(bytes) {
@@ -88,6 +90,26 @@ function escAttr(s) {
 
 function escHtml(s) {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/**
+ * Sanitizes a string for use with innerHTML, permitting only a narrow allowlist of
+ * safe inline tags (<strong>, <br>). All other HTML is escaped.
+ * Used for translation strings that intentionally contain simple formatting markup
+ * (e.g. scanPlaceholder) but must not allow arbitrary injection if the translations
+ * endpoint were ever compromised.
+ *
+ * @param {string} s - The input string, possibly containing <strong> and <br> tags.
+ * @returns {string} HTML-safe string with only <strong> and <br> preserved.
+ */
+function allowSafeHtml(s) {
+    // 1. Escape everything.
+    var escaped = escHtml(String(s || ''));
+    // 2. Restore the specific tags we trust: <strong>, </strong>, <br>, <br/>, <br />.
+    return escaped
+        .replace(/&lt;strong&gt;/g, '<strong>')
+        .replace(/&lt;\/strong&gt;/g, '</strong>')
+        .replace(/&lt;br\s*\/?&gt;/g, '<br>');
 }
 
 function getPathSegments(fullPath, rootPaths) {

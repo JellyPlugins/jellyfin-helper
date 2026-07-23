@@ -2047,8 +2047,16 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
     /// <summary>
     ///     Returns true when the candidate's parental rating exceeds the user's maximum,
-    ///     or when the candidate has no rating at all (unrated items are treated as unrestricted
-    ///     and must be excluded for restricted profiles).
+    ///     or when the candidate has no rating at all.
+    ///     <para>
+    ///         <b>Policy for unrated items:</b> Items with a null
+    ///         <see cref="BaseItem.InheritedParentalRatingValue"/> are treated as restricted
+    ///         (excluded) for users who have a max parental rating configured. This is the
+    ///         conservative safe default — recently-added or metadata-incomplete content that
+    ///         has not yet received a rating from a provider will not appear in recommendations
+    ///         for restricted profiles until a rating is assigned. Operators who prefer to allow
+    ///         unrated content should leave the user's MaxParentalRating unset.
+    ///     </para>
     /// </summary>
     private static bool ExceedsMaxRating(BaseItem candidate, int? maxRating)
     {
