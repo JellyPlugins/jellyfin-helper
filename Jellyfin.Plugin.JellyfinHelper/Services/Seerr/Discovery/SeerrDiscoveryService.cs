@@ -1812,9 +1812,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// </summary>
     private static void EnsureApiKeyHeaderSafe(string apiKey)
     {
-        if (apiKey.Contains('\r', StringComparison.Ordinal) || apiKey.Contains('\n', StringComparison.Ordinal))
+        if (apiKey.Contains('\r', StringComparison.Ordinal)
+            || apiKey.Contains('\n', StringComparison.Ordinal)
+            || apiKey.Contains('\t', StringComparison.Ordinal)
+            || apiKey.Contains('\0', StringComparison.Ordinal))
         {
-            throw new ArgumentException("API key must not contain CR or LF characters.", nameof(apiKey));
+            throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
         }
     }
 }

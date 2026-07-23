@@ -696,4 +696,94 @@ public class ArrIntegrationServiceTests
         var ex = Record.Exception(() => httpClient.BaseAddress);
         Assert.Null(ex);
     }
+
+    // === SSRF guard: ValidateArrUrl rejects non-http/https schemes (#23/#24) ===
+
+    [Theory]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("ftp://internal.host/data")]
+    [InlineData("ldap://internal.host")]
+    [InlineData("javascript:alert(1)")]
+    public async Task TestConnection_NonHttpScheme_ThrowsArgumentException(string url)
+    {
+        var handler = CreateMockHandler(HttpStatusCode.OK, "{}");
+        var service = CreateService(handler.Object);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.TestConnectionAsync(url, "apikey", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("ftp://internal.host/data")]
+    public async Task GetRadarrMoviesAsync_NonHttpScheme_ThrowsArgumentException(string url)
+    {
+        var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
+        var service = CreateService(handler.Object);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.GetRadarrMoviesAsync(url, "apikey", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("ftp://internal.host/data")]
+    public async Task GetSonarrSeriesAsync_NonHttpScheme_ThrowsArgumentException(string url)
+    {
+        var handler = CreateMockHandler(HttpStatusCode.OK, "[]");
+        var service = CreateService(handler.Object);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.GetSonarrSeriesAsync(url, "apikey", CancellationToken.None));
+    }
+
+    // === 100 MB response body guard (#28) ===
+
+    [Fact]
+    public async Task TestConnection_ResponseExceeds100MB_ThrowsInvalidOperation()
+    {
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{}")
+                };
+                response.Content.Headers.ContentLength = 101L * 1024 * 1024;
+                return response;
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetRadarrMoviesAsync_ResponseExceeds100MB_ThrowsInvalidOperation()
+    {
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() =>
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("[]")
+                };
+                response.Content.Headers.ContentLength = 101L * 1024 * 1024;
+                return response;
+            });
+
+        var service = CreateService(handlerMock.Object);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None));
+    }
 }

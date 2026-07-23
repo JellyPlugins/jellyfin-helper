@@ -987,6 +987,7 @@ function attachTogglePanelHandlers(opts) {
 
             this.classList.add(opts.activeClass);
             panel.innerHTML = opts.renderContent(this);
+            if (typeof bindFileTreeHandlers === 'function') { bindFileTreeHandlers(panel); }
             panel.classList.add('file-tree-panel-visible');
 
             // Scroll when: fresh panel open OR forced by donut click (user clicked far above panel)

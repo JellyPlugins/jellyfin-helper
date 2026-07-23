@@ -293,6 +293,19 @@ public class SettingsHtmlTests : ConfigPageTestBase
     }
 
     [Fact]
+    public void Html_SeerrApiKeyInput_HasNoValueAttribute()
+    {
+        // The Seerr API key must never be baked into the HTML value attribute;
+        // it is populated post-render via JS so secrets don't appear in serialized DOM.
+        var keyInputIdx = HtmlContent.IndexOf("id=\"cfgSeerrApiKey\"", StringComparison.Ordinal);
+        Assert.True(keyInputIdx >= 0, "cfgSeerrApiKey input not found");
+        var tagStart = HtmlContent.LastIndexOf('<', keyInputIdx);
+        var tagEnd = HtmlContent.IndexOf('>', keyInputIdx);
+        var inputTag = HtmlContent.Substring(tagStart, tagEnd - tagStart + 1);
+        Assert.DoesNotContain("value=", inputTag, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Html_SavesSeerrCleanupAgeDaysInPayload()
     {
         Assert.Contains("SeerrCleanupAgeDays:", HtmlContent);

@@ -370,4 +370,17 @@ public class UserActivityControllerTests
         Assert.Equal("Movie C", data[0].ItemName);
         _mockCache.Verify(c => c.SaveResult(generated), Times.Once);
     }
+
+    [Fact]
+    public async Task GetUserActivity_UserManagerReturnsNull_Returns404()
+    {
+        // Arrange: override the default mock so this specific userId is unknown
+        var unknownUserId = Guid.NewGuid();
+        _mockUserManager.Setup(m => m.GetUserById(unknownUserId)).Returns((User?)null);
+
+        var result = await _controller.GetUserActivity(unknownUserId, cancellationToken: CancellationToken.None);
+
+        Assert.IsType<NotFoundResult>(result.Result);
+        _mockInsights.Verify(i => i.BuildActivityReport(), Times.Never);
+    }
 }

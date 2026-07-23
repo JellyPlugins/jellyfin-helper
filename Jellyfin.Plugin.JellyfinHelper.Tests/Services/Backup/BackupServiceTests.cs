@@ -927,4 +927,41 @@ public class BackupServiceTests
 
         Assert.Equal("DryRun", backup.RecommendationsTaskMode);
     }
+
+    // ===== ValidateGrowthTimeline: loop breaks once both flags set (#335) =====
+
+    [Fact]
+    public void Validate_TimelineWithBothNegativeSizeAndCount_EmitsBothWarningsOnce()
+    {
+        var backup = CreateValidBackup();
+        var timeline = new GrowthTimelineResult { Granularity = "monthly" };
+        timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = -1, CumulativeFileCount = -1 });
+        timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2024, 2, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = -2, CumulativeFileCount = -2 });
+        timeline.DataPoints.Add(new GrowthTimelinePoint { Date = new DateTime(2024, 3, 1, 0, 0, 0, DateTimeKind.Utc), CumulativeSize = -3, CumulativeFileCount = -3 });
+        backup.GrowthTimeline = timeline;
+
+        var result = BackupValidator.Validate(backup);
+
+        // Should warn exactly once per flag (break fires as soon as both are set)
+        Assert.Equal(1, result.Warnings.Count(w => w.Contains("negative cumulative size")));
+        Assert.Equal(1, result.Warnings.Count(w => w.Contains("negative cumulative file count")));
+    }
+
+    // ===== Baseline path: injection check runs unconditionally before length check (#339) =====
+
+    [Fact]
+    public void Validate_BaselinePathWithScriptInjectionAndLongPath_ReportsInjectionError()
+    {
+        var backup = CreateValidBackup();
+        // Path that both triggers script injection AND exceeds length limit.
+        // Injection check must fire (not be skipped by a length-guard continue).
+        var injectionPath = "<script>x</script>" + new string('A', 990);
+        var baseline = new GrowthTimelineBaseline();
+        baseline.Directories[injectionPath] = new BaselineDirectoryEntry { Size = 100, Count = 1 };
+        backup.GrowthBaseline = baseline;
+
+        var result = BackupValidator.Validate(backup);
+
+        Assert.Contains(result.Errors, e => e.Contains("script injection"));
+    }
 }

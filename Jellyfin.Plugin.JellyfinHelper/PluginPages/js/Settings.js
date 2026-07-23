@@ -570,7 +570,7 @@ function loadSettings() {
         h += '<label for="cfgSeerrUrl">' + escHtml(T('seerrUrl', 'Seerr URL')) + '</label>';
         h += '<input type="text" id="cfgSeerrUrl" value="' + escAttr(cfg.SeerrUrl || '') + '" placeholder="http://localhost:5055">';
         h += '<label for="cfgSeerrApiKey">' + escHtml(T('seerrApiKey', 'Seerr API Key')) + '</label>';
-        h += '<input type="password" id="cfgSeerrApiKey" value="' + escAttr(cfg.SeerrApiKey || '') + '">';
+        h += '<input type="password" id="cfgSeerrApiKey">';
         h += '<div class="seerr-age-wrapper" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<label for="cfgSeerrAgeDays">' + escHtml(T('seerrCleanupAgeDays', 'Max Request Age (days)')) + '</label>';
         h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays || 365) + '">';
@@ -624,6 +624,8 @@ function loadSettings() {
         h += '</div>';
 
         form.innerHTML = h;
+        var seerrKeyEl = document.getElementById('cfgSeerrApiKey');
+        if (seerrKeyEl) { seerrKeyEl.value = cfg.SeerrApiKey || ''; }
         setArrInstanceApiKeys('Radarr', radarrInstances);
         setArrInstanceApiKeys('Sonarr', sonarrInstances);
         document.getElementById('btnSaveSettings').addEventListener('click', saveSettings);
