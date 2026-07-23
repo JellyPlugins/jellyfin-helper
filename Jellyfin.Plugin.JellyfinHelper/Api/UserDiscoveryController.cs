@@ -28,6 +28,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 public sealed class UserDiscoveryController : ControllerBase
 {
     private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
+
+    // Evict entries that have not been refreshed within this window.
+    // 24 hours bounds the dictionary to active-session users rather than accumulating
+    // one entry per Jellyfin user permanently (the previous RequestRateLimit-based
+    // eviction only cleaned up entries within the 10-second window, leaving one-shot
+    // users' entries in memory until the process restarted).
+    private static readonly TimeSpan LastRequestEvictionWindow = TimeSpan.FromHours(24);
+
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTime> LastRequestTime = new();
 
     private readonly DiscoveryCacheService _cache;
@@ -359,6 +367,8 @@ public sealed class UserDiscoveryController : ControllerBase
         if (LastRequestTime.TryGetValue(currentJellyfinUserId, out var lastRequest) &&
             now - lastRequest < RequestRateLimit)
         {
+            var retryAfter = (int)Math.Ceiling((RequestRateLimit - (now - lastRequest)).TotalSeconds);
+            Response.Headers["Retry-After"] = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
             return StatusCode(StatusCodes.Status429TooManyRequests, new RequestResult
             {
                 Success = false,
@@ -367,6 +377,14 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         LastRequestTime[currentJellyfinUserId] = now;
+
+        foreach (var entry in LastRequestTime)
+        {
+            if (now - entry.Value >= LastRequestEvictionWindow)
+            {
+                LastRequestTime.TryRemove(entry.Key, out _);
+            }
+        }
 
         var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
         var permissions = await _discovery.GetUserRequestPermissionsAsync(

@@ -1,4 +1,5 @@
 // --- Recommendations Tab (Smart Suggestions) ---
+'use strict';
 var MAX_ACTIVITY_ROWS = 15;
 
 var _profileReqId = 0;

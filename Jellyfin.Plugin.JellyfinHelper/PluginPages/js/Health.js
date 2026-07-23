@@ -1,4 +1,5 @@
 // --- Health Tab ---
+'use strict';
 
 var _lastScanResult = null;
 

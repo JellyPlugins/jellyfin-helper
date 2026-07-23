@@ -1,4 +1,5 @@
 // --- Main / Page Initialization ---
+'use strict';
 
 function initTabs() {
     var tabBtns = document.querySelectorAll('.tab-btn');

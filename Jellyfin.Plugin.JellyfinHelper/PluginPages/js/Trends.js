@@ -1,4 +1,5 @@
 // --- Trends Tab (Growth Timeline) ---
+'use strict';
 
 // In-memory cache for trend point data to avoid expensive DOM round-trips
 var _lastTrendPointData = null;

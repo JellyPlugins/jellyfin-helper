@@ -773,12 +773,12 @@
     }
 
     // Translate reason key to localized human-readable text.
-    // Backend DetermineReason produces: reasonPerson, reasonGenre, reasonTrending, reasonPopular
+    // Backend DetermineReason produces: reasonPersonNamed, reasonGenre, reasonTrending, reasonPopular
     function formatReason(reasonKey, reason, relatedInfo) {
         if (!reasonKey && !reason) return '';
         var key = reasonKey || '';
         // Try i18n lookup first (keys match en.json: reasonPopular, reasonGenre, reasonTrending, etc.)
-        if (key === 'reasonPerson' && relatedInfo) {
+        if (key === 'reasonPersonNamed' && relatedInfo) {
             var personTpl = t('reasonPersonNamed', 'Featuring {0}');
             return personTpl.replace('{0}', relatedInfo);
         }

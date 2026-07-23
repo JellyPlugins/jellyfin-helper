@@ -1,4 +1,5 @@
 ﻿// --- Logs Tab ---
+'use strict';
 
 var _logsAutoRefreshTimer = null;
 var _logsAutoRefreshEnabled = true;

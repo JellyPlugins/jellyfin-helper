@@ -52,25 +52,13 @@ public class LogsController : ControllerBase
         [FromQuery] string? source = null,
         [FromQuery] int limit = 500)
     {
-        if (minLevel != null && !ValidLogLevels.Contains(minLevel))
+        var validationError = ValidateLogQueryParams(minLevel, source);
+        if (validationError != null)
         {
-            return BadRequest(new { message = "Invalid minLevel. Allowed values: TRACE, DEBUG, INFO, WARN, ERROR." });
+            return BadRequest(new { message = validationError });
         }
 
-        if (source?.Length > 200)
-        {
-            return BadRequest(new { message = "source parameter too long." });
-        }
-
-        if (limit < 1)
-        {
-            limit = 1;
-        }
-
-        if (limit > PluginLogService.MaxEntries)
-        {
-            limit = PluginLogService.MaxEntries;
-        }
+        limit = Math.Clamp(limit, 1, PluginLogService.MaxEntries);
 
         var entries = _pluginLog.GetEntries(minLevel, source, limit);
         return Ok(
@@ -94,14 +82,10 @@ public class LogsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult DownloadLogs([FromQuery] string? minLevel = null, [FromQuery] string? source = null)
     {
-        if (minLevel != null && !ValidLogLevels.Contains(minLevel))
+        var validationError = ValidateLogQueryParams(minLevel, source);
+        if (validationError != null)
         {
-            return BadRequest(new { message = "Invalid minLevel. Allowed values: TRACE, DEBUG, INFO, WARN, ERROR." });
-        }
-
-        if (source?.Length > 200)
-        {
-            return BadRequest(new { message = "source parameter too long." });
+            return BadRequest(new { message = validationError });
         }
 
         var text = _pluginLog.ExportAsText(minLevel, source);
@@ -121,5 +105,25 @@ public class LogsController : ControllerBase
         _logger.LogDebug("Plugin log buffer cleared by admin");
         _pluginLog.Clear();
         return NoContent();
+    }
+
+    /// <summary>
+    ///     Validates the shared <paramref name="minLevel"/> and <paramref name="source"/> query parameters
+    ///     used by both <see cref="GetLogs"/> and <see cref="DownloadLogs"/>.
+    /// </summary>
+    /// <returns>An error message string when validation fails, or <c>null</c> when the parameters are valid.</returns>
+    private static string? ValidateLogQueryParams(string? minLevel, string? source)
+    {
+        if (minLevel != null && !ValidLogLevels.Contains(minLevel))
+        {
+            return "Invalid minLevel. Allowed values: TRACE, DEBUG, INFO, WARN, ERROR.";
+        }
+
+        if (source?.Length > 200)
+        {
+            return "source parameter too long.";
+        }
+
+        return null;
     }
 }

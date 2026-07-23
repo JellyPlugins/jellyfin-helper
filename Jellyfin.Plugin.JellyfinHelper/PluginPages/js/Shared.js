@@ -1,4 +1,5 @@
 // noinspection JSUnusedLocalSymbols,JSUnresolvedReference
+'use strict';
 var DONUT_COLORS = [
     '#00a4dc', '#e67e22', '#2ecc71', '#e74c3c', '#9b59b6',
     '#f1c40f', '#1abc9c', '#3498db', '#e91e63', '#ff9800',

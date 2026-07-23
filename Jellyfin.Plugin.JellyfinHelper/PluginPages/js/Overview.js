@@ -1,4 +1,5 @@
 // --- Overview Tab ---
+'use strict';
 function getCollectionBadge(type) {
     var t = (type || '').toLowerCase();
     if (t === 'tvshows') return '<span class="badge badge-tvshows">' + T('tvShows', 'TV Shows') + '</span>';

@@ -497,23 +497,13 @@ public class ConfigurationController : ControllerBase
         // would silently assign the wrong key when the admin removes or reorders instances.
         var previousRadarrInstances = config.RadarrInstances.ToList();
         config.RadarrInstances.Clear();
-        var radarrRequestList = request.RadarrInstances ?? [];
-        for (var i = 0; i < radarrRequestList.Count; i++)
+        foreach (var instance in request.RadarrInstances ?? [])
         {
-            var instance = radarrRequestList[i];
-            // Sentinel "***" means the UI echoed back the masked placeholder without
-            // changing the field. Try Name+URL first (exact match, handles same-URL collision),
-            // then fall back to URL-only (handles rename — admin keeps key without re-entering).
-            var apiKey = string.Equals(instance.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
-                ? (previousRadarrInstances.FirstOrDefault(p => p.Url == instance.Url && p.Name == instance.Name)
-                   ?? previousRadarrInstances.FirstOrDefault(p => p.Url == instance.Url))?.ApiKey
-                    ?? string.Empty
-                : instance.ApiKey ?? string.Empty;
             config.RadarrInstances.Add(new ArrInstanceConfig
             {
                 Name = instance.Name,
                 Url = instance.Url,
-                ApiKey = apiKey
+                ApiKey = ResolveApiKey(instance, previousRadarrInstances)
             });
         }
 
@@ -521,21 +511,37 @@ public class ConfigurationController : ControllerBase
         // Same sentinel-preservation pattern as Radarr above.
         var previousSonarrInstances = config.SonarrInstances.ToList();
         config.SonarrInstances.Clear();
-        var sonarrRequestList = request.SonarrInstances ?? [];
-        for (var i = 0; i < sonarrRequestList.Count; i++)
+        foreach (var instance in request.SonarrInstances ?? [])
         {
-            var instance = sonarrRequestList[i];
-            var apiKey = string.Equals(instance.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal)
-                ? (previousSonarrInstances.FirstOrDefault(p => p.Url == instance.Url && p.Name == instance.Name)
-                   ?? previousSonarrInstances.FirstOrDefault(p => p.Url == instance.Url))?.ApiKey
-                    ?? string.Empty
-                : instance.ApiKey ?? string.Empty;
             config.SonarrInstances.Add(new ArrInstanceConfig
             {
                 Name = instance.Name,
                 Url = instance.Url,
-                ApiKey = apiKey
+                ApiKey = ResolveApiKey(instance, previousSonarrInstances)
             });
         }
+    }
+
+    /// <summary>
+    ///     Resolves the API key for an incoming <see cref="ArrInstanceConfig"/> from a configuration update.
+    ///     When the client echoes back the mask sentinel (<see cref="ConfigurationResponse.ApiKeyMask"/>),
+    ///     the stored key is recovered by matching on Name+URL first (handles same-URL collision),
+    ///     then URL only (handles renames — admin keeps key without re-entering).
+    ///     When the client sends a real key, that value is used as-is.
+    /// </summary>
+    private static string ResolveApiKey(
+        ArrInstanceConfig incoming,
+        List<ArrInstanceConfig> previousInstances)
+    {
+        if (!string.Equals(incoming.ApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
+        {
+            return incoming.ApiKey ?? string.Empty;
+        }
+
+        // Sentinel "***": recover stored key. Try Name+URL first (exact match, handles
+        // same-URL collision), then fall back to URL-only (handles rename).
+        return (previousInstances.FirstOrDefault(p => p.Url == incoming.Url && p.Name == incoming.Name)
+                ?? previousInstances.FirstOrDefault(p => p.Url == incoming.Url))?.ApiKey
+               ?? string.Empty;
     }
 }

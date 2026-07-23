@@ -1,4 +1,5 @@
 // --- Settings Tab ---
+'use strict';
 
 // Track current language for detecting changes on save
 var _currentLang = '';
