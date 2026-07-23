@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
@@ -39,7 +41,7 @@ public class RecommendationControllerTests
     // === GetAllRecommendations ===
 
     [Fact]
-    public void GetAllRecommendations_CacheHit_ReturnsCachedResults()
+    public async Task GetAllRecommendations_CacheHit_ReturnsCachedResults()
     {
         var cached = new Collection<RecommendationResult>
         {
@@ -47,7 +49,7 @@ public class RecommendationControllerTests
         };
         _mockCache.Setup(c => c.LoadResults()).Returns(cached);
 
-        var result = _controller.GetAllRecommendations();
+        var result = await _controller.GetAllRecommendations();
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<Collection<RecommendationResult>>(ok.Value);
@@ -56,7 +58,7 @@ public class RecommendationControllerTests
     }
 
     [Fact]
-    public void GetAllRecommendations_CacheMiss_GeneratesOnDemandAndPersists()
+    public async Task GetAllRecommendations_CacheMiss_GeneratesOnDemandAndPersists()
     {
         _mockCache.Setup(c => c.LoadResults()).Returns((Collection<RecommendationResult>?)null);
 
@@ -66,7 +68,7 @@ public class RecommendationControllerTests
         };
         _mockEngine.Setup(e => e.GetAllRecommendations(20, It.IsAny<CancellationToken>())).Returns(generated);
 
-        var result = _controller.GetAllRecommendations();
+        var result = await _controller.GetAllRecommendations();
 
         Assert.IsType<OkObjectResult>(result.Result);
         // Activate mode: persist to disk
@@ -74,7 +76,7 @@ public class RecommendationControllerTests
     }
 
     [Fact]
-    public void GetAllRecommendations_EngineReceivesConfiguredMax_NotApiParam()
+    public async Task GetAllRecommendations_EngineReceivesConfiguredMax_NotApiParam()
     {
         _mockConfigService.Setup(c => c.GetConfiguration())
             .Returns(new PluginConfiguration
@@ -88,7 +90,7 @@ public class RecommendationControllerTests
 
         // The API parameter maxPerUser=200 is only used for response trimming.
         // The engine always receives the configured MaxRecommendationsPerUser (20).
-        _controller.GetAllRecommendations(200);
+        await _controller.GetAllRecommendations(200);
 
         _mockEngine.Verify(e => e.GetAllRecommendations(20, It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -190,12 +192,12 @@ public class RecommendationControllerTests
     // === 503 Disabled ===
 
     [Fact]
-    public void GetAllRecommendations_Disabled_Returns503()
+    public async Task GetAllRecommendations_Disabled_Returns503()
     {
         _mockConfigService.Setup(c => c.GetConfiguration())
             .Returns(new PluginConfiguration { RecommendationsTaskMode = TaskMode.Deactivate });
 
-        var result = _controller.GetAllRecommendations();
+        var result = await _controller.GetAllRecommendations();
 
         var status = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(503, status.StatusCode);
@@ -238,7 +240,7 @@ public class RecommendationControllerTests
     }
 
     [Fact]
-    public void GetAllRecommendations_DryRun_CacheMiss_GeneratesButDoesNotPersist()
+    public async Task GetAllRecommendations_DryRun_CacheMiss_GeneratesButDoesNotPersist()
     {
         _mockConfigService.Setup(c => c.GetConfiguration())
             .Returns(new PluginConfiguration { RecommendationsTaskMode = TaskMode.DryRun });
@@ -250,7 +252,7 @@ public class RecommendationControllerTests
         };
         _mockEngine.Setup(e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>())).Returns(generated);
 
-        var result = _controller.GetAllRecommendations();
+        var result = await _controller.GetAllRecommendations();
 
         Assert.IsType<OkObjectResult>(result.Result);
         // DryRun should NOT persist to disk - the UI caches in the browser instead
@@ -291,7 +293,7 @@ public class RecommendationControllerTests
     // === Trim / cache-mutation-guard tests ===
 
     [Fact]
-    public void GetAllRecommendations_CachedListLargerThanRequestedMax_TrimsWithoutMutatingCache()
+    public async Task GetAllRecommendations_CachedListLargerThanRequestedMax_TrimsWithoutMutatingCache()
     {
         // BUG GUARD: TrimRecommendations must return a DEEP COPY when trimming so subsequent
         // requests still see the full cached list. A regression that mutates the cache in-place
@@ -310,7 +312,7 @@ public class RecommendationControllerTests
         _mockCache.Setup(c => c.LoadResults()).Returns(cached);
 
         // Ask for a smaller max than the cached count.
-        var result = _controller.GetAllRecommendations(maxPerUser: 5);
+        var result = await _controller.GetAllRecommendations(maxPerUser: 5);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
@@ -321,7 +323,7 @@ public class RecommendationControllerTests
     }
 
     [Fact]
-    public void GetAllRecommendations_CachedListSmallerThanRequestedMax_ReturnsSameReference()
+    public async Task GetAllRecommendations_CachedListSmallerThanRequestedMax_ReturnsSameReference()
     {
         // Perf regression guard: when no trim is needed the controller must not
         // allocate a copy of the list. We can prove this by checking element count
@@ -339,7 +341,7 @@ public class RecommendationControllerTests
         _mockCache.Setup(c => c.LoadResults())
             .Returns(new Collection<RecommendationResult> { original });
 
-        var result = _controller.GetAllRecommendations(maxPerUser: 10);
+        var result = await _controller.GetAllRecommendations(maxPerUser: 10);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
@@ -392,7 +394,7 @@ public class RecommendationControllerTests
     }
 
     [Fact]
-    public void GetAllRecommendations_CachedListLargerThanRequestedMax_TrimmedCopyPreservesCohort()
+    public async Task GetAllRecommendations_CachedListLargerThanRequestedMax_TrimmedCopyPreservesCohort()
     {
         // BUG GUARD: TrimRecommendations must propagate the Cohort field on the trimmed copy.
         // Without this test, a regression that drops Cohort would silently break the A/B
@@ -411,7 +413,7 @@ public class RecommendationControllerTests
         _mockCache.Setup(c => c.LoadResults())
             .Returns(new Collection<RecommendationResult> { original });
 
-        var result = _controller.GetAllRecommendations(maxPerUser: 4);
+        var result = await _controller.GetAllRecommendations(maxPerUser: 4);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
@@ -428,7 +430,7 @@ public class RecommendationControllerTests
     [InlineData(-5, 20)]
     [InlineData(1000, 100)]
     [InlineData(50, 50)]
-    public void GetAllRecommendations_MaxPerUserOutOfRange_TrimsToExpectedEffectiveLimit(
+    public async Task GetAllRecommendations_MaxPerUserOutOfRange_TrimsToExpectedEffectiveLimit(
         int maxPerUser, int expectedTrimmedCount)
     {
         _mockConfigService.Setup(c => c.GetConfiguration())
@@ -455,7 +457,7 @@ public class RecommendationControllerTests
         };
         _mockCache.Setup(c => c.LoadResults()).Returns(cached);
 
-        var result = _controller.GetAllRecommendations(maxPerUser);
+        var result = await _controller.GetAllRecommendations(maxPerUser);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
@@ -503,5 +505,41 @@ public class RecommendationControllerTests
         Assert.Equal(expectedTrimmedCount, data.Recommendations.Count);
         // Cache must never be mutated by the copy-on-trim path.
         Assert.Equal(150, cachedUser.Recommendations.Count);
+    }
+
+    // === Concurrency: cache-fill lock prevents duplicate engine calls ===
+
+    [Fact]
+    public async Task GetAllRecommendations_ConcurrentCacheMiss_EngineCalledOnce()
+    {
+        // First call: cache empty → generates. Second concurrent call: waits for lock,
+        // then finds the cache already filled → skips generation.
+        // We simulate this by making LoadResults return null on first call and a result on
+        // the second (i.e. after the first caller has saved it).
+        var callCount = 0;
+        _mockCache.Setup(c => c.LoadResults()).Returns(() =>
+        {
+            callCount++;
+            // First two calls (initial check + re-check under lock by first caller) return null.
+            // Third call (re-check under lock by second concurrent caller) returns data.
+            return callCount <= 2
+                ? null
+                : new Collection<RecommendationResult> { new() { UserId = Guid.NewGuid() } };
+        });
+        _mockEngine.Setup(e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Returns(new Collection<RecommendationResult> { new() { UserId = Guid.NewGuid() } });
+
+        // Fire two concurrent requests; the semaphore serialises them.
+        var t1 = _controller.GetAllRecommendations();
+        var t2 = _controller.GetAllRecommendations();
+        var results = await Task.WhenAll(t1, t2);
+
+        // Both should succeed with OK.
+        Assert.All(results, r => Assert.IsType<OkObjectResult>(r.Result));
+
+        // Engine must have been called at most once — the second waiter sees the cache.
+        _mockEngine.Verify(
+            e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            Times.AtMostOnce());
     }
 }

@@ -252,7 +252,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       ├── RecommendationEngineTests.cs
 │       └── RecommendedItemTests.cs                     # Setter null-coalescing on the RecommendedItem DTO: SEVEN collection properties (Genres, PeopleNames, Studios, Tags, AudioLanguages, SubtitleLanguages, BoxSetIds) MUST swallow a null assignment and expose an empty list instead. Cache round-trips through JsonSerializer can null any of them; downstream training/scoring code iterates with foreach without null-guards. Reassignment (non-null → null) must actively replace the backing field so a re-clear doesn't leak the previous list.
 └── TestFixtures/                  # Shared test helpers
-    └── EngineTestFactory.cs       # Centralised builder for a fully-mocked recommendation Engine (7 constructor dependencies wired to sensible empty-collection defaults + a strategy override hook). Returns an EngineHarness record bundling the engine with all Moq references so tests can override a single collaborator without re-wiring the other six; keeps the Engine-tests suite resilient to future constructor-signature changes (one-line fix here vs. shotgun surgery across N test files)
+    ├── EngineTestFactory.cs       # Centralised builder for a fully-mocked recommendation Engine (7 constructor dependencies wired to sensible empty-collection defaults + a strategy override hook). Returns an EngineHarness record bundling the engine with all Moq references so tests can override a single collaborator without re-wiring the other six; keeps the Engine-tests suite resilient to future constructor-signature changes (one-line fix here vs. shotgun surgery across N test files)
+    └── PluginSingletonLifecycleTests.cs  # Verifies Plugin.Instance singleton lifecycle (InitializePluginInstance, TeardownPluginInstance, ResetPluginConfiguration): null/non-null state transitions, idempotency, and fresh-config guarantee after teardown+reinit
 ```
 
 ### Test Guidelines
@@ -262,6 +263,24 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 - Scheduled task tests should verify all three modes: Activate, DryRun, Deactivate
 - Backup tests should cover round-trip (create → serialize → deserialize → restore)
 - Recommendation tests should verify scoring determinism and feature vector consistency
+
+#### Plugin singleton isolation
+
+Several controllers and services read `Plugin.Instance` directly. Tests that need the singleton must manage its lifecycle explicitly:
+
+```csharp
+// In constructor / test setup:
+ControllerTestFactory.InitializePluginInstance();
+ControllerTestFactory.ResetPluginConfiguration(); // start from known defaults
+
+// In Dispose() / teardown:
+ControllerTestFactory.TeardownPluginInstance();   // null the static field so the next class starts clean
+```
+
+- Always call `TeardownPluginInstance()` in `IDisposable.Dispose()` — not just `ResetPluginConfiguration()`.  
+  `Reset` only overwrites the config object; the next test class that calls `Initialize` will silently skip re-init (the guard `if (Plugin.Instance != null) return`) and inherit whatever state the previous class left behind.
+- Tests that mutate `Plugin.Instance.Configuration` must be placed in the `[Collection("ConfigOverride")]` collection so xUnit serialises them and prevents cross-class races.
+- Never depend on `Plugin.Instance` being non-null in a test that does not call `InitializePluginInstance()` — the singleton is not set up by the xUnit runner.
 
 ## Architecture Overview
 

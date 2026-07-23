@@ -27,6 +27,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public sealed class UserDiscoveryController : ControllerBase
 {
+    private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTime> LastRequestTime = new();
+
     private readonly DiscoveryCacheService _cache;
     private readonly ISeerrDiscoveryService _discovery;
     private readonly IDiscoveryFeedbackStore _feedbackStore;
@@ -291,6 +294,7 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     [ProducesResponseType(StatusCodes.Status502BadGateway)]
     public async Task<ActionResult<RequestResult>> SubmitMyRequest(
@@ -349,6 +353,20 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         var currentJellyfinUserId = jellyfinUserId.Value;
+
+        // Per-user rate limit: prevent a single user from flooding Seerr with requests.
+        var now = DateTime.UtcNow;
+        if (LastRequestTime.TryGetValue(currentJellyfinUserId, out var lastRequest) &&
+            now - lastRequest < RequestRateLimit)
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests, new RequestResult
+            {
+                Success = false,
+                Message = "Too many requests. Please wait before submitting another request."
+            });
+        }
+
+        LastRequestTime[currentJellyfinUserId] = now;
 
         var serviceType = mediaType == "movie" ? "radarr" : "sonarr";
         var permissions = await _discovery.GetUserRequestPermissionsAsync(

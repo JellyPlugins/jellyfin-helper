@@ -135,6 +135,25 @@ public static class ControllerTestFactory
     }
 
     /// <summary>
+    /// Tears down the <see cref="Plugin.Instance"/> singleton by nulling it via reflection.
+    /// Call this in <c>Dispose()</c> of test fixtures that set up the singleton to prevent
+    /// cross-test-class contamination.
+    /// </summary>
+    public static void TeardownPluginInstance()
+    {
+        if (Plugin.Instance == null)
+        {
+            return;
+        }
+
+        var setter = typeof(Plugin)
+            .GetProperty(nameof(Plugin.Instance), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            ?.GetSetMethod(nonPublic: true);
+
+        setter?.Invoke(null, [null]);
+    }
+
+    /// <summary>
     /// Adds a JSON body to a controller's request.
     /// </summary>
     /// <param name="controller">The controller to which the JSON body will be added.</param>

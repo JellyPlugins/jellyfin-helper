@@ -547,4 +547,63 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         var seerrUrlProp = ok.Value!.GetType().GetProperty("SeerrUrl");
         Assert.Equal(string.Empty, seerrUrlProp!.GetValue(ok.Value) as string);
     }
+
+    // --- SubmitMyRequest rate limiting ---
+
+    [Fact]
+    public async Task SubmitMyRequest_SameUser_SecondCallWithinWindow_Returns429()
+    {
+        var userId = Guid.NewGuid();
+        var dto = new DiscoveryRequestDto { TmdbId = 1, MediaType = "movie" };
+
+        _discoveryMock
+            .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+        _discoveryMock
+            .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(42);
+        _discoveryMock
+            .Setup(d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "OK"));
+
+        var controller = CreateController(userId);
+
+        // First request must succeed.
+        var first = await controller.SubmitMyRequest(dto, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(first.Result);
+
+        // Second request from the same user within the rate-limit window → 429.
+        var second = await controller.SubmitMyRequest(dto, CancellationToken.None);
+        var tooMany = Assert.IsType<ObjectResult>(second.Result);
+        Assert.Equal(429, tooMany.StatusCode);
+    }
+
+    [Fact]
+    public async Task SubmitMyRequest_DifferentUsers_BothSucceed()
+    {
+        var dto = new DiscoveryRequestDto { TmdbId = 2, MediaType = "movie" };
+        var userA = Guid.NewGuid();
+        var userB = Guid.NewGuid();
+
+        foreach (var uid in new[] { userA, userB })
+        {
+            _discoveryMock
+                .Setup(d => d.GetUserRequestPermissionsAsync(uid, "movie", "radarr", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new UserRequestPermissionResult { CanRequest = true });
+            _discoveryMock
+                .Setup(d => d.ResolveSeerrUserIdAsync(uid, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(uid == userA ? 10 : 20);
+        }
+
+        _discoveryMock
+            .Setup(d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((true, "OK"));
+
+        // Each user's first request must succeed independently.
+        var resultA = await CreateController(userA).SubmitMyRequest(dto, CancellationToken.None);
+        var resultB = await CreateController(userB).SubmitMyRequest(dto, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(resultA.Result);
+        Assert.IsType<OkObjectResult>(resultB.Result);
+    }
 }

@@ -305,4 +305,88 @@ public sealed class GrowthTimelineServiceTests : IDisposable
     }
 
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.
+
+    // === Atomic save: crash-safe writes use temp-then-move ===
+
+    [Fact]
+    public async Task SaveBaselineAsync_WritesToDisk_FileIsValidJson()
+    {
+        // Trigger a real compute with a non-empty library so SaveBaselineAsync is called.
+        var libRoot = Path.Join(_dataPath, "lib");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie (2021)");
+        Directory.CreateDirectory(movieDir);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2021)", IsDirectory = true }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 1000 }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        // AtomicFile writes fully or not at all — the file must exist and be valid JSON.
+        var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
+        Assert.True(File.Exists(baselinePath), "Baseline file was not written to disk.");
+
+        var json = await File.ReadAllTextAsync(baselinePath);
+        Assert.False(string.IsNullOrWhiteSpace(json));
+        var doc = System.Text.Json.JsonDocument.Parse(json);
+        Assert.NotNull(doc);
+    }
+
+    [Fact]
+    public async Task SaveTimelineAsync_WritesToDisk_FileIsValidJson()
+    {
+        var libRoot = Path.Join(_dataPath, "lib2");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie (2022)");
+        Directory.CreateDirectory(movieDir);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2022)", IsDirectory = true }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 2000 }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
+        Assert.True(File.Exists(timelinePath), "Timeline file was not written to disk.");
+
+        var json = await File.ReadAllTextAsync(timelinePath);
+        Assert.False(string.IsNullOrWhiteSpace(json));
+        var doc = System.Text.Json.JsonDocument.Parse(json);
+        Assert.NotNull(doc);
+    }
+
+    [Fact]
+    public async Task SaveBaselineAsync_NoTempFilesLeftOnDisk_AfterSuccessfulWrite()
+    {
+        var libRoot = Path.Join(_dataPath, "lib3");
+        Directory.CreateDirectory(libRoot);
+        var movieDir = Path.Join(libRoot, "Movie (2023)");
+        Directory.CreateDirectory(movieDir);
+
+        _libraryManagerMock.Setup(m => m.GetVirtualFolders())
+            .Returns([new VirtualFolderInfo { Locations = [libRoot] }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libRoot))
+            .Returns([new FileSystemMetadata { FullName = movieDir, Name = "Movie (2023)", IsDirectory = true }]);
+        _fileSystemMock.Setup(f => f.GetFiles(libRoot)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetFiles(movieDir))
+            .Returns([new FileSystemMetadata { FullName = Path.Join(movieDir, "movie.mkv"), Name = "movie.mkv", IsDirectory = false, Length = 3000 }]);
+        _fileSystemMock.Setup(f => f.GetDirectories(movieDir)).Returns(Array.Empty<FileSystemMetadata>());
+
+        await _sut.ComputeTimelineAsync(CancellationToken.None);
+
+        // AtomicFile must clean up its .tmp file on success — no orphans.
+        var tmpFiles = Directory.GetFiles(_dataPath, "*.tmp");
+        Assert.Empty(tmpFiles);
+    }
 }

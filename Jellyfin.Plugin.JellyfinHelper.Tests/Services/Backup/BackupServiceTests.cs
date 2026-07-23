@@ -107,7 +107,7 @@ public class BackupServiceTests
     public void Validate_FutureTimestamp_ReturnsWarning()
     {
         var backup = CreateValidBackup();
-        backup.CreatedAt = DateTime.UtcNow.AddDays(5);
+        backup.CreatedAt = new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var result = BackupValidator.Validate(backup);
 
         Assert.True(result.IsValid);

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net.Mime;
 using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation;
@@ -25,6 +26,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class RecommendationController : ControllerBase
 {
+    private static readonly SemaphoreSlim CacheFillLock = new(1, 1);
+
     private readonly IRecommendationCacheService _cacheService;
     private readonly IPluginConfigurationService _configService;
     private readonly IRecommendationEngine _engine;
@@ -63,7 +66,7 @@ public class RecommendationController : ControllerBase
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public ActionResult<List<RecommendationResult>> GetAllRecommendations(
+    public async Task<ActionResult<List<RecommendationResult>>> GetAllRecommendations(
         [FromQuery] int maxPerUser = 0,
         CancellationToken cancellationToken = default)
     {
@@ -87,17 +90,33 @@ public class RecommendationController : ControllerBase
             return Ok(trimmed);
         }
 
-        // No cache available - generate at the configured max so the cache is not under-filled
-        var results = _engine.GetAllRecommendations(configuredMax, cancellationToken);
-
-        // Only persist to disk when TaskMode is Activate (not DryRun).
-        // DryRun results are cached in the browser by the UI JavaScript.
-        if (config.RecommendationsTaskMode == TaskMode.Activate)
+        // No cache — acquire lock so only one caller generates at a time (double-check inside).
+        await CacheFillLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            _cacheService.SaveResults(results);
-        }
+            // Re-check under lock: another waiter may have filled the cache while we waited.
+            cached = _cacheService.LoadResults();
+            if (cached is not null)
+            {
+                return Ok(TrimRecommendations(cached, requestedMax));
+            }
 
-        return Ok(TrimRecommendations(results, requestedMax));
+            // Generate at the configured max so the cache is not under-filled
+            var results = _engine.GetAllRecommendations(configuredMax, cancellationToken);
+
+            // Only persist to disk when TaskMode is Activate (not DryRun).
+            // DryRun results are cached in the browser by the UI JavaScript.
+            if (config.RecommendationsTaskMode == TaskMode.Activate)
+            {
+                _cacheService.SaveResults(results);
+            }
+
+            return Ok(TrimRecommendations(results, requestedMax));
+        }
+        finally
+        {
+            CacheFillLock.Release();
+        }
     }
 
     /// <summary>
@@ -117,7 +136,8 @@ public class RecommendationController : ControllerBase
         [FromQuery] int maxResults = 0,
         CancellationToken cancellationToken = default)
     {
-        if (!IsRecommendationsEnabled())
+        var config = _configService.GetConfiguration();
+        if (config.RecommendationsTaskMode == TaskMode.Deactivate)
         {
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
@@ -129,7 +149,6 @@ public class RecommendationController : ControllerBase
             return BadRequest("A valid, non-empty userId is required.");
         }
 
-        var config = _configService.GetConfiguration();
         maxResults = Math.Clamp(maxResults <= 0 ? config.MaxRecommendationsPerUser : maxResults, 1, 100);
 
         // Try cache first - return a copy to avoid mutating the cached object
@@ -180,7 +199,7 @@ public class RecommendationController : ControllerBase
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public ActionResult<UserWatchProfile> GetUserWatchProfile(Guid userId)
     {
-        if (!IsRecommendationsEnabled())
+        if (_configService.GetConfiguration().RecommendationsTaskMode == TaskMode.Deactivate)
         {
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
@@ -210,7 +229,7 @@ public class RecommendationController : ControllerBase
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public ActionResult<List<UserWatchProfile>> GetAllWatchProfiles()
     {
-        if (!IsRecommendationsEnabled())
+        if (_configService.GetConfiguration().RecommendationsTaskMode == TaskMode.Deactivate)
         {
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
@@ -280,16 +299,5 @@ public class RecommendationController : ControllerBase
         }
 
         return trimmed;
-    }
-
-    /// <summary>
-    ///     Checks whether smart recommendations are enabled in the plugin configuration.
-    ///     Returns true when the task mode is not <see cref="Configuration.TaskMode.Deactivate" />.
-    /// </summary>
-    /// <returns>True if enabled (DryRun or Activate), false if deactivated.</returns>
-    private bool IsRecommendationsEnabled()
-    {
-        var config = _configService.GetConfiguration();
-        return config.RecommendationsTaskMode != TaskMode.Deactivate;
     }
 }
