@@ -158,7 +158,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   │   ├── BackupServiceTests.cs                       # Validation, sanitization + credential contracts: ContainsSecrets, CredentialsChanged, audit Warning
 │   │   ├── BackupServicePerformanceTests.cs
 │   │   ├── BackupServiceRestoreConfigTests.cs          # RestoreBackup round-trip: language fallback, clamping, task-mode rejection, credential preserve/overwrite
-│   │   └── BackupSanitizerTests.cs                     # Timeline-trimming path: under-limit no-op, over-limit trims to MaxTimelineDataPoints, newest points kept, result sorted ascending
+│   │   ├── BackupSanitizerTests.cs                     # Timeline-trimming path: under-limit no-op, over-limit trims to MaxTimelineDataPoints, newest points kept, result sorted ascending
+│   │   └── BackupValidatorTests.cs                     # SeerrCleanupAgeDays range (null=absent, 0=immediate, negative=error, >Max=error); CreatedAt timezone warnings (Unspecified emits warning, Utc/Local silent)
 │   ├── Cleanup/                   # Cleanup task tests
 │   │   ├── TrashControllerAccessTests.cs  # CheckAccess API endpoint tests (permission probing)
 │   │   ├── TrashControllerRelocateTests.cs # Trash path relocation API endpoint tests
