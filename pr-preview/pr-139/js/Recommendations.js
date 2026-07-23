@@ -1,9 +1,10 @@
 // --- Recommendations Tab (Smart Suggestions) ---
-const MAX_ACTIVITY_ROWS = 15;
+'use strict';
+var MAX_ACTIVITY_ROWS = 15;
 
-let _profileReqId = 0;
-let _activityReqId = 0;
-let _recsListReqId = 0;
+var _profileReqId = 0;
+var _activityReqId = 0;
+var _recsListReqId = 0;
 
 function initRecommendationsTab() {
     // If browser-cache already has results (e.g. from a previous tab visit), render directly
@@ -418,8 +419,11 @@ function renderDiscoveryCards(grid, countSpan, userDiscovery) {
 function renderDiscoveryCard(rec, index) {
     var scorePercent = Math.max(0, Math.min(100, Math.round((Number(rec.Score) || 0) * 100)));
     var scoreClass = scorePercent >= 80 ? 'recs-score-high' : scorePercent >= 50 ? 'recs-score-mid' : 'recs-score-low';
-    var posterUrl = rec.PosterPath
-        ? 'https://image.tmdb.org/t/p/w185' + escHtml(rec.PosterPath)
+    var rawPoster = rec.PosterPath && /^\/[a-zA-Z0-9/_.-]+\.(?:jpg|png|webp)$/.test(rec.PosterPath)
+        ? rec.PosterPath
+        : '';
+    var posterUrl = rawPoster
+        ? 'https://image.tmdb.org/t/p/w185' + encodeURI(rawPoster)
         : '';
 
     var html = '<div class="discovery-card" data-index="' + index + '">';

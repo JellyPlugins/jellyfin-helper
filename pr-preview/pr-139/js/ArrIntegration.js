@@ -1,4 +1,5 @@
 // --- Arr Integration Tab ---
+'use strict';
 
 var MAX_ARR_INSTANCES = 3;
 var _testTimers = {};

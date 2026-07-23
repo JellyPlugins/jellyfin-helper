@@ -1,4 +1,5 @@
 // --- Main / Page Initialization ---
+'use strict';
 
 function initTabs() {
     var tabBtns = document.querySelectorAll('.tab-btn');
@@ -223,8 +224,8 @@ function loadStatistics() {
         }
         var overviewContainer = document.getElementById('overviewContent');
         if (overviewContainer) {
-            overviewContainer.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + T('statsLoadError',
-                    'Failed to load statistics. Make sure you are an administrator.')
+            overviewContainer.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('statsLoadError',
+                    'Failed to load statistics. Make sure you are an administrator.'))
                 + '</div>';
         }
         if (btn) {
@@ -327,11 +328,13 @@ function bindPageLifecycle() {
     }
     pageEl.addEventListener('pageshow', function () {
         _pageInitialized = false;
+        _handlersBound = false;
         _initRetries = 0;
         setTimeout(initPage, 0);
     });
     pageEl.addEventListener('viewshow', function () {
         _pageInitialized = false;
+        _handlersBound = false;
         _initRetries = 0;
         setTimeout(initPage, 0);
     });

@@ -1,4 +1,5 @@
 ﻿// --- Logs Tab ---
+'use strict';
 
 var _logsAutoRefreshTimer = null;
 var _logsAutoRefreshEnabled = true;
@@ -315,8 +316,7 @@ function clearLogs() {
         'logsClearDialogOverlay',
         T('logsClearTitle', 'Clear Logs'),
         getCssVar('--color-danger', '#e74c3c'),
-        T('logsClearConfirm', 'Are you sure you want to clear all plugin logs?'),
-        false
+        T('logsClearConfirm', 'Are you sure you want to clear all plugin logs?')
     );
     d.btnRow.appendChild(
         createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {

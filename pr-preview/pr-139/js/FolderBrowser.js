@@ -1,6 +1,7 @@
 // --- Folder Browser Dialog for Trash Path Selection ---
 // This file adds a server-side folder picker to the Trash Folder Path setting.
 // It hooks into the existing Settings.js by attaching to the Browse button after render.
+'use strict';
 
 /**
  * Initializes the folder browser functionality.

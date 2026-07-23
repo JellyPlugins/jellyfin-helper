@@ -1,4 +1,5 @@
 // --- Trends Tab (Growth Timeline) ---
+'use strict';
 
 // In-memory cache for trend point data to avoid expensive DOM round-trips
 var _lastTrendPointData = null;
@@ -215,12 +216,14 @@ function renderTrendChart(timeline) {
     }
 
     // Area fill - use theme variable for consistent primary tint
-    var areaFill = getComputedStyle(document.documentElement).getPropertyValue('--color-primary-light').trim() || 'rgba(0,164,220,0.15)';
+    var areaFillRaw = getComputedStyle(document.documentElement).getPropertyValue('--color-primary-light').trim() || 'rgba(0,164,220,0.15)';
+    var areaFill = /^[a-zA-Z0-9#(),.\s%]+$/.test(areaFillRaw) ? areaFillRaw : 'rgba(0,164,220,0.15)';
     var areaPoints = padL + ',' + (padT + chartH) + ' ' + points.join(' ') + ' ' + (padL + (dataPoints.length - 1) * step) + ',' + (padT + chartH);
     svg += '<polygon points="' + areaPoints + '" fill="' + areaFill + '" />';
 
     // Line
-    var trendColor = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#00a4dc';
+    var trendColorRaw = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#00a4dc';
+    var trendColor = /^[a-zA-Z0-9#(),.\s%]+$/.test(trendColorRaw) ? trendColorRaw : '#00a4dc';
     svg += '<polyline points="' + points.join(' ') + '" fill="none" stroke="' + trendColor + '" stroke-width="2" />';
 
     // Invisible interaction overlay - full chart area rect for mouse/touch tracking
