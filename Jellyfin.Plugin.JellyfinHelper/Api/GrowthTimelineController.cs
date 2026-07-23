@@ -80,13 +80,12 @@ public class GrowthTimelineController : ControllerBase
             }
 
             _lastRefreshTime = now;
+            var result = await _growthTimelineService.ComputeTimelineAsync(cancellationToken).ConfigureAwait(false);
+            return Ok(result);
         }
         finally
         {
             RateLimitSemaphore.Release();
         }
-
-        var result = await _growthTimelineService.ComputeTimelineAsync(cancellationToken).ConfigureAwait(false);
-        return Ok(result);
     }
 }

@@ -404,7 +404,7 @@ public static class BackupValidator
 
             if (warnedNegativeSize && warnedNegativeCount)
             {
-                continue;
+                break;
             }
         }
     }
@@ -441,15 +441,14 @@ public static class BackupValidator
                 warnedNegativeCount = true;
             }
 
-            if (kvp.Key.Length > 1000)
-            {
-                result.Errors.Add("Baseline directory path exceeds 1000 characters.");
-                continue;
-            }
-
             if (ContainsScriptInjection(kvp.Key))
             {
                 result.Errors.Add("Baseline directory path contains potential script injection content.");
+            }
+
+            if (kvp.Key.Length > 1000)
+            {
+                result.Errors.Add("Baseline directory path exceeds 1000 characters.");
             }
         }
     }

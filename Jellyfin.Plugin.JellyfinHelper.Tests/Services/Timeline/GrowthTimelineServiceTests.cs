@@ -121,7 +121,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
 
         Assert.NotNull(result);
         Assert.NotEmpty(result.DataPoints);
-        Assert.Equal(1, result.TotalFilesScanned);
+        Assert.Equal(1, result.TotalDirectoriesScanned);
         Assert.True(File.Exists(Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json")));
         Assert.True(File.Exists(Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json")));
     }
@@ -142,7 +142,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
 
         var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
 
-        Assert.Equal(0, result.TotalFilesScanned);
+        Assert.Equal(0, result.TotalDirectoriesScanned);
         // GetFiles on the trickplay dir must never happen (loop `continue`s before that).
         _fileSystemMock.Verify(f => f.GetFiles(trickplay), Times.Never);
     }
@@ -163,7 +163,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
 
         var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
 
-        Assert.Equal(0, result.TotalFilesScanned);
+        Assert.Equal(0, result.TotalDirectoriesScanned);
         _fileSystemMock.Verify(f => f.GetFiles(trash), Times.Never);
     }
 
@@ -194,7 +194,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         var result = await _sut.ComputeTimelineAsync(CancellationToken.None);
 
         // mkv + mp3 counted, txt (non-media) ignored.
-        Assert.Equal(2, result.TotalFilesScanned);
+        Assert.Equal(2, result.TotalDirectoriesScanned);
     }
 
     [Fact]
@@ -288,20 +288,20 @@ public sealed class GrowthTimelineServiceTests : IDisposable
 
         var first = await _sut.ComputeTimelineAsync(CancellationToken.None);
         Assert.NotEmpty(first.DataPoints);
-        Assert.Equal(1, first.TotalFilesScanned);
+        Assert.Equal(1, first.TotalDirectoriesScanned);
 
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([]);
 
         var second = await _sut.ComputeTimelineAsync(CancellationToken.None);
 
         Assert.NotNull(second);
-        Assert.Equal(0, second.TotalFilesScanned);
+        Assert.Equal(0, second.TotalDirectoriesScanned);
 
         // Persistence proof: reload from disk (bypassing any in-memory cache) and verify
         // the persisted timeline reports the zero snapshot too, not the stale first scan.
         var reloaded = await _sut.LoadTimelineAsync(CancellationToken.None);
         Assert.NotNull(reloaded);
-        Assert.Equal(0, reloaded!.TotalFilesScanned);
+        Assert.Equal(0, reloaded!.TotalDirectoriesScanned);
     }
 
     // ANCHOR: TESTS_END - do not remove, used by replace_in_file to append new tests.

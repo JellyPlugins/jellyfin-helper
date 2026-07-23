@@ -209,6 +209,9 @@ public static class TimelineAggregator
                 fileIndex++;
             }
 
+            cumulativeSize = Math.Max(0, cumulativeSize);
+            cumulativeCount = Math.Max(0L, cumulativeCount);
+
             points.Add(
                 new GrowthTimelinePoint
                 {

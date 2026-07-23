@@ -115,13 +115,13 @@ public class GrowthTimelineModelTests
             Granularity = "quarterly",
             EarliestFileDate = earliest,
             ComputedAt = computedAt,
-            TotalFilesScanned = 5000,
+            TotalDirectoriesScanned = 5000,
         };
 
         Assert.Equal("quarterly", result.Granularity);
         Assert.Equal(earliest, result.EarliestFileDate);
         Assert.Equal(computedAt, result.ComputedAt);
-        Assert.Equal(5000, result.TotalFilesScanned);
+        Assert.Equal(5000, result.TotalDirectoriesScanned);
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public class GrowthTimelineModelTests
             Granularity = "weekly",
             EarliestFileDate = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             ComputedAt = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc),
-            TotalFilesScanned = 300,
+            TotalDirectoriesScanned = 300,
         };
 
         var json = JsonSerializer.Serialize(result, CamelCase);
@@ -142,7 +142,7 @@ public class GrowthTimelineModelTests
         Assert.Equal("weekly", deserialized!.Granularity);
         Assert.Equal(result.EarliestFileDate, deserialized.EarliestFileDate);
         Assert.Equal(result.ComputedAt, deserialized.ComputedAt);
-        Assert.Equal(300, deserialized.TotalFilesScanned);
+        Assert.Equal(300, deserialized.TotalDirectoriesScanned);
     }
 
     [Fact]
@@ -153,7 +153,7 @@ public class GrowthTimelineModelTests
             Granularity = "monthly",
             EarliestFileDate = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             ComputedAt = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc),
-            TotalFilesScanned = 50,
+            TotalDirectoriesScanned = 50,
         };
         result.DataPoints.Add(new GrowthTimelinePoint
         {
@@ -214,13 +214,13 @@ public class GrowthTimelineModelTests
         var result = new GrowthTimelineResult
         {
             Granularity = "yearly",
-            TotalFilesScanned = 42,
+            TotalDirectoriesScanned = 42,
         };
 
         var json = JsonSerializer.Serialize(result, CamelCase);
 
         Assert.Contains("\"granularity\":\"yearly\"", json);
-        Assert.Contains("\"totalFilesScanned\":42", json);
+        Assert.Contains("\"totalDirectoriesScanned\":42", json);
         Assert.Contains("\"earliestFileDate\":", json);
         Assert.Contains("\"computedAt\":", json);
         Assert.Contains("\"dataPoints\":[]", json);
@@ -257,7 +257,7 @@ public class GrowthTimelineModelTests
         var result = new GrowthTimelineResult
         {
             Granularity = "yearly",
-            TotalFilesScanned = 42,
+            TotalDirectoriesScanned = 42,
             EarliestFileDate = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
             ComputedAt = new DateTime(2025, 6, 1, 0, 0, 0, DateTimeKind.Utc),
         };
@@ -270,7 +270,7 @@ public class GrowthTimelineModelTests
 
         var json = JsonSerializer.Serialize(result); // no options → default PascalCase
         Assert.Contains("\"granularity\":\"yearly\"", json);
-        Assert.Contains("\"totalFilesScanned\":42", json);
+        Assert.Contains("\"totalDirectoriesScanned\":42", json);
         Assert.Contains("\"earliestFileDate\":", json);
         Assert.Contains("\"computedAt\":", json);
         Assert.Contains("\"dataPoints\":[", json);
@@ -278,7 +278,7 @@ public class GrowthTimelineModelTests
         // Must NOT contain PascalCase variants
         Assert.DoesNotContain("\"Granularity\":", json);
         Assert.DoesNotContain("\"DataPoints\":", json);
-        Assert.DoesNotContain("\"TotalFilesScanned\":", json);
+        Assert.DoesNotContain("\"TotalDirectoriesScanned\":", json);
     }
 
     [Fact]
@@ -290,7 +290,7 @@ public class GrowthTimelineModelTests
             "granularity": "monthly",
             "earliestFileDate": "2024-01-01T00:00:00Z",
             "computedAt": "2025-06-01T00:00:00Z",
-            "totalFilesScanned": 100,
+            "totalDirectoriesScanned": 100,
             "dataPoints": [
                 {"date": "2024-01-01T00:00:00Z", "cumulativeSize": 1000, "cumulativeFileCount": 10},
                 {"date": "2024-02-01T00:00:00Z", "cumulativeSize": 2000, "cumulativeFileCount": 20}
@@ -301,7 +301,7 @@ public class GrowthTimelineModelTests
         var result = JsonSerializer.Deserialize<GrowthTimelineResult>(json); // no options
         Assert.NotNull(result);
         Assert.Equal("monthly", result!.Granularity);
-        Assert.Equal(100, result.TotalFilesScanned);
+        Assert.Equal(100, result.TotalDirectoriesScanned);
         Assert.Equal(2, result.DataPoints.Count);
         Assert.Equal(1000L, result.DataPoints[0].CumulativeSize);
         Assert.Equal(2000L, result.DataPoints[1].CumulativeSize);

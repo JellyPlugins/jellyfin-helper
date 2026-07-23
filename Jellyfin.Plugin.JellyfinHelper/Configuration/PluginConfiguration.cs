@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -15,7 +16,7 @@ public class PluginConfiguration : BasePluginConfiguration
     // Records raw-vs-clamped setter deltas so Plugin startup can surface them as a single
     // warning instead of silently swallowing hand-edited out-of-range XML values.
     // Private field: XmlSerializer only touches public settable properties, so no XmlIgnore needed.
-    private readonly List<ClampReportEntry> _clampReports = [];
+    private readonly System.Collections.Concurrent.ConcurrentQueue<ClampReportEntry> _clampReports = new();
 
     // ===== Backing fields for clamped properties =====
     private int _orphanMinAgeDays;
@@ -270,7 +271,7 @@ public class PluginConfiguration : BasePluginConfiguration
             var originalMax = _ensembleAlphaMax;
             (_ensembleAlphaMin, _ensembleAlphaMax) = (_ensembleAlphaMax, _ensembleAlphaMin);
 
-            _clampReports.Add(new ClampReportEntry(
+            _clampReports.Enqueue(new ClampReportEntry(
                 "EnsembleAlphaRange (swapped Min > Max)",
                 $"Min={originalMin:G4}, Max={originalMax:G4}",
                 $"Min={_ensembleAlphaMin:G4}, Max={_ensembleAlphaMax:G4}"));
@@ -311,14 +312,13 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <returns>The recorded clamp reports; empty when nothing was clamped.</returns>
     public IReadOnlyList<ClampReportEntry> DrainClampReports()
     {
-        if (_clampReports.Count == 0)
+        var items = new List<ClampReportEntry>();
+        while (_clampReports.TryDequeue(out var item))
         {
-            return Array.Empty<ClampReportEntry>();
+            items.Add(item);
         }
 
-        var snapshot = _clampReports.ToArray();
-        _clampReports.Clear();
-        return snapshot;
+        return items;
     }
 
     // Records the delta only when clamping actually changed the value; the API-driven path
@@ -328,7 +328,7 @@ public class PluginConfiguration : BasePluginConfiguration
         var clamped = Math.Clamp(raw, min, max);
         if (clamped != raw)
         {
-            _clampReports.Add(new ClampReportEntry(
+            _clampReports.Enqueue(new ClampReportEntry(
                 propertyName,
                 raw.ToString(CultureInfo.InvariantCulture),
                 clamped.ToString(CultureInfo.InvariantCulture)));
@@ -345,7 +345,7 @@ public class PluginConfiguration : BasePluginConfiguration
         var clamped = double.IsNaN(raw) ? min : Math.Clamp(raw, min, max);
         if (clamped != raw || double.IsNaN(raw))
         {
-            _clampReports.Add(new ClampReportEntry(
+            _clampReports.Enqueue(new ClampReportEntry(
                 propertyName,
                 raw.ToString("G17", CultureInfo.InvariantCulture),
                 clamped.ToString("G17", CultureInfo.InvariantCulture)));

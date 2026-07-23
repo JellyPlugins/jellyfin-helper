@@ -279,9 +279,9 @@ public class PluginLogService : IPluginLogService
         // Cap the exception string at 8192 chars to prevent ExportAsText memory bloat when an
         // exception carries a very large stack trace or inner-exception chain.
         const int MaxExceptionLength = 8192;
-        var sanitizedSource = source.Replace('\r', ' ').Replace('\n', ' ');
-        var sanitizedMessage = message.Replace('\r', ' ').Replace('\n', ' ');
-        var rawException = exception?.ToString().Replace('\r', ' ').Replace('\n', ' ');
+        var sanitizedSource = source.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
+        var sanitizedMessage = message.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
+        var rawException = exception?.ToString().Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
         var sanitizedException = rawException is { Length: > MaxExceptionLength }
             ? rawException[..MaxExceptionLength] + " [truncated]"
             : rawException;

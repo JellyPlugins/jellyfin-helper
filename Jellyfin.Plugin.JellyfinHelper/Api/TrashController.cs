@@ -252,7 +252,7 @@ public class TrashController : ControllerBase
             return BadRequest(new { Error = "TrashFolderPath is too long." });
         }
 
-        if (queryPath.Contains("..", StringComparison.Ordinal))
+        if (queryPath.Contains("..", StringComparison.OrdinalIgnoreCase))
         {
             return BadRequest(new { Error = "TrashFolderPath must not contain path-traversal sequences." });
         }
@@ -286,6 +286,11 @@ public class TrashController : ControllerBase
         // Both paths are further validated by IsPathSafeForDeletion / ResolveRelativeTrashPath.
         var oldPath = request.OldTrashPath.Trim();
         var newPath = request.NewTrashPath.Trim();
+
+        if (request.OldTrashPath.Contains("..", StringComparison.Ordinal) || request.NewTrashPath.Contains("..", StringComparison.Ordinal))
+        {
+            return BadRequest("Path traversal not allowed");
+        }
 
         string sanitizedOld;
         string sanitizedNew;
@@ -491,6 +496,12 @@ public class TrashController : ControllerBase
         }
 
         var queryPath = request.TrashFolderPath.Trim();
+
+        if (queryPath.Contains("..", StringComparison.Ordinal) || queryPath.Length > 512)
+        {
+            return BadRequest("Invalid path");
+        }
+
         var libraryFolders = _configHelper.GetFilteredLibraryLocations(_libraryManager);
         var results = new List<TrashAccessEntry>();
         var allAccessible = true;

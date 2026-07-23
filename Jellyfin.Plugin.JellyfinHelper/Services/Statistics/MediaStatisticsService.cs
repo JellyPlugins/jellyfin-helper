@@ -161,6 +161,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             $"{result.Libraries.Sum(l => l.OrphanedMetadataDirectories)} orphaned metadata dirs",
             _logger);
 
+        result.ScanTimestamp = DateTime.UtcNow;
         return result;
     }
 

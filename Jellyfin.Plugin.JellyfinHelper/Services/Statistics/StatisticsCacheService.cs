@@ -96,7 +96,6 @@ public class StatisticsCacheService : IStatisticsCacheService
     /// <returns>The last saved statistics result, or null if none exists.</returns>
     public MediaStatisticsResult? LoadLatestResult()
     {
-        string json;
         lock (_fileLock)
         {
             try
@@ -106,9 +105,10 @@ public class StatisticsCacheService : IStatisticsCacheService
                     return null;
                 }
 
-                json = File.ReadAllText(_latestResultFilePath);
+                var json = File.ReadAllText(_latestResultFilePath);
+                return JsonSerializer.Deserialize<MediaStatisticsResult>(json, JsonOptions);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
             {
                 _pluginLog.LogWarning(
                     "StatisticsCache",
@@ -117,20 +117,6 @@ public class StatisticsCacheService : IStatisticsCacheService
                     _logger);
                 return null;
             }
-        }
-
-        try
-        {
-            return JsonSerializer.Deserialize<MediaStatisticsResult>(json, JsonOptions);
-        }
-        catch (JsonException ex)
-        {
-            _pluginLog.LogWarning(
-                "StatisticsCache",
-                $"Could not load latest statistics result from {_latestResultFilePath}",
-                ex,
-                _logger);
-            return null;
         }
     }
 }

@@ -124,7 +124,8 @@ public sealed class UserActivityCacheServiceTests : IDisposable
         Assert.Single(item.UserActivities);
 
         var activity = item.UserActivities[0];
-        Assert.Equal("Alice", activity.UserName);
+        // UserName is [JsonIgnore] — not persisted to disk; resolves from IUserManager at API layer
+        Assert.Equal(string.Empty, activity.UserName);
         Assert.Equal(5, activity.PlayCount);
         Assert.True(activity.Played);
         Assert.True(activity.IsFavorite);

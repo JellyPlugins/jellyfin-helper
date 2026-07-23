@@ -217,11 +217,16 @@ public class ConfigurationController : ControllerBase
         }
 
         // Apply request values to the existing config (preserves accumulated statistics and internal state)
-        var config = _configService.GetConfiguration();
-        var persistedLogLevel = config.PluginLogLevel;
-
-        ApplyRequestToConfig(request, config);
-        _configService.SaveConfiguration();
+        // Both the read and the mutation must happen inside ReadAndMutate so no other caller
+        // can interleave its own writes between GetConfiguration and SaveConfiguration.
+        PluginConfiguration config = null!;
+        string persistedLogLevel = string.Empty;
+        _configService.ReadAndMutate(cfg =>
+        {
+            config = cfg;
+            persistedLogLevel = cfg.PluginLogLevel;
+            ApplyRequestToConfig(request, cfg);
+        });
 
         // Propagate ensemble alpha bounds to the running singleton immediately — no restart needed.
         _ensemble.Reconfigure(config.EnsembleAlphaMin, config.EnsembleAlphaMax, config.EnsembleGenrePenaltyFloor);

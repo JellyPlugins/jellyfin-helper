@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Threading;
+using System.Threading.Tasks;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
+using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using Xunit;
@@ -17,24 +21,29 @@ public class UserActivityControllerTests
     private readonly UserActivityController _controller;
     private readonly Mock<IUserActivityInsightsService> _mockInsights;
     private readonly Mock<IPluginConfigurationService> _mockConfig;
+    private readonly Mock<IUserManager> _mockUserManager;
 
     public UserActivityControllerTests()
     {
         _mockCache = new Mock<IUserActivityCacheService>();
         _mockInsights = new Mock<IUserActivityInsightsService>();
         _mockConfig = new Mock<IPluginConfigurationService>();
+        _mockUserManager = new Mock<IUserManager>();
         // Default: feature enabled (TaskMode = Activate)
         _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
         {
             RecommendationsTaskMode = TaskMode.Activate
         });
-        _controller = new UserActivityController(_mockCache.Object, _mockInsights.Object, _mockConfig.Object);
+        // Default: any userId resolves to a non-null user
+        _mockUserManager.Setup(m => m.GetUserById(It.IsAny<Guid>()))
+            .Returns(new User("testuser", "Default", "Default"));
+        _controller = new UserActivityController(_mockCache.Object, _mockInsights.Object, _mockConfig.Object, _mockUserManager.Object);
     }
 
     // === GetLatestActivity ===
 
     [Fact]
-    public void GetLatestActivity_CacheHit_ReturnsCachedResult()
+    public async Task GetLatestActivity_CacheHit_ReturnsCachedResult()
     {
         var cached = new UserActivityResult
         {
@@ -44,7 +53,7 @@ public class UserActivityControllerTests
         };
         _mockCache.Setup(c => c.LoadResult()).Returns(cached);
 
-        var result = _controller.GetLatestActivity();
+        var result = await _controller.GetLatestActivity(CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<UserActivityResult>(ok.Value);
@@ -53,7 +62,7 @@ public class UserActivityControllerTests
     }
 
     [Fact]
-    public void GetLatestActivity_CacheMiss_GeneratesAndCaches()
+    public async Task GetLatestActivity_CacheMiss_GeneratesAndCaches()
     {
         _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
 
@@ -65,7 +74,7 @@ public class UserActivityControllerTests
         };
         _mockInsights.Setup(i => i.BuildActivityReport()).Returns(generated);
 
-        var result = _controller.GetLatestActivity();
+        var result = await _controller.GetLatestActivity(CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<UserActivityResult>(ok.Value);
@@ -76,7 +85,7 @@ public class UserActivityControllerTests
     // === GetUserActivity ===
 
     [Fact]
-    public void GetUserActivity_UserFound_ReturnsFilteredItems()
+    public async Task GetUserActivity_UserFound_ReturnsFilteredItems()
     {
         var userId = Guid.NewGuid();
         var otherUserId = Guid.NewGuid();
@@ -133,7 +142,7 @@ public class UserActivityControllerTests
         };
         _mockCache.Setup(c => c.LoadResult()).Returns(cached);
 
-        var result = _controller.GetUserActivity(userId);
+        var result = await _controller.GetUserActivity(userId, cancellationToken: CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
@@ -145,7 +154,7 @@ public class UserActivityControllerTests
     }
 
     [Fact]
-    public void GetUserActivity_UserNotFound_Returns200OkEmpty()
+    public async Task GetUserActivity_UserNotFound_Returns200OkEmpty()
     {
         var cached = new UserActivityResult
         {
@@ -164,7 +173,7 @@ public class UserActivityControllerTests
         };
         _mockCache.Setup(c => c.LoadResult()).Returns(cached);
 
-        var result = _controller.GetUserActivity(Guid.NewGuid());
+        var result = await _controller.GetUserActivity(Guid.NewGuid(), cancellationToken: CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
@@ -172,16 +181,16 @@ public class UserActivityControllerTests
     }
 
     [Fact]
-    public void GetUserActivity_EmptyGuid_Returns400()
+    public async Task GetUserActivity_EmptyGuid_Returns400()
     {
-        var result = _controller.GetUserActivity(Guid.Empty);
+        var result = await _controller.GetUserActivity(Guid.Empty, cancellationToken: CancellationToken.None);
 
         var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
         Assert.Contains("userId", badRequest.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void GetUserActivity_EpisodeFields_AreMappedCorrectly()
+    public async Task GetUserActivity_EpisodeFields_AreMappedCorrectly()
     {
         var userId = Guid.NewGuid();
 
@@ -214,7 +223,7 @@ public class UserActivityControllerTests
         };
         _mockCache.Setup(c => c.LoadResult()).Returns(cached);
 
-        var result = _controller.GetUserActivity(userId);
+        var result = await _controller.GetUserActivity(userId, cancellationToken: CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
@@ -225,21 +234,21 @@ public class UserActivityControllerTests
     }
 
     [Fact]
-    public void GetLatestActivity_WhenDeactivated_Returns503()
+    public async Task GetLatestActivity_WhenDeactivated_Returns503()
     {
         _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
         {
             RecommendationsTaskMode = TaskMode.Deactivate
         });
 
-        var result = _controller.GetLatestActivity();
+        var result = await _controller.GetLatestActivity(CancellationToken.None);
 
         var statusResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(503, statusResult.StatusCode);
     }
 
     [Fact]
-    public void GetLatestActivity_DryRun_CacheMiss_DoesPersistCache()
+    public async Task GetLatestActivity_DryRun_CacheMiss_DoesPersistCache()
     {
         _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
         {
@@ -255,7 +264,7 @@ public class UserActivityControllerTests
         };
         _mockInsights.Setup(i => i.BuildActivityReport()).Returns(generated);
 
-        var result = _controller.GetLatestActivity();
+        var result = await _controller.GetLatestActivity(CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<UserActivityResult>(ok.Value);
@@ -266,21 +275,21 @@ public class UserActivityControllerTests
     }
 
     [Fact]
-    public void GetUserActivity_WhenDeactivated_Returns503()
+    public async Task GetUserActivity_WhenDeactivated_Returns503()
     {
         _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
         {
             RecommendationsTaskMode = TaskMode.Deactivate
         });
 
-        var result = _controller.GetUserActivity(Guid.NewGuid());
+        var result = await _controller.GetUserActivity(Guid.NewGuid(), cancellationToken: CancellationToken.None);
 
         var statusResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(503, statusResult.StatusCode);
     }
 
     [Fact]
-    public void GetUserActivity_DryRun_CacheMiss_DoesPersistCache()
+    public async Task GetUserActivity_DryRun_CacheMiss_DoesPersistCache()
     {
         var userId = Guid.NewGuid();
         _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
@@ -313,7 +322,7 @@ public class UserActivityControllerTests
         };
         _mockInsights.Setup(i => i.BuildActivityReport()).Returns(generated);
 
-        var result = _controller.GetUserActivity(userId);
+        var result = await _controller.GetUserActivity(userId, cancellationToken: CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
@@ -324,7 +333,7 @@ public class UserActivityControllerTests
     }
 
     [Fact]
-    public void GetUserActivity_CacheMiss_GeneratesAndCaches()
+    public async Task GetUserActivity_CacheMiss_GeneratesAndCaches()
     {
         var userId = Guid.NewGuid();
         _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
@@ -353,7 +362,7 @@ public class UserActivityControllerTests
         };
         _mockInsights.Setup(i => i.BuildActivityReport()).Returns(generated);
 
-        var result = _controller.GetUserActivity(userId);
+        var result = await _controller.GetUserActivity(userId, cancellationToken: CancellationToken.None);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);

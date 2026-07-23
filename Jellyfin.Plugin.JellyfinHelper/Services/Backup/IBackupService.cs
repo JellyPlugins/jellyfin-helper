@@ -14,8 +14,13 @@ public interface IBackupService
     /// <summary>
     /// Creates a backup of all exportable plugin data.
     /// </summary>
+    /// <param name="includeSecrets">
+    ///     When <c>true</c>, API key values are included in the backup.
+    ///     When <c>false</c> (the default), all API key fields are replaced with an empty
+    ///     string so that the exported file does not contain plaintext credentials.
+    /// </param>
     /// <returns>The backup data object ready for serialization.</returns>
-    BackupData CreateBackup();
+    BackupData CreateBackup(bool includeSecrets = false);
 
     /// <summary>
     /// Restores backup data into the plugin configuration and data files.

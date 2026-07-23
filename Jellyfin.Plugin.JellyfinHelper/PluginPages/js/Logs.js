@@ -6,6 +6,7 @@ var _logsAutoRefreshEnabled = true;
 var _logsLoadSeq = 0;
 var _logsTabInitialized = false;
 var _logsInitSeq = 0;
+var _logsSourceDebounceTimer = null;
 
 function renderLogsTab() {
     var h = '';
@@ -82,10 +83,9 @@ function initLogsTab() {
             });
         }
         if (sourceFilter) {
-            var debounceTimer = null;
             sourceFilter.addEventListener('input', function () {
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(loadLogs, 400);
+                clearTimeout(_logsSourceDebounceTimer);
+                _logsSourceDebounceTimer = setTimeout(loadLogs, 400);
             });
         }
         _logsTabInitialized = true;
@@ -159,6 +159,8 @@ function saveLogLevelToConfig(newLevel) {
 function destroyLogsTab() {
     _logsInitSeq++;
     stopLogsAutoRefresh();
+    clearTimeout(_logsSourceDebounceTimer);
+    _logsSourceDebounceTimer = null;
     // NOTE: Do NOT reset _logsTabInitialized here.
     // The DOM elements persist across tab switches, so handlers stay valid.
     // _logsTabInitialized is only reset when the page shell is re-rendered.
@@ -166,6 +168,8 @@ function destroyLogsTab() {
 
 function resetLogsTabState() {
     _logsTabInitialized = false;
+    clearTimeout(_logsSourceDebounceTimer);
+    _logsSourceDebounceTimer = null;
 }
 
 function startLogsAutoRefresh() {
@@ -237,7 +241,10 @@ function loadLogs() {
         for (var i = 0; i < entries.length; i++) {
             var entry = entries[i];
             var ts = formatLogTimestamp(entry.Timestamp);
-            var levelClass = 'log-level-' + (entry.Level || 'INFO');
+            var safeLevels = ['debug', 'info', 'warn', 'error'];
+            var rawLevel = (entry.Level || 'info').toLowerCase();
+            var safeLevel = safeLevels.includes(rawLevel) ? rawLevel : 'info';
+            var levelClass = 'log-level-' + safeLevel;
 
             h += '<tr>';
             h += '<td class="col-time">' + escHtml(ts) + '</td>';
@@ -347,7 +354,7 @@ function formatLogTimestamp(ts) {
     try {
         var d = new Date(ts);
         if (isNaN(d.getTime())) {
-            return ts;
+            return '[invalid date]';
         }
         var pad = function (n) {
             return n < 10 ? '0' + n : '' + n;
@@ -357,7 +364,7 @@ function formatLogTimestamp(ts) {
             + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(
                 d.getSeconds());
     } catch (e) {
-        return ts;
+        return '[invalid date]';
     }
 }
 

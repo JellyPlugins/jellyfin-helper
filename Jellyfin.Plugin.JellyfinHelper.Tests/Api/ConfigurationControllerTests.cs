@@ -77,7 +77,7 @@ public class ConfigurationControllerTests
         Assert.IsType<OkObjectResult>(result);
         Assert.Equal(5, _config.OrphanMinAgeDays);
         Assert.Equal(10, _config.TrashRetentionDays);
-        _configServiceMock.Verify(s => s.SaveConfiguration(), Times.AtLeastOnce);
+        _configServiceMock.Verify(s => s.ReadAndMutate(It.IsAny<Action<PluginConfiguration>>()), Times.AtLeastOnce);
     }
 
     /// <summary>

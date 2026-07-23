@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 ///     <para>
 ///         <b>Synchronisation:</b> uses a <see cref="SemaphoreSlim"/> instead of a plain
 ///         <c>lock</c> so both synchronous callers (scheduled tasks, <see cref="Save"/>) and
-///         asynchronous request-driven callers (<see cref="MarkAsRequestedAsync"/> /
+///         asynchronous request-driven callers (<see cref="MarkAsRequestedAsync(int, string, CancellationToken)"/> /
 ///         <see cref="RemoveItemAsync"/>) serialise through the exact same mutex. Falling back
 ///         to two separate primitives would allow a background task's <c>Save</c> to race with
 ///         a live HTTP mutation of the same in-memory cache.
@@ -117,7 +117,7 @@ public sealed class DiscoveryCacheService : IDisposable
     }
 
     /// <summary>
-    ///     Removes a specific TMDb item from all users' cached recommendation lists.
+    ///     Removes a specific TMDb item from the specified user's cached recommendation list.
     ///     Called when a user dismisses an item — ensures the item disappears immediately
     ///     (not just on the next scheduled task run) and stays gone across page reloads.
     /// </summary>
@@ -125,21 +125,24 @@ public sealed class DiscoveryCacheService : IDisposable
     /// <param name="mediaType">The media type ("movie" or "tv").</param>
     /// <param name="userId">The Jellyfin user ID. Only removes from this user's list.</param>
     /// <remarks>
-    ///     Runs the async <see cref="RemoveItemAsync"/> on a thread-pool thread to avoid
-    ///     blocking the calling synchronization context while the semaphore and async I/O
-    ///     are both held. Sync-over-async inside a <see cref="SemaphoreSlim"/> guard would
-    ///     deadlock if the continuation tried to resume on the same context blocked by
-    ///     <c>GetResult()</c>. The <c>Task.Run</c> trampoline ensures the async work executes
-    ///     on a thread-pool thread where no synchronization context is present.
+    ///     Uses <see cref="_fileLock"/> synchronously (matching the <see cref="MarkAsRequested"/>
+    ///     pattern) and calls synchronous I/O, avoiding the sync-over-async pitfall that the
+    ///     previous <c>Task.Run</c> wrapper was designed to work around.
     ///     Use <see cref="RemoveItemAsync"/> directly on all request-driven paths.
     /// </remarks>
     public void RemoveItem(int tmdbId, string mediaType, Guid userId)
     {
-        // Run on a thread-pool thread to avoid blocking the calling synchronization
-        // context while the semaphore and async I/O are both held.
-        Task.Run(() => RemoveItemAsync(tmdbId, mediaType, userId, CancellationToken.None))
-            .GetAwaiter()
-            .GetResult();
+        _fileLock.Wait();
+        try
+        {
+            RemoveItemLocked(tmdbId, mediaType, userId, useAsyncWrite: false, CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
     }
 
     /// <summary>
@@ -308,14 +311,14 @@ public sealed class DiscoveryCacheService : IDisposable
     ///     <b>Do not call from a thread with a synchronization context (e.g. an ASP.NET request
     ///     thread).</b>  The underlying <see cref="MarkAsRequestedLocked"/> is async; bridging
     ///     async→sync via <c>GetAwaiter().GetResult()</c> inside a SemaphoreSlim can deadlock.
-    ///     Use <see cref="MarkAsRequestedAsync"/> on all request-driven paths.
+    ///     Use <see cref="MarkAsRequestedAsync(int, string, CancellationToken)"/> on all request-driven paths.
     /// </remarks>
     public void MarkAsRequested(int tmdbId, string mediaType)
     {
         _fileLock.Wait();
         try
         {
-            MarkAsRequestedLocked(tmdbId, mediaType, useAsyncWrite: false, CancellationToken.None)
+            MarkAsRequestedLocked(tmdbId, mediaType, userId: null, useAsyncWrite: false, CancellationToken.None)
                 .GetAwaiter()
                 .GetResult();
         }
@@ -326,11 +329,10 @@ public sealed class DiscoveryCacheService : IDisposable
     }
 
     /// <summary>
-    ///     Asynchronous counterpart of <see cref="MarkAsRequested"/>. Preferred for callers on
-    ///     request-driven paths (e.g. the HTTP <c>SubmitRequest</c> / <c>SubmitMyRequest</c>
-    ///     handlers) because the underlying atomic write yields to the thread pool during
-    ///     transient-IO retries instead of blocking the caller's request thread with
-    ///     <see cref="Thread.Sleep(int)"/>.
+    ///     Asynchronous counterpart of <see cref="MarkAsRequested"/>. Marks the item as requested
+    ///     for ALL users (admin path). Preferred for callers on request-driven paths because the
+    ///     underlying atomic write yields to the thread pool during transient-IO retries instead
+    ///     of blocking the caller's request thread with <see cref="Thread.Sleep(int)"/>.
     ///     <para>
     ///         Serialises through the exact same <see cref="_fileLock"/> as the synchronous
     ///         overload, guaranteeing that a background <see cref="Save"/> and a live HTTP
@@ -341,12 +343,33 @@ public sealed class DiscoveryCacheService : IDisposable
     /// <param name="mediaType">The media type ("movie" or "tv") to match against.</param>
     /// <param name="cancellationToken">Cancellation token honoured between retry attempts of the atomic write.</param>
     /// <returns>A task that completes once the mark (and its persistence attempt) have finished.</returns>
-    public async Task MarkAsRequestedAsync(int tmdbId, string mediaType, CancellationToken cancellationToken = default)
+    public Task MarkAsRequestedAsync(int tmdbId, string mediaType, CancellationToken cancellationToken = default)
+        => MarkAsRequestedAsync(tmdbId, mediaType, userId: null, cancellationToken);
+
+    /// <summary>
+    ///     Asynchronous counterpart of <see cref="MarkAsRequested"/> with optional per-user scoping.
+    ///     When <paramref name="userId"/> has a value, only cache entries belonging to that user are
+    ///     marked; when <c>null</c>, all users' entries are marked (admin path).
+    ///     <para>
+    ///         Serialises through the exact same <see cref="_fileLock"/> as the synchronous
+    ///         overload, guaranteeing that a background <see cref="Save"/> and a live HTTP
+    ///         request-completion cannot interleave partial writes on the same cache file.
+    ///     </para>
+    /// </summary>
+    /// <param name="tmdbId">The TMDb ID of the requested item.</param>
+    /// <param name="mediaType">The media type ("movie" or "tv") to match against.</param>
+    /// <param name="userId">
+    ///     When set, restricts the mark to the cache entry whose <see cref="DiscoveryResult.UserId"/>
+    ///     matches this value. Pass <c>null</c> to mark all users (existing admin path).
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token honoured between retry attempts of the atomic write.</param>
+    /// <returns>A task that completes once the mark (and its persistence attempt) have finished.</returns>
+    public async Task MarkAsRequestedAsync(int tmdbId, string mediaType, Guid? userId, CancellationToken cancellationToken = default)
     {
         await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await MarkAsRequestedLocked(tmdbId, mediaType, useAsyncWrite: true, cancellationToken).ConfigureAwait(false);
+            await MarkAsRequestedLocked(tmdbId, mediaType, userId, useAsyncWrite: true, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -356,12 +379,14 @@ public sealed class DiscoveryCacheService : IDisposable
 
     /// <summary>
     ///     Core mark-as-requested logic shared by <see cref="MarkAsRequested"/> and
-    ///     <see cref="MarkAsRequestedAsync"/>. Must be called while holding <see cref="_fileLock"/>.
-    ///     Switches between the sync and async atomic-write paths based on
-    ///     <paramref name="useAsyncWrite"/> so the retry back-off in <see cref="AtomicFile"/>
-    ///     yields correctly on the request-driven path.
+    ///     <see cref="MarkAsRequestedAsync(int,string,Guid?,CancellationToken)"/>. Must be called
+    ///     while holding <see cref="_fileLock"/>. Switches between the sync and async atomic-write
+    ///     paths based on <paramref name="useAsyncWrite"/> so the retry back-off in
+    ///     <see cref="AtomicFile"/> yields correctly on the request-driven path.
+    ///     When <paramref name="userId"/> has a value, only cache entries for that user are marked;
+    ///     when <c>null</c>, all users' entries are marked (admin path).
     /// </summary>
-    private async Task MarkAsRequestedLocked(int tmdbId, string mediaType, bool useAsyncWrite, CancellationToken cancellationToken)
+    private async Task MarkAsRequestedLocked(int tmdbId, string mediaType, Guid? userId, bool useAsyncWrite, CancellationToken cancellationToken)
     {
         EnsureLoadedLocked();
         var cache = _memoryCache ??= [];
@@ -376,6 +401,12 @@ public sealed class DiscoveryCacheService : IDisposable
         var indicesToMark = new List<(int UserIdx, int RecIdx)>();
         for (var u = 0; u < cache.Count; u++)
         {
+            // When userId is specified, skip entries that belong to a different user.
+            if (userId.HasValue && cache[u].UserId != userId.Value)
+            {
+                continue;
+            }
+
             var recs = cache[u].Recommendations;
             for (var r = 0; r < recs.Count; r++)
             {

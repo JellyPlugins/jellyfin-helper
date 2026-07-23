@@ -60,9 +60,11 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             return (false, "API key is empty.");
         }
 
+        ValidateArrUrl(baseUrl);
+
         try
         {
-            var url = $"{baseUrl.TrimEnd('/')}/api/v3/system/status";
+            var url = $"{baseUrl.TrimEnd('/', '\\')}/api/v3/system/status";
             // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
             var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -71,6 +73,11 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
             var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
+
+            if (response.Content.Headers.ContentLength > 100 * 1024 * 1024)
+            {
+                throw new InvalidOperationException("Response too large");
+            }
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var status = JsonSerializer.Deserialize<ArrSystemStatusDto>(json, JsonOptions);
@@ -126,17 +133,24 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             return [];
         }
 
+        ValidateArrUrl(baseUrl);
+
         try
         {
             // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
             var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
-            var url = $"{baseUrl.TrimEnd('/')}/api/v3/movie";
+            var url = $"{baseUrl.TrimEnd('/', '\\')}/api/v3/movie";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             EnsureApiKeyHeaderSafe(apiKey);
             request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
             var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
+
+            if (response.Content.Headers.ContentLength > 100 * 1024 * 1024)
+            {
+                throw new InvalidOperationException("Response too large");
+            }
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var movies = JsonSerializer.Deserialize<List<RadarrMovieDto>>(json, JsonOptions) ?? [];
@@ -185,17 +199,24 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             return [];
         }
 
+        ValidateArrUrl(baseUrl);
+
         try
         {
             // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
             var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
-            var url = $"{baseUrl.TrimEnd('/')}/api/v3/series";
+            var url = $"{baseUrl.TrimEnd('/', '\\')}/api/v3/series";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             EnsureApiKeyHeaderSafe(apiKey);
             request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
             var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
+
+            if (response.Content.Headers.ContentLength > 100 * 1024 * 1024)
+            {
+                throw new InvalidOperationException("Response too large");
+            }
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var series = JsonSerializer.Deserialize<List<SonarrSeriesDto>>(json, JsonOptions) ?? [];
@@ -339,11 +360,22 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
     // --- DTOs for Radarr/Sonarr API responses ---
 
+    private static void ValidateArrUrl(string baseUrl)
+    {
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
+        {
+            throw new ArgumentException("Invalid or unsupported URL scheme", nameof(baseUrl));
+        }
+    }
+
     private static void EnsureApiKeyHeaderSafe(string apiKey)
     {
-        if (apiKey.Contains('\r', StringComparison.Ordinal) || apiKey.Contains('\n', StringComparison.Ordinal))
+        if (apiKey.Contains('\r', StringComparison.Ordinal)
+            || apiKey.Contains('\n', StringComparison.Ordinal)
+            || apiKey.Contains('\t', StringComparison.Ordinal)
+            || apiKey.Contains('\0', StringComparison.Ordinal))
         {
-            throw new ArgumentException("API key must not contain CR or LF characters.", nameof(apiKey));
+            throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
         }
     }
 

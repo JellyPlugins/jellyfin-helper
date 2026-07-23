@@ -356,12 +356,32 @@ public sealed class UserDiscoveryController : ControllerBase
         var currentJellyfinUserId = jellyfinUserId.Value;
 
         // Per-user rate limit: prevent a single user from flooding Seerr with requests.
+        // Use AddOrUpdate for an atomic check-and-set so there is no TOCTOU window between
+        // reading LastRequestTime and writing the new timestamp (findings #118/#314).
         var now = DateTime.UtcNow;
-        if (LastRequestTime.TryGetValue(currentJellyfinUserId, out var lastRequest) &&
-            now - lastRequest < RequestRateLimit)
+        var rateLimitExceeded = false;
+        var retryAfterSeconds = 0;
+
+        LastRequestTime.AddOrUpdate(
+            currentJellyfinUserId,
+            addValueFactory: _ => now,
+            updateValueFactory: (_, lastRequest) =>
+            {
+                var elapsed = now - lastRequest;
+                if (elapsed < RequestRateLimit)
+                {
+                    rateLimitExceeded = true;
+                    retryAfterSeconds = (int)Math.Ceiling((RequestRateLimit - elapsed).TotalSeconds);
+                    // Return the original value unchanged so the window is not reset on a rejected request.
+                    return lastRequest;
+                }
+
+                return now;
+            });
+
+        if (rateLimitExceeded)
         {
-            var retryAfter = (int)Math.Ceiling((RequestRateLimit - (now - lastRequest)).TotalSeconds);
-            Response.Headers["Retry-After"] = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            Response.Headers["Retry-After"] = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
             return StatusCode(StatusCodes.Status429TooManyRequests, new RequestResult
             {
                 Success = false,
@@ -369,8 +389,8 @@ public sealed class UserDiscoveryController : ControllerBase
             });
         }
 
-        LastRequestTime[currentJellyfinUserId] = now;
-
+        // Opportunistic sweep: evict entries that are past the rate-limit window to prevent
+        // the dictionary from growing unboundedly on servers with many distinct users.
         foreach (var entry in LastRequestTime)
         {
             if (now - entry.Value > RequestRateLimit)
@@ -482,7 +502,7 @@ public sealed class UserDiscoveryController : ControllerBase
         // request pool under a burst of user requests.
         try
         {
-            await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, CancellationToken.None).ConfigureAwait(false);
+            await _cache.MarkAsRequestedAsync(dto.TmdbId, mediaType, currentJellyfinUserId, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
@@ -553,6 +573,13 @@ public sealed class UserDiscoveryController : ControllerBase
 
         return Ok(new RequestResult { Success = true, Message = "Item dismissed." });
     }
+
+    /// <summary>
+    ///     Clears all per-user rate-limit state held in the static dictionary.
+    ///     Called by <see cref="Plugin.OnUninstalling"/> so stale entries from a previous
+    ///     plugin load do not leak into a subsequent reload (finding #313/#77/#117).
+    /// </summary>
+    internal static void ClearRateLimitState() => LastRequestTime.Clear();
 
     /// <summary>
     ///     Reconstructs <see cref="SeerrServiceInfo"/> objects directly from the pre-evaluated

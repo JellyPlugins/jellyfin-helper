@@ -431,6 +431,17 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _tlsH4Pre ??= new double[Hidden4Size];
         _tlsH4Act ??= new double[Hidden4Size];
 
+        // Clear scratch buffers before each use so stale data from a previous invocation on
+        // this thread cannot bleed into the current forward pass (finding #152).
+        Array.Clear(_tlsH1Pre, 0, _tlsH1Pre.Length);
+        Array.Clear(_tlsH1Act, 0, _tlsH1Act.Length);
+        Array.Clear(_tlsH2Pre, 0, _tlsH2Pre.Length);
+        Array.Clear(_tlsH2Act, 0, _tlsH2Act.Length);
+        Array.Clear(_tlsH3Pre, 0, _tlsH3Pre.Length);
+        Array.Clear(_tlsH3Act, 0, _tlsH3Act.Length);
+        Array.Clear(_tlsH4Pre, 0, _tlsH4Pre.Length);
+        Array.Clear(_tlsH4Act, 0, _tlsH4Act.Length);
+
         try
         {
             try
@@ -503,6 +514,17 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         _tlsH3Act ??= new double[Hidden3Size];
         _tlsH4Pre ??= new double[Hidden4Size];
         _tlsH4Act ??= new double[Hidden4Size];
+
+        // Clear scratch buffers before each use so stale data from a previous invocation on
+        // this thread cannot bleed into the current forward pass (finding #152).
+        Array.Clear(_tlsH1Pre, 0, _tlsH1Pre.Length);
+        Array.Clear(_tlsH1Act, 0, _tlsH1Act.Length);
+        Array.Clear(_tlsH2Pre, 0, _tlsH2Pre.Length);
+        Array.Clear(_tlsH2Act, 0, _tlsH2Act.Length);
+        Array.Clear(_tlsH3Pre, 0, _tlsH3Pre.Length);
+        Array.Clear(_tlsH3Act, 0, _tlsH3Act.Length);
+        Array.Clear(_tlsH4Pre, 0, _tlsH4Pre.Length);
+        Array.Clear(_tlsH4Act, 0, _tlsH4Act.Length);
 
         try
         {
@@ -1226,10 +1248,13 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     // Publish a "definitely bad" number so downstream quality gates disengage.
                     _lastValidationLoss = EnsembleScoringStrategy.ValidationLossCeiling;
                 }
-            }
 
-            _featureMeans = featureMeans;
-            _featureStdDevs = featureStdDevs;
+                // Keep _featureMeans/_featureStdDevs update inside the same lock so all three
+                // fields are published atomically — readers that observe _lastValidationLoss
+                // will also see the matching standardisation stats (finding #306).
+                _featureMeans = featureMeans;
+                _featureStdDevs = featureStdDevs;
+            }
         }
         finally
         {

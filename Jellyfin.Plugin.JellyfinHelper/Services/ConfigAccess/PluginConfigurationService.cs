@@ -81,8 +81,33 @@ public class PluginConfigurationService : IPluginConfigurationService
     public string PluginVersion => _accessor.Version ?? "unknown";
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    ///     <strong>Initialization guard (Finding #9):</strong> Throws <see cref="InvalidOperationException"/>
+    ///     when the plugin singleton has not yet been created. Callers that may run before the
+    ///     plugin is fully started must check <see cref="IsInitialized"/> first.
+    /// </para>
+    /// <para>
+    ///     <strong>Mutation contract (Finding #10):</strong> Returns the live shared
+    ///     <see cref="PluginConfiguration"/> reference held by the plugin singleton.
+    ///     Callers MUST treat the returned object as read-only. Any mutation MUST go through
+    ///     <see cref="ReadAndMutate"/> so that concurrent writes are serialized under the
+    ///     write lock and the change is persisted atomically. Mutating the returned reference
+    ///     directly bypasses the lock and will not be saved.
+    /// </para>
+    /// </remarks>
     public PluginConfiguration GetConfiguration()
-        => _accessor.Configuration ?? new PluginConfiguration();
+    {
+        if (!_accessor.IsInitialized)
+        {
+            throw new InvalidOperationException("Plugin configuration is not yet available. Check IsInitialized before calling GetConfiguration.");
+        }
+
+        // _accessor.Configuration is non-null whenever IsInitialized is true (both properties
+        // read Plugin.Instance, which is either null or fully constructed). The null-forgiving
+        // operator documents that assertion rather than silently returning a detached default.
+        return _accessor.Configuration!;
+    }
 
     /// <inheritdoc />
     public void SaveConfiguration()

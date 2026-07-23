@@ -357,8 +357,7 @@ function checkUnsavedAndProceed(onProceed) {
         'unsavedDialogOverlay',
         T('unsavedChangesTitle', 'Unsaved Changes'),
         getCssVar('--color-primary', '#00a4dc'),
-        T('unsavedChangesMsg', 'You have unsaved settings changes. What would you like to do?'),
-        false
+        T('unsavedChangesMsg', 'You have unsaved settings changes. What would you like to do?')
     );
     d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
         removeDialogById('unsavedDialogOverlay');
@@ -556,7 +555,7 @@ function loadSettings() {
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
             var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');var ex=p.classList.contains(\'arr-expanded\');this.setAttribute(\'aria-expanded\',ex?\'true\':\'false\');var b=p.querySelector(\'.arr-collapsible-body\');if(b)b.setAttribute(\'aria-hidden\',ex?\'false\':\'true\')">';
             arrCollapseButton += '<span class="arr-chevron">▶</span>' + icon + '<span>' + text + '</span><span class="arr-instance-count" id="arrCount' + type + '">' + countText + '</span>';
-            arrCollapseButton += '<span class="help-text">' + T('clickToExpand', 'click to expand') + '</span>';
+            arrCollapseButton += '<span class="help-text">' + escHtml(T('clickToExpand', 'click to expand')) + '</span>';
             arrCollapseButton += '</button>';
             return arrCollapseButton;
         }
@@ -625,6 +624,8 @@ function loadSettings() {
         h += '</div>';
 
         form.innerHTML = h;
+        setArrInstanceApiKeys('Radarr', radarrInstances);
+        setArrInstanceApiKeys('Sonarr', sonarrInstances);
         document.getElementById('btnSaveSettings').addEventListener('click', saveSettings);
         attachRemoveHandlers();
         attachTestHandlers();
@@ -1000,14 +1001,14 @@ function showTrashDeleteConfirmation(payload, paths) {
             var summary = '';
             var statusClass = 'success-msg';
             if (result.deleted > 0) {
-                summary += mi('check_circle') + ' ' + T('trashDeletedCount', 'Deleted') + ': ' + (Math.max(0, parseInt(result.deleted, 10) || 0)) + ' ' + T('folders', 'folders');
+                summary += mi('check_circle') + ' ' + escHtml(T('trashDeletedCount', 'Deleted')) + ': ' + (Math.max(0, parseInt(result.deleted, 10) || 0)) + ' ' + escHtml(T('folders', 'folders'));
             }
             if (result.failed > 0) {
-                summary += (summary ? ' | ' : '') + mi('error') + ' ' + T('trashFailedCount', 'Failed') + ': ' + (Math.max(0, parseInt(result.failed, 10) || 0));
+                summary += (summary ? ' | ' : '') + mi('error') + ' ' + escHtml(T('trashFailedCount', 'Failed')) + ': ' + (Math.max(0, parseInt(result.failed, 10) || 0));
                 statusClass = 'error-msg';
             }
             if (!summary) {
-                summary = mi('error') + ' ' + T('trashDeleteError', 'Failed to delete trash folders.');
+                summary = mi('error') + ' ' + escHtml(T('trashDeleteError', 'Failed to delete trash folders.'));
                 statusClass = 'error-msg';
             }
             msg.innerHTML = '<div class="' + statusClass + '">' + summary + '</div>';
@@ -1072,7 +1073,7 @@ function triggerBackupExport() {
             msg.innerHTML = '';
         }, 5000);
     }, function (err) {
-        var errorText = T('backupExportError', 'Failed to export backup.');
+        var errorText = escHtml(T('backupExportError', 'Failed to export backup.'));
         var response = err && (err.responseJSON || err);
         if (response && response.message) {
             errorText = escHtml(response.message);
@@ -1199,7 +1200,7 @@ function doBackupImport(file) {
                 });
             }, 1500);
         }, function (err) {
-            var errorText = T('backupImportError', 'Failed to import backup.');
+            var errorText = escHtml(T('backupImportError', 'Failed to import backup.'));
             try {
                 var response = err && (err.responseJSON || (typeof err.responseText === 'string' ? JSON.parse(err.responseText) : null));
                 if (response && response.message) {
@@ -1956,7 +1957,7 @@ function showTrashPathChangeDialog(payload, options) {
                                     setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
                                 }
                             } else if (failed > 0) {
-                                var partial = T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed);
+                                var partial = escHtml(T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed));
                                 if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
                             } else {
                                 // 0 moved, 0 failed: likely a permission issue on the source or empty source

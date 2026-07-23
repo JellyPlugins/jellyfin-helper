@@ -537,7 +537,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<BackupService>().Object);
 
-        var backup = service.CreateBackup();
+        var backup = service.CreateBackup(includeSecrets: true);
 
         Assert.Equal("real-secret-key", backup.SeerrApiKey);
         Assert.True(backup.ContainsSecrets);
@@ -564,7 +564,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
             TestMockFactory.CreatePluginLogService(),
             TestMockFactory.CreateLogger<BackupService>().Object);
 
-        var backup = service.CreateBackup();
+        var backup = service.CreateBackup(includeSecrets: true);
 
         Assert.All(backup.RadarrInstances, i => Assert.Equal("radarr-secret", i.ApiKey));
         Assert.All(backup.SonarrInstances, i => Assert.Equal("sonarr-secret", i.ApiKey));

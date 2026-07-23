@@ -49,10 +49,15 @@ public class MediaExtensionsTests
 
     [Theory]
     [InlineData(".nfo")]
-    [InlineData(".xml")]
     public void NfoExtensions_ContainsKnownFormats(string ext)
     {
         Assert.Contains(ext, MediaExtensions.NfoExtensions);
+    }
+
+    [Fact]
+    public void NfoExtensions_DoesNotContainXml()
+    {
+        Assert.DoesNotContain(".xml", MediaExtensions.NfoExtensions);
     }
 
     [Theory]

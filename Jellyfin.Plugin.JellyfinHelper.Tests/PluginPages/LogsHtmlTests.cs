@@ -331,6 +331,6 @@ public class LogsHtmlTests : ConfigPageTestBase
     [Fact]
     public void Html_SourceFilter_HasDebounce()
     {
-        Assert.Contains("debounceTimer", HtmlContent);
+        Assert.Contains("_logsSourceDebounceTimer", HtmlContent);
     }
 }

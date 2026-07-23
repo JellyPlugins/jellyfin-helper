@@ -132,6 +132,7 @@
   "inArrOnly": "仅在 Arr 中（有文件）",
   "inArrOnlyMissing": "仅在 Arr 中（无文件）",
   "inJellyfinOnly": "仅在 Jellyfin 中",
+  "arrInvalidType": "Invalid Arr type. Expected Radarr or Sonarr.",
   "arrNotConfigured": "未配置。请在设置中设置 URL 和 API 密钥。",
   "testConnection": "测试连接",
   "testConnectionFailed": "连接失败",

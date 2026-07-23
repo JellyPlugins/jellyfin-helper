@@ -3,9 +3,12 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net.Mime;
+using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
+using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -23,9 +26,12 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Produces(MediaTypeNames.Application.Json)]
 public class UserActivityController : ControllerBase
 {
+    private static readonly SemaphoreSlim _buildLock = new(1, 1);
+
     private readonly IUserActivityCacheService _cacheService;
     private readonly IPluginConfigurationService _configService;
     private readonly IUserActivityInsightsService _insightsService;
+    private readonly IUserManager _userManager;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="UserActivityController" /> class.
@@ -33,14 +39,17 @@ public class UserActivityController : ControllerBase
     /// <param name="cacheService">The user activity cache service.</param>
     /// <param name="insightsService">The user activity insights service.</param>
     /// <param name="configService">The plugin configuration service.</param>
+    /// <param name="userManager">The user manager.</param>
     public UserActivityController(
         IUserActivityCacheService cacheService,
         IUserActivityInsightsService insightsService,
-        IPluginConfigurationService configService)
+        IPluginConfigurationService configService,
+        IUserManager userManager)
     {
         _cacheService = cacheService;
         _insightsService = insightsService;
         _configService = configService;
+        _userManager = userManager;
     }
 
     /// <summary>
@@ -50,27 +59,33 @@ public class UserActivityController : ControllerBase
     ///     Only available when Recommendations TaskMode is not Deactivate.
     /// </summary>
     /// <returns>The user activity result.</returns>
+    /// <param name="cancellationToken">Cancellation token.</param>
     [HttpGet("Latest")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public ActionResult<UserActivityResult> GetLatestActivity()
+    public async Task<ActionResult<UserActivityResult>> GetLatestActivity(CancellationToken cancellationToken)
     {
         if (!IsFeatureEnabled())
         {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, "User activity feature is disabled in plugin configuration.");
         }
 
-        var cached = _cacheService.LoadResult();
-        if (cached is not null)
+        await _buildLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
+            var cached = _cacheService.LoadResult();
+            if (cached == null)
+            {
+                cached = _insightsService.BuildActivityReport();
+                _cacheService.SaveResult(cached);
+            }
+
             return Ok(cached);
         }
-
-        // No cache yet - generate on demand and always cache.
-        var result = _insightsService.BuildActivityReport();
-        _cacheService.SaveResult(result);
-
-        return Ok(result);
+        finally
+        {
+            _buildLock.Release();
+        }
     }
 
     /// <summary>
@@ -81,12 +96,14 @@ public class UserActivityController : ControllerBase
     /// </summary>
     /// <param name="userId">The Jellyfin user ID to filter by.</param>
     /// <param name="maxResults">Maximum number of results to return (1–200, default 15).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Activity summaries containing only the specified user's data.</returns>
     [HttpGet("User/{userId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public ActionResult<List<UserActivitySummary>> GetUserActivity(Guid userId, [FromQuery] int maxResults = 15)
+    public async Task<ActionResult<List<UserActivitySummary>>> GetUserActivity(Guid userId, [FromQuery] int maxResults = 15, CancellationToken cancellationToken = default)
     {
         if (!IsFeatureEnabled())
         {
@@ -98,15 +115,30 @@ public class UserActivityController : ControllerBase
             return BadRequest("A valid, non-empty userId is required.");
         }
 
+        var user = _userManager.GetUserById(userId);
+        if (user == null)
+        {
+            return NotFound();
+        }
+
         maxResults = Math.Clamp(maxResults, 1, 200);
 
-        var cached = _cacheService.LoadResult();
-        var source = cached ?? _insightsService.BuildActivityReport();
-
-        if (cached is null)
+        UserActivityResult source;
+        await _buildLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            // Always cache for subsequent requests.
-            _cacheService.SaveResult(source);
+            var cached = _cacheService.LoadResult();
+            if (cached == null)
+            {
+                cached = _insightsService.BuildActivityReport();
+                _cacheService.SaveResult(cached);
+            }
+
+            source = cached;
+        }
+        finally
+        {
+            _buildLock.Release();
         }
 
         // Filter to items where this user has activity, recalculating aggregate fields

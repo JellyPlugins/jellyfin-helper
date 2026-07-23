@@ -77,7 +77,7 @@ function applyStaticTranslations() {
 function formatBytes(bytes) {
     if (!Number.isFinite(bytes)) return '0 B';
     if (bytes === 0) return '0 B';
-    if (bytes < 0) return '-' + formatBytes(-bytes);
+    if (bytes < 0) return '0 B';
     var units = ['B', 'KB', 'MB', 'GB', 'TB'];
     var i = Math.floor(Math.log(bytes) / Math.log(1024));
     if (i < 0) i = 0;
@@ -179,7 +179,7 @@ function renderTreeLevel(node, level, icon) {
         var hasContent = Object.keys(childNode.children).length > 0 || childNode.items.length > 0;
 
         html += '<div class="tree-node">';
-        html += '<div class="tree-folder' + (hasContent ? ' tree-toggle" tabindex="0" role="button" aria-expanded="false" onclick="this.parentElement.classList.toggle(\'tree-expanded\');this.setAttribute(\'aria-expanded\',this.parentElement.classList.contains(\'tree-expanded\'))" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}"' : '"') + '>';
+        html += '<div class="tree-folder' + (hasContent ? ' tree-toggle" tabindex="0" role="button" aria-expanded="false" data-tree-toggle="1"' : '"') + '>';
         html += '<span class="tree-icon tree-icon-closed">' + mi('folder') + '</span>';
         html += '<span class="tree-icon tree-icon-open">' + mi('folder_open') + '</span>';
         html += '<span class="tree-name">' + escHtml(childName) + '</span> <span class="tree-name-count">(' + countTreeItems(childNode) + ')</span>';
@@ -222,8 +222,8 @@ function renderFileTree(result, title) {
     var html = '<div class="file-tree-header">';
     html += '<span class="file-tree-title">' + escHtml(title) + '</span>';
     html += '<div style="display:flex;gap:0.5em;align-items:center;">';
-    html += '<button class="tree-action-btn" onclick="var nodes=this.closest(\'.file-tree-panel\').querySelectorAll(\'.tree-node\');for(var i=0;i<nodes.length;i++){nodes[i].classList.add(\'tree-expanded\');var t=nodes[i].querySelector(\'.tree-toggle\');if(t)t.setAttribute(\'aria-expanded\',\'true\')}">' + T('expandAll', 'Expand All') + '</button>';
-    html += '<button class="tree-action-btn" onclick="var nodes=this.closest(\'.file-tree-panel\').querySelectorAll(\'.tree-node\');for(var i=0;i<nodes.length;i++){nodes[i].classList.remove(\'tree-expanded\');var t=nodes[i].querySelector(\'.tree-toggle\');if(t)t.setAttribute(\'aria-expanded\',\'false\')}">' + T('collapseAll', 'Collapse All') + '</button>';
+    html += '<button class="tree-action-btn" data-tree-action="expand">' + T('expandAll', 'Expand All') + '</button>';
+    html += '<button class="tree-action-btn" data-tree-action="collapse">' + T('collapseAll', 'Collapse All') + '</button>';
     html += '<span class="file-tree-count">' + totalFiles + ' ' + (totalFiles === 1 ? T('file', 'file') : T('files', 'files')) + '</span>';
     html += '</div></div>';
 
@@ -265,6 +265,61 @@ function renderFileTree(result, title) {
 
     html += '</div>';
     return html;
+}
+
+/**
+ * Wire up event listeners for interactive elements rendered by renderFileTree /
+ * renderTreeLevel.  Must be called after the HTML returned by those functions
+ * has been injected into the DOM.
+ *
+ * Handles:
+ *   - [data-tree-toggle]  — folder toggle buttons (expand/collapse tree node)
+ *   - [data-tree-action]  — "Expand All" / "Collapse All" buttons
+ *
+ * @param {HTMLElement} container - The DOM element whose innerHTML was set with
+ *                                  the output of renderFileTree.
+ */
+function bindFileTreeHandlers(container) {
+    if (!container) return;
+
+    // Folder toggle buttons
+    var toggles = container.querySelectorAll('[data-tree-toggle]');
+    for (var i = 0; i < toggles.length; i++) {
+        (function (btn) {
+            btn.addEventListener('click', function () {
+                var node = btn.parentElement;
+                node.classList.toggle('tree-expanded');
+                btn.setAttribute('aria-expanded', node.classList.contains('tree-expanded'));
+            });
+            btn.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    btn.click();
+                }
+            });
+        })(toggles[i]);
+    }
+
+    // Expand All / Collapse All buttons
+    var actionBtns = container.querySelectorAll('[data-tree-action]');
+    for (var j = 0; j < actionBtns.length; j++) {
+        (function (btn) {
+            btn.addEventListener('click', function () {
+                var action = btn.getAttribute('data-tree-action');
+                var panel = btn.closest('.file-tree-panel');
+                var nodes = panel ? panel.querySelectorAll('.tree-node') : [];
+                for (var k = 0; k < nodes.length; k++) {
+                    if (action === 'expand') {
+                        nodes[k].classList.add('tree-expanded');
+                    } else {
+                        nodes[k].classList.remove('tree-expanded');
+                    }
+                    var toggle = nodes[k].querySelector('.tree-toggle');
+                    if (toggle) toggle.setAttribute('aria-expanded', action === 'expand');
+                }
+            });
+        })(actionBtns[j]);
+    }
 }
 
 // Aggregate dictionaries across libraries

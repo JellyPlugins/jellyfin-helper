@@ -361,24 +361,20 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     }
 
     /// <summary>
-    ///     Loads the feedback data from the in-memory cache or disk.
+    ///     Loads the feedback data from the in-memory cache or disk and returns a deep copy.
     ///     Must be called under <see cref="_fileLock"/>.
     ///     <para>
-    ///         <b>Live reference warning:</b> when the cache is already populated this method
-    ///         returns the exact <see cref="_memoryCache"/> list — not a copy. All mutations
-    ///         made by callers (e.g. <c>Add</c>, <c>RemoveAll</c>, property assignments on
-    ///         nested entries) operate directly on the shared cache and MUST be performed
-    ///         while holding <see cref="_fileLock"/>. <see cref="SaveInternal"/> assigns a
-    ///         shallow copy (<c>data.ToList()</c>) back to <see cref="_memoryCache"/> after
-    ///         eviction so that subsequent mutations via the same caller reference do not
-    ///         silently corrupt the post-save cache state.
+    ///         Always returns a deep copy so callers may freely mutate the returned list
+    ///         (add/remove entries, modify nested properties) without corrupting the shared
+    ///         <see cref="_memoryCache"/>. <see cref="SaveInternal"/> atomically swaps
+    ///         <see cref="_memoryCache"/> to the post-eviction copy on a successful disk write.
     ///     </para>
     /// </summary>
     private List<DiscoveryFeedbackResult> LoadInternal()
     {
         if (_memoryCache != null)
         {
-            return _memoryCache;
+            return _memoryCache.Select(CloneResult).ToList();
         }
 
         try
@@ -430,11 +426,15 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
     /// </summary>
     private void SaveInternal(List<DiscoveryFeedbackResult> data)
     {
+        // Work on a deep copy so eviction mutations never touch the live _memoryCache.
+        // The copy is swapped into _memoryCache atomically after a successful disk write.
+        var workingCopy = data.Select(CloneResult).ToList();
+
         // Eviction: remove entries older than MaxEntryAgeDays and cap per-user count.
         // Use the latest interaction timestamp (not just ShownAtUtc) to prevent evicting
         // entries that were recently dismissed or requested but originally shown long ago.
         var cutoff = DateTime.UtcNow.AddDays(-MaxEntryAgeDays);
-        foreach (var userResult in data)
+        foreach (var userResult in workingCopy)
         {
             // Remove expired entries based on their most recent activity
             userResult.Entries.RemoveAll(e => GetLatestActivityUtc(e) < cutoff);
@@ -450,7 +450,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         }
 
         // Remove users with zero entries after eviction
-        data.RemoveAll(r => r.Entries.Count == 0);
+        workingCopy.RemoveAll(r => r.Entries.Count == 0);
 
         try
         {
@@ -460,7 +460,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                 Directory.CreateDirectory(directory);
             }
 
-            var json = JsonSerializer.Serialize(data, JsonOptions);
+            var json = JsonSerializer.Serialize(workingCopy, JsonOptions);
 
             // Use AtomicFile so a transient sharing violation on the final File.Move
             // (typical when an AV scanner or the Search indexer briefly holds the file
@@ -468,9 +468,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             // temp-file cleanup internally.
             AtomicFile.WriteAllText(_filePath, json);
 
-            // Update memory cache with a copy so mutations to the caller's list
-            // cannot corrupt the cached state after SaveInternal returns.
-            _memoryCache = data.ToList();
+            // Atomically replace the live cache with the post-eviction copy.
+            _memoryCache = workingCopy;
         }
 
         // Broader filter than plain IOException / UnauthorizedAccessException / JsonException

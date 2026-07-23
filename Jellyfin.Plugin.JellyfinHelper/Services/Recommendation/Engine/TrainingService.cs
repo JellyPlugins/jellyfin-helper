@@ -16,14 +16,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 ///     Handles training of scoring strategies using implicit feedback
 ///     from previous recommendation results and current watch data.
 /// </summary>
-internal sealed class TrainingService
+internal sealed class TrainingService : IDisposable
 {
     /// <summary>
     ///     Non-blocking gate to prevent concurrent Train() invocations.
     ///     The scheduled task serializes calls, but this guard ensures correctness
     ///     if Train() is ever invoked from multiple paths simultaneously.
     /// </summary>
-    private static readonly SemaphoreSlim TrainGate = new(1, 1);
+    private readonly SemaphoreSlim _trainGate = new(1, 1);
 
     private readonly IPluginLogService _pluginLog;
     private readonly ILogger _logger;
@@ -48,6 +48,12 @@ internal sealed class TrainingService
         _discoveryFeedbackStore = discoveryFeedbackStore;
         _pluginLog = pluginLog;
         _logger = logger;
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        _trainGate.Dispose();
     }
 
     /// <summary>
@@ -80,7 +86,7 @@ internal sealed class TrainingService
         }
 
         // Non-blocking guard: skip if another training run is already in progress.
-        if (!TrainGate.Wait(0, CancellationToken.None))
+        if (!_trainGate.Wait(0, CancellationToken.None))
         {
             _pluginLog.LogInfo(
                 "Recommendations",
@@ -95,12 +101,12 @@ internal sealed class TrainingService
         }
         finally
         {
-            TrainGate.Release();
+            _trainGate.Release();
         }
     }
 
     /// <summary>
-    ///     Core training logic, called under the <see cref="TrainGate"/> semaphore.
+    ///     Core training logic, called under the <see cref="_trainGate"/> semaphore.
     ///     Delegates example building to <see cref="TrainingDataBuilder"/>.
     /// </summary>
     private bool TrainCore(

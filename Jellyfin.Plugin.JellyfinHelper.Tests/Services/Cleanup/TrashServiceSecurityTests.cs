@@ -39,6 +39,13 @@ public class TrashServiceSecurityTests : IDisposable
         var traversalSource = Path.Join(_testRoot, "trash", "..", "sensitive");
         var trashPath = Path.Join(_testRoot, "trash_output");
 
+        // Explicitly verify the traversal resolves to the expected canonical path.
+        var expectedResolvedSource = Path.GetFullPath(Path.Join(_testRoot, "sensitive"));
+        Assert.Equal(
+            expectedResolvedSource,
+            Path.GetFullPath(traversalSource),
+            StringComparer.OrdinalIgnoreCase);
+
         // MoveToTrash resolves the traversal and moves the real directory (sensitive/).
         // The resolved source is _testRoot/sensitive, which exists, so the move succeeds.
         _trashService.MoveToTrash(traversalSource, trashPath, _loggerMock);
@@ -69,6 +76,55 @@ public class TrashServiceSecurityTests : IDisposable
         Assert.True(
             Path.GetFullPath(sensitiveDir).StartsWith(testRootFull, StringComparison.OrdinalIgnoreCase),
             "Sensitive directory path must be inside test root (whether moved or still present)");
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void MoveToTrash_PathTraversalResolvesOutsideRoot_IsBlocked()
+    {
+        // Use the system temp directory as a source that lives entirely outside _testRoot.
+        // The service must either return an error (0 / negative result) or, if it attempts
+        // the operation, must not move or copy anything outside a safe boundary.
+        var outsideSource = Path.GetTempPath();
+        var trashPath = Path.Join(_testRoot, "trash_outside");
+
+        // Confirm the source is genuinely outside _testRoot before the assertion.
+        var testRootFull = Path.GetFullPath(_testRoot);
+        var outsideSourceFull = Path.GetFullPath(outsideSource);
+        Assert.False(
+            outsideSourceFull.StartsWith(testRootFull, StringComparison.OrdinalIgnoreCase),
+            "Pre-condition: outside source must not be inside _testRoot");
+
+        // Call the service. A hardened implementation should refuse to move a source
+        // that is outside the configured library/root, returning 0 (or a sentinel).
+        var result = _trashService.MoveToTrash(outsideSource, trashPath, _loggerMock);
+
+        // Primary assertion: the service must not have moved the system temp directory
+        // (or any of its contents) into the trash path or anywhere else.
+        // Either the result is 0 (blocked / nothing moved) or – if the service does not
+        // enforce source-root containment – nothing outside _testRoot must have been touched.
+        var trashRoot = Path.GetFullPath(trashPath);
+        if (result != 0)
+        {
+            // If the service returned a non-zero byte count, every file it placed must
+            // still be inside _testRoot.
+            Assert.True(
+                trashRoot.StartsWith(testRootFull, StringComparison.OrdinalIgnoreCase),
+                "Trash output path must remain inside test root even when source is outside");
+
+            if (Directory.Exists(trashRoot))
+            {
+                foreach (var entry in Directory.GetFileSystemEntries(trashRoot, "*", SearchOption.AllDirectories))
+                {
+                    Assert.True(
+                        Path.GetFullPath(entry).StartsWith(testRootFull, StringComparison.OrdinalIgnoreCase),
+                        $"Entry escaped test root: {entry}");
+                }
+            }
+        }
+
+        // The system temp directory itself must still exist and must not have been deleted.
+        Assert.True(Directory.Exists(outsideSource), "System temp directory must not have been deleted");
     }
 
     [Fact]

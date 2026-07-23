@@ -299,7 +299,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
             Granularity = finalGranularity,
             EarliestFileDate = dataPoints[0].Date,
             ComputedAt = now,
-            TotalFilesScanned = currentDirs.Count,
+            TotalDirectoriesScanned = currentDirs.Count,
             FirstScanTimestamp = baseline.FirstScanTimestamp
         };
 

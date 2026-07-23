@@ -46,14 +46,26 @@ function renderArrInstanceRow(type, index, inst) {
         + escAttr(url) + '" placeholder="' + placeholderUrl + '">';
     var instanceApiKeyId = prefix + '_key';
     h += '<label for="' + instanceApiKeyId + '">' + T('apiKey', 'API Key')
-        + '</label><input type="password" id="' + instanceApiKeyId + '" value="'
-        + escAttr(apiKey) + '">';
+        + '</label><input type="password" id="' + instanceApiKeyId + '">';
     h += '<button type="button" class="action-btn btn-arr-test btnTestArr" id="'
         + prefix + '_btnTest" data-type="' + type + '" data-index="' + index
         + '" style="padding:0.3em 0.8em;font-size:0.85em;">' + mi('extension') + T(
             'testConnection', 'Test Connection') + '</button>';
     h += '</div>';
     return h;
+}
+
+// Post-render helper: sets API key values on the password inputs for all
+// instances of the given type. Called after form.innerHTML is assigned so
+// the secret never appears as a value attribute in the serialized HTML.
+function setArrInstanceApiKeys(type, instances) {
+    if (!instances) { return; }
+    for (var i = 0; i < instances.length; i++) {
+        var el = document.getElementById(type + '_' + i + '_key');
+        if (el) {
+            el.value = instances[i] ? (instances[i].ApiKey || '') : '';
+        }
+    }
 }
 
 function collectArrInstances(type) {
@@ -558,6 +570,12 @@ function renderArrSection(icon, titleKey, titleFallback, items) {
 function compareArr(type, index, label) {
     var resultDiv = document.getElementById('arrResult');
     if (!resultDiv) {
+        return;
+    }
+    var allowedTypes = ['Radarr', 'Sonarr'];
+    if (allowedTypes.indexOf(type) === -1) {
+        resultDiv.innerHTML = '<div class="error-msg">' + mi('error') + ' '
+            + escHtml(T('arrInvalidType', 'Invalid Arr type.')) + '</div>';
         return;
     }
     resultDiv.innerHTML = '<div class="loading-overlay" style="padding:1em;"><div class="spinner"></div><p>'

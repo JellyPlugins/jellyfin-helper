@@ -22,6 +22,16 @@
           "Microsoft.Extensions.Configuration.Binder": "10.0.10"
         }
       },
+      "Jellyfin.Database.Implementations": {
+        "type": "Direct",
+        "requested": "[12.0.0-rcrc3, )",
+        "resolved": "12.0.0-rcrc3",
+        "contentHash": "tZIBGNC1gPwYCXCg0mgmE/UyAX0C7qIMDSbrsUIKUpXmr4eOfk+w4zLPjqCn7eNTXswd3EgsQMKZyOAlYOKVog==",
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore.Relational": "10.0.10",
+          "Polly": "8.7.0"
+        }
+      },
       "Jellyfin.Model": {
         "type": "Direct",
         "requested": "[12.0.0-rcrc3, )",
@@ -153,15 +163,6 @@
         "dependencies": {
           "Jellyfin.Database.Implementations": "12.0.0-rcrc3",
           "Microsoft.Extensions.Logging": "10.0.10"
-        }
-      },
-      "Jellyfin.Database.Implementations": {
-        "type": "Transitive",
-        "resolved": "12.0.0-rcrc3",
-        "contentHash": "tZIBGNC1gPwYCXCg0mgmE/UyAX0C7qIMDSbrsUIKUpXmr4eOfk+w4zLPjqCn7eNTXswd3EgsQMKZyOAlYOKVog==",
-        "dependencies": {
-          "Microsoft.EntityFrameworkCore.Relational": "10.0.10",
-          "Polly": "8.7.0"
         }
       },
       "Jellyfin.Extensions": {

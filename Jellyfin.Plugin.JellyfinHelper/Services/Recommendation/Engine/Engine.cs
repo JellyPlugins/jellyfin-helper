@@ -316,27 +316,6 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             }
         }
 
-        // Cache for on-demand single-user calls that may follow.
-        // CreatedAtUtc drives the CandidateSnapshotMaxAge check in GetRecommendations so that a
-        // long gap between scheduled batches never lets the live path serve arbitrarily stale
-        // BaseItem references (which JF's metadata refresh may mutate in-place).
-        // The snapshot is republished a few lines below with the community-popularity map filled in,
-        // so live cold-start requests can reuse it instead of re-scanning every user's watch history.
-        //
-        // Publish goes through TryPublishSnapshot which serializes writes under _snapshotRefreshLock
-        // AND rejects publishes from an older batch generation (an older overlapping batch that
-        // finishes after a newer one must NOT clobber the newer batch's cached data).
-        TryPublishSnapshot(new CandidateSnapshot(
-            candidates,
-            peopleLookup,
-            candidateBoxSetLookup,
-            seriesEpisodeCounts,
-            null,
-            CommunityPopularityComputed: false, // filled in by the second publish once we have all-user aggregates
-            BatchGeneration: batchGeneration,
-            PublicationSequence: Interlocked.Increment(ref _publicationSequence),
-            DateTime.UtcNow));
-
         // Pre-compute all user watched-item sets ONCE for collaborative filtering.
         // Reduces O(U²×M) to O(U×M) by sharing sets across BuildCollaborativeMap calls.
         var precomputedUserSets = CollaborativeFilter.PrecomputeUserWatchSets(allProfiles);
@@ -363,13 +342,16 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // recurrence.
         var communityPopularity = BuildCommunityPopularityMap(precomputedUserSets);
 
-        // Republish the snapshot with the community-popularity map filled in. Live cold-start
-        // requests that arrive between batch runs can now read this map directly instead of
-        // re-computing it (which required GetAllUserWatchProfiles + PrecomputeUserWatchSets on
-        // every hit — an O(U×M) scan for every single new-user request).
-        //
-        // Again gated by TryPublishSnapshot so out-of-order batches (an older overlapping
-        // GetAllRecommendations finishing after this one) cannot clobber the newer data.
+        // Publish the snapshot once, with the community-popularity map already included.
+        // Previously this was split into two TryPublishSnapshot calls — a partial publish
+        // (CommunityPopularity = null) followed by a second publish once the map was ready.
+        // That two-step approach introduced a race: a live cold-start request arriving between
+        // the two publishes could read the partial snapshot, observe a different sequence
+        // number than the candidates it had cached, and mix candidates from one publish with
+        // community popularity from another. Deferring to a single publish eliminates the
+        // window entirely. The publish is gated by TryPublishSnapshot so out-of-order batches
+        // (an older overlapping GetAllRecommendations finishing after this one) cannot clobber
+        // the newer data.
         TryPublishSnapshot(new CandidateSnapshot(
             candidates,
             peopleLookup,
@@ -1750,6 +1732,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="cancellationToken">Token for cooperative cancellation.</param>
     private void UpdateDiscoveryWatchedStatus(CancellationToken cancellationToken)
     {
+        if (_discoveryFeedbackStore == null)
+        {
+            return;
+        }
+
         try
         {
             var allFeedback = _discoveryFeedbackStore.LoadAll();
@@ -2078,6 +2065,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         {
             disposable.Dispose();
         }
+
+        _trainingService.Dispose();
     }
 
     /// <summary>

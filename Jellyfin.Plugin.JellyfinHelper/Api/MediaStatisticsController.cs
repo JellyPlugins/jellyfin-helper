@@ -30,6 +30,7 @@ public class MediaStatisticsController : ControllerBase
     // Simple in-memory rate limiting (single-instance only; not effective in clustered/multi-pod deployments).
     // Static field + lock is intentional: ASP.NET creates a new controller instance per request,
     // so the rate-limit state must be shared across all instances via a static field.
+    // Must only be written inside RateLimitLock.
     private static DateTime _lastScanTime = DateTime.MinValue;
     private readonly IMemoryCache _cache;
     private readonly IStatisticsCacheService _cacheService;

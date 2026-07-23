@@ -1612,95 +1612,100 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         List<TmdbDiscoverItem> candidates,
         CancellationToken cancellationToken)
     {
-        using var semaphore = new SemaphoreSlim(CreditsEnrichmentParallelism, CreditsEnrichmentParallelism);
-        var tasks = candidates.Select(async candidate =>
+        var semaphore = new SemaphoreSlim(CreditsEnrichmentParallelism, CreditsEnrichmentParallelism);
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
+            var tasks = candidates.Select(async candidate =>
             {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                cts.CancelAfter(TimeSpan.FromMilliseconds(CreditsEnrichmentTimeoutMs));
-
-                var mediaPath = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
-                    ? $"api/v1/tv/{candidate.Id}"
-                    : $"api/v1/movie/{candidate.Id}";
-
+                cancellationToken.ThrowIfCancellationRequested();
+                await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    using var req = BuildRequest(HttpMethod.Get, baseUri, mediaPath, apiKey);
-                    using var response = await client.SendAsync(req, cts.Token).ConfigureAwait(false);
+                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    cts.CancelAfter(TimeSpan.FromMilliseconds(CreditsEnrichmentTimeoutMs));
 
-                    if (!response.IsSuccessStatusCode)
+                    var mediaPath = string.Equals(candidate.MediaType, "tv", StringComparison.OrdinalIgnoreCase)
+                        ? $"api/v1/tv/{candidate.Id}"
+                        : $"api/v1/movie/{candidate.Id}";
+
+                    try
                     {
-                        return;
-                    }
+                        using var req = BuildRequest(HttpMethod.Get, baseUri, mediaPath, apiKey);
+                        using var response = await client.SendAsync(req, cts.Token).ConfigureAwait(false);
 
-                    var json = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
-                    var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>(json, JsonOptions);
-
-                    if (detail?.Credits == null)
-                    {
-                        return;
-                    }
-
-                    var people = new List<string>(MaxCastPerCandidate);
-
-                    if (detail.Credits.Crew is { Count: > 0 })
-                    {
-                        foreach (var crew in detail.Credits.Crew.Where(
-                            c => string.Equals(c.Job, "Director", StringComparison.OrdinalIgnoreCase)
-                                 && !string.IsNullOrWhiteSpace(c.Name)))
+                        if (!response.IsSuccessStatusCode)
                         {
-                            if (people.Count >= MaxCastPerCandidate)
+                            return;
+                        }
+
+                        var json = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+                        var detail = JsonSerializer.Deserialize<SeerrMediaDetailResponse>(json, JsonOptions);
+
+                        if (detail?.Credits == null)
+                        {
+                            return;
+                        }
+
+                        var people = new List<string>(MaxCastPerCandidate);
+
+                        if (detail.Credits.Crew is { Count: > 0 })
+                        {
+                            foreach (var crew in detail.Credits.Crew.Where(
+                                c => string.Equals(c.Job, "Director", StringComparison.OrdinalIgnoreCase)
+                                     && !string.IsNullOrWhiteSpace(c.Name)))
                             {
-                                break;
+                                if (people.Count >= MaxCastPerCandidate)
+                                {
+                                    break;
+                                }
+
+                                people.Add(crew.Name);
                             }
-
-                            people.Add(crew.Name);
                         }
-                    }
 
-                    if (detail.Credits.Cast is { Count: > 0 })
-                    {
-                        var actorsToTake = MaxCastPerCandidate - people.Count;
-                        if (actorsToTake > 0)
+                        if (detail.Credits.Cast is { Count: > 0 })
                         {
-                            var topActors = detail.Credits.Cast
-                                .Where(c => !string.IsNullOrWhiteSpace(c.Name))
-                                .OrderBy(c => c.Order)
-                                .Take(actorsToTake)
-                                .Select(c => c.Name);
-                            people.AddRange(topActors);
+                            var actorsToTake = MaxCastPerCandidate - people.Count;
+                            if (actorsToTake > 0)
+                            {
+                                var topActors = detail.Credits.Cast
+                                    .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+                                    .OrderBy(c => c.Order)
+                                    .Take(actorsToTake)
+                                    .Select(c => c.Name);
+                                people.AddRange(topActors);
+                            }
+                        }
+
+                        if (people.Count > 0)
+                        {
+                            candidate.KnownPeople = people;
                         }
                     }
-
-                    if (people.Count > 0)
+                    catch (OperationCanceledException)
                     {
-                        candidate.KnownPeople = people;
+                        throw;
+                    }
+                    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
+                    {
+                        _pluginLog.LogDebug(
+                            "SeerrDiscovery",
+                            $"Credits enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
+                            _logger);
                     }
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                finally
                 {
-                    throw;
+                    semaphore.Release();
                 }
-                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException
-                    // OperationCanceledException here = per-request timeout (not outer cancellation - that is explicitly rethrown above)
-                    or OperationCanceledException)
-                {
-                    _pluginLog.LogDebug(
-                        "SeerrDiscovery",
-                        $"Credits enrichment failed for {candidate.MediaType}#{candidate.Id}: {ex.Message}",
-                        _logger);
-                }
-            }
-            finally
-            {
-                semaphore.Release();
-            }
-        }).ToList();
+            }).ToList();
 
-        await Task.WhenAll(tasks).ConfigureAwait(false);
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+        }
+        finally
+        {
+            semaphore.Dispose();
+        }
     }
 
     /// <summary>

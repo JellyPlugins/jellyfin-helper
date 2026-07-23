@@ -34,11 +34,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
+        Instance = this;
         _applicationPaths = applicationPaths;
         _logger = logger;
         ReportClampedConfigValues();
         InjectScript();
-        Instance = this;
     }
 
     /// <inheritdoc />
@@ -62,6 +62,17 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private string IndexHtmlPath => Path.Combine(_applicationPaths.WebPath, "index.html");
 
     /// <inheritdoc />
+    public override void UpdateConfiguration(BasePluginConfiguration configuration)
+    {
+        if (configuration is PluginConfiguration config)
+        {
+            config.NormalizeAlphaRange();
+        }
+
+        base.UpdateConfiguration(configuration);
+    }
+
+    /// <inheritdoc />
     public override void OnUninstalling()
     {
         UnregisterFileTransformation();
@@ -69,6 +80,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         CleanupDataFiles();
         CleanupWebPathTempFiles();
         CleanupRecommendationPlaylists();
+        Api.UserDiscoveryController.ClearRateLimitState();
         base.OnUninstalling();
     }
 
@@ -217,7 +229,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
 
             var payload = Activator.CreateInstance(jObjectType);
-            var jTokenType = newtonsoftAssembly.GetType("Newtonsoft.Json.Linq.JToken")!;
+            var jTokenType = newtonsoftAssembly.GetType("Newtonsoft.Json.Linq.JToken");
+            if (jTokenType == null)
+            {
+                _logger.LogWarning("JToken type not found in Newtonsoft.Json assembly");
+                return false;
+            }
+
             var addMethod = jObjectType.GetMethod("Add", new Type[] { typeof(string), jTokenType });
             var jValueType = newtonsoftAssembly.GetType("Newtonsoft.Json.Linq.JValue");
 
@@ -453,8 +471,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    // Best effort - file may be locked or permission-restricted.
-                    // Skip and continue with the next file.
+                    _logger.LogWarning(ex, "Failed to clean up data file");
                 }
             }
         }

@@ -67,39 +67,33 @@ public class PluginConfigurationServiceTests
     public void GetConfiguration_ReturnsAccessorConfigurationWhenAvailable()
     {
         var owned = new PluginConfiguration { Language = "de", OrphanMinAgeDays = 99 };
-        var sut = new PluginConfigurationService(new FakePluginAccessor { Configuration = owned });
+        var sut = new PluginConfigurationService(new FakePluginAccessor { IsInitialized = true, Configuration = owned });
 
         var cfg = sut.GetConfiguration();
 
-        // Same reference — the service must not copy so callers can mutate through it.
+        // Same reference — the service returns the live shared object so callers have the
+        // authoritative view. Mutation must go through ReadAndMutate, not via this reference.
         Assert.Same(owned, cfg);
         Assert.Equal("de", cfg.Language);
         Assert.Equal(99, cfg.OrphanMinAgeDays);
     }
 
     [Fact]
-    public void GetConfiguration_FallsBackToFreshDefaultsWhenAccessorHasNone()
+    public void GetConfiguration_ThrowsWhenNotInitialized()
     {
-        var sut = new PluginConfigurationService(new FakePluginAccessor { Configuration = null });
+        // Finding #9: when the plugin singleton has not yet been created, GetConfiguration must
+        // throw rather than return a silent default that could mask a startup-ordering bug.
+        var sut = new PluginConfigurationService(new FakePluginAccessor { IsInitialized = false, Configuration = null });
 
-        var cfg = sut.GetConfiguration();
-
-        Assert.NotNull(cfg);
-        // A fresh PluginConfiguration is returned — must have default values, not aliased.
-        Assert.IsType<PluginConfiguration>(cfg);
-        // Each call under the fallback path returns a NEW instance (so callers can't
-        // accidentally share a mutable default across the codebase).
-        var cfg2 = sut.GetConfiguration();
-        Assert.NotSame(cfg, cfg2);
+        Assert.Throws<InvalidOperationException>(() => sut.GetConfiguration());
     }
 
     [Fact]
-    public void GetConfiguration_NeverReturnsNull_WhenAccessorIsNull()
+    public void GetConfiguration_ThrowsWhenAccessorIsUninitialised_DefaultFakeState()
     {
-        // Redundant with the fallback test above but locks the contract at the interface
-        // boundary: no code path may leak a null reference to a caller.
+        // Confirm the default FakePluginAccessor (IsInitialized=false) also triggers the guard.
         var sut = new PluginConfigurationService(new FakePluginAccessor());
-        Assert.NotNull(sut.GetConfiguration());
+        Assert.Throws<InvalidOperationException>(() => sut.GetConfiguration());
     }
 
     // ===== SaveConfiguration =====
@@ -144,10 +138,10 @@ public class PluginConfigurationServiceTests
     [Fact]
     public void ParameterlessConstructor_UsesRealPluginAccessor_WithoutThrowing()
     {
-        // Smoke test for the production wiring path. Whichever state Plugin.Instance
-        // happens to be in at the moment this runs, construction must not throw and
-        // every read must return a valid value (either the singleton's or the
-        // documented fallback).
+        // Smoke test for the production wiring path. Construction must not throw
+        // regardless of whether Plugin.Instance has been set by a parallel test.
+        // We verify PluginVersion but do NOT call GetConfiguration() because
+        // GetConfiguration() throws InvalidOperationException when not initialized.
         //
         // NOTE: We intentionally do NOT invoke SaveConfiguration() here — that would
         // touch the real Plugin.Instance persistence layer (ambient disk I/O) and could
@@ -155,7 +149,9 @@ public class PluginConfigurationServiceTests
         // the accessor-mock tests below.
         var sut = new PluginConfigurationService();
 
-        Assert.NotNull(sut.GetConfiguration());
+        // Construction must succeed regardless of Plugin.Instance state.
+        // IsInitialized reflects whether Plugin.Instance is non-null at construction time.
+        Assert.Equal(Plugin.Instance != null, sut.IsInitialized);
         Assert.False(string.IsNullOrWhiteSpace(sut.PluginVersion));
     }
 }

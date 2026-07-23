@@ -132,6 +132,7 @@
   "inArrOnly": "Apenas no Arr (com arquivo)",
   "inArrOnlyMissing": "Apenas no Arr (sem arquivo)",
   "inJellyfinOnly": "Apenas no Jellyfin",
+  "arrInvalidType": "Invalid Arr type. Expected Radarr or Sonarr.",
   "arrNotConfigured": "Não configurado. Defina a URL e a chave API nas configurações.",
   "testConnection": "Testar conexão",
   "testConnectionFailed": "Falha na conexão",

@@ -620,7 +620,7 @@ public class ArrIntegrationServiceTests
         var service = CreateService(handler.Object);
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
             service.TestConnectionAsync("http://radarr.local", "key\r\nX-Injected: evil", CancellationToken.None));
-        Assert.Contains("CR or LF", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -630,7 +630,7 @@ public class ArrIntegrationServiceTests
         var service = CreateService(handler.Object);
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
             service.GetRadarrMoviesAsync("http://radarr.local", "key\r\nX-Injected: evil", CancellationToken.None));
-        Assert.Contains("CR or LF", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -640,7 +640,7 @@ public class ArrIntegrationServiceTests
         var service = CreateService(handler.Object);
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
             service.GetSonarrSeriesAsync("http://sonarr.local", "key\nX-Injected: evil", CancellationToken.None));
-        Assert.Contains("CR or LF", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     // === HttpClient not disposed (IHttpClientFactory contract) ===

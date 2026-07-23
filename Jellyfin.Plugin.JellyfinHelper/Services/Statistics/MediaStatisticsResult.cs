@@ -40,7 +40,7 @@ public class MediaStatisticsResult
     /// <summary>
     /// Gets or sets the UTC timestamp when this scan was performed.
     /// </summary>
-    public DateTime ScanTimestamp { get; set; } = DateTime.UtcNow;
+    public DateTime ScanTimestamp { get; set; } = DateTime.MinValue;
 
     // === Size Totals ===
 

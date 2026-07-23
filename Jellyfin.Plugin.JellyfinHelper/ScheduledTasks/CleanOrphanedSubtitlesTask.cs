@@ -103,9 +103,10 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                 // Skip the trash folder and everything inside it
                 var normalizedDir = Path.GetFullPath(dirPath)
                     .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (normalizedDir.Equals(normalizedTrash, StringComparison.OrdinalIgnoreCase)
-                    || normalizedDir.StartsWith(normalizedTrashSep, StringComparison.OrdinalIgnoreCase)
-                    || normalizedDir.StartsWith(normalizedTrashAlt, StringComparison.OrdinalIgnoreCase))
+                var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                if (normalizedDir.Equals(normalizedTrash, comparison)
+                    || normalizedDir.StartsWith(normalizedTrashSep, comparison)
+                    || normalizedDir.StartsWith(normalizedTrashAlt, comparison))
                 {
                     continue;
                 }
@@ -151,7 +152,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
 
                     // Extract the base name of the subtitle, stripping language suffixes
                     // e.g., "Movie.en.srt" → "Movie", "Movie.en.forced.srt" → "Movie"
-                    var subtitleBaseName = GetSubtitleBaseName(file.FullName);
+                    var subtitleBaseName = GetSubtitleBaseName(file.FullName, videoBaseNames);
 
                     if (videoBaseNames.Contains(subtitleBaseName))
                     {
@@ -224,10 +225,14 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     ///     "Movie Name (2021).es-MX.srt" → "Movie Name (2021)"
     ///     "Movie Name (2021).pt-BR.forced.srt" → "Movie Name (2021)"
     ///     "Movie Name (2021).zh-Hans.srt" → "Movie Name (2021)".
+    ///     If the stripped result does not match any known video base name, falls back to
+    ///     the original unsplit name (i.e., the filename without its subtitle extension)
+    ///     to avoid false-orphan detection when the movie title itself contains language codes.
     /// </summary>
     /// <param name="filePath">The full path to the subtitle file.</param>
-    /// <returns>The base name without language and format suffixes.</returns>
-    internal static string GetSubtitleBaseName(string filePath)
+    /// <param name="videoBaseNames">The set of video base names present in the same directory.</param>
+    /// <returns>The base name without language and format suffixes, or the original unsplit name as fallback.</returns>
+    internal static string GetSubtitleBaseName(string filePath, HashSet<string> videoBaseNames)
     {
         // Start with filename without extension: "Movie.en.forced"
         var nameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
@@ -248,7 +253,18 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
         }
 
         // Rejoin the parts up to endIndex
-        return string.Join('.', parts, 0, endIndex + 1);
+        var candidateBase = string.Join('.', parts, 0, endIndex + 1);
+
+        // Verify the stripped candidate actually matches a video file in the directory.
+        // If the movie title itself contains something that looks like a language code
+        // (e.g. "en.mkv"), stripping would produce a wrong base name. Fall back to the
+        // original unsplit name so that the caller's videoBaseNames lookup stays accurate.
+        if (videoBaseNames.Contains(candidateBase))
+        {
+            return candidateBase;
+        }
+
+        return nameWithoutExt;
     }
 
     /// <summary>

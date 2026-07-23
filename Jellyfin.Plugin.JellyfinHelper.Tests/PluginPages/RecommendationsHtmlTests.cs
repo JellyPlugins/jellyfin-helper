@@ -98,8 +98,9 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
     public void Html_ShowSeerrUserPopup_DoesNotCacheFailures()
     {
         // Failed profile lookups must NOT be cached (would fail-open on wrong server otherwise)
+        // Cache is now _seerrServicesCache module-level variable; failures delete the entry
         Assert.Matches(
-            new Regex(@"function\s+showSeerrUserPopup[\s\S]*?delete\s+window\[cacheKey\]"),
+            new Regex(@"delete\s+_seerrServicesCache\s*\[\s*serviceType\s*\]"),
             HtmlContent);
     }
 
@@ -435,8 +436,9 @@ public class RecommendationsHtmlTests : ConfigPageTestBase
     public void Html_RenderRecommendations_CachesEmptyResults()
     {
         // Prevents repeated API calls on tab switches when the user genuinely has 0 recommendations
+        // _recsResults is now a module-level variable (not window.*) to avoid global namespace pollution
         Assert.Matches(
-            new Regex(@"function\s+renderRecommendations[\s\S]*?window\._recsResults\s*=\s*results\s*\|\|\s*\[\]"),
+            new Regex(@"_recsResults\s*=\s*results\s*\|\|\s*\[\]"),
             HtmlContent);
     }
 

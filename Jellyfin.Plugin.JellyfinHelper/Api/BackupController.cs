@@ -48,14 +48,20 @@ public class BackupController : ControllerBase
     ///     Exports the plugin configuration and historical data as a backup JSON file.
     ///     Includes configuration preferences, Arr integration settings, growth timeline,
     ///     and statistics history. Cleanup statistics are excluded (they reset on fresh installations).
+    ///     By default API keys are omitted from the export. Pass <c>includeSecrets=true</c> to
+    ///     include plaintext credentials — store the resulting file securely.
     /// </summary>
+    /// <param name="includeSecrets">
+    ///     When <c>true</c>, API key values are included in the backup.
+    ///     Defaults to <c>false</c> so exports are safe to share without credential exposure.
+    /// </param>
     /// <returns>A JSON file download containing the backup data.</returns>
     [HttpGet("Export")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public ActionResult ExportBackup()
+    public ActionResult ExportBackup([FromQuery] bool includeSecrets = false)
     {
-        var backup = _backupService.CreateBackup();
+        var backup = _backupService.CreateBackup(includeSecrets);
         var json = BackupService.SerializeBackup(backup);
 
         var bytes = Encoding.UTF8.GetBytes(json);

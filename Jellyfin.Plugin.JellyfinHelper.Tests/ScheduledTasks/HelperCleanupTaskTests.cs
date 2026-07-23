@@ -490,7 +490,7 @@ public class HelperCleanupTaskTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_TrashEnabledRetentionZero_RunsTrashPurge()
+    public async Task ExecuteAsync_TrashEnabledRetentionZero_SkipsTrashPurge()
     {
         _config = new PluginConfiguration
         {
@@ -506,7 +506,7 @@ public class HelperCleanupTaskTests
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        VerifyLogContains("Running trash purge (retention: 0 days)", LogLevel.Information);
+        VerifyLogNeverContains("Running trash purge", LogLevel.Information);
     }
 
     private void VerifySeerrCalledWith(string url, string apiKey, int ageDays, bool dryRun)

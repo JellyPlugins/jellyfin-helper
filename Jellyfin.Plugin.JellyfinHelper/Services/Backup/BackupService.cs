@@ -81,8 +81,13 @@ public sealed class BackupService : IBackupService
     /// <summary>
     ///     Creates a backup of all exportable plugin data.
     /// </summary>
+    /// <param name="includeSecrets">
+    ///     When <c>true</c>, API key values are included in the backup.
+    ///     When <c>false</c> (the default), all API key fields are replaced with an empty
+    ///     string so that the exported file does not contain plaintext credentials.
+    /// </param>
     /// <returns>The backup data object ready for serialization.</returns>
-    public BackupData CreateBackup()
+    public BackupData CreateBackup(bool includeSecrets = false)
     {
         _pluginLog.LogInfo("Backup", "Creating plugin backup...", _logger);
 
@@ -156,6 +161,24 @@ public sealed class BackupService : IBackupService
         backup.GrowthBaseline = LoadJsonFile<GrowthTimelineBaseline>(
             Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"));
 
+        // When the caller opts out of secrets, redact all API key values so the exported
+        // file cannot be used to harvest plaintext credentials.  The empty-string convention
+        // is intentional: during a subsequent restore an empty backup key means "preserve
+        // the live key", so a redacted backup will not wipe existing credentials.
+        if (!includeSecrets)
+        {
+            backup.SeerrApiKey = string.Empty;
+            foreach (var instance in backup.RadarrInstances)
+            {
+                instance.ApiKey = string.Empty;
+            }
+
+            foreach (var instance in backup.SonarrInstances)
+            {
+                instance.ApiKey = string.Empty;
+            }
+        }
+
         // Flag the backup when it contains plaintext credentials so the UI/caller can
         // warn the user to store the exported file securely.
         backup.ContainsSecrets =
@@ -188,35 +211,57 @@ public sealed class BackupService : IBackupService
         // the live configuration has not yet been replaced.  Only after all
         // I/O completes do we commit the new configuration to disk.
 
-        // Restore growth timeline
-        if (backup.GrowthTimeline != null &&
-            SaveJsonFile(
-                Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json"),
-                backup.GrowthTimeline))
-        {
-            summary.TimelineRestored = true;
-            _pluginLog.LogInfo(
-                "Backup",
-                $"Restored growth timeline ({backup.GrowthTimeline.DataPoints.Count} data points)",
-                _logger);
-        }
+        // Snapshot the paths of files that will be overwritten so that, if the
+        // restore only partially succeeds, an operator can identify which files
+        // may be in an inconsistent state.  Full content rollback is not
+        // implemented here because it would require reading each file before
+        // overwrite; a warning on partial failure is the pragmatic mitigation.
+        var timelinePath = Path.Join(_dataPath, "jellyfin-helper-growth-timeline.json");
+        var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
 
-        // Restore growth baseline
-        if (backup.GrowthBaseline != null &&
-            SaveJsonFile(
-                Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json"),
-                backup.GrowthBaseline))
+        var firstWriteSucceeded = false;
+        try
         {
-            summary.BaselineRestored = true;
-            _pluginLog.LogInfo(
-                "Backup",
-                $"Restored growth baseline ({backup.GrowthBaseline.Directories.Count} directories)",
-                _logger);
-        }
+            // Restore growth timeline
+            if (backup.GrowthTimeline != null &&
+                SaveJsonFile(timelinePath, backup.GrowthTimeline))
+            {
+                firstWriteSucceeded = true;
+                summary.TimelineRestored = true;
+                _pluginLog.LogInfo(
+                    "Backup",
+                    $"Restored growth timeline ({backup.GrowthTimeline.DataPoints.Count} data points)",
+                    _logger);
+            }
 
-        // Restore configuration last — uses ReadAndMutate so the entire
-        // read-mutate-save sequence is atomic with respect to concurrent callers.
-        RestoreConfiguration(backup, summary);
+            // Restore growth baseline
+            if (backup.GrowthBaseline != null &&
+                SaveJsonFile(baselinePath, backup.GrowthBaseline))
+            {
+                summary.BaselineRestored = true;
+                _pluginLog.LogInfo(
+                    "Backup",
+                    $"Restored growth baseline ({backup.GrowthBaseline.Directories.Count} directories)",
+                    _logger);
+            }
+
+            // Restore configuration last — uses ReadAndMutate so the entire
+            // read-mutate-save sequence is atomic with respect to concurrent callers.
+            RestoreConfiguration(backup, summary);
+        }
+        catch (Exception ex)
+        {
+            if (firstWriteSucceeded)
+            {
+                _pluginLog.LogWarning(
+                    "Backup",
+                    $"Restore partially applied. Manual recovery may be required. Check [{timelinePath}] and [{baselinePath}] files.",
+                    ex,
+                    _logger);
+            }
+
+            throw;
+        }
 
         _pluginLog.LogInfo(
             "Backup",

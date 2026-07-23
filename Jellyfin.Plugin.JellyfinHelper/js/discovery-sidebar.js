@@ -251,10 +251,22 @@
         injectStyles();
         tryMountCustomTab();
         var pending = false;
-        // Observe document.body (not .mainAnimatedPages) because Jellyfin replaces
-        // .mainAnimatedPages when navigating to the admin dashboard — an observer
-        // bound to the old element would become orphaned after returning to home.
+        // Prefer observing the SPA content root rather than document.body to avoid
+        // firing on every global DOM mutation. Fall back to document.body only when
+        // the content root is not yet present (cold load); the observer is then
+        // re-targeted once the narrower container appears.
+        var observeTarget = document.querySelector('.mainAnimatedPages') || document.body;
         var observer = new MutationObserver(function () {
+            // Re-target to the narrower container if we started on document.body
+            // and .mainAnimatedPages has since appeared.
+            if (observeTarget === document.body) {
+                var narrower = document.querySelector('.mainAnimatedPages');
+                if (narrower) {
+                    observer.disconnect();
+                    observeTarget = narrower;
+                    observer.observe(observeTarget, { childList: true, subtree: true });
+                }
+            }
             if (!pending) {
                 pending = true;
                 requestAnimationFrame(function () {
@@ -263,7 +275,7 @@
                 });
             }
         });
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(observeTarget, { childList: true, subtree: true });
     }
 
     function tryMountCustomTab() {
@@ -846,7 +858,7 @@
         navItem.href = '#';
         navItem.innerHTML =
             '<span class="material-icons navMenuOptionIcon" aria-hidden="true">explore</span>' +
-            '<span class="sectionName navMenuOptionText">' + t('discoveryTitle', 'Seerr Discovery') + '</span>';
+            '<span class="sectionName navMenuOptionText">' + esc(t('discoveryTitle', 'Seerr Discovery')) + '</span>';
         navItem.addEventListener('click', function (e) {
             e.preventDefault();
             var tabs = document.querySelectorAll('.headerTabs button, [role="tab"]');

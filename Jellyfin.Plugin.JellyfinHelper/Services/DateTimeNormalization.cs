@@ -10,10 +10,9 @@ internal static class DateTimeNormalization
 {
     /// <summary>
     ///     Normalizes a <see cref="DateTime"/> to UTC.
-    ///     Local values are converted; Unspecified values are reinterpreted as UTC without
-    ///     any offset adjustment. Callers must not pass a value that is actually local time
-    ///     with <see cref="DateTimeKind.Unspecified" /> — the resulting timestamp will be
-    ///     wrong by the server's UTC offset.
+    ///     Local values are converted via <see cref="DateTime.ToUniversalTime"/>. Unspecified
+    ///     values are relabeled as UTC without ticks conversion — callers must guarantee
+    ///     the value is already in UTC when the kind is <see cref="DateTimeKind.Unspecified"/>.
     /// </summary>
     /// <param name="value">The DateTime value to normalize.</param>
     /// <returns>The UTC-normalized DateTime.</returns>
@@ -22,9 +21,8 @@ internal static class DateTimeNormalization
         {
             DateTimeKind.Utc => value,
             DateTimeKind.Local => value.ToUniversalTime(),
-            // WARNING: Unspecified kind is assumed to be UTC (no offset conversion).
-            // If the value is actually local time marked as Unspecified, the result will be
-            // wrong by the server's UTC offset. Callers must guarantee this does not happen.
+            // Unspecified kind is relabeled as UTC without ticks conversion.
+            // Callers must guarantee the value is already in UTC.
             _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
         };
 

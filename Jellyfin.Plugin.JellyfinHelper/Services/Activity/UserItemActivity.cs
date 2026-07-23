@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 
@@ -18,6 +19,7 @@ public sealed class UserItemActivity
     /// <summary>
     ///     Gets or sets the user display name.
     /// </summary>
+    [JsonIgnore]
     public string UserName { get; set; } = string.Empty;
 
     /// <summary>
