@@ -1,6 +1,5 @@
 using System;
 using System.Net.Http;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
@@ -85,9 +84,9 @@ public class SeerrControllerTests
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         Assert.NotNull(okResult.Value);
-        var payload = ParsePayload(okResult);
-        Assert.True(payload.GetProperty("success").GetBoolean());
-        Assert.Equal("Connected", payload.GetProperty("message").GetString());
+        var payload = Assert.IsType<ConnectionTestResponse>(okResult.Value);
+        Assert.True(payload.Success);
+        Assert.Equal("Connected", payload.Message);
     }
 
     [Fact]
@@ -102,9 +101,9 @@ public class SeerrControllerTests
 
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status502BadGateway, objectResult.StatusCode);
-        var payload = ParsePayload(objectResult);
-        Assert.False(payload.GetProperty("success").GetBoolean());
-        Assert.Equal("Auth failed", payload.GetProperty("message").GetString());
+        var payload = Assert.IsType<ConnectionTestResponse>(objectResult.Value);
+        Assert.False(payload.Success);
+        Assert.Equal("Auth failed", payload.Message);
     }
 
     [Fact]
@@ -119,9 +118,9 @@ public class SeerrControllerTests
 
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status502BadGateway, objectResult.StatusCode);
-        var payload = ParsePayload(objectResult);
-        Assert.False(payload.GetProperty("success").GetBoolean());
-        Assert.Contains("Connection failed", payload.GetProperty("message").GetString());
+        var payload = Assert.IsType<ConnectionTestResponse>(objectResult.Value);
+        Assert.False(payload.Success);
+        Assert.Contains("Connection failed", payload.Message);
     }
 
     [Fact]
@@ -136,24 +135,9 @@ public class SeerrControllerTests
 
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status504GatewayTimeout, objectResult.StatusCode);
-        var payload = ParsePayload(objectResult);
-        Assert.False(payload.GetProperty("success").GetBoolean());
-        Assert.Contains("timed out", payload.GetProperty("message").GetString());
+        var payload = Assert.IsType<ConnectionTestResponse>(objectResult.Value);
+        Assert.False(payload.Success);
+        Assert.Contains("timed out", payload.Message);
     }
 
-    /// <summary>
-    ///     Serializes the anonymous-type payload of an <see cref="OkObjectResult"/> into a <see cref="JsonElement"/>
-    ///     so individual properties can be asserted without reflection or dynamic.
-    /// </summary>
-    private static JsonElement ParsePayload(OkObjectResult okResult)
-    {
-        var json = JsonSerializer.Serialize(okResult.Value);
-        return JsonDocument.Parse(json).RootElement;
-    }
-
-    private static JsonElement ParsePayload(ObjectResult result)
-    {
-        var json = JsonSerializer.Serialize(result.Value);
-        return JsonDocument.Parse(json).RootElement;
-    }
 }

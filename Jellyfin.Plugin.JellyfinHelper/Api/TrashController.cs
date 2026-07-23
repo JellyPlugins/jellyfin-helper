@@ -56,7 +56,7 @@ public class TrashController : ControllerBase
     /// </summary>
     /// <returns>The trash summary.</returns>
     [HttpGet("Summary")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TrashSizeResponse), StatusCodes.Status200OK)]
     public ActionResult GetTrashSummary()
     {
         var libraryFolders = _configHelper.GetFilteredLibraryLocations(_libraryManager);
@@ -77,11 +77,7 @@ public class TrashController : ControllerBase
             totalItems += count;
         }
 
-        return Ok(new
-        {
-            TotalSize = totalSize,
-            TotalItems = totalItems,
-        });
+        return Ok(new TrashSizeResponse { TotalSize = totalSize, TotalItems = totalItems });
     }
 
     /// <summary>
@@ -92,7 +88,7 @@ public class TrashController : ControllerBase
     /// </summary>
     /// <returns>An object containing the list of existing trash folder paths.</returns>
     [HttpGet("Folders")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TrashFoldersResponse), StatusCodes.Status200OK)]
     public ActionResult GetTrashFolders()
     {
         var config = _configHelper.GetConfig();
@@ -113,7 +109,7 @@ public class TrashController : ControllerBase
             existingPaths.AddRange(libraryFolders.Select(f => _configHelper.GetTrashPath(f)).Where(Directory.Exists));
         }
 
-        return Ok(new
+        return Ok(new TrashFoldersResponse
         {
             Paths = existingPaths,
             IsAbsolute = !string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathRooted(config.TrashFolderPath),
@@ -126,7 +122,7 @@ public class TrashController : ControllerBase
     /// </summary>
     /// <returns>A result indicating how many folders were deleted.</returns>
     [HttpDelete("Folders")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TrashDeleteResponse), StatusCodes.Status200OK)]
     public ActionResult DeleteTrashFolders()
     {
         var config = _configHelper.GetConfig();
@@ -183,11 +179,7 @@ public class TrashController : ControllerBase
             }
         }
 
-        return Ok(new
-        {
-            Deleted = deleted,
-            Failed = failed,
-        });
+        return Ok(new TrashDeleteResponse { Deleted = deleted.Count, Failed = failed.Count });
     }
 
     /// <summary>
@@ -196,12 +188,12 @@ public class TrashController : ControllerBase
     /// </summary>
     /// <returns>The trash contents grouped by library.</returns>
     [HttpGet("Contents")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TrashConfigResponse), StatusCodes.Status200OK)]
     public ActionResult GetTrashContents()
     {
         var config = _configHelper.GetConfig();
         var libraryFolders = _configHelper.GetFilteredLibraryLocations(_libraryManager);
-        var libraries = new List<object>();
+        var libraries = new List<TrashLibraryInfo>();
 
         var seenTrashPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var folder in libraryFolders)
@@ -216,7 +208,7 @@ public class TrashController : ControllerBase
 
             if (items.Count > 0)
             {
-                libraries.Add(new
+                libraries.Add(new TrashLibraryInfo
                 {
                     LibraryPath = folder,
                     LibraryName = Path.GetFileName(folder),
@@ -225,9 +217,9 @@ public class TrashController : ControllerBase
             }
         }
 
-        return Ok(new
+        return Ok(new TrashConfigResponse
         {
-            config.UseTrash,
+            UseTrash = config.UseTrash,
             RetentionDays = config.TrashRetentionDays,
             Libraries = libraries,
         });
@@ -240,7 +232,7 @@ public class TrashController : ControllerBase
     /// <param name="request">The request containing the trash folder path to query.</param>
     /// <returns>An object containing the list of existing trash folder paths.</returns>
     [HttpPost("FoldersForPath")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TrashFoldersResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult GetTrashFoldersForPath([FromBody] TrashPathQueryRequest request)
     {
@@ -267,7 +259,7 @@ public class TrashController : ControllerBase
 
         var existingPaths = _configHelper.GetExistingTrashFoldersForPath(_libraryManager, queryPath);
 
-        return Ok(new
+        return Ok(new TrashFoldersResponse
         {
             Paths = existingPaths,
             IsAbsolute = Path.IsPathRooted(queryPath),
@@ -281,7 +273,7 @@ public class TrashController : ControllerBase
     /// <param name="request">The request containing old and new trash paths.</param>
     /// <returns>A result indicating how many items were moved/failed.</returns>
     [HttpPost("Relocate")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TrashRelocateResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult RelocateTrash([FromBody] TrashRelocateRequest request)
     {
@@ -402,11 +394,7 @@ public class TrashController : ControllerBase
 
         _pluginLog.LogInfo("API", $"Trash relocation complete: {totalMoved} moved, {totalFailed} failed.", _logger);
 
-        return Ok(new
-        {
-            Moved = totalMoved,
-            Failed = totalFailed,
-        });
+        return Ok(new TrashRelocateResponse { Moved = totalMoved, Failed = totalFailed });
     }
 
     // === Private helpers ===
@@ -493,7 +481,7 @@ public class TrashController : ControllerBase
     /// <param name="request">The request containing the trash folder path to check.</param>
     /// <returns>An object indicating access status and any error message.</returns>
     [HttpPost("CheckAccess")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TrashAccessResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult CheckAccess([FromBody] TrashPathQueryRequest request)
     {
@@ -504,7 +492,7 @@ public class TrashController : ControllerBase
 
         var queryPath = request.TrashFolderPath.Trim();
         var libraryFolders = _configHelper.GetFilteredLibraryLocations(_libraryManager);
-        var results = new List<object>();
+        var results = new List<TrashAccessEntry>();
         var allAccessible = true;
 
         if (Path.IsPathRooted(queryPath))
@@ -518,14 +506,14 @@ public class TrashController : ControllerBase
                     : $"Trash path access check FAILED: {queryPath} — {accessResult.ErrorMessage}",
                 _logger);
             allAccessible &= accessResult.HasFullAccess;
-            results.Add(new
+            results.Add(new TrashAccessEntry
             {
                 Path = queryPath,
-                accessResult.Exists,
-                accessResult.CanRead,
-                accessResult.CanWrite,
-                accessResult.HasFullAccess,
-                accessResult.ErrorMessage
+                Exists = accessResult.Exists,
+                CanRead = accessResult.CanRead,
+                CanWrite = accessResult.CanWrite,
+                HasFullAccess = accessResult.HasFullAccess,
+                ErrorMessage = accessResult.ErrorMessage,
             });
         }
         else
@@ -542,24 +530,20 @@ public class TrashController : ControllerBase
                         : $"Trash path access check FAILED: {resolvedPath} (library: {folder}) — {accessResult.ErrorMessage}",
                     _logger);
                 allAccessible &= accessResult.HasFullAccess;
-                results.Add(new
+                results.Add(new TrashAccessEntry
                 {
                     Path = resolvedPath,
                     LibraryRoot = folder,
-                    accessResult.Exists,
-                    accessResult.CanRead,
-                    accessResult.CanWrite,
-                    accessResult.HasFullAccess,
-                    accessResult.ErrorMessage
+                    Exists = accessResult.Exists,
+                    CanRead = accessResult.CanRead,
+                    CanWrite = accessResult.CanWrite,
+                    HasFullAccess = accessResult.HasFullAccess,
+                    ErrorMessage = accessResult.ErrorMessage,
                 });
             }
         }
 
         var allOk = results.Count > 0 && allAccessible;
-        return Ok(new
-        {
-            AllAccessible = allOk,
-            Results = results
-        });
+        return Ok(new TrashAccessResponse { AllAccessible = allOk, Results = results });
     }
 }

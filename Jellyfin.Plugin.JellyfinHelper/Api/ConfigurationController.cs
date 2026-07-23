@@ -100,7 +100,7 @@ public class ConfigurationController : ControllerBase
     /// </summary>
     /// <returns>A list of library names.</returns>
     [HttpGet("Libraries")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(LibraryListResponse), StatusCodes.Status200OK)]
     public ActionResult GetAvailableLibraries()
     {
         var virtualFolders = _libraryManager.GetVirtualFolders();
@@ -128,17 +128,17 @@ public class ConfigurationController : ControllerBase
 
                 return true;
             })
-            .Select(f => new
+            .Select(f => new LibraryEntry
             {
-                name = f.Name,
-                collectionType = string.IsNullOrWhiteSpace(f.CollectionType?.ToString())
+                Name = f.Name ?? string.Empty,
+                CollectionType = string.IsNullOrWhiteSpace(f.CollectionType?.ToString())
                     ? "unknown"
-                    : f.CollectionType!.ToString()
+                    : f.CollectionType!.ToString()!,
             })
-            .OrderBy(f => f.name, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return Ok(new { libraries });
+        return Ok(new LibraryListResponse { Libraries = libraries });
     }
 
     /// <summary>
@@ -148,13 +148,13 @@ public class ConfigurationController : ControllerBase
     /// <param name="request">The log level update request containing the new level.</param>
     /// <returns>A status result.</returns>
     [HttpPut("LogLevel")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(LogLevelResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(LogLevelResponse), StatusCodes.Status400BadRequest)]
     public ActionResult UpdateLogLevel([FromBody] LogLevelUpdateRequest request)
     {
         if (!_configService.IsInitialized)
         {
-            return BadRequest(new { message = "Plugin not initialized." });
+            return BadRequest(new LogLevelResponse { Message = "Plugin not initialized." });
         }
 
         var level = string.IsNullOrWhiteSpace(request.PluginLogLevel)
@@ -164,14 +164,14 @@ public class ConfigurationController : ControllerBase
         if (Array.IndexOf(ValidLogLevels, level) < 0)
         {
             return BadRequest(
-                new { message = $"Invalid log level '{request.PluginLogLevel}'. Allowed: DEBUG, INFO, WARN, ERROR." });
+                new LogLevelResponse { Message = $"Invalid log level '{request.PluginLogLevel}'. Allowed: DEBUG, INFO, WARN, ERROR." });
         }
 
         _configService.ReadAndMutate(config => config.PluginLogLevel = level);
 
         _pluginLog.LogInfo("API", $"Plugin log level updated to {level}.", _logger);
 
-        return Ok(new { message = "Log level updated.", pluginLogLevel = level });
+        return Ok(new LogLevelResponse { Message = "Log level updated.", PluginLogLevel = level });
     }
 
     /// <summary>
@@ -182,10 +182,10 @@ public class ConfigurationController : ControllerBase
     /// <param name="request">The configuration update request.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A status result with optional connection warnings.</returns>
-    [HttpPost]
+    [HttpPut]
     [ServiceFilter(typeof(ModelBindingLogFilter))]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ConfigurationSaveResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ConfigurationSaveResponse), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> UpdateConfigurationAsync(
         [FromBody] ConfigurationUpdateRequest request,
         CancellationToken cancellationToken)
@@ -257,7 +257,7 @@ public class ConfigurationController : ControllerBase
             }
         }
 
-        return Ok(new { message = "Configuration saved.", warnings });
+        return Ok(new ConfigurationSaveResponse { Message = "Configuration saved.", Warnings = warnings });
     }
 
     /// <summary>

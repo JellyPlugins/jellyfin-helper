@@ -67,17 +67,17 @@ public class FolderBrowserController : ControllerBase
     /// </summary>
     /// <returns>A list of library root paths with their names.</returns>
     [HttpGet("LibraryPaths")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(FolderBrowserResponse), StatusCodes.Status200OK)]
     public ActionResult GetLibraryPaths()
     {
         var virtualFolders = _libraryManager.GetVirtualFolders();
         var paths = virtualFolders
             .Where(f => !string.IsNullOrWhiteSpace(f.Name))
-            .SelectMany(f => (f.Locations ?? []).Select(loc => new { name = f.Name, path = loc }))
-            .Where(x => !string.IsNullOrWhiteSpace(x.path))
-            .OrderBy(x => x.name, StringComparer.OrdinalIgnoreCase)
+            .SelectMany(f => (f.Locations ?? []).Select(loc => new LibraryPathEntry { Name = f.Name!, Path = loc }))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Path))
+            .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return Ok(new { libraryPaths = paths });
+        return Ok(new FolderBrowserResponse { LibraryPaths = paths });
     }
 }

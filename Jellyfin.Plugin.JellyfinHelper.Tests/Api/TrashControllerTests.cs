@@ -74,11 +74,10 @@ public class TrashControllerTests : IDisposable
         var result = _controller.GetTrashFolders();
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        dynamic data = okResult.Value!;
+        var data = Assert.IsType<TrashFoldersResponse>(okResult.Value);
         Assert.True(data.IsAbsolute);
-        var paths = Assert.IsType<List<string>>(data.Paths);
-        Assert.Single(paths);
-        Assert.Equal(trashPath, paths[0]);
+        Assert.Single(data.Paths);
+        Assert.Equal(trashPath, data.Paths[0]);
     }
 
     [Fact]
@@ -91,10 +90,9 @@ public class TrashControllerTests : IDisposable
         var result = _controller.GetTrashFolders();
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        dynamic data = okResult.Value!;
+        var data = Assert.IsType<TrashFoldersResponse>(okResult.Value);
         Assert.True(data.IsAbsolute);
-        var paths = Assert.IsType<List<string>>(data.Paths);
-        Assert.Empty(paths);
+        Assert.Empty(data.Paths);
     }
 
     [Fact]
@@ -118,11 +116,10 @@ public class TrashControllerTests : IDisposable
         var result = _controller.GetTrashFolders();
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        dynamic data = okResult.Value!;
+        var data = Assert.IsType<TrashFoldersResponse>(okResult.Value);
         Assert.False(data.IsAbsolute);
-        var paths = Assert.IsType<List<string>>(data.Paths);
-        Assert.Single(paths);
-        Assert.Equal(trash1, paths[0]);
+        Assert.Single(data.Paths);
+        Assert.Equal(trash1, data.Paths[0]);
     }
 
     [Fact]
@@ -148,12 +145,11 @@ public class TrashControllerTests : IDisposable
         var result = _controller.GetTrashFolders();
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        dynamic data = okResult.Value!;
+        var data = Assert.IsType<TrashFoldersResponse>(okResult.Value);
         Assert.False(data.IsAbsolute);
-        var paths = Assert.IsType<List<string>>(data.Paths);
-        Assert.Equal(2, paths.Count);
-        Assert.Contains(trash1, paths);
-        Assert.Contains(trash2, paths);
+        Assert.Equal(2, data.Paths.Count);
+        Assert.Contains(trash1, data.Paths);
+        Assert.Contains(trash2, data.Paths);
     }
 
     [Fact]
@@ -172,10 +168,9 @@ public class TrashControllerTests : IDisposable
         var result = _controller.DeleteTrashFolders();
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        dynamic data = okResult.Value!;
-        var deleted = Assert.IsType<List<string>>(data.Deleted);
-        Assert.Single(deleted);
-        Assert.Equal(Path.GetFullPath(trashPath), Path.GetFullPath(deleted[0]));
+        var data = Assert.IsType<TrashDeleteResponse>(okResult.Value);
+        Assert.Equal(1, data.Deleted);
+        Assert.Equal(0, data.Failed);
         Assert.False(Directory.Exists(trashPath));
     }
 
@@ -202,9 +197,9 @@ public class TrashControllerTests : IDisposable
         var result = _controller.DeleteTrashFolders();
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        dynamic data = okResult.Value!;
-        var deleted = Assert.IsType<List<string>>(data.Deleted);
-        Assert.Equal(2, deleted.Count);
+        var data = Assert.IsType<TrashDeleteResponse>(okResult.Value);
+        Assert.Equal(2, data.Deleted);
+        Assert.Equal(0, data.Failed);
         Assert.False(Directory.Exists(trash1));
         Assert.False(Directory.Exists(trash2));
     }
@@ -223,8 +218,8 @@ public class TrashControllerTests : IDisposable
         var result = _controller.DeleteTrashFolders();
 
         var badRequest = Assert.IsType<BadRequestObjectResult>(result);
-        dynamic data = badRequest.Value!;
-        Assert.Contains("unsafe", (string)data.Error);
+        var data = badRequest.Value as dynamic;
+        Assert.Contains("unsafe", (string)data!.Error);
         Assert.True(Directory.Exists(lib1));
     }
 }

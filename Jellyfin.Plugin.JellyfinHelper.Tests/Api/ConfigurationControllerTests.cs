@@ -101,11 +101,8 @@ public class ConfigurationControllerTests
 
         // Silent drop is the worst option — the response must call out the ignored change so
         // the client can surface it to the admin instead of pretending the save worked.
-        var payload = Assert.IsAssignableFrom<object>(ok.Value);
-        var warningsProp = payload.GetType().GetProperty("warnings");
-        Assert.NotNull(warningsProp);
-        var warnings = Assert.IsAssignableFrom<System.Collections.Generic.IEnumerable<string>>(warningsProp!.GetValue(payload));
-        Assert.Contains(warnings, w => w.Contains("PluginLogLevel", StringComparison.Ordinal));
+        var payload = Assert.IsType<ConfigurationSaveResponse>(ok.Value);
+        Assert.Contains(payload.Warnings, w => w.Contains("PluginLogLevel", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -118,11 +115,8 @@ public class ConfigurationControllerTests
         var ok = Assert.IsType<OkObjectResult>(result);
         Assert.Equal("WARN", _config.PluginLogLevel);
 
-        var payload = Assert.IsAssignableFrom<object>(ok.Value);
-        var warningsProp = payload.GetType().GetProperty("warnings");
-        Assert.NotNull(warningsProp);
-        var warnings = Assert.IsAssignableFrom<System.Collections.Generic.IEnumerable<string>>(warningsProp!.GetValue(payload));
-        Assert.DoesNotContain(warnings, w => w.Contains("PluginLogLevel", StringComparison.Ordinal));
+        var payload = Assert.IsType<ConfigurationSaveResponse>(ok.Value);
+        Assert.DoesNotContain(payload.Warnings, w => w.Contains("PluginLogLevel", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -136,11 +130,8 @@ public class ConfigurationControllerTests
         var ok = Assert.IsType<OkObjectResult>(result);
         Assert.Equal("INFO", _config.PluginLogLevel);
 
-        var payload = Assert.IsAssignableFrom<object>(ok.Value);
-        var warningsProp = payload.GetType().GetProperty("warnings");
-        Assert.NotNull(warningsProp);
-        var warnings = Assert.IsAssignableFrom<System.Collections.Generic.IEnumerable<string>>(warningsProp!.GetValue(payload));
-        Assert.DoesNotContain(warnings, w => w.Contains("PluginLogLevel", StringComparison.Ordinal));
+        var payload = Assert.IsType<ConfigurationSaveResponse>(ok.Value);
+        Assert.DoesNotContain(payload.Warnings, w => w.Contains("PluginLogLevel", StringComparison.Ordinal));
     }
 
     [Fact]

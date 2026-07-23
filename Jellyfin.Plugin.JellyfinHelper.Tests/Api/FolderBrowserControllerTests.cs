@@ -1,3 +1,4 @@
+using System.Linq;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -140,13 +141,8 @@ public class FolderBrowserControllerTests
         var result = controller.GetLibraryPaths();
 
         var ok = Assert.IsType<OkObjectResult>(result);
-        Assert.NotNull(ok.Value);
-        // Payload shape: { libraryPaths: [] }
-        var payload = ok.Value;
-        var libraryPathsProp = payload.GetType().GetProperty("libraryPaths")!.GetValue(payload);
-        var enumerable = Assert.IsAssignableFrom<System.Collections.IEnumerable>(libraryPathsProp!);
-        var items = enumerable.Cast<object>().ToList();
-        Assert.Empty(items);
+        var payload = Assert.IsType<FolderBrowserResponse>(ok.Value);
+        Assert.Empty(payload.LibraryPaths);
     }
 
     [Fact]
@@ -164,13 +160,10 @@ public class FolderBrowserControllerTests
         var result = controller.GetLibraryPaths();
 
         var ok = Assert.IsType<OkObjectResult>(result);
-        var payload = ok.Value;
-        var libraryPathsProp = payload!.GetType().GetProperty("libraryPaths")!.GetValue(payload);
-        var enumerable = Assert.IsAssignableFrom<System.Collections.IEnumerable>(libraryPathsProp!);
-        var items = enumerable.Cast<object>().ToList();
+        var payload = Assert.IsType<FolderBrowserResponse>(ok.Value);
 
         // 3 total: Movies (1 loc) + TV Shows (2 locs)
-        Assert.Equal(3, items.Count);
+        Assert.Equal(3, payload.LibraryPaths.Count);
     }
 
     [Fact]
@@ -188,10 +181,9 @@ public class FolderBrowserControllerTests
 
         var result = controller.GetLibraryPaths();
         var ok = Assert.IsType<OkObjectResult>(result);
-        var libraryPathsProp = ok.Value!.GetType().GetProperty("libraryPaths")!.GetValue(ok.Value);
-        var items = ((System.Collections.IEnumerable)libraryPathsProp!).Cast<object>().ToList();
+        var payload = Assert.IsType<FolderBrowserResponse>(ok.Value);
 
-        Assert.Single(items);
+        Assert.Single(payload.LibraryPaths);
     }
 
     [Fact]
@@ -207,10 +199,9 @@ public class FolderBrowserControllerTests
 
         var result = controller.GetLibraryPaths();
         var ok = Assert.IsType<OkObjectResult>(result);
-        var libraryPathsProp = ok.Value!.GetType().GetProperty("libraryPaths")!.GetValue(ok.Value);
-        var items = ((System.Collections.IEnumerable)libraryPathsProp!).Cast<object>().ToList();
+        var payload = Assert.IsType<FolderBrowserResponse>(ok.Value);
 
-        Assert.Empty(items);
+        Assert.Empty(payload.LibraryPaths);
     }
 
     [Fact]
@@ -226,11 +217,10 @@ public class FolderBrowserControllerTests
 
         var result = controller.GetLibraryPaths();
         var ok = Assert.IsType<OkObjectResult>(result);
-        var libraryPathsProp = ok.Value!.GetType().GetProperty("libraryPaths")!.GetValue(ok.Value);
-        var items = ((System.Collections.IEnumerable)libraryPathsProp!).Cast<object>().ToList();
+        var payload = Assert.IsType<FolderBrowserResponse>(ok.Value);
 
         // Only "/mnt/ok" survives filter
-        Assert.Single(items);
+        Assert.Single(payload.LibraryPaths);
     }
 
     [Fact]
@@ -248,15 +238,10 @@ public class FolderBrowserControllerTests
 
         var result = controller.GetLibraryPaths();
         var ok = Assert.IsType<OkObjectResult>(result);
-        var libraryPathsProp = ok.Value!.GetType().GetProperty("libraryPaths")!.GetValue(ok.Value);
-        var items = ((System.Collections.IEnumerable)libraryPathsProp!).Cast<object>().ToList();
+        var payload = Assert.IsType<FolderBrowserResponse>(ok.Value);
 
-        Assert.Equal(3, items.Count);
-        // Extract names (anonymous type with "name" property) and verify sort order
-        var names = items
-            .Select(i => (string)i.GetType().GetProperty("name")!.GetValue(i)!)
-            .ToList();
-
+        Assert.Equal(3, payload.LibraryPaths.Count);
+        var names = payload.LibraryPaths.Select(e => e.Name).ToList();
         Assert.Equal(new[] { "Alpha", "middle", "zeta" }, names);
     }
 
@@ -278,14 +263,11 @@ public class FolderBrowserControllerTests
 
         var result = controller.GetLibraryPaths();
         var ok = Assert.IsType<OkObjectResult>(result);
-        var libraryPathsProp = ok.Value!.GetType().GetProperty("libraryPaths")!.GetValue(ok.Value);
-        var items = ((System.Collections.IEnumerable)libraryPathsProp!).Cast<object>().ToList();
+        var payload = Assert.IsType<FolderBrowserResponse>(ok.Value);
 
         // Only Valid1 (1 loc) and Valid2 (1 loc) = 2 entries
-        Assert.Equal(2, items.Count);
-        var names = items
-            .Select(i => (string)i.GetType().GetProperty("name")!.GetValue(i)!)
-            .ToList();
+        Assert.Equal(2, payload.LibraryPaths.Count);
+        var names = payload.LibraryPaths.Select(e => e.Name).ToList();
         Assert.Contains("Valid1", names);
         Assert.Contains("Valid2", names);
     }

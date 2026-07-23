@@ -29,7 +29,7 @@ public class PingController : ControllerBase
     /// </summary>
     /// <returns>A JSON object with <c>ok</c>, <c>plugin</c>, and <c>version</c> fields.</returns>
     [HttpGet]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PingResponse), StatusCodes.Status200OK)]
     public ActionResult GetPing()
     {
         var version = typeof(PingController).Assembly
@@ -37,11 +37,6 @@ public class PingController : ControllerBase
             ?? typeof(PingController).Assembly.GetName().Version?.ToString()
             ?? "unknown";
 
-        return Ok(new
-        {
-            ok = true,
-            plugin = "JellyfinHelper",
-            version
-        });
+        return Ok(new PingResponse { Ok = true, Plugin = "JellyfinHelper", Version = version });
     }
 }

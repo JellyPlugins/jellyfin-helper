@@ -236,7 +236,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// </summary>
     /// <returns>An object containing the Seerr base URL.</returns>
     [HttpGet("ExternalLinks")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(SeerrUrlResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public ActionResult GetExternalLinksConfig()
     {
@@ -254,7 +254,7 @@ public sealed class UserDiscoveryController : ControllerBase
         var config = _configurationService.GetConfiguration();
         var seerrUrl = config.SeerrUrl?.Trim().TrimEnd('/') ?? string.Empty;
 
-        return Ok(new { SeerrUrl = seerrUrl });
+        return Ok(new SeerrUrlResponse { SeerrUrl = seerrUrl });
     }
 
     /// <summary>

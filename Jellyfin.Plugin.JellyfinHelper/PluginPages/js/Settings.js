@@ -782,7 +782,7 @@ function doSaveSettings(payload, options) {
  * is preserved server-side. See the block comment in doSaveSettings for the TOCTOU history.
  */
 function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
-    apiPost('JellyfinHelper/Configuration', payload, function (response) {
+    apiPut('JellyfinHelper/Configuration', payload, function (response) {
         var trashChanged = (!!payload.UseTrash) !== _wasTrashEnabled;
         _wasTrashEnabled = payload.UseTrash;
         _previousTrashPath = (payload.TrashFolderPath || '.jellyfin-trash').trim();

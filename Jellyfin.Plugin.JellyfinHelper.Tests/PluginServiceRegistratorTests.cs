@@ -18,6 +18,8 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using Jellyfin.Plugin.JellyfinHelper.Services.Statistics;
 using Jellyfin.Plugin.JellyfinHelper.Services.Timeline;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Playlists;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Xunit;
@@ -175,6 +177,27 @@ public class PluginServiceRegistratorTests
         Assert.NotNull(provider.GetService<NeuralScoringStrategy>());
         Assert.NotNull(provider.GetService<HeuristicScoringStrategy>());
         Assert.NotNull(provider.GetService<EnsembleScoringStrategy>());
+    }
+
+    [Fact]
+    public void RegisterServices_ResolvesRecommendationPlaylistService_WhenJellyfinDepsRegistered()
+    {
+        // BUG GUARD: RecommendationPlaylistService requires IPlaylistManager, IUserManager,
+        // and ILibraryManager — all Jellyfin-host interfaces not present in the plugin's own
+        // RegisterServices call. Jellyfin injects them via its own DI container at runtime.
+        // This test simulates that: register mocks for the three Jellyfin deps, then verify
+        // the full factory chain resolves without InvalidOperationException.
+        var sc = Register();
+        sc.AddLogging();
+        sc.AddSingleton(new Mock<IPlaylistManager>().Object);
+        sc.AddSingleton(new Mock<IUserManager>().Object);
+        sc.AddSingleton(new Mock<ILibraryManager>().Object);
+
+        var provider = sc.BuildServiceProvider(validateScopes: true);
+
+        var service = provider.GetService<IRecommendationPlaylistService>();
+        Assert.NotNull(service);
+        Assert.IsType<RecommendationPlaylistService>(service);
     }
 
     [Fact]

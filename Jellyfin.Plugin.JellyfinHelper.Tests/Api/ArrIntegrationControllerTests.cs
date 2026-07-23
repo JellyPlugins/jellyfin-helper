@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
@@ -53,8 +52,8 @@ public class ArrIntegrationControllerTests : IDisposable
         var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
-        Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
+        var payload = Assert.IsType<ConnectionTestResponse>(okResult.Value);
+        Assert.True(payload.Success);
     }
 
     [Fact]
@@ -68,9 +67,9 @@ public class ArrIntegrationControllerTests : IDisposable
         var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
 
         var okResult = Assert.IsType<OkObjectResult>(result);
-        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(okResult.Value));
-        Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
-        Assert.Contains("Unauthorized", doc.RootElement.GetProperty("message").GetString());
+        var payload = Assert.IsType<ConnectionTestResponse>(okResult.Value);
+        Assert.False(payload.Success);
+        Assert.Contains("Unauthorized", payload.Message);
     }
 
     [Fact]
@@ -152,10 +151,8 @@ public class ArrIntegrationControllerTests : IDisposable
         // Must not return 400 — the request reached the service layer
         Assert.IsNotType<BadRequestObjectResult>(result);
         var okResult = Assert.IsType<OkObjectResult>(result);
-        using var doc = System.Text.Json.JsonDocument.Parse(
-            System.Text.Json.JsonSerializer.Serialize(okResult.Value));
-        // A valid HTTP URL with a successful mock response should report success
-        Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
+        var payload = Assert.IsType<ConnectionTestResponse>(okResult.Value);
+        Assert.True(payload.Success);
     }
 
     [Fact]

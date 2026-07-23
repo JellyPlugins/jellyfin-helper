@@ -66,8 +66,8 @@ public class ArrIntegrationController : ControllerBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A result indicating success or failure with a message.</returns>
     [HttpPost("TestConnection")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> TestArrConnectionAsync(
         [FromBody] ArrTestConnectionRequest request,
         CancellationToken cancellationToken)
@@ -79,7 +79,7 @@ public class ArrIntegrationController : ControllerBase
         if (!Uri.TryCreate(url, UriKind.Absolute, out var parsedUrl) ||
             (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
         {
-            return BadRequest(new { success = false, message = "A valid HTTP(S) URL is required." });
+            return BadRequest(new ConnectionTestResponse { Success = false, Message = "A valid HTTP(S) URL is required." });
         }
 
         var (success, message) = await _arrService.TestConnectionAsync(
@@ -87,7 +87,7 @@ public class ArrIntegrationController : ControllerBase
             request.ApiKey ?? string.Empty,
             cancellationToken).ConfigureAwait(false);
 
-        return Ok(new { success, message });
+        return Ok(new ConnectionTestResponse { Success = success, Message = message });
     }
 
     /// <summary>
