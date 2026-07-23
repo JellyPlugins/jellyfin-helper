@@ -63,6 +63,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         try
         {
             var url = $"{baseUrl.TrimEnd('/')}/api/v3/system/status";
+            // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
             var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             EnsureApiKeyHeaderSafe(apiKey);
@@ -127,7 +128,8 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         try
         {
-            using var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
+            // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
+            var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
             var url = $"{baseUrl.TrimEnd('/')}/api/v3/movie";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             EnsureApiKeyHeaderSafe(apiKey);
@@ -185,7 +187,8 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         try
         {
-            using var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
+            // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
+            var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
             var url = $"{baseUrl.TrimEnd('/')}/api/v3/series";
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             EnsureApiKeyHeaderSafe(apiKey);

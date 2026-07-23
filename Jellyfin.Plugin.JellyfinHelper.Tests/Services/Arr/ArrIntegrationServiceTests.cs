@@ -642,4 +642,58 @@ public class ArrIntegrationServiceTests
             service.GetSonarrSeriesAsync("http://sonarr.local", "key\nX-Injected: evil", CancellationToken.None));
         Assert.Contains("CR or LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    // === HttpClient not disposed (IHttpClientFactory contract) ===
+
+    [Fact]
+    public async Task TestConnection_HttpClientNotDisposed_FactoryClientCanBeReused()
+    {
+        // IHttpClientFactory clients must NOT be disposed by callers — the factory manages handler lifetime.
+        // This test ensures the client returned by the factory is still usable after TestConnectionAsync returns,
+        // which would throw ObjectDisposedException if the service had incorrectly called client.Dispose().
+        var json = "{\"appName\":\"Radarr\",\"version\":\"5.0\"}";
+        var handler = CreateMockHandler(HttpStatusCode.OK, json);
+        var httpClient = new HttpClient(handler.Object);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
+
+        await service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None);
+
+        // After the call, the client must NOT be disposed — reuse it to verify.
+        var ex = Record.Exception(() => httpClient.BaseAddress);
+        Assert.Null(ex); // ObjectDisposedException would be thrown here if client was disposed
+    }
+
+    [Fact]
+    public async Task GetRadarrMoviesAsync_HttpClientNotDisposed_FactoryClientCanBeReused()
+    {
+        var json = "[{\"title\":\"Movie\",\"year\":2020,\"imdbId\":\"tt1\",\"tmdbId\":1,\"hasFile\":true,\"path\":\"/movies/Movie\"}]";
+        var handler = CreateMockHandler(HttpStatusCode.OK, json);
+        var httpClient = new HttpClient(handler.Object);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
+
+        await service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None);
+
+        var ex = Record.Exception(() => httpClient.BaseAddress);
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public async Task GetSonarrSeriesAsync_HttpClientNotDisposed_FactoryClientCanBeReused()
+    {
+        var json = "[{\"title\":\"Show\",\"year\":2020,\"imdbId\":\"tt2\",\"tvdbId\":2,\"tmdbId\":3,\"path\":\"/shows/Show\",\"statistics\":{\"episodeFileCount\":5,\"totalEpisodeCount\":10}}]";
+        var handler = CreateMockHandler(HttpStatusCode.OK, json);
+        var httpClient = new HttpClient(handler.Object);
+        var factoryMock = new Mock<IHttpClientFactory>();
+        factoryMock.Setup(f => f.CreateClient("ArrIntegration")).Returns(httpClient);
+        var service = new ArrIntegrationService(factoryMock.Object, TestMockFactory.CreatePluginLogService(), TestMockFactory.CreateLogger<ArrIntegrationService>().Object);
+
+        await service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None);
+
+        var ex = Record.Exception(() => httpClient.BaseAddress);
+        Assert.Null(ex);
+    }
 }
