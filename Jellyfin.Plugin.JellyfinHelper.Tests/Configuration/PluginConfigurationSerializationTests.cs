@@ -462,8 +462,8 @@ public class PluginConfigurationSerializationTests
         var config = new PluginConfiguration { SeerrCleanupAgeDays = raw };
         var reports = config.DrainClampReports();
         Assert.Contains(reports, r => r.PropertyName == "SeerrCleanupAgeDays"
-            && r.RawValue == raw.ToString()
-            && r.ClampedValue == expected.ToString());
+            && r.RawValue == raw.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            && r.ClampedValue == expected.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     [Fact]
@@ -492,8 +492,8 @@ public class PluginConfigurationSerializationTests
         var config = new PluginConfiguration { TrashRetentionDays = raw };
         var reports = config.DrainClampReports();
         Assert.Contains(reports, r => r.PropertyName == "TrashRetentionDays"
-            && r.RawValue == raw.ToString()
-            && r.ClampedValue == expected.ToString());
+            && r.RawValue == raw.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            && r.ClampedValue == expected.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     [Fact]
