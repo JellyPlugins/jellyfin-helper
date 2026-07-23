@@ -1342,4 +1342,30 @@ public class PluginLogServiceTests : IDisposable
         Assert.Contains("line2", exStr, StringComparison.Ordinal);
         Assert.Contains("line3", exStr, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void GetConfiguredMinLevel_WhenConfigServiceThrows_ReturnsInfoDefault()
+    {
+        // BUG GUARD: bare `catch {}` previously swallowed all exceptions silently.
+        // This test verifies the fallback to "INFO" when the config service is unavailable.
+        var throwingConfig = new Mock<IPluginConfigurationService>();
+        throwingConfig.Setup(s => s.GetConfiguration()).Throws(new InvalidOperationException("not ready"));
+        var sut = new PluginLogService(throwingConfig.Object);
+
+        var level = sut.GetConfiguredMinLevel();
+
+        Assert.Equal("INFO", level);
+    }
+
+    [Fact]
+    public void GetConfiguredMinLevel_WhenConfigReturnsDebug_ReturnsDebug()
+    {
+        var cfg = new PluginConfiguration { PluginLogLevel = "DEBUG" };
+        var sut = TestMockFactory.CreatePluginLogService(cfg);
+        sut.TestMinLevelOverride = null;
+
+        var level = sut.GetConfiguredMinLevel();
+
+        Assert.Equal("DEBUG", level);
+    }
 }

@@ -323,7 +323,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             _task.ExecuteAsync(new Progress<double>(), cts.Token));
 
-        _fileSystemMock.Verify(f => f.GetDirectories(libraryPath2, false), Times.Never);
+        _fileSystemMock.Verify(f => f.GetDirectories(libraryPath2), Times.Never);
     }
 
     [Fact]
@@ -338,7 +338,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         var virtualFolder2 = new VirtualFolderInfo { Locations = [libraryPath2] };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder1, virtualFolder2]);
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1, false)).Throws(new IOException("Access denied"));
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1)).Throws(new IOException("Access denied"));
 
         SetupTopLevelDirs(libraryPath2, ("Old Movie", "/media/movies2/Old Movie"));
         // Include subtitle to make it orphaned
@@ -412,7 +412,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        _fileSystemMock.Verify(f => f.GetDirectories(libraryPath, false), Times.Once);
+        _fileSystemMock.Verify(f => f.GetDirectories(libraryPath), Times.Once);
     }
 
     [Fact]
@@ -452,7 +452,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         // Music library should never be scanned at all
-        _fileSystemMock.Verify(f => f.GetDirectories(musicPath, false), Times.Never);
+        _fileSystemMock.Verify(f => f.GetDirectories(musicPath), Times.Never);
     }
 
     [Fact]
@@ -471,7 +471,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         // Boxset/Collections library should never be scanned at all
-        _fileSystemMock.Verify(f => f.GetDirectories(collectionsPath, false), Times.Never);
+        _fileSystemMock.Verify(f => f.GetDirectories(collectionsPath), Times.Never);
     }
 
     [Fact]
@@ -502,9 +502,9 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         // Music should not be scanned
-        _fileSystemMock.Verify(f => f.GetDirectories(musicPath, false), Times.Never);
+        _fileSystemMock.Verify(f => f.GetDirectories(musicPath), Times.Never);
         // Movies should be scanned and orphan detected
-        _fileSystemMock.Verify(f => f.GetDirectories(moviesPath, false), Times.Once);
+        _fileSystemMock.Verify(f => f.GetDirectories(moviesPath), Times.Once);
         VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
@@ -668,7 +668,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         // Should not be scanned due to path-based filter
-        _fileSystemMock.Verify(f => f.GetDirectories(collectionsPath, false), Times.Never);
+        _fileSystemMock.Verify(f => f.GetDirectories(collectionsPath), Times.Never);
     }
 
     // ========== New metadata-only / placeholder tests ==========
@@ -849,7 +849,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             IsDirectory = true
         }).ToArray();
 
-        _fileSystemMock.Setup(f => f.GetDirectories(parentPath, false)).Returns(dirMetadata);
+        _fileSystemMock.Setup(f => f.GetDirectories(parentPath)).Returns(dirMetadata);
     }
 
     private void SetupSubDirs(string parentPath, params (string Name, string FullName)[] dirs)
@@ -861,7 +861,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             IsDirectory = true
         }).ToArray();
 
-        _fileSystemMock.Setup(f => f.GetDirectories(parentPath, false)).Returns(dirMetadata);
+        _fileSystemMock.Setup(f => f.GetDirectories(parentPath)).Returns(dirMetadata);
     }
 
     private void SetupFiles(string dirPath, params string[] fileNames)
@@ -872,7 +872,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             IsDirectory = false
         }).ToArray();
 
-        _fileSystemMock.Setup(f => f.GetFiles(dirPath, false)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetFiles(dirPath)).Returns(files);
     }
 
     private void SetupFilesWithFullNames(string dirPath, params string[] fullNames)
@@ -883,6 +883,6 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             IsDirectory = false
         }).ToArray();
 
-        _fileSystemMock.Setup(f => f.GetFiles(dirPath, false)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetFiles(dirPath)).Returns(files);
     }
 }

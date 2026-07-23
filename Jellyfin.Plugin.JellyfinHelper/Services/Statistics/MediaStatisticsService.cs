@@ -102,7 +102,25 @@ public class MediaStatisticsService : IMediaStatisticsService
                     "MediaStatistics",
                     $"Scanning library location: {location} (type: {collectionType})",
                     _logger);
-                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, location, skipHealth, scanTrashFolderName);
+
+                // Pre-compute the resolved absolute trash path once per library root so it
+                // is not re-derived on every recursive directory call (H-22).
+                string? resolvedFullTrashPath = null;
+                try
+                {
+                    resolvedFullTrashPath = Path.GetFullPath(_configHelper.GetTrashPath(location))
+                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                }
+                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+                {
+                    _pluginLog.LogWarning(
+                        "MediaStatistics",
+                        $"Could not resolve trash path for library root: {location}",
+                        ex,
+                        _logger);
+                }
+
+                AnalyzeDirectoryRecursive(location, libraryStats, itemLookup, location, skipHealth, scanTrashFolderName, resolvedFullTrashPath);
             }
 
             _pluginLog.LogDebug(
@@ -217,13 +235,20 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="libraryRoot">The library root path (used for trash folder resolution).</param>
     /// <param name="skipHealthChecks">When true, skip health check counters (e.g. for boxset/collection libraries).</param>
     /// <param name="trashFolderName">Pre-resolved trash folder name; passed down to avoid re-reading config on every recursive call.</param>
+    /// <param name="resolvedFullTrashPath">
+    ///     The normalized absolute trash path for this library root, pre-computed by the caller
+    ///     and threaded through every recursive call to avoid re-invoking
+    ///     <see cref="ICleanupConfigHelper.GetTrashPath" /> on every directory (H-22).
+    ///     Null when <paramref name="libraryRoot" /> is null.
+    /// </param>
     private bool AnalyzeDirectoryRecursive(
         string directoryPath,
         LibraryStatistics stats,
         Dictionary<string, BaseItem> itemLookup,
         string? libraryRoot = null,
         bool skipHealthChecks = false,
-        string? trashFolderName = null)
+        string? trashFolderName = null,
+        string? resolvedFullTrashPath = null)
     {
         var containsVideo = false;
         try
@@ -309,11 +334,9 @@ public class MediaStatisticsService : IMediaStatisticsService
             var subDirHasVideo = false;
 
             var resolvedTrashFolderName = trashFolderName ?? string.Empty;
-            var fullTrashPath = libraryRoot != null
-                ? Path.GetFullPath(_configHelper.GetTrashPath(libraryRoot))
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                : null;
 
+            // resolvedFullTrashPath is computed once at the top-level call site and threaded
+            // through every recursive call — no config re-read on each directory (H-22).
             foreach (var subDir in subDirs)
             {
                 var normalizedSubDirFullName = Path.GetFullPath(subDir.FullName)
@@ -323,9 +346,9 @@ public class MediaStatisticsService : IMediaStatisticsService
                         subDir.Name.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                         resolvedTrashFolderName,
                         StringComparison.OrdinalIgnoreCase)
-                    || (fullTrashPath != null && string.Equals(
+                    || (resolvedFullTrashPath != null && string.Equals(
                         normalizedSubDirFullName,
-                        fullTrashPath,
+                        resolvedFullTrashPath,
                         StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
@@ -337,7 +360,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                     stats.TrickplaySize += trickplaySize;
                     stats.TrickplayFolderCount++;
                 }
-                else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, libraryRoot, skipHealthChecks, trashFolderName))
+                else if (AnalyzeDirectoryRecursive(subDir.FullName, stats, itemLookup, libraryRoot, skipHealthChecks, trashFolderName, resolvedFullTrashPath))
                 {
                     subDirHasVideo = true;
                     containsVideo = true;

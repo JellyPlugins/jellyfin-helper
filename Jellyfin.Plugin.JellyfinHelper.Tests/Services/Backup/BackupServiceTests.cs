@@ -857,13 +857,13 @@ public class BackupServiceTests
     }
 
     [Fact]
-    public void SeerrCleanupAgeDays_BelowMin_ClampedTo1()
+    public void SeerrCleanupAgeDays_BelowMin_ClampedToZero()
     {
         var backup = CreateValidBackup();
         backup.SeerrCleanupAgeDays = -5;
         BackupSanitizer.Sanitize(backup);
 
-        Assert.Equal(1, backup.SeerrCleanupAgeDays);
+        Assert.Equal(0, backup.SeerrCleanupAgeDays);
     }
 
     [Fact]

@@ -67,8 +67,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             IsDirectory = true
         };
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns(Array.Empty<FileSystemMetadata>());
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -102,8 +102,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns([mediaFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns([mediaFile]);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -132,8 +132,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             IsDirectory = true
         };
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns(Array.Empty<FileSystemMetadata>());
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -168,7 +168,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             Name = "Subfolder",
             IsDirectory = true
         };
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([regularDir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([regularDir]);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -190,7 +190,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var virtualFolder2 = new VirtualFolderInfo { Locations = [libraryPath2] };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder1, virtualFolder2]);
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1, true)).Throws(new IOException("Access denied"));
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1)).Throws(new IOException("Access denied"));
 
         var trickplayDir = new FileSystemMetadata
         {
@@ -198,8 +198,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             Name = "Movie.trickplay",
             IsDirectory = true
         };
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath2, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath2)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns(Array.Empty<FileSystemMetadata>());
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -226,7 +226,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             IsDirectory = true
         };
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([nestedDir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([nestedDir]);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -253,8 +253,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             IsDirectory = true
         };
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns(Array.Empty<FileSystemMetadata>());
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -297,8 +297,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns([mediaFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns([mediaFile]);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -332,8 +332,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns([textFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns([textFile]);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -370,8 +370,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             IsDirectory = true
         };
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir1, trickplayDir2]);
-        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir1, trickplayDir2]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns(Array.Empty<FileSystemMetadata>());
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -406,7 +406,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             IsDirectory = true
         };
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([regularDir]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([regularDir]);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -433,8 +433,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             IsDirectory = true
         };
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns(Array.Empty<FileSystemMetadata>());
 
         // Cancel immediately after first folder
         var cts = new CancellationTokenSource();
@@ -444,7 +444,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             _task.ExecuteAsync(new Progress<double>(), cts.Token));
 
         // Second library folder should never be scanned
-        _fileSystemMock.Verify(f => f.GetDirectories(libraryPath2, true), Times.Never);
+        _fileSystemMock.Verify(f => f.GetDirectories(libraryPath2), Times.Never);
     }
 
     [Fact]
@@ -460,7 +460,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder1, virtualFolder2]);
 
         // First folder throws an exception
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1, true)).Throws(new IOException("Access denied"));
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1)).Throws(new IOException("Access denied"));
 
         // Second folder is fine
         var trickplayDir = new FileSystemMetadata
@@ -469,8 +469,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             Name = "Movie.trickplay",
             IsDirectory = true
         };
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath2, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns(Array.Empty<FileSystemMetadata>());
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath2)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns(Array.Empty<FileSystemMetadata>());
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -490,8 +490,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var virtualFolder2 = new VirtualFolderInfo { Locations = [libraryPath2] };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder1, virtualFolder2]);
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1, true)).Returns([]);
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath2, true)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath1)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath2)).Returns([]);
 
         var reportedValues = new List<double>();
         var progress = new SynchronousProgress<double>(reportedValues.Add);
@@ -530,8 +530,8 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(parentPath, false)).Returns([mediaFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(parentPath)).Returns([mediaFile]);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -548,12 +548,12 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var virtualFolder2 = new VirtualFolderInfo { Locations = [libraryPath] };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder1, virtualFolder2]);
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([]);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         // GetDirectories should only be called once due to Distinct()
-        _fileSystemMock.Verify(f => f.GetDirectories(libraryPath, true), Times.Once);
+        _fileSystemMock.Verify(f => f.GetDirectories(libraryPath), Times.Once);
     }
 
     [Fact]
@@ -582,13 +582,13 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
             IsDirectory = false
         };
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns([trickplayDir]);
-        _fileSystemMock.Setup(f => f.GetFiles(expectedParentPath, false)).Returns([mediaFile]);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns([trickplayDir]);
+        _fileSystemMock.Setup(f => f.GetFiles(expectedParentPath)).Returns([mediaFile]);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         // Should check files in the subdirectory (parent of the .trickplay folder), not the library root
-        _fileSystemMock.Verify(f => f.GetFiles(expectedParentPath, false), Times.Once);
+        _fileSystemMock.Verify(f => f.GetFiles(expectedParentPath), Times.Once);
         VerifyLogNeverContains("Deleting orphaned trickplay folder", LogLevel.Information);
     }
 
@@ -602,7 +602,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
         var virtualFolder = new VirtualFolderInfo { Locations = [libraryPath] };
         _libraryManagerMock.Setup(m => m.GetVirtualFolders()).Returns([virtualFolder]);
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Throws(new IOException("Access denied"));
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Throws(new IOException("Access denied"));
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 

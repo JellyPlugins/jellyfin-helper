@@ -178,6 +178,11 @@ public class BackupController : ControllerBase
                     await buffer.DisposeAsync().ConfigureAwait(false);
                 }
             }
+            catch (OperationCanceledException)
+            {
+                // Client disconnected or request was aborted — do not return a 400.
+                throw;
+            }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or DecoderFallbackException)
             {
                 _pluginLog.LogError("API", "Failed to read backup request body", ex, _logger);

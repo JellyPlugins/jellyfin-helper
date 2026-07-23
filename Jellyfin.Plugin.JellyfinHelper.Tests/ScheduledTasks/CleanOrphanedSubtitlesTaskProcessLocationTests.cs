@@ -229,7 +229,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
     {
         // Unreadable subdirectory tree → warn, keep processing the root.
         const string lib = "/media/movies";
-        _fileSystemMock.Setup(f => f.GetDirectories(lib, true))
+        _fileSystemMock.Setup(f => f.GetDirectories(lib))
             .Throws(new IOException("Broken NAS mount"));
         SetupLibrary(lib);
         SetupFilesInDir(lib, "MovieA.mkv", "Orphan.en.srt");
@@ -251,7 +251,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         SetupLibrary(lib);
         SetupRecursiveDirs(lib, blockedDir, okDir);
         SetupFilesInDir(lib);
-        _fileSystemMock.Setup(f => f.GetFiles(blockedDir, false))
+        _fileSystemMock.Setup(f => f.GetFiles(blockedDir))
             .Throws(new UnauthorizedAccessException("Access denied"));
         SetupFilesInDir(okDir, "MovieA.mkv", "Orphan.en.srt");
 
@@ -287,7 +287,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             _task.ExecuteAsync(new Progress<double>(), cts.Token));
 
-        _fileSystemMock.Verify(f => f.GetDirectories(lib2, true), Times.Never);
+        _fileSystemMock.Verify(f => f.GetDirectories(lib2), Times.Never);
     }
 
     [Fact]
@@ -354,7 +354,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
             IsDirectory = true
         }).ToArray();
 
-        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath, true)).Returns(dirs);
+        _fileSystemMock.Setup(f => f.GetDirectories(libraryPath)).Returns(dirs);
     }
 
     /// <summary>Populate a directory with file leaf names.</summary>
@@ -368,6 +368,6 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
             Length = 100
         }).ToArray();
 
-        _fileSystemMock.Setup(f => f.GetFiles(dirPath, false)).Returns(files);
+        _fileSystemMock.Setup(f => f.GetFiles(dirPath)).Returns(files);
     }
 }

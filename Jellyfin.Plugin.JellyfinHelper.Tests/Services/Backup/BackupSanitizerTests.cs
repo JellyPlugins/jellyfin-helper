@@ -73,4 +73,37 @@ public class BackupSanitizerTests
                 $"Point {i} date {points[i].Date:O} is before {points[i - 1].Date:O}");
         }
     }
+
+    [Fact]
+    public void Sanitize_SeerrCleanupAgeDays_Zero_PreservesZero()
+    {
+        // 0 is the "immediate cleanup" sentinel — must not be clamped to 1.
+        var data = new BackupData { SeerrCleanupAgeDays = 0 };
+        BackupSanitizer.Sanitize(data);
+        Assert.Equal(0, data.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void Sanitize_SeerrCleanupAgeDays_Negative_ClampsToZero()
+    {
+        var data = new BackupData { SeerrCleanupAgeDays = -5 };
+        BackupSanitizer.Sanitize(data);
+        Assert.Equal(0, data.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void Sanitize_SeerrCleanupAgeDays_AboveMax_ClampsToMax()
+    {
+        var data = new BackupData { SeerrCleanupAgeDays = BackupValidator.MaxRetentionDays + 1 };
+        BackupSanitizer.Sanitize(data);
+        Assert.Equal(BackupValidator.MaxRetentionDays, data.SeerrCleanupAgeDays);
+    }
+
+    [Fact]
+    public void Sanitize_SeerrCleanupAgeDays_Null_LeftNull()
+    {
+        var data = new BackupData { SeerrCleanupAgeDays = null };
+        BackupSanitizer.Sanitize(data);
+        Assert.Null(data.SeerrCleanupAgeDays);
+    }
 }

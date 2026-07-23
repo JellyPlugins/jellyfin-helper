@@ -45,7 +45,7 @@ public static class BackupSanitizer
         backup.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);
         if (backup.SeerrCleanupAgeDays.HasValue)
         {
-            backup.SeerrCleanupAgeDays = Math.Clamp(backup.SeerrCleanupAgeDays.Value, 1, BackupValidator.MaxRetentionDays);
+            backup.SeerrCleanupAgeDays = Math.Clamp(backup.SeerrCleanupAgeDays.Value, 0, BackupValidator.MaxRetentionDays);
         }
 
         // String truncation

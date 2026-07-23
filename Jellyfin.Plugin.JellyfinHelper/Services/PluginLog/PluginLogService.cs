@@ -240,7 +240,7 @@ public class PluginLogService : IPluginLogService
         {
             return _configService.GetConfiguration().PluginLogLevel;
         }
-        catch
+        catch (Exception)
         {
             // Plugin not initialized yet - use default
         }

@@ -20,7 +20,10 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 public class GrowthTimelineController : ControllerBase
 {
     private static readonly TimeSpan MinRefreshInterval = TimeSpan.FromSeconds(30);
-    private static readonly Lock RateLimitLock = new();
+
+    // SemaphoreSlim(1,1) instead of a plain Lock so the async method does not block
+    // a thread-pool thread while holding the rate-limit guard (H-2).
+    private static readonly SemaphoreSlim RateLimitSemaphore = new(1, 1);
     private static DateTime _lastRefreshTime = DateTime.MinValue;
 
     private readonly IGrowthTimelineService _growthTimelineService;
@@ -59,7 +62,8 @@ public class GrowthTimelineController : ControllerBase
             }
         }
 
-        lock (RateLimitLock)
+        await RateLimitSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             var now = DateTime.UtcNow;
             if (now - _lastRefreshTime < MinRefreshInterval)
@@ -76,6 +80,10 @@ public class GrowthTimelineController : ControllerBase
             }
 
             _lastRefreshTime = now;
+        }
+        finally
+        {
+            RateLimitSemaphore.Release();
         }
 
         var result = await _growthTimelineService.ComputeTimelineAsync(cancellationToken).ConfigureAwait(false);

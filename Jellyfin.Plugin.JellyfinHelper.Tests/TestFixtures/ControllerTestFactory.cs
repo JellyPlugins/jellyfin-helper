@@ -159,11 +159,13 @@ public static class ControllerTestFactory
     /// <param name="controller">The controller to which the JSON body will be added.</param>
     /// <param name="jsonBody">The JSON body content to be added.</param>
     /// <param name="contentLength">The content length of the JSON body. If null, it will be calculated based on the JSON body content.</param>
+    /// <param name="requestAborted">Optional cancellation token to inject as HttpContext.RequestAborted.</param>
     /// <returns>The controller with the JSON body added to its request.</returns>
     public static ControllerBase AddJsonBodyToController(
         ControllerBase controller,
         string jsonBody,
-        long? contentLength = null)
+        long? contentLength = null,
+        CancellationToken requestAborted = default)
     {
         var httpContext = new DefaultHttpContext();
         var bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
@@ -172,6 +174,10 @@ public static class ControllerTestFactory
         httpContext.Response.RegisterForDispose(requestBodyStream);
         httpContext.Request.ContentType = "application/json";
         httpContext.Request.ContentLength = contentLength ?? bodyBytes.Length;
+        if (requestAborted != default)
+        {
+            httpContext.RequestAborted = requestAborted;
+        }
 
         controller.ControllerContext = new ControllerContext
         {

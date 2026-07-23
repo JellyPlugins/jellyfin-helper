@@ -314,19 +314,47 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     }
 
     /// <summary>
-    ///     Returns all subdirectories under <paramref name="libraryPath" /> recursively,
-    ///     swallowing access errors so a single unreadable folder does not abort the scan.
+    ///     Returns all subdirectories under <paramref name="libraryPath" /> using an explicit stack
+    ///     so that a single unreadable directory does not abort the scan and there is no
+    ///     per-call recursion depth risk on deep trees (H-6).
     /// </summary>
     private List<string> TryGetSubdirectories(string libraryPath)
     {
+        var result = new List<string>();
+        var stack = new Stack<string>();
+
+        // Seed the stack with the direct children of the library root.
         try
         {
-            return FileSystem.GetDirectories(libraryPath, true).Select(d => d.FullName).ToList();
+            foreach (var d in FileSystem.GetDirectories(libraryPath))
+            {
+                stack.Push(d.FullName);
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {libraryPath}", ex, Logger);
-            return [];
+            return result;
         }
+
+        while (stack.Count > 0)
+        {
+            var current = stack.Pop();
+            result.Add(current);
+
+            try
+            {
+                foreach (var d in FileSystem.GetDirectories(current))
+                {
+                    stack.Push(d.FullName);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                PluginLog.LogWarning(TaskName, $"Could not enumerate subdirectories of: {current}", ex, Logger);
+            }
+        }
+
+        return result;
     }
 }
