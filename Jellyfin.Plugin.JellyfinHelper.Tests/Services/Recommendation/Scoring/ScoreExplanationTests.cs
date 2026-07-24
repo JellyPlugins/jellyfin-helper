@@ -242,8 +242,6 @@ public sealed class ScoreExplanationTests
 
         var result = a.Blend(b, 0.5);
 
-        // M-08 fix: Blend produces weighted average of both penalties so the blended
-        // explanation accurately reflects the combined penalty state.
         // (1 - 0.5) * 0.5 + 0.5 * 0.3 = 0.25 + 0.15 = 0.40
         Assert.Equal(0.40, result.GenrePenaltyMultiplier, 10);
     }

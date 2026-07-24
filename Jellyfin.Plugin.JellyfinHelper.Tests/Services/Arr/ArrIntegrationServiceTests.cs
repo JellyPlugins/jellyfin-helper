@@ -145,9 +145,6 @@ public class ArrIntegrationServiceTests
 
         var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "testapikey");
 
-        // The service deserializes the JSON; with invalid JSON it may still succeed
-        // (returning null appName) or fail depending on implementation.
-        // Our implementation deserializes with JsonSerializer which throws JsonException for "not-json".
         Assert.False(success);
         Assert.Contains("Error", message, StringComparison.OrdinalIgnoreCase);
     }
@@ -377,8 +374,6 @@ public class ArrIntegrationServiceTests
     [Fact]
     public async Task GetRadarrMovies_Timeout_ReturnsNull_AndLogsWarning_NotError()
     {
-        // BUG GUARD: HttpClient timeout (OperationCanceledException not caused by user cancellation)
-        // in GetRadarrMoviesAsync must be logged at WARNING level and return null.
         var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
         mock.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
         mock.Protected()
@@ -407,8 +402,6 @@ public class ArrIntegrationServiceTests
     [Fact]
     public async Task GetSonarrSeries_Timeout_ReturnsNull_AndLogsWarning_NotError()
     {
-        // BUG GUARD: HttpClient timeout (OperationCanceledException not caused by user cancellation)
-        // in GetSonarrSeriesAsync must be logged at WARNING level and return null.
         var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
         mock.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
         mock.Protected()
@@ -558,10 +551,6 @@ public class ArrIntegrationServiceTests
     [Fact]
     public async Task TestConnection_Timeout_LogsWarning()
     {
-        // BUG GUARD: HttpClient timeout (OperationCanceledException that is NOT user-initiated)
-        // must be logged at WARNING level in TestConnectionAsync — a timeout means the instance
-        // is unreachable, which is surfaced to the UI as a connection-test failure.
-        // GetRadarrMoviesAsync / GetSonarrSeriesAsync use the same Warning level (see separate tests).
         var mock = new Mock<HttpMessageHandler>(MockBehavior.Strict);
         mock.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
         mock.Protected()
@@ -725,7 +714,7 @@ public class ArrIntegrationServiceTests
     // === 100 MB response body guard (#28) ===
 
     [Fact]
-    public async Task TestConnection_ResponseExceeds100MB_ThrowsInvalidOperation()
+    public async Task TestConnection_ResponseExceeds100MB_ReturnsFalse()
     {
         var handlerMock = new Mock<HttpMessageHandler>();
         handlerMock.Protected()
@@ -744,8 +733,9 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None));
+        var (success, message) = await service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None);
+        Assert.False(success);
+        Assert.Contains("too large", message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -816,10 +806,8 @@ public class ArrIntegrationServiceTests
     }
 
     [Fact]
-    public async Task TestConnection_ChunkedResponseExceeds100MB_ThrowsInvalidOperation()
+    public async Task TestConnection_ChunkedResponseExceeds100MB_ReturnsFalse()
     {
-        // A chunked response (ContentLength == null) whose body exceeds 100 MB must be
-        // rejected by the stream-based LimitedStream guard, not buffered into memory.
         const int over100Mb = 100 * 1024 * 1024 + 1;
         var handlerMock = new Mock<HttpMessageHandler>();
         handlerMock.Protected()
@@ -833,8 +821,9 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None));
+        var (success, message) = await service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None);
+        Assert.False(success);
+        Assert.Contains("too large", message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

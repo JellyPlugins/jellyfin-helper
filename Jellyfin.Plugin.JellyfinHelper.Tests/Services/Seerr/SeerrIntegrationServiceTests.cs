@@ -986,14 +986,9 @@ public class SeerrIntegrationServiceTests : IDisposable
     [Fact]
     public async Task TestConnection_NonAsciiApiKey_DoesNotThrow()
     {
-        // BUG GUARD: HttpRequestHeaders.Add() validates the header value against RFC 7230
-        // and throws FormatException for values containing non-ASCII characters or whitespace.
-        // TryAddWithoutValidation() bypasses that check, so API keys with unusual characters
-        // must be accepted without throwing — the server will simply reject them with 401.
         var handler = CreateMockHandler(HttpStatusCode.Unauthorized, string.Empty);
         var service = CreateService(handler.Object, out _, out _);
 
-        // Japanese characters in the key would throw with Add(), must not throw with TryAddWithoutValidation
         var nonAsciiKey = "キー12345";
         var exception = await Record.ExceptionAsync(
             () => service.TestConnectionAsync(BaseUrl, nonAsciiKey, CancellationToken.None));

@@ -15,8 +15,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
 ///     Tests for UserActivityController.
-///     The controller methods are synchronous.
-///     that removed the static SemaphoreSlim _buildLock.
 /// </summary>
 public class UserActivityControllerTests
 {

@@ -57,8 +57,6 @@ public class MediaExtensionsTests
     [Fact]
     public void NfoExtensions_DoesNotContainVideoOrSubtitleExtensions()
     {
-        // Guard: .nfo must not accidentally land in video or subtitle sets — a cross-set
-        // contamination that would cause CleanEmptyMediaFoldersTask to keep nfo-only orphan folders.
         Assert.DoesNotContain(".nfo", MediaExtensions.VideoExtensions);
         Assert.DoesNotContain(".nfo", MediaExtensions.SubtitleExtensions);
     }
@@ -150,9 +148,6 @@ public class MediaExtensionsTests
     [Fact]
     public void KnownLanguageCodes_DoesNotContainAudioCodecAbbreviations()
     {
-        // Guard: codec abbreviations that look like language codes must not accidentally
-        // enter KnownLanguageCodes, which would cause LanguageAffinity to treat codec
-        // tracks as deliberate language selections.
         Assert.DoesNotContain("dts", MediaExtensions.KnownLanguageCodes);
         Assert.DoesNotContain("hdr", MediaExtensions.KnownLanguageCodes);
         Assert.DoesNotContain("aac", MediaExtensions.KnownLanguageCodes);

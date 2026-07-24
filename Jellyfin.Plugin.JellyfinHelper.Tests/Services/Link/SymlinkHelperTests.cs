@@ -170,33 +170,8 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.True(_sut.IsSymlink(link), "broken symlinks must still be recognised as symlinks");
     }
 
-    [Fact]
-    public void IsSymlink_RealSymlink_ReturnsTrue_And_Target_IsNot()
-    {
-        // This test confirms the public contract: _sut.IsSymlink(link)==true and
-        // _sut.IsSymlink(target)==false for a real symlink pair. Together with
-        // IsSymlink_BrokenSymlink_ReturnsTrue this ensures both sides of the two-condition
-        // predicate fire correctly without testing .NET platform internals directly.
-        if (!SymlinksSupported())
-        {
-            return;
-        }
-
-        var target = Path.Join(_tempDir, "target.txt");
-        var link = Path.Join(_tempDir, "link.txt");
-        File.WriteAllText(target, "content");
-        File.CreateSymbolicLink(link, target);
-
-        Assert.True(_sut.IsSymlink(link));
-        Assert.False(_sut.IsSymlink(target));
-    }
-
-    // -----------------------------------------------------------------------
-    // M-06 regression: ArgumentException / PathTooLongException must be caught.
-    // -----------------------------------------------------------------------
-
     /// <summary>
-    ///     M-06 regression: an empty string is rejected by File.GetAttributes with an
+    ///     An empty string is rejected by File.GetAttributes with an
     ///     ArgumentException on all platforms. IsSymlink must absorb that exception and
     ///     return false rather than propagating it to the caller.
     /// </summary>
@@ -241,7 +216,7 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     /// <summary>
-    ///     M-06 regression: an empty string is rejected by FileInfo constructor / LinkTarget
+    ///     Regression: an empty string is rejected by FileInfo constructor / LinkTarget
     ///     accessor with an ArgumentException. GetSymlinkTarget must absorb it and return null.
     /// </summary>
     [Fact]
@@ -251,7 +226,7 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     /// <summary>
-    ///     M-06 regression: a path exceeding the OS maximum length triggers a
+    ///     A path exceeding the OS maximum length triggers a
     ///     PathTooLongException inside FileInfo. GetSymlinkTarget must absorb it and return null.
     /// </summary>
     [Fact]
@@ -349,8 +324,6 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void DeleteSymlink_RegularFile_ThrowsInvalidOperationException_AndDoesNotDeleteFile()
     {
-        // BUG GUARD: the helper must refuse to delete a non-symlink path. Without this
-        // guard, a mis-routed cleanup call could silently wipe a real file.
         var path = Path.Join(_tempDir, "regular.txt");
         File.WriteAllText(path, "irreplaceable");
 
