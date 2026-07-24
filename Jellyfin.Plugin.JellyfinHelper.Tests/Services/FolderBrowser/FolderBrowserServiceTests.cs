@@ -477,8 +477,10 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_HiddenNonSystemDirectory_IsReturned()
     {
-        // Regular hidden folders (like .jellyfin-trash) should be visible.
-        // Only Hidden+System dirs are filtered — see IsSystemOrHiddenCritical.
+        // On Linux/macOS, dot-dirs are filtered unless they match SafeHiddenPrefixes.
+        // This test covers the Windows-only path where only Hidden+System dirs are filtered.
+        if (!OperatingSystem.IsWindows()) return;
+
         var hidden = Path.Combine(_tempRoot, ".hidden-normal");
         Directory.CreateDirectory(hidden);
 
