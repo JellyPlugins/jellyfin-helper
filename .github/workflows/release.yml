@@ -111,7 +111,7 @@ jobs:
 
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v8
+      uses: actions/upload-artifact@v7
       with:
         name: test-results-${{ matrix.bucket.name }}
         path: "**/TestResults/*.trx"
@@ -232,7 +232,7 @@ jobs:
 
     - name: Upload build artifact
       if: env.TAG_EXISTS == 'false'
-      uses: actions/upload-artifact@v8
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ env.PLUGIN_NAME }}_${{ env.VERSION }}
         path: ${{ env.PLUGIN_NAME }}_${{ env.VERSION }}.zip
@@ -310,7 +310,7 @@ jobs:
 
     - name: Download build artifact
       if: env.TAG_EXISTS == 'false'
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@v7
       with:
         name: ${{ env.PLUGIN_NAME }}_${{ env.VERSION }}
 
@@ -374,7 +374,7 @@ jobs:
 
     - name: Create metadata update PR
       if: env.TAG_EXISTS == 'false'
-      uses: peter-evans/create-pull-request@v8
+      uses: peter-evans/create-pull-request@v7
       with:
         commit-message: "chore: update release metadata for ${{ env.VERSION }} [skip release]"
         title: "chore: update release metadata for ${{ env.VERSION }}"
