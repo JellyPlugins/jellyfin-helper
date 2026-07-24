@@ -128,7 +128,7 @@ var avg=(1.5+yi*0.5+rnd()*1.5)*1073741824;
 cs+=Math.floor(bf*avg);cf+=bf;
 dp.push({date:new Date(y,mo,1).toISOString(),cumulativeSize:cs,cumulativeFileCount:cf});
 m.setMonth(m.getMonth()+1);}
-return{granularity:"monthly",earliestFileDate:start.toISOString(),computedAt:now.toISOString(),totalFilesScanned:cf,dataPoints:dp};})();
+return{granularity:"monthly",earliestFileDate:start.toISOString(),computedAt:now.toISOString(),totalDirectoriesScanned:cf,dataPoints:dp};})();
 
 var MOCK_LIBRARY_INSIGHTS={
 Largest:[

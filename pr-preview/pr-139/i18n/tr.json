@@ -132,6 +132,7 @@
   "inArrOnly": "Yalnızca Arr'da (dosya ile)",
   "inArrOnlyMissing": "Yalnızca Arr'da (dosyasız)",
   "inJellyfinOnly": "Yalnızca Jellyfin'de",
+  "arrInvalidType": "Invalid Arr type. Expected Radarr or Sonarr.",
   "arrNotConfigured": "Yapılandırılmamış. Lütfen Ayarlar'da URL ve API anahtarını girin.",
   "testConnection": "Bağlantıyı Test Et",
   "testConnectionFailed": "Bağlantı başarısız",

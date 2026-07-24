@@ -46,14 +46,26 @@ function renderArrInstanceRow(type, index, inst) {
         + escAttr(url) + '" placeholder="' + placeholderUrl + '">';
     var instanceApiKeyId = prefix + '_key';
     h += '<label for="' + instanceApiKeyId + '">' + T('apiKey', 'API Key')
-        + '</label><input type="password" id="' + instanceApiKeyId + '" value="'
-        + escAttr(apiKey) + '">';
+        + '</label><input type="password" id="' + instanceApiKeyId + '">';
     h += '<button type="button" class="action-btn btn-arr-test btnTestArr" id="'
         + prefix + '_btnTest" data-type="' + type + '" data-index="' + index
         + '" style="padding:0.3em 0.8em;font-size:0.85em;">' + mi('extension') + T(
             'testConnection', 'Test Connection') + '</button>';
     h += '</div>';
     return h;
+}
+
+// Post-render helper: sets API key values on the password inputs for all
+// instances of the given type. Called after form.innerHTML is assigned so
+// the secret never appears as a value attribute in the serialized HTML.
+function setArrInstanceApiKeys(type, instances) {
+    if (!instances) { return; }
+    for (var i = 0; i < instances.length; i++) {
+        var el = document.getElementById(type + '_' + i + '_key');
+        if (el) {
+            el.value = instances[i] ? (instances[i].ApiKey || '') : '';
+        }
+    }
 }
 
 function collectArrInstances(type) {
@@ -140,13 +152,16 @@ function removeArrInstance(type, index) {
             delete _testTimers[key];
         }
     }
-    // Reset any test buttons that are in success/error state
+    // Reset test button state only for the removed row and any rows above it
+    // that will be reindexed. Rows below the removed index keep their state.
     var testBtns = document.querySelectorAll(
         '.btnTestArr[data-type="' + type + '"]');
     for (var b = 0; b < testBtns.length; b++) {
-        testBtns[b].classList.remove('success', 'error');
-        testBtns[b].disabled = false;
-        testBtns[b].innerHTML = mi('extension') + T('testConnection', 'Test Connection');
+        if (parseInt(testBtns[b].getAttribute('data-index'), 10) >= index) {
+            testBtns[b].classList.remove('success', 'error');
+            testBtns[b].disabled = false;
+            testBtns[b].innerHTML = mi('extension') + T('testConnection', 'Test Connection');
+        }
     }
 
     var row = document.querySelector(
@@ -239,9 +254,9 @@ function testArrConnection(type, index) {
     apiPost('JellyfinHelper/ArrIntegration/TestConnection',
         {Url: url, ApiKey: apiKey}, function (data) {
             btn.disabled = false;
-            if (data.success) {
+            if (data.Success) {
                 _testTimers[timerKey] = showButtonFeedback(btn, true,
-                    escHtml(data.message), originalHtml);
+                    escHtml(data.Message), originalHtml);
                 // Auto-save settings after successful connection test (Finding 17: removed unnecessary typeof checks)
                 doSaveSettings(buildSettingsPayload(), {
                     quiet: true,
@@ -249,7 +264,7 @@ function testArrConnection(type, index) {
                 });
             } else {
                 _testTimers[timerKey] = showButtonFeedback(btn, false,
-                    escHtml(data.message), originalHtml);
+                    escHtml(data.Message), originalHtml);
             }
         }, function () {
             btn.disabled = false;
@@ -384,7 +399,7 @@ function refreshArrInstanceStatus(type, index) {
             if (reqId !== _arrStatusReqSeq[type]) {
                 return;
             }
-            var ok = !!(data && data.success);
+            var ok = !!(data && data.Success);
             _arrStatusCache[cacheKey] = {state: ok ? 'ok' : 'error', ts: Date.now()};
             // Also only paint if the dropdown is still on this index.
             var sel = document.getElementById('arrSelect' + type);
@@ -435,9 +450,9 @@ function initArrButtons(cfg) {
     // Any previous compare result belongs to a stale instance list; wipe it
     // so a config change (URL/key edit, instance removed) never leaves an
     // outdated comparison visible next to the freshly-rendered controls.
-    var stalResult = document.getElementById('arrResult');
-    if (stalResult) {
-        stalResult.innerHTML = '';
+    var staleResult = document.getElementById('arrResult');
+    if (staleResult) {
+        staleResult.innerHTML = '';
     }
 
     // Reset the result cache so a config change immediately re-tests
@@ -558,6 +573,12 @@ function renderArrSection(icon, titleKey, titleFallback, items) {
 function compareArr(type, index, label) {
     var resultDiv = document.getElementById('arrResult');
     if (!resultDiv) {
+        return;
+    }
+    var allowedTypes = ['Radarr', 'Sonarr'];
+    if (allowedTypes.indexOf(type) === -1) {
+        resultDiv.innerHTML = '<div class="error-msg">' + mi('error') + ' '
+            + escHtml(T('arrInvalidType', 'Invalid Arr type.')) + '</div>';
         return;
     }
     resultDiv.innerHTML = '<div class="loading-overlay" style="padding:1em;"><div class="spinner"></div><p>'

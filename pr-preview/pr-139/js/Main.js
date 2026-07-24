@@ -86,7 +86,9 @@ function loadLatestStatistics() {
             updateLastScanBadge(data.ScanTimestamp);
         }
     }, function () {
-        // 204 - no persisted data yet, auto-trigger initial scan
+        // 204 - no persisted data yet, auto-trigger initial scan.
+        // loadStatistics() will call loadTrendData(true) and loadInsightsData()
+        // on its own success path, so do not issue those calls here too.
         console.log('Jellyfin Helper: No persisted statistics (204), triggering initial scan...');
         loadStatistics();
     });
@@ -98,50 +100,50 @@ function renderShell() {
 
     // Tab bar
     html += '<div class="tab-bar">';
-    html += '<button class="tab-btn active" data-tab="overview">' + mi('dashboard') + T(
-        'tabOverview', 'Overview') + '</button>';
-    html += '<button class="tab-btn" data-tab="codecs">' + mi('movie_filter') + T('tabCodecs',
-        'Codecs') + '</button>';
-    html += '<button class="tab-btn" data-tab="health">' + mi('health_and_safety') + T('tabHealth',
-        'Health') + '</button>';
-    html += '<button class="tab-btn" data-tab="trends">' + mi('trending_up') + T('tabTrends',
-        'Trends') + '</button>';
-    html += '<button class="tab-btn" data-tab="settings">' + mi('settings') + T('tabSettings',
-        'Settings') + '</button>';
-    html += '<button class="tab-btn" data-tab="arr">' + mi('link') + T('tabArr', 'Arr')
+    html += '<button class="tab-btn active" data-tab="overview">' + mi('dashboard') + escHtml(T(
+        'tabOverview', 'Overview')) + '</button>';
+    html += '<button class="tab-btn" data-tab="codecs">' + mi('movie_filter') + escHtml(T('tabCodecs',
+        'Codecs')) + '</button>';
+    html += '<button class="tab-btn" data-tab="health">' + mi('health_and_safety') + escHtml(T('tabHealth',
+        'Health')) + '</button>';
+    html += '<button class="tab-btn" data-tab="trends">' + mi('trending_up') + escHtml(T('tabTrends',
+        'Trends')) + '</button>';
+    html += '<button class="tab-btn" data-tab="settings">' + mi('settings') + escHtml(T('tabSettings',
+        'Settings')) + '</button>';
+    html += '<button class="tab-btn" data-tab="arr">' + mi('link') + escHtml(T('tabArr', 'Arr'))
         + '</button>';
-    html += '<button class="tab-btn" data-tab="recommendations" style="display:none;">' + mi('smart_toy') + T('tabRecommendations',
-        'Smart Recs') + '</button>';
-    html += '<button class="tab-btn" data-tab="logs">' + mi('assignment') + T('tabLogs', 'Logs')
+    html += '<button class="tab-btn" data-tab="recommendations" style="display:none;">' + mi('smart_toy') + escHtml(T('tabRecommendations',
+        'Smart Recs')) + '</button>';
+    html += '<button class="tab-btn" data-tab="logs">' + mi('assignment') + escHtml(T('tabLogs', 'Logs'))
         + '</button>';
     html += '</div>';
 
     // === OVERVIEW TAB (placeholder until scan) ===
     html += '<div class="tab-content active" id="tab-overview">';
     html += '<div id="overviewContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
-        + T('initializingScan', 'Initializing media scan\u2026') + '</p></div>';
+        + escHtml(T('initializingScan', 'Initializing media scan…')) + '</p></div>';
     html += '</div>';
 
     // === CODECS TAB (placeholder until scan) ===
     html += '<div class="tab-content" id="tab-codecs">';
     html += '<div id="codecsContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
-        + T('initializingScan', 'Initializing media scan\u2026') + '</p></div>';
+        + escHtml(T('initializingScan', 'Initializing media scan…')) + '</p></div>';
     html += '</div>';
 
     // === HEALTH TAB (placeholder until scan) ===
     html += '<div class="tab-content" id="tab-health">';
     html += '<div id="healthContent"><p style="text-align:center;padding:2em;opacity:0.5;">'
-        + T('initializingScan', 'Initializing media scan\u2026') + '</p></div>';
+        + escHtml(T('initializingScan', 'Initializing media scan…')) + '</p></div>';
     html += '</div>';
 
     // === TRENDS TAB ===
     html += '<div class="tab-content" id="tab-trends">';
-    html += '<div class="section-title">' + mi('trending_up') + T('trendTitle',
-        'Library Growth Trend') + '</div>';
+    html += '<div class="section-title">' + mi('trending_up') + escHtml(T('trendTitle',
+        'Library Growth Trend')) + '</div>';
     html += '<div id="trendChartContainer" class="trend-container"><div class="trend-empty">'
-        + T('loadingTrends', 'Loading trend data…') + '</div></div>';
+        + escHtml(T('loadingTrends', 'Loading trend data…')) + '</div></div>';
     html += '<div id="insightsContainer" class="insights-container"><div class="trend-empty">'
-        + T('loadingInsights', 'Loading insights…') + '</div></div>';
+        + escHtml(T('loadingInsights', 'Loading insights…')) + '</div></div>';
     html += '</div>';
 
     // === SETTINGS TAB ===
@@ -153,8 +155,8 @@ function renderShell() {
 
     // === ARR TAB ===
     html += '<div class="tab-content" id="tab-arr">';
-    html += '<div class="section-title">' + mi('link') + T('arrTitle',
-        'Arr Stack Integration') + '</div>';
+    html += '<div class="section-title">' + mi('link') + escHtml(T('arrTitle',
+        'Arr Stack Integration')) + '</div>';
     html += '<div id="arrContent">';
     html += '<div id="arrButtons"><div class="loading-overlay" style="padding:1em;"><div class="spinner"></div></div></div>';
     html += '<div id="arrResult"></div>';
@@ -163,11 +165,11 @@ function renderShell() {
 
     // === RECOMMENDATIONS TAB ===
     html += '<div class="tab-content" id="tab-recommendations">';
-    html += '<div class="section-title">' + mi('smart_toy') + T('recsTitle',
-        'Smart Recommendations') + '</div>';
+    html += '<div class="section-title">' + mi('smart_toy') + escHtml(T('recsTitle',
+        'Smart Recommendations')) + '</div>';
     html += '<div id="recsContent"><div class="loading-overlay" style="padding:2em;">'
         + '<div class="spinner"></div>'
-        + '<p>' + T('loadingRecommendations', 'Loading recommendations…') + '</p></div></div>';
+        + '<p>' + escHtml(T('loadingRecommendations', 'Loading recommendations…')) + '</p></div></div>';
     html += '</div>';
 
     // === LOGS TAB ===
@@ -186,7 +188,24 @@ function fillScanData(data) {
     loadCleanupStats();
 }
 
+// Namespace all page-level state to avoid polluting the global scope and
+// colliding with other Jellyfin plugins loaded on the same page.
+window.JellyfinHelper = window.JellyfinHelper || {};
+window.JellyfinHelper._statisticsInFlight = false;
+window.JellyfinHelper._pageInitialized = false;
+window.JellyfinHelper._initRetries = 0;
+window.JellyfinHelper._handlersBound = false;
+window.JellyfinHelper._pageLifecycleBound = false;
+
+var _maxInitRetries = 20;
+
 function loadStatistics() {
+    if (window.JellyfinHelper._statisticsInFlight) {
+        console.warn('Jellyfin Helper: loadStatistics called while a scan is already in-flight; ignoring.');
+        return;
+    }
+    window.JellyfinHelper._statisticsInFlight = true;
+
     var btn = document.getElementById('btnScanLibraries');
     var loading = document.getElementById('loadingIndicator');
     var placeholder = document.getElementById('statsPlaceholder');
@@ -203,6 +222,7 @@ function loadStatistics() {
     }
 
     apiGet('JellyfinHelper/MediaStatistics/ScanLibraries', function (data) {
+        window.JellyfinHelper._statisticsInFlight = false;
         if (loading) {
             loading.style.display = 'none';
         }
@@ -219,6 +239,7 @@ function loadStatistics() {
         loadTrendData(true);
         loadInsightsData();
     }, function (err) {
+        window.JellyfinHelper._statisticsInFlight = false;
         if (loading) {
             loading.style.display = 'none';
         }
@@ -236,29 +257,17 @@ function loadStatistics() {
     });
 }
 
-// --- Page initialization state machine ---
-// _pageInitialized: guards against duplicate init calls once the page is fully set up.
-// _initRetries / _maxInitRetries: retry counter for deferred DOM-ready detection
-//   (Jellyfin may inject the plugin page asynchronously, so required elements
-//    might not exist on the first call to initPage).
-// _handlersBound: prevents duplicate event-handler registration when the view
-//   is re-entered without a full page reload (SPA navigation).
-var _pageInitialized = false;
-var _initRetries = 0;
-var _maxInitRetries = 20;
-var _handlersBound = false;
-
 function initPage() {
-    if (_pageInitialized) {
+    if (window.JellyfinHelper._pageInitialized) {
         return;
     }
 
     var btnScanLibraries = document.getElementById('btnScanLibraries');
 
     if (!btnScanLibraries) {
-        _initRetries++;
-        if (_initRetries < _maxInitRetries) {
-            console.warn('Jellyfin Helper: DOM not ready, retry ' + _initRetries + '/'
+        window.JellyfinHelper._initRetries++;
+        if (window.JellyfinHelper._initRetries < _maxInitRetries) {
+            console.warn('Jellyfin Helper: DOM not ready, retry ' + window.JellyfinHelper._initRetries + '/'
                 + _maxInitRetries);
             setTimeout(initPage, 250);
         } else {
@@ -271,7 +280,7 @@ function initPage() {
 
     btnScanLibraries.innerHTML = SVG.REFRESH;
 
-    _pageInitialized = true;
+    window.JellyfinHelper._pageInitialized = true;
 
     // Load translations first, then render the shell UI immediately
     loadTranslations(function () {
@@ -298,28 +307,30 @@ function initPage() {
         // Load settings and arr buttons immediately (no scan needed)
         loadSettings();
 
-        // Load persisted statistics from server (if any previous scan exists)
+        // Load persisted statistics from server (if any previous scan exists).
+        // When no data exists (204 path), loadLatestStatistics triggers loadStatistics(),
+        // which calls loadTrendData(true) and loadInsightsData() on its own success path.
+        // When data does exist, load trend/insights only if no scan is in-flight to
+        // avoid a double-fetch race with a concurrent loadStatistics() call.
         loadLatestStatistics();
-
-        // Load trend data async
-        loadTrendData();
-        loadInsightsData();
+        if (!window.JellyfinHelper._statisticsInFlight) {
+            loadTrendData();
+            loadInsightsData();
+        }
     });
 
-    if (!_handlersBound) {
+    if (!window.JellyfinHelper._handlersBound) {
         btnScanLibraries.addEventListener('click', function (e) {
             e.preventDefault();
             loadStatistics();
         });
-        _handlersBound = true;
+        window.JellyfinHelper._handlersBound = true;
     }
 }
 
 // Use Jellyfin's page lifecycle events
-var _pageLifecycleBound = false;
-
 function bindPageLifecycle() {
-    if (_pageLifecycleBound) {
+    if (window.JellyfinHelper._pageLifecycleBound) {
         return;
     }
     var pageEl = document.querySelector('#JellyfinHelperConfigPage');
@@ -327,15 +338,15 @@ function bindPageLifecycle() {
         return;
     }
     pageEl.addEventListener('pageshow', function () {
-        _pageInitialized = false;
-        _handlersBound = false;
-        _initRetries = 0;
+        window.JellyfinHelper._pageInitialized = false;
+        window.JellyfinHelper._handlersBound = false;
+        window.JellyfinHelper._initRetries = 0;
         setTimeout(initPage, 0);
     });
     pageEl.addEventListener('viewshow', function () {
-        _pageInitialized = false;
-        _handlersBound = false;
-        _initRetries = 0;
+        window.JellyfinHelper._pageInitialized = false;
+        window.JellyfinHelper._handlersBound = false;
+        window.JellyfinHelper._initRetries = 0;
         setTimeout(initPage, 0);
     });
     // Teardown when navigating away from the plugin page
@@ -349,7 +360,7 @@ function bindPageLifecycle() {
             destroyLogsTab();
         }
     });
-    _pageLifecycleBound = true;
+    window.JellyfinHelper._pageLifecycleBound = true;
 }
 
 bindPageLifecycle();

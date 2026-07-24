@@ -5,6 +5,7 @@ var DONUT_COLORS = [
     '#f1c40f', '#1abc9c', '#3498db', '#e91e63', '#ff9800',
     '#795548', '#607d8b', '#8bc34a', '#00bcd4', '#ff5722'
 ];
+var _forceScrollOnPanelOpen = false;
 
 // --- Material Icon helper ---
 // Returns an inline SVG icon. No external font/CDN required.
@@ -77,7 +78,7 @@ function applyStaticTranslations() {
 function formatBytes(bytes) {
     if (!Number.isFinite(bytes)) return '0 B';
     if (bytes === 0) return '0 B';
-    if (bytes < 0) return '-' + formatBytes(-bytes);
+    if (bytes < 0) return '0 B';
     var units = ['B', 'KB', 'MB', 'GB', 'TB'];
     var i = Math.floor(Math.log(bytes) / Math.log(1024));
     if (i < 0) i = 0;
@@ -179,7 +180,7 @@ function renderTreeLevel(node, level, icon) {
         var hasContent = Object.keys(childNode.children).length > 0 || childNode.items.length > 0;
 
         html += '<div class="tree-node">';
-        html += '<div class="tree-folder' + (hasContent ? ' tree-toggle" tabindex="0" role="button" aria-expanded="false" onclick="this.parentElement.classList.toggle(\'tree-expanded\');this.setAttribute(\'aria-expanded\',this.parentElement.classList.contains(\'tree-expanded\'))" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}"' : '"') + '>';
+        html += '<div class="tree-folder' + (hasContent ? ' tree-toggle" tabindex="0" role="button" aria-expanded="false" data-tree-toggle="1"' : '"') + '>';
         html += '<span class="tree-icon tree-icon-closed">' + mi('folder') + '</span>';
         html += '<span class="tree-icon tree-icon-open">' + mi('folder_open') + '</span>';
         html += '<span class="tree-name">' + escHtml(childName) + '</span> <span class="tree-name-count">(' + countTreeItems(childNode) + ')</span>';
@@ -215,16 +216,16 @@ function renderFileTree(result, title) {
     var totalFiles = (result.movies ? result.movies.length : 0) + (result.tvShows ? result.tvShows.length : 0) + (result.music ? result.music.length : 0) + (result.other ? result.other.length : 0);
 
     if (totalFiles === 0) {
-        return '<div class="file-tree-empty">' + T('noFilesFound', 'No files found.') + '</div>';
+        return '<div class="file-tree-empty">' + escHtml(T('noFilesFound', 'No files found.')) + '</div>';
     }
 
     var sectionCount = (hasMovies ? 1 : 0) + (hasTvShows ? 1 : 0) + (hasMusic ? 1 : 0) + (hasOther ? 1 : 0);
     var html = '<div class="file-tree-header">';
     html += '<span class="file-tree-title">' + escHtml(title) + '</span>';
     html += '<div style="display:flex;gap:0.5em;align-items:center;">';
-    html += '<button class="tree-action-btn" onclick="var nodes=this.closest(\'.file-tree-panel\').querySelectorAll(\'.tree-node\');for(var i=0;i<nodes.length;i++){nodes[i].classList.add(\'tree-expanded\');var t=nodes[i].querySelector(\'.tree-toggle\');if(t)t.setAttribute(\'aria-expanded\',\'true\')}">' + T('expandAll', 'Expand All') + '</button>';
-    html += '<button class="tree-action-btn" onclick="var nodes=this.closest(\'.file-tree-panel\').querySelectorAll(\'.tree-node\');for(var i=0;i<nodes.length;i++){nodes[i].classList.remove(\'tree-expanded\');var t=nodes[i].querySelector(\'.tree-toggle\');if(t)t.setAttribute(\'aria-expanded\',\'false\')}">' + T('collapseAll', 'Collapse All') + '</button>';
-    html += '<span class="file-tree-count">' + totalFiles + ' ' + (totalFiles === 1 ? T('file', 'file') : T('files', 'files')) + '</span>';
+    html += '<button class="tree-action-btn" data-tree-action="expand">' + escHtml(T('expandAll', 'Expand All')) + '</button>';
+    html += '<button class="tree-action-btn" data-tree-action="collapse">' + escHtml(T('collapseAll', 'Collapse All')) + '</button>';
+    html += '<span class="file-tree-count">' + totalFiles + ' ' + (totalFiles === 1 ? escHtml(T('file', 'file')) : escHtml(T('files', 'files'))) + '</span>';
     html += '</div></div>';
 
     html += '<div class="file-tree-columns' + (sectionCount > 1 ? ' file-tree-multi' : '') + '">';
@@ -233,7 +234,7 @@ function renderFileTree(result, title) {
 
     if (hasMovies) {
         html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-movies">' + T('movies', 'Movies') + '</span> <span class="file-tree-section-count">(' + result.movies.length + ')</span></div>';
+        html += '<div class="file-tree-section-header"><span class="badge badge-movies">' + escHtml(T('movies', 'Movies')) + '</span> <span class="file-tree-section-count">(' + result.movies.length + ')</span></div>';
         html += '<div class="tree-view">';
         html += renderTreeLevel(buildPathTree(result.movies, roots.movies), 0, mi('movie'));
         html += '</div></div>';
@@ -241,7 +242,7 @@ function renderFileTree(result, title) {
 
     if (hasTvShows) {
         html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-tvshows">' + T('tvShows', 'TV Shows') + '</span> <span class="file-tree-section-count">(' + result.tvShows.length + ')</span></div>';
+        html += '<div class="file-tree-section-header"><span class="badge badge-tvshows">' + escHtml(T('tvShows', 'TV Shows')) + '</span> <span class="file-tree-section-count">(' + result.tvShows.length + ')</span></div>';
         html += '<div class="tree-view">';
         html += renderTreeLevel(buildPathTree(result.tvShows, roots.tvShows), 0, mi('tv'));
         html += '</div></div>';
@@ -249,7 +250,7 @@ function renderFileTree(result, title) {
 
     if (hasMusic) {
         html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-music">' + T('music', 'Music') + '</span> <span class="file-tree-section-count">(' + result.music.length + ')</span></div>';
+        html += '<div class="file-tree-section-header"><span class="badge badge-music">' + escHtml(T('music', 'Music')) + '</span> <span class="file-tree-section-count">(' + result.music.length + ')</span></div>';
         html += '<div class="tree-view">';
         html += renderTreeLevel(buildPathTree(result.music, roots.music), 0, mi('music_note'));
         html += '</div></div>';
@@ -257,7 +258,7 @@ function renderFileTree(result, title) {
 
     if (hasOther) {
         html += '<div class="file-tree-section">';
-        html += '<div class="file-tree-section-header"><span class="badge badge-other">' + T('other', 'Other') + '</span> <span class="file-tree-section-count">(' + result.other.length + ')</span></div>';
+        html += '<div class="file-tree-section-header"><span class="badge badge-other">' + escHtml(T('other', 'Other')) + '</span> <span class="file-tree-section-count">(' + result.other.length + ')</span></div>';
         html += '<div class="tree-view">';
         html += renderTreeLevel(buildPathTree(result.other, roots.other), 0, mi('description'));
         html += '</div></div>';
@@ -265,6 +266,61 @@ function renderFileTree(result, title) {
 
     html += '</div>';
     return html;
+}
+
+/**
+ * Wire up event listeners for interactive elements rendered by renderFileTree /
+ * renderTreeLevel.  Must be called after the HTML returned by those functions
+ * has been injected into the DOM.
+ *
+ * Handles:
+ *   - [data-tree-toggle]  — folder toggle buttons (expand/collapse tree node)
+ *   - [data-tree-action]  — "Expand All" / "Collapse All" buttons
+ *
+ * @param {HTMLElement} container - The DOM element whose innerHTML was set with
+ *                                  the output of renderFileTree.
+ */
+function bindFileTreeHandlers(container) {
+    if (!container) return;
+
+    // Folder toggle buttons
+    var toggles = container.querySelectorAll('[data-tree-toggle]');
+    for (var i = 0; i < toggles.length; i++) {
+        (function (btn) {
+            btn.addEventListener('click', function () {
+                var node = btn.parentElement;
+                node.classList.toggle('tree-expanded');
+                btn.setAttribute('aria-expanded', node.classList.contains('tree-expanded'));
+            });
+            btn.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    btn.click();
+                }
+            });
+        })(toggles[i]);
+    }
+
+    // Expand All / Collapse All buttons
+    var actionBtns = container.querySelectorAll('[data-tree-action]');
+    for (var j = 0; j < actionBtns.length; j++) {
+        (function (btn) {
+            btn.addEventListener('click', function () {
+                var action = btn.getAttribute('data-tree-action');
+                var panel = btn.closest('.file-tree-panel');
+                var nodes = panel ? panel.querySelectorAll('.tree-node') : [];
+                for (var k = 0; k < nodes.length; k++) {
+                    if (action === 'expand') {
+                        nodes[k].classList.add('tree-expanded');
+                    } else {
+                        nodes[k].classList.remove('tree-expanded');
+                    }
+                    var toggle = nodes[k].querySelector('.tree-toggle');
+                    if (toggle) toggle.setAttribute('aria-expanded', action === 'expand');
+                }
+            });
+        })(actionBtns[j]);
+    }
 }
 
 // Aggregate dictionaries across libraries
@@ -932,6 +988,7 @@ function attachTogglePanelHandlers(opts) {
 
             this.classList.add(opts.activeClass);
             panel.innerHTML = opts.renderContent(this);
+            if (typeof bindFileTreeHandlers === 'function') { bindFileTreeHandlers(panel); }
             panel.classList.add('file-tree-panel-visible');
 
             // Scroll when: fresh panel open OR forced by donut click (user clicked far above panel)

@@ -132,6 +132,7 @@
   "inArrOnly": "Bara i Arr (med fil)",
   "inArrOnlyMissing": "Bara i Arr (utan fil)",
   "inJellyfinOnly": "Bara i Jellyfin",
+  "arrInvalidType": "Invalid Arr type. Expected Radarr or Sonarr.",
   "arrNotConfigured": "Inte konfigurerad. Ange URL och API-nyckel i Inställningar.",
   "testConnection": "Testa anslutning",
   "testConnectionFailed": "Anslutning misslyckades",

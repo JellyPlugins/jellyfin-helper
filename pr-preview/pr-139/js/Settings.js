@@ -357,8 +357,7 @@ function checkUnsavedAndProceed(onProceed) {
         'unsavedDialogOverlay',
         T('unsavedChangesTitle', 'Unsaved Changes'),
         getCssVar('--color-primary', '#00a4dc'),
-        T('unsavedChangesMsg', 'You have unsaved settings changes. What would you like to do?'),
-        false
+        T('unsavedChangesMsg', 'You have unsaved settings changes. What would you like to do?')
     );
     d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
         removeDialogById('unsavedDialogOverlay');
@@ -554,9 +553,9 @@ function loadSettings() {
         h += '<div class="settings-card">';
 
         function renderArrCollapseButton(expanded, icon, text, countText, type) {
-            var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '" onclick="var p=this.parentElement;p.classList.toggle(\'arr-expanded\');var ex=p.classList.contains(\'arr-expanded\');this.setAttribute(\'aria-expanded\',ex?\'true\':\'false\');var b=p.querySelector(\'.arr-collapsible-body\');if(b)b.setAttribute(\'aria-hidden\',ex?\'false\':\'true\')">';
+            var arrCollapseButton = '<button type="button" id="arrCollapsibleHeader' + type + '" class="arr-collapsible-header" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
             arrCollapseButton += '<span class="arr-chevron">▶</span>' + icon + '<span>' + text + '</span><span class="arr-instance-count" id="arrCount' + type + '">' + countText + '</span>';
-            arrCollapseButton += '<span class="help-text">' + T('clickToExpand', 'click to expand') + '</span>';
+            arrCollapseButton += '<span class="help-text">' + escHtml(T('clickToExpand', 'click to expand')) + '</span>';
             arrCollapseButton += '</button>';
             return arrCollapseButton;
         }
@@ -571,7 +570,7 @@ function loadSettings() {
         h += '<label for="cfgSeerrUrl">' + escHtml(T('seerrUrl', 'Seerr URL')) + '</label>';
         h += '<input type="text" id="cfgSeerrUrl" value="' + escAttr(cfg.SeerrUrl || '') + '" placeholder="http://localhost:5055">';
         h += '<label for="cfgSeerrApiKey">' + escHtml(T('seerrApiKey', 'Seerr API Key')) + '</label>';
-        h += '<input type="password" id="cfgSeerrApiKey" value="' + escAttr(cfg.SeerrApiKey || '') + '">';
+        h += '<input type="password" id="cfgSeerrApiKey">';
         h += '<div class="seerr-age-wrapper" style="' + (!seerrHasCfg ? 'opacity:0.5;pointer-events:none;' : '') + '">';
         h += '<label for="cfgSeerrAgeDays">' + escHtml(T('seerrCleanupAgeDays', 'Max Request Age (days)')) + '</label>';
         h += '<input type="number" id="cfgSeerrAgeDays" min="1" max="3650" value="' + (cfg.SeerrCleanupAgeDays || 365) + '">';
@@ -625,7 +624,25 @@ function loadSettings() {
         h += '</div>';
 
         form.innerHTML = h;
-        document.getElementById('btnSaveSettings').addEventListener('click', saveSettings);
+        ['Seerr', 'Radarr', 'Sonarr'].forEach(function (type) {
+            var hdrBtn = document.getElementById('arrCollapsibleHeader' + type);
+            if (hdrBtn) {
+                hdrBtn.addEventListener('click', function () {
+                    var p = hdrBtn.parentElement;
+                    p.classList.toggle('arr-expanded');
+                    var ex = p.classList.contains('arr-expanded');
+                    hdrBtn.setAttribute('aria-expanded', ex ? 'true' : 'false');
+                    var b = p.querySelector('.arr-collapsible-body');
+                    if (b) b.setAttribute('aria-hidden', ex ? 'false' : 'true');
+                });
+            }
+        });
+        var seerrKeyEl = document.getElementById('cfgSeerrApiKey');
+        if (seerrKeyEl) { seerrKeyEl.value = cfg.SeerrApiKey || ''; }
+        setArrInstanceApiKeys('Radarr', radarrInstances);
+        setArrInstanceApiKeys('Sonarr', sonarrInstances);
+        var saveBandBtn = document.getElementById('btnSaveSettings');
+        if (saveBandBtn) saveBandBtn.addEventListener('click', saveSettings);
         attachRemoveHandlers();
         attachTestHandlers();
         attachAddHandlers();
@@ -661,8 +678,8 @@ function loadSettings() {
         // indicator to "clean" after the snapshot is refreshed by takeSettingsSnapshot).
         attachDirtyTracking();
 
-        // Take snapshot after settings are fully rendered
-        setTimeout(takeSettingsSnapshot, 0);
+        // Take snapshot after settings are fully rendered (synchronous — all values are set above)
+        takeSettingsSnapshot();
     }, function () {
         form.innerHTML = '<div class="error-msg">' + escHtml(T('settingsLoadError', 'Failed to load settings.')) + '</div>';
     });
@@ -755,10 +772,10 @@ function doSaveSettings(payload, options) {
         showTrashPathChangeDialog(payload, options);
         return;
     }
-    // Reset the guard after passing the check. This ensures:
-    // 1. The guard only suppresses one recursive call (the immediate callback from the dialog).
-    // 2. If the user later changes the path again, the dialog will show again as expected.
-    _trashPathChangeHandled = false;
+    // _trashPathChangeHandled is NOT reset here. It is reset to false immediately
+    // inside the onSuccess callback of each guarded doSaveSettings() call in
+    // showTrashPathChangeDialog, so the guard only suppresses the single recursive
+    // call it was set for, and a future path-change triggers the dialog again.
 
     if (!quiet) {
         _saveBandSaving = true;
@@ -963,10 +980,12 @@ function showTrashDisableDialog(payload) {
         }));
         d.btnRow.appendChild(createDialogBtn(T('trashKeep', 'Keep Folders'), 'success', function () {
             removeTrashDialog();
+            if (saveBtn) saveBtn.disabled = false;
             doSaveSettings(payload);
         }));
         d.btnRow.appendChild(createDialogBtn(T('trashDelete', 'Delete Folders'), 'danger', function () {
             removeTrashDialog();
+            if (saveBtn) saveBtn.disabled = false;
             showTrashDeleteConfirmation(payload, paths);
         }));
 
@@ -1000,14 +1019,14 @@ function showTrashDeleteConfirmation(payload, paths) {
             var summary = '';
             var statusClass = 'success-msg';
             if (result.deleted > 0) {
-                summary += mi('check_circle') + ' ' + T('trashDeletedCount', 'Deleted') + ': ' + (Math.max(0, parseInt(result.deleted, 10) || 0)) + ' ' + T('folders', 'folders');
+                summary += mi('check_circle') + ' ' + escHtml(T('trashDeletedCount', 'Deleted')) + ': ' + (Math.max(0, parseInt(result.deleted, 10) || 0)) + ' ' + escHtml(T('folders', 'folders'));
             }
             if (result.failed > 0) {
-                summary += (summary ? ' | ' : '') + mi('error') + ' ' + T('trashFailedCount', 'Failed') + ': ' + (Math.max(0, parseInt(result.failed, 10) || 0));
+                summary += (summary ? ' | ' : '') + mi('error') + ' ' + escHtml(T('trashFailedCount', 'Failed')) + ': ' + (Math.max(0, parseInt(result.failed, 10) || 0));
                 statusClass = 'error-msg';
             }
             if (!summary) {
-                summary = mi('error') + ' ' + T('trashDeleteError', 'Failed to delete trash folders.');
+                summary = mi('error') + ' ' + escHtml(T('trashDeleteError', 'Failed to delete trash folders.'));
                 statusClass = 'error-msg';
             }
             msg.innerHTML = '<div class="' + statusClass + '">' + summary + '</div>';
@@ -1072,7 +1091,7 @@ function triggerBackupExport() {
             msg.innerHTML = '';
         }, 5000);
     }, function (err) {
-        var errorText = T('backupExportError', 'Failed to export backup.');
+        var errorText = escHtml(T('backupExportError', 'Failed to export backup.'));
         var response = err && (err.responseJSON || err);
         if (response && response.message) {
             errorText = escHtml(response.message);
@@ -1149,7 +1168,13 @@ function doBackupImport(file) {
         }
 
         apiPostRaw('JellyfinHelper/Backup/Import', json, 'application/json', function (result) {
-            var data = typeof result === 'string' ? JSON.parse(result) : result;
+            var data;
+            try {
+                data = typeof result === 'string' ? JSON.parse(result) : result;
+            } catch (jsonErr) {
+                msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('backupInvalidJson', 'Invalid backup file. The file does not contain valid JSON.')) + '</div>';
+                return;
+            }
             var summary = data.Summary || data.summary || {};
             var parts = [];
             if (summary.ConfigurationRestored || summary.configurationRestored) parts.push(T('backupConfigRestored', 'Settings'));
@@ -1164,12 +1189,12 @@ function doBackupImport(file) {
             // Show warnings if any
             var warnings = data.Warnings || data.warnings || [];
             if (warnings.length > 0) {
-                successMsg += '<br><span class="color-warning">' + warnings.length + ' ' + T('backupWarnings', 'warning(s)') + ':</span>';
+                successMsg += '<br><span class="color-warning">' + warnings.length + ' ' + escHtml(T('backupWarnings', 'warning(s)')) + ':</span>';
                 for (var i = 0; i < Math.min(warnings.length, 5); i++) {
                     successMsg += '<br><span style="opacity:0.7;font-size:0.85em;">• ' + escHtml(warnings[i]) + '</span>';
                 }
                 if (warnings.length > 5) {
-                    successMsg += '<br><span style="opacity:0.5;font-size:0.85em;">' + T('andMore', 'and') + ' ' + (warnings.length - 5) + ' ' + T('more', 'more') + '</span>';
+                    successMsg += '<br><span style="opacity:0.5;font-size:0.85em;">' + escHtml(T('andMore', 'and')) + ' ' + (warnings.length - 5) + ' ' + escHtml(T('more', 'more')) + '</span>';
                 }
             }
 
@@ -1199,7 +1224,7 @@ function doBackupImport(file) {
                 });
             }, 1500);
         }, function (err) {
-            var errorText = T('backupImportError', 'Failed to import backup.');
+            var errorText = escHtml(T('backupImportError', 'Failed to import backup.'));
             try {
                 var response = err && (err.responseJSON || (typeof err.responseText === 'string' ? JSON.parse(err.responseText) : null));
                 if (response && response.message) {
@@ -1910,6 +1935,7 @@ function showTrashPathChangeDialog(payload, options) {
                 quiet: !!(options && options.quiet),
                 element: (options && options.element) || null,
                 onSuccess: function () {
+                    _trashPathChangeHandled = false;
                     _previousTrashPath = newPath;
                     if (options && typeof options.onSuccess === 'function') options.onSuccess();
                 },
@@ -1946,6 +1972,7 @@ function showTrashPathChangeDialog(payload, options) {
                     quiet: !!(options && options.quiet),
                     element: (options && options.element) || null,
                     onSuccess: function () {
+                        _trashPathChangeHandled = false;
                         _previousTrashPath = newPath;
                         apiPost('JellyfinHelper/Trash/Relocate', {OldTrashPath: oldPath, NewTrashPath: newPath}, function (result) {
                             var moved = result && result.Moved || 0;
@@ -1956,7 +1983,7 @@ function showTrashPathChangeDialog(payload, options) {
                                     setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
                                 }
                             } else if (failed > 0) {
-                                var partial = T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed);
+                                var partial = escHtml(T('trashPathMovePartial', 'Partially moved: {0} moved, {1} failed.').replace('{0}', moved).replace('{1}', failed));
                                 if (msg) msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + partial + '</div>';
                             } else {
                                 // 0 moved, 0 failed: likely a permission issue on the source or empty source
@@ -2012,6 +2039,7 @@ function showTrashPathChangeDialog(payload, options) {
                     quiet: !!(options && options.quiet),
                     element: (options && options.element) || null,
                     onSuccess: function () {
+                        _trashPathChangeHandled = false;
                         _previousTrashPath = newPath;
                         if (options && typeof options.onSuccess === 'function') options.onSuccess();
                     },
@@ -2032,6 +2060,7 @@ function showTrashPathChangeDialog(payload, options) {
             quiet: !!(options && options.quiet),
             element: (options && options.element) || null,
             onSuccess: function () {
+                _trashPathChangeHandled = false;
                 _previousTrashPath = newPath;
                 if (options && typeof options.onSuccess === 'function') options.onSuccess();
             },
@@ -2043,8 +2072,8 @@ function showTrashPathChangeDialog(payload, options) {
 function saveSettings() {
     var btn = document.getElementById('btnSaveSettings');
     var msg = document.getElementById('settingsMsg');
-    btn.disabled = true;
-    msg.innerHTML = '';
+    if (btn) btn.disabled = true;
+    if (msg) msg.innerHTML = '';
 
     var payload = buildSettingsPayload();
 
@@ -2052,7 +2081,7 @@ function saveSettings() {
     var trashError = validateTrashPath(payload.TrashFolderPath, payload.UseTrash);
     if (trashError) {
         showTrashPathError(trashError);
-        btn.disabled = false;
+        if (btn) btn.disabled = false;
         return;
     }
     showTrashPathError(null); // Clear any previous error
