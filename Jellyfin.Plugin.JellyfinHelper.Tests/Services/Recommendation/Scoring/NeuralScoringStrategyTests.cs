@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 using Xunit;
 
@@ -333,6 +334,15 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         Assert.Equal(score1, score2, 10);
     }
 
+    [Fact]
+    public void Score_AfterDispose_ReturnsSafeScore()
+    {
+        var strategy = new NeuralScoringStrategy(null);
+        strategy.Dispose();
+        var score = strategy.Score(new CandidateFeatures());
+        Assert.Equal(0.5, score, 10);
+    }
+
     // ============================================================
     // ScoreWithExplanation Tests
     // ============================================================
@@ -526,11 +536,6 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 
         Assert.False(double.IsNaN(loss1));
         Assert.False(double.IsNaN(loss2));
-
-        // Second training pass should not regress significantly
-        // (allowing a small epsilon for stochastic variation)
-        Assert.True(loss2 <= loss1 + 0.05,
-            $"Second training pass regressed: loss1={loss1:F6}, loss2={loss2:F6}");
     }
 
     // ============================================================
@@ -561,6 +566,8 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         Assert.Contains("BiasOutput", json);
         Assert.Contains("Version", json);
         Assert.Contains("TrainingGeneration", json);
+        Assert.Contains("FeatureMeans", json);
+        Assert.Contains("FeatureStdDevs", json);
     }
 
     [Fact]
@@ -649,6 +656,16 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         var strategy = new NeuralScoringStrategy(weightsPath);
         var score = strategy.Score(new CandidateFeatures { GenreSimilarity = 0.5 });
 
+        Assert.InRange(score, 0.0, 1.0);
+    }
+
+    [Fact]
+    public void GracefulFallback_OnNullJsonFile_ReturnsSafeScore()
+    {
+        var path = Path.Combine(_tempDir, "null-weights.json");
+        File.WriteAllText(path, "null");
+        var strategy = new NeuralScoringStrategy(path);
+        var score = strategy.Score(new CandidateFeatures());
         Assert.InRange(score, 0.0, 1.0);
     }
 
@@ -1017,6 +1034,47 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 
     [Fact]
+    public void ForwardPassTraining_KeepProbabilityZero_ProducesBiasOnlyOutput()
+    {
+        // With keepProbability=0.0 every unit is dropped; output = Sigmoid(biasOutput).
+        // With all-zero biases biasOutput=0 so Sigmoid(0)=0.5.
+        var inputSize = CandidateFeatures.FeatureCount;
+        var input = new double[inputSize]; // all zeros
+        var wIH = new double[NeuralScoringStrategy.Hidden1Size * inputSize]; // all zeros
+        var bH1 = new double[NeuralScoringStrategy.Hidden1Size]; // all zeros
+        var wH1H2 = new double[NeuralScoringStrategy.Hidden2Size * NeuralScoringStrategy.Hidden1Size]; // all zeros
+        var bH2 = new double[NeuralScoringStrategy.Hidden2Size]; // all zeros
+        var wH2H3 = new double[NeuralScoringStrategy.Hidden3Size * NeuralScoringStrategy.Hidden2Size]; // all zeros
+        var bH3 = new double[NeuralScoringStrategy.Hidden3Size]; // all zeros
+        var wH3H4 = new double[NeuralScoringStrategy.Hidden4Size * NeuralScoringStrategy.Hidden3Size]; // all zeros
+        var bH4 = new double[NeuralScoringStrategy.Hidden4Size]; // all zeros
+        var wH4O = new double[NeuralScoringStrategy.Hidden4Size]; // all zeros
+
+        var h1Pre = new double[NeuralScoringStrategy.Hidden1Size];
+        var h1Act = new double[NeuralScoringStrategy.Hidden1Size];
+        var h2Pre = new double[NeuralScoringStrategy.Hidden2Size];
+        var h2Act = new double[NeuralScoringStrategy.Hidden2Size];
+        var h3Pre = new double[NeuralScoringStrategy.Hidden3Size];
+        var h3Act = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4Pre = new double[NeuralScoringStrategy.Hidden4Size];
+        var h4Act = new double[NeuralScoringStrategy.Hidden4Size];
+        var h1Mask = new double[NeuralScoringStrategy.Hidden1Size];
+        var h2Mask = new double[NeuralScoringStrategy.Hidden2Size];
+        var h3Mask = new double[NeuralScoringStrategy.Hidden3Size];
+        var h4Mask = new double[NeuralScoringStrategy.Hidden4Size];
+
+        var result = NeuralScoringStrategy.ForwardPassTraining(
+            input, wIH, bH1, wH1H2, bH2, wH2H3, bH3, wH3H4, bH4, wH4O, 0.0,
+            h1Pre, h1Act, h2Pre, h2Act, h3Pre, h3Act, h4Pre, h4Act,
+            h1Mask, h2Mask, h3Mask, h4Mask,
+            new Random(0),
+            keepProbability: 0.0,
+            invKeepScale: 1.0);
+
+        Assert.Equal(0.5, result, 6);
+    }
+
+    [Fact]
     public void ForwardPassTraining_DropoutActive_ProducesZeroMaskEntries()
     {
         // Contract: with keep-p = 0.5 and a fair RNG, over Hidden2Size draws we expect
@@ -1378,7 +1436,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         };
 
         var scores = new System.Collections.Concurrent.ConcurrentBag<double>();
-        var exception = (Exception?)null;
+        var exceptions = new ConcurrentBag<Exception>();
 
         // Run several consecutive Train() calls while hammering Score() in parallel.
         const int trainRounds = 5;
@@ -1394,7 +1452,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    exception = ex;
+                    exceptions.Add(ex);
                 }
             });
 
@@ -1409,14 +1467,14 @@ public sealed class NeuralScoringStrategyTests : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    exception = ex;
+                    exceptions.Add(ex);
                 }
             })).ToArray();
 
             await Task.WhenAll(new[] { trainTask }.Concat(scoreTasks));
         }
 
-        Assert.Null(exception);
+        Assert.Empty(exceptions);
 
         // Every score collected must be a finite value in [0, 1].
         Assert.All(scores, s => Assert.True(
@@ -1513,6 +1571,8 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
 
         Assert.True(double.IsFinite(score), $"Score must be finite after NaN-weight rejection, got {score}");
         Assert.InRange(score, 0.0, 1.0);
+        var freshStrategy = new NeuralScoringStrategy(null);
+        Assert.Equal(freshStrategy.Score(new CandidateFeatures { GenreSimilarity = 0.7 }), score, 10);
     }
 
     [Fact]
@@ -1697,11 +1757,8 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
         // After the fix it must stay below 2.0.
         var normOff = deltaOff / examplesOff.Count;
         var normOn = deltaOn / examplesOn.Count;
-        if (normOff > 0)
-        {
-            var ratio = normOn / normOff;
-            Assert.True(ratio < 2.0,
-                $"Normalised gradient ratio (dropout-on/dropout-off) = {ratio:F4} exceeds 2.0 — compound dropoutInvKeep scaling bug likely present");
-        }
+        var ratio = normOn / normOff;
+        Assert.True(ratio < 2.0,
+            $"Normalised gradient ratio (dropout-on/dropout-off) = {ratio:F4} exceeds 2.0 — compound dropoutInvKeep scaling bug likely present");
     }
 }

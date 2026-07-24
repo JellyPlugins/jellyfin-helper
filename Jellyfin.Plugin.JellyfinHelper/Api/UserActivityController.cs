@@ -24,9 +24,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Authorize(Policy = "RequiresElevation")]
 [Route("JellyfinHelper/UserActivity")]
 [Produces(MediaTypeNames.Application.Json)]
+[ProducesResponseType(StatusCodes.Status401Unauthorized)]
+[ProducesResponseType(StatusCodes.Status403Forbidden)]
 public class UserActivityController : ControllerBase, IDisposable
 {
-    private readonly SemaphoreSlim _buildLock = new(1, 1);
+    private static readonly SemaphoreSlim _buildLock = new(1, 1);
     private readonly IUserActivityCacheService _cacheService;
     private readonly IPluginConfigurationService _configService;
     private readonly IUserManager _userManager;
@@ -219,7 +221,7 @@ public class UserActivityController : ControllerBase, IDisposable
 
         if (disposing)
         {
-            _buildLock.Dispose();
+            // _buildLock is static and must not be disposed per-instance
         }
 
         _disposed = true;

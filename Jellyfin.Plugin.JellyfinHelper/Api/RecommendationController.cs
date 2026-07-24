@@ -24,6 +24,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Authorize(Policy = "RequiresElevation")]
 [Route("JellyfinHelper/Recommendations")]
 [Produces(MediaTypeNames.Application.Json)]
+[ProducesResponseType(StatusCodes.Status401Unauthorized)]
+[ProducesResponseType(StatusCodes.Status403Forbidden)]
 public class RecommendationController : ControllerBase
 {
     private static readonly SemaphoreSlim CacheFillLock = new(1, 1);
@@ -134,7 +136,7 @@ public class RecommendationController : ControllerBase
     /// <returns>The recommendation result for the user.</returns>
     [HttpGet("{userId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public ActionResult<RecommendationResult> GetUserRecommendations(
@@ -200,7 +202,7 @@ public class RecommendationController : ControllerBase
     /// <returns>The user's watch profile.</returns>
     [HttpGet("WatchProfile/{userId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public ActionResult<UserWatchProfile> GetUserWatchProfile(Guid userId)

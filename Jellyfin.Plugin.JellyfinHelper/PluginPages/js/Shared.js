@@ -737,6 +737,7 @@ function apiPostRaw(path, rawBody, contentType, onSuccess, onError) {
  * @param {function} [onError] - Optional error callback for network/server errors.
  */
 function apiGetOptional(path, onSuccess, onNoContent, onError) {
+    if (!onSuccess) console.warn('apiGetOptional: no onSuccess handler for', path);
     var c = ApiClient;
     var errHandler = onError || _apiDefaultError('GET', path);
     fetch(c.getUrl(path), {

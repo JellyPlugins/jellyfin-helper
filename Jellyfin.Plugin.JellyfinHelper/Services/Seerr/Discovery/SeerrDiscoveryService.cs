@@ -169,6 +169,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var config = Plugin.Instance?.Configuration;
         if (config == null)
         {
+            _pluginLog.LogWarning("SeerrDiscovery", "Plugin instance is not available; skipping.", null, _logger);
             return;
         }
 
@@ -316,8 +317,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var config = Plugin.Instance?.Configuration;
-        if (config == null
-            || string.IsNullOrWhiteSpace(config.SeerrUrl)
+        if (config == null)
+        {
+            _pluginLog.LogWarning("SeerrDiscovery", "Plugin instance is not available; skipping.", null, _logger);
+            return (false, "Seerr is not configured.");
+        }
+
+        if (string.IsNullOrWhiteSpace(config.SeerrUrl)
             || string.IsNullOrWhiteSpace(config.SeerrApiKey))
         {
             return (false, "Seerr is not configured.");
@@ -334,6 +340,17 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         if (profileId.HasValue && profileId.Value < 0)
         {
             return (false, "profileId must be 0 or greater.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(rootFolder))
+        {
+            if (rootFolder.Contains("..", StringComparison.Ordinal)
+                || rootFolder.StartsWith('~')
+                || rootFolder.Any(c => char.IsControl(c))
+                || rootFolder.Length > 512)
+            {
+                throw new ArgumentException("rootFolder contains invalid path content.", nameof(rootFolder));
+            }
         }
 
         Uri baseUri;
@@ -462,8 +479,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         CancellationToken cancellationToken)
     {
         var config = Plugin.Instance?.Configuration;
-        if (config == null
-            || string.IsNullOrWhiteSpace(config.SeerrUrl)
+        if (config == null)
+        {
+            _pluginLog.LogWarning("SeerrDiscovery", "Plugin instance is not available; skipping.", null, _logger);
+            return ([], false);
+        }
+
+        if (string.IsNullOrWhiteSpace(config.SeerrUrl)
             || string.IsNullOrWhiteSpace(config.SeerrApiKey))
         {
             return ([], false);
@@ -570,6 +592,12 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         string serviceType,
         CancellationToken cancellationToken)
     {
+        if (!string.Equals(serviceType, "radarr", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(serviceType, "sonarr", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException($"Unsupported service type '{serviceType}'. Expected 'radarr' or 'sonarr'.", nameof(serviceType));
+        }
+
         var (services, _) = await GetServiceInfoWithStatusAsync(serviceType, cancellationToken).ConfigureAwait(false);
         return services;
     }
@@ -590,8 +618,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
 
         var config = Plugin.Instance?.Configuration;
-        if (config == null
-            || string.IsNullOrWhiteSpace(config.SeerrUrl)
+        if (config == null)
+        {
+            _pluginLog.LogWarning("SeerrDiscovery", "Plugin instance is not available; skipping.", null, _logger);
+            return ([], true);
+        }
+
+        if (string.IsNullOrWhiteSpace(config.SeerrUrl)
             || string.IsNullOrWhiteSpace(config.SeerrApiKey))
         {
             // Not configured is a valid state (not a transient failure)
@@ -654,8 +687,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                         var detail = JsonSerializer.Deserialize<SeerrServiceInfo>(detailJson, JsonOptions);
                         if (detail != null)
                         {
-                            server.Profiles = detail.Profiles;
-                            server.RootFolders = detail.RootFolders;
+                            server.Profiles = detail.Profiles ?? server.Profiles;
+                            server.RootFolders = detail.RootFolders ?? server.RootFolders;
                             server.ActiveProfileId = detail.ActiveProfileId;
                             server.ActiveDirectory = detail.ActiveDirectory;
                         }
@@ -1042,13 +1075,26 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     _cachedSeerrUsers = freshUsers;
                     _cachedSeerrUsersExpiry = DateTime.UtcNow.Add(SeerrUserCacheTtl);
                 }
+                else
+                {
+                    // Another thread already populated the cache; return its copy
+                    return _cachedSeerrUsers;
+                }
             }
         }
 
         // Return empty list for incomplete fetches so callers stay on the retriable
         // "temporarily unavailable" path instead of consuming truncated data that would
         // incorrectly mark users on unfetched pages as "not linked to Seerr".
-        return complete ? freshUsers : [];
+        if (!complete)
+        {
+            return [];
+        }
+
+        lock (_userCacheLock)
+        {
+            return _cachedSeerrUsers ?? freshUsers;
+        }
     }
 
     private async Task<DiscoveryResult?> GenerateForUserAsync(
@@ -1199,15 +1245,13 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         // Add user-specific dismissed and previously requested items to the exclusion set.
         // Best-effort: failures don't break generation.
-        var userExcluded = excludedTmdbIds;
+        var userExcluded = new HashSet<(int TmdbId, string MediaType)>(excludedTmdbIds);
         try
         {
             var dismissed = _feedbackStore.GetDismissedItems(profile.UserId);
             var requested = _feedbackStore.GetRequestedItems(profile.UserId);
             if (dismissed.Count > 0 || requested.Count > 0)
             {
-                // Create a per-user copy to avoid mutating the shared set across users
-                userExcluded = new HashSet<(int TmdbId, string MediaType)>(excludedTmdbIds);
                 userExcluded.UnionWith(dismissed);
                 userExcluded.UnionWith(requested);
             }
@@ -1336,6 +1380,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        var delayAfter = false;
         try
         {
             using var request = BuildRequest(HttpMethod.Get, baseUri, queryPath, apiKey);
@@ -1352,7 +1397,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var page = JsonSerializer.Deserialize<TmdbDiscoverResponse>(json, JsonOptions);
-
+            delayAfter = true;
             return page?.Results ?? [];
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1371,7 +1416,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         }
         finally
         {
-            if (!cancellationToken.IsCancellationRequested)
+            if (delayAfter && !cancellationToken.IsCancellationRequested)
             {
                 try
                 {
@@ -1686,7 +1731,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     {
                         throw;
                     }
-                    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException or OperationCanceledException)
+                    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or TimeoutException)
                     {
                         _pluginLog.LogDebug(
                             "SeerrDiscovery",

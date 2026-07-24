@@ -157,7 +157,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // scans on the LibraryManager in lock-step.
         var snapshot = GetOrRefreshLiveSnapshot();
 
-        if (userProfile.WatchedItems.Count == 0)
+        if (!userProfile.WatchedItems.Any(w => w.HasMeaningfulInteraction()))
         {
             // Cold-start: user exists but has no watch history - return popular/trending items.
             // Reuse cached candidates from the last batch run if available to avoid redundant library queries.
@@ -360,7 +360,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             communityPopularity,
             CommunityPopularityComputed: true, // batch path has executed the O(U×M) scan
             BatchGeneration: batchGeneration,
-            PublicationSequence: Interlocked.Increment(ref _publicationSequence),
+            PublicationSequence: 0, // assigned atomically inside TryPublishSnapshot
             DateTime.UtcNow));
 
         _pluginLog.LogInfo(
@@ -390,7 +390,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     // a Jellyfin restart between two batches of the same generation counter would
                     // otherwise reshuffle exploration outcomes.
                     var batchSeed = ComputeStableSeed(profile.UserId, batchGeneration);
-                    var result = profile.WatchedItems.Count == 0
+                    var result = !profile.WatchedItems.Any(w => w.HasMeaningfulInteraction())
                         ? GenerateColdStartRecommendations(
                             profile.UserId,
                             maxResultsPerUser,
@@ -899,7 +899,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var watchedGenreSets = new List<HashSet<string>>();
         var watchedPeopleSets = new List<HashSet<string>>();
         var watchedStudioSets = new List<HashSet<string>>();
-        foreach (var w in userProfile.WatchedItems.Where(w => w.Played || w.IsFavorite))
+        foreach (var w in userProfile.WatchedItems.Where(w => w.HasMeaningfulInteraction()))
         {
             watchedGenreSets.Add(
                 w.Genres is { Count: > 0 }
@@ -907,7 +907,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     : []);
 
             // People: resolve from peopleLookup (which maps item IDs to person name sets)
-            watchedPeopleSets.Add(peopleLookup.TryGetValue(w.ItemId, out var wp) ? wp : []);
+            watchedPeopleSets.Add(peopleLookup.TryGetValue(w.ItemId, out var wp) ? new HashSet<string>(wp, StringComparer.OrdinalIgnoreCase) : []);
 
             // Studios: resolve from candidateLookup (which maps item IDs to BaseItems with Studios)
             watchedStudioSets.Add(
@@ -1002,7 +1002,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 Tags = s.Item.Tags ?? [],
                 AudioLanguages = ResolveAudioLanguages(s.Item),
                 SubtitleLanguages = ResolveSubtitleLanguages(s.Item),
-                BoxSetIds = ResolveBoxSetIds(s.Item),
+                BoxSetIds = candidateBoxSetLookup.TryGetValue(s.Item.Id, out var bsIds) ? bsIds : [],
                 DateCreated = s.Item.DateCreated
             })
             .ToList();
@@ -1105,6 +1105,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Popularity proxy from collaborative scores (centralized formula)
         var popularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore);
 
+        // Language affinity features: resolve media streams ONCE per candidate to avoid
+        // calling GetMediaStreams() twice (audio + subtitle). Single-pass via ResolveMediaLanguages().
+        // Pre-computed before the object initializer so candidateMediaLanguages is in scope when
+        // SubtitleLanguageAffinity is assigned (C# does not guarantee named-arg evaluation order).
+        var languageAffinity = ComputeLanguageAffinityFromStreams(userProfile, candidate, out var candidateMediaLanguages);
+
         // Build feature vector and delegate scoring to strategy
         var features = new CandidateFeatures
         {
@@ -1139,9 +1145,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 watchedGenreSets,
                 watchedPeopleSets,
                 watchedStudioSets),
-            // Language affinity features: resolve media streams ONCE per candidate to avoid
-            // calling GetMediaStreams() twice (audio + subtitle). Single-pass via ResolveMediaLanguages().
-            LanguageAffinity = ComputeLanguageAffinityFromStreams(userProfile, candidate, out var candidateMediaLanguages),
+            LanguageAffinity = languageAffinity,
             // Collection/BoxSet progression: uses pre-resolved BoxSet IDs from candidateBoxSetLookup.
             // No per-candidate parent traversal needed — all BoxSet memberships resolved once during batch init.
             CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(
@@ -1296,6 +1300,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 if (firstEpisode is not null)
                 {
                     streams = firstEpisode.GetMediaStreams();
+                    if ((streams is null || streams.Count == 0) && _logger.IsEnabled(LogLevel.Debug))
+                    {
+                        _pluginLog.LogDebug("Recommendations", $"Series '{series.Name}' (Id={series.Id}): fallback episode has no media streams.", _logger);
+                    }
                 }
             }
 
@@ -1570,6 +1578,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
             var boxSetLookup = BuildCandidateBoxSetLookupFresh(candidates);
 
+            // Increment inside the lock so the sequence is assigned atomically with the
+            // cache write, preventing a race with the batch path's TryPublishSnapshot.
+            var seq = Interlocked.Increment(ref _publicationSequence);
             var fresh = new CandidateSnapshot(
                 candidates,
                 peopleLookup,
@@ -1578,7 +1589,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 null,
                 CommunityPopularityComputed: false, // live rebuild has no all-user data yet — first cold-start hit will fill this in
                 BatchGeneration: 0, // live-refresh writes carry BatchGeneration=0; kept for exploration-seed semantics only
-                PublicationSequence: Interlocked.Increment(ref _publicationSequence),
+                PublicationSequence: seq,
                 DateTime.UtcNow);
 
             // Republish so subsequent live requests hit the fresh cache without re-entering
@@ -1625,31 +1636,49 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     {
         lock (_snapshotRefreshLock)
         {
+            // Increment inside the lock so that sequence assignment and the cache write
+            // are atomic. This prevents the batch path (which builds its snapshot outside
+            // the lock) from racing with a concurrent live-refresh and obtaining a sequence
+            // number that misrepresents actual publish order.
+            var seq = Interlocked.Increment(ref _publicationSequence);
+            var stamped = candidate with { PublicationSequence = seq };
+
             var current = _cachedSnapshot;
-            if (current is not null && current.PublicationSequence > candidate.PublicationSequence)
+            if (current is not null && current.PublicationSequence > stamped.PublicationSequence)
             {
                 // A newer publish has already landed. Reject this write so the older one
                 // cannot roll the cache back to stale data.
                 return false;
             }
 
-            _cachedSnapshot = candidate;
+            _cachedSnapshot = stamped;
             return true;
         }
     }
 
     /// <summary>
-    ///     Test seam: invokes <see cref="TryPublishSnapshot"/> with a minimal snapshot carrying
-    ///     only <paramref name="publicationSequence"/>. Lets unit tests exercise the publish-ordering
-    ///     contract without needing to construct a full <see cref="CandidateSnapshot"/>.
+    ///     Test seam: directly publishes a snapshot with the given sequence number, bypassing
+    ///     the auto-increment inside <see cref="TryPublishSnapshot"/>. Lets unit tests exercise
+    ///     the publish-ordering contract with deterministic sequence values.
     /// </summary>
-    /// <param name="publicationSequence">The sequence number to publish.</param>
+    /// <param name="publicationSequence">The exact sequence number to stamp on the snapshot.</param>
     /// <returns><c>true</c> if the snapshot was published; <c>false</c> if a newer one was already present.</returns>
     internal bool TryPublishSnapshotForTest(long publicationSequence)
     {
         var snapshot = new CandidateSnapshot(
             [], [], [], [], null, false, 0, publicationSequence, DateTime.UtcNow);
-        return TryPublishSnapshot(snapshot);
+
+        lock (_snapshotRefreshLock)
+        {
+            var current = _cachedSnapshot;
+            if (current is not null && current.PublicationSequence > snapshot.PublicationSequence)
+            {
+                return false;
+            }
+
+            _cachedSnapshot = snapshot;
+            return true;
+        }
     }
 
     /// <summary>
@@ -1815,18 +1844,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             }
 
             // For each user in the feedback store, resolve which (TmdbId, MediaType) they've watched
-            foreach (var userFeedback in allFeedback)
+            foreach (var userFeedback in allFeedback.Where(f => f.Entries.Any(e => e.RequestedAtUtc.HasValue && !e.WasWatched)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
                 try
                 {
-                    // Only process users who have at least one requested-but-not-yet-watched entry
-                    if (!userFeedback.Entries.Any(e => e.RequestedAtUtc.HasValue && !e.WasWatched))
-                    {
-                        continue;
-                    }
-
                     // Find the user's watch profile via O(1) dictionary lookup
                     if (!profileById.TryGetValue(userFeedback.UserId, out var userProfile))
                     {

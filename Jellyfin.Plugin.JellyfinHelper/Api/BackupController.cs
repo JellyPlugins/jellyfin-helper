@@ -22,6 +22,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Authorize(Policy = "RequiresElevation")]
 [Route("JellyfinHelper/Backup")]
 [Produces(MediaTypeNames.Application.Json)]
+[ProducesResponseType(StatusCodes.Status401Unauthorized)]
+[ProducesResponseType(StatusCodes.Status403Forbidden)]
 public class BackupController : ControllerBase
 {
     private readonly IBackupService _backupService;
@@ -59,6 +61,8 @@ public class BackupController : ControllerBase
     [HttpGet("Export")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public ActionResult ExportBackup([FromQuery] bool includeSecrets = false)
     {
         if (_backupService.AnySourceFileOversized())
@@ -116,6 +120,8 @@ public class BackupController : ControllerBase
     [HttpPost("Import")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     [Consumes("application/json")]
     public async Task<ActionResult> ImportBackupAsync()
@@ -271,10 +277,8 @@ public class BackupController : ControllerBase
                 return BadRequest(
                     new
                     {
-                        message =
-                            $"Backup validation failed with {validation.Errors.Count} error(s). Check the plugin logs for details.",
-                        errors = validation.Errors,
-                        warnings = validation.Warnings
+                        Error = $"Backup validation failed with {validation.Errors.Count} error(s). Check plugin logs for details.",
+                        Warnings = validation.Warnings
                     });
             }
 

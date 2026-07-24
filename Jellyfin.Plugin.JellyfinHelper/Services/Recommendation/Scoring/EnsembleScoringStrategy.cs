@@ -453,10 +453,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         // Snapshot blending factors atomically - sub-strategies handle their own thread safety.
         double alpha;
         double beta;
+        double floor;
         lock (_syncRoot)
         {
             alpha = _alpha;
             beta = _neuralBeta;
+            floor = _genrePenaltyFloor;
         }
 
         // Score calls are outside the lock to avoid nested locking (each sub-strategy
@@ -477,7 +479,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
 
         var blendedScore = (alpha * mlScore) + ((1.0 - alpha) * heuristicScore);
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
         return blendedScore * penalty;
     }
 
@@ -499,10 +501,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         double alpha;
         double beta;
+        double floor;
         lock (_syncRoot)
         {
             alpha = Math.Clamp(_alpha + alphaOffset, _alphaMin, _alphaMax);
             beta = _neuralBeta;
+            floor = _genrePenaltyFloor;
         }
 
         var learnedScore = _learned.Score(features);
@@ -520,7 +524,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
 
         var blendedScore = (alpha * mlScore) + ((1.0 - alpha) * heuristicScore);
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
         return blendedScore * penalty;
     }
 
@@ -540,10 +544,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         double alpha;
         double beta;
+        double floor;
         lock (_syncRoot)
         {
             alpha = Math.Clamp(_alpha + alphaOffset, _alphaMin, _alphaMax);
             beta = _neuralBeta;
+            floor = _genrePenaltyFloor;
         }
 
         var learnedExplanation = _learned.ScoreWithExplanation(features);
@@ -561,7 +567,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
 
         var blended = heuristicExplanation.Blend(mlExplanation, alpha);
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
         var result = blended.WithPenalty(penalty);
 
         result.StrategyName = Name;
@@ -585,10 +591,12 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         // Snapshot blending factors atomically - sub-strategies handle their own thread safety.
         double alpha;
         double beta;
+        double floor;
         lock (_syncRoot)
         {
             alpha = _alpha;
             beta = _neuralBeta;
+            floor = _genrePenaltyFloor;
         }
 
         // Score calls are outside the lock to allow parallel scoring across threads.
@@ -612,7 +620,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
         // Blend heuristic + ML: result = (1-α) × heuristic + α × ML
         var blended = heuristicExplanation.Blend(mlExplanation, alpha);
-        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, _genrePenaltyFloor);
+        var penalty = ComputeSoftGenrePenalty(features.GenreSimilarity, floor);
         var result = blended.WithPenalty(penalty);
 
         result.StrategyName = Name;

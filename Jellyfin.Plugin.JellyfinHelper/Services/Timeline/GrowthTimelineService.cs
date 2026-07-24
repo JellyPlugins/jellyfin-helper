@@ -31,7 +31,15 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
     private readonly string _baselineFilePath;
     private readonly ICleanupConfigHelper _configHelper;
+
+    // Guards individual file I/O operations (load/save).
     private readonly SemaphoreSlim _fileLock = new(1, 1);
+
+    // Guards the entire load-compute-save sequence so two concurrent invocations of
+    // ComputeTimelineAsync cannot both read the same baseline and then overwrite each
+    // other's results (TOCTOU on the baseline/timeline files).
+    private readonly SemaphoreSlim _computeLock = new(1, 1);
+
     private readonly IFileSystem _fileSystem;
 
     private readonly ILibraryManager _libraryManager;
@@ -90,6 +98,13 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        // Serialise the entire read-compute-write sequence. Without this gate two concurrent
+        // callers (e.g. a scheduled task and an API-triggered scan) both read the same baseline,
+        // compute independently, and the second SaveBaseline/SaveTimeline call silently discards
+        // the first caller's updates (TOCTOU on the persisted files).
+        await _computeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
         var now = DateTime.UtcNow;
         var currentDirs = CollectDirectoryEntries(cancellationToken);
 
@@ -317,6 +332,11 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
             $"Growth timeline computed: {dataPoints.Count} data points ({finalGranularity})",
             _logger);
         return result;
+        }
+        finally
+        {
+            _computeLock.Release();
+        }
     }
 
     /// <summary>
@@ -435,7 +455,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
 
                     // Use directory creation date as "when this media was added"
                     var createdUtc = Directory.GetCreationTimeUtc(subDir.FullName);
-                    if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
+                    if (createdUtc.Year < 1990)
                     {
                         // Fall back to last-write time on filesystems that don't track creation
                         // time (e.g. Linux ext4), matching the same pattern used for files below.
@@ -482,12 +502,12 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                     }
 
                     var createdUtc = File.GetCreationTimeUtc(file.FullName);
-                    if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
+                    if (createdUtc.Year < 1990)
                     {
                         createdUtc = File.GetLastWriteTimeUtc(file.FullName);
                     }
 
-                    if (createdUtc == DateTime.MinValue || createdUtc.Year < 1990)
+                    if (createdUtc.Year < 1990)
                     {
                         continue;
                     }
@@ -716,6 +736,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
         if (disposing)
         {
             _fileLock.Dispose();
+            _computeLock.Dispose();
         }
     }
 

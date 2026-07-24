@@ -203,7 +203,8 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             RootFolder = "   "
         };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var ok = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(201, ok.StatusCode);
         var body = Assert.IsType<RequestResult>(ok.Value);
         Assert.True(body.Success);
     }
@@ -371,7 +372,8 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
 
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var ok = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(201, ok.StatusCode);
         var body = Assert.IsType<RequestResult>(ok.Value);
         Assert.True(body.Success);
 
@@ -425,7 +427,8 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
 
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var ok = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(201, ok.StatusCode);
         var body = Assert.IsType<RequestResult>(ok.Value);
         Assert.True(body.Success);
     }
@@ -573,7 +576,8 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
 
         // First request must succeed.
         var first = await controller.SubmitMyRequest(dto, CancellationToken.None);
-        Assert.IsType<OkObjectResult>(first.Result);
+        var firstResult = Assert.IsType<ObjectResult>(first.Result);
+        Assert.Equal(201, firstResult.StatusCode);
 
         // Second request from the same user within the rate-limit window → 429.
         var second = await controller.SubmitMyRequest(dto, CancellationToken.None);
@@ -606,7 +610,9 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         var resultA = await CreateController(userA).SubmitMyRequest(dto, CancellationToken.None);
         var resultB = await CreateController(userB).SubmitMyRequest(dto, CancellationToken.None);
 
-        Assert.IsType<OkObjectResult>(resultA.Result);
-        Assert.IsType<OkObjectResult>(resultB.Result);
+        var okA = Assert.IsType<ObjectResult>(resultA.Result);
+        Assert.Equal(201, okA.StatusCode);
+        var okB = Assert.IsType<ObjectResult>(resultB.Result);
+        Assert.Equal(201, okB.StatusCode);
     }
 }

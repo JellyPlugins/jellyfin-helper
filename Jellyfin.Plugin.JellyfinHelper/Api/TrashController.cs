@@ -124,6 +124,7 @@ public class TrashController : ControllerBase
     /// <returns>A result indicating how many folders were deleted.</returns>
     [HttpDelete("Folders")]
     [ProducesResponseType(typeof(TrashDeleteResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult DeleteTrashFolders()
     {
         var config = _configHelper.GetConfig();
@@ -237,6 +238,11 @@ public class TrashController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult GetTrashFoldersForPath([FromBody] TrashPathQueryRequest request)
     {
+        if (request == null)
+        {
+            return BadRequest(new { Error = "Request body is required." });
+        }
+
         if (string.IsNullOrWhiteSpace(request.TrashFolderPath))
         {
             return BadRequest(new { Error = "TrashFolderPath is required." });
@@ -248,12 +254,7 @@ public class TrashController : ControllerBase
         // Full path-safety validation (library-root containment, filesystem-root rejection)
         // is enforced by GetExistingTrashFoldersForPath itself — this check is a
         // defence-in-depth guard only.
-        if (queryPath.Length > 512)
-        {
-            return BadRequest(new { Error = "TrashFolderPath is too long." });
-        }
-
-        if (queryPath.Contains("..", StringComparison.OrdinalIgnoreCase))
+        if (queryPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Any(s => s is "." or "..") || queryPath.Length > 512)
         {
             return BadRequest(new { Error = "TrashFolderPath must not contain path-traversal sequences." });
         }
@@ -278,6 +279,11 @@ public class TrashController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult RelocateTrash([FromBody] TrashRelocateRequest request)
     {
+        if (request == null)
+        {
+            return BadRequest(new { Error = "Request body is required." });
+        }
+
         if (string.IsNullOrWhiteSpace(request.OldTrashPath) || string.IsNullOrWhiteSpace(request.NewTrashPath))
         {
             return BadRequest(new { Error = "Both OldTrashPath and NewTrashPath are required." });
@@ -491,6 +497,11 @@ public class TrashController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public ActionResult CheckAccess([FromBody] TrashPathQueryRequest request)
     {
+        if (request == null)
+        {
+            return BadRequest(new { Error = "Request body is required." });
+        }
+
         if (string.IsNullOrWhiteSpace(request.TrashFolderPath))
         {
             return BadRequest(new { Error = "TrashFolderPath is required." });
@@ -509,6 +520,14 @@ public class TrashController : ControllerBase
 
         if (Path.IsPathRooted(queryPath))
         {
+            // Absolute path: enforce the same library-root containment guard used by Delete
+            // and Relocate. Without this check an admin could enumerate arbitrary host paths
+            // or cause the Jellyfin process to create a probe file anywhere it can write.
+            if (!IsPathSafeForDeletion(queryPath, libraryFolders))
+            {
+                return BadRequest("Path is outside of the permitted library trash directories.");
+            }
+
             // Absolute path: check it directly
             var accessResult = _trashService.CheckPathAccess(queryPath, _logger);
             _pluginLog.LogInfo(

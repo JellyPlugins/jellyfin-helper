@@ -175,7 +175,7 @@ public class LinkRepairService : ILinkRepairService
                 continue;
             }
 
-            if (visited.Count > VisitedDirectoryCap)
+            if (visited.Count >= VisitedDirectoryCap)
             {
                 _pluginLog.LogWarning(
                     "LinkRepair",
@@ -296,11 +296,18 @@ public class LinkRepairService : ILinkRepairService
                 pathToNormalize = fileUri.LocalPath;
             }
 
+            var linkDir = _fileSystem.Path.GetDirectoryName(linkFilePath);
+            if (linkDir == null)
+            {
+                fileResult.Status = LinkFileStatus.InvalidContent;
+                return fileResult;
+            }
+
             normalizedTargetPath = _fileSystem.Path.IsPathRooted(pathToNormalize)
                 ? _fileSystem.Path.GetFullPath(pathToNormalize)
                 : _fileSystem.Path.GetFullPath(
                     _fileSystem.Path.Combine(
-                        _fileSystem.Path.GetDirectoryName(linkFilePath) ?? string.Empty,
+                        linkDir,
                         pathToNormalize));
             // If the original path was relative, verify the resolved absolute path
             // falls within one of the configured library roots. A relative target that

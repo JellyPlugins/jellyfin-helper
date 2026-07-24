@@ -376,12 +376,15 @@ function checkUnsavedAndProceed(onProceed) {
 }
 
 // Browser navigation guard
-window.addEventListener('beforeunload', function (e) {
-    if (hasUnsavedSettings()) {
-        e.preventDefault();
-        e.returnValue = '';
-    }
-});
+if (!window._jfhBeforeunloadBound) {
+    window._jfhBeforeunloadBound = true;
+    window.addEventListener('beforeunload', function (e) {
+        if (hasUnsavedSettings()) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
+}
 
 // Rebuild the entire UI after a language change
 function rebuildUI() {
@@ -391,6 +394,7 @@ function rebuildUI() {
     var result = document.getElementById('statsResult');
     if (placeholder) placeholder.style.display = 'none';
     if (result) {
+        resetLogsTabState();
         result.innerHTML = renderShell();
         result.style.display = 'block';
     }
@@ -700,7 +704,7 @@ function buildSettingsPayload() {
         EmptyMediaFolderTaskMode: document.getElementById('cfgEmptyFolderMode').value,
         OrphanedSubtitleTaskMode: document.getElementById('cfgSubtitleMode').value,
         LinkRepairTaskMode: document.getElementById('cfgLinkMode').value,
-        RecommendationsTaskMode: document.getElementById('cfgRecommendationsMode').value,
+        RecommendationsTaskMode: document.getElementById('cfgRecommendationsMode')?.value ?? 'Deactivate',
         SyncRecommendationsToPlaylist: document.getElementById('cfgSyncPlaylist') ? document.getElementById('cfgSyncPlaylist').checked : false,
         SeerrUrl: (document.getElementById('cfgSeerrUrl') || {}).value || '',
         SeerrApiKey: (document.getElementById('cfgSeerrApiKey') || {}).value || '',
@@ -715,8 +719,8 @@ function buildSettingsPayload() {
             var v = el ? parseInt(el.value, 10) : 365;
             return isNaN(v) || v < 1 ? 365 : v;
         })(),
-        UseTrash: document.getElementById('cfgTrash').checked,
-        TrashFolderPath: document.getElementById('cfgTrashPath').value,
+        UseTrash: document.getElementById('cfgTrash')?.checked ?? false,
+        TrashFolderPath: document.getElementById('cfgTrashPath')?.value ?? '',
         TrashRetentionDays: (function () {
             var v = parseInt(document.getElementById('cfgTrashDays').value, 10);
             if (isNaN(v) || v < 0) return 30;
@@ -734,7 +738,7 @@ function buildSettingsPayload() {
             var seerrKey = (document.getElementById('cfgSeerrApiKey') || {}).value || '';
             return recsMode === 'Activate' && isSeerrConfigured(seerrUrl, seerrKey);
         })(),
-        Language: document.getElementById('cfgLang').value,
+        Language: document.getElementById('cfgLang')?.value ?? 'en',
         PluginLogLevel: _currentLogLevel,
         RadarrInstances: radarrInstances,
         SonarrInstances: sonarrInstances
@@ -1009,7 +1013,7 @@ function showTrashDeleteConfirmation(payload, paths) {
         removeTrashDialog();
         var chk = document.getElementById('cfgTrash');
         if (chk) chk.checked = true;
-        saveBtn.disabled = false;
+        if (saveBtn) saveBtn.disabled = false;
     }));
     d.btnRow.appendChild(createDialogBtn(T('trashDeleteConfirmOk', 'Yes, Delete All'), 'danger', function () {
         removeTrashDialog();
@@ -1033,7 +1037,7 @@ function showTrashDeleteConfirmation(payload, paths) {
             doSaveSettings(payload);
         }, function () {
             msg.innerHTML = '<div class="error-msg">' + mi('error') + ' ' + escHtml(T('trashDeleteError', 'Failed to delete trash folders.')) + '</div>';
-            saveBtn.disabled = false;
+            if (saveBtn) saveBtn.disabled = false;
         });
     }));
 
@@ -1264,7 +1268,7 @@ function attachSeerrHandlers() {
         apiPost('JellyfinHelper/Seerr/Test', {Url: url, ApiKey: key}, function (res) {
             btn.disabled = false;
             if (res && res.success) {
-                _seerrTimer = showButtonFeedback(btn, true, escHtml(res.message || 'OK'), originalHtml);
+                _seerrTimer = showButtonFeedback(btn, true, res.message || 'OK', originalHtml);
                 // Auto-save settings after successful connection test (quiet to avoid double feedback)
                 var payload = buildSettingsPayload();
                 doSaveSettings(payload, {quiet: true, element: document.getElementById('arrCollapsibleHeaderSeerr')});
@@ -1273,7 +1277,7 @@ function attachSeerrHandlers() {
                 // Refresh the Discovery wrapper (depends on Seerr being configured)
                 refreshDiscoveryAccessState();
             } else {
-                _seerrTimer = showButtonFeedback(btn, false, escHtml(res.message || 'Failed'), originalHtml);
+                _seerrTimer = showButtonFeedback(btn, false, res.message || 'Failed', originalHtml);
             }
         }, function () {
             btn.disabled = false;

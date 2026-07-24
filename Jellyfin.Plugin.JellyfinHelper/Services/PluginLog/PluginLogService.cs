@@ -32,6 +32,7 @@ public class PluginLogService : IPluginLogService
     private readonly LinkedList<PluginLogEntry> _buffer = [];
     private readonly IPluginConfigurationService _configService;
     private readonly Lock _lock = new();
+    private volatile string? _testMinLevelOverride;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="PluginLogService" /> class.
@@ -46,7 +47,11 @@ public class PluginLogService : IPluginLogService
     ///     Gets or sets an optional override for the minimum log level. Used by unit tests.
     ///     When set to a non-null value, this overrides the plugin configuration.
     /// </summary>
-    internal string? TestMinLevelOverride { get; set; }
+    internal string? TestMinLevelOverride
+    {
+        get => _testMinLevelOverride;
+        set => _testMinLevelOverride = value;
+    }
 
     /// <summary>
     ///     Logs a debug-level message to the plugin buffer and optionally to Jellyfin's logger.

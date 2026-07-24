@@ -487,8 +487,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         } // release _syncRoot before disk I/O and ranking metrics to avoid blocking concurrent Score() calls
 
         // Compute ranking metrics OUTSIDE the lock - ComputeAll() calls Score() internally,
-        // which acquires _syncRoot. While Monitor is reentrant (no deadlock), holding the lock
-        // during the entire scoring loop unnecessarily blocks all concurrent Score() callers.
+        // which acquires _syncRoot. System.Threading.Lock is NOT reentrant — this call MUST
+        // remain outside _syncRoot. Moving it inside the lock would cause a LockRecursionException.
         // This mirrors the pattern used by NeuralScoringStrategy.Train().
         //
         // Prefer the caller-supplied held-out slice so the ensemble's quality snapshot reports
@@ -533,6 +533,11 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         // Compute means
         for (var i = 0; i < n; i++)
         {
+            if (vectors[i].Length < featureCount)
+            {
+                throw new ArgumentException($"Vector at index {i} has length {vectors[i].Length}, expected at least {featureCount}.", nameof(vectors));
+            }
+
             for (var f = 0; f < featureCount; f++)
             {
                 means[f] += vectors[i][f];
@@ -659,6 +664,8 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         bool useEarlyStopping)
     {
         useEarlyStopping = useEarlyStopping && valIndices.Length >= MinValidationExamples;
+
+        trainIndices = (int[])trainIndices.Clone();
 
         var bestLoss = double.MaxValue;
         var patienceCounter = 0;

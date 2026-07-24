@@ -874,6 +874,396 @@ public class LinkRepairServiceTests
         Assert.DoesNotContain(found, r => r.FilePath.StartsWith(lib2, StringComparison.OrdinalIgnoreCase));
     }
 
+    // =========================================================================
+    // RepairLinks: aggregate counts
+    // =========================================================================
+
+    [Fact]
+    public void RepairLinks_AggregatesInvalidContentCount()
+    {
+        var seriesDir = _fileSystem.Path.GetFullPath("/series");
+        var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/empty.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("")); // empty -> InvalidContent
+
+        var result = _service.RepairLinks([seriesDir], dryRun: true);
+
+        Assert.Equal(1, result.InvalidContentCount);
+        Assert.Equal(0, result.BrokenCount);
+        Assert.Equal(0, result.ValidCount);
+    }
+
+    [Fact]
+    public void RepairLinks_AggregatesAmbiguousCount()
+    {
+        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie1");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
+        _fileSystem.AddDirectory(movieDir);
+        _fileSystem.AddFile(_fileSystem.Path.Join(movieDir, "part1.mkv"), new MockFileData("v"));
+        _fileSystem.AddFile(_fileSystem.Path.Join(movieDir, "part2.mkv"), new MockFileData("v"));
+
+        var seriesDir = _fileSystem.Path.GetFullPath("/series");
+        var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(brokenTarget));
+
+        var result = _service.RepairLinks([seriesDir], dryRun: true);
+
+        Assert.Equal(1, result.AmbiguousCount);
+        Assert.Equal(0, result.BrokenCount);
+        Assert.Equal(0, result.RepairedCount);
+    }
+
+    [Fact]
+    public void RepairLinks_AggregatesBrokenCount()
+    {
+        var seriesDir = _fileSystem.Path.GetFullPath("/series");
+        // Broken: parent dir does not exist
+        var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(_fileSystem.Path.GetFullPath("/movies/DeletedDir/movie.mkv")));
+
+        var result = _service.RepairLinks([seriesDir], dryRun: true);
+
+        Assert.Equal(1, result.BrokenCount);
+        Assert.Equal(0, result.ValidCount);
+        Assert.Equal(0, result.RepairedCount);
+    }
+
+    // =========================================================================
+    // RepairLinks: cancellation between file-processing iterations
+    // =========================================================================
+
+    [Fact]
+    public void RepairLinks_CancellationBetweenFileProcessing_Throws()
+    {
+        // Two valid .strm files; cancel after the first iteration begins.
+        // The cancellationToken.ThrowIfCancellationRequested() inside the
+        // foreach loop must surface the cancellation.
+        var movieFile1 = _fileSystem.Path.GetFullPath("/movies/M1/movie.mkv");
+        var movieFile2 = _fileSystem.Path.GetFullPath("/movies/M2/movie.mkv");
+        _fileSystem.AddFile(movieFile1, new MockFileData("v"));
+        _fileSystem.AddFile(movieFile2, new MockFileData("v"));
+
+        var seriesDir = _fileSystem.Path.GetFullPath("/series");
+        _fileSystem.AddFile(_fileSystem.Path.GetFullPath("/series/S1/ep.strm"), new MockFileData(movieFile1));
+        _fileSystem.AddFile(_fileSystem.Path.GetFullPath("/series/S2/ep.strm"), new MockFileData(movieFile2));
+
+        using var cts = new CancellationTokenSource();
+
+        // Use a handler that cancels after the first file is found
+        var callCount = 0;
+        var interceptHandler = new Mock<ILinkHandler>();
+        interceptHandler.Setup(h => h.CanHandle(It.IsAny<string>())).Returns(true);
+        interceptHandler.Setup(h => h.SupportsUrlTargets).Returns(false);
+        interceptHandler.Setup(h => h.ReadTarget(It.IsAny<string>()))
+            .Returns<string>(path =>
+            {
+                if (++callCount == 1)
+                {
+                    cts.Cancel();
+                }
+
+                return _fileSystem.File.ReadAllText(path);
+            });
+
+        var service = new LinkRepairService(
+            _fileSystem,
+            [interceptHandler.Object],
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<LinkRepairService>().Object);
+
+        Assert.Throws<OperationCanceledException>(() =>
+            service.RepairLinks([seriesDir], dryRun: true, cts.Token));
+    }
+
+    // =========================================================================
+    // FindMediaFilesInDirectory: inaccessible directory
+    // =========================================================================
+
+    [Fact]
+    public void FindMediaFilesInDirectory_InaccessibleDirectory_ReturnsEmpty()
+    {
+        // A handler that throws UnauthorizedAccessException when the directory is
+        // enumerated should be caught and result in an empty list (not a crash).
+        // We simulate this by using a non-existent directory so the MockFileSystem
+        // returns an empty enumeration (or throws, which the catch block handles).
+        var missingDir = _fileSystem.Path.GetFullPath("/no-such-dir");
+
+        var result = _service.FindMediaFilesInDirectory(missingDir);
+
+        Assert.Empty(result);
+    }
+
+    // =========================================================================
+    // ProcessLinkFile: normalizedLibraryPaths path-traversal guard
+    // =========================================================================
+
+    [Fact]
+    public void ProcessLinkFile_RelativeTarget_EscapesLibraryRoot_ReturnsInvalidContent()
+    {
+        // When ProcessLinkFile is called with an explicit normalizedLibraryPaths list
+        // and the relative target resolves outside every listed root, the result must
+        // be InvalidContent (path-traversal guard), not Broken.
+        var libDir = _fileSystem.Path.GetFullPath("/series/Show1");
+        var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("../../../etc/passwd"));
+
+        var result = _service.ProcessLinkFile(
+            linkFile,
+            _strmHandler,
+            dryRun: true,
+            normalizedLibraryPaths: [libDir]);
+
+        Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_RelativeTarget_WithinLibraryRoot_ProcessesNormally()
+    {
+        // A relative target that resolves inside the library root must pass the
+        // traversal guard and be evaluated normally (Valid if the resolved file exists).
+        var libDir = _fileSystem.Path.GetFullPath("/series/Show1");
+        var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
+        var sibling = _fileSystem.Path.GetFullPath("/series/Show1/actual.mkv");
+        _fileSystem.AddFile(sibling, new MockFileData("video"));
+        _fileSystem.AddFile(linkFile, new MockFileData("actual.mkv"));
+
+        var result = _service.ProcessLinkFile(
+            linkFile,
+            _strmHandler,
+            dryRun: true,
+            normalizedLibraryPaths: [libDir]);
+
+        Assert.Equal(LinkFileStatus.Valid, result.Status);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_RelativeTarget_NullNormalizedPaths_SkipsGuard()
+    {
+        // When normalizedLibraryPaths is null the path-traversal guard is skipped,
+        // and a relative target that resolves to a non-existent file is Broken (not
+        // InvalidContent). This is the behaviour used by the direct test-helper overload.
+        var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("../../../etc/passwd"));
+
+        var result = _service.ProcessLinkFile(
+            linkFile,
+            _strmHandler,
+            dryRun: true,
+            normalizedLibraryPaths: null);
+
+        // The resolved path does not exist on the mock filesystem, so it is Broken.
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
+    }
+
+    // =========================================================================
+    // ProcessLinkFile: strm WriteTarget exception variants
+    // =========================================================================
+
+    [Fact]
+    public void ProcessLinkFile_Strm_ActualRepair_WriteTargetThrowsNotSupported_ReturnsBroken()
+    {
+        // NotSupportedException from WriteTarget must be caught and mapped to Broken,
+        // and NewTargetPath must be cleared so the UI does not show a phantom repair.
+        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-WriteNotSupported");
+        var newFile = _fileSystem.Path.Join(movieDir, "new.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
+        _fileSystem.AddDirectory(movieDir);
+        _fileSystem.AddFile(newFile, new MockFileData("video"));
+
+        var throwingHandler = new Mock<ILinkHandler>();
+        throwingHandler.Setup(h => h.CanHandle(It.IsAny<string>())).Returns(true);
+        throwingHandler.Setup(h => h.SupportsUrlTargets).Returns(false);
+        throwingHandler.Setup(h => h.ReadTarget(It.IsAny<string>())).Returns(brokenTarget);
+        throwingHandler.Setup(h => h.WriteTarget(It.IsAny<string>(), It.IsAny<string>()))
+            .Throws(new NotSupportedException("read-only fs"));
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/WriteNotSupported/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(brokenTarget));
+
+        var result = _service.ProcessLinkFile(linkFile, throwingHandler.Object, dryRun: false);
+
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        Assert.Null(result.NewTargetPath);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_Strm_ActualRepair_WriteTargetThrowsArgumentException_ReturnsBroken()
+    {
+        // ArgumentException from WriteTarget must also be caught and mapped to Broken.
+        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-WriteArgEx");
+        var newFile = _fileSystem.Path.Join(movieDir, "new.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
+        _fileSystem.AddDirectory(movieDir);
+        _fileSystem.AddFile(newFile, new MockFileData("video"));
+
+        var throwingHandler = new Mock<ILinkHandler>();
+        throwingHandler.Setup(h => h.CanHandle(It.IsAny<string>())).Returns(true);
+        throwingHandler.Setup(h => h.SupportsUrlTargets).Returns(false);
+        throwingHandler.Setup(h => h.ReadTarget(It.IsAny<string>())).Returns(brokenTarget);
+        throwingHandler.Setup(h => h.WriteTarget(It.IsAny<string>(), It.IsAny<string>()))
+            .Throws(new ArgumentException("invalid path chars"));
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/WriteArgEx/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(brokenTarget));
+
+        var result = _service.ProcessLinkFile(linkFile, throwingHandler.Object, dryRun: false);
+
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        Assert.Null(result.NewTargetPath);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_Strm_ActualRepair_WriteTargetThrowsIOException_ReturnsBroken()
+    {
+        // IOException from WriteTarget (e.g. disk full) must be caught and mapped to Broken.
+        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-WriteIOEx");
+        var newFile = _fileSystem.Path.Join(movieDir, "new.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
+        _fileSystem.AddDirectory(movieDir);
+        _fileSystem.AddFile(newFile, new MockFileData("video"));
+
+        var throwingHandler = new Mock<ILinkHandler>();
+        throwingHandler.Setup(h => h.CanHandle(It.IsAny<string>())).Returns(true);
+        throwingHandler.Setup(h => h.SupportsUrlTargets).Returns(false);
+        throwingHandler.Setup(h => h.ReadTarget(It.IsAny<string>())).Returns(brokenTarget);
+        throwingHandler.Setup(h => h.WriteTarget(It.IsAny<string>(), It.IsAny<string>()))
+            .Throws(new IOException("disk full"));
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/WriteIOEx/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(brokenTarget));
+
+        var result = _service.ProcessLinkFile(linkFile, throwingHandler.Object, dryRun: false);
+
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        Assert.Null(result.NewTargetPath);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_Strm_ActualRepair_WriteTargetThrowsUnauthorized_ReturnsBroken()
+    {
+        // UnauthorizedAccessException from WriteTarget must also be caught and mapped to Broken.
+        var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-WriteUnauth");
+        var newFile = _fileSystem.Path.Join(movieDir, "new.mkv");
+        var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
+        _fileSystem.AddDirectory(movieDir);
+        _fileSystem.AddFile(newFile, new MockFileData("video"));
+
+        var throwingHandler = new Mock<ILinkHandler>();
+        throwingHandler.Setup(h => h.CanHandle(It.IsAny<string>())).Returns(true);
+        throwingHandler.Setup(h => h.SupportsUrlTargets).Returns(false);
+        throwingHandler.Setup(h => h.ReadTarget(It.IsAny<string>())).Returns(brokenTarget);
+        throwingHandler.Setup(h => h.WriteTarget(It.IsAny<string>(), It.IsAny<string>()))
+            .Throws(new UnauthorizedAccessException("denied"));
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/WriteUnauth/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(brokenTarget));
+
+        var result = _service.ProcessLinkFile(linkFile, throwingHandler.Object, dryRun: false);
+
+        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        Assert.Null(result.NewTargetPath);
+    }
+
+    // =========================================================================
+    // StrmLinkHandler: oversized file handled at service level
+    // =========================================================================
+
+    [Fact]
+    public void ProcessLinkFile_Strm_OversizedFile_ReturnsInvalidContent()
+    {
+        // StrmLinkHandler.ReadTarget returns null for files > 32 KB.
+        // LinkRepairService must classify null-target reads as InvalidContent.
+        // We replicate the condition by having the handler return null (the service
+        // path for null/empty target is already exercised for empty files, but this
+        // verifies the oversized branch is handled identically through the same gate).
+        var oversizedContent = new string('A', 33 * 1024); // > 32 KB MaxStrmFileSizeBytes
+        var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/oversized.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData(oversizedContent));
+
+        var result = _service.ProcessLinkFile(linkFile, _strmHandler, dryRun: true);
+
+        Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
+    }
+
+    // =========================================================================
+    // ProcessLinkFile: path normalization exception variants
+    // =========================================================================
+
+    [Fact]
+    public void ProcessLinkFile_PathTooLongTarget_ReturnsInvalidContent()
+    {
+        // A path exceeding the OS maximum (PathTooLongException from Path.GetFullPath)
+        // must be caught and mapped to InvalidContent — not propagated as a crash.
+        var handler = new Mock<ILinkHandler>();
+        handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
+        handler.Setup(x => x.SupportsUrlTargets).Returns(false);
+        // PathTooLongException is thrown when Path.GetFullPath processes an
+        // extremely long path on some platforms. We inject it directly from ReadTarget
+        // to target the catch(ArgumentException | NotSupportedException | PathTooLongException)
+        // block around GetFullPath at line 333.
+        handler.Setup(x => x.ReadTarget(It.IsAny<string>()))
+            .Returns("/" + new string('x', 32_768) + ".mkv");
+
+        var linkFile = _fileSystem.Path.GetFullPath("/series/LongPath/movie.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("stub"));
+
+        var result = _service.ProcessLinkFile(linkFile, handler.Object, dryRun: true);
+
+        // The path does not exist on the mock filesystem, so it is Broken (not a crash).
+        // The important contract is that no exception escapes.
+        Assert.True(
+            result.Status == LinkFileStatus.Broken || result.Status == LinkFileStatus.InvalidContent,
+            $"Expected Broken or InvalidContent but got {result.Status}");
+    }
+
+    // =========================================================================
+    // RepairLinks: dryRun=false end-to-end aggregate
+    // =========================================================================
+
+    [Fact]
+    public void RepairLinks_ActualRepair_AllStatuses_AggregatedCorrectly()
+    {
+        var seriesDir = _fileSystem.Path.GetFullPath("/series");
+
+        // 1. Valid
+        var validTarget = _fileSystem.Path.GetFullPath("/movies/Valid/movie.mkv");
+        _fileSystem.AddFile(validTarget, new MockFileData("v"));
+        _fileSystem.AddFile(_fileSystem.Path.GetFullPath("/series/Valid/ep.strm"), new MockFileData(validTarget));
+
+        // 2. Repaired (single replacement candidate)
+        var repairDir = _fileSystem.Path.GetFullPath("/movies/Repair");
+        _fileSystem.AddDirectory(repairDir);
+        _fileSystem.AddFile(_fileSystem.Path.Join(repairDir, "new.mkv"), new MockFileData("v"));
+        _fileSystem.AddFile(
+            _fileSystem.Path.GetFullPath("/series/Repair/ep.strm"),
+            new MockFileData(_fileSystem.Path.Join(repairDir, "old.mkv")));
+
+        // 3. Broken (parent dir gone)
+        _fileSystem.AddFile(
+            _fileSystem.Path.GetFullPath("/series/Broken/ep.strm"),
+            new MockFileData(_fileSystem.Path.GetFullPath("/movies/GoneDir/movie.mkv")));
+
+        // 4. Ambiguous (multiple candidates)
+        var ambigDir = _fileSystem.Path.GetFullPath("/movies/Ambig");
+        _fileSystem.AddDirectory(ambigDir);
+        _fileSystem.AddFile(_fileSystem.Path.Join(ambigDir, "a.mkv"), new MockFileData("v"));
+        _fileSystem.AddFile(_fileSystem.Path.Join(ambigDir, "b.mkv"), new MockFileData("v"));
+        _fileSystem.AddFile(
+            _fileSystem.Path.GetFullPath("/series/Ambig/ep.strm"),
+            new MockFileData(_fileSystem.Path.Join(ambigDir, "old.mkv")));
+
+        // 5. InvalidContent (empty file)
+        _fileSystem.AddFile(_fileSystem.Path.GetFullPath("/series/Invalid/ep.strm"), new MockFileData(""));
+
+        var result = _service.RepairLinks([seriesDir], dryRun: false);
+
+        Assert.Equal(5, result.FileResults.Count);
+        Assert.Equal(1, result.ValidCount);
+        Assert.Equal(1, result.RepairedCount);
+        Assert.Equal(1, result.BrokenCount);
+        Assert.Equal(1, result.AmbiguousCount);
+        Assert.Equal(1, result.InvalidContentCount);
+    }
+
     private sealed class LowCapLinkRepairService(
         System.IO.Abstractions.IFileSystem fileSystem,
         IEnumerable<ILinkHandler> handlers,

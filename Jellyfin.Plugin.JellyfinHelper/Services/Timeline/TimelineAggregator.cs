@@ -409,7 +409,7 @@ public static class TimelineAggregator
     {
         if (points.Count <= 2)
         {
-            return points;
+            return points.ToList();
         }
 
         var result = new List<GrowthTimelinePoint> { points[0] };

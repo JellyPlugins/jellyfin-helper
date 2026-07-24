@@ -382,7 +382,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             if (!File.Exists(_filePath))
             {
                 _memoryCache = [];
-                return _memoryCache;
+                return [];
             }
 
             var fileInfo = new FileInfo(_filePath);
@@ -395,7 +395,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
                     _logger);
                 TryDeleteFile();
                 _memoryCache = [];
-                return _memoryCache;
+                return [];
             }
 
             var json = File.ReadAllText(_filePath);
@@ -415,7 +415,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
             }
 
             _memoryCache = [];
-            return _memoryCache;
+            return [];
         }
     }
 

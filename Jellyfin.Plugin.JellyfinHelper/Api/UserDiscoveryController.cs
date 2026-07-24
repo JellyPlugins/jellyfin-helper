@@ -25,6 +25,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Authorize]
 [Route("JellyfinHelper/Discovery/My")]
 [Produces(MediaTypeNames.Application.Json)]
+[ProducesResponseType(StatusCodes.Status401Unauthorized)]
 public sealed class UserDiscoveryController : ControllerBase
 {
     private static readonly TimeSpan RequestRateLimit = TimeSpan.FromSeconds(10);
@@ -122,7 +123,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A permission result indicating what the user can do and which profiles are available.</returns>
     [HttpGet("RequestPermissions/{serviceType}")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(UserRequestPermissionResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<UserRequestPermissionResult>> GetMyRequestPermissions(
@@ -294,7 +295,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A result indicating success or failure.</returns>
     [HttpPost("Request")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
@@ -531,7 +532,7 @@ public sealed class UserDiscoveryController : ControllerBase
             _logger.LogWarning(ex, "[Discovery] Failed to record requested item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, mediaType, currentJellyfinUserId);
         }
 
-        return Ok(new RequestResult { Success = true, Message = message });
+        return StatusCode(StatusCodes.Status201Created, new RequestResult { Success = true, Message = message });
     }
 
     /// <summary>

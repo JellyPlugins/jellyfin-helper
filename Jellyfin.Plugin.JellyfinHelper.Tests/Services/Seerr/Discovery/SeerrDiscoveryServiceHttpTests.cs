@@ -427,10 +427,10 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     // ============================================================
 
     [Fact]
-    public async Task GetServiceInfoAsync_InvalidServiceType_ReturnsEmpty()
+    public async Task GetServiceInfoAsync_InvalidServiceType_ThrowsArgumentException()
     {
-        var services = await _sut.GetServiceInfoAsync("plex", CancellationToken.None);
-        Assert.Empty(services);
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            _sut.GetServiceInfoAsync("plex", CancellationToken.None));
     }
 
     [Fact]
@@ -658,6 +658,174 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
 
         Assert.True(result.CanRequest, "transient Seerr failure must not block requests");
         Assert.Empty(result.Profiles);
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 4 — quality-profile exposure depends on user's permission level.
+    //
+    // Admin / ManageRequests / RequestAdvanced  → filterToDefault=false → ALL profiles.
+    // Normal Request-only user                  → filterToDefault=true  → default profile only.
+    //
+    // These tests cover the two branches of BuildAllowedProfileList that the earlier
+    // happy-path tests leave dark (they return before reaching Step 4 because the
+    // service list is empty).
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task GetUserRequestPermissionsAsync_AdminUser_ExposesAllProfiles()
+    {
+        // BUG GUARD: admin users must receive ALL configured profiles (filterToDefault=false).
+        // A regression that forces filterToDefault=true for admins would silently strip profile
+        // choice from every admin request form — they would see only the server's active profile
+        // and have no way to override quality without knowing the workaround.
+        //
+        // Permissions=2 → Admin. Service list: one Radarr server, two profiles (HD=100, 4K=200).
+        var userJson = $$"""
+        {
+          "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
+          "results": [
+            { "id": 1, "displayName": "admin-user", "jellyfinUserId": "{{LinkedJellyfinUserIdJson}}", "permissions": 2 }
+          ]
+        }
+        """;
+        const string listJson = """[ { "id": 1, "name": "Radarr", "isDefault": true, "is4k": false } ]""";
+        const string detailJson = """
+        {
+          "id": 1, "name": "Radarr",
+          "profiles": [ { "id": 100, "name": "HD" }, { "id": 200, "name": "4K" } ],
+          "rootFolders": [ { "path": "/movies" } ],
+          "activeProfileId": 100,
+          "activeDirectory": "/movies"
+        }
+        """;
+
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, userJson);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/service/radarr", HttpStatusCode.OK, listJson);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/service/radarr/1", HttpStatusCode.OK, detailJson);
+
+        var result = await _sut.GetUserRequestPermissionsAsync(
+            LinkedJellyfinUserId, "movie", "radarr", CancellationToken.None);
+
+        Assert.True(result.CanRequest);
+        // Admin → all profiles exposed: HD (default) + 4K (non-default) — both for the single root folder.
+        Assert.Equal(2, result.Profiles.Count);
+        Assert.Contains(result.Profiles, p => p.ProfileId == 100);
+        Assert.Contains(result.Profiles, p => p.ProfileId == 200);
+    }
+
+    [Fact]
+    public async Task GetUserRequestPermissionsAsync_NormalUser_ExposesOnlyDefaultProfile()
+    {
+        // BUG GUARD: a user with only Request (32) must be restricted to the server's active profile.
+        // Over-exposing all profiles to normal users bypasses the Seerr quality-tier access model
+        // and could allow unprivileged users to request 4K content they are not entitled to.
+        //
+        // Permissions=32 → Request only (no RequestAdvanced/ManageRequests/Admin).
+        var userJson = $$"""
+        {
+          "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
+          "results": [
+            { "id": 1, "displayName": "normal-user", "jellyfinUserId": "{{LinkedJellyfinUserIdJson}}", "permissions": 32 }
+          ]
+        }
+        """;
+        const string listJson = """[ { "id": 1, "name": "Radarr", "isDefault": true, "is4k": false } ]""";
+        const string detailJson = """
+        {
+          "id": 1, "name": "Radarr",
+          "profiles": [ { "id": 100, "name": "HD" }, { "id": 200, "name": "4K" } ],
+          "rootFolders": [ { "path": "/movies" } ],
+          "activeProfileId": 100,
+          "activeDirectory": "/movies"
+        }
+        """;
+
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, userJson);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/service/radarr", HttpStatusCode.OK, listJson);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/service/radarr/1", HttpStatusCode.OK, detailJson);
+
+        var result = await _sut.GetUserRequestPermissionsAsync(
+            LinkedJellyfinUserId, "movie", "radarr", CancellationToken.None);
+
+        Assert.True(result.CanRequest);
+        // Normal user → only the default (active) profile.
+        var profile = Assert.Single(result.Profiles);
+        Assert.Equal(100, profile.ProfileId);
+        Assert.Equal("HD", profile.ProfileName);
+        Assert.True(profile.IsDefault);
+    }
+
+    [Fact]
+    public async Task GetUserRequestPermissionsAsync_RequestAdvancedUser_ExposesAllProfiles()
+    {
+        // Users with RequestAdvanced (2097152) should be treated the same as admin for
+        // profile exposure. This verifies the CanSelectQualityProfile() path that grants
+        // full-profile access via RequestAdvanced without also having Admin/ManageRequests.
+        var userJson = $$"""
+        {
+          "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
+          "results": [
+            { "id": 1, "displayName": "power-user", "jellyfinUserId": "{{LinkedJellyfinUserIdJson}}", "permissions": 2097184 }
+          ]
+        }
+        """;
+        // permissions: 32 (Request) | 2097152 (RequestAdvanced) = 2097184
+        const string listJson = """[ { "id": 1, "name": "Radarr", "isDefault": true, "is4k": false } ]""";
+        const string detailJson = """
+        {
+          "id": 1, "name": "Radarr",
+          "profiles": [ { "id": 100, "name": "HD" }, { "id": 200, "name": "4K" } ],
+          "rootFolders": [ { "path": "/movies" } ],
+          "activeProfileId": 100,
+          "activeDirectory": "/movies"
+        }
+        """;
+
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, userJson);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/service/radarr", HttpStatusCode.OK, listJson);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/service/radarr/1", HttpStatusCode.OK, detailJson);
+
+        var result = await _sut.GetUserRequestPermissionsAsync(
+            LinkedJellyfinUserId, "movie", "radarr", CancellationToken.None);
+
+        Assert.True(result.CanRequest);
+        Assert.Equal(2, result.Profiles.Count);
+    }
+
+    [Fact]
+    public async Task GetUserRequestPermissionsAsync_SonarrServiceType_HappyPath_AdminUser()
+    {
+        // Verifies that "sonarr" is accepted as a valid serviceType and routes to the correct
+        // /api/v1/service/sonarr endpoint. Previously, only radarr paths were exercised.
+        var userJson = $$"""
+        {
+          "pageInfo": { "pages": 1, "pageSize": 50, "results": 1, "page": 1 },
+          "results": [
+            { "id": 1, "displayName": "admin-user", "jellyfinUserId": "{{LinkedJellyfinUserIdJson}}", "permissions": 2 }
+          ]
+        }
+        """;
+        const string listJson = """[ { "id": 3, "name": "Sonarr", "isDefault": true, "is4k": false } ]""";
+        const string detailJson = """
+        {
+          "id": 3, "name": "Sonarr",
+          "profiles": [ { "id": 10, "name": "HDTV" } ],
+          "rootFolders": [ { "path": "/tv" } ],
+          "activeProfileId": 10,
+          "activeDirectory": "/tv"
+        }
+        """;
+
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, userJson);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/service/sonarr", HttpStatusCode.OK, listJson);
+        _handler.RegisterResponse(HttpMethod.Get, "/api/v1/service/sonarr/3", HttpStatusCode.OK, detailJson);
+
+        var result = await _sut.GetUserRequestPermissionsAsync(
+            LinkedJellyfinUserId, "tv", "sonarr", CancellationToken.None);
+
+        Assert.True(result.CanRequest);
+        Assert.Single(result.Profiles);
+        Assert.Equal(10, result.Profiles[0].ProfileId);
     }
 }
 

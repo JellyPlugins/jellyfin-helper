@@ -256,7 +256,7 @@ function testArrConnection(type, index) {
             btn.disabled = false;
             if (data.Success) {
                 _testTimers[timerKey] = showButtonFeedback(btn, true,
-                    escHtml(data.Message), originalHtml);
+                    data.Message, originalHtml);
                 // Auto-save settings after successful connection test (Finding 17: removed unnecessary typeof checks)
                 doSaveSettings(buildSettingsPayload(), {
                     quiet: true,
@@ -264,7 +264,7 @@ function testArrConnection(type, index) {
                 });
             } else {
                 _testTimers[timerKey] = showButtonFeedback(btn, false,
-                    escHtml(data.Message), originalHtml);
+                    data.Message, originalHtml);
             }
         }, function () {
             btn.disabled = false;

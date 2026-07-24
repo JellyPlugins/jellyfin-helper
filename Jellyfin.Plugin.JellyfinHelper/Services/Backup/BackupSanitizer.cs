@@ -63,16 +63,16 @@ public static class BackupSanitizer
         SanitizeArrInstances(backup.SonarrInstances);
 
         // Timeline data points limit - keep only the newest MaxTimelineDataPoints entries
-        if (backup.GrowthTimeline?.DataPoints != null &&
-            backup.GrowthTimeline.DataPoints.Count > BackupValidator.MaxTimelineDataPoints)
+        if (backup.GrowthTimeline is { DataPoints.Count: > BackupValidator.MaxTimelineDataPoints })
         {
-            int excess = backup.GrowthTimeline.DataPoints.Count - BackupValidator.MaxTimelineDataPoints;
-            var trimmed = backup.GrowthTimeline.DataPoints
+            var kept = backup.GrowthTimeline.DataPoints
+                .OrderByDescending(p => p.Date)
+                .Take(BackupValidator.MaxTimelineDataPoints)
                 .OrderBy(p => p.Date)
-                .Skip(excess)
                 .ToList();
+
             backup.GrowthTimeline.DataPoints.Clear();
-            foreach (var point in trimmed)
+            foreach (var point in kept)
             {
                 backup.GrowthTimeline.DataPoints.Add(point);
             }
@@ -103,16 +103,13 @@ public static class BackupSanitizer
             return fallback;
         }
 
-        // Normalize casing. Every value that reaches this point is guaranteed to be a
-        // case-insensitive member of ValidTaskModes, so the exhaustive arms always match.
-        // The throw arm is intentionally unreachable today; it will surface a compile-time
-        // gap if a new mode is added to ValidTaskModes without updating this switch.
+        // Normalize casing
         return value switch
         {
             _ when value.Equals("Activate", StringComparison.OrdinalIgnoreCase) => "Activate",
             _ when value.Equals("DryRun", StringComparison.OrdinalIgnoreCase) => "DryRun",
             _ when value.Equals("Deactivate", StringComparison.OrdinalIgnoreCase) => "Deactivate",
-            _ => throw new InvalidOperationException($"ValidTaskModes contains '{value}' but SanitizeTaskMode has no normalization arm for it.")
+            _ => fallback
         };
     }
 

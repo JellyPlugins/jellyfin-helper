@@ -114,4 +114,92 @@ public class SeerrDiscoveryServiceTests
             }
         }
     }
+
+    [Fact]
+    public async Task SubmitRequestAsync_NegativeTmdbId_ReturnsFalse()
+    {
+        // BUG GUARD: the guard is `tmdbId <= 0`, so -1 must be rejected just like 0.
+        // A regression to `tmdbId == 0` would silently accept negative IDs and attempt
+        // to submit a structurally invalid request to Seerr.
+        var service = CreateService();
+        var (success, message) = await service.SubmitRequestAsync(-1, "movie", null, null, null, null, CancellationToken.None);
+        Assert.False(success);
+        Assert.Contains("TMDb", message, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_TvMediaType_SeerrNotConfigured_ReturnsFalse()
+    {
+        // Symmetric counterpart to the "movie" not-configured test. The media-type gate
+        // ("movie" or "tv") must pass before the config check is reached — this verifies
+        // that "tv" is accepted as a valid type and the pipeline continues to the config check.
+        var prevUrl = Plugin.Instance?.Configuration?.SeerrUrl;
+        var prevKey = Plugin.Instance?.Configuration?.SeerrApiKey;
+        try
+        {
+            if (Plugin.Instance?.Configuration != null)
+            {
+                Plugin.Instance.Configuration.SeerrUrl = string.Empty;
+                Plugin.Instance.Configuration.SeerrApiKey = string.Empty;
+            }
+
+            var service = CreateService();
+            var (success, message) = await service.SubmitRequestAsync(456, "tv", null, null, null, null, CancellationToken.None);
+            Assert.False(success);
+            // Must fail on "not configured", NOT on "mediaType" — proves "tv" passes the type gate.
+            Assert.Contains("not configured", message);
+            Assert.DoesNotContain("mediaType", message);
+        }
+        finally
+        {
+            if (Plugin.Instance?.Configuration != null)
+            {
+                Plugin.Instance.Configuration.SeerrUrl = prevUrl!;
+                Plugin.Instance.Configuration.SeerrApiKey = prevKey!;
+            }
+        }
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_MediaTypeCaseInsensitive_TvUppercase_PassesTypeGate()
+    {
+        // "TV" (uppercase) must be normalised to "tv" and pass the type gate.
+        // The not-configured error confirms the type guard did not fire.
+        var prevUrl = Plugin.Instance?.Configuration?.SeerrUrl;
+        var prevKey = Plugin.Instance?.Configuration?.SeerrApiKey;
+        try
+        {
+            if (Plugin.Instance?.Configuration != null)
+            {
+                Plugin.Instance.Configuration.SeerrUrl = string.Empty;
+                Plugin.Instance.Configuration.SeerrApiKey = string.Empty;
+            }
+
+            var service = CreateService();
+            var (success, message) = await service.SubmitRequestAsync(789, "TV", null, null, null, null, CancellationToken.None);
+            Assert.False(success);
+            Assert.Contains("not configured", message);
+            Assert.DoesNotContain("mediaType", message);
+        }
+        finally
+        {
+            if (Plugin.Instance?.Configuration != null)
+            {
+                Plugin.Instance.Configuration.SeerrUrl = prevUrl!;
+                Plugin.Instance.Configuration.SeerrApiKey = prevKey!;
+            }
+        }
+    }
+
+    [Fact]
+    public async Task SubmitRequestAsync_NullMediaType_ReturnsFalse()
+    {
+        // Null mediaType must be treated the same as an invalid type string — the
+        // null-coalescing in `mediaType?.Trim().ToLowerInvariant() ?? string.Empty` turns it
+        // into "", which is neither "movie" nor "tv".
+        var service = CreateService();
+        var (success, message) = await service.SubmitRequestAsync(123, null!, null, null, null, null, CancellationToken.None);
+        Assert.False(success);
+        Assert.Contains("mediaType", message);
+    }
 }

@@ -65,13 +65,13 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         try
         {
             ValidateArrUrl(baseUrl);
-            var url = $"{baseUrl.TrimEnd('/', '\\')}/api/v3/system/status";
+            var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\')), "api/v3/system/status").ToString();
             // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
             var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
-            var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
             if (response.Content.Headers.ContentLength is long statusLen && statusLen > 100 * 1024 * 1024)
@@ -140,11 +140,11 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             ValidateArrUrl(baseUrl);
             // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
             var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
-            var url = $"{baseUrl.TrimEnd('/', '\\')}/api/v3/movie";
+            var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\')), "api/v3/movie").ToString();
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
-            var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
             if (response.Content.Headers.ContentLength is long movieLen && movieLen > 100 * 1024 * 1024)
@@ -206,11 +206,11 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             ValidateArrUrl(baseUrl);
             // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
             var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
-            var url = $"{baseUrl.TrimEnd('/', '\\')}/api/v3/series";
+            var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\')), "api/v3/series").ToString();
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
-            var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
 
             if (response.Content.Headers.ContentLength is long seriesLen && seriesLen > 100 * 1024 * 1024)
