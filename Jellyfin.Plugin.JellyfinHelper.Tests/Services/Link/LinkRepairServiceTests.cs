@@ -811,7 +811,7 @@ public class LinkRepairServiceTests
         }
     }
 
-    // ===== Fix 1: double-enumeration of libraryPaths in RepairLinks =====
+    // Double-enumeration of libraryPaths in RepairLinks =====
 
     [Fact]
     public void RepairLinks_YieldReturnLibraryPaths_RelativeTargetOutsideLibraryRoot_ReturnsInvalidContent()
@@ -839,7 +839,7 @@ public class LinkRepairServiceTests
         Assert.Equal(LinkFileStatus.InvalidContent, result.FileResults[0].Status);
     }
 
-    // ===== Fix 2: MaxVisitedDirectories cap stops outer foreach in FindLinkFiles =====
+    // MaxVisitedDirectories cap stops outer foreach in FindLinkFiles =====
 
     [Fact]
     public void FindLinkFiles_VisitedDirectoryCapReached_DoesNotSilentlyProcessSubsequentLibraryPaths()

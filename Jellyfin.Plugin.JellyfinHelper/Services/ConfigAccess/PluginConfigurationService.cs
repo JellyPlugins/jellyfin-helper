@@ -83,12 +83,12 @@ public class PluginConfigurationService : IPluginConfigurationService
     /// <inheritdoc />
     /// <remarks>
     /// <para>
-    ///     <strong>Initialization guard (Finding #9):</strong> Throws <see cref="InvalidOperationException"/>
+    ///     <strong>Initialization guard </strong> Throws <see cref="InvalidOperationException"/>
     ///     when the plugin singleton has not yet been created. Callers that may run before the
     ///     plugin is fully started must check <see cref="IsInitialized"/> first.
     /// </para>
     /// <para>
-    ///     <strong>Mutation contract (Finding #10):</strong> Returns the live shared
+    ///     <strong>Mutation contract </strong> Returns the live shared
     ///     <see cref="PluginConfiguration"/> reference held by the plugin singleton.
     ///     Callers MUST treat the returned object as read-only. Any mutation MUST go through
     ///     <see cref="ReadAndMutate"/> so that concurrent writes are serialized under the

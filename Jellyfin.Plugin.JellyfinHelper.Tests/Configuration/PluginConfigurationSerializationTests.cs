@@ -499,7 +499,7 @@ public class PluginConfigurationSerializationTests
     [Fact]
     public void NormalizeAlphaRange_MinGreaterThanMax_SwappedAutomaticallyByMaxSetter()
     {
-        // With Fix 3: EnsembleAlphaMax setter calls NormalizeAlphaRange internally.
+        // EnsembleAlphaMax setter calls NormalizeAlphaRange internally.
         // Setting Min=0.8 then Max=0.3 triggers the swap inside the Max setter.
         // The values are already correct WITHOUT an explicit NormalizeAlphaRange() call.
         var config = new PluginConfiguration
@@ -551,7 +551,7 @@ public class PluginConfigurationSerializationTests
     [Fact]
     public void EnsembleAlphaRange_InvariantHolds_WithoutManualNormalizeCall()
     {
-        // Regression test for Fix 3: constructing with inverted alpha values must
+        // Constructing with inverted alpha values must
         // produce a consistent min<=max range even without calling NormalizeAlphaRange().
         var config = new PluginConfiguration
         {
@@ -566,7 +566,7 @@ public class PluginConfigurationSerializationTests
     [Fact]
     public void SeerrCleanupAgeDays_Negative_EnqueuesClampReport()
     {
-        // Regression test for Fix 2: negative values must go through ClampAndReport
+        // Negative values must go through ClampAndReport
         // so the admin sees a diagnostic on startup, not a silent coercion to 0.
         var config = new PluginConfiguration { SeerrCleanupAgeDays = -5 };
         Assert.Equal(0, config.SeerrCleanupAgeDays);

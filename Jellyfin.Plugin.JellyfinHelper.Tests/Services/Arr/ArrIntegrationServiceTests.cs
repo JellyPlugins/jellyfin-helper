@@ -374,8 +374,6 @@ public class ArrIntegrationServiceTests
         Assert.Null(series);
     }
 
-    // ===== Fix #3 (extension): timeout in GetRadarrMoviesAsync / GetSonarrSeriesAsync =====
-
     [Fact]
     public async Task GetRadarrMovies_Timeout_ReturnsNull_AndLogsWarning_NotError()
     {
@@ -557,8 +555,6 @@ public class ArrIntegrationServiceTests
         Assert.Single(result.InArrOnlyMissing);
     }
 
-    // ===== Fix #3: HTTP timeout logged as LogError, not LogWarning =====
-
     [Fact]
     public async Task TestConnection_Timeout_LogsWarning()
     {
@@ -593,7 +589,6 @@ public class ArrIntegrationServiceTests
             Times.Once);
     }
 
-    // ===== Fix #4: SeerrIntegrationService TryAddWithoutValidation =====
     // (Tested here via ArrIntegrationService which uses request.Headers.Add() directly on
     //  per-request HttpRequestMessage — this is safe and does not need the fix.
     //  The SeerrIntegrationService-specific test lives in SeerrIntegrationServiceTests.cs
@@ -683,8 +678,7 @@ public class ArrIntegrationServiceTests
         Assert.Null(ex);
     }
 
-    // === SSRF guard: ValidateArrUrl rejects non-http/https schemes (#23/#24) ===
-    // After fix #2, ArgumentException from ValidateArrUrl is caught inside each method:
+    // ArgumentException from ValidateArrUrl is caught inside each method:
     // TestConnectionAsync returns (false, ...), GetRadarrMoviesAsync/GetSonarrSeriesAsync return null.
 
     [Theory]

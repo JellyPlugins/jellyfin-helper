@@ -135,7 +135,7 @@ public class TrashService : ITrashService
                 return 0;
             }
 
-            // Guard: prevent re-trashing files that are already inside the trash folder.
+            // Prevent re-trashing files that are already inside the trash folder.
             // This mirrors the equivalent guard in MoveDirectoryToTrash() and prevents
             // path-length growth from repeated timestamp prefixing.
             var normalizedFile = Path.GetFullPath(sourceFilePath)
@@ -405,7 +405,7 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
-        // Safety: normalize paths and create destination — guard against invalid/malformed paths
+        // Normalize paths and create destination — guard against invalid/malformed paths
         string normalizedOld;
         string normalizedNew;
         try
@@ -427,7 +427,7 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
-        // Safety: new path must not be inside old path (would cause recursive move)
+        // New path must not be inside old path (would cause recursive move)
         var oldPrefix = normalizedOld + Path.DirectorySeparatorChar;
         if (normalizedNew.StartsWith(oldPrefix, PathComparison))
         {
@@ -435,7 +435,7 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
-        // Safety: old path must not be inside new path (would cause data loss)
+        // Old path must not be inside new path (would cause data loss)
         var newPrefix = normalizedNew + Path.DirectorySeparatorChar;
         if (normalizedOld.StartsWith(newPrefix, PathComparison))
         {
@@ -538,7 +538,7 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Non-critical: old folder stays if it can't be removed
+            // Old folder stays if it can't be removed
             _pluginLog.LogWarning("Trash", $"Could not remove old trash folder: {directoryPath}", ex, logger);
         }
     }

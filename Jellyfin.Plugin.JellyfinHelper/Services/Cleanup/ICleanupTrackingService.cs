@@ -5,7 +5,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 
 /// <summary>
 /// Tracks cleanup statistics (bytes freed, items deleted) and persists them in the plugin configuration.
-/// Thread-safe: multiple cleanup tasks may call <see cref="RecordCleanup"/> concurrently.
+/// Multiple cleanup tasks may call <see cref="RecordCleanup"/> concurrently.
 /// </summary>
 public interface ICleanupTrackingService
 {

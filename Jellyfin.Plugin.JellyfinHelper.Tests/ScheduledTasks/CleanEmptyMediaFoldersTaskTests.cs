@@ -781,8 +781,6 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     //   - UseTrash=true so MoveToTrash is called; the mock returns a known byte count for the orphan.
     //   - RecordCleanup must be called exactly once with bytesFreed == orphanBytes (not orphanBytes + videoBytes),
     //     proving the video folder contributed zero bytes to the accounting.
-    // Without the H-21 fix (treeBytes=0 on early exit), if the caller ever reaches
-    // bytesFreed+=treeBytes for the video folder the total would be wrong. This test detects that.
     [Fact]
     public async Task ExecuteInternalAsync_VideoFolderContributesZeroBytesToRecordCleanup()
     {

@@ -517,8 +517,6 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Throws<ArgumentNullException>(() => service.RestoreBackup(null!));
     }
 
-    // ===== Fix #2: API keys included in backup export; ContainsSecrets flag set =====
-
     [Fact]
     public void CreateBackup_SeerrApiKey_IsIncludedInExport()
     {
@@ -616,8 +614,6 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         Assert.Single(liveConfig.RadarrInstances);
         Assert.Equal(string.Empty, liveConfig.RadarrInstances[0].ApiKey);
     }
-
-    // ===== Fix #5: Audit log when backup restore overwrites credentials =====
 
     [Fact]
     public void RestoreBackup_NonEmptySeerrApiKey_EmitsAuditWarning()

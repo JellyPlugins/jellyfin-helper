@@ -1956,7 +1956,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     propagates to both callers — historically these two loops were duplicated inline
     ///     and drifted at least once during refactoring.
     ///     <para>
-    ///         Gate: at least two users must contribute at least one watched item each before
+    ///         At least two users must contribute at least one watched item each before
     ///         the map is emitted. This prevents a single-user deployment from turning its own
     ///         watch history into "the community", which would degenerate the cold-start
     ///         blend into a self-fulfilling prophecy (recommendations weighted by the only

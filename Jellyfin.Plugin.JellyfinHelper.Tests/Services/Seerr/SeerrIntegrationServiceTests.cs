@@ -981,7 +981,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Equal("Unknown", title);
     }
 
-    // ===== Fix #4: TryAddWithoutValidation for X-Api-Key =====
+    // TryAddWithoutValidation for X-Api-Key =====
 
     [Fact]
     public async Task TestConnection_NonAsciiApiKey_DoesNotThrow()

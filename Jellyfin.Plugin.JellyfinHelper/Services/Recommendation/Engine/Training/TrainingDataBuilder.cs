@@ -688,7 +688,7 @@ internal static class TrainingDataBuilder
                     continue;
                 }
 
-                // Guard: if this standalone item is a Series object (w.SeriesId == null, w.ItemType == "Series")
+                // If this standalone item is a Series object (w.SeriesId == null, w.ItemType == "Series")
                 // and the series was already emitted via the aggregation path above (episode rows with matching
                 // SeriesId), skip to avoid double-counting the same series with two training examples.
                 if (isSeries && aggregatedSeriesIds.Contains(w.ItemId))
@@ -769,7 +769,6 @@ internal static class TrainingDataBuilder
                         : 0.0,
                     DayOfWeekAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenreSet, userProfile, isDay: true),
                     HourOfDayAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenreSet, userProfile, isDay: false),
-                    // Shared IsWeekend resolver: user-anchored, falls back to organic LastPlayedDate. See FIX-1.
                     IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, w.LastPlayedDate),
                     TagSimilarity = tagSimilarity,
                     LibraryAddedRecency = w.DateCreated.HasValue
@@ -997,7 +996,7 @@ internal static class TrainingDataBuilder
                             watchedPeopleSetsNeg,
                             watchedStudioSetsNeg),
                         LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(neg.AudioLanguages, userProfile),
-                        // Skew fix: use the same diminishing-returns formula as inference
+                        // Use the same diminishing-returns formula as inference
                         // (Engine.ComputeCollectionProgressionBoostLive) by leveraging the per-user
                         // watchedBoxSetCountsNeg dictionary built above. This eliminates the previous
                         // train/serve divergence where Phase 3 emitted 0.0/0.3/0.5 while inference
@@ -1077,11 +1076,11 @@ internal static class TrainingDataBuilder
     ///     <paramref name="watchedBoxSetCounts"/> dictionary (built once per user by iterating
     ///     the user's watched items through the global BoxSet lookup) to achieve training/inference parity.
     ///     <para>
-    ///         Roadmap v3 (C3): visibility raised from <c>private</c> to <c>internal</c> so the
+    ///         Visibility raised from <c>private</c> to <c>internal</c> so the
     ///         test assembly (via <c>InternalsVisibleTo</c>) can call it directly, without reflection.
     ///     </para>
     ///     <para>
-    ///         Roadmap v3 (C3.1 - hardening pass): the actual formula
+    ///         The actual formula
     ///         <c>0.3 + (n-1) × 0.2, clamped [0,1]</c> now lives centrally in
     ///         <see cref="EngineConstants.ComputeCollectionProgressionBoost(int)"/>. Both this
     ///         training path and the live inference path in

@@ -177,10 +177,9 @@ public class BackupControllerExtendedTests
     [Fact]
     public async Task ImportBackup_WhenRequestCancelledDuringBodyRead_ThrowsOperationCanceledException()
     {
-        // BUG GUARD: prior to fix, OperationCanceledException escaped the inner I/O catch
+        // OperationCanceledException escaped the inner I/O catch
         // (which only caught IOException/ObjectDisposedException/DecoderFallbackException) and
         // then also escaped the outer typed catches, surfacing as an unhandled exception.
-        // After fix it is re-thrown immediately so the ASP.NET pipeline can handle it cleanly
         // (log + 499/cancellation response) rather than silently eating the cancellation.
         using var cts = new CancellationTokenSource();
         cts.Cancel();

@@ -278,7 +278,7 @@ public sealed class DiscoveryCacheService : IDisposable
                 }
                 else
                 {
-                    // CA1849 is intentionally suppressed here: this branch is only ever taken
+                    // This branch is only ever taken
                     // when the caller is the synchronous RemoveItem overload, which invokes us
                     // via .GetAwaiter().GetResult() on a background scheduled-task thread.
                     // Awaiting WriteAllTextAsync in that path would sync-over-async block on
@@ -477,7 +477,7 @@ public sealed class DiscoveryCacheService : IDisposable
             }
             else
             {
-                // CA1849 is intentionally suppressed here: same rationale as the identical
+                // Same rationale as the identical
                 // branch in RemoveItemLocked — the sync branch is only entered from the
                 // synchronous MarkAsRequested overload via .GetAwaiter().GetResult() on a
                 // background thread. Sync-over-async-over-sync would gain nothing.

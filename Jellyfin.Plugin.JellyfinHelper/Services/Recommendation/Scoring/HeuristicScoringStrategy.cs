@@ -4,7 +4,6 @@ using System.Buffers;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Fixed-weight heuristic scoring strategy.
 ///     Uses hand-tuned weights from <see cref="DefaultWeights"/> with genre similarity as the dominant signal.
 ///     When used standalone (not via Ensemble), a configurable genre-penalty floor is applied
 ///     so that items with zero genre overlap are penalized.

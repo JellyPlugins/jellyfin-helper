@@ -1293,8 +1293,6 @@ public class PreferenceBuilderTests
     /// <summary>
     ///     Regression test for the train/serve parity fix: a WatchedItemInfo with PlayCount &gt; 0
     ///     but Played = false must still be treated as a meaningful interaction.
-    ///     Before the fix, only Played = true or IsFavorite = true items entered the watched-set,
-    ///     causing features built at inference time to diverge from training data.
     /// </summary>
     [Fact]
     public void WatchedItemInfo_PlayCountAboveZero_IsMeaningfulInteraction()

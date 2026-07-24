@@ -128,7 +128,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             return true;
         });
 
-        // Additional safety: filter out any locations that point to Jellyfin's internal
+        // Filter out any locations that point to Jellyfin's internal
         // collections directory (typically /config/data/collections or similar).
         return filteredFolders
             .SelectMany(f => f.Locations ?? [])
@@ -205,7 +205,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
 
         if (Path.IsPathFullyQualified(trashPath))
         {
-            // Safety: absolute trash path must not be the library root itself.
+            // Absolute trash path must not be the library root itself.
             // If it is, TrashService would treat every source file as "already in trash" and skip all moves.
             try
             {
@@ -317,7 +317,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             {
                 var fullPath = Path.GetFullPath(queryPath);
 
-                // Safety: never report a library root as an existing trash folder.
+                // Never report a library root as an existing trash folder.
                 // If it were reported, the relocate/delete flow could target the entire library.
                 var fullPathTrimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 var isLibraryRoot = normalizedAllRoots.Any(root =>
@@ -390,7 +390,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                         continue;
                     }
 
-                    // Safety: never report ANY library root as an existing trash folder.
+                    // Never report ANY library root as an existing trash folder.
                     // Check against all roots (not just filtered) to protect music/boxset libraries too.
                     var resolvedTrimmed = resolved.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                     var isAnyLibraryRoot = normalizedAllRoots.Any(root =>

@@ -1274,7 +1274,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_SentinelRadarrApiKey_ReorderedInstances_ResolvesKeyByNameUrl()
     {
-        // BUG GUARD (fix #5): sentinel restoration must match by Name+Url, not position.
+        // Sentinel restoration must match by Name+Url, not position.
         // When the admin reorders instances while leaving keys masked, each instance must
         // get back its OWN stored key — not the key at its previous positional index.
         _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "A", Url = "http://a:7878", ApiKey = "key-A" });
@@ -1301,7 +1301,7 @@ public class ConfigurationControllerTests
     [Fact]
     public async Task UpdateConfiguration_SentinelRadarrApiKey_RemovedInstance_SurvivorKeepsOwnKey()
     {
-        // BUG GUARD (fix #5): when the admin removes instance[0] and leaves instance[1] masked,
+        // When the admin removes instance[0] and leaves instance[1] masked,
         // the positional approach would restore the key of the removed instance into the surviving one.
         // The Name+Url approach correctly gives the surviving instance its own key.
         _config.RadarrInstances.Add(new ArrInstanceConfig { Name = "Removed", Url = "http://removed:7878", ApiKey = "key-removed" });

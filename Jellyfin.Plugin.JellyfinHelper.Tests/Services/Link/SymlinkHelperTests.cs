@@ -173,14 +173,6 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void IsSymlink_RealSymlink_ReturnsTrue_And_Target_IsNot()
     {
-        // REGRESSION ANCHOR (v3.0.0.0): IsSymlink was briefly implemented as a pure
-        // `(attrs & FileAttributes.ReparsePoint) != 0` check. That misclassified any
-        // non-symlink reparse point — OneDrive/cloud "files on-demand" placeholders and
-        // Windows Data-Deduplication stubs — as a symlink, causing LinkRepairService to
-        // report healthy media files as broken links. The fix additionally requires a
-        // non-null FileInfo.LinkTarget, which .NET populates only for genuine
-        // symlinks/junctions and NOT for cloud/dedup reparse points.
-        //
         // This test confirms the public contract: _sut.IsSymlink(link)==true and
         // _sut.IsSymlink(target)==false for a real symlink pair. Together with
         // IsSymlink_BrokenSymlink_ReturnsTrue this ensures both sides of the two-condition
@@ -213,12 +205,11 @@ public sealed class SymlinkHelperTests : IDisposable
     {
         // string.Empty causes File.GetAttributes to throw ArgumentException
         // ("Path cannot be the empty string or all whitespace.").
-        // The M-06 fix extended the catch filter to include ArgumentException.
         Assert.False(_sut.IsSymlink(string.Empty));
     }
 
     /// <summary>
-    ///     M-06 regression: a path that exceeds the OS maximum length triggers a
+    ///     A path that exceeds the OS maximum length triggers a
     ///     PathTooLongException inside File.GetAttributes. IsSymlink must absorb it and
     ///     return false.
     /// </summary>

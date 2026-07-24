@@ -320,7 +320,6 @@ internal static class DiversityReranker
         //   * Add the MMR-pool leftovers (not selected by MMR) so we do not lose valid picks
         //     when the widened band is smaller than the exploration slot count.
         //   * Skip anything MMR already committed to, to avoid duplicate selections.
-        // This is the concrete implementation of FIX-2: exploration reaches beyond the MMR cluster.
         if (selected.Count < count)
         {
             var mmrSelectedIds = new HashSet<Guid>(selected.Count);

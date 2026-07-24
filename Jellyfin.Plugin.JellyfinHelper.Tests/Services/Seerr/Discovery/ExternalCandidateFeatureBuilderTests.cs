@@ -52,8 +52,6 @@ public sealed class ExternalCandidateFeatureBuilderTests
         Assert.Equal(0.0, ExternalCandidateFeatureBuilder.NormalizePopularity(raw), 6);
     }
 
-    // === Build: genre exposure (Fix B) ===
-
     [Fact]
     public void Build_ValidGenreExposure_PopulatesDominanceForCoreGenre()
     {
@@ -127,8 +125,6 @@ public sealed class ExternalCandidateFeatureBuilderTests
         Assert.Equal(0.0, features.GenreDominanceRatio, 6);
         Assert.Equal(0.0, features.GenreAffinityGap, 6);
     }
-
-    // === Build: popularity (Fix A) ===
 
     [Fact]
     public void Build_PopularityScore_UsesNormalizePopularityHelper()

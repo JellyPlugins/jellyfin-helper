@@ -110,7 +110,7 @@ public class FolderBrowserService : IFolderBrowserService
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                                    or SecurityException)
                     {
-                        // CA1873: guard for consistency with the volume-label log above.
+                        // Guard for consistency with the volume-label log above.
                         // Both sites use constant messages today, but guarding uniformly
                         // prevents a future maintainer from adding a parameterized argument
                         // (e.g. drive letter) and silently regressing the pattern.

@@ -220,16 +220,7 @@ internal static class DiscoveryFeedbackExampleBuilder
 
         // Popularity feature: route THROUGH the same normalisation helper inference uses so
         // the training path can never diverge from what the model sees at serve time.
-        //
-        // Historical two-step evolution:
-        //   * v1 (initial): the fallback used entry.Score (the model's own past prediction)
-        //     when Popularity was missing. That is an auto-regression target leak — the
-        //     model would learn to predict its own output.
-        //   * v2 (fixed here initially): fallback returned 0.5 to break the target leak.
-        //     But NormalizePopularity(0) returns 0.0 at inference, so the training path was
-        //     handing the model a value (0.5) it would NEVER see in production. Different
-        //     bug, same root cause: train/serve divergence for the same underlying data.
-        //   * v3 (current): call NormalizePopularity(entry.Popularity) directly — legacy
+        //   call NormalizePopularity(entry.Popularity) directly — legacy
         //     rows with Popularity==0 now produce PopularityScore==0.0, bit-identical to
         //     what ExternalCandidateFeatureBuilder.Build would compute at inference time.
         //     The reduced provenance is signalled to the training pipeline through the

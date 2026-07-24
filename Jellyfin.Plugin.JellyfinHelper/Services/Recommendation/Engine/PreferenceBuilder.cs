@@ -629,7 +629,7 @@ internal static class PreferenceBuilder
                 continue;
             }
 
-            // F-04 phantom guard: keep in lock-step with BuildGenrePreferenceVector.
+            // Keep in lock-step with BuildGenrePreferenceVector.
             if (IsPhantomSeriesRow(w, seriesEpisodeCounts))
             {
                 continue;
@@ -992,7 +992,7 @@ internal static class PreferenceBuilder
         //     explicit favorite click is a stronger intent signal than an abandoned
         //     series' progression ratio.
         //
-        // Guard: item is favorite AND does not qualify as a completed episode
+        // Item is favorite AND does not qualify as a completed episode
         // (via IsEpisodeCompletedForProgression). Completed favorites (Played or
         // PlayCount > 0) go through the normal ratio path so their signal reflects
         // both the favorite intent AND the completion state — that combination is

@@ -7,7 +7,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 
 /// <summary>
 ///     Tracks cleanup statistics (bytes freed, items deleted) and persists them in the plugin configuration.
-///     Thread-safe: mutations go through <see cref="IPluginConfigurationService.ReadAndMutate" />,
+///     Mutations go through <see cref="IPluginConfigurationService.ReadAndMutate" />,
 ///     which serialises concurrent writers on its internal lock.
 ///     Reads use <see cref="IPluginConfigurationService.GetConfiguration" /> and are non-blocking.
 /// </summary>

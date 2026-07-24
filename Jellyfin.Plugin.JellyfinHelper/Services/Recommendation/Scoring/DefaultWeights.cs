@@ -209,7 +209,7 @@ public static class DefaultWeights
     /// <returns>A new array with <see cref="CandidateFeatures.FeatureCount"/> elements.</returns>
     public static double[] CreateWeightArray()
     {
-        // Guard: every FeatureIndex enum value must map to a valid slot.
+        // Every FeatureIndex enum value must map to a valid slot.
         // If a new FeatureIndex is added without updating FeatureCount, this fires immediately.
         var featureIndexCount = Enum.GetValues<FeatureIndex>().Length;
         if (featureIndexCount != CandidateFeatures.FeatureCount)
@@ -260,7 +260,7 @@ public static class DefaultWeights
         Set(FeatureIndex.CollectionProgressionBoost, CollectionProgressionBoost);
         Set(FeatureIndex.SubtitleLanguageAffinity, SubtitleLanguageAffinity);
 
-        // Guard: detect missing per-index assignments. The count check above catches
+        // Detect missing per-index assignments. The count check above catches
         // new enum values without FeatureCount bump, but this catches the more likely
         // failure mode of adding a new enum+count without adding a Set() call.
         for (var i = 0; i < assigned.Length; i++)

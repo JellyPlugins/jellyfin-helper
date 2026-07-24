@@ -224,7 +224,7 @@ public sealed class BackupService : IBackupService
 
         _pluginLog.LogInfo("Backup", "Starting backup restore...", _logger);
 
-        // HARDENING-2: write data files FIRST so that if a file-write fails,
+        // Write data files FIRST so that if a file-write fails,
         // the live configuration has not yet been replaced.  Only after all
         // I/O completes do we commit the new configuration to disk.
 
@@ -339,7 +339,7 @@ public sealed class BackupService : IBackupService
             return;
         }
 
-        // BUG-6: use ReadAndMutate so the entire read-mutate-save sequence runs
+        // Use ReadAndMutate so the entire read-mutate-save sequence runs
         // under a lock, preventing a concurrent UpdateConfigurationAsync or
         // UpdateLogLevel call from interleaving mutations on the same config object.
         _configService.ReadAndMutate(config =>
@@ -362,7 +362,7 @@ public sealed class BackupService : IBackupService
             // Seerr settings
             // An empty backup URL means "leave the existing URL in place", mirroring the API key
             // guard below — a backup created without Seerr must not silently wipe a working URL.
-            // SEC-3: also validate the URL scheme so a crafted backup cannot persist a non-http(s)
+            // Also validate the URL scheme so a crafted backup cannot persist a non-http(s)
             // URL (e.g. "file:///etc/passwd") into the live configuration.
             if (!string.IsNullOrEmpty(backup.SeerrUrl))
             {
@@ -402,7 +402,7 @@ public sealed class BackupService : IBackupService
                 config.SeerrApiKey = truncatedSeerrKey;
             }
 
-            // HARDENING-6/BUG-10: null means "absent in backup" (older plugin version or
+            // Null means "absent in backup" (older plugin version or
             // field omitted), so leave the live value unchanged. A non-null value — including
             // 0 ("immediate cleanup") — is always applied after clamping.
             if (backup.SeerrCleanupAgeDays.HasValue)

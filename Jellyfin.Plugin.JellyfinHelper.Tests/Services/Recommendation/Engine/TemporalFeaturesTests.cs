@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 /// </summary>
 public class TemporalFeaturesTests
 {
-    // Fixed anchor timestamps for deterministic assertions.
+    // Anchor timestamps for deterministic assertions.
     // Friday 2026-01-02 12:00 UTC and Saturday 2026-01-03 12:00 UTC.
     private static readonly DateTime FridayNoonUtc = new(2026, 1, 2, 12, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime SaturdayNoonUtc = new(2026, 1, 3, 12, 0, 0, DateTimeKind.Utc);
