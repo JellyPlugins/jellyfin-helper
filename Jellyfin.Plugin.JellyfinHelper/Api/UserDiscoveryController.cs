@@ -304,14 +304,14 @@ public sealed class UserDiscoveryController : ControllerBase
         [FromBody] DiscoveryRequestDto dto,
         CancellationToken cancellationToken)
     {
-        if (!IsDiscoveryUserAccessEnabled())
-        {
-            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
-        }
-
         if (dto == null)
         {
             return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
+        }
+
+        if (!IsDiscoveryUserAccessEnabled())
+        {
+            return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
         }
 
         if (dto.TmdbId <= 0)
