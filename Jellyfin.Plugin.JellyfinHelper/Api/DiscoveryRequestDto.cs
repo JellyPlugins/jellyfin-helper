@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Api;
@@ -5,7 +7,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 /// <summary>
 ///     DTO for submitting a discovery media request.
 /// </summary>
-public sealed class DiscoveryRequestDto
+public sealed class DiscoveryRequestDto : IValidatableObject
 {
     /// <summary>
     ///     Gets or sets the TMDb ID.
@@ -17,9 +19,9 @@ public sealed class DiscoveryRequestDto
     /// <summary>
     ///     Gets or sets the media type ("movie" or "tv").
     ///     Case-insensitive; the controller normalizes to lowercase before processing.
-    ///     Defaults to "movie" when omitted from the request payload. The controller
-    ///     performs an additional explicit validation guard independent of model binding.
+    ///     Defaults to "movie" when omitted from the request payload.
     /// </summary>
+    [Required]
     [RegularExpression("^(?i)(movie|tv)$", ErrorMessage = "MediaType must be either 'movie' or 'tv'.")]
     public string MediaType { get; set; } = "movie";
 
@@ -52,4 +54,30 @@ public sealed class DiscoveryRequestDto
     /// </summary>
     [StringLength(512, ErrorMessage = "RootFolder path must not exceed 512 characters.")]
     public string? RootFolder { get; set; }
+
+    /// <inheritdoc />
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (string.IsNullOrWhiteSpace(RootFolder))
+        {
+            yield break;
+        }
+
+        var path = RootFolder.Trim();
+
+        if (path.Contains("..", StringComparison.Ordinal) || path.TrimStart().StartsWith('~'))
+        {
+            yield return new ValidationResult("Invalid root folder path.", [nameof(RootFolder)]);
+            yield break;
+        }
+
+        foreach (var c in path)
+        {
+            if (char.IsControl(c))
+            {
+                yield return new ValidationResult("Root folder path contains invalid characters.", [nameof(RootFolder)]);
+                yield break;
+            }
+        }
+    }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -72,108 +73,90 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         return c;
     }
 
-    // --- SubmitMyRequest validation (gate enabled = 400 reachable) ---
-
-    [Fact]
-    public async Task SubmitMyRequest_NullBody_Returns400()
+    // Validates a DiscoveryRequestDto using Data Annotations + IValidatableObject, mirroring what
+    // [ApiController] does in the MVC pipeline before the action body is entered.
+    private static IList<ValidationResult> ValidateDto(object dto)
     {
-        var result = await CreateController(Guid.NewGuid()).SubmitMyRequest(null!, CancellationToken.None);
-        Assert.IsType<BadRequestObjectResult>(result.Result);
+        var results = new List<ValidationResult>();
+        Validator.TryValidateObject(dto, new ValidationContext(dto), results, validateAllProperties: true);
+        return results;
     }
 
+    // --- DiscoveryRequestDto validation (enforced by [ApiController] in production) ---
+
     [Fact]
-    public async Task SubmitMyRequest_InvalidTmdbId_Returns400()
+    public void RequestDto_TmdbId_Zero_FailsValidation()
     {
         var dto = new DiscoveryRequestDto { TmdbId = 0, MediaType = "movie" };
-        var result = await CreateController(Guid.NewGuid()).SubmitMyRequest(dto, CancellationToken.None);
-        Assert.IsType<BadRequestObjectResult>(result.Result);
+        var errors = ValidateDto(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(DiscoveryRequestDto.TmdbId)));
     }
 
     [Fact]
-    public async Task SubmitMyRequest_NegativeTmdbId_Returns400()
+    public void RequestDto_TmdbId_Negative_FailsValidation()
     {
-        // BUG GUARD: negative IDs must be rejected too — <= 0 not just == 0.
         var dto = new DiscoveryRequestDto { TmdbId = -5, MediaType = "movie" };
-        var result = await CreateController(Guid.NewGuid()).SubmitMyRequest(dto, CancellationToken.None);
-        Assert.IsType<BadRequestObjectResult>(result.Result);
+        var errors = ValidateDto(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(DiscoveryRequestDto.TmdbId)));
     }
 
     [Theory]
     [InlineData("music")]
     [InlineData("")]
-    [InlineData(null)]
-    public async Task SubmitMyRequest_InvalidMediaType_Returns400(string? mt)
+    public void RequestDto_InvalidMediaType_FailsValidation(string mt)
     {
-        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = mt! };
-        var result = await CreateController(Guid.NewGuid()).SubmitMyRequest(dto, CancellationToken.None);
-        Assert.IsType<BadRequestObjectResult>(result.Result);
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = mt };
+        var errors = ValidateDto(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(DiscoveryRequestDto.MediaType)));
     }
 
     [Fact]
-    public async Task SubmitMyRequest_RootFolderTooLong_Returns400()
+    public void RequestDto_RootFolderTooLong_FailsValidation()
     {
-        var dto = new DiscoveryRequestDto
-        {
-            TmdbId = 100,
-            MediaType = "movie",
-            RootFolder = new string('a', 600)
-        };
-        var result = await CreateController(Guid.NewGuid()).SubmitMyRequest(dto, CancellationToken.None);
-        var bad = Assert.IsType<BadRequestObjectResult>(result.Result);
-        var body = Assert.IsType<RequestResult>(bad.Value);
-        Assert.Contains("length", body.Message, StringComparison.OrdinalIgnoreCase);
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", RootFolder = new string('a', 600) };
+        var errors = ValidateDto(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(DiscoveryRequestDto.RootFolder)));
     }
 
     [Fact]
-    public async Task SubmitMyRequest_RootFolderPathTraversal_Returns400()
+    public void RequestDto_RootFolderPathTraversal_FailsValidation()
     {
-        // BUG GUARD: ".." must be rejected to prevent malicious clients from escaping the media root.
-        var dto = new DiscoveryRequestDto
-        {
-            TmdbId = 100,
-            MediaType = "movie",
-            RootFolder = "/media/../etc/passwd"
-        };
-        var result = await CreateController(Guid.NewGuid()).SubmitMyRequest(dto, CancellationToken.None);
-        Assert.IsType<BadRequestObjectResult>(result.Result);
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", RootFolder = "/media/../etc/passwd" };
+        var errors = ValidateDto(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(DiscoveryRequestDto.RootFolder)));
     }
 
     [Fact]
-    public async Task SubmitMyRequest_RootFolderTilde_Returns400()
+    public void RequestDto_RootFolderTilde_FailsValidation()
     {
-        var dto = new DiscoveryRequestDto
-        {
-            TmdbId = 100,
-            MediaType = "movie",
-            RootFolder = "~/movies"
-        };
-        var result = await CreateController(Guid.NewGuid()).SubmitMyRequest(dto, CancellationToken.None);
-        Assert.IsType<BadRequestObjectResult>(result.Result);
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", RootFolder = "~/movies" };
+        var errors = ValidateDto(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(DiscoveryRequestDto.RootFolder)));
     }
 
     [Fact]
-    public async Task SubmitMyRequest_RootFolderWithControlChars_Returns400()
+    public void RequestDto_RootFolderWithControlChars_FailsValidation()
     {
-        var dto = new DiscoveryRequestDto
-        {
-            TmdbId = 100,
-            MediaType = "movie",
-            RootFolder = "/media/\0movies"
-        };
-        var result = await CreateController(Guid.NewGuid()).SubmitMyRequest(dto, CancellationToken.None);
-        var bad = Assert.IsType<BadRequestObjectResult>(result.Result);
-        var body = Assert.IsType<RequestResult>(bad.Value);
-        Assert.Contains("invalid characters", body.Message, StringComparison.OrdinalIgnoreCase);
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", RootFolder = "/media/\0movies" };
+        var errors = ValidateDto(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(DiscoveryRequestDto.RootFolder)));
     }
+
+    [Fact]
+    public void RequestDto_ValidPayload_PassesValidation()
+    {
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", RootFolder = "/media/movies" };
+        var errors = ValidateDto(dto);
+        Assert.Empty(errors);
+    }
+
+    // --- SubmitMyRequest controller logic ---
 
     [Fact]
     public async Task SubmitMyRequest_RootFolderWhitespaceOnly_TreatedAsNull()
     {
-        // BUG GUARD: A whitespace-only RootFolder must NOT bypass validation. It must be
-        // coalesced to null internally so the subsequent length/traversal checks don't
-        // silently accept "   " as a valid override string. This test verifies that a
-        // whitespace-only RootFolder plus ServerId+ProfileId does NOT proceed to Seerr
-        // without an explicit profile match.
+        // Whitespace-only RootFolder is coalesced to null inside the controller, so a matching
+        // profile with no root folder constraint accepts the request and uses server defaults.
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
@@ -182,8 +165,6 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
                 CanRequest = true,
                 Profiles = new List<AllowedQualityProfile>
                 {
-                    // Profile has no RootFolder — a whitespace-only client submission should
-                    // therefore be coalesced to null and accepted (server default takes over).
                     new() { ServerId = 5, ProfileId = 20, RootFolder = string.Empty }
                 }
             });
@@ -194,14 +175,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .Setup(d => d.SubmitRequestAsync(100, "movie", 42, 5, 20, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "queued"));
 
-        var dto = new DiscoveryRequestDto
-        {
-            TmdbId = 100,
-            MediaType = "movie",
-            ServerId = 5,
-            ProfileId = 20,
-            RootFolder = "   "
-        };
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", ServerId = 5, ProfileId = 20, RootFolder = "   " };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
         var ok = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(201, ok.StatusCode);
@@ -212,8 +186,8 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public async Task SubmitMyRequest_ServerIdWithoutProfileId_Returns400()
     {
-        // BUG GUARD: partial overrides are silently invalid — must reject rather than send
-        // a nonsense request to Seerr where ServerId is set but ProfileId is missing.
+        // Partial overrides (ServerId without ProfileId) are semantically invalid: must reject
+        // rather than send a nonsense request to Seerr.
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
@@ -222,12 +196,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(42);
 
-        var dto = new DiscoveryRequestDto
-        {
-            TmdbId = 100,
-            MediaType = "movie",
-            ServerId = 5 // ProfileId missing → should reject
-        };
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", ServerId = 5 };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
         Assert.IsType<BadRequestObjectResult>(result.Result);
     }
@@ -238,12 +207,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new UserRequestPermissionResult
-            {
-                CanRequest = false,
-                IsTransient = false,
-                DeniedReason = "Not authorized"
-            });
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = false, IsTransient = false, DeniedReason = "Not authorized" });
 
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie" };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
@@ -254,17 +218,11 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public async Task SubmitMyRequest_TransientPermissionFailure_Returns503()
     {
-        // BUG GUARD: transient upstream failure (Seerr temporarily down) must return 503
-        // so the client retries, not 403 which suggests a permanent permission problem.
+        // Transient upstream failure (Seerr temporarily down) must return 503 so the client retries.
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "tv", "sonarr", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new UserRequestPermissionResult
-            {
-                CanRequest = false,
-                IsTransient = true,
-                DeniedReason = "upstream"
-            });
+            .ReturnsAsync(new UserRequestPermissionResult { CanRequest = false, IsTransient = true, DeniedReason = "upstream" });
 
         var dto = new DiscoveryRequestDto { TmdbId = 200, MediaType = "tv" };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
@@ -275,8 +233,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public async Task SubmitMyRequest_SeerrUserIdCannotBeResolved_Returns502()
     {
-        // Contract: after CanRequest=true, if we still can't resolve the user, that's a
-        // transient upstream failure between calls — 502 not 500 (retriable, not fatal).
+        // After CanRequest=true, an unresolvable user ID is a transient upstream failure: 502 not 500.
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
@@ -294,30 +251,20 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public async Task SubmitMyRequest_ProfileNotInAllowList_Returns403()
     {
-        // Security: user requested a profile that IS NOT in their allow-list → reject.
+        // Security: user requested a profile not in their allow-list → reject.
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new UserRequestPermissionResult
             {
                 CanRequest = true,
-                Profiles = new List<AllowedQualityProfile>
-                {
-                    new() { ServerId = 1, ProfileId = 10 }
-                }
+                Profiles = new List<AllowedQualityProfile> { new() { ServerId = 1, ProfileId = 10 } }
             });
         _discoveryMock
             .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(42);
 
-        // Client asks for ServerId=1, ProfileId=99 → not allowed
-        var dto = new DiscoveryRequestDto
-        {
-            TmdbId = 100,
-            MediaType = "movie",
-            ServerId = 1,
-            ProfileId = 99
-        };
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", ServerId = 1, ProfileId = 99 };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
         var status = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(403, status.StatusCode);
@@ -333,30 +280,20 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .ReturnsAsync(new UserRequestPermissionResult
             {
                 CanRequest = true,
-                Profiles = new List<AllowedQualityProfile>
-                {
-                    new() { ServerId = 1, ProfileId = 10, RootFolder = "/movies/hd" }
-                }
+                Profiles = new List<AllowedQualityProfile> { new() { ServerId = 1, ProfileId = 10, RootFolder = "/movies/hd" } }
             });
         _discoveryMock
             .Setup(d => d.ResolveSeerrUserIdAsync(userId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(42);
 
-        var dto = new DiscoveryRequestDto
-        {
-            TmdbId = 100,
-            MediaType = "movie",
-            ServerId = 1,
-            ProfileId = 10,
-            RootFolder = "/movies/4k" // ← mismatch
-        };
+        var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", ServerId = 1, ProfileId = 10, RootFolder = "/movies/4k" };
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
         var status = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(403, status.StatusCode);
     }
 
     [Fact]
-    public async Task SubmitMyRequest_HappyPath_Returns200_AndRecordsFeedback()
+    public async Task SubmitMyRequest_HappyPath_Returns201_AndRecordsFeedback()
     {
         var userId = Guid.NewGuid();
         _discoveryMock
@@ -376,9 +313,6 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         Assert.Equal(201, ok.StatusCode);
         var body = Assert.IsType<RequestResult>(ok.Value);
         Assert.True(body.Success);
-
-        // Bookkeeping: feedback store must be told about the successful request so the
-        // ML pipeline sees this as a positive training signal.
         _feedbackStoreMock.Verify(f => f.RecordRequested(userId, 100, "movie"), Times.Once);
     }
 
@@ -400,16 +334,13 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         var result = await CreateController(userId).SubmitMyRequest(dto, CancellationToken.None);
         var status = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(502, status.StatusCode);
-
-        // Bookkeeping MUST NOT record a failed request as a positive signal.
         _feedbackStoreMock.Verify(f => f.RecordRequested(It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
     public async Task SubmitMyRequest_HappyPath_SwallowsFeedbackStoreException()
     {
-        // Robustness: even if feedback bookkeeping throws, the successful request must
-        // still return 200 — Seerr already accepted the request, we can't undo that.
+        // Even if feedback bookkeeping throws, the 201 must still be returned.
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))
@@ -433,42 +364,35 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
         Assert.True(body.Success);
     }
 
-    // --- DismissItem ---
+    // --- DismissItem validation (enforced by [ApiController] in production) ---
 
     [Fact]
-    public void DismissItem_NullBody_Returns400()
-    {
-        var result = CreateController(Guid.NewGuid()).DismissItem(null!);
-        Assert.IsType<BadRequestObjectResult>(result.Result);
-    }
-
-    [Fact]
-    public void DismissItem_InvalidTmdbId_Returns400()
+    public void DismissDto_TmdbId_Zero_FailsValidation()
     {
         var dto = new DiscoveryDismissDto { TmdbId = 0, MediaType = "movie" };
-        var result = CreateController(Guid.NewGuid()).DismissItem(dto);
-        Assert.IsType<BadRequestObjectResult>(result.Result);
+        var errors = ValidateDto(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(DiscoveryDismissDto.TmdbId)));
     }
 
     [Fact]
-    public void DismissItem_NegativeTmdbId_Returns400()
+    public void DismissDto_TmdbId_Negative_FailsValidation()
     {
-        // BUG GUARD: negative IDs must be rejected too.
         var dto = new DiscoveryDismissDto { TmdbId = -1, MediaType = "movie" };
-        var result = CreateController(Guid.NewGuid()).DismissItem(dto);
-        Assert.IsType<BadRequestObjectResult>(result.Result);
+        var errors = ValidateDto(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(DiscoveryDismissDto.TmdbId)));
     }
 
     [Theory]
     [InlineData("music")]
     [InlineData("")]
-    [InlineData(null)]
-    public void DismissItem_InvalidMediaType_Returns400(string? mt)
+    public void DismissDto_InvalidMediaType_FailsValidation(string mt)
     {
-        var dto = new DiscoveryDismissDto { TmdbId = 100, MediaType = mt! };
-        var result = CreateController(Guid.NewGuid()).DismissItem(dto);
-        Assert.IsType<BadRequestObjectResult>(result.Result);
+        var dto = new DiscoveryDismissDto { TmdbId = 100, MediaType = mt };
+        var errors = ValidateDto(dto);
+        Assert.Contains(errors, e => e.MemberNames.Contains(nameof(DiscoveryDismissDto.MediaType)));
     }
+
+    // --- DismissItem controller logic ---
 
     [Fact]
     public void DismissItem_NoUserClaim_ReturnsUnauthorized()
@@ -481,10 +405,6 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public void DismissItem_HappyPath_RecordsAndReturnsSuccess()
     {
-        // NOTE: The DTO's runtime validation regex (^(movie|tv)$) is case-sensitive, so an
-        // HTTP request with "MOVIE" is rejected by the [ApiController] pipeline before the
-        // action body runs. We therefore use lowercase here to mirror runtime behaviour;
-        // the store contract remains lowercase mediaType end-to-end.
         var userId = Guid.NewGuid();
         var dto = new DiscoveryDismissDto { TmdbId = 100, MediaType = "movie" };
 
@@ -499,9 +419,6 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public void DismissItem_FeedbackStoreThrows_StillReturnsSuccess()
     {
-        // Robustness: dismiss should never surface a 5xx for storage failures; the user's
-        // intent is captured in memory and the missed write becomes a stale-cache issue
-        // at worst, not a broken UI.
         var userId = Guid.NewGuid();
         _feedbackStoreMock
             .Setup(f => f.RecordDismissed(userId, 100, "movie"))
@@ -526,7 +443,6 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public void GetExternalLinksConfig_ReturnsSeerrUrl_TrimmedAndNormalised()
     {
-        // Trailing slash and surrounding whitespace must be stripped.
         _configServiceMock.Setup(s => s.GetConfiguration()).Returns(new PluginConfiguration
         {
             DiscoveryUserAccessEnabled = true,
@@ -574,12 +490,10 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
 
         var controller = CreateController(userId);
 
-        // First request must succeed.
         var first = await controller.SubmitMyRequest(dto, CancellationToken.None);
         var firstResult = Assert.IsType<ObjectResult>(first.Result);
         Assert.Equal(201, firstResult.StatusCode);
 
-        // Second request from the same user within the rate-limit window → 429.
         var second = await controller.SubmitMyRequest(dto, CancellationToken.None);
         var tooMany = Assert.IsType<ObjectResult>(second.Result);
         Assert.Equal(429, tooMany.StatusCode);
@@ -606,7 +520,6 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
             .Setup(d => d.SubmitRequestAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((true, "OK"));
 
-        // Each user's first request must succeed independently.
         var resultA = await CreateController(userA).SubmitMyRequest(dto, CancellationToken.None);
         var resultB = await CreateController(userB).SubmitMyRequest(dto, CancellationToken.None);
 

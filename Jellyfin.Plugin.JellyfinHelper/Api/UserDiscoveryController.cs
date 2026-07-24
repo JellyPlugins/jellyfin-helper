@@ -301,12 +301,6 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     [ProducesResponseType(StatusCodes.Status502BadGateway)]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage(
-        "Security",
-        "cs/user-controlled-bypass",
-        Justification = "False positive: DiscoveryUserAccessEnabled is a server-side admin configuration flag. " +
-            "The only write path is ConfigurationController.UpdateConfigurationAsync, which is protected by " +
-            "[Authorize(Policy = \"RequiresElevation\")]. No authenticated non-admin user can modify this value.")]
     public async Task<ActionResult<RequestResult>> SubmitMyRequest(
         [FromBody] DiscoveryRequestDto dto,
         CancellationToken cancellationToken)
@@ -316,45 +310,11 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
         }
 
-        if (dto == null)
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
-        }
+        var mediaType = dto.MediaType.Trim().ToLowerInvariant();
 
-        if (dto.TmdbId <= 0)
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "Invalid TMDb ID." });
-        }
-
-        var mediaType = dto.MediaType?.Trim().ToLowerInvariant();
-        if (mediaType is not ("movie" or "tv"))
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
-        }
-
-        // Normalize RootFolder: trim whitespace and coalesce whitespace-only to null.
-        // This prevents whitespace-only strings from bypassing validation guards below
-        // and being sent as meaningless overrides to the Seerr API.
+        // Normalize RootFolder: trim whitespace and coalesce whitespace-only to null
+        // so whitespace-only strings are not forwarded as meaningless overrides to Seerr.
         var rootFolder = string.IsNullOrWhiteSpace(dto.RootFolder) ? null : dto.RootFolder.Trim();
-
-        if (rootFolder != null)
-        {
-            if (rootFolder.Length > 512)
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "Root folder path exceeds maximum length." });
-            }
-
-            if (rootFolder.Contains("..", StringComparison.Ordinal) ||
-                rootFolder.TrimStart().StartsWith('~'))
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
-            }
-
-            if (rootFolder.Any(c => char.IsControl(c)))
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "Root folder path contains invalid characters." });
-            }
-        }
 
         var jellyfinUserId = GetCurrentUserId();
         if (!jellyfinUserId.HasValue)
@@ -558,22 +518,7 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         var currentUserId = userId.Value;
-
-        if (dto == null)
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
-        }
-
-        if (dto.TmdbId <= 0)
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "Invalid TMDb ID." });
-        }
-
-        var mediaType = dto.MediaType?.Trim().ToLowerInvariant();
-        if (mediaType is not ("movie" or "tv"))
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
-        }
+        var mediaType = dto.MediaType.Trim().ToLowerInvariant();
 
         try
         {

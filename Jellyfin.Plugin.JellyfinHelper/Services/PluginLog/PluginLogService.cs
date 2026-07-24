@@ -61,12 +61,14 @@ public class PluginLogService : IPluginLogService
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
     public void LogDebug(string source, string message, ILogger? logger = null)
     {
+        var safeSource = SanitizeForLog(source);
+        var safeMessage = SanitizeForLog(message);
         if (logger is not null && logger.IsEnabled(LogLevel.Debug))
         {
-            logger.LogDebug("[{Source}] {Message}", source, message);
+            logger.LogDebug("[{Source}] {Message}", safeSource, safeMessage);
         }
 
-        AddEntry("DEBUG", source, message, null);
+        AddEntry("DEBUG", safeSource, safeMessage, null);
     }
 
     /// <summary>
@@ -77,12 +79,14 @@ public class PluginLogService : IPluginLogService
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
     public void LogInfo(string source, string message, ILogger? logger = null)
     {
+        var safeSource = SanitizeForLog(source);
+        var safeMessage = SanitizeForLog(message);
         if (logger is not null && logger.IsEnabled(LogLevel.Information))
         {
-            logger.LogInformation("[{Source}] {Message}", source, message);
+            logger.LogInformation("[{Source}] {Message}", safeSource, safeMessage);
         }
 
-        AddEntry("INFO", source, message, null);
+        AddEntry("INFO", safeSource, safeMessage, null);
     }
 
     /// <summary>
@@ -94,21 +98,23 @@ public class PluginLogService : IPluginLogService
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
     public void LogWarning(string source, string message, Exception? exception = null, ILogger? logger = null)
     {
+        var safeSource = SanitizeForLog(source);
+        var safeMessage = SanitizeForLog(message);
         // Guard the forwarding call for parity with LogDebug/LogInfo above (CA1873).
         // The null-check on logger is preserved because it is an optional dependency.
         if (logger is not null && logger.IsEnabled(LogLevel.Warning))
         {
             if (exception != null)
             {
-                logger.LogWarning(exception, "[{Source}] {Message}", source, message);
+                logger.LogWarning(exception, "[{Source}] {Message}", safeSource, safeMessage);
             }
             else
             {
-                logger.LogWarning("[{Source}] {Message}", source, message);
+                logger.LogWarning("[{Source}] {Message}", safeSource, safeMessage);
             }
         }
 
-        AddEntry("WARN", source, message, exception);
+        AddEntry("WARN", safeSource, safeMessage, exception);
     }
 
     /// <summary>
@@ -120,21 +126,23 @@ public class PluginLogService : IPluginLogService
     /// <param name="logger">Optional Jellyfin ILogger for dual-logging.</param>
     public void LogError(string source, string message, Exception? exception = null, ILogger? logger = null)
     {
+        var safeSource = SanitizeForLog(source);
+        var safeMessage = SanitizeForLog(message);
         // Guard the forwarding call for parity with LogDebug/LogInfo above (CA1873).
         // The null-check on logger is preserved because it is an optional dependency.
         if (logger is not null && logger.IsEnabled(LogLevel.Error))
         {
             if (exception != null)
             {
-                logger.LogError(exception, "[{Source}] {Message}", source, message);
+                logger.LogError(exception, "[{Source}] {Message}", safeSource, safeMessage);
             }
             else
             {
-                logger.LogError("[{Source}] {Message}", source, message);
+                logger.LogError("[{Source}] {Message}", safeSource, safeMessage);
             }
         }
 
-        AddEntry("ERROR", source, message, exception);
+        AddEntry("ERROR", safeSource, safeMessage, exception);
     }
 
     /// <summary>
@@ -271,6 +279,14 @@ public class PluginLogService : IPluginLogService
         return 1; // Default to INFO
     }
 
+    /// <summary>
+    ///     Strips CR, LF, and NUL from a string to prevent log-forging via injected newlines.
+    ///     Applied at the public API boundary so all paths — ILogger forwarding and buffer storage —
+    ///     receive sanitized values.
+    /// </summary>
+    private static string SanitizeForLog(string value)
+        => value.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
+
     private void AddEntry(string level, string source, string message, Exception? exception)
     {
         // Check against configured minimum level
@@ -280,12 +296,10 @@ public class PluginLogService : IPluginLogService
             return;
         }
 
-        // Strip CR/LF so a server-returned multi-line error message cannot inject fake log entries.
+        // source and message are already sanitized by the public Log* methods.
         // Cap the exception string at 8192 chars to prevent ExportAsText memory bloat when an
         // exception carries a very large stack trace or inner-exception chain.
         const int MaxExceptionLength = 8192;
-        var sanitizedSource = source.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
-        var sanitizedMessage = message.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
         var rawException = exception?.ToString().Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
         var sanitizedException = rawException is { Length: > MaxExceptionLength }
             ? rawException[..MaxExceptionLength] + " [truncated]"
@@ -295,8 +309,8 @@ public class PluginLogService : IPluginLogService
         {
             Timestamp = DateTime.UtcNow,
             Level = level,
-            Source = sanitizedSource,
-            Message = sanitizedMessage,
+            Source = source,
+            Message = message,
             Exception = sanitizedException
         };
 
