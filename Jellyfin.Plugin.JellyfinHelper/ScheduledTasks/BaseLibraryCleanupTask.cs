@@ -119,7 +119,7 @@ public abstract class BaseLibraryCleanupTask
     ///     Executes the cleanup task using the Template Method pattern.
     ///     Orchestrates: config loading, start logging, library iteration, summary logging, and cleanup recording.
     ///     The synchronous scan work is offloaded to a thread-pool thread via <see cref="Task.Run(Action)" />
-    ///     so the Jellyfin scheduler thread is never blocked (H-5).
+    ///     so the Jellyfin scheduler thread is never blocked.
     /// </summary>
     /// <param name="progress">Progress reporter.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

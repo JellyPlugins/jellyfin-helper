@@ -104,7 +104,7 @@ public class MediaStatisticsService : IMediaStatisticsService
                     _logger);
 
                 // Pre-compute the resolved absolute trash path once per library root so it
-                // is not re-derived on every recursive directory call (H-22).
+                // is not re-derived on every recursive directory call.
                 string? resolvedFullTrashPath = null;
                 try
                 {
@@ -239,7 +239,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     /// <param name="resolvedFullTrashPath">
     ///     The normalized absolute trash path for this library root, pre-computed by the caller
     ///     and threaded through every recursive call to avoid re-invoking
-    ///     <see cref="ICleanupConfigHelper.GetTrashPath" /> on every directory (H-22).
+    ///     <see cref="ICleanupConfigHelper.GetTrashPath" /> on every directory.
     ///     Null when <paramref name="libraryRoot" /> is null.
     /// </param>
     private bool AnalyzeDirectoryRecursive(
@@ -337,7 +337,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             var resolvedTrashFolderName = trashFolderName ?? string.Empty;
 
             // resolvedFullTrashPath is computed once at the top-level call site and threaded
-            // through every recursive call — no config re-read on each directory (H-22).
+            // through every recursive call — no config re-read on each directory.
             foreach (var subDir in subDirs)
             {
                 var normalizedSubDirFullName = Path.GetFullPath(subDir.FullName)

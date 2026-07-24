@@ -66,7 +66,7 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
         try
         {
             // Enumerate directories lazily with per-directory error isolation instead of
-            // materialising the whole tree upfront (H-7). An IOException on one directory
+            // materialising the whole tree upfront. An IOException on one directory
             // no longer aborts the entire scan; each failed entry is logged and skipped.
             IEnumerable<string> GetSubdirectoriesIterative(string root)
             {

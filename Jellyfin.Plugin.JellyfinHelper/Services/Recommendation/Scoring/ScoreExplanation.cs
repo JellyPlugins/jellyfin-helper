@@ -126,16 +126,9 @@ public sealed class ScoreExplanation
             PeopleContribution = PeopleContribution * penaltyMultiplier,
             StudioContribution = StudioContribution * penaltyMultiplier,
             GenrePenaltyMultiplier = penaltyMultiplier,
-            DominantSignal = DetermineDominantSignal(
-                GenreContribution * penaltyMultiplier,
-                CollaborativeContribution * penaltyMultiplier,
-                RatingContribution * penaltyMultiplier,
-                UserRatingContribution * penaltyMultiplier,
-                RecencyContribution * penaltyMultiplier,
-                YearProximityContribution * penaltyMultiplier,
-                InteractionContribution * penaltyMultiplier,
-                PeopleContribution * penaltyMultiplier,
-                StudioContribution * penaltyMultiplier),
+            // Scaling all contributions by the same factor cannot change which one is largest.
+            // Only when the multiplier is zero do all contributions collapse to zero → "None".
+            DominantSignal = penaltyMultiplier <= DominantSignalTolerance ? "None" : DominantSignal,
             StrategyName = StrategyName
         };
     }

@@ -184,7 +184,7 @@ public class TransformationPatchesTests
     [Fact]
     public void IndexHtml_LiteralBodyStringAfterRealClosingTag_InjectsBeforeRealBody()
     {
-        // H-5 contract: the </body> search is bounded to content before </html>, so a stray
+        // Contract: the </body> search is bounded to content before </html>, so a stray
         // literal `</body>` that appears AFTER </html> (e.g. inside a trailing <script> tag)
         // must NOT be chosen as the injection point. The script must land before the REAL
         // </body> that precedes </html>.

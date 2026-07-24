@@ -332,7 +332,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
     /// <summary>
     ///     Returns all subdirectories under <paramref name="libraryPath" /> using an explicit stack
     ///     so that a single unreadable directory does not abort the scan and there is no
-    ///     per-call recursion depth risk on deep trees (H-6).
+    ///     per-call recursion depth risk on deep trees.
     /// </summary>
     private List<string> TryGetSubdirectories(string libraryPath)
     {

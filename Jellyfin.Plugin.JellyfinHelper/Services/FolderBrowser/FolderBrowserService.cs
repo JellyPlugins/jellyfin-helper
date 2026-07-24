@@ -451,7 +451,7 @@ public class FolderBrowserService : IFolderBrowserService
     /// <returns>True if the directory should be hidden from the browser.</returns>
     private static bool IsSystemOrHiddenCritical(DirectoryInfo dirInfo)
     {
-        // H-111 — block dangerous Linux/macOS virtual file-systems by absolute path
+        // Block dangerous Linux/macOS virtual file-systems by absolute path
         if (!OperatingSystem.IsWindows())
         {
             var fullPath = dirInfo.FullName.TrimEnd('/');

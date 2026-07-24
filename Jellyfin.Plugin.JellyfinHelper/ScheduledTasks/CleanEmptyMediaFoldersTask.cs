@@ -268,7 +268,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             {
                 hasAnyFiles = true;
                 totalBytes += file.Length;
-                var ext = Path.GetExtension(file.FullName).ToLowerInvariant();
+                var ext = Path.GetExtension(file.FullName);
                 if (MediaExtensions.VideoExtensions.Contains(ext))
                 {
                     // Return 0 bytes: the caller only uses treeBytes in the hard-delete branch,

@@ -58,7 +58,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // Subtitles are non-metadata files → folder is orphaned and should be deleted
         SetupFiles(movieDir, "movie.nfo", "poster.jpg", "movie.srt");
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(movieDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -76,7 +76,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // Only metadata/artwork files → likely a wanted-list placeholder → skip
         SetupFiles(movieDir, "movie.nfo", "poster.jpg");
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(movieDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -94,7 +94,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(libraryPath, ("Good Movie (2021)", movieDir));
 
         SetupFiles(movieDir, "movie.mkv", "movie.nfo", "poster.jpg");
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(movieDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -111,7 +111,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(libraryPath, ("Upcoming Movie (2025)", movieDir));
 
         SetupFiles(movieDir);
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(movieDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -128,7 +128,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(libraryPath, ("Movie.trickplay", trickplayDir));
 
         SetupFiles(trickplayDir, "index.json", "00001.jpg");
-        SetupSubDirs(trickplayDir);
+        SetupTopLevelDirs(trickplayDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -146,7 +146,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // Include a subtitle so the folder qualifies as orphaned (has non-metadata files)
         SetupFiles(movieDir, "movie.nfo", "movie.srt");
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(movieDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -165,7 +165,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // Only NFO and poster → metadata-only placeholder → should NOT be reported for deletion
         SetupFiles(movieDir, "movie.nfo", "poster.jpg");
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(movieDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -185,15 +185,15 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(libraryPath, ("Quantum Donuts (2018)", showDir));
 
         SetupFiles(showDir, "tvshow.nfo");
-        SetupSubDirs(showDir,
+        SetupTopLevelDirs(showDir,
             ("Season 01", season1Dir),
             ("Season 02", season2Dir));
 
         SetupFiles(season1Dir, "S01E01.mkv", "season.nfo");
-        SetupSubDirs(season1Dir);
+        SetupTopLevelDirs(season1Dir);
 
         SetupFiles(season2Dir, "season.nfo");
-        SetupSubDirs(season2Dir);
+        SetupTopLevelDirs(season2Dir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -211,11 +211,11 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(libraryPath, ("Cancelled Show (2019)", showDir));
 
         SetupFiles(showDir, "tvshow.nfo", "poster.jpg");
-        SetupSubDirs(showDir, ("Season 01", season1Dir));
+        SetupTopLevelDirs(showDir, ("Season 01", season1Dir));
 
         // Season folder has a subtitle but no video → orphaned
         SetupFiles(season1Dir, "season.nfo", "S01E01.srt");
-        SetupSubDirs(season1Dir);
+        SetupTopLevelDirs(season1Dir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -234,10 +234,10 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // Only metadata/artwork → placeholder → skip
         SetupFiles(showDir, "tvshow.nfo", "poster.jpg");
-        SetupSubDirs(showDir, ("Season 01", season1Dir));
+        SetupTopLevelDirs(showDir, ("Season 01", season1Dir));
 
         SetupFiles(season1Dir, "season.nfo");
-        SetupSubDirs(season1Dir);
+        SetupTopLevelDirs(season1Dir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -256,13 +256,13 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(libraryPath, ("Deep Show (2020)", showDir));
 
         SetupFiles(showDir, "tvshow.nfo");
-        SetupSubDirs(showDir, ("Season 01", season1Dir));
+        SetupTopLevelDirs(showDir, ("Season 01", season1Dir));
 
         SetupFiles(season1Dir, "season.nfo");
-        SetupSubDirs(season1Dir, ("Extras", extrasDir));
+        SetupTopLevelDirs(season1Dir, ("Extras", extrasDir));
 
         SetupFiles(extrasDir, "behind-the-scenes.mkv");
-        SetupSubDirs(extrasDir);
+        SetupTopLevelDirs(extrasDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -281,10 +281,10 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // Both have subtitles (non-metadata) → orphaned
         SetupFiles("/media/movies/Old Movie 1 (2018)", "movie.nfo", "movie.srt");
-        SetupSubDirs("/media/movies/Old Movie 1 (2018)");
+        SetupTopLevelDirs("/media/movies/Old Movie 1 (2018)");
 
         SetupFiles("/media/movies/Old Movie 2 (2019)", "movie.nfo", "poster.jpg", "movie.ass");
-        SetupSubDirs("/media/movies/Old Movie 2 (2019)");
+        SetupTopLevelDirs("/media/movies/Old Movie 2 (2019)");
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -315,7 +315,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         SetupTopLevelDirs(libraryPath1, ("Movie", "/media/movies1/Movie"));
         SetupFiles("/media/movies1/Movie", "movie.nfo", "movie.srt");
-        SetupSubDirs("/media/movies1/Movie");
+        SetupTopLevelDirs("/media/movies1/Movie");
 
         var cts = new CancellationTokenSource();
         await cts.CancelAsync();
@@ -343,7 +343,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(libraryPath2, ("Old Movie", "/media/movies2/Old Movie"));
         // Include subtitle to make it orphaned
         SetupFiles("/media/movies2/Old Movie", "movie.nfo", "movie.srt");
-        SetupSubDirs("/media/movies2/Old Movie");
+        SetupTopLevelDirs("/media/movies2/Old Movie");
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -390,7 +390,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(libraryPath, ("SomeMovie", movieDir));
 
         SetupFilesWithFullNames(movieDir, "/media/movies/SomeMovie/video" + extension);
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(movieDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -424,10 +424,10 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(libraryPath, ("Future Show (2026)", showDir));
 
         SetupFiles(showDir);
-        SetupSubDirs(showDir, ("Season 01", season1Dir));
+        SetupTopLevelDirs(showDir, ("Season 01", season1Dir));
 
         SetupFiles(season1Dir);
-        SetupSubDirs(season1Dir);
+        SetupTopLevelDirs(season1Dir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -495,7 +495,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(moviesPath, ("Old Movie (2020)", "/media/movies/Old Movie (2020)"));
         // Include subtitle to make it orphaned
         SetupFiles("/media/movies/Old Movie (2020)", "movie.nfo", "movie.srt");
-        SetupSubDirs("/media/movies/Old Movie (2020)");
+        SetupTopLevelDirs("/media/movies/Old Movie (2020)");
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -520,19 +520,19 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // Good movie with video → keep
         SetupFiles("/media/movies/Good Movie (2021)", "movie.mkv", "movie.nfo");
-        SetupSubDirs("/media/movies/Good Movie (2021)");
+        SetupTopLevelDirs("/media/movies/Good Movie (2021)");
 
         // Orphaned with subtitle → delete
         SetupFiles("/media/movies/Orphaned Movie (2019)", "movie.nfo", "poster.jpg", "movie.srt");
-        SetupSubDirs("/media/movies/Orphaned Movie (2019)");
+        SetupTopLevelDirs("/media/movies/Orphaned Movie (2019)");
 
         // Another good movie with video → keep
         SetupFiles("/media/movies/Another Good (2020)", "film.mp4");
-        SetupSubDirs("/media/movies/Another Good (2020)");
+        SetupTopLevelDirs("/media/movies/Another Good (2020)");
 
         // Wanted movie with only metadata → skip (placeholder)
         SetupFiles("/media/movies/Wanted Movie (2026)", "movie.nfo", "poster.jpg");
-        SetupSubDirs("/media/movies/Wanted Movie (2026)");
+        SetupTopLevelDirs("/media/movies/Wanted Movie (2026)");
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -552,7 +552,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         SetupFilesWithFullNames(musicDir, "/media/movies/SomeArtist/track01.mp3",
             "/media/movies/SomeArtist/track02.flac");
-        SetupSubDirs(musicDir);
+        SetupTopLevelDirs(musicDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -570,10 +570,10 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(libraryPath, ("Drake", artistDir));
 
         SetupFiles(artistDir, "artist.nfo");
-        SetupSubDirs(artistDir, ("Album1", albumDir));
+        SetupTopLevelDirs(artistDir, ("Album1", albumDir));
 
         SetupFilesWithFullNames(albumDir, "/media/music/Drake/Album1/song.mp3");
-        SetupSubDirs(albumDir);
+        SetupTopLevelDirs(albumDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -595,7 +595,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // Non-metadata file ensures this would otherwise be flagged as orphaned
         SetupFiles(boxsetDir, "movie.nfo", "movie.srt");
-        SetupSubDirs(boxsetDir);
+        SetupTopLevelDirs(boxsetDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -616,7 +616,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // Non-metadata file ensures this would otherwise be flagged as orphaned
         SetupFiles(collectionDir, "collection.xml", "movie.srt");
-        SetupSubDirs(collectionDir);
+        SetupTopLevelDirs(collectionDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -641,7 +641,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupTopLevelDirs(libraryPath, ("Artist", artistDir));
 
         SetupFilesWithFullNames(artistDir, "/media/music/Artist/track" + extension);
-        SetupSubDirs(artistDir);
+        SetupTopLevelDirs(artistDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -685,7 +685,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Wanted (2026)", movieDir));
         SetupFiles(movieDir, files);
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(movieDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -703,7 +703,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // NFO + subtitle → has non-metadata file → orphaned → delete
         SetupFiles(movieDir, "movie.nfo", "movie.srt");
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(movieDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -721,7 +721,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // NFO + unknown file → has non-metadata → orphaned → delete
         SetupFiles(movieDir, "movie.nfo", "poster.jpg", "readme.txt");
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(movieDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -740,10 +740,10 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // Show has NFO, but Season has a subtitle → non-metadata found deep in tree → orphaned
         SetupFiles(showDir, "tvshow.nfo");
-        SetupSubDirs(showDir, ("Season 01", season1Dir));
+        SetupTopLevelDirs(showDir, ("Season 01", season1Dir));
 
         SetupFiles(season1Dir, "season.nfo", "S01E01.srt");
-        SetupSubDirs(season1Dir);
+        SetupTopLevelDirs(season1Dir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
@@ -768,14 +768,14 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         SetupFilesWithFullNames(movieDir,
             "/media/movies/OrphanedMovie/movie.nfo",
             "/media/movies/OrphanedMovie/subtitle" + extension);
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(movieDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
-    // H-21: AnalyzeDirectoryRecursive returns (HasVideoFiles=true, TotalBytes=0) on early
+    // AnalyzeDirectoryRecursive returns (HasVideoFiles=true, TotalBytes=0) on early
     // video-found exit. We verify the observable contract end-to-end:
     //   - Run with TWO top-level folders: one with video (must be kept) and one orphan (must be deleted).
     //   - UseTrash=true so MoveToTrash is called; the mock returns a known byte count for the orphan.
@@ -798,11 +798,11 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
         // Video folder — has video file → must be skipped entirely
         SetupFiles(videoDir, "movie.mkv", "movie.nfo");
-        SetupSubDirs(videoDir);
+        SetupTopLevelDirs(videoDir);
 
         // Orphan folder — subtitle only → must be trashed
         SetupFiles(orphanDir, "movie.nfo", "movie.srt");
-        SetupSubDirs(orphanDir);
+        SetupTopLevelDirs(orphanDir);
 
         const long orphanBytes = 12345L;
         MockTrashService
@@ -833,12 +833,10 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             Times.Never);
     }
 
-    // H-22: Extension lookup uses .ToLowerInvariant() before hitting the VideoExtensions
-    // HashSet. VideoExtensions uses OrdinalIgnoreCase so the check was already working in
-    // practice — the normalisation makes the intent explicit and protects against a future
-    // comparer change. This test verifies the full task pipeline with an uppercase extension
-    // by pairing the video folder with an orphan folder in the same run, so we can confirm
-    // the video folder is truly kept (RecordCleanup only fires for the orphan, not the video).
+    // VideoExtensions uses OrdinalIgnoreCase, so uppercase extensions are matched
+    // without any normalisation step. This test verifies the full task pipeline with an
+    // uppercase extension by pairing the video folder with an orphan folder in the same run,
+    // confirming the video folder is kept (RecordCleanup only fires for the orphan).
     [Fact]
     public async Task ExecuteInternalAsync_UppercaseVideoExtension_FolderKeptOrphanStillDeleted()
     {
@@ -854,12 +852,12 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             ("Good Movie (2022)", videoDir),
             ("Gone Movie (2018)", orphanDir));
 
-        // Uppercase extension — .ToLowerInvariant() must normalise before VideoExtensions lookup
+        // Uppercase extension — VideoExtensions.OrdinalIgnoreCase handles this directly
         SetupFiles(videoDir, "movie.MKV");
-        SetupSubDirs(videoDir);
+        SetupTopLevelDirs(videoDir);
 
         SetupFiles(orphanDir, "movie.nfo", "movie.srt");
-        SetupSubDirs(orphanDir);
+        SetupTopLevelDirs(orphanDir);
 
         MockTrashService
             .Setup(t => t.MoveToTrash(orphanDir, It.IsAny<string>(), It.IsAny<ILogger>()))
@@ -897,28 +895,8 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         _fileSystemMock.Setup(f => f.GetDirectories(parentPath)).Returns(dirMetadata);
     }
 
-    private void SetupSubDirs(string parentPath, params (string Name, string FullName)[] dirs)
-    {
-        var dirMetadata = dirs.Select(d => new FileSystemMetadata
-        {
-            FullName = d.FullName,
-            Name = d.Name,
-            IsDirectory = true
-        }).ToArray();
-
-        _fileSystemMock.Setup(f => f.GetDirectories(parentPath)).Returns(dirMetadata);
-    }
-
     private void SetupFiles(string dirPath, params string[] fileNames)
-    {
-        var files = fileNames.Select(name => new FileSystemMetadata
-        {
-            FullName = dirPath + "/" + name,
-            IsDirectory = false
-        }).ToArray();
-
-        _fileSystemMock.Setup(f => f.GetFiles(dirPath)).Returns(files);
-    }
+        => SetupFilesWithFullNames(dirPath, fileNames.Select(name => dirPath + "/" + name).ToArray());
 
     private void SetupFilesWithFullNames(string dirPath, params string[] fullNames)
     {

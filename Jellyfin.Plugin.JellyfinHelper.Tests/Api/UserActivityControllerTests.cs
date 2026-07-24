@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
 /// <summary>
 ///     Tests for UserActivityController.
-///     The controller methods are synchronous after the H-34/H-35/H-85/H-86 fix
+///     The controller methods are synchronous.
 ///     that removed the static SemaphoreSlim _buildLock.
 /// </summary>
 public class UserActivityControllerTests
@@ -47,13 +47,8 @@ public class UserActivityControllerTests
             _mockUserManager.Object);
     }
 
-    // =========================================================================
-    // H-34/H-35/H-85/H-86 regression: methods are synchronous (no async/await,
-    // no CancellationToken parameter, no SemaphoreSlim).
-    // =========================================================================
-
     /// <summary>
-    ///     Regression H-34/H-85: GetLatestActivity is synchronous and returns 200 OK
+    ///     GetLatestActivity is synchronous and returns 200 OK
     ///     with the cached payload when the cache is populated.
     /// </summary>
     [Fact]
@@ -78,7 +73,7 @@ public class UserActivityControllerTests
     }
 
     /// <summary>
-    ///     Regression H-34/H-85: GetLatestActivity is synchronous and returns 503
+    ///     GetLatestActivity is synchronous and returns 503
     ///     when the cache is empty (task has not run yet).
     /// </summary>
     [Fact]
@@ -95,7 +90,7 @@ public class UserActivityControllerTests
     }
 
     /// <summary>
-    ///     Regression H-35/H-86: GetUserActivity is synchronous and returns 200 OK
+    ///     GetUserActivity is synchronous and returns 200 OK
     ///     with activity filtered to the requested user only.
     /// </summary>
     [Fact]
@@ -126,7 +121,7 @@ public class UserActivityControllerTests
     }
 
     /// <summary>
-    ///     Regression H-35/H-86: GetUserActivity is synchronous and returns 404
+    ///     GetUserActivity is synchronous and returns 404
     ///     when IUserManager cannot find the requested user.
     /// </summary>
     [Fact]
@@ -141,7 +136,7 @@ public class UserActivityControllerTests
     }
 
     /// <summary>
-    ///     Regression H-35/H-86: GetUserActivity is synchronous and returns 503
+    ///     GetUserActivity is synchronous and returns 503
     ///     when the cache is empty, even if the user is known.
     /// </summary>
     [Fact]

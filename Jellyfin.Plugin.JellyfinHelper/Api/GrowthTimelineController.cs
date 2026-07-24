@@ -22,7 +22,7 @@ public class GrowthTimelineController : ControllerBase
     private static readonly TimeSpan MinRefreshInterval = TimeSpan.FromSeconds(30);
 
     // SemaphoreSlim(1,1) instead of a plain Lock so the async method does not block
-    // a thread-pool thread while holding the rate-limit guard (H-2).
+    // a thread-pool thread while holding the rate-limit guard.
     private static readonly SemaphoreSlim RateLimitSemaphore = new(1, 1);
     private static DateTime _lastRefreshTime = DateTime.MinValue;
 
