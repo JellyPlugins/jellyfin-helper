@@ -1248,8 +1248,6 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
             capturedUseEarlyStopping = useEarlyStopping;
             capturedBestLoss = bestLoss;
-
-            LogFeatureImportance(inputSize);
         }
         finally
         {
@@ -1259,10 +1257,12 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
             }
         }
 
-        // Persist weights outside the write lock so concurrent Score() calls are not blocked
-        // by disk I/O. TrySaveWeights() reads the weight fields without a lock; this is safe
-        // because Train() is the only writer and is serialized by the scheduled task.
+        // Persist weights and log feature importance outside the write lock so concurrent
+        // Score() callers (read lock) are not blocked by disk I/O or logging allocations.
+        // LogFeatureImportance only reads _weightsIH, which is stable after the write lock
+        // is released: Train() is the only writer and is serialized by the scheduled task.
         TrySaveWeights();
+        LogFeatureImportance(inputSize);
 
         // Compute ranking metrics outside the write lock (Score() needs read lock).
         // Prefer the caller-supplied held-out slice so P@K/R@K/NDCG are genuine out-of-sample
@@ -2013,7 +2013,8 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
     ///     Logs per-feature importance based on input→hidden1 weight L2 norms.
     ///     Importance[f] = sqrt(Σ_j weightsIH[j, f]²) - measures how strongly
     ///     each input feature drives hidden layer activations.
-    ///     Must be called under write lock.
+    ///     Safe to call outside the write lock: only reads <c>_weightsIH</c>, which is
+    ///     stable after Train() releases the write lock (Train is the sole writer).
     /// </summary>
     private void LogFeatureImportance(int inputSize)
     {

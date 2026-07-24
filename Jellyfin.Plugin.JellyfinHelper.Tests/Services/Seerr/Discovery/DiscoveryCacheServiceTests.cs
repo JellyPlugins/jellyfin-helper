@@ -24,14 +24,16 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     {
         ControllerTestFactory.InitializePluginInstance();
 
-        var pluginLog = new Mock<IPluginLogService>();
-        var logger = new Mock<ILogger<DiscoveryCacheService>>();
-        _sut = new DiscoveryCacheService(pluginLog.Object, logger.Object);
-
         var dataPath = Plugin.Instance?.DataFolderPath ?? string.Empty;
         _cacheFilePath = Path.Join(dataPath, CacheFileName);
 
+        // Delete any stale cache file BEFORE constructing _sut so the service starts
+        // with no pre-warmed in-memory state from a previous test.
         SafeDelete(_cacheFilePath);
+
+        var pluginLog = new Mock<IPluginLogService>();
+        var logger = new Mock<ILogger<DiscoveryCacheService>>();
+        _sut = new DiscoveryCacheService(pluginLog.Object, logger.Object);
     }
 
     public void Dispose()

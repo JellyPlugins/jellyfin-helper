@@ -152,7 +152,7 @@ public sealed class DiscoveryController : ControllerBase
             }
 
             if (rootFolder.Contains("..", StringComparison.Ordinal) ||
-                rootFolder.TrimStart().StartsWith('~'))
+                rootFolder.StartsWith('~'))
             {
                 return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
             }

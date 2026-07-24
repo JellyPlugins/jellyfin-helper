@@ -1,3 +1,4 @@
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Api;
@@ -17,19 +18,29 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 ///     If future tests add cache-mutating scenarios, consider per-test isolation
 ///     via a temp-directory-backed cache or mocked <c>IDiscoveryCacheService</c>.
 /// </summary>
-public class DiscoveryControllerTests
+public class DiscoveryControllerTests : IDisposable
 {
     private readonly Mock<ISeerrDiscoveryService> _discoveryMock;
     private readonly Mock<IDiscoveryFeedbackStore> _feedbackStoreMock;
     private readonly DiscoveryCacheService _cache;
+    private readonly string _tempCachePath;
 
     public DiscoveryControllerTests()
     {
         var pluginLog = new Mock<IPluginLogService>();
         var cacheLogger = new Mock<ILogger<DiscoveryCacheService>>();
-        _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object, filePath: Path.GetTempFileName());
+        _tempCachePath = Path.GetTempFileName();
+        _cache = new DiscoveryCacheService(pluginLog.Object, cacheLogger.Object, filePath: _tempCachePath);
         _discoveryMock = new Mock<ISeerrDiscoveryService>();
         _feedbackStoreMock = new Mock<IDiscoveryFeedbackStore>();
+    }
+
+    public void Dispose()
+    {
+        _cache.Dispose();
+        try { File.Delete(_tempCachePath); } catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        GC.SuppressFinalize(this);
     }
 
     private DiscoveryController CreateController(Mock<ISeerrDiscoveryService>? discovery = null)
