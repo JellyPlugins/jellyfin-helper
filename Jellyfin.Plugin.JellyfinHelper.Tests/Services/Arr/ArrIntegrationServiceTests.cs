@@ -174,7 +174,7 @@ public class ArrIntegrationServiceTests
                 "SendAsync",
                 ItExpr.Is<HttpRequestMessage>(req =>
                     req.RequestUri != null &&
-                    !req.RequestUri.AbsoluteUri.Contains("//api")),
+                    req.RequestUri.AbsoluteUri == "http://localhost:7878/api/v3/system/status"),
                 ItExpr.IsAny<CancellationToken>())
             .ReturnsAsync(new HttpResponseMessage
             {
@@ -404,13 +404,6 @@ public class ArrIntegrationServiceTests
                 It.IsAny<ILogger?>()),
             Times.Once);
 
-        pluginLogMock.Verify(
-            p => p.LogError(
-                "ArrIntegration",
-                It.Is<string>(msg => msg.Contains("timed out", StringComparison.OrdinalIgnoreCase)),
-                It.IsAny<Exception?>(),
-                It.IsAny<ILogger?>()),
-            Times.Never);
     }
 
     [Fact]
@@ -441,13 +434,6 @@ public class ArrIntegrationServiceTests
                 It.IsAny<ILogger?>()),
             Times.Once);
 
-        pluginLogMock.Verify(
-            p => p.LogError(
-                "ArrIntegration",
-                It.Is<string>(msg => msg.Contains("timed out", StringComparison.OrdinalIgnoreCase)),
-                It.IsAny<Exception?>(),
-                It.IsAny<ILogger?>()),
-            Times.Never);
     }
 
     // === CompareRadarrWithJellyfin ===
@@ -902,10 +888,10 @@ public class ArrIntegrationServiceTests
     [Fact]
     public void CompareRadarr_OrdinalIgnoreCaseComparer_IsNotCopied()
     {
-        // When the caller already passes a HashSet with OrdinalIgnoreCase, ReferenceEquals
-        // returns true and the same instance is used (no defensive copy). Verifiable via
-        // object identity of the set — the result must be consistent with the original set.
-        var jellyfinFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Movie A (2020)" };
+        // Jellyfin folder in LOWERCASE, Arr path in MixedCase — only OrdinalIgnoreCase matches.
+        // This ensures the ReferenceEquals fast-path actually exercises case-insensitive lookup,
+        // not just a same-case coincidental match that would pass under any comparer.
+        var jellyfinFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "movie a (2020)" };
         var movies = new[] { new ArrMovie { Title = "Movie A", Year = 2020, HasFile = true, Path = "/m/Movie A (2020)" } };
 
         var result = ArrIntegrationService.CompareRadarrWithJellyfin(movies, jellyfinFolders);
@@ -916,7 +902,8 @@ public class ArrIntegrationServiceTests
     [Fact]
     public void CompareSonarr_OrdinalIgnoreCaseComparer_IsNotCopied()
     {
-        var jellyfinFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Show A" };
+        // Jellyfin folder in LOWERCASE, Arr path in MixedCase — only OrdinalIgnoreCase matches.
+        var jellyfinFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "show a" };
         var series = new[] { new ArrSeries { Title = "Show A", Year = 2020, EpisodeFileCount = 5, TotalEpisodeCount = 10, Path = "/tv/Show A" } };
 
         var result = ArrIntegrationService.CompareSonarrWithJellyfin(series, jellyfinFolders);

@@ -90,8 +90,8 @@ public class UserActivityControllerTests
 
         var statusResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(503, statusResult.StatusCode);
-        // Must never attempt to write to the cache
-        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
+        // LoadResult must have been called exactly once — no retry or secondary build path
+        _mockCache.Verify(c => c.LoadResult(), Times.Once);
     }
 
     /// <summary>
@@ -154,7 +154,8 @@ public class UserActivityControllerTests
 
         var statusResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(503, statusResult.StatusCode);
-        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
+        // LoadResult must have been called exactly once — no retry or secondary build path
+        _mockCache.Verify(c => c.LoadResult(), Times.Once);
     }
 
     // =========================================================================
@@ -187,6 +188,8 @@ public class UserActivityControllerTests
     [Fact]
     public void GetLatestActivity_DryRun_CacheEmpty_Returns503()
     {
+        // DryRun does NOT disable the feature — IsFeatureEnabled returns true for DryRun.
+        // The 503 originates from the empty cache, not from the mode.
         _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
         {
             RecommendationsTaskMode = TaskMode.DryRun
@@ -197,7 +200,7 @@ public class UserActivityControllerTests
 
         var statusResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(503, statusResult.StatusCode);
-        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
+        _mockCache.Verify(c => c.LoadResult(), Times.Once);
     }
 
     [Fact]
@@ -217,6 +220,8 @@ public class UserActivityControllerTests
     [Fact]
     public void GetUserActivity_DryRun_CacheEmpty_Returns503()
     {
+        // DryRun does NOT disable the feature — IsFeatureEnabled returns true for DryRun.
+        // The 503 originates from the empty cache, not from the mode.
         var userId = Guid.NewGuid();
         _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
         {
@@ -228,7 +233,7 @@ public class UserActivityControllerTests
 
         var statusResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(503, statusResult.StatusCode);
-        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
+        _mockCache.Verify(c => c.LoadResult(), Times.Once);
     }
 
     [Fact]

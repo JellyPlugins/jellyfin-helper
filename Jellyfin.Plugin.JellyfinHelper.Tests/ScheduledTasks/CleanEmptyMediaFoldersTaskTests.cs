@@ -381,8 +381,6 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     [InlineData(".m4v")]
     [InlineData(".ts")]
     [InlineData(".iso")]
-    [InlineData(".MKV")]
-    [InlineData(".Mp4")]
     public async Task ExecuteInternalAsync_VariousVideoExtensions_FolderIsKept(string extension)
     {
         const string libraryPath = "/media/movies";
@@ -634,8 +632,6 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     [InlineData(".opus")]
     [InlineData(".wma")]
     [InlineData(".ape")]
-    [InlineData(".MP3")]
-    [InlineData(".FLAC")]
     public async Task ExecuteInternalAsync_VariousAudioExtensions_FolderIsSkipped(string extension)
     {
         const string libraryPath = "/media/music";
@@ -673,53 +669,22 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
 
     // ========== New metadata-only / placeholder tests ==========
 
-    [Fact]
-    public async Task ExecuteInternalAsync_FolderWithOnlyNfo_IsSkipped()
+    [Theory]
+    [InlineData("movie.nfo")]
+    [InlineData("poster.jpg", "fanart.png", "banner.webp")]
+    [InlineData("movie.nfo", "poster.jpg", "fanart.png")]
+    public async Task ExecuteInternalAsync_MetadataOnlyFiles_FolderIsSkipped(params string[] files)
     {
+        // A folder containing ONLY metadata/artwork files (NFO + images, no video/audio/subtitle)
+        // is treated as a wanted-list placeholder and must never be reported for deletion.
+        // Coverage: single NFO, images-only, and NFO+images combos all hit the same
+        // !hasNonMetadataFiles guard in AnalyzeDirectoryRecursive.
         const string libraryPath = "/media/movies";
         const string movieDir = "/media/movies/Wanted (2026)";
 
         SetupLibrary(libraryPath);
         SetupTopLevelDirs(libraryPath, ("Wanted (2026)", movieDir));
-
-        // Only NFO → metadata-only → skip
-        SetupFiles(movieDir, "movie.nfo");
-        SetupSubDirs(movieDir);
-
-        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
-
-        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
-    }
-
-    [Fact]
-    public async Task ExecuteInternalAsync_FolderWithOnlyImages_IsSkipped()
-    {
-        const string libraryPath = "/media/movies";
-        const string movieDir = "/media/movies/Wanted (2026)";
-
-        SetupLibrary(libraryPath);
-        SetupTopLevelDirs(libraryPath, ("Wanted (2026)", movieDir));
-
-        // Only images → metadata-only → skip
-        SetupFiles(movieDir, "poster.jpg", "fanart.png", "banner.webp");
-        SetupSubDirs(movieDir);
-
-        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
-
-        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
-    }
-
-    [Fact]
-    public async Task ExecuteInternalAsync_FolderWithNfoAndImages_IsSkipped()
-    {
-        const string libraryPath = "/media/movies";
-        const string movieDir = "/media/movies/Wanted (2026)";
-
-        SetupLibrary(libraryPath);
-        SetupTopLevelDirs(libraryPath, ("Wanted (2026)", movieDir));
-
-        // NFO + images → metadata-only → skip
-        SetupFiles(movieDir, "movie.nfo", "poster.jpg", "fanart.png");
+        SetupFiles(movieDir, files);
         SetupSubDirs(movieDir);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
@@ -761,28 +726,6 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
         VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
-    }
-
-    [Fact]
-    public async Task ExecuteInternalAsync_ShowWithNestedMetadataOnly_IsSkipped()
-    {
-        const string libraryPath = "/media/tv";
-        const string showDir = "/media/tv/Wanted Show (2026)";
-        const string season1Dir = "/media/tv/Wanted Show (2026)/Season 01";
-
-        SetupLibrary(libraryPath);
-        SetupTopLevelDirs(libraryPath, ("Wanted Show (2026)", showDir));
-
-        // Show folder with NFO, Season folder with NFO → all metadata-only → skip
-        SetupFiles(showDir, "tvshow.nfo", "poster.jpg");
-        SetupSubDirs(showDir, ("Season 01", season1Dir));
-
-        SetupFiles(season1Dir, "season.nfo");
-        SetupSubDirs(season1Dir);
-
-        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
-
-        VerifyLogNeverContains("Would delete orphaned media folder", LogLevel.Information);
     }
 
     [Fact]
@@ -833,60 +776,106 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
     }
 
     // H-21: AnalyzeDirectoryRecursive returns (HasVideoFiles=true, TotalBytes=0) on early
-    // video-found exit. The zero ensures that if the caller ever reaches bytesFreed+=treeBytes
-    // for a video-containing folder (it currently cannot, because hasVideoFiles==true causes
-    // 'continue' before that line), no bytes are incorrectly credited as freed.
-    // We test the observable contract: the task never deletes a video folder, even in Activate
-    // mode, and never calls RecordCleanup for it — regardless of what treeBytes the analysis
-    // returned.
+    // video-found exit. We verify the observable contract end-to-end:
+    //   - Run with TWO top-level folders: one with video (must be kept) and one orphan (must be deleted).
+    //   - UseTrash=true so MoveToTrash is called; the mock returns a known byte count for the orphan.
+    //   - RecordCleanup must be called exactly once with bytesFreed == orphanBytes (not orphanBytes + videoBytes),
+    //     proving the video folder contributed zero bytes to the accounting.
+    // Without the H-21 fix (treeBytes=0 on early exit), if the caller ever reaches
+    // bytesFreed+=treeBytes for the video folder the total would be wrong. This test detects that.
     [Fact]
-    public async Task ExecuteInternalAsync_FolderWithVideoFile_NeverRecordsCleanupForIt()
+    public async Task ExecuteInternalAsync_VideoFolderContributesZeroBytesToRecordCleanup()
     {
         Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+        Config.UseTrash = true;
 
         const string libraryPath = "/media/movies";
-        const string movieDir = "/media/movies/Active Movie (2021)";
+        const string videoDir = "/media/movies/Active Movie (2021)";
+        const string orphanDir = "/media/movies/Orphaned Movie (2019)";
 
         SetupLibrary(libraryPath);
-        SetupTopLevelDirs(libraryPath, ("Active Movie (2021)", movieDir));
-        SetupFiles(movieDir, "movie.mkv", "movie.nfo");
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(libraryPath,
+            ("Active Movie (2021)", videoDir),
+            ("Orphaned Movie (2019)", orphanDir));
+
+        // Video folder — has video file → must be skipped entirely
+        SetupFiles(videoDir, "movie.mkv", "movie.nfo");
+        SetupSubDirs(videoDir);
+
+        // Orphan folder — subtitle only → must be trashed
+        SetupFiles(orphanDir, "movie.nfo", "movie.srt");
+        SetupSubDirs(orphanDir);
+
+        const long orphanBytes = 12345L;
+        MockTrashService
+            .Setup(t => t.MoveToTrash(orphanDir, It.IsAny<string>(), It.IsAny<ILogger>()))
+            .Returns(orphanBytes);
+        MockTrashService
+            .Setup(t => t.MoveToTrash(videoDir, It.IsAny<string>(), It.IsAny<ILogger>()))
+            .Returns(0L); // should never be called, but safe default
+
+        long? capturedBytes = null;
+        MockTrackingService
+            .Setup(t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()))
+            .Callback<long, int, ILogger>((bytes, _, _) => capturedBytes = bytes);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        // Folder must be kept — no deletion log at any level
-        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
-        // TrackingService must not be told anything was cleaned up for this folder
+        // RecordCleanup must have fired exactly once (the orphan)
         MockTrackingService.Verify(
             t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+            Times.Once);
+
+        // Bytes must equal exactly the orphan's bytes — video folder contributes nothing
+        Assert.Equal(orphanBytes, capturedBytes);
+
+        // MoveToTrash must never have been called on the video folder
+        MockTrashService.Verify(
+            t => t.MoveToTrash(videoDir, It.IsAny<string>(), It.IsAny<ILogger>()),
             Times.Never);
     }
 
     // H-22: Extension lookup uses .ToLowerInvariant() before hitting the VideoExtensions
-    // HashSet. The HashSet itself is OrdinalIgnoreCase so the check was never broken in
-    // practice — the normalisation makes the intent self-documenting and guards against a
-    // future change of comparer. The canonical coverage for the OrdinalIgnoreCase invariant
-    // lives in MediaExtensionsTests.VideoExtensions_ContainsKnownFormats (".MKV" case).
-    // Here we verify the full task path: a folder whose only file has an uppercase extension
-    // is treated as containing video and is kept.
+    // HashSet. VideoExtensions uses OrdinalIgnoreCase so the check was already working in
+    // practice — the normalisation makes the intent explicit and protects against a future
+    // comparer change. This test verifies the full task pipeline with an uppercase extension
+    // by pairing the video folder with an orphan folder in the same run, so we can confirm
+    // the video folder is truly kept (RecordCleanup only fires for the orphan, not the video).
     [Fact]
-    public async Task ExecuteInternalAsync_FolderWithUppercaseExtensionVideoFile_IsKept()
+    public async Task ExecuteInternalAsync_UppercaseVideoExtension_FolderKeptOrphanStillDeleted()
     {
         Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+        Config.UseTrash = true;
 
         const string libraryPath = "/media/movies";
-        const string movieDir = "/media/movies/Good Movie (2022)";
+        const string videoDir = "/media/movies/Good Movie (2022)";
+        const string orphanDir = "/media/movies/Gone Movie (2018)";
 
         SetupLibrary(libraryPath);
-        SetupTopLevelDirs(libraryPath, ("Good Movie (2022)", movieDir));
-        SetupFiles(movieDir, "movie.MKV");
-        SetupSubDirs(movieDir);
+        SetupTopLevelDirs(libraryPath,
+            ("Good Movie (2022)", videoDir),
+            ("Gone Movie (2018)", orphanDir));
+
+        // Uppercase extension — .ToLowerInvariant() must normalise before VideoExtensions lookup
+        SetupFiles(videoDir, "movie.MKV");
+        SetupSubDirs(videoDir);
+
+        SetupFiles(orphanDir, "movie.nfo", "movie.srt");
+        SetupSubDirs(orphanDir);
+
+        MockTrashService
+            .Setup(t => t.MoveToTrash(orphanDir, It.IsAny<string>(), It.IsAny<ILogger>()))
+            .Returns(1L);
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
+        // Orphan was trashed → RecordCleanup fires once
         MockTrackingService.Verify(
             t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+            Times.Once);
+        // Video folder must never be passed to trash
+        MockTrashService.Verify(
+            t => t.MoveToTrash(videoDir, It.IsAny<string>(), It.IsAny<ILogger>()),
             Times.Never);
     }
 

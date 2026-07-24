@@ -58,15 +58,8 @@ public class SymlinkHelper : ISymlinkHelper
     ///       </list>
     ///     </para>
     /// </remarks>
-    private static bool IsSymlinkFromAttributes(string path, FileAttributes attrs)
-    {
-        if ((attrs & FileAttributes.ReparsePoint) == 0)
-        {
-            return false;
-        }
-
-        return new FileInfo(path).LinkTarget != null;
-    }
+    private static bool IsSymlinkFromAttributes(string path, FileAttributes attrs) =>
+        (attrs & FileAttributes.ReparsePoint) != 0 && new FileInfo(path).LinkTarget != null;
 
     /// <inheritdoc />
     public string? GetSymlinkTarget(string path)

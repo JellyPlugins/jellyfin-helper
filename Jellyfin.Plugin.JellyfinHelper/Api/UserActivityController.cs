@@ -24,12 +24,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [Produces(MediaTypeNames.Application.Json)]
 [ProducesResponseType(StatusCodes.Status401Unauthorized)]
 [ProducesResponseType(StatusCodes.Status403Forbidden)]
-public class UserActivityController : ControllerBase, IDisposable
+public sealed class UserActivityController : ControllerBase
 {
     private readonly IUserActivityCacheService _cacheService;
     private readonly IPluginConfigurationService _configService;
     private readonly IUserManager _userManager;
-    private bool _disposed;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="UserActivityController" /> class.
@@ -114,10 +113,8 @@ public class UserActivityController : ControllerBase, IDisposable
             return StatusCode(StatusCodes.Status503ServiceUnavailable, "Activity report cache is not yet available. Run the scheduled task to populate it.");
         }
 
-        var source = cached;
-
         // Filter to items where this user has activity, recalculating aggregate fields
-        var userItems = source.Items
+        var userItems = cached.Items
             .Where(s => s.UserActivities.Any(a => a.UserId == userId))
             .Select(s =>
             {
@@ -151,7 +148,6 @@ public class UserActivityController : ControllerBase, IDisposable
                     MostRecentWatch = playbackActivities
                         .Where(a => a.LastPlayedDate.HasValue)
                         .Select(a => a.LastPlayedDate)
-                        .DefaultIfEmpty(null)
                         .Max(),
                     AverageCompletionPercent = playbackActivities.Count > 0
                         ? Math.Round(playbackActivities.Average(a => a.CompletionPercent), 1)
@@ -177,30 +173,5 @@ public class UserActivityController : ControllerBase, IDisposable
     {
         var config = _configService.GetConfiguration();
         return config.RecommendationsTaskMode != TaskMode.Deactivate;
-    }
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    /// <summary>
-    ///     Releases managed resources.
-    /// </summary>
-    /// <param name="disposing">True when called from <see cref="Dispose()"/>; false when called from a finalizer.</param>
-    protected virtual void Dispose(bool disposing)
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        if (disposing)
-        {
-        }
-
-        _disposed = true;
     }
 }

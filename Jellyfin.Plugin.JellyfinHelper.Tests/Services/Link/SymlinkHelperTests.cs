@@ -171,7 +171,7 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     [Fact]
-    public void IsSymlink_RealSymlink_HasNonNullLinkTarget_RegressionGuard()
+    public void IsSymlink_RealSymlink_ReturnsTrue_And_Target_IsNot()
     {
         // REGRESSION ANCHOR (v3.0.0.0): IsSymlink was briefly implemented as a pure
         // `(attrs & FileAttributes.ReparsePoint) != 0` check. That misclassified any
@@ -179,14 +179,12 @@ public sealed class SymlinkHelperTests : IDisposable
         // Windows Data-Deduplication stubs — as a symlink, causing LinkRepairService to
         // report healthy media files as broken links. The fix additionally requires a
         // non-null FileInfo.LinkTarget, which .NET populates only for genuine
-        // symlinks/junctions (and NOT for cloud/dedup reparse points).
+        // symlinks/junctions and NOT for cloud/dedup reparse points.
         //
-        // We cannot deterministically materialise a cloud/dedup placeholder in a unit
-        // test, so this guard pins the other half of the contract: a real symlink both
-        // carries the ReparsePoint bit AND exposes a non-null LinkTarget, so the stricter
-        // predicate still recognises it. Together with IsSymlink_BrokenSymlink_ReturnsTrue
-        // and IsSymlink_RegularFile_ReturnsFalse this fixes the classification on all sides
-        // a reversion to the pure-ReparsePoint check would break.
+        // This test confirms the public contract: _sut.IsSymlink(link)==true and
+        // _sut.IsSymlink(target)==false for a real symlink pair. Together with
+        // IsSymlink_BrokenSymlink_ReturnsTrue this ensures both sides of the two-condition
+        // predicate fire correctly without testing .NET platform internals directly.
         if (!SymlinksSupported())
         {
             return;
@@ -197,9 +195,8 @@ public sealed class SymlinkHelperTests : IDisposable
         File.WriteAllText(target, "content");
         File.CreateSymbolicLink(link, target);
 
-        Assert.True((File.GetAttributes(link) & FileAttributes.ReparsePoint) != 0);
-        Assert.NotNull(new FileInfo(link).LinkTarget);
         Assert.True(_sut.IsSymlink(link));
+        Assert.False(_sut.IsSymlink(target));
     }
 
     // -----------------------------------------------------------------------

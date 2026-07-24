@@ -65,22 +65,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         try
         {
-            ValidateArrUrl(baseUrl);
-            var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\') + '/'), "api/v3/system/status").ToString();
-            // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
-            var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
-
-            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            if (response.Content.Headers.ContentLength is long statusLen && statusLen > 100 * 1024 * 1024)
-            {
-                throw new InvalidOperationException("Response too large");
-            }
-
-            var json = await ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
+            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/system/status", cancellationToken).ConfigureAwait(false);
             var status = JsonSerializer.Deserialize<ArrSystemStatusDto>(json, JsonOptions);
             var appName = status?.AppName ?? "Unknown";
             var version = status?.Version ?? "?";
@@ -138,22 +123,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         try
         {
-            ValidateArrUrl(baseUrl);
-            // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
-            var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
-            var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\') + '/'), "api/v3/movie").ToString();
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
-
-            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            if (response.Content.Headers.ContentLength is long movieLen && movieLen > 100 * 1024 * 1024)
-            {
-                throw new InvalidOperationException("Response too large");
-            }
-
-            var json = await ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
+            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/movie", cancellationToken).ConfigureAwait(false);
             var movies = JsonSerializer.Deserialize<List<RadarrMovieDto>>(json, JsonOptions) ?? [];
 
             return movies.Select(m => new ArrMovie
@@ -209,22 +179,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         try
         {
-            ValidateArrUrl(baseUrl);
-            // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
-            var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
-            var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\') + '/'), "api/v3/series").ToString();
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
-
-            using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            if (response.Content.Headers.ContentLength is long seriesLen && seriesLen > 100 * 1024 * 1024)
-            {
-                throw new InvalidOperationException("Response too large");
-            }
-
-            var json = await ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
+            var json = await FetchJsonAsync(baseUrl, apiKey, "api/v3/series", cancellationToken).ConfigureAwait(false);
             var series = JsonSerializer.Deserialize<List<SonarrSeriesDto>>(json, JsonOptions) ?? [];
 
             return series.Select(s => new ArrSeries
@@ -373,6 +328,37 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             ? set
             : new HashSet<string>(set, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    ///     Validates <paramref name="baseUrl"/> and <paramref name="relPath"/>, sends a GET request,
+    ///     and returns the response body as a string, enforcing the 100 MB size cap.
+    ///     Throws <see cref="ArgumentException"/> for bad URLs,
+    ///     <see cref="HttpRequestException"/> for non-2xx responses,
+    ///     and <see cref="InvalidOperationException"/> when the response exceeds the size limit.
+    /// </summary>
+    private async Task<string> FetchJsonAsync(
+        string baseUrl,
+        string apiKey,
+        string relPath,
+        CancellationToken cancellationToken)
+    {
+        ValidateArrUrl(baseUrl);
+        var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\') + '/'), relPath);
+        // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
+        var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        if (response.Content.Headers.ContentLength is long len && len > 100 * 1024 * 1024)
+        {
+            throw new InvalidOperationException("Response too large");
+        }
+
+        return await ReadLimitedAsync(response.Content, cancellationToken).ConfigureAwait(false);
+    }
+
     private static void ValidateArrUrl(string baseUrl)
     {
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
@@ -520,11 +506,8 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
-            {
-                _inner.Dispose();
-            }
-
+            // Do NOT dispose _inner here: ReadLimitedAsync's outer `using var stream` owns
+            // the inner stream's lifetime. Disposing it here would cause a double-dispose.
             base.Dispose(disposing);
         }
     }
