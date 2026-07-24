@@ -439,7 +439,11 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
     private sealed class LimitedStream : Stream
     {
+        // CA2213 suppressed: _inner is a borrowed reference — ReadLimitedAsync's outer
+        // `using var stream` owns the lifetime. Disposing here would cause a double-dispose.
+#pragma warning disable CA2213
         private readonly Stream _inner;
+#pragma warning restore CA2213
         private readonly long _maxBytes;
         private long _bytesRead;
 

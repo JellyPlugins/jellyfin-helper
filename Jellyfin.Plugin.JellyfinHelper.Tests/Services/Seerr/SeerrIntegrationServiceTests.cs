@@ -1023,7 +1023,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         var service = CreateService(handler.Object, out _, out _);
         var ex = await Assert.ThrowsAsync<ArgumentException>(() =>
             service.TestConnectionAsync("http://seerr.local", "key\r\nX-Injected: evil", CancellationToken.None));
-        Assert.Contains("CR or LF", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CR, LF", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     // ===== Pagination behaviour =====

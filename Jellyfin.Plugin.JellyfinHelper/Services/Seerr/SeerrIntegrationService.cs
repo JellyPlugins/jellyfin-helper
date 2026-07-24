@@ -62,7 +62,8 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
         try
         {
-            var (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey);            using var req = BuildRequest(HttpMethod.Get, baseUri, "api/v1/settings/main", key);
+            var (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey);
+            using var req = BuildRequest(HttpMethod.Get, baseUri, "api/v1/settings/main", key);
             using var response = await client.SendAsync(req, cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
