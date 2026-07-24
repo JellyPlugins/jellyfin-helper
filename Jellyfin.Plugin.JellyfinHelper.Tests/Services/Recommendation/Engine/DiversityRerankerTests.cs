@@ -159,7 +159,7 @@ public class DiversityRerankerTests
     public void ApplyDiversityReranking_CandidatesLessThanOrEqualToCount_ReturnsAllSortedByScore()
     {
         // When there are fewer candidates than requested, the method must skip MMR entirely
-        // and just return everything sorted by score DESC. Bug guard: an early implementation
+        // and just return everything sorted by score DESC. An early implementation
         // reused the MMR path with count=candidates.Count which could still reshuffle by MMR
         // penalties, changing the returned order in unpredictable ways.
         var candidates = new List<(BaseItem Item, double Score, string Reason, string ReasonKey, string? RelatedItem)>
@@ -277,7 +277,7 @@ public class DiversityRerankerTests
     [Fact]
     public void DeduplicateSeries_TieOnScore_KeepsFirstOccurrence()
     {
-        // Bug guard: on tie, the "strictly greater" comparison must not overwrite the first
+        // On tie, the "strictly greater" comparison must not overwrite the first
         // occurrence. This locks the tie-break to be "first wins", which is what the
         // implementation currently does (uses `>` not `>=`).
         var seriesId = Guid.NewGuid();
@@ -315,7 +315,7 @@ public class DiversityRerankerTests
     [Fact]
     public void DeduplicateSeries_EpisodeWithEmptySeriesIdIsTreatedAsUngrouped()
     {
-        // Bug guard: an Episode.SeriesId == Guid.Empty may not be treated as "this series"
+        // An Episode.SeriesId == Guid.Empty may not be treated as "this series"
         // otherwise every orphan episode would collapse into a single result entry.
         var orphan1 = new Episode { Id = Guid.NewGuid(), SeriesId = Guid.Empty };
         var orphan2 = new Episode { Id = Guid.NewGuid(), SeriesId = Guid.Empty };

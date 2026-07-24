@@ -337,7 +337,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void RecordShown_EmptyItemsList_DoesNotCreateUserEntry()
     {
-        // Bug guard: empty items list must not create a phantom user entry that later
+        // Empty items list must not create a phantom user entry that later
         // pollutes LoadAll() results or serializes an empty user to disk.
         var store = CreateStore();
         var userId = Guid.NewGuid();
@@ -504,7 +504,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void RecordShown_DoesNotOverwriteAlreadyPopulatedFields()
     {
-        // Bug guard: backfill must only fill EMPTY fields. If Title is already
+        // Backfill must only fill EMPTY fields. If Title is already
         // "Original", a second RecordShown with Title="Updated" must NOT overwrite it.
         var store = CreateStore();
         var userId = Guid.NewGuid();
@@ -812,7 +812,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void LoadForUser_OversizeFile_DeletesFileAndReturnsNull()
     {
-        // BUG GUARD: any file larger than MaxFileSizeBytes (30 MB) must be treated
+        // Any file larger than MaxFileSizeBytes (30 MB) must be treated
         // as poisoned — deserializing a 30 MB+ JSON payload can OOM small deployments
         // (e.g. Raspberry Pi hosts) and even valid content that grows this large is
         // a sign the eviction logic silently broke. The store must delete the file

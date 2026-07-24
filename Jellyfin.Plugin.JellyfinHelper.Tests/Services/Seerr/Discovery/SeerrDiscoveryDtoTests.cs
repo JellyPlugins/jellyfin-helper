@@ -397,7 +397,7 @@ public class SeerrDiscoveryDtoTests
     [Fact]
     public void UserRequestPermissionResult_TransientDenial_IsDistinctFromPermanentDenial()
     {
-        // Bug guard: IsTransient must be independently settable from DeniedReason so the
+        // IsTransient must be independently settable from DeniedReason so the
         // controller can pick 503 vs 403 correctly.
         var transient = new UserRequestPermissionResult
         {
@@ -472,7 +472,7 @@ public class SeerrDiscoveryDtoTests
     [Fact]
     public void DiscoveryFeedbackEntry_GetStatus_RequestedTakesPrecedenceOverDismissed()
     {
-        // Bug guard: if a user first dismisses an item, then requests it later, the
+        // If a user first dismisses an item, then requests it later, the
         // "Requested" status must win. Otherwise the training pipeline would treat a
         // converted request as a negative signal.
         var e = new DiscoveryFeedbackEntry

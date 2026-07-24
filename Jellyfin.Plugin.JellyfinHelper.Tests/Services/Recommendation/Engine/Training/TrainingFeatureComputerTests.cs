@@ -116,7 +116,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void BuildStudioPreferenceSetFromCache_SkipsMissingItemWithSeriesLookupOnly()
     {
-        // Bug guard: an episode may not be in the item lookup, only its series is.
+        // An episode may not be in the item lookup, only its series is.
         var itemId = Guid.NewGuid();
         var seriesId = Guid.NewGuid();
         var profile = new UserWatchProfile();
@@ -317,7 +317,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void ComputeContentNearestNeighborFromCache_ParallelArrayInvariantHonored()
     {
-        // Bug-bait: locks in the contract that all three parallel-array lists must be the
+        // Locks in the contract that all three parallel-array lists must be the
         // same length. If a future refactor drops the parallel-array precondition and only
         // pads one dimension, this test still passes (multi-item, symmetric lists) so we
         // add an additional test that exercises the person/studio dimension too and proves
@@ -997,7 +997,7 @@ public class TrainingFeatureComputerTests
     public void AddAggregatedSeriesExample_NoStudioOverlap_LeavesStudioMatchFalse()
     {
         // Wire-check: when preferredStudios is empty, StudioMatch must be false — never
-        // silently true. Bug source: an accidental `preferredStudios.Any()` inversion could
+        // silently true. An accidental `preferredStudios.Any()` inversion could
         // flip the sign.
         var (seriesId, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 2, playedEpisodes: 2);
         var examples = new List<TrainingExample>();

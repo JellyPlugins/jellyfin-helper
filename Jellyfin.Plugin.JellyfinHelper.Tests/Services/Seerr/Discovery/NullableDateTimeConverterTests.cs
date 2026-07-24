@@ -165,7 +165,7 @@ public class NullableDateTimeConverterTests
     [Fact]
     public void Read_UnexpectedToken_DoesNotBreakSiblingPropertyDeserialization()
     {
-        // Bug guard: if the converter fails to Skip() an unexpected object token,
+        // If the converter fails to Skip() an unexpected object token,
         // the JsonReader position is corrupt and the next property parse crashes.
         var payload = new { Value = new { garbage = "x" }, After = 42 };
         var json = JsonSerializer.Serialize(payload);
@@ -383,7 +383,7 @@ public class NullableDateTimeConverterTests
     [Fact]
     public void Read_ValidDate_InsideLargerObject_DoesNotAffectOtherFields()
     {
-        // Bug guard: the converter must consume exactly one token so surrounding
+        // The converter must consume exactly one token so surrounding
         // properties remain parseable.
         var opts = CreateOptions();
         var json = "{\"Before\":7,\"Value\":\"2024-06-15\",\"After\":42}";

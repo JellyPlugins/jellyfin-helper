@@ -82,7 +82,6 @@ public class DiscoveryScriptTagTests
     [Fact]
     public void Build_NullVersion_TreatedAsEmptyString_DoesNotThrow()
     {
-        // Bug guard: `version ?? string.Empty` must protect Uri.EscapeDataString.
         var tag = InvokeBuild(null!);
         Assert.Contains("</script>", tag, StringComparison.Ordinal);
         // The unescaped attribute becomes 'version=""' when the null is passed straight through
@@ -115,7 +114,7 @@ public class DiscoveryScriptTagTests
     [Fact]
     public void RemovalRegex_DoesNotMatchOtherPluginScriptTags()
     {
-        // Bug guard: the regex must only target tags with plugin="Jellyfin Helper".
+        // The regex must only target tags with plugin="Jellyfin Helper".
         var html = "<script plugin=\"OtherPlugin\" version=\"1\" src=\"x\"></script>" +
                    "<script plugin=\"Jellyfin Helper\" version=\"1\" src=\"y\"></script>";
 

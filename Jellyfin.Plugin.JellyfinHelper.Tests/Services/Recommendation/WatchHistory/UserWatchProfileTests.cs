@@ -285,7 +285,7 @@ public class UserWatchProfileTests
     [Fact]
     public void TopPeople_FiltersOutSingleAppearance()
     {
-        // Bug guard: appearances of exactly 1 must NOT enter TopPeople.
+        // Appearances of exactly 1 must NOT enter TopPeople.
         // The min threshold is `>= 2`.
         var profile = new UserWatchProfile
         {
