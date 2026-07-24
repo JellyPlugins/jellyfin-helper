@@ -769,7 +769,7 @@ public class ArrIntegrationServiceTests
     }
 
     [Fact]
-    public async Task GetRadarrMoviesAsync_ResponseExceeds100MB_ThrowsInvalidOperation()
+    public async Task GetRadarrMoviesAsync_ResponseExceeds100MB_ReturnsNull()
     {
         var handlerMock = new Mock<HttpMessageHandler>();
         handlerMock.Protected()
@@ -788,12 +788,12 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None));
+        var result = await service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None);
+        Assert.Null(result);
     }
 
     [Fact]
-    public async Task GetSonarrSeriesAsync_ResponseExceeds100MB_ThrowsInvalidOperation()
+    public async Task GetSonarrSeriesAsync_ResponseExceeds100MB_ReturnsNull()
     {
         var handlerMock = new Mock<HttpMessageHandler>();
         handlerMock.Protected()
@@ -812,8 +812,8 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None));
+        var result = await service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None);
+        Assert.Null(result);
     }
 
     // === Chunked response guard: null ContentLength must not bypass the 100 MB limit ===
@@ -858,7 +858,7 @@ public class ArrIntegrationServiceTests
     }
 
     [Fact]
-    public async Task GetRadarrMoviesAsync_ChunkedResponseExceeds100MB_ThrowsInvalidOperation()
+    public async Task GetRadarrMoviesAsync_ChunkedResponseExceeds100MB_ReturnsNull()
     {
         const int over100Mb = 100 * 1024 * 1024 + 1;
         var handlerMock = new Mock<HttpMessageHandler>();
@@ -873,12 +873,12 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None));
+        var result = await service.GetRadarrMoviesAsync("http://arr.local", "apikey", CancellationToken.None);
+        Assert.Null(result);
     }
 
     [Fact]
-    public async Task GetSonarrSeriesAsync_ChunkedResponseExceeds100MB_ThrowsInvalidOperation()
+    public async Task GetSonarrSeriesAsync_ChunkedResponseExceeds100MB_ReturnsNull()
     {
         const int over100Mb = 100 * 1024 * 1024 + 1;
         var handlerMock = new Mock<HttpMessageHandler>();
@@ -893,8 +893,8 @@ public class ArrIntegrationServiceTests
 
         var service = CreateService(handlerMock.Object);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None));
+        var result = await service.GetSonarrSeriesAsync("http://arr.local", "apikey", CancellationToken.None);
+        Assert.Null(result);
     }
 
     // === Comparer identity fix: ReferenceEquals correctly skips defensive copy ===

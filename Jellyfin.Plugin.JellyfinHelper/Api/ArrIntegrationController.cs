@@ -89,7 +89,7 @@ public class ArrIntegrationController : ControllerBase
 
         if (!success)
         {
-            return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = message });
+            return Ok(new ConnectionTestResponse { Success = false, Message = message });
         }
 
         return Ok(new ConnectionTestResponse { Success = success, Message = message });

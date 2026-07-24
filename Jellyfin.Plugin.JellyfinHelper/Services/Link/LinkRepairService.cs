@@ -474,6 +474,7 @@ public class LinkRepairService : ILinkRepairService
                 from file in _fileSystem.Directory.EnumerateFiles(directory)
                 let extension = _fileSystem.Path.GetExtension(file)
                 where MediaExtensions.VideoExtensions.Contains(extension)
+                      && !string.Equals(extension, MediaExtensions.StrmExtension, StringComparison.OrdinalIgnoreCase)
                 select file);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or DirectoryNotFoundException)

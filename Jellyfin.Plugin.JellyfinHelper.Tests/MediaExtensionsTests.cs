@@ -135,9 +135,13 @@ public class MediaExtensionsTests
     }
 
     [Fact]
-    public void VideoExtensions_DoesNotContainStrm()
+    public void VideoExtensions_ContainsStrm()
     {
-        Assert.DoesNotContain(MediaExtensions.StrmExtension, MediaExtensions.VideoExtensions);
+        // .strm is intentionally included so cleanup tasks (trickplay, orphaned subtitles,
+        // empty-folder detection) correctly recognise .strm-based libraries as having video content.
+        // LinkRepairService.FindMediaFilesInDirectory excludes .strm separately so that a link file
+        // is never treated as a repair candidate for another link file.
+        Assert.Contains(MediaExtensions.StrmExtension, MediaExtensions.VideoExtensions);
     }
 
     [Fact]

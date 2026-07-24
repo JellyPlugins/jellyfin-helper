@@ -461,35 +461,31 @@ public class FolderBrowserService : IFolderBrowserService
             }
         }
 
-        // H-112 — on all platforms, hide dot-directories unless they are known-safe
+        // On Windows, filter out system-level hidden dirs (e.g. $RECYCLE.BIN, System Volume Information).
+        // Only hide dirs that are BOTH Hidden AND System — regular hidden folders like .jellyfin-trash
+        // must remain visible so admins can configure them as trash targets.
+        if (OperatingSystem.IsWindows())
+        {
+            var attrs = dirInfo.Attributes;
+            return attrs.HasFlag(FileAttributes.Hidden) && attrs.HasFlag(FileAttributes.System);
+        }
+
+        // On Linux/macOS, hide dot-directories unless they are known-safe plugin paths.
+        // This prevents sensitive dirs like .ssh, .gnupg, .aws from being shown in the UI.
         if (dirInfo.Name.StartsWith('.'))
         {
-            var isSafe = false;
             foreach (var prefix in SafeHiddenPrefixes)
             {
                 if (dirInfo.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 {
-                    isSafe = true;
-                    break;
+                    return false;
                 }
             }
 
-            if (!isSafe)
-            {
-                return true;
-            }
+            return true;
         }
 
-        // On Windows, filter out system-level hidden dirs that are never valid trash targets
-        if (!OperatingSystem.IsWindows())
-        {
-            return false;
-        }
-
-        var attrs = dirInfo.Attributes;
-        // Only hide dirs that are BOTH hidden AND system (e.g. $RECYCLE.BIN, System Volume Information)
-        // Regular hidden folders (like .jellyfin-trash) should still be visible
-        return attrs.HasFlag(FileAttributes.Hidden) && attrs.HasFlag(FileAttributes.System);
+        return false;
     }
 
     private static string SanitizeForLog(string value)

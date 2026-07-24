@@ -89,7 +89,7 @@ public sealed class ScoreExplanation
             InteractionContribution = blendedInteraction,
             PeopleContribution = blendedPeople,
             StudioContribution = blendedStudio,
-            GenrePenaltyMultiplier = (oneMinusAlpha * GenrePenaltyMultiplier) + (alpha * other.GenrePenaltyMultiplier),
+            GenrePenaltyMultiplier = 1.0,
             DominantSignal = DetermineDominantSignal(
                 blendedGenre,
                 blendedCollab,

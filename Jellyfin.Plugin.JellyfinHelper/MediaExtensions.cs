@@ -58,6 +58,9 @@ public static class MediaExtensions
         ".h264",
         ".h265",
         // Jellyfin stream-link files (.strm) point to remote video content and are treated as video files
+        // by Jellyfin itself and by cleanup tasks (trickplay, orphan subtitles, empty-folder detection).
+        // LinkRepairService.FindMediaFilesInDirectory explicitly excludes .strm so it cannot treat a
+        // link file as a repair candidate for another link file.
         StrmExtension
     };
 

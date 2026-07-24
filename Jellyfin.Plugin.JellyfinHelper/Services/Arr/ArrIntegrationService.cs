@@ -106,15 +106,6 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 _logger);
             return (false, $"Connection failed: {ex.Message}");
         }
-        catch (InvalidOperationException ex)
-        {
-            _pluginLog.LogWarning(
-                "ArrIntegration",
-                $"Arr connection test failed for {baseUrl}: {ex.Message}",
-                ex,
-                _logger);
-            return (false, "Response too large");
-        }
         catch (Exception ex) when (ex is JsonException or UriFormatException or ArgumentException)
         {
             _pluginLog.LogWarning(

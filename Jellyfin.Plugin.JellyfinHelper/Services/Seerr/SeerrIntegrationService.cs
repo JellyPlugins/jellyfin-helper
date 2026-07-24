@@ -212,7 +212,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 expiredRequests.Add(request);
             }
 
-            skip += page.Results.Count;
+            skip += PageSize;
             hasMore = skip < page.PageInfo.Results;
         }
         while (hasMore);
