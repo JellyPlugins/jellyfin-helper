@@ -300,18 +300,24 @@ public sealed class UserDiscoveryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Security",
+        "cs/user-controlled-bypass",
+        Justification = "False positive: DiscoveryUserAccessEnabled is a server-side admin configuration flag. " +
+            "The only write path is ConfigurationController.UpdateConfigurationAsync, which is protected by " +
+            "[Authorize(Policy = \"RequiresElevation\")]. No authenticated non-admin user can modify this value.")]
     public async Task<ActionResult<RequestResult>> SubmitMyRequest(
         [FromBody] DiscoveryRequestDto dto,
         CancellationToken cancellationToken)
     {
-        if (dto == null)
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
-        }
-
         if (!IsDiscoveryUserAccessEnabled())
         {
             return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
+        }
+
+        if (dto == null)
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
         }
 
         if (dto.TmdbId <= 0)
