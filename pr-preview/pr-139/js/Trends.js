@@ -589,12 +589,16 @@ function renderInsightCards(data) {
     // Toggle handlers
     var largestBtn = document.getElementById('insightLargestBtn');
     var recentBtn = document.getElementById('insightRecentBtn');
-    largestBtn.addEventListener('click', function () {
-        toggleInsightPanel('insightLargestPanel', 'insightRecentPanel', largestBtn, recentBtn);
-    });
-    recentBtn.addEventListener('click', function () {
-        toggleInsightPanel('insightRecentPanel', 'insightLargestPanel', recentBtn, largestBtn);
-    });
+    if (largestBtn) {
+        largestBtn.addEventListener('click', function () {
+            toggleInsightPanel('insightLargestPanel', 'insightRecentPanel', largestBtn, recentBtn);
+        });
+    }
+    if (recentBtn) {
+        recentBtn.addEventListener('click', function () {
+            toggleInsightPanel('insightRecentPanel', 'insightLargestPanel', recentBtn, largestBtn);
+        });
+    }
 }
 
 function toggleInsightPanel(showId, hideId, activeBtn, otherBtn) {
