@@ -122,7 +122,7 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void MoveFileToTrash_TrashDirNotYetExist_CreatesAndMovesSuccessfully()
     {
-        // Regression: trash dir must be created BEFORE ResolveCollision so the File.Exists
+        // Trash dir must be created BEFORE ResolveCollision so the File.Exists
         // check inside collision resolution has a real directory to probe.
         var sourceFile = Path.Join(_testRoot, "subtitle2.srt");
         File.WriteAllBytes(sourceFile, new byte[256]);
@@ -141,7 +141,7 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void MoveFileToTrash_TwoFilesInSameSecond_BothMovedWithoutCollision()
     {
-        // Regression: when trash dir did not exist before ResolveCollision, the second file
+        // When trash dir did not exist before ResolveCollision, the second file
         // would collide because File.Exists returned false for both candidates.
         var file1 = Path.Join(_testRoot, "ep1.srt");
         var file2 = Path.Join(_testRoot, "ep2.srt");

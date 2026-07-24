@@ -97,7 +97,7 @@ public sealed class AtomicFileTests : IDisposable
     [Fact]
     public void WriteAllText_LeavesNoOrphanTempFiles()
     {
-        // Regression: temp files must be cleaned up on success. We check by counting the
+        // Temp files must be cleaned up on success. We check by counting the
         // ".tmp" files in the target directory after a normal write.
         var path = Path.Join(_tempDir, "orphan-check.txt");
 

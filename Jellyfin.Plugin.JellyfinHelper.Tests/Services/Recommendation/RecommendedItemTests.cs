@@ -157,7 +157,7 @@ public sealed class RecommendedItemTests
     [Fact]
     public void Collections_ReassignFromNonNullToNull_ReplacesWithEmpty()
     {
-        // Regression guard: an earlier draft used init-only assignment and silently
+        // An earlier draft used init-only assignment and silently
         // dropped subsequent nulls. The current setter must actively replace the
         // backing field so a caller that re-nulls a previously populated collection
         // observes the coalesced empty list, not the stale non-null value.

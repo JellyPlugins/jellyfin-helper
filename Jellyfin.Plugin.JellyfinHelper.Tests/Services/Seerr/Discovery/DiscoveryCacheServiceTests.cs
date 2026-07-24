@@ -403,7 +403,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     [Fact]
     public void Load_LegitimateSmallFile_IsNotAffectedByCap()
     {
-        // Negative regression: the cap must not misfire on ordinary-sized cache files.
+        // The cap must not misfire on ordinary-sized cache files.
         // This complements the oversized-file test above; together they lock the
         // upper bound of the guard.
         _sut.Save([new DiscoveryResult { UserId = Guid.NewGuid() }]);

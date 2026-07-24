@@ -410,7 +410,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void MarkWatched_OnlyMarksItemsThatWereRequested()
     {
-        // Regression: MarkWatched must only mark entries that have RequestedAtUtc.
+        // MarkWatched must only mark entries that have RequestedAtUtc.
         // A "shown but not requested" item must NOT be tagged as watched.
         var store = CreateStore();
         var userId = Guid.NewGuid();
@@ -705,7 +705,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Null(result);
         // Corrupted file must have been deleted.
         Assert.False(File.Exists(filePath));
-        // Warning must have been logged (regression: a silent swallow would hide corruption).
+        // Warning must have been logged.
         pluginLog.Verify(
             p => p.LogWarning("DiscoveryFeedback", It.IsAny<string>(), It.IsAny<Exception?>(), It.IsAny<ILogger>()),
             Times.AtLeastOnce);
@@ -714,9 +714,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void RecordShown_AfterCorruptedFile_StartsClean()
     {
-        // After the corrupted-file recovery path runs, subsequent writes must work
-        // (regression: the previous LoadInternal caught the JsonException but the
-        // memory cache stayed null - a follow-up RecordShown could then explode).
+        // After the corrupted-file recovery path runs, subsequent writes must work.
         var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");
         File.WriteAllText(filePath, "corrupted-not-json");
 
@@ -863,7 +861,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void SaveInternal_UserWithMoreThanMaxEntries_KeepsOnlyMostRecent200()
     {
-        // BUG GUARD: cap at MaxEntriesPerUser=200. A user who accumulates 250 shown
+        // Cap at MaxEntriesPerUser=200. A user who accumulates 250 shown
         // items must have the oldest-by-activity 50 evicted, keeping the 200 most
         // recently active. This prevents unbounded per-user growth.
         //
@@ -921,7 +919,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void SaveInternal_EntriesOlderThanMaxAge_AreEvicted()
     {
-        // BUG GUARD: entries with ALL activity timestamps older than MaxEntryAgeDays=365
+        // Entries with ALL activity timestamps older than MaxEntryAgeDays=365
         // must be evicted. We seed the file directly (bypassing RecordShown, which
         // stamps DateTime.UtcNow) so the ancient timestamps are real, then trigger a
         // save via a fresh RecordShown call to exercise the eviction path.
@@ -966,7 +964,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     [Fact]
     public void SaveInternal_UsersWithZeroEntriesAfterEviction_AreRemoved()
     {
-        // BUG GUARD: after eviction removes all of a user's entries (because they
+        // After eviction removes all of a user's entries (because they
         // were all ancient), the user record itself must be removed from the top-level
         // list. Otherwise the file accumulates empty user shells forever.
         var filePath = Path.Join(_tempDir, "jellyfin-helper-discovery-feedback.json");

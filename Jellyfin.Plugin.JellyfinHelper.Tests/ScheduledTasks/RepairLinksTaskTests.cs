@@ -158,7 +158,7 @@ public sealed class RepairLinksTaskTests
     [Fact]
     public async Task ExecuteAsync_CancellationTokenIsForwardedToService()
     {
-        // Regression guard: the CancellationToken must reach RepairLinks so the service
+        // The CancellationToken must reach RepairLinks so the service
         // can react to cancellation during its own long-running work.
         var libraryPaths = new List<string> { "/media" };
         _configHelper.Setup(c => c.GetFilteredLibraryLocations(It.IsAny<ILibraryManager>()))

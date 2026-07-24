@@ -277,24 +277,22 @@ public sealed class ExternalCandidateFeatureBuilderTests
 
         Assert.Equal(1, count);
 
-        // (a) Train/serve parity: training path must produce the exact same value inference
+        // Train/serve parity: training path must produce the exact same value inference
         //     would for a missing/zero popularity. NormalizePopularity(0) == 0.0.
         Assert.Equal(
             ExternalCandidateFeatureBuilder.NormalizePopularity(0.0),
             examples[0].Features.PopularityScore,
             6);
 
-        // (b) Regression guard against the v1 target leak.
         Assert.True(
             Math.Abs(0.42 - examples[0].Features.PopularityScore) > 0.01,
             $"PopularityScore must not leak entry.Score (0.42), got {examples[0].Features.PopularityScore}");
 
-        // (c) Regression guard against the v2 train/serve skew.
         Assert.True(
             Math.Abs(0.5 - examples[0].Features.PopularityScore) > 0.01,
             $"PopularityScore must not diverge from inference by falling back to 0.5, got {examples[0].Features.PopularityScore}");
 
-        // (d) Provenance down-weighting stays intact so legacy rows still train the model
+        // Provenance down-weighting stays intact so legacy rows still train the model
         //     but at reduced gradient contribution.
         Assert.Equal(
             EngineConstants.DiscoveryFeedbackSampleWeight * 0.5,

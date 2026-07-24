@@ -111,8 +111,6 @@ public class SeerrDiscoveryDtoTests
     [Fact]
     public void SeerrCredits_DefaultsAreEmptyLists_NotNull()
     {
-        // Regression: consumers do `.Cast.Any()` without a null check — the default
-        // must be a materialised empty list, never null.
         var t = Resolve("SeerrCredits");
         var obj = Activator.CreateInstance(t)!;
         Assert.NotNull(GetProp(obj, "Cast"));
@@ -255,7 +253,7 @@ public class SeerrDiscoveryDtoTests
     [Fact]
     public void TmdbDiscoverResponse_NullResults_CoalescesToEmptyList()
     {
-        // Regression: Seerr's /api/v1/discover returns "results": null on empty pages.
+        // Seerr's /api/v1/discover returns "results": null on empty pages.
         // Without the null-coalescing setter, downstream `.Count` / `.Any()` would NRE.
         var t = Resolve("TmdbDiscoverResponse");
         var obj = Deserialize(t, "{\"page\":1,\"totalPages\":0,\"totalResults\":0,\"results\":null}");
@@ -516,7 +514,6 @@ public class SeerrDiscoveryDtoTests
     [Fact]
     public void DiscoveryFeedbackEntry_Defaults_AllCollectionsAreEmptyLists()
     {
-        // Regression: consumers iterate .Genres / .KnownPeople without null checks.
         var e = new DiscoveryFeedbackEntry();
         Assert.NotNull(e.Genres);
         Assert.Empty(e.Genres);

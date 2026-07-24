@@ -38,7 +38,7 @@ public sealed class DiscoveryRecommendationTests
     {
         // Note: an "obvious" implementation would clamp Infinity to 1.0. This one deliberately
         // treats non-finite as "unknown/broken input" and returns 0, forcing the item to sort
-        // to the bottom rather than the top. Regression: an earlier build clamped Infinity
+        // to the bottom rather than the top. An earlier build clamped Infinity
         // to 1.0 which meant a single JSON parse bug on the TMDb side made every affected
         // candidate #1 in the ranking.
         var sut = new DiscoveryRecommendation { Score = double.PositiveInfinity };

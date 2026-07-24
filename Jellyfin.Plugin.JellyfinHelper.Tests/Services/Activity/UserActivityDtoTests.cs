@@ -357,7 +357,7 @@ public class UserActivityDtoTests
     [Fact]
     public void UserActivityResult_Items_IsInitialisedMutableCollection_NotNull()
     {
-        // Regression guard: consumers call result.Items.Add() without a null check.
+        // Consumers call result.Items.Add() without a null check.
         // If the default ever becomes null, this test fires before the NRE reaches production.
         var result = new UserActivityResult();
         Assert.NotNull(result.Items);

@@ -244,7 +244,7 @@ public class TrainingServiceTests
     [Fact]
     public void Train_Incremental_SubsamplesOldExamples()
     {
-        // Regression: incremental=true reduces the training set to "recent + sampled old".
+        // Incremental=true reduces the training set to "recent + sampled old".
         // A non-null assertion alone would pass even if the incremental branch became a
         // no-op — we compare against the non-incremental training path on the SAME inputs
         // and assert the invariant "incremental <= baseline" instead. The tighter
@@ -282,7 +282,7 @@ public class TrainingServiceTests
     [Fact]
     public void Train_WithDiscoveryFeedback_IncludesInBuilder()
     {
-        // Regression: when the feedback store returns Phase-4 discovery examples, they must be
+        // When the feedback store returns Phase-4 discovery examples, they must be
         // forwarded into TrainingDataBuilder.BuildExamples.
         var userId = Guid.NewGuid();
         var profiles = new Collection<UserWatchProfile> { CreatePopulatedProfile(userId) };
@@ -320,10 +320,10 @@ public class TrainingServiceTests
     [Fact]
     public void Ctor_WithoutFeedbackStore_TrainCallSucceeds()
     {
-        // BUG GUARD: the legacy two-arg constructor (no feedback store) was previously
+        // The legacy two-arg constructor (no feedback store) was previously
         // dead code — no test exercised it. If someone ever removes it in a "cleanup"
         // pass, this test catches the removal because it also protects against a subtle
-        // regression: the incoming null must be tolerated by the discovery-feedback-load
+        // The incoming null must be tolerated by the discovery-feedback-load
         // branch inside TrainCore.
         _watchHistoryMock.Setup(w => w.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());

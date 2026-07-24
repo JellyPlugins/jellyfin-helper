@@ -207,7 +207,7 @@ public class CollaborativeFilterTests
     [Fact]
     public void BuildCollaborativeMap_SingleUserMode_AppliesIdfForNicheItems()
     {
-        // Regression: without a precomputed dictionary the single-user (on-demand) path used to
+        // Without a precomputed dictionary the single-user (on-demand) path used to
         // skip IDF entirely, so mainstream items outranked niche items even though the training
         // and batch paths damped them. Both branches must now produce the same ordering.
         WatchedItemInfo P(Guid id) => new() { ItemId = id, Played = true };
@@ -407,12 +407,7 @@ public class CollaborativeFilterTests
     [Fact]
     public void BuildCollaborativeMap_TrustWeight_SparseVsFullTrust_AttenuatesSignal()
     {
-        // Regression guard for the trust factor being a real, measurable attenuator (not a no-op
-        // or, worse, an accidental *amplifier*). It is deliberately NOT a "rich vs sparse
-        // neighbour" comparison — such a comparison is confounded by the Jaccard denominator
-        // (a rich neighbour has a larger union, so its Jaccard is smaller, which reverses the
-        // score ordering independently of trust).
-        //
+
         // Approach: hold the neighbour identity constant (same watched IDs, same Jaccard) and
         // toggle the trust gate on/off by swapping the gatekeeper profile. When the gate is
         // OFF (all-sparse deployment) trust=1.0. When the gate is ON (at least one rich profile

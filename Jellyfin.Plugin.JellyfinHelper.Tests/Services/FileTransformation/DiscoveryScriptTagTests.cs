@@ -170,7 +170,7 @@ public class DiscoveryScriptTagTests
     [Fact]
     public void RemovalRegex_DoesNotRemoveScriptsMentioningPluginNameInAnotherAttribute()
     {
-        // Regression: the regex must look for plugin="Jellyfin Helper", not just any string
+        // The regex must look for plugin="Jellyfin Helper", not just any string
         // that happens to contain "Jellyfin Helper".
         var html = "<script src=\"foo.js\" title=\"Jellyfin Helper Snippet\"></script>keep";
 

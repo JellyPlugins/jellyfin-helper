@@ -125,8 +125,6 @@ public class CleanOrphanedSubtitlesTaskTests
         Assert.Equal(expected, result);
     }
 
-    // === Regression: encoding/release tags with hyphens must NOT be stripped ===
-
     [Theory]
     [InlineData("/movies/Movie.DTS-HD.srt", "Movie.DTS-HD")]
     [InlineData("/movies/Movie.DTS-X.srt", "Movie.DTS-X")]
@@ -140,8 +138,6 @@ public class CleanOrphanedSubtitlesTaskTests
         var result = CleanOrphanedSubtitlesTask.GetSubtitleBaseName(filePath, new HashSet<string> { expected });
         Assert.Equal(expected, result);
     }
-
-    // === Real-world regression: the exact filename from the bug report ===
 
     [Fact]
     public void GetSubtitleBaseName_RealWorldBugReport_SpanishLatino()

@@ -174,7 +174,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     [Fact]
     public void GetPrimaryLanguageForDiscovery_MultipleLanguages_PicksHighestWeightedScore()
     {
-        // Regression scenario: derived PrimaryLanguage picks argmax by WeightedScore.
+        // Derived PrimaryLanguage picks argmax by WeightedScore.
         // When "en" has higher chosen count than "de", the helper must return "en".
         var profile = new UserWatchProfile();
         profile.LanguageProfile["de"] = new LanguageProfileEntry { ChosenCount = 3 };

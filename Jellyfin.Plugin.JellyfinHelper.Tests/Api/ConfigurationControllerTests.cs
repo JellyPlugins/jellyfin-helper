@@ -1202,7 +1202,7 @@ public class ConfigurationControllerTests
     // contract.
 
     /// <summary>
-    ///     Regression test: validator-level errors (as opposed to model-binding
+    ///     Validator-level errors (as opposed to model-binding
     ///     errors) must also produce a plugin-log entry. Previously the response
     ///     carried a helpful message but the log stayed silent, which meant a user
     ///     running with debug logging still couldn't see the rejection reason.

@@ -673,12 +673,6 @@ public sealed class WatchHistoryServiceTests
     [Fact]
     public void BuildPeopleProfile_MissingSeriesMetadata_SkipsEpisodeFallback()
     {
-        // Regression guard for the series-level people aggregation skip fix.
-        // When an episode has a SeriesId but the series is NOT present in the series lookup
-        // (e.g. the series was deleted, not yet indexed, or returned by a different library
-        // query), BuildPeopleProfile must skip entirely — it must NOT fall back to the
-        // episode's own guest-cast people data.
-        //
         // The original bug: if we had fallen back to episode-level data, we would either
         // (a) count only limited guest cast instead of the full main cast, or
         // (b) double-count people when a synthetic favourite-series row (ItemId == seriesId,

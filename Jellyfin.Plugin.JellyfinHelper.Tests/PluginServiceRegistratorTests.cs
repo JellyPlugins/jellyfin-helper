@@ -145,7 +145,7 @@ public class PluginServiceRegistratorTests
     [Fact]
     public void RegisterServices_IScoringStrategy_DelegatesToEnsemble()
     {
-        // Regression: the IScoringStrategy binding must resolve to the Ensemble, not
+        // The IScoringStrategy binding must resolve to the Ensemble, not
         // Heuristic/Learned/Neural alone. If someone re-orders the AddSingleton calls
         // and forgets to redirect the interface, recommendation ranking silently switches
         // strategies.

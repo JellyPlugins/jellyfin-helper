@@ -12,7 +12,6 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Regression tests for bugs fixed in v2.1.0.3:
 ///     - ServerId=0 causing 400 Bad Request (Seerr uses 0-based server IDs)
 ///     - Duplicate quality profiles in popup when multiple root folders exist
 ///     - MissingMethodException crashing the scheduled task

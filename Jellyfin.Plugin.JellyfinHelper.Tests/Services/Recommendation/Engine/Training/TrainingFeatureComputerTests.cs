@@ -95,7 +95,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void BuildStudioPreferenceSetFromCache_IsCaseInsensitive()
     {
-        // Regression: HashSet must dedupe "Studio A" and "STUDIO A" to a single entry.
+        // HashSet must dedupe "Studio A" and "STUDIO A" to a single entry.
         var i1 = Guid.NewGuid();
         var i2 = Guid.NewGuid();
         var profile = new UserWatchProfile();
@@ -873,7 +873,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void AddAggregatedSeriesExample_FavoriteOnlyNoPlayback_UsesFavoriteLabel()
     {
-        // BUG GUARD: when a series has zero played episodes but at least one favourite,
+        // When a series has zero played episodes but at least one favourite,
         // the label must be 0.65 (explicit-interest signal) — NOT the abandoned label (0.0).
         // A regression here would silently teach the model that favourited series are bad.
         var (seriesId, profile, episodes) = BuildSeriesEpisodes(
@@ -907,7 +907,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void AddAggregatedSeriesExample_StartedButAbandoned_UsesAbandonedLabel()
     {
-        // BUG GUARD: when playedEps == 0 AND at least one episode has PlaybackPositionTicks > 0
+        // When playedEps == 0 AND at least one episode has PlaybackPositionTicks > 0
         // (started but abandoned) AND the average completion ratio is below the abandoned
         // threshold, the label must be AbandonedLabel (0.0). A regression here would
         // silently keep training on abandoned series as if they were desirable.
@@ -942,7 +942,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void AddAggregatedSeriesExample_UsesMostRecentEpisodeAsTemporalAnchor()
     {
-        // Regression guard: the temporal features (DayOfWeekAffinity / HourOfDayAffinity /
+        // The temporal features (DayOfWeekAffinity / HourOfDayAffinity /
         // IsWeekend) must be derived from the most-recently-watched episode. If someone
         // silently switches to FirstOrDefault or a "first episode" reference, the temporal
         // signal would degrade for series watched over long time spans.

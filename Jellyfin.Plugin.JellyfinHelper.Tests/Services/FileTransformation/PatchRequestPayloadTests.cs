@@ -48,7 +48,7 @@ public class PatchRequestPayloadTests
     [Fact]
     public void Serialize_UsesLowercaseContentsPropertyName()
     {
-        // Regression: if the [JsonPropertyName] attribute is removed, the property would
+        // If the [JsonPropertyName] attribute is removed, the property would
         // serialize as "Contents" (PascalCase), breaking the file-transformation callback contract.
         var payload = new PatchRequestPayload { Contents = "abc" };
         var json = JsonSerializer.Serialize(payload);

@@ -391,7 +391,7 @@ public sealed class TrashServiceInternalHelpersTests
     [Fact]
     public void PathComparison_IsCaseInsensitiveOnCaseInsensitiveFilesystems()
     {
-        // Regression scenario: on macOS/Windows a lower-case reference to a Trash path
+        // On macOS/Windows a lower-case reference to a Trash path
         // would fail to match the canonical mixed-case one if this ever regressed to
         // Ordinal. That would let the guard against re-trashing be bypassed by simply
         // lowercasing the source path.

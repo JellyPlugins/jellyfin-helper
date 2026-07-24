@@ -102,7 +102,7 @@ public class TransformationPatchesTests
     [Fact]
     public void IndexHtml_CalledTwice_ProducesExactlyOneScriptTag()
     {
-        // Regression: File Transformation may re-invoke the callback whenever a client
+        // File Transformation may re-invoke the callback whenever a client
         // reloads. Every invocation must produce a document with exactly one instance
         // of the plugin script tag — not two, not three.
         const string html = "<html><body></body></html>";

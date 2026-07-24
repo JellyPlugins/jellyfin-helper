@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine.Tr
 
 /// <summary>
 ///     Tests for <see cref="TrainingDataBuilder.BuildExamples"/>.
-///     Focus is on the F-01 regression: Phase 3 (cross-user random negatives) must be
+///     Cross-user random negatives must be
 ///     reproducible across runs with identical input, otherwise training weights drift
 ///     between runs and Regressions-Tests against the ensemble output become flaky.
 /// </summary>

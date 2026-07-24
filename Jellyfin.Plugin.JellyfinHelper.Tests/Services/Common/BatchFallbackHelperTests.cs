@@ -220,7 +220,7 @@ public sealed class BatchFallbackHelperTests
     [Fact]
     public void TryRunBatch_OnFailureThrowsOperationCanceledException_PropagatesToCaller()
     {
-        // Regression: the outer catch turns any non-cancellation batch exception into a
+        // The outer catch turns any non-cancellation batch exception into a
         // graceful fallback, so if the callback then observes cancellation the signal
         // must still bubble out — otherwise a batch that gets cancelled during logging
         // silently degrades to fallback instead of stopping. The inner filter used to

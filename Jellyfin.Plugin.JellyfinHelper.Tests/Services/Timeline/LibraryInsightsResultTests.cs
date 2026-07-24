@@ -91,7 +91,7 @@ public sealed class LibraryInsightsResultTests
     [Fact]
     public void Reassignment_FromNonNullToNull_ReplacesWithEmpty()
     {
-        // Regression guard: the setter must actively replace the backing field on every
+        // The setter must actively replace the backing field on every
         // assignment. A "stale-non-null" bug would leak the previous list to callers who
         // expected the empty coalesced result after clearing.
         var sut = new LibraryInsightsResult

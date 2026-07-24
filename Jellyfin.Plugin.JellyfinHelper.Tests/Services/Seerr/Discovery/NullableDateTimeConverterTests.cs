@@ -81,7 +81,7 @@ public class NullableDateTimeConverterTests
     [Fact]
     public void Read_EmptyString_ReturnsNull_DoesNotThrow()
     {
-        // Regression: TMDb returns "" for unknown release dates. Must NOT throw.
+        // TMDb returns "" for unknown release dates. Must NOT throw.
         var json = "{\"Value\":\"\"}";
         var result = JsonSerializer.Deserialize<Container>(json, CreateOptions());
         Assert.NotNull(result);
@@ -113,7 +113,7 @@ public class NullableDateTimeConverterTests
     [InlineData("abcd-ef-gh")]
     public void Read_UnparseableString_ReturnsNull_InsteadOfThrowing(string bogus)
     {
-        // Regression: without the converter, System.Text.Json would blow up here
+        // Without the converter, System.Text.Json would blow up here
         // and discard the whole containing object. The contract is: return null,
         // consume the token, keep the caller alive.
         var json = $"{{\"Value\":\"{bogus}\"}}";
@@ -220,7 +220,7 @@ public class NullableDateTimeConverterTests
     [Fact]
     public void Write_UsesInvariantCulture_NotAffectedByAmbientCulture()
     {
-        // Regression: if the converter used CurrentCulture, a German locale
+        // If the converter used CurrentCulture, a German locale
         // ("15.06.2024 10:30:00") would break every downstream parser expecting ISO 8601.
         var original = CultureInfo.CurrentCulture;
         try
@@ -255,7 +255,7 @@ public class NullableDateTimeConverterTests
     [Fact]
     public void ReadWrite_UtcKind_IsPreservedThroughRoundTrip()
     {
-        // Regression: prior to using DateTimeStyles.RoundtripKind, the converter's Read()
+        // Prior to using DateTimeStyles.RoundtripKind, the converter's Read()
         // silently downgraded UTC ("...Z") input to Kind=Local, shifting .Ticks by the
         // host's UTC offset. This test locks in the fixed behaviour so nobody accidentally
         // reverts to DateTimeStyles.None.
@@ -326,7 +326,7 @@ public class NullableDateTimeConverterTests
     [Fact]
     public void ReadInvariantCulture_ParsesEnglishFormattedDate_UnderGermanCulture()
     {
-        // Regression: the Read() path MUST use InvariantCulture. Otherwise a
+        // The Read() path MUST use InvariantCulture. Otherwise a
         // "6/15/2024" style string under de-DE culture would parse as 6 May 2024
         // (dd/MM/yyyy) or fail entirely, silently corrupting dates parsed from
         // Seerr responses.

@@ -321,7 +321,7 @@ public class CleanupConfigHelperTests
     [Fact]
     public void GetTrashPath_FilesystemRoot_ResolvesCorrectly()
     {
-        // Regression pin: when the library itself is at the filesystem root,
+        // When the library itself is at the filesystem root,
         // the root-normalization logic must still produce a valid child path.
         var root = Path.GetPathRoot(Path.GetFullPath(Path.GetTempPath()))!;
         var cfg = new PluginConfiguration { TrashFolderPath = ".jellyfin-trash" };

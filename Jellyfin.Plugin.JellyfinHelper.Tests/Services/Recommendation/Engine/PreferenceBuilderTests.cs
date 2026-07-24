@@ -729,13 +729,6 @@ public class PreferenceBuilderTests
     [Fact]
     public void BuildPeoplePreferenceWeights_UnplayedFavoriteEpisode_KeepsFullWeightDespiteAbandonedSeries()
     {
-        // Regression guard for the "favorite always keeps full weight" invariant advertised in
-        // BuildPeoplePreferenceWeights' XML doc. Before this fix, an unplayed-favorite EPISODE
-        // of an abandoned series inherited that series' ProgressionFloor (0.3), silently
-        // contradicting the invariant — BuildPeoplePreferenceWeights has no separate favorite
-        // additive, so the multiplier was the only signal per person and 0.3 is meaningfully
-        // weaker than the 1.0 an unplayed-favorite movie would produce.
-        //
         // Construction:
         //   * Two watched-item rows on the SAME series (5 total episodes):
         //       - One PLAYED episode with people {"Actor A"}     → counts as completed
@@ -808,7 +801,7 @@ public class PreferenceBuilderTests
             $"Actor A must not be treated as two bypasses; expected < 2.0, got {actorAWeight}");
     }
 
-    // === F-04 regression: phantom watched-episode rows must not inflate the counter ===
+    // Phantom watched-episode rows must not inflate the counter ===
     // When the on-disk episode files are deleted but the WatchedItemInfo rows survive in the
     // history cache, the naive per-series counter would grow beyond the actual episode total
     // and unlock ProgressionCeiling for a series the user never came close to completing.
@@ -961,11 +954,8 @@ public class PreferenceBuilderTests
     public void BuildGenrePreferenceVector_GenreDistributionDoesNotOverwriteWatchedItemsGenre()
     {
         // A genre that already has a WatchedItems-derived weight must NOT be overwritten by
-        // GenreDistribution. The merge loop skips genres already in the vector (ContainsKey
-        // guard). Regression: without the guard the distribution count (which is scaled to
-        // [0,1]) could silently replace a high watch-derived weight with a low fallback value,
-        // changing the vector shape without any observable error at the call site.
-        //
+        // GenreDistribution. The merge loop skips genres already in the vector.
+
         // The GenreDistribution entry for "Action" has count=1 and "Drama" has count=10, so
         // if the guard is absent "Action" would be overwritten with 1/10 = 0.1 (scaled to max).
         // With the guard, "Action"'s watch-derived weight (~1.0 before the Drama entry is added)
@@ -1291,7 +1281,7 @@ public class PreferenceBuilderTests
     }
 
     /// <summary>
-    ///     Regression test for the train/serve parity fix: a WatchedItemInfo with PlayCount &gt; 0
+    ///     A WatchedItemInfo with PlayCount &gt; 0
     ///     but Played = false must still be treated as a meaningful interaction.
     /// </summary>
     [Fact]

@@ -190,7 +190,7 @@ public sealed class CollectionProgressionBoostTests
     [Fact]
     public void WithCounts_MultipleBoxSets_OrderIndependent()
     {
-        // Regression: verify the pick-the-best behaviour does not depend on iteration order.
+        // Verify the pick-the-best behaviour does not depend on iteration order.
         var a = Guid.NewGuid();
         var b = Guid.NewGuid();
         var counts = new Dictionary<Guid, int>

@@ -178,7 +178,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void ProcessLinkFile_Strm_WindowsStylePath_NotTreatedAsUrl()
     {
-        // Regression: Windows paths like C:\media\movie.mkv must NOT be treated as URLs
+        // Windows paths like C:\media\movie.mkv must NOT be treated as URLs
         // (Uri.TryCreate parses "C:" as a scheme, but the file:// scheme is excluded from the URL bypass)
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/movie.strm");
         _fileSystem.AddFile(linkFile, new MockFileData(@"C:\media\movie.mkv"));
@@ -816,7 +816,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void RepairLinks_YieldReturnLibraryPaths_RelativeTargetOutsideLibraryRoot_ReturnsInvalidContent()
     {
-        // Regression: when libraryPaths is a non-replayable IEnumerable (yield-return),
+        // When libraryPaths is a non-replayable IEnumerable (yield-return),
         // the second enumeration in RepairLinks produced an empty normalizedLibraryPaths,
         // which caused the path-traversal guard (Count > 0) to be skipped — so a relative
         // target that resolves outside the library root was silently treated as Broken instead
@@ -844,7 +844,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void FindLinkFiles_VisitedDirectoryCapReached_DoesNotSilentlyProcessSubsequentLibraryPaths()
     {
-        // Regression: when the visited-directory cap was hit inside FindLinkFilesRecursive,
+        // When the visited-directory cap was hit inside FindLinkFilesRecursive,
         // the inner while-loop broke but FindLinkFiles continued iterating further library
         // paths. Each subsequent call immediately hit the accumulated cap and silently
         // returned — processing no files from those paths. The fix propagates limitReached

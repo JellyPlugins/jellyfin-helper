@@ -236,7 +236,7 @@ public class DiversityRerankerTests
     [Fact]
     public void DeduplicateSeries_KeepsHighestScoredEpisodePerSeries()
     {
-        // Regression guard: if two episodes of the same series appear, only the highest-scored
+        // If two episodes of the same series appear, only the highest-scored
         // episode may survive. Order-of-appearance MUST NOT matter (in-place replacement bug).
         var seriesId = Guid.NewGuid();
         var lowEpisode = new Episode { Id = Guid.NewGuid(), SeriesId = seriesId };
@@ -333,7 +333,7 @@ public class DiversityRerankerTests
     [Fact]
     public void DeduplicateSeries_SeasonUsesSeriesIdForGrouping()
     {
-        // Regression: a Season and an Episode both belonging to the same series must
+        // A Season and an Episode both belonging to the same series must
         // collapse to a single entry (the higher-scored one wins).
         var seriesId = Guid.NewGuid();
         var season = new Season { Id = Guid.NewGuid(), SeriesId = seriesId };
@@ -415,7 +415,7 @@ public class DiversityRerankerTests
     [Fact]
     public void DeduplicateSeries_PreservesReasonAndRelatedItemOfWinner()
     {
-        // Regression: when replacing the loser with the winner, ALL tuple fields must be
+        // When replacing the loser with the winner, ALL tuple fields must be
         // carried over (Reason, ReasonKey, RelatedItem) — not just the Score. Otherwise the
         // UI could show the loser's reason attached to the winner's score.
         var seriesId = Guid.NewGuid();

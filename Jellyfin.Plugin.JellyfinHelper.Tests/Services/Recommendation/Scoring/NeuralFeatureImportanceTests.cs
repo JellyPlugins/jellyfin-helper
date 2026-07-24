@@ -127,7 +127,6 @@ public class NeuralFeatureImportanceTests
     [Fact]
     public void ComputePermutationImportance_SampleSizeExceedsExamplesCount_ClampsToExamplesCount()
     {
-        // Regression: passing sampleSize=1000 with only 10 examples must not IndexOutOfRange.
         var result = NeuralFeatureImportance.ComputePermutationImportance(
             CreateStrategy(),
             BuildExamples(10),
@@ -168,8 +167,6 @@ public class NeuralFeatureImportanceTests
     [Fact]
     public void ComputePermutationImportance_AllValuesAreFiniteDoubles()
     {
-        // Regression: a bug that emitted NaN/Infinity would poison downstream logging
-        // and might get stored to disk. All importance values must be finite.
         var result = NeuralFeatureImportance.ComputePermutationImportance(
             CreateStrategy(),
             BuildExamples(50));

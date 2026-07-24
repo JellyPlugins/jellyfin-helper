@@ -332,7 +332,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     [Fact]
     public async Task PostRequest_TildeAtStartAfterWhitespace_ReturnsBadRequest()
     {
-        // Regression guard: rootFolder = "  ~/movies" (with leading whitespace) must still
+        // rootFolder = "  ~/movies" (with leading whitespace) must still
         // be rejected. The controller trims first, then checks TrimStart().StartsWith('~'),
         // so this is a redundancy check. Locking the behaviour here prevents a future
         // refactor from dropping the TrimStart guard.

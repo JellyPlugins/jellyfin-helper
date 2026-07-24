@@ -293,7 +293,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
     [Fact]
     public async Task Execute_ProgressIsReportedOncePerLibrary()
     {
-        // Regression: the task must report progress at 50% and 100% for two libraries.
+        // The task must report progress at 50% and 100% for two libraries.
         const string lib1 = "/media/movies1";
         const string lib2 = "/media/movies2";
 

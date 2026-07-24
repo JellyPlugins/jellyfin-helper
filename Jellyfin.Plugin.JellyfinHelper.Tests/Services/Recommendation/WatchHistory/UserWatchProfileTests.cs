@@ -7,8 +7,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.WatchHist
 ///     Tests for <see cref="UserWatchProfile"/>. Focus on:
 ///     <list type="bullet">
 ///         <item>Cache invalidation semantics for lazily-computed properties.</item>
-///         <item>Case-insensitive dictionary re-assignment (regression: assigning a case-sensitive
-///               dict must not degrade downstream genre/language matching).</item>
 ///         <item>Null-safe setters that coalesce to empty rather than propagating NRE from cache
 ///               deserialization.</item>
 ///         <item>Boundary behavior of <see cref="UserWatchProfile.TopPeople"/> (min-count filter,
@@ -61,7 +59,7 @@ public class UserWatchProfileTests
     [Fact]
     public void GenreDistributionSetter_CaseSensitiveInput_IsUpgradedToCaseInsensitive()
     {
-        // Regression: if a caller passes a case-sensitive dictionary, the property
+        // If a caller passes a case-sensitive dictionary, the property
         // must copy it into an OrdinalIgnoreCase dictionary. Otherwise a mixed-case
         // lookup ("action" vs. "Action") would silently miss.
         var input = new Dictionary<string, int>(StringComparer.Ordinal)
