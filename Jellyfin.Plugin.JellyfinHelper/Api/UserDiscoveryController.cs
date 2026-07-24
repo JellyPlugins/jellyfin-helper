@@ -310,12 +310,6 @@ public sealed class UserDiscoveryController : ControllerBase
             return StatusCode(403, new RequestResult { Success = false, Message = "Discovery user access is disabled by the administrator." });
         }
 
-        var mediaType = dto.MediaType.Trim().ToLowerInvariant();
-
-        // Normalize RootFolder: trim whitespace and coalesce whitespace-only to null
-        // so whitespace-only strings are not forwarded as meaningless overrides to Seerr.
-        var rootFolder = string.IsNullOrWhiteSpace(dto.RootFolder) ? null : dto.RootFolder.Trim();
-
         var jellyfinUserId = GetCurrentUserId();
         if (!jellyfinUserId.HasValue)
         {
@@ -323,6 +317,11 @@ public sealed class UserDiscoveryController : ControllerBase
         }
 
         var currentJellyfinUserId = jellyfinUserId.Value;
+        var mediaType = dto.MediaType.Trim().ToLowerInvariant();
+
+        // Normalize RootFolder: trim whitespace and coalesce whitespace-only to null
+        // so whitespace-only strings are not forwarded as meaningless overrides to Seerr.
+        var rootFolder = string.IsNullOrWhiteSpace(dto.RootFolder) ? null : dto.RootFolder.Trim();
 
         // Per-user rate limit: prevent a single user from flooding Seerr with requests.
         // Use AddOrUpdate for an atomic check-and-set so there is no TOCTOU window between
@@ -480,7 +479,7 @@ public sealed class UserDiscoveryController : ControllerBase
         catch (Exception ex) when (!ex.IsFatal())
         {
             // Best-effort cache update — log but do not fail the request.
-            _logger.LogWarning(ex, "[Discovery] Failed to mark item {TmdbId}/{MediaType} as requested in cache for user {UserId}", dto.TmdbId, mediaType, currentJellyfinUserId);
+            _logger.LogWarning(ex, "[Discovery] Failed to mark item {TmdbId}/{MediaType} as requested in cache for user {UserId}", dto.TmdbId, SanitizeForLog(mediaType), currentJellyfinUserId);
         }
 
         try
@@ -489,7 +488,7 @@ public sealed class UserDiscoveryController : ControllerBase
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
-            _logger.LogWarning(ex, "[Discovery] Failed to record requested item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, mediaType, currentJellyfinUserId);
+            _logger.LogWarning(ex, "[Discovery] Failed to record requested item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, SanitizeForLog(mediaType), currentJellyfinUserId);
         }
 
         return StatusCode(StatusCodes.Status201Created, new RequestResult { Success = true, Message = message });
@@ -526,7 +525,7 @@ public sealed class UserDiscoveryController : ControllerBase
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
-            _logger.LogWarning(ex, "[Discovery] Failed to record dismissed item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, mediaType, currentUserId);
+            _logger.LogWarning(ex, "[Discovery] Failed to record dismissed item {TmdbId}/{MediaType} for user {UserId}", dto.TmdbId, SanitizeForLog(mediaType), currentUserId);
         }
 
         return Ok(new RequestResult { Success = true, Message = "Item dismissed." });
@@ -648,4 +647,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         return null;
     }
+
+    private static string SanitizeForLog(string value)
+        => value.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
 }

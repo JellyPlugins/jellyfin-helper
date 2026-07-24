@@ -216,7 +216,7 @@ public class FolderBrowserService : IFolderBrowserService
                         // Skip individual directories we cannot access
                         if (_logger.IsEnabled(LogLevel.Debug))
                         {
-                            _logger.LogDebug(ex, "Skipping inaccessible directory {Dir}", subdir.FullName);
+                            _logger.LogDebug(ex, "Skipping inaccessible directory {Dir}", SanitizeForLog(subdir.FullName));
                         }
                     }
                 }
@@ -226,7 +226,7 @@ public class FolderBrowserService : IFolderBrowserService
             {
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
-                    _logger.LogDebug(ex, "Cannot enumerate children of {Path}", normalizedPath);
+                    _logger.LogDebug(ex, "Cannot enumerate children of {Path}", SanitizeForLog(normalizedPath));
                 }
 
                 var errorParentPath = GetParentPath(normalizedPath);
@@ -255,7 +255,7 @@ public class FolderBrowserService : IFolderBrowserService
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException
                                        or ArgumentException or NotSupportedException or PathTooLongException)
         {
-            _logger.LogWarning(ex, "Error browsing directory {Path}", path);
+            _logger.LogWarning(ex, "Error browsing directory {Path}", SanitizeForLog(path));
             return new FolderBrowseResult { Error = "Cannot access this directory." };
         }
     }
@@ -365,7 +365,7 @@ public class FolderBrowserService : IFolderBrowserService
         {
             if (_logger.IsEnabled(LogLevel.Debug))
             {
-                _logger.LogDebug(ex, "Invalid folder-browse path {Path}", path);
+                _logger.LogDebug(ex, "Invalid folder-browse path {Path}", SanitizeForLog(path));
             }
 
             return "Invalid path.";
@@ -447,4 +447,7 @@ public class FolderBrowserService : IFolderBrowserService
         // Regular hidden folders (like .jellyfin-trash) should still be visible
         return attrs.HasFlag(FileAttributes.Hidden) && attrs.HasFlag(FileAttributes.System);
     }
+
+    private static string SanitizeForLog(string value)
+        => value.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
 }
