@@ -90,12 +90,15 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
         var config = ConfigHelper.GetConfig();
 
         // Hoist trash-path computation outside the loop — libraryPath is constant per call.
-        // Normalize to a trailing-separator form so prefix matching works correctly on all platforms,
+        // Use case-sensitive comparison on Linux, case-insensitive on Windows/macOS,
         // matching the same pattern used by CleanTrickplayTask and CleanOrphanedSubtitlesTask.
         var trashPath = ConfigHelper.GetTrashPath(libraryPath);
-        var normalizedTrash = Path.GetFullPath(trashPath)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
+        var trashRoot = Path.GetFullPath(trashPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var trashRootSep = trashRoot + Path.DirectorySeparatorChar;
+        var pathComparison = OperatingSystem.IsLinux()
+            ? StringComparison.Ordinal
+            : StringComparison.OrdinalIgnoreCase;
 
         try
         {
@@ -118,10 +121,8 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
                 // or when a previous run has added a timestamp prefix to the folder.
                 var normalizedDirPath = Path.GetFullPath(topDir.FullName)
                     .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (normalizedDirPath.StartsWith(normalizedTrash, StringComparison.OrdinalIgnoreCase)
-                    || normalizedDirPath.Equals(
-                        normalizedTrash.TrimEnd(Path.DirectorySeparatorChar),
-                        StringComparison.OrdinalIgnoreCase))
+                if (normalizedDirPath.Equals(trashRoot, pathComparison)
+                    || normalizedDirPath.StartsWith(trashRootSep, pathComparison))
                 {
                     continue;
                 }
@@ -267,10 +268,12 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
             {
                 hasAnyFiles = true;
                 totalBytes += file.Length;
-                var ext = Path.GetExtension(file.FullName);
+                var ext = Path.GetExtension(file.FullName).ToLowerInvariant();
                 if (MediaExtensions.VideoExtensions.Contains(ext))
                 {
-                    return (true, true, hasAudioFiles, true, totalBytes);
+                    // Return 0 bytes: the caller only uses treeBytes in the hard-delete branch,
+                    // which never runs when hasVideoFiles==true.
+                    return (true, true, hasAudioFiles, true, 0);
                 }
 
                 if (MediaExtensions.AudioExtensionToCodec.ContainsKey(ext))

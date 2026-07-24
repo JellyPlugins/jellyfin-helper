@@ -272,19 +272,20 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         HashSet<string> jellyfinFolderNames)
     {
         var result = new ArrComparisonResult();
+        var jellyfinNames = EnsureOrdinalIgnoreCase(jellyfinFolderNames);
 
-        // Ensure case-insensitive comparison regardless of caller's HashSet comparer
-        var jellyfinNames = ReferenceEquals(jellyfinFolderNames.Comparer, StringComparer.OrdinalIgnoreCase)
-            ? jellyfinFolderNames
-            : new HashSet<string>(jellyfinFolderNames, StringComparer.OrdinalIgnoreCase);
+        // Collect Radarr folder names in the same pass to avoid enumerating radarrMovies twice.
+        var radarrFolderNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var movie in radarrMovies)
         {
-            var folderName = movie.Path.TrimEnd('/', '\\').Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
+            var folderName = GetFolderName(movie.Path);
             if (string.IsNullOrEmpty(folderName))
             {
                 continue;
             }
+
+            radarrFolderNames.Add(folderName);
 
             if (jellyfinNames.Contains(folderName))
             {
@@ -299,13 +300,6 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 result.InArrOnlyMissing.Add($"{movie.Title} ({movie.Year}) - no file");
             }
         }
-
-        // Find Jellyfin-only items (not in Radarr)
-        var radarrFolderNames = new HashSet<string>(
-            radarrMovies
-                .Select(m => m.Path.TrimEnd('/', '\\').Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty)
-                .Where(n => !string.IsNullOrEmpty(n)),
-            StringComparer.OrdinalIgnoreCase);
 
         foreach (var folderName in jellyfinNames.Where(f => !radarrFolderNames.Contains(f)))
         {
@@ -326,19 +320,20 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         HashSet<string> jellyfinFolderNames)
     {
         var result = new ArrComparisonResult();
+        var jellyfinNames = EnsureOrdinalIgnoreCase(jellyfinFolderNames);
 
-        // Ensure case-insensitive comparison regardless of caller's HashSet comparer
-        var jellyfinNames = ReferenceEquals(jellyfinFolderNames.Comparer, StringComparer.OrdinalIgnoreCase)
-            ? jellyfinFolderNames
-            : new HashSet<string>(jellyfinFolderNames, StringComparer.OrdinalIgnoreCase);
+        // Collect Sonarr folder names in the same pass to avoid enumerating sonarrSeries twice.
+        var sonarrFolderNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var series in sonarrSeries)
         {
-            var folderName = series.Path.TrimEnd('/', '\\').Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
+            var folderName = GetFolderName(series.Path);
             if (string.IsNullOrEmpty(folderName))
             {
                 continue;
             }
+
+            sonarrFolderNames.Add(folderName);
 
             if (jellyfinNames.Contains(folderName))
             {
@@ -355,12 +350,6 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             }
         }
 
-        var sonarrFolderNames = new HashSet<string>(
-            sonarrSeries
-                .Select(s => s.Path.TrimEnd('/', '\\').Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty)
-                .Where(n => !string.IsNullOrEmpty(n)),
-            StringComparer.OrdinalIgnoreCase);
-
         foreach (var folderName in jellyfinNames.Where(f => !sonarrFolderNames.Contains(f)))
         {
             result.InJellyfinOnly.Add(folderName);
@@ -370,6 +359,19 @@ public sealed class ArrIntegrationService : IArrIntegrationService
     }
 
     // --- DTOs for Radarr/Sonarr API responses ---
+
+    /// <summary>Returns the last path segment of <paramref name="path"/>, normalized to remove trailing slashes.</summary>
+    private static string GetFolderName(string path)
+        => path.TrimEnd('/', '\\').Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
+
+    /// <summary>
+    ///     Returns <paramref name="set"/> unchanged when it already uses <see cref="StringComparer.OrdinalIgnoreCase"/>;
+    ///     otherwise returns a new <see cref="HashSet{T}"/> with the same elements and the correct comparer.
+    /// </summary>
+    private static HashSet<string> EnsureOrdinalIgnoreCase(HashSet<string> set)
+        => ReferenceEquals(set.Comparer, StringComparer.OrdinalIgnoreCase)
+            ? set
+            : new HashSet<string>(set, StringComparer.OrdinalIgnoreCase);
 
     private static void ValidateArrUrl(string baseUrl)
     {
@@ -486,11 +488,6 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             var toRead = (int)Math.Min(count, remaining);
             var n = _inner.Read(buffer, offset, toRead);
             _bytesRead += n;
-            if (_bytesRead > _maxBytes)
-            {
-                throw new InvalidOperationException("Response too large");
-            }
-
             return n;
         }
 
@@ -510,11 +507,6 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             var toRead = (int)Math.Min(buffer.Length, remaining);
             var n = await _inner.ReadAsync(buffer[..toRead], cancellationToken).ConfigureAwait(false);
             _bytesRead += n;
-            if (_bytesRead > _maxBytes)
-            {
-                throw new InvalidOperationException("Response too large");
-            }
-
             return n;
         }
 

@@ -203,6 +203,37 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     // -----------------------------------------------------------------------
+    // M-06 regression: ArgumentException / PathTooLongException must be caught.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    ///     M-06 regression: an empty string is rejected by File.GetAttributes with an
+    ///     ArgumentException on all platforms. IsSymlink must absorb that exception and
+    ///     return false rather than propagating it to the caller.
+    /// </summary>
+    [Fact]
+    public void IsSymlink_EmptyString_ReturnsFalse_DoesNotThrow()
+    {
+        // string.Empty causes File.GetAttributes to throw ArgumentException
+        // ("Path cannot be the empty string or all whitespace.").
+        // The M-06 fix extended the catch filter to include ArgumentException.
+        Assert.False(_sut.IsSymlink(string.Empty));
+    }
+
+    /// <summary>
+    ///     M-06 regression: a path that exceeds the OS maximum length triggers a
+    ///     PathTooLongException inside File.GetAttributes. IsSymlink must absorb it and
+    ///     return false.
+    /// </summary>
+    [Fact]
+    public void IsSymlink_PathTooLong_ReturnsFalse_DoesNotThrow()
+    {
+        // 5 000 'a' characters is well above the MAX_PATH ceiling on every supported OS.
+        var tooLong = new string('a', 5_000);
+        Assert.False(_sut.IsSymlink(tooLong));
+    }
+
+    // -----------------------------------------------------------------------
     // GetSymlinkTarget
     // -----------------------------------------------------------------------
 
@@ -219,6 +250,27 @@ public sealed class SymlinkHelperTests : IDisposable
     {
         var path = Path.Join(_tempDir, "ghost.txt");
         Assert.Null(_sut.GetSymlinkTarget(path));
+    }
+
+    /// <summary>
+    ///     M-06 regression: an empty string is rejected by FileInfo constructor / LinkTarget
+    ///     accessor with an ArgumentException. GetSymlinkTarget must absorb it and return null.
+    /// </summary>
+    [Fact]
+    public void GetSymlinkTarget_EmptyString_ReturnsNull_DoesNotThrow()
+    {
+        Assert.Null(_sut.GetSymlinkTarget(string.Empty));
+    }
+
+    /// <summary>
+    ///     M-06 regression: a path exceeding the OS maximum length triggers a
+    ///     PathTooLongException inside FileInfo. GetSymlinkTarget must absorb it and return null.
+    /// </summary>
+    [Fact]
+    public void GetSymlinkTarget_PathTooLong_ReturnsNull_DoesNotThrow()
+    {
+        var tooLong = new string('a', 5_000);
+        Assert.Null(_sut.GetSymlinkTarget(tooLong));
     }
 
     [Fact]

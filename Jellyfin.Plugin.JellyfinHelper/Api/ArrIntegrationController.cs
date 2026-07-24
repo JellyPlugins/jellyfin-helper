@@ -87,11 +87,6 @@ public class ArrIntegrationController : ControllerBase
             request.ApiKey ?? string.Empty,
             cancellationToken).ConfigureAwait(false);
 
-        if (!success)
-        {
-            return Ok(new ConnectionTestResponse { Success = false, Message = message });
-        }
-
         return Ok(new ConnectionTestResponse { Success = success, Message = message });
     }
 

@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Net.Mime;
-using System.Threading;
-using System.Threading.Tasks;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
@@ -28,7 +26,6 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 [ProducesResponseType(StatusCodes.Status403Forbidden)]
 public class UserActivityController : ControllerBase, IDisposable
 {
-    private static readonly SemaphoreSlim _buildLock = new(1, 1);
     private readonly IUserActivityCacheService _cacheService;
     private readonly IPluginConfigurationService _configService;
     private readonly IUserManager _userManager;
@@ -57,32 +54,23 @@ public class UserActivityController : ControllerBase, IDisposable
     ///     Only available when Recommendations TaskMode is not Deactivate.
     /// </summary>
     /// <returns>The user activity result.</returns>
-    /// <param name="cancellationToken">Cancellation token.</param>
     [HttpGet("Latest")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<UserActivityResult>> GetLatestActivity(CancellationToken cancellationToken)
+    public ActionResult<UserActivityResult> GetLatestActivity()
     {
         if (!IsFeatureEnabled())
         {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, "User activity feature is disabled in plugin configuration.");
         }
 
-        await _buildLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        var cached = _cacheService.LoadResult();
+        if (cached == null)
         {
-            var cached = _cacheService.LoadResult();
-            if (cached == null)
-            {
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Activity report cache is not yet available. Run the scheduled task to populate it.");
-            }
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "Activity report cache is not yet available. Run the scheduled task to populate it.");
+        }
 
-            return Ok(cached);
-        }
-        finally
-        {
-            _buildLock.Release();
-        }
+        return Ok(cached);
     }
 
     /// <summary>
@@ -94,14 +82,13 @@ public class UserActivityController : ControllerBase, IDisposable
     /// </summary>
     /// <param name="userId">The Jellyfin user ID to filter by.</param>
     /// <param name="maxResults">Maximum number of results to return (1–200, default 15).</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Activity summaries containing only the specified user's data.</returns>
     [HttpGet("User/{userId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<List<UserActivitySummary>>> GetUserActivity(Guid userId, [FromQuery] int maxResults = 15, CancellationToken cancellationToken = default)
+    public ActionResult<List<UserActivitySummary>> GetUserActivity(Guid userId, [FromQuery] int maxResults = 15)
     {
         if (!IsFeatureEnabled())
         {
@@ -121,22 +108,13 @@ public class UserActivityController : ControllerBase, IDisposable
 
         maxResults = Math.Clamp(maxResults, 1, 200);
 
-        UserActivityResult source;
-        await _buildLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        var cached = _cacheService.LoadResult();
+        if (cached == null)
         {
-            var cached = _cacheService.LoadResult();
-            if (cached == null)
-            {
-                return StatusCode(StatusCodes.Status503ServiceUnavailable, "Activity report cache is not yet available. Run the scheduled task to populate it.");
-            }
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "Activity report cache is not yet available. Run the scheduled task to populate it.");
+        }
 
-            source = cached;
-        }
-        finally
-        {
-            _buildLock.Release();
-        }
+        var source = cached;
 
         // Filter to items where this user has activity, recalculating aggregate fields
         var userItems = source.Items
@@ -221,7 +199,6 @@ public class UserActivityController : ControllerBase, IDisposable
 
         if (disposing)
         {
-            // _buildLock is static and must not be disposed per-instance
         }
 
         _disposed = true;

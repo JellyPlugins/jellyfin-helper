@@ -52,15 +52,17 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         // Validate inputs before entering the catch-all try block so programming-error
         // exceptions (invalid key format) propagate instead of being swallowed as
         // connection failures.
-        if (apiKey.Contains('\r', StringComparison.Ordinal) || apiKey.Contains('\n', StringComparison.Ordinal))
+        if (apiKey.Contains('\r', StringComparison.Ordinal)
+            || apiKey.Contains('\n', StringComparison.Ordinal)
+            || apiKey.Contains('\t', StringComparison.Ordinal)
+            || apiKey.Contains('\0', StringComparison.Ordinal))
         {
-            throw new ArgumentException("API key must not contain CR or LF characters.", nameof(apiKey));
+            throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
         }
 
         try
         {
-            var (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey);
-            using var req = BuildRequest(HttpMethod.Get, baseUri, "api/v1/settings/main", key);
+            var (client, baseUri, key) = ValidateAndGetClient(baseUrl, apiKey);            using var req = BuildRequest(HttpMethod.Get, baseUri, "api/v1/settings/main", key);
             using var response = await client.SendAsync(req, cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
@@ -414,10 +416,13 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             throw new ArgumentException("API key is required.", nameof(apiKey));
         }
 
-        // Reject keys containing CR or LF to prevent header injection via TryAddWithoutValidation.
-        if (apiKey.Contains('\r', StringComparison.Ordinal) || apiKey.Contains('\n', StringComparison.Ordinal))
+        // Reject keys containing CR, LF, tab, or NUL to prevent header injection via TryAddWithoutValidation.
+        if (apiKey.Contains('\r', StringComparison.Ordinal)
+            || apiKey.Contains('\n', StringComparison.Ordinal)
+            || apiKey.Contains('\t', StringComparison.Ordinal)
+            || apiKey.Contains('\0', StringComparison.Ordinal))
         {
-            throw new ArgumentException("API key must not contain CR or LF characters.", nameof(apiKey));
+            throw new ArgumentException("API key must not contain CR, LF, tab, or NUL characters.", nameof(apiKey));
         }
 
         var baseUri = new Uri(parsedBaseUrl.AbsoluteUri.TrimEnd('/') + "/");

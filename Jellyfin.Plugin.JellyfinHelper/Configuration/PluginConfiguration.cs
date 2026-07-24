@@ -16,7 +16,7 @@ public class PluginConfiguration : BasePluginConfiguration
     // Records raw-vs-clamped setter deltas so Plugin startup can surface them as a single
     // warning instead of silently swallowing hand-edited out-of-range XML values.
     // Private field: XmlSerializer only touches public settable properties, so no XmlIgnore needed.
-    private readonly System.Collections.Concurrent.ConcurrentQueue<ClampReportEntry> _clampReports = new();
+    private readonly ConcurrentQueue<ClampReportEntry> _clampReports = new();
 
     // ===== Backing fields for clamped properties =====
     private int _orphanMinAgeDays;

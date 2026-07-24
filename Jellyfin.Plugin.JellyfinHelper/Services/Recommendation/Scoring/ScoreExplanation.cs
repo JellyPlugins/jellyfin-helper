@@ -89,7 +89,7 @@ public sealed class ScoreExplanation
             InteractionContribution = blendedInteraction,
             PeopleContribution = blendedPeople,
             StudioContribution = blendedStudio,
-            GenrePenaltyMultiplier = 1.0,
+            GenrePenaltyMultiplier = (oneMinusAlpha * GenrePenaltyMultiplier) + (alpha * other.GenrePenaltyMultiplier),
             DominantSignal = DetermineDominantSignal(
                 blendedGenre,
                 blendedCollab,
@@ -220,13 +220,11 @@ public sealed class ScoreExplanation
         }
 
         v = Math.Abs(studioContrib);
-        if (v <= bestValue)
+        if (v > bestValue)
         {
-            return bestValue <= DominantSignalTolerance ? "None" : bestName;
+            bestName = "Studio";
+            bestValue = v;
         }
-
-        bestName = "Studio";
-        bestValue = v;
 
         // When every contribution is zero, no signal is dominant.
         return bestValue <= DominantSignalTolerance ? "None" : bestName;

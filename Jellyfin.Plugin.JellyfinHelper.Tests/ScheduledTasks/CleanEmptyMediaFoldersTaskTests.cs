@@ -832,6 +832,64 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
         VerifyLogContains("[Dry Run] Would delete orphaned media folder", LogLevel.Information);
     }
 
+    // H-21: AnalyzeDirectoryRecursive returns (HasVideoFiles=true, TotalBytes=0) on early
+    // video-found exit. The zero ensures that if the caller ever reaches bytesFreed+=treeBytes
+    // for a video-containing folder (it currently cannot, because hasVideoFiles==true causes
+    // 'continue' before that line), no bytes are incorrectly credited as freed.
+    // We test the observable contract: the task never deletes a video folder, even in Activate
+    // mode, and never calls RecordCleanup for it — regardless of what treeBytes the analysis
+    // returned.
+    [Fact]
+    public async Task ExecuteInternalAsync_FolderWithVideoFile_NeverRecordsCleanupForIt()
+    {
+        Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Active Movie (2021)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Active Movie (2021)", movieDir));
+        SetupFiles(movieDir, "movie.mkv", "movie.nfo");
+        SetupSubDirs(movieDir);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        // Folder must be kept — no deletion log at any level
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
+        // TrackingService must not be told anything was cleaned up for this folder
+        MockTrackingService.Verify(
+            t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+            Times.Never);
+    }
+
+    // H-22: Extension lookup uses .ToLowerInvariant() before hitting the VideoExtensions
+    // HashSet. The HashSet itself is OrdinalIgnoreCase so the check was never broken in
+    // practice — the normalisation makes the intent self-documenting and guards against a
+    // future change of comparer. The canonical coverage for the OrdinalIgnoreCase invariant
+    // lives in MediaExtensionsTests.VideoExtensions_ContainsKnownFormats (".MKV" case).
+    // Here we verify the full task path: a folder whose only file has an uppercase extension
+    // is treated as containing video and is kept.
+    [Fact]
+    public async Task ExecuteInternalAsync_FolderWithUppercaseExtensionVideoFile_IsKept()
+    {
+        Config.EmptyMediaFolderTaskMode = TaskMode.Activate;
+
+        const string libraryPath = "/media/movies";
+        const string movieDir = "/media/movies/Good Movie (2022)";
+
+        SetupLibrary(libraryPath);
+        SetupTopLevelDirs(libraryPath, ("Good Movie (2022)", movieDir));
+        SetupFiles(movieDir, "movie.MKV");
+        SetupSubDirs(movieDir);
+
+        await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+        VerifyLogNeverContains("Deleting orphaned media folder", LogLevel.Information);
+        MockTrackingService.Verify(
+            t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
+            Times.Never);
+    }
+
     // ========== Helper methods ==========
 
     private void SetupLibrary(string libraryPath)

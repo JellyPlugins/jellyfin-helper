@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Threading;
-using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
@@ -15,6 +13,11 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
+/// <summary>
+///     Tests for UserActivityController.
+///     The controller methods are synchronous after the H-34/H-35/H-85/H-86 fix
+///     that removed the static SemaphoreSlim _buildLock.
+/// </summary>
 public class UserActivityControllerTests
 {
     private readonly Mock<IUserActivityCacheService> _mockCache;
@@ -27,21 +30,34 @@ public class UserActivityControllerTests
         _mockCache = new Mock<IUserActivityCacheService>();
         _mockConfig = new Mock<IPluginConfigurationService>();
         _mockUserManager = new Mock<IUserManager>();
+
         // Default: feature enabled (TaskMode = Activate)
         _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
         {
             RecommendationsTaskMode = TaskMode.Activate
         });
+
         // Default: any userId resolves to a non-null user
         _mockUserManager.Setup(m => m.GetUserById(It.IsAny<Guid>()))
             .Returns(new User("testuser", "Default", "Default"));
-        _controller = new UserActivityController(_mockCache.Object, _mockConfig.Object, _mockUserManager.Object);
+
+        _controller = new UserActivityController(
+            _mockCache.Object,
+            _mockConfig.Object,
+            _mockUserManager.Object);
     }
 
-    // === GetLatestActivity ===
+    // =========================================================================
+    // H-34/H-35/H-85/H-86 regression: methods are synchronous (no async/await,
+    // no CancellationToken parameter, no SemaphoreSlim).
+    // =========================================================================
 
+    /// <summary>
+    ///     Regression H-34/H-85: GetLatestActivity is synchronous and returns 200 OK
+    ///     with the cached payload when the cache is populated.
+    /// </summary>
     [Fact]
-    public async Task GetLatestActivity_CacheHit_ReturnsCachedResult()
+    public void GetLatestActivity_CachePopulated_Returns200WithData()
     {
         var cached = new UserActivityResult
         {
@@ -51,117 +67,180 @@ public class UserActivityControllerTests
         };
         _mockCache.Setup(c => c.LoadResult()).Returns(cached);
 
-        var result = await _controller.GetLatestActivity(CancellationToken.None);
+        ActionResult<UserActivityResult> result = _controller.GetLatestActivity();
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<UserActivityResult>(ok.Value);
+        Assert.Equal(200, ok.StatusCode);
         Assert.Equal(5, data.TotalItemsWithActivity);
+        Assert.Equal(2, data.TotalUsersAnalyzed);
+        Assert.Equal(42, data.TotalPlayCount);
     }
 
+    /// <summary>
+    ///     Regression H-34/H-85: GetLatestActivity is synchronous and returns 503
+    ///     when the cache is empty (task has not run yet).
+    /// </summary>
     [Fact]
-    public async Task GetLatestActivity_CacheMiss_Returns503()
+    public void GetLatestActivity_CacheEmpty_Returns503()
     {
         _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
 
-        var result = await _controller.GetLatestActivity(CancellationToken.None);
+        ActionResult<UserActivityResult> result = _controller.GetLatestActivity();
+
+        var statusResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(503, statusResult.StatusCode);
+        // Must never attempt to write to the cache
+        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
+    }
+
+    /// <summary>
+    ///     Regression H-35/H-86: GetUserActivity is synchronous and returns 200 OK
+    ///     with activity filtered to the requested user only.
+    /// </summary>
+    [Fact]
+    public void GetUserActivity_KnownUser_Returns200WithFilteredData()
+    {
+        var userId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+
+        var cached = BuildCachedResult(
+            BuildSummary("Movie A", userId, otherUserId),
+            BuildSummary("Movie B", otherUserId)); // only other user
+
+        _mockCache.Setup(c => c.LoadResult()).Returns(cached);
+
+        ActionResult<List<UserActivitySummary>> result = _controller.GetUserActivity(userId);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Equal(200, ok.StatusCode);
+        var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
+
+        // Only Movie A has activity for userId
+        Assert.Single(data);
+        Assert.Equal("Movie A", data[0].ItemName);
+
+        // UserActivities must be narrowed to the requested user
+        Assert.Single(data[0].UserActivities);
+        Assert.Equal(userId, data[0].UserActivities[0].UserId);
+    }
+
+    /// <summary>
+    ///     Regression H-35/H-86: GetUserActivity is synchronous and returns 404
+    ///     when IUserManager cannot find the requested user.
+    /// </summary>
+    [Fact]
+    public void GetUserActivity_UserNotFoundInUserManager_Returns404()
+    {
+        var unknownId = Guid.NewGuid();
+        _mockUserManager.Setup(m => m.GetUserById(unknownId)).Returns((User?)null);
+
+        ActionResult<List<UserActivitySummary>> result = _controller.GetUserActivity(unknownId);
+
+        Assert.IsType<NotFoundResult>(result.Result);
+    }
+
+    /// <summary>
+    ///     Regression H-35/H-86: GetUserActivity is synchronous and returns 503
+    ///     when the cache is empty, even if the user is known.
+    /// </summary>
+    [Fact]
+    public void GetUserActivity_CacheEmpty_Returns503()
+    {
+        var userId = Guid.NewGuid();
+        _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
+
+        ActionResult<List<UserActivitySummary>> result = _controller.GetUserActivity(userId);
 
         var statusResult = Assert.IsType<ObjectResult>(result.Result);
         Assert.Equal(503, statusResult.StatusCode);
         _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
     }
 
-    // === GetUserActivity ===
+    // =========================================================================
+    // Additional coverage preserved from prior test suite
+    // =========================================================================
 
     [Fact]
-    public async Task GetUserActivity_UserFound_ReturnsFilteredItems()
+    public void GetUserActivity_EmptyGuid_Returns400()
+    {
+        ActionResult<List<UserActivitySummary>> result = _controller.GetUserActivity(Guid.Empty);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Contains("userId", badRequest.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GetLatestActivity_WhenDeactivated_Returns503()
+    {
+        _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
+        {
+            RecommendationsTaskMode = TaskMode.Deactivate
+        });
+
+        ActionResult<UserActivityResult> result = _controller.GetLatestActivity();
+
+        var statusResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(503, statusResult.StatusCode);
+    }
+
+    [Fact]
+    public void GetLatestActivity_DryRun_CacheEmpty_Returns503()
+    {
+        _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
+        {
+            RecommendationsTaskMode = TaskMode.DryRun
+        });
+        _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
+
+        ActionResult<UserActivityResult> result = _controller.GetLatestActivity();
+
+        var statusResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(503, statusResult.StatusCode);
+        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
+    }
+
+    [Fact]
+    public void GetUserActivity_WhenDeactivated_Returns503()
+    {
+        _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
+        {
+            RecommendationsTaskMode = TaskMode.Deactivate
+        });
+
+        ActionResult<List<UserActivitySummary>> result = _controller.GetUserActivity(Guid.NewGuid());
+
+        var statusResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(503, statusResult.StatusCode);
+    }
+
+    [Fact]
+    public void GetUserActivity_DryRun_CacheEmpty_Returns503()
+    {
+        var userId = Guid.NewGuid();
+        _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
+        {
+            RecommendationsTaskMode = TaskMode.DryRun
+        });
+        _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
+
+        ActionResult<List<UserActivitySummary>> result = _controller.GetUserActivity(userId);
+
+        var statusResult = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(503, statusResult.StatusCode);
+        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
+    }
+
+    [Fact]
+    public void GetUserActivity_UserHasNoActivityInCache_Returns200WithEmptyList()
     {
         var userId = Guid.NewGuid();
         var otherUserId = Guid.NewGuid();
 
-        var cached = new UserActivityResult
-        {
-            Items = new Collection<UserActivitySummary>
-            {
-                new()
-                {
-                    ItemId = Guid.NewGuid(),
-                    ItemName = "Movie A",
-                    ItemType = "Movie",
-                    TotalPlayCount = 5,
-                    UniqueViewers = 2,
-                    UserActivities = new Collection<UserItemActivity>
-                    {
-                        new()
-                        {
-                            UserId = userId,
-                            UserName = "Alice",
-                            PlayCount = 3,
-                            Played = true,
-                            LastPlayedDate = DateTime.UtcNow
-                        },
-                        new()
-                        {
-                            UserId = otherUserId,
-                            UserName = "Bob",
-                            PlayCount = 2,
-                            Played = true
-                        }
-                    }
-                },
-                new()
-                {
-                    ItemId = Guid.NewGuid(),
-                    ItemName = "Movie B",
-                    ItemType = "Movie",
-                    TotalPlayCount = 1,
-                    UniqueViewers = 1,
-                    UserActivities = new Collection<UserItemActivity>
-                    {
-                        new()
-                        {
-                            UserId = otherUserId,
-                            UserName = "Bob",
-                            PlayCount = 1,
-                            Played = true
-                        }
-                    }
-                }
-            }
-        };
+        var cached = BuildCachedResult(BuildSummary("Movie B", otherUserId));
         _mockCache.Setup(c => c.LoadResult()).Returns(cached);
 
-        var result = await _controller.GetUserActivity(userId, cancellationToken: CancellationToken.None);
-
-        var ok = Assert.IsType<OkObjectResult>(result.Result);
-        var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
-        Assert.Single(data);
-        Assert.Equal("Movie A", data[0].ItemName);
-        // Should only contain the filtered user's activity
-        Assert.Single(data[0].UserActivities);
-        Assert.Equal(userId, data[0].UserActivities[0].UserId);
-    }
-
-    [Fact]
-    public async Task GetUserActivity_UserNotFound_Returns200OkEmpty()
-    {
-        var cached = new UserActivityResult
-        {
-            Items = new Collection<UserActivitySummary>
-            {
-                new()
-                {
-                    ItemId = Guid.NewGuid(),
-                    ItemName = "Movie A",
-                    UserActivities = new Collection<UserItemActivity>
-                    {
-                        new() { UserId = Guid.NewGuid(), UserName = "Bob" }
-                    }
-                }
-            }
-        };
-        _mockCache.Setup(c => c.LoadResult()).Returns(cached);
-
-        var result = await _controller.GetUserActivity(Guid.NewGuid(), cancellationToken: CancellationToken.None);
+        ActionResult<List<UserActivitySummary>> result = _controller.GetUserActivity(userId);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
@@ -169,49 +248,35 @@ public class UserActivityControllerTests
     }
 
     [Fact]
-    public async Task GetUserActivity_EmptyGuid_Returns400()
-    {
-        var result = await _controller.GetUserActivity(Guid.Empty, cancellationToken: CancellationToken.None);
-
-        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
-        Assert.Contains("userId", badRequest.Value?.ToString(), StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task GetUserActivity_EpisodeFields_AreMappedCorrectly()
+    public void GetUserActivity_EpisodeFields_AreMappedCorrectly()
     {
         var userId = Guid.NewGuid();
 
-        var cached = new UserActivityResult
+        var summary = new UserActivitySummary
         {
-            Items = new Collection<UserActivitySummary>
+            ItemId = Guid.NewGuid(),
+            ItemName = "Folge 3",
+            ItemType = "Episode",
+            SeriesName = "Frieren: Beyond Journey's End",
+            EpisodeLabel = "S01E03",
+            TotalPlayCount = 1,
+            UniqueViewers = 1,
+            UserActivities =
             {
-                new()
+                new UserItemActivity
                 {
-                    ItemId = Guid.NewGuid(),
-                    ItemName = "Folge 3",
-                    ItemType = "Episode",
-                    SeriesName = "Frieren: Beyond Journey's End",
-                    EpisodeLabel = "S01E03",
-                    TotalPlayCount = 1,
-                    UniqueViewers = 1,
-                    UserActivities = new Collection<UserItemActivity>
-                    {
-                        new()
-                        {
-                            UserId = userId,
-                            UserName = "Alice",
-                            PlayCount = 1,
-                            Played = true,
-                            LastPlayedDate = DateTime.UtcNow
-                        }
-                    }
+                    UserId = userId,
+                    UserName = "Alice",
+                    PlayCount = 1,
+                    Played = true,
+                    LastPlayedDate = DateTime.UtcNow
                 }
             }
         };
-        _mockCache.Setup(c => c.LoadResult()).Returns(cached);
 
-        var result = await _controller.GetUserActivity(userId, cancellationToken: CancellationToken.None);
+        _mockCache.Setup(c => c.LoadResult()).Returns(BuildCachedResult(summary));
+
+        ActionResult<List<UserActivitySummary>> result = _controller.GetUserActivity(userId);
 
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsType<List<UserActivitySummary>>(ok.Value);
@@ -221,89 +286,45 @@ public class UserActivityControllerTests
         Assert.Equal("Folge 3", data[0].ItemName);
     }
 
-    [Fact]
-    public async Task GetLatestActivity_WhenDeactivated_Returns503()
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    private static UserActivityResult BuildCachedResult(params UserActivitySummary[] items)
     {
-        _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
+        var result = new UserActivityResult();
+        foreach (var item in items)
         {
-            RecommendationsTaskMode = TaskMode.Deactivate
-        });
+            result.Items.Add(item);
+        }
 
-        var result = await _controller.GetLatestActivity(CancellationToken.None);
-
-        var statusResult = Assert.IsType<ObjectResult>(result.Result);
-        Assert.Equal(503, statusResult.StatusCode);
+        return result;
     }
 
-    [Fact]
-    public async Task GetLatestActivity_DryRun_CacheMiss_Returns503()
+    /// <summary>
+    ///     Builds a summary where <paramref name="userIds" /> each get one played activity entry.
+    /// </summary>
+    private static UserActivitySummary BuildSummary(string name, params Guid[] userIds)
     {
-        _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
+        var summary = new UserActivitySummary
         {
-            RecommendationsTaskMode = TaskMode.DryRun
-        });
-        _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
+            ItemId = Guid.NewGuid(),
+            ItemName = name,
+            ItemType = "Movie"
+        };
 
-        var result = await _controller.GetLatestActivity(CancellationToken.None);
-
-        var statusResult = Assert.IsType<ObjectResult>(result.Result);
-        Assert.Equal(503, statusResult.StatusCode);
-        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task GetUserActivity_WhenDeactivated_Returns503()
-    {
-        _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
+        foreach (var uid in userIds)
         {
-            RecommendationsTaskMode = TaskMode.Deactivate
-        });
+            summary.UserActivities.Add(new UserItemActivity
+            {
+                UserId = uid,
+                UserName = uid.ToString("N")[..8],
+                PlayCount = 1,
+                Played = true,
+                LastPlayedDate = DateTime.UtcNow
+            });
+        }
 
-        var result = await _controller.GetUserActivity(Guid.NewGuid(), cancellationToken: CancellationToken.None);
-
-        var statusResult = Assert.IsType<ObjectResult>(result.Result);
-        Assert.Equal(503, statusResult.StatusCode);
-    }
-
-    [Fact]
-    public async Task GetUserActivity_DryRun_CacheMiss_Returns503()
-    {
-        var userId = Guid.NewGuid();
-        _mockConfig.Setup(c => c.GetConfiguration()).Returns(new PluginConfiguration
-        {
-            RecommendationsTaskMode = TaskMode.DryRun
-        });
-        _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
-
-        var result = await _controller.GetUserActivity(userId, cancellationToken: CancellationToken.None);
-
-        var statusResult = Assert.IsType<ObjectResult>(result.Result);
-        Assert.Equal(503, statusResult.StatusCode);
-        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task GetUserActivity_CacheMiss_Returns503()
-    {
-        var userId = Guid.NewGuid();
-        _mockCache.Setup(c => c.LoadResult()).Returns((UserActivityResult?)null);
-
-        var result = await _controller.GetUserActivity(userId, cancellationToken: CancellationToken.None);
-
-        var statusResult = Assert.IsType<ObjectResult>(result.Result);
-        Assert.Equal(503, statusResult.StatusCode);
-        _mockCache.Verify(c => c.SaveResult(It.IsAny<UserActivityResult>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task GetUserActivity_UserManagerReturnsNull_Returns404()
-    {
-        // Arrange: override the default mock so this specific userId is unknown
-        var unknownUserId = Guid.NewGuid();
-        _mockUserManager.Setup(m => m.GetUserById(unknownUserId)).Returns((User?)null);
-
-        var result = await _controller.GetUserActivity(unknownUserId, cancellationToken: CancellationToken.None);
-
-        Assert.IsType<NotFoundResult>(result.Result);
+        return summary;
     }
 }
