@@ -56,7 +56,9 @@ public static class MediaExtensions
         ".264",
         ".265",
         ".h264",
-        ".h265"
+        ".h265",
+        // Jellyfin stream-link files (.strm) point to remote video content and are treated as video files
+        StrmExtension
     };
 
     /// <summary>

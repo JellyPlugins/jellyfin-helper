@@ -1636,6 +1636,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     {
         lock (_snapshotRefreshLock)
         {
+            // Capture the sequence of whatever is currently cached BEFORE incrementing.
+            // This is the watermark that represents "freshest snapshot seen when this
+            // batch started committing". If a concurrent live-refresh increments the
+            // counter and writes a snapshot between our Increment call and our cache
+            // write, the post-increment current will have a sequence higher than the
+            // pre-increment baseline, and we can detect the race.
+            var previousSeq = _cachedSnapshot?.PublicationSequence ?? 0;
+
             // Increment inside the lock so that sequence assignment and the cache write
             // are atomic. This prevents the batch path (which builds its snapshot outside
             // the lock) from racing with a concurrent live-refresh and obtaining a sequence
@@ -1644,10 +1652,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             var stamped = candidate with { PublicationSequence = seq };
 
             var current = _cachedSnapshot;
-            if (current is not null && current.PublicationSequence > stamped.PublicationSequence)
+            if (current is not null && current.PublicationSequence > previousSeq)
             {
-                // A newer publish has already landed. Reject this write so the older one
-                // cannot roll the cache back to stale data.
+                // A newer publish landed after this batch started. Reject this write so
+                // the stale batch cannot roll the cache back.
                 return false;
             }
 

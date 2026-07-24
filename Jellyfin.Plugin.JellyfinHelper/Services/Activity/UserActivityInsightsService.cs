@@ -145,7 +145,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
 
                     if (hasPlaybackActivity)
                     {
-                        itemTotalPlays += userData.PlayCount;
+                        itemTotalPlays += Math.Max(userData.PlayCount, userData.Played ? 1 : 0);
                         completionSum += completion;
                         viewerCount++;
                     }

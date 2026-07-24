@@ -87,6 +87,11 @@ public class ArrIntegrationController : ControllerBase
             request.ApiKey ?? string.Empty,
             cancellationToken).ConfigureAwait(false);
 
+        if (!success)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = message });
+        }
+
         return Ok(new ConnectionTestResponse { Success = success, Message = message });
     }
 

@@ -80,6 +80,14 @@ public class SymlinkHelper : ISymlinkHelper
                 $"Cannot delete '{linkPath}': not a symbolic link.");
         }
 
-        File.Delete(linkPath);
+        var attrs = File.GetAttributes(linkPath);
+        if ((attrs & FileAttributes.Directory) != 0)
+        {
+            Directory.Delete(linkPath);
+        }
+        else
+        {
+            File.Delete(linkPath);
+        }
     }
 }

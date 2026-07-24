@@ -1,4 +1,6 @@
 using System;
+using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
 
@@ -26,11 +28,22 @@ public static class TransformationPatches
             return content.Contents ?? string.Empty;
         }
 
-        var pluginVersion = Plugin.Instance?.Version.ToString() ?? "unknown";
+        var pluginVersion = Plugin.Instance?.Version?.ToString() ?? "unknown";
         var scriptTag = DiscoveryScriptTag.Build(pluginVersion);
 
         // Remove any old versions of the script tag first
-        var updatedContent = DiscoveryScriptTag.RemovalRegex.Replace(content.Contents, string.Empty);
+        string updatedContent;
+        try
+        {
+            updatedContent = DiscoveryScriptTag.RemovalRegex.Replace(content.Contents, string.Empty);
+        }
+        catch (RegexMatchTimeoutException ex)
+        {
+            Plugin.Instance?.Logger.LogWarning(
+                ex,
+                "[Discovery Sidebar] RemovalRegex timed out on index.html content — returning unmodified content");
+            return content.Contents;
+        }
 
         // Inject the new script tag before the LAST </body> (case-insensitive for robustness).
         // Search is bounded to content before </html> so a literal </body> inside a <template>

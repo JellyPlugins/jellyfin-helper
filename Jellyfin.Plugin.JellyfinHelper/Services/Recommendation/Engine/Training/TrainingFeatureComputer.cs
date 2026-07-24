@@ -233,12 +233,6 @@ internal static class TrainingFeatureComputer
                 1.0)
             : 0.0;
 
-        // Aggregated user rating: average of all rated episodes
-        var ratedEpisodes = episodes.Where(e => e.UserRating is > 0).ToList();
-        var userRatingScore = ratedEpisodes.Count > 0
-            ? Math.Clamp(ratedEpisodes.Average(e => e.UserRating!.Value) / 10.0, 0.0, 1.0)
-            : 0.5;
-
         // Use seriesId for collaborative score (matches Phase 1 series scoring)
         var collabScore = ContentScoring.ComputeCollaborativeScore(seriesId, coOccurrence, collaborativeMax);
         var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore(mostRecent?.CommunityRating, null);

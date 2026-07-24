@@ -383,6 +383,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             });
 
         var removed = 0;
+        Guid? parsedExcludeId = excludePlaylistId is not null && Guid.TryParse(excludePlaylistId, out var tempId) ? tempId : (Guid?)null;
         foreach (var playlist in existingPlaylists)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -408,9 +409,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
             }
 
             // Skip the just-created replacement playlist
-            if (excludePlaylistId is not null
-                && Guid.TryParse(excludePlaylistId, out var excludedId)
-                && playlist.Id == excludedId)
+            if (parsedExcludeId is not null && playlist.Id == parsedExcludeId.Value)
             {
                 continue;
             }

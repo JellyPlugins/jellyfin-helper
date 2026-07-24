@@ -360,7 +360,7 @@ internal static class TrainingDataBuilder
                         userRatingScore = ContentScoring.ComputeUserRatingScore(watchedItemForRec);
                         completionRatio = hasUserInteraction
                             ? ContentScoring.ComputeCompletionRatio(watchedItemForRec)
-                            : 0.5;
+                            : 0.0;
                         break;
                 }
 

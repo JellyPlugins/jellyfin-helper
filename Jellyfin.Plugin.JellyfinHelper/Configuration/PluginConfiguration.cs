@@ -86,9 +86,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public int SeerrCleanupAgeDays
     {
         get => _seerrCleanupAgeDays;
-        set => _seerrCleanupAgeDays = value < 0
-            ? (int)ClampAndReport(nameof(SeerrCleanupAgeDays), value, 0, 3650)
-            : (value == 0 ? 0 : ClampAndReport(nameof(SeerrCleanupAgeDays), value, 1, 3650));
+        set => _seerrCleanupAgeDays = value <= 0 ? 0 : ClampAndReport(nameof(SeerrCleanupAgeDays), value, 1, 3650);
     }
 
     /// <summary>
@@ -207,7 +205,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public double EnsembleAlphaMin
     {
         get => _ensembleAlphaMin;
-        set => _ensembleAlphaMin = ClampAndReport(nameof(EnsembleAlphaMin), value, 0.0, 1.0);
+        set
+        {
+            _ensembleAlphaMin = ClampAndReport(nameof(EnsembleAlphaMin), value, 0.0, 1.0);
+            NormalizeAlphaRange();
+        }
     }
 
     /// <summary>

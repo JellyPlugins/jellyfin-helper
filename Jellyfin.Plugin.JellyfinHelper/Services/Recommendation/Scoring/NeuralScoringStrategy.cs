@@ -677,7 +677,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                             var baseIdx = j * inputSize;
                             for (var i = 0; i < inputSize; i++)
                             {
-                                attr[i] += combined * _weightsIH[baseIdx + i] * vector[i];
+                                attr[i] += combined * _weightsIH[baseIdx + i];
                             }
                         }
                     }
@@ -782,6 +782,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
         {
             _rwLock.EnterWriteLock();
 
+            _adamTimestep = 0;
             EnsureAdamState(inputSize);
 
             var valCount = Math.Max(MinValidationExamples, (int)(examples.Count * ValidationSplitRatio));

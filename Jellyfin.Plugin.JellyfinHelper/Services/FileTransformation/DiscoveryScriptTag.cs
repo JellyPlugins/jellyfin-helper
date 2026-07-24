@@ -26,7 +26,8 @@ internal static class DiscoveryScriptTag
     /// </summary>
     public static readonly Regex RemovalRegex = new(
         "<script[^>]*plugin=[\"']" + Regex.Escape(PluginName) + "[\"'][^>]*>\\s*</script>\\r?\\n?",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled,
+        TimeSpan.FromSeconds(2));
 
     /// <summary>
     ///     Builds the full HTML script tag for injection into index.html.

@@ -96,12 +96,6 @@ public class MediaStatisticsController : ControllerBase
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Release the rate-limit slot so callers are not locked out after a failed scan.
-            lock (RateLimitLock)
-            {
-                SetLastScanTime(DateTime.MinValue);
-            }
-
             throw;
         }
 

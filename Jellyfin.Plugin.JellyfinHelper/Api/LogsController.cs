@@ -21,7 +21,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 public class LogsController : ControllerBase
 {
     private static readonly HashSet<string> ValidLogLevels =
-        new(StringComparer.OrdinalIgnoreCase) { "TRACE", "DEBUG", "INFO", "WARN", "ERROR" };
+        new(StringComparer.OrdinalIgnoreCase) { "DEBUG", "INFO", "WARN", "ERROR" };
 
     private readonly ILogger<LogsController> _logger;
     private readonly IPluginLogService _pluginLog;
@@ -40,7 +40,7 @@ public class LogsController : ControllerBase
     /// <summary>
     ///     Gets the plugin-specific log entries from the in-memory ring buffer.
     /// </summary>
-    /// <param name="minLevel">Optional minimum log level filter (TRACE, DEBUG, INFO, WARN, ERROR).</param>
+    /// <param name="minLevel">Optional minimum log level filter (DEBUG, INFO, WARN, ERROR).</param>
     /// <param name="source">Optional source component filter (partial match, max 200 chars).</param>
     /// <param name="limit">Maximum number of entries to return (default 500, max 2000).</param>
     /// <returns>A list of log entries, newest first.</returns>
@@ -73,7 +73,7 @@ public class LogsController : ControllerBase
     /// <summary>
     ///     Downloads the plugin logs as a plain-text file.
     /// </summary>
-    /// <param name="minLevel">Optional minimum log level filter (TRACE, DEBUG, INFO, WARN, ERROR).</param>
+    /// <param name="minLevel">Optional minimum log level filter (DEBUG, INFO, WARN, ERROR).</param>
     /// <param name="source">Optional source filter (partial match, max 200 chars).</param>
     /// <returns>A text file containing the log entries.</returns>
     [HttpGet("Download")]
@@ -116,7 +116,7 @@ public class LogsController : ControllerBase
     {
         if (minLevel != null && !ValidLogLevels.Contains(minLevel))
         {
-            return "Invalid minLevel. Allowed values: TRACE, DEBUG, INFO, WARN, ERROR.";
+            return "Invalid minLevel. Allowed values: DEBUG, INFO, WARN, ERROR.";
         }
 
         if (source?.Length > 200)

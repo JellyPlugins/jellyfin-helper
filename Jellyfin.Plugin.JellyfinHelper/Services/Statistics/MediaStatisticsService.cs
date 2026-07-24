@@ -387,7 +387,8 @@ public class MediaStatisticsService : IMediaStatisticsService
                     {
                         var videoStem = Path.GetFileNameWithoutExtension(vf2.FullName);
                         var hasSidecar = subsStems.Any(s =>
-                            s.StartsWith(videoStem, StringComparison.OrdinalIgnoreCase));
+                            string.Equals(s, videoStem, StringComparison.OrdinalIgnoreCase) ||
+                            s.StartsWith(videoStem + ".", StringComparison.OrdinalIgnoreCase));
                         if (!hasSidecar &&
                             !HasEmbeddedSubtitles(vf2.FullName, videoStreamsCache.GetValueOrDefault(vf2.FullName)))
                         {

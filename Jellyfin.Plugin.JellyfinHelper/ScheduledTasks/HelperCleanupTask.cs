@@ -198,7 +198,7 @@ public class HelperCleanupTask : IScheduledTask
                     var candidatePath = _configHelper.GetTrashPath(location);
                     var libraryRoot = Path.GetFullPath(location).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                     var trashPath = Path.GetFullPath(candidatePath);
-                    var pathComparison = StringComparison.OrdinalIgnoreCase;
+                    var pathComparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
                     if (!trashPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, pathComparison))
                     {
                         _pluginLog.LogWarning("HelperCleanup", $"Trash purge skipped for {location}: resolved trash path {trashPath} is outside library root.", logger: _logger);

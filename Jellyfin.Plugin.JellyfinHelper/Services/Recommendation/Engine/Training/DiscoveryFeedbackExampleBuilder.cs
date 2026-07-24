@@ -194,8 +194,9 @@ internal static class DiscoveryFeedbackExampleBuilder
         // Compute genre similarity against user profile
         var genreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genres, genrePreferences);
 
-        // Compute combined critic score from TMDb rating (normalized 0-10 → 0-1)
-        var combinedCriticScore = Math.Clamp(entry.TmdbRating / 10.0, 0.0, 1.0);
+        // Compute combined critic score from TMDb rating; zero/absent ratings return 0.5 (neutral),
+        // matching inference behavior.
+        var combinedCriticScore = ContentScoring.ComputeCombinedCriticScore((float?)entry.TmdbRating, null);
 
         // Compute recency from production year
         var recencyScore = entry.Year is { } year and >= 1 and <= 9999

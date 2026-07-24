@@ -34,12 +34,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
-        Instance = this;
         _applicationPaths = applicationPaths;
         _logger = logger;
         Api.UserDiscoveryController.ClearRateLimitState();
         ReportClampedConfigValues();
         InjectScript();
+        Instance = this;
     }
 
     /// <inheritdoc />
@@ -56,6 +56,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ///     Gets the current plugin instance.
     /// </summary>
     public static Plugin? Instance { get; private set; }
+
+    /// <summary>
+    ///     Gets the logger for use by internal helpers that share the plugin's logging category.
+    /// </summary>
+    internal ILogger<Plugin> Logger => _logger;
 
     /// <summary>
     ///     Gets the path to Jellyfin's web UI index.html file.

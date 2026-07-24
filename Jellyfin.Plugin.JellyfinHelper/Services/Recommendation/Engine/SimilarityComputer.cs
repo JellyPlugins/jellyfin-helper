@@ -278,12 +278,22 @@ internal sealed class SimilarityComputer
 
         var userNorm = Math.Sqrt(userNormSq);
 
+        if (double.IsNaN(userNorm) || double.IsInfinity(userNorm))
+        {
+            return 0;
+        }
+
         if (candidateNorm <= 0 || userNorm <= 0)
         {
             return 0;
         }
 
         var cosineSimilarity = Math.Min(dotProduct / (candidateNorm * userNorm), 1.0);
+
+        if (double.IsNaN(cosineSimilarity))
+        {
+            return 0;
+        }
 
         // Unknown-genre damping: when a candidate has genres the user has never watched,
         // reduce the similarity proportionally. This prevents items that share some common

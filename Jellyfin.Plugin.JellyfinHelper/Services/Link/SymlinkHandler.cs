@@ -70,7 +70,7 @@ public class SymlinkHandler : ILinkHandler
             {
                 _symlinkHelper.CreateSymlink(filePath, previousTarget);
             }
-            catch (Exception rollbackEx) when (rollbackEx is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+            catch (Exception rollbackEx) when (rollbackEx is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or InvalidOperationException)
             {
                 // Rollback failed: the original symlink at filePath is permanently gone.
                 // Log at Warning so operators can detect and remediate manually.

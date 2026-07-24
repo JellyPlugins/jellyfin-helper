@@ -223,7 +223,17 @@ public class TrashService : ITrashService
                 try
                 {
                     var size = CalculateDirectorySize(dir);
-                    Directory.Delete(dir, true);
+                    var dirInfo = new DirectoryInfo(dir);
+                    if (dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    {
+                        // Delete only the symlink/junction itself, not what it points to
+                        dirInfo.Delete();
+                    }
+                    else
+                    {
+                        Directory.Delete(dir, true);
+                    }
+
                     totalBytesFreed += size;
                     itemsPurged++;
                     _pluginLog.LogInfo(

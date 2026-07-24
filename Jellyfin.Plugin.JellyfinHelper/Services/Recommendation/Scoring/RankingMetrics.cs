@@ -61,7 +61,7 @@ internal static class RankingMetrics
             }
         }
 
-        return (double)relevantInTopK / effectiveK;
+        return (double)relevantInTopK / k;
     }
 
     /// <summary>

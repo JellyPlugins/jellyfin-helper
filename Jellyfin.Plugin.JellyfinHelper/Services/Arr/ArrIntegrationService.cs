@@ -17,6 +17,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 public sealed class ArrIntegrationService : IArrIntegrationService
 {
     private static readonly JsonSerializerOptions JsonOptions = JsonDefaults.Options;
+    private static readonly char[] PathSeparators = ['/', '\\'];
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ArrIntegrationService> _logger;
@@ -65,7 +66,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         try
         {
             ValidateArrUrl(baseUrl);
-            var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\')), "api/v3/system/status").ToString();
+            var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\') + '/'), "api/v3/system/status").ToString();
             // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
             var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -105,6 +106,15 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 _logger);
             return (false, $"Connection failed: {ex.Message}");
         }
+        catch (InvalidOperationException ex)
+        {
+            _pluginLog.LogWarning(
+                "ArrIntegration",
+                $"Arr connection test failed for {baseUrl}: {ex.Message}",
+                ex,
+                _logger);
+            return (false, "Response too large");
+        }
         catch (Exception ex) when (ex is JsonException or UriFormatException or ArgumentException)
         {
             _pluginLog.LogWarning(
@@ -140,7 +150,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             ValidateArrUrl(baseUrl);
             // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
             var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
-            var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\')), "api/v3/movie").ToString();
+            var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\') + '/'), "api/v3/movie").ToString();
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
@@ -175,6 +185,11 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             _pluginLog.LogWarning("ArrIntegration", $"Request to {baseUrl} timed out", null, _logger);
             return null;
         }
+        catch (InvalidOperationException ex)
+        {
+            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Radarr at {baseUrl}", ex, _logger);
+            return null;
+        }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or ArgumentException)
         {
             _pluginLog.LogError("ArrIntegration", $"Failed to fetch movies from Radarr at {baseUrl}", ex, _logger);
@@ -206,7 +221,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             ValidateArrUrl(baseUrl);
             // Do NOT dispose: IHttpClientFactory manages the underlying handler lifetime.
             var httpClient = _httpClientFactory.CreateClient("ArrIntegration");
-            var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\')), "api/v3/series").ToString();
+            var url = new Uri(new Uri(baseUrl.TrimEnd('/', '\\') + '/'), "api/v3/series").ToString();
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
 
@@ -243,6 +258,11 @@ public sealed class ArrIntegrationService : IArrIntegrationService
             _pluginLog.LogWarning("ArrIntegration", $"Request to {baseUrl} timed out", null, _logger);
             return null;
         }
+        catch (InvalidOperationException ex)
+        {
+            _pluginLog.LogWarning("ArrIntegration", $"Response too large from Sonarr at {baseUrl}", ex, _logger);
+            return null;
+        }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or ArgumentException)
         {
             _pluginLog.LogError("ArrIntegration", $"Failed to fetch series from Sonarr at {baseUrl}", ex, _logger);
@@ -269,7 +289,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         foreach (var movie in radarrMovies)
         {
-            var folderName = Path.GetFileName(movie.Path.TrimEnd('/').TrimEnd('\\'));
+            var folderName = movie.Path.TrimEnd('/', '\\').Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
             if (string.IsNullOrEmpty(folderName))
             {
                 continue;
@@ -292,7 +312,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         // Find Jellyfin-only items (not in Radarr)
         var radarrFolderNames = new HashSet<string>(
             radarrMovies
-                .Select(m => Path.GetFileName(m.Path.TrimEnd('/').TrimEnd('\\')))
+                .Select(m => m.Path.TrimEnd('/', '\\').Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty)
                 .Where(n => !string.IsNullOrEmpty(n)),
             StringComparer.OrdinalIgnoreCase);
 
@@ -323,7 +343,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         foreach (var series in sonarrSeries)
         {
-            var folderName = Path.GetFileName(series.Path.TrimEnd('/').TrimEnd('\\'));
+            var folderName = series.Path.TrimEnd('/', '\\').Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
             if (string.IsNullOrEmpty(folderName))
             {
                 continue;
@@ -346,7 +366,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         var sonarrFolderNames = new HashSet<string>(
             sonarrSeries
-                .Select(s => Path.GetFileName(s.Path.TrimEnd('/').TrimEnd('\\')))
+                .Select(s => s.Path.TrimEnd('/', '\\').Split(PathSeparators, StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty)
                 .Where(n => !string.IsNullOrEmpty(n)),
             StringComparer.OrdinalIgnoreCase);
 

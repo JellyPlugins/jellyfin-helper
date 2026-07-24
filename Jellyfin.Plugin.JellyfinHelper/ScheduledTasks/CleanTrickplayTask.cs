@@ -118,9 +118,13 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
             // path exceeds the OS limit (PATH_MAX).
             // Path.GetFullPath normalizes trailing separators, relative segments, and mixed slashes.
             var trashPath = ConfigHelper.GetTrashPath(libraryPath);
-            var normalizedTrash = Path.GetFullPath(trashPath)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                + Path.DirectorySeparatorChar;
+            var trashRoot = Path.GetFullPath(trashPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            // Use case-sensitive comparison on Linux, case-insensitive on Windows/macOS.
+            var pathComparison = OperatingSystem.IsLinux()
+                ? StringComparison.Ordinal
+                : StringComparison.OrdinalIgnoreCase;
 
             // Cache files per parent directory to avoid repeated filesystem calls
             var fileCache = new Dictionary<string, FileSystemMetadata[]>(StringComparer.OrdinalIgnoreCase);
@@ -128,10 +132,12 @@ public class CleanTrickplayTask : BaseLibraryCleanupTask
             foreach (var dirFullName in directories)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                // Skip directories inside the trash folder to prevent re-trashing already-trashed items.
+                // Skip the trash root itself and any directories inside it to prevent
+                // re-trashing already-trashed items.
                 var normalizedDirPath = Path.GetFullPath(dirFullName)
                     .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                if (normalizedDirPath.StartsWith(normalizedTrash, StringComparison.OrdinalIgnoreCase))
+                if (normalizedDirPath.Equals(trashRoot, pathComparison)
+                    || normalizedDirPath.StartsWith(trashRoot + Path.DirectorySeparatorChar, pathComparison))
                 {
                     continue;
                 }

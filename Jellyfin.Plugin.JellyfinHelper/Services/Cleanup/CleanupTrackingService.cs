@@ -32,6 +32,16 @@ public class CleanupTrackingService : ICleanupTrackingService
     /// <inheritdoc />
     public void RecordCleanup(long bytesFreed, int itemsDeleted, ILogger logger)
     {
+        if (bytesFreed < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bytesFreed), "Must be non-negative.");
+        }
+
+        if (itemsDeleted < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(itemsDeleted), "Must be non-negative.");
+        }
+
         long totalBytes = 0;
         int totalItems = 0;
 

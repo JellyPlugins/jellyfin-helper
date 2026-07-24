@@ -103,7 +103,7 @@ public class CleanOrphanedSubtitlesTask : BaseLibraryCleanupTask
                 // Skip the trash folder and everything inside it
                 var normalizedDir = Path.GetFullPath(dirPath)
                     .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
                 if (normalizedDir.Equals(normalizedTrash, comparison)
                     || normalizedDir.StartsWith(normalizedTrashSep, comparison)
                     || normalizedDir.StartsWith(normalizedTrashAlt, comparison))

@@ -14,6 +14,21 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 /// </summary>
 public class FolderBrowserService : IFolderBrowserService
 {
+    private static readonly string[] SafeHiddenPrefixes =
+    [
+        ".jellyfin-trash",
+        ".Trash-",
+    ];
+
+    private static readonly HashSet<string> DangerousLinuxPaths =
+    [
+        "/proc",
+        "/sys",
+        "/dev",
+        "/run",
+        "/boot",
+    ];
+
     private readonly ILogger<FolderBrowserService> _logger;
     private readonly bool _isWindows;
 
@@ -436,6 +451,35 @@ public class FolderBrowserService : IFolderBrowserService
     /// <returns>True if the directory should be hidden from the browser.</returns>
     private static bool IsSystemOrHiddenCritical(DirectoryInfo dirInfo)
     {
+        // H-111 — block dangerous Linux/macOS virtual file-systems by absolute path
+        if (!OperatingSystem.IsWindows())
+        {
+            var fullPath = dirInfo.FullName.TrimEnd('/');
+            if (DangerousLinuxPaths.Contains(fullPath))
+            {
+                return true;
+            }
+        }
+
+        // H-112 — on all platforms, hide dot-directories unless they are known-safe
+        if (dirInfo.Name.StartsWith('.'))
+        {
+            var isSafe = false;
+            foreach (var prefix in SafeHiddenPrefixes)
+            {
+                if (dirInfo.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    isSafe = true;
+                    break;
+                }
+            }
+
+            if (!isSafe)
+            {
+                return true;
+            }
+        }
+
         // On Windows, filter out system-level hidden dirs that are never valid trash targets
         if (!OperatingSystem.IsWindows())
         {

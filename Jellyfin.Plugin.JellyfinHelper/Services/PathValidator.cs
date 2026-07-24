@@ -30,6 +30,11 @@ internal static class PathValidator
     /// <returns><c>true</c> if the path is safe; <c>false</c> otherwise.</returns>
     internal static bool IsSafePath(string? path, string allowedBaseDirectory, IPluginLogService? pluginLog = null)
     {
+        if (string.IsNullOrEmpty(allowedBaseDirectory))
+        {
+            return false;
+        }
+
         if (string.IsNullOrWhiteSpace(path))
         {
             pluginLog?.LogDebug("PathValidator", "Path validation failed: path is empty or null.");
@@ -47,7 +52,7 @@ internal static class PathValidator
         }
 
         var segments = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (Array.Exists(segments, s => s == ".."))
+        if (Array.Exists(segments, s => s == ".." || s == "."))
         {
             pluginLog?.LogWarning("PathValidator", $"Path validation failed: traversal segment detected in '{path}'.");
             return false;
@@ -68,7 +73,7 @@ internal static class PathValidator
             return fullPath.Equals(basePath, comparison)
                    || fullPath.StartsWith(baseWithSep, comparison);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or ArgumentNullException)
         {
             return false;
         }
@@ -84,6 +89,11 @@ internal static class PathValidator
     /// <returns><c>true</c> if deletion is safe; <c>false</c> otherwise.</returns>
     internal static bool IsPathSafeForDeletion(string fullPath, IReadOnlyList<string> libraryFolders)
     {
+        if (string.IsNullOrWhiteSpace(fullPath) || !Path.IsPathRooted(fullPath))
+        {
+            return false;
+        }
+
         var comparison = OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;

@@ -7,8 +7,12 @@ using System.Threading.Tasks;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 
 /// <summary>
-///     Writes text files atomically (write-to-temp then move-over-target) with a small,
+///     Writes text files using write-to-temp then File.Replace/Move with a small,
 ///     bounded retry on transient I/O failures.
+///     When the destination already exists, <c>File.Replace</c> is used (atomic via
+///     <c>ReplaceFileW</c> on Windows); when the destination is new, <c>File.Move</c>
+///     is used. Note that on Windows, File.Move with overwrite is NOT atomic when the
+///     destination exists (it deletes then renames), which is why File.Replace is preferred.
 ///     <para>
 ///         <b>Threading model:</b> Two entry points share the same retry contract:
 ///         <list type="bullet">
@@ -98,7 +102,15 @@ internal static class AtomicFile
             {
                 // Explicit UTF-8 (no BOM) — see the class-level Encoding note.
                 File.WriteAllText(tempPath, contents, Utf8NoBom);
-                File.Move(tempPath, path, overwrite: true);
+                if (File.Exists(path))
+                {
+                    File.Replace(tempPath, path, destinationBackupFileName: null);
+                }
+                else
+                {
+                    File.Move(tempPath, path);
+                }
+
                 return;
             }
             catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && attempt < maxAttempts)
@@ -180,10 +192,20 @@ internal static class AtomicFile
                 // the temp file will propagate through here without needing the outer check.
                 await File.WriteAllTextAsync(tempPath, contents, Utf8NoBom, cancellationToken).ConfigureAwait(false);
 
-                // File.Move has no async overload in .NET 8/9. It's a fast metadata operation
-                // (rename within the same directory), so blocking here for the sub-millisecond
-                // duration is acceptable and identical to the sync overload's contract.
-                File.Move(tempPath, path, overwrite: true);
+                // File.Replace/Move has no async overload in .NET 8/9. It's a fast metadata
+                // operation (rename within the same directory), so blocking here for the
+                // sub-millisecond duration is acceptable and identical to the sync overload's
+                // contract. File.Replace is used when the destination exists (atomic via
+                // ReplaceFileW on Windows); File.Move is used for new files.
+                if (File.Exists(path))
+                {
+                    File.Replace(tempPath, path, destinationBackupFileName: null);
+                }
+                else
+                {
+                    File.Move(tempPath, path);
+                }
+
                 return;
             }
             catch (OperationCanceledException)
@@ -224,16 +246,9 @@ internal static class AtomicFile
     {
         try
         {
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
+            File.Delete(tempPath);
         }
-        catch (IOException)
-        {
-            // best effort - temp file cleanup is non-critical
-        }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException or PathTooLongException)
         {
             // best effort - temp file cleanup is non-critical
         }

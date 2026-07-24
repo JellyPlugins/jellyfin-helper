@@ -125,6 +125,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         var expiredRequests = new List<SeerrRequest>();
         var skip = 0;
         bool hasMore;
+        var phaseOneFailed = false;
 
         do
         {
@@ -150,6 +151,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
                 result.Failed++;
+                phaseOneFailed = true;
                 _pluginLog.LogWarning(
                     "SeerrCleanup",
                     $"Timed out fetching requests page (skip={skip}): {ex.Message}",
@@ -160,6 +162,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             catch (Exception ex) when (ex is HttpRequestException or JsonException)
             {
                 result.Failed++;
+                phaseOneFailed = true;
                 _pluginLog.LogWarning(
                     "SeerrCleanup",
                     $"Failed to fetch requests page (skip={skip}): {ex.Message}",
@@ -171,6 +174,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             if (page?.Results == null)
             {
                 result.Failed++;
+                phaseOneFailed = true;
                 _pluginLog.LogWarning(
                     "SeerrCleanup",
                     $"Unexpected null response deserializing requests page (skip={skip})",
@@ -186,6 +190,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             if (page.PageInfo == null)
             {
                 result.Failed++;
+                phaseOneFailed = true;
                 _pluginLog.LogWarning(
                     "SeerrCleanup",
                     "Unexpected API response: missing pageInfo, aborting pagination",
@@ -207,13 +212,21 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 expiredRequests.Add(request);
             }
 
-            skip += PageSize;
+            skip += page.Results.Count;
             hasMore = skip < page.PageInfo.Results;
         }
         while (hasMore);
 
-        // Phase 2: Process expired requests (log in dry-run, delete otherwise)
-        // Cache resolved titles to avoid redundant API calls for the same TMDB ID
+        // Phase 2: skip deletion if Phase 1 did not complete cleanly
+        if (phaseOneFailed)
+        {
+            _pluginLog.LogWarning(
+                "SeerrCleanup",
+                "Phase 1 pagination did not complete successfully; skipping deletion to avoid acting on an incomplete snapshot.",
+                logger: _logger);
+            return result;
+        }
+
         var titleCache = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var request in expiredRequests)
