@@ -407,7 +407,6 @@ public class CollaborativeFilterTests
     [Fact]
     public void BuildCollaborativeMap_TrustWeight_SparseVsFullTrust_AttenuatesSignal()
     {
-
         // Approach: hold the neighbour identity constant (same watched IDs, same Jaccard) and
         // toggle the trust gate on/off by swapping the gatekeeper profile. When the gate is
         // OFF (all-sparse deployment) trust=1.0. When the gate is ON (at least one rich profile
