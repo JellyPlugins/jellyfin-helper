@@ -30,7 +30,15 @@ test('plugin is installed and Active (not Malfunctioned)', async () => {
   const plugin = plugins.find((pl) => pl.Id.replace(/-/g, '') === PLUGIN_GUID.replace(/-/g, ''));
   expect(plugin, 'Jellyfin Helper plugin present in /Plugins').toBeTruthy();
   expect(plugin!.Status).toBe('Active');
-  expect(plugin!.Version).toBe('3.0.0.0');
+  // Version is not hardcoded: run.sh exports PLUGIN_VERSION from
+  // Directory.Build.props. If set, assert an exact match; otherwise just
+  // require a non-empty version string.
+  const expectedVersion = process.env.PLUGIN_VERSION;
+  if (expectedVersion) {
+    expect(plugin!.Version).toBe(expectedVersion);
+  } else {
+    expect(plugin!.Version).toMatch(/^\d+\.\d+/);
+  }
 });
 
 test('plugin configuration page is registered', async () => {
