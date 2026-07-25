@@ -38,7 +38,12 @@ services:
       - ./runtime/media:/media
     healthcheck:
       # Jellyfin exposes an unauthenticated /health endpoint that returns "Healthy".
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8096/health | grep -q Healthy || exit 1"]
+      # Use curl if present, else wget — the RC image may ship only one of them.
+      test:
+        - CMD-SHELL
+        - >-
+          (curl -fsS http://localhost:8096/health 2>/dev/null ||
+           wget -qO- http://localhost:8096/health 2>/dev/null) | grep -q Healthy || exit 1
       interval: 5s
       timeout: 5s
       retries: 40

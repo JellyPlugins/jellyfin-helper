@@ -67,7 +67,8 @@ if [ "$BUILD" -eq 1 ]; then
   cp "$RUNTIME/publish/System.IO.Abstractions.dll" "$PLUGIN_STAGE/" 2>/dev/null || true
   cp "$RUNTIME/publish/logo.png" "$PLUGIN_STAGE/" 2>/dev/null || true
   # meta.json so Jellyfin shows a clean plugin entry (name/version/guid).
-  "$SCRIPT_DIR/write-meta.sh" "$PLUGIN_STAGE"
+  # Invoked via `bash` so it works regardless of the file's execute bit.
+  bash "$SCRIPT_DIR/write-meta.sh" "$PLUGIN_STAGE"
 else
   log "Skipping build (--no-build); using existing $PLUGIN_STAGE"
   [ -f "$PLUGIN_STAGE/Jellyfin.Plugin.JellyfinHelper.dll" ] || {
