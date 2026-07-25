@@ -479,7 +479,10 @@ public class CleanupConfigHelper : ICleanupConfigHelper
             return false;
         }
 
-        var segments = location.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // Split on all three possible separators so the check works correctly on both
+        // Linux (separator='/') and Windows (separator='\'), including Windows-style paths
+        // stored in config on a Linux host.
+        var segments = location.Split('/', '\\');
         return segments.Any(s => string.Equals(s, "collections", StringComparison.OrdinalIgnoreCase));
     }
 
