@@ -153,9 +153,9 @@ public class TrashController : ControllerBase
             {
                 var trashPath = Path.GetFullPath(_configHelper.GetTrashPath(folder));
                 var libraryRoot = Path.GetFullPath(folder);
-                if (!trashPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, OperatingSystem.IsLinux()
-                        ? StringComparison.Ordinal
-                        : StringComparison.OrdinalIgnoreCase))
+                if (!trashPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal))
                 {
                     _pluginLog.LogWarning("API", $"Refusing to delete trash path {trashPath}: it escapes library root {libraryRoot}.", logger: _logger);
                     continue;
@@ -296,7 +296,8 @@ public class TrashController : ControllerBase
         var oldPath = request.OldTrashPath.Trim();
         var newPath = request.NewTrashPath.Trim();
 
-        if (request.OldTrashPath.Contains("..", StringComparison.OrdinalIgnoreCase) || request.NewTrashPath.Contains("..", StringComparison.OrdinalIgnoreCase))
+        if (oldPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Any(s => s is "." or "..") ||
+            newPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Any(s => s is "." or ".."))
         {
             return BadRequest("Path traversal not allowed");
         }

@@ -199,7 +199,7 @@ public class BackupController : ControllerBase
                         buffer,
                         Encoding.UTF8,
                         true,
-                        leaveOpen: false);
+                        leaveOpen: true);
                     json = await reader.ReadToEndAsync(HttpContext.RequestAborted).ConfigureAwait(false);
                 }
                 finally

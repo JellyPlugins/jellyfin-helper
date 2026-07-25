@@ -221,18 +221,13 @@ public class ConfigurationController : ControllerBase
         // can interleave its own writes between GetConfiguration and SaveConfiguration.
         PluginConfiguration config = null!;
         string persistedLogLevel = string.Empty;
-        double capturedAlphaMin = 0, capturedAlphaMax = 0, capturedPenaltyFloor = 0;
         _configService.ReadAndMutate(cfg =>
         {
             config = cfg;
             persistedLogLevel = cfg.PluginLogLevel;
             ApplyRequestToConfig(request, cfg);
-            capturedAlphaMin = cfg.EnsembleAlphaMin;
-            capturedAlphaMax = cfg.EnsembleAlphaMax;
-            capturedPenaltyFloor = cfg.EnsembleGenrePenaltyFloor;
+            _ensemble.Reconfigure(cfg.EnsembleAlphaMin, cfg.EnsembleAlphaMax, cfg.EnsembleGenrePenaltyFloor);
         });
-
-        _ensemble.Reconfigure(capturedAlphaMin, capturedAlphaMax, capturedPenaltyFloor);
 
         _pluginLog.LogInfo("API", "Plugin configuration updated.", _logger);
 
@@ -443,6 +438,27 @@ public class ConfigurationController : ControllerBase
         if (request.RecommendationsTaskMode.HasValue)
         {
             config.RecommendationsTaskMode = request.RecommendationsTaskMode.Value;
+        }
+
+        if (request.EnsembleAlphaMin.HasValue)
+        {
+            config.EnsembleAlphaMin = Math.Clamp(request.EnsembleAlphaMin.Value, 0.0, 1.0);
+        }
+
+        if (request.EnsembleAlphaMax.HasValue)
+        {
+            config.EnsembleAlphaMax = Math.Clamp(request.EnsembleAlphaMax.Value, 0.0, 1.0);
+        }
+
+        if (request.EnsembleGenrePenaltyFloor.HasValue)
+        {
+            config.EnsembleGenrePenaltyFloor = Math.Clamp(request.EnsembleGenrePenaltyFloor.Value, 0.0, 1.0);
+        }
+
+        // Enforce min ≤ max after both values may have been updated.
+        if (config.EnsembleAlphaMin > config.EnsembleAlphaMax)
+        {
+            config.EnsembleAlphaMax = config.EnsembleAlphaMin;
         }
 
         if (request.SyncRecommendationsToPlaylist.HasValue)

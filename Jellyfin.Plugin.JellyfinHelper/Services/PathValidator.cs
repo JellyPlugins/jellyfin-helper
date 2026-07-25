@@ -108,6 +108,11 @@ internal static class PathValidator
 
         foreach (var folder in libraryFolders)
         {
+            if (string.IsNullOrWhiteSpace(folder))
+            {
+                continue;
+            }
+
             var libraryRoot = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var candidate = Path.GetFullPath(fullPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
@@ -157,6 +162,11 @@ internal static class PathValidator
         // Strip any directory components left after the pass above.
         name = Path.GetFileName(name);
 
-        return string.IsNullOrWhiteSpace(name) ? "export" : name;
+        if (string.IsNullOrWhiteSpace(name) || name == "." || name == "..")
+        {
+            return "export";
+        }
+
+        return name;
     }
 }

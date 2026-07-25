@@ -146,7 +146,7 @@ public static class TimelineAggregator
             {
                 // Update size and count to current values (creation date stays the same)
                 existing.Size = dir.Size;
-                existing.Count = (int)dir.Count;
+                existing.Count = dir.Count;
             }
             else
             {
@@ -155,7 +155,7 @@ public static class TimelineAggregator
                 {
                     CreatedUtc = dir.CreatedUtc,
                     Size = dir.Size,
-                    Count = (int)dir.Count
+                    Count = dir.Count
                 };
             }
         }

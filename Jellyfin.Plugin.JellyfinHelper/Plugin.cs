@@ -404,7 +404,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 var closingBodyTag = "</body>";
                 var htmlCloseIndex = content.LastIndexOf("</html>", StringComparison.OrdinalIgnoreCase);
-                var searchBound = htmlCloseIndex >= 0 ? htmlCloseIndex - 1 : content.Length - 1;
+                var searchBound = htmlCloseIndex > 0 ? htmlCloseIndex - 1 : content.Length - 1;
                 var closingBodyIndex = content.LastIndexOf(closingBodyTag, searchBound, StringComparison.OrdinalIgnoreCase);
                 if (closingBodyIndex >= 0)
                 {

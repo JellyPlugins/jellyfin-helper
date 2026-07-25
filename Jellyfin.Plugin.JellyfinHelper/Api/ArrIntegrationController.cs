@@ -84,7 +84,7 @@ public class ArrIntegrationController : ControllerBase
         }
 
         var (success, message) = await _arrService.TestConnectionAsync(
-            url,
+            parsedUrl.AbsoluteUri,
             request.ApiKey ?? string.Empty,
             cancellationToken).ConfigureAwait(false);
 
