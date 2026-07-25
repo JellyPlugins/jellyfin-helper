@@ -519,7 +519,8 @@ public class ConfigurationController : ControllerBase
         // Snapshot existing instances BEFORE clearing so the sentinel guard can look up
         // the stored key by Name+Url rather than positional index. Index-based restoration
         // would silently assign the wrong key when the admin removes or reorders instances.
-        var previousRadarrInstances = config.RadarrInstances.ToList();
+        var previousRadarrInstances = (config.RadarrInstances ?? []).ToList();
+        config.RadarrInstances ??= [];
         config.RadarrInstances.Clear();
         foreach (var instance in request.RadarrInstances ?? [])
         {
@@ -533,7 +534,8 @@ public class ConfigurationController : ControllerBase
 
         // Update Sonarr instances (clear + re-add from request).
         // Same sentinel-preservation pattern as Radarr above.
-        var previousSonarrInstances = config.SonarrInstances.ToList();
+        var previousSonarrInstances = (config.SonarrInstances ?? []).ToList();
+        config.SonarrInstances ??= [];
         config.SonarrInstances.Clear();
         foreach (var instance in request.SonarrInstances ?? [])
         {
