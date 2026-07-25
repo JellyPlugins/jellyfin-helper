@@ -124,9 +124,21 @@ public sealed class DiscoveryController : ControllerBase
         [FromBody] DiscoveryRequestDto dto,
         CancellationToken cancellationToken)
     {
-        // Input validation (TmdbId range, MediaType pattern, RootFolder path safety)
-        // is declared via DataAnnotations on DiscoveryRequestDto and enforced by
-        // [ApiController]'s automatic ModelState check before this method runs.
+        if (dto is null)
+        {
+            return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
+        }
+
+        // Validate all DataAnnotations and IValidatableObject rules declared on the DTO.
+        // This runs both in the ASP.NET pipeline and in direct unit-test invocations,
+        // so validation is never silently skipped regardless of how the controller is called.
+        var validationResults = new System.Collections.Generic.List<ValidationResult>();
+        var validationContext = new ValidationContext(dto);
+        if (!Validator.TryValidateObject(dto, validationContext, validationResults, validateAllProperties: true))
+        {
+            var firstError = validationResults[0].ErrorMessage ?? "Invalid request.";
+            return BadRequest(new RequestResult { Success = false, Message = firstError });
+        }
 
         var mediaType = dto.MediaType.Trim().ToLowerInvariant();
 
