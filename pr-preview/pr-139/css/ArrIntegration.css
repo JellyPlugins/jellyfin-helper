@@ -129,10 +129,15 @@
 }
 
 /* noinspection CssUnusedSymbol */
-.arr-instance-select:hover,
+.arr-instance-select:hover {
+    border-color: var(--color-primary);
+}
+
+/* noinspection CssUnusedSymbol */
 .arr-instance-select:focus-visible {
     border-color: var(--color-primary);
-    outline: none;
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
 }
 
 /* noinspection CssUnusedSymbol */
