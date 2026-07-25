@@ -1,0 +1,331 @@
+/* Arr comparison */
+
+/* ============================================================
+   Arr page — card layout (aligned with Settings + Health redesigns).
+   Rules below are ADDITIVE. Existing selectors (.arr-section,
+   .arr-list, .arr-count, .arr-integration-instance-header) keep
+   their behaviour so all existing initArrButtons + compareArr
+   markup renders exactly as before, just optionally wrapped
+   in an .arr-card for visual consistency with the other tabs.
+   ============================================================ */
+
+/* noinspection CssUnusedSymbol */
+.arr-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 0.8em 1.1em 1.1em 1.1em;
+    margin-top: 1.2em;
+    box-sizing: border-box;
+}
+
+/* First card in the arr tab hugs the top of the tab-content area
+   (the .section-title in the tab shell already provides top spacing).
+   The card lives one level deeper (#arrButtons > .arr-card and
+   #arrResult > .arr-card), so we target it via descendant selectors
+   and pair the rule with :empty on #arrResult so the first card in
+   #arrButtons still gets the tightened margin when no comparison
+   result is displayed yet. */
+/* noinspection CssUnusedSymbol */
+#arrButtons > .arr-card:first-child {
+    margin-top: 0.4em;
+}
+/* noinspection CssUnusedSymbol */
+#arrResult > .arr-card:first-child {
+    /* Result card follows the buttons card — keep a comfortable gap
+       (default 1.2em) so the two cards read as separate blocks. */
+    margin-top: 1.2em;
+}
+
+@media (max-width: 500px) {
+    /* noinspection CssUnusedSymbol */
+    .arr-card {
+        padding: 0.6em 0.8em 0.9em 0.8em;
+    }
+}
+
+.arr-section {
+    margin-top: 1em;
+}
+
+/* Reset the top-margin for the first arr-section inside a result card so
+   the block hugs the card padding instead of introducing a double gap
+   below the result heading. */
+/* noinspection CssUnusedSymbol */
+.arr-card .arr-section:first-of-type {
+    margin-top: 0.5em;
+}
+
+/* ============================================================
+   Arr compare row — one dropdown + one compare button per type.
+   Replaces the old "N buttons of varying width per instance"
+   layout so the Radarr and Sonarr rows always share the same
+   visual footprint regardless of how many instances or how
+   long their names are.
+   ============================================================ */
+
+/* noinspection CssUnusedSymbol */
+.arr-compare-block {
+    /* Reset the default .arr-section top-margin bump (which pushes each
+       block down by 1em) because the section-header inside every block
+       already provides its own bottom spacing. */
+    margin-top: 1em;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-compare-block:first-child {
+    margin-top: 0;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-compare-header {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    margin: 0 0 0.5em 0;
+    font-weight: 600;
+    opacity: 0.85;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-compare-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.6em;
+    flex-wrap: nowrap;
+}
+
+/* Select wrapper positions the status badge over the select without
+   shifting the layout. The native select chevron on the right is left
+   alone; we place our badge on the left side of the visible content. */
+/* noinspection CssUnusedSymbol */
+.arr-instance-select-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0; /* allow the select to shrink below content-width */
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-select {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    padding: 0.55em 2.4em 0.55em 2.1em; /* left padding leaves room for status badge, right for native chevron */
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.05);
+    color: inherit;
+    font-size: 0.95em;
+    color-scheme: light dark;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='rgba(255,255,255,0.8)'%3E%3Cpath d='M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5em center;
+    background-size: 1.3em;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-select:hover {
+    border-color: var(--color-primary);
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-select:focus-visible {
+    border-color: var(--color-primary);
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-select option {
+    background: #2b2b2b;
+    color: #e0e0e0;
+}
+
+@media (prefers-color-scheme: light) {
+    /* noinspection CssUnusedSymbol */
+    .arr-instance-select {
+        background-color: rgba(0, 0, 0, 0.05);
+        border-color: rgba(0, 0, 0, 0.15);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='rgba(0,0,0,0.6)'%3E%3Cpath d='M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z'/%3E%3C/svg%3E");
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .arr-instance-select option {
+        background: #ffffff;
+        color: #111111;
+    }
+}
+
+/* Status badge (✓ / ✗ / ⏳) sits on the LEFT edge of the select so it
+   doesn't clash with the native right-side chevron on any OS. */
+/* noinspection CssUnusedSymbol */
+.arr-instance-status {
+    position: absolute;
+    left: 0.55em;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.2em;
+    height: 1.2em;
+    font-size: 1.05em;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.35);
+    transition: color 0.2s;
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-status.is-ok {
+    color: var(--color-success);
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-status.is-error {
+    color: var(--color-danger);
+}
+
+/* noinspection CssUnusedSymbol */
+.arr-instance-status.is-testing {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+/* Screen-reader-only utility scoped to the arr status badge. The visual
+   badge is icon-only for sighted users; assistive tech reads this text
+   instead. Uses the well-known clip pattern so the text is off-screen
+   but stays in the accessibility tree. */
+/* noinspection CssUnusedSymbol */
+.arr-status-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Small inline spinner used while the connection is being tested.
+   Reuses the same border-based spinner pattern as .btn-spinner but
+   scoped to the status slot so it sits perfectly centred. */
+/* noinspection CssUnusedSymbol */
+.arr-instance-status .arr-status-spinner {
+    display: inline-block;
+    width: 0.9em;
+    height: 0.9em;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: currentcolor;
+    border-radius: 50%;
+    animation: arr-status-spin 0.85s linear infinite;
+}
+
+@keyframes arr-status-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* noinspection CssUnusedSymbol */
+    .arr-instance-status .arr-status-spinner { animation: none; }
+}
+
+/* The Compare button in the new dropdown+button row.
+   Shared.css sets `.arr-compare-btn { min-width: 14em; ... }` as a legacy
+   rule for the old per-instance "Compare with Radarr X" layout. In the
+   new layout this rule would push the button outside its .arr-card on
+   narrow viewports. We override `min-width` here without touching
+   Shared.css (which is loaded across every tab in the dashboard).
+   ArrIntegration.css is loaded AFTER Shared.css in the composed
+   configPage.html (see ComposeConfigPage MSBuild task), so this rule
+   wins at equal specificity. */
+/* noinspection CssUnusedSymbol */
+.arr-compare-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35em;
+    padding: 0.55em 1em;
+    margin: 0;
+    white-space: nowrap;
+    font-size: 0.9em;
+    box-sizing: border-box;
+    min-width: 0; /* neutralise the Shared.css min-width:14em legacy value */
+    max-width: 100%;
+}
+
+/* Mobile: stack the dropdown and compare button on their own rows so
+   the button label never truncates on narrow viewports.
+
+   Critical override: the shared .arr-compare-btn rule in Shared.css sets
+   `min-width: 14em` (for the previous desktop button layout). On very
+   narrow viewports 14em can exceed the card's available inner width,
+   which pushes the button visually outside the card border. We reset
+   min-width to 0 inside the mobile media query so the button collapses
+   to its container width. max-width:100 % is a defense-in-depth guard
+   in case any future rule reintroduces a min-content-based expansion.
+
+   .arr-compare-row uses align-items:stretch so both children (dropdown
+   wrapper + button) fill the full column width in flex-direction:column
+   mode. Explicit width:100 % on both keeps their visual widths identical. */
+@media (max-width: 500px) {
+    /* noinspection CssUnusedSymbol */
+    .arr-compare-row {
+        flex-direction: column;
+        gap: 0.5em;
+        align-items: stretch;
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .arr-compare-row .arr-instance-select-wrap {
+        width: 100%;
+    }
+
+    /* noinspection CssUnusedSymbol */
+    .arr-compare-btn {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        display: flex; /* stretch mode uses block-level flex so width:100 % is honored */
+    }
+}
+
+.arr-list {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md) 1em;
+    margin-top: 0.5em;
+    max-height: 300px;
+    overflow-y: auto;
+    overflow-x: auto;
+    font-size: 0.85em;
+}
+
+.arr-list ul {
+    margin: 0;
+    padding-left: 1.5em;
+}
+
+.arr-list li {
+    padding: 0.15em 0;
+    overflow-wrap: anywhere;
+}
+
+.arr-count {
+    font-weight: 700;
+    color: var(--color-primary);
+}
+
+/* Additional overrides for .icon-label used in Arr instance headers */
+.arr-integration-instance-header {
+    margin: 0 0 0.5em 0;
+    opacity: 0.7;
+}
