@@ -277,8 +277,9 @@ public class BackupController : ControllerBase
                 return BadRequest(
                     new
                     {
-                        Error = $"Backup validation failed with {validation.Errors.Count} error(s). Check plugin logs for details.",
-                        Warnings = validation.Warnings
+                        message = $"Backup validation failed with {validation.Errors.Count} error(s). Check plugin logs for details.",
+                        errors = validation.Errors,
+                        warnings = validation.Warnings
                     });
             }
 

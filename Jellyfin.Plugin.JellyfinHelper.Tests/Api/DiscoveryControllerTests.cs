@@ -43,10 +43,21 @@ public class DiscoveryControllerTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private DiscoveryController CreateController(Mock<ISeerrDiscoveryService>? discovery = null)
+    private DiscoveryController CreateController(Mock<ISeerrDiscoveryService>? discovery = null, Guid? userId = null)
     {
         var disc = discovery ?? _discoveryMock;
-        return new DiscoveryController(_cache, disc.Object, _feedbackStoreMock.Object, new Mock<ILogger<DiscoveryController>>().Object);
+        var controller = new DiscoveryController(_cache, disc.Object, _feedbackStoreMock.Object, new Mock<ILogger<DiscoveryController>>().Object);
+        var claims = new System.Collections.Generic.List<System.Security.Claims.Claim>();
+        var id = userId ?? Guid.NewGuid();
+        claims.Add(new System.Security.Claims.Claim("Jellyfin-UserId", id.ToString()));
+        controller.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
+        {
+            HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
+            {
+                User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(claims, "Test"))
+            }
+        };
+        return controller;
     }
 
     [Fact]

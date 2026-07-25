@@ -68,6 +68,7 @@ public class ArrIntegrationController : ControllerBase
     [HttpPost("TestConnection")]
     [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ConnectionTestResponse), StatusCodes.Status502BadGateway)]
     public async Task<ActionResult> TestArrConnectionAsync(
         [FromBody] ArrTestConnectionRequest request,
         CancellationToken cancellationToken)
@@ -87,7 +88,12 @@ public class ArrIntegrationController : ControllerBase
             request.ApiKey ?? string.Empty,
             cancellationToken).ConfigureAwait(false);
 
-        return Ok(new ConnectionTestResponse { Success = success, Message = message });
+        if (!success)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = message });
+        }
+
+        return Ok(new ConnectionTestResponse { Success = true, Message = message });
     }
 
     /// <summary>

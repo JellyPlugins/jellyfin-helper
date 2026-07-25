@@ -79,9 +79,18 @@ public class GrowthTimelineController : ControllerBase
                     new { message = "Please wait before requesting another timeline computation." });
             }
 
+            var previousRefreshTime = _lastRefreshTime;
             _lastRefreshTime = now;
-            var result = await _growthTimelineService.ComputeTimelineAsync(cancellationToken).ConfigureAwait(false);
-            return Ok(result);
+            try
+            {
+                var result = await _growthTimelineService.ComputeTimelineAsync(cancellationToken).ConfigureAwait(false);
+                return Ok(result);
+            }
+            catch
+            {
+                _lastRefreshTime = previousRefreshTime;
+                throw;
+            }
         }
         finally
         {

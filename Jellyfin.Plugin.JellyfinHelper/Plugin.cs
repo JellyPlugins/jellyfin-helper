@@ -36,10 +36,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         _applicationPaths = applicationPaths;
         _logger = logger;
+        Instance = this;
         Api.UserDiscoveryController.ClearRateLimitState();
         ReportClampedConfigValues();
         InjectScript();
-        Instance = this;
     }
 
     /// <inheritdoc />

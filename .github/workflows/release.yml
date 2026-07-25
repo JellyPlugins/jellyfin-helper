@@ -251,7 +251,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
-        persist-credentials: false
 
     - name: Read version from manifest
       run: |

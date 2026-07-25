@@ -234,7 +234,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
             }
         ]);
 
-        var controller = CreateController();
+        var controller = CreateController(userId: userId);
         var dto = new DiscoveryRequestDto { TmdbId = 12345, MediaType = "movie" };
         var result = await controller.SubmitRequest(dto, CancellationToken.None);
 
@@ -268,7 +268,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
                 (_, _, _, _, _, rf, _) => capturedRootFolder = rf)
             .ReturnsAsync((true, "OK"));
 
-        var controller = CreateController();
+        var controller = CreateController(userId: Guid.NewGuid());
         var dto = new DiscoveryRequestDto
         {
             TmdbId = 100,
@@ -296,7 +296,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
                 (_, _, _, _, _, rf, _) => capturedRootFolder = rf)
             .ReturnsAsync((true, "OK"));
 
-        var controller = CreateController();
+        var controller = CreateController(userId: Guid.NewGuid());
         var dto = new DiscoveryRequestDto
         {
             TmdbId = 100,
@@ -321,7 +321,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
                 (_, _, _, _, _, rf, _) => capturedRootFolder = rf)
             .ReturnsAsync((true, "OK"));
 
-        var controller = CreateController();
+        var controller = CreateController(userId: Guid.NewGuid());
         var dto = new DiscoveryRequestDto { TmdbId = 100, MediaType = "movie", RootFolder = null };
 
         await controller.SubmitRequest(dto, CancellationToken.None);

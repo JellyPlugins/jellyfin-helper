@@ -221,15 +221,18 @@ public class ConfigurationController : ControllerBase
         // can interleave its own writes between GetConfiguration and SaveConfiguration.
         PluginConfiguration config = null!;
         string persistedLogLevel = string.Empty;
+        double capturedAlphaMin = 0, capturedAlphaMax = 0, capturedPenaltyFloor = 0;
         _configService.ReadAndMutate(cfg =>
         {
             config = cfg;
             persistedLogLevel = cfg.PluginLogLevel;
             ApplyRequestToConfig(request, cfg);
+            capturedAlphaMin = cfg.EnsembleAlphaMin;
+            capturedAlphaMax = cfg.EnsembleAlphaMax;
+            capturedPenaltyFloor = cfg.EnsembleGenrePenaltyFloor;
         });
 
-        // Propagate ensemble alpha bounds to the running singleton immediately — no restart needed.
-        _ensemble.Reconfigure(config.EnsembleAlphaMin, config.EnsembleAlphaMax, config.EnsembleGenrePenaltyFloor);
+        _ensemble.Reconfigure(capturedAlphaMin, capturedAlphaMax, capturedPenaltyFloor);
 
         _pluginLog.LogInfo("API", "Plugin configuration updated.", _logger);
 

@@ -167,6 +167,12 @@ public sealed class DiscoveryController : ControllerBase
 
         var callerUserId = GetCurrentUserId();
 
+        if (callerUserId is null)
+        {
+            _logger.LogWarning("[Discovery] SubmitRequest: no user identity claim in token; cannot scope request mark to caller.");
+            return Unauthorized();
+        }
+
         var (success, message) = await _discovery.SubmitRequestAsync(
             dto.TmdbId,
             mediaType,
@@ -207,6 +213,15 @@ public sealed class DiscoveryController : ControllerBase
         {
             // Already logged inside MarkAsRequestedAsync; swallow to preserve the 200 response
             // that the client will (or would have, absent cancellation) receive.
+        }
+
+        try
+        {
+            _feedbackStore.RecordRequested(callerUserId.Value, dto.TmdbId, mediaType);
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            // best-effort
         }
 
         return Ok(new RequestResult { Success = true, Message = message });

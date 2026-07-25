@@ -66,8 +66,9 @@ public class ArrIntegrationControllerTests : IDisposable
 
         var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
 
-        var okResult = Assert.IsType<OkObjectResult>(result);
-        var payload = Assert.IsType<ConnectionTestResponse>(okResult.Value);
+        var statusResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(502, statusResult.StatusCode);
+        var payload = Assert.IsType<ConnectionTestResponse>(statusResult.Value);
         Assert.False(payload.Success);
         Assert.False(string.IsNullOrWhiteSpace(payload.Message));
     }

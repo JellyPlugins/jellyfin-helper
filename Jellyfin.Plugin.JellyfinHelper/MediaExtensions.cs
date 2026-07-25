@@ -105,7 +105,8 @@ public static class MediaExtensions
     /// </summary>
     internal static IReadOnlySet<string> NfoExtensions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        ".nfo"
+        ".nfo",
+        ".xml"
     };
 
     /// <summary>
