@@ -192,7 +192,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                 {
                     CreatedUtc = dir.CreatedUtc,
                     Size = dir.Size,
-                    Count = (int)dir.Count
+                    Count = dir.Count
                 };
             }
 

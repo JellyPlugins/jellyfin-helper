@@ -86,7 +86,7 @@ public static class BackupSanitizer
         }
 
         var keysToRemove = backup.GrowthBaseline.Directories
-            .OrderBy(kvp => kvp.Value.CreatedUtc)
+            .OrderByDescending(kvp => kvp.Value.CreatedUtc)
             .Skip(BackupValidator.MaxBaselineDirectories)
             .Select(kvp => kvp.Key)
             .ToList();

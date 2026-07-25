@@ -69,7 +69,7 @@ public class ArrIntegrationControllerTests : IDisposable
         var okResult = Assert.IsType<OkObjectResult>(result);
         var payload = Assert.IsType<ConnectionTestResponse>(okResult.Value);
         Assert.False(payload.Success);
-        Assert.Contains("Unauthorized", payload.Message);
+        Assert.False(string.IsNullOrWhiteSpace(payload.Message));
     }
 
     [Fact]

@@ -32,4 +32,13 @@ public interface ISymlinkHelper
     /// </summary>
     /// <param name="linkPath">The symlink path to delete.</param>
     void DeleteSymlink(string linkPath);
+
+    /// <summary>
+    ///     Atomically replaces <paramref name="destPath"/> with the symlink at
+    ///     <paramref name="sourcePath"/>. On Linux this maps to <c>rename(2)</c>;
+    ///     on Windows it uses <see cref="System.IO.File.Move(string,string,bool)"/> with overwrite.
+    /// </summary>
+    /// <param name="sourcePath">The source symlink to move into place.</param>
+    /// <param name="destPath">The destination path to overwrite atomically.</param>
+    void ReplaceSymlink(string sourcePath, string destPath);
 }

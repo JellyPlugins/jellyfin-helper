@@ -300,7 +300,7 @@ else if(url.indexOf("Discovery/Services/sonarr")!==-1)resolve(JSON.parse(JSON.st
 else if(url.indexOf("Discovery/Request")!==-1&&method==="POST")resolve({Success:true,Message:"Request submitted to Jellyseerr."});
 else if(url.indexOf("Discovery")!==-1&&url.indexOf("Services")===-1&&url.indexOf("Request")===-1)resolve(JSON.parse(JSON.stringify(MOCK_DISCOVERY)));
 else if(url.indexOf("Seerr/Test")!==-1)resolve({success:true,message:"Connected to Jellyseerr (demo)"});
-else if(url.indexOf("ArrIntegration/TestConnection")!==-1)resolve({success:true,message:"Connection successful (demo)"});
+else if(url.indexOf("ArrIntegration/TestConnection")!==-1)resolve({Success:true,Message:"Connection successful (demo)"});
 else if(url.indexOf("ArrIntegration/Compare/")!==-1)resolve(JSON.parse(JSON.stringify(MOCK_ARR_COMPARE)));
 else if(url.indexOf("Logs/Download")!==-1){var lt=MOCK_LOGS.Entries.map(function(e){return e.Timestamp+" ["+e.Level+"] "+e.Source+": "+e.Message;}).join("\n");resolve(lt);}
 else if(url.indexOf("Logs")!==-1&&method==="DELETE"){MOCK_LOGS.Entries=[];MOCK_LOGS.TotalCount=0;resolve({});}

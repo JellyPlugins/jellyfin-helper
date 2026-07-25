@@ -106,4 +106,69 @@ public class BackupSanitizerTests
         BackupSanitizer.Sanitize(data);
         Assert.Null(data.SeerrCleanupAgeDays);
     }
+
+    // ===== Baseline directory trimming =====
+
+    private static BackupData MakeBaselineBackup(int directoryCount)
+    {
+        var data = new BackupData();
+        var baseline = new GrowthTimelineBaseline();
+        for (var i = 0; i < directoryCount; i++)
+        {
+            baseline.Directories[$"/media/dir{i:D3}"] = new BaselineDirectoryEntry
+            {
+                CreatedUtc = DateTime.UtcNow.AddDays(-directoryCount + i),
+                Size = (i + 1) * 1024L,
+                Count = 1
+            };
+        }
+
+        data.GrowthBaseline = baseline;
+        return data;
+    }
+
+    [Fact]
+    public void Sanitize_BaselineUnderLimit_NoDirsRemoved()
+    {
+        var data = MakeBaselineBackup(BackupValidator.MaxBaselineDirectories);
+        BackupSanitizer.Sanitize(data);
+        Assert.Equal(BackupValidator.MaxBaselineDirectories, data.GrowthBaseline!.Directories.Count);
+    }
+
+    [Fact]
+    public void Sanitize_BaselineOverLimit_TrimsToMax()
+    {
+        var data = MakeBaselineBackup(BackupValidator.MaxBaselineDirectories + 10);
+        BackupSanitizer.Sanitize(data);
+        Assert.Equal(BackupValidator.MaxBaselineDirectories, data.GrowthBaseline!.Directories.Count);
+    }
+
+    [Fact]
+    public void Sanitize_BaselineOverLimit_KeepsNewestEntries()
+    {
+        var data = MakeBaselineBackup(BackupValidator.MaxBaselineDirectories + 5);
+        var allEntries = data.GrowthBaseline!.Directories
+            .OrderByDescending(kvp => kvp.Value.CreatedUtc)
+            .Take(BackupValidator.MaxBaselineDirectories)
+            .Select(kvp => kvp.Key)
+            .ToHashSet();
+
+        BackupSanitizer.Sanitize(data);
+
+        var remaining = data.GrowthBaseline!.Directories.Keys.ToHashSet();
+        Assert.Equal(allEntries, remaining);
+    }
+
+    [Fact]
+    public void Sanitize_BaselineOverLimit_RemovesOldestEntries()
+    {
+        var data = MakeBaselineBackup(BackupValidator.MaxBaselineDirectories + 3);
+        var oldestKey = data.GrowthBaseline!.Directories
+            .OrderBy(kvp => kvp.Value.CreatedUtc)
+            .First().Key;
+
+        BackupSanitizer.Sanitize(data);
+
+        Assert.DoesNotContain(oldestKey, data.GrowthBaseline!.Directories.Keys);
+    }
 }

@@ -285,7 +285,7 @@ public class PluginLogService : IPluginLogService
     ///     receive sanitized values.
     /// </summary>
     private static string SanitizeForLog(string value)
-        => value.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ');
+        => value.Replace('\r', ' ').Replace('\n', ' ').Replace('\0', ' ').Replace('\t', ' ');
 
     private void AddEntry(string level, string source, string message, Exception? exception)
     {

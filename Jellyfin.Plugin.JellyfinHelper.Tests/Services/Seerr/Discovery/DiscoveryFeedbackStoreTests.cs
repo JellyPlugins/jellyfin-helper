@@ -1106,4 +1106,26 @@ public class DiscoveryFeedbackStoreTests : IDisposable
 
         Assert.Null(store.LoadForUser(userId));
     }
+
+    [Fact]
+    public void RecordShown_AfterDiskLoad_DoesNotMutatePersistedCache()
+    {
+        var userId = Guid.NewGuid();
+        var store1 = CreateStore();
+        store1.RecordShown(userId, "TestUser", [new DiscoveryRecommendation { TmdbId = 1, MediaType = "movie", Title = "Film" }]);
+
+        var store2 = CreateStore();
+
+        var first = store2.LoadForUser(userId);
+        Assert.NotNull(first);
+        var originalShownAt = first!.Entries[0].ShownAtUtc;
+
+        // Mutate the returned object — simulates what RecordShown/RecordDismissed do.
+        first.Entries[0].ShownAtUtc = DateTime.UtcNow.AddYears(10);
+
+        // A second load must return the original unmodified value from the cache.
+        var second = store2.LoadForUser(userId);
+        Assert.NotNull(second);
+        Assert.Equal(originalShownAt, second!.Entries[0].ShownAtUtc);
+    }
 }

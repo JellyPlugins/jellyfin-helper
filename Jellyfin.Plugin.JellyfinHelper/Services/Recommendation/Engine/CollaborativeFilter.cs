@@ -292,8 +292,13 @@ internal static class CollaborativeFilter
             // Ordering-preserving properties verified via the existing IDF and cold-start-gate tests:
             //   niche > mainstream                     ← IDF direction preserved: √(t·1) > √(t·<1)
             //   coldStartScore > controlScore          ← Trust direction preserved: √(1·i) > √(<1·i)
-            foreach (var itemId in otherCombinedIds.Where(itemId => !userCombinedIds.Contains(itemId)))
+            foreach (var itemId in otherCombinedIds)
             {
+                if (userCombinedIds.Contains(itemId))
+                {
+                    continue;
+                }
+
                 var idfFactor = 1.0;
 
                 // IDF boost: 1 / log2(1 + userCount)

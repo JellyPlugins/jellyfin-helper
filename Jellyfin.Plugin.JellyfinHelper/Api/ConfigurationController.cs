@@ -545,8 +545,11 @@ public class ConfigurationController : ControllerBase
 
         // Sentinel "***": recover stored key. Try Name+URL first (exact match, handles
         // same-URL collision), then fall back to URL-only (handles rename).
-        return (previousInstances.FirstOrDefault(p => p.Url == incoming.Url && p.Name == incoming.Name)
-                ?? previousInstances.FirstOrDefault(p => p.Url == incoming.Url))?.ApiKey
+        return (previousInstances.FirstOrDefault(p =>
+                    string.Equals(p.Url?.Trim(), incoming.Url?.Trim(), StringComparison.OrdinalIgnoreCase)
+                    && p.Name == incoming.Name)
+                ?? previousInstances.FirstOrDefault(p =>
+                    string.Equals(p.Url?.Trim(), incoming.Url?.Trim(), StringComparison.OrdinalIgnoreCase)))?.ApiKey
                ?? string.Empty;
     }
 }

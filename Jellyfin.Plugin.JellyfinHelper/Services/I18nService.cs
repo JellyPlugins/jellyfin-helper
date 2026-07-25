@@ -5,6 +5,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Reflection;
 using System.Text.Json;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services;
@@ -53,7 +54,9 @@ public static class I18NService
 
         // GetOrAdd with Lazy<T> ensures LoadFromResource is called at most once per language,
         // even under concurrent first-load requests.
-        var lazy = Cache.GetOrAdd(lang, static key => new Lazy<Dictionary<string, string>>(() => LoadFromResource(key)));
+        var lazy = Cache.GetOrAdd(lang, static key => new Lazy<Dictionary<string, string>>(
+            () => LoadFromResource(key),
+            LazyThreadSafetyMode.PublicationOnly));
         var cached = lazy.Value;
 
         if (pluginLog != null)

@@ -21,7 +21,10 @@ internal sealed class SeerrRequest
     public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>
-    ///     Gets or sets the request status (1 = pending, 2 = approved, 3 = declined).
+    ///     Gets or sets the request status.
+    ///     1 = pending, 2 = approved, 3 = declined, 4 = available, 5 = partially available.
+    ///     Only statuses 1 (pending) and 3 (declined) are candidates for cleanup deletion;
+    ///     statuses 2, 4, and 5 are protected because they track downloaded content.
     /// </summary>
     [JsonPropertyName("status")]
     public int Status { get; set; }

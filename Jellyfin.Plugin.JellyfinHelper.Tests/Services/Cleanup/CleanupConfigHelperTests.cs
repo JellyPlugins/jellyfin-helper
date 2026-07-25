@@ -574,6 +574,57 @@ public class CleanupConfigHelperTests
         }
     }
 
+    [Fact]
+    public void IsOldEnoughForDeletion_UsesEarlierOf_CreationTime_And_LastWriteTime()
+    {
+        // The guard picks min(CreationTime, LastWriteTime) so that a directory whose
+        // LastWriteTime was bumped recently is still considered old if it was created
+        // long ago — and vice versa.  We can only control LastWriteTime reliably in a
+        // test, so we verify the LastWriteTime branch: a directory created just now but
+        // whose LastWriteTime is back-dated to > MinAgeDays ago must return true.
+        var cfg = new PluginConfiguration { OrphanMinAgeDays = 30 };
+        var helper = CreateHelper(cfg);
+        var tempDir = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            // Back-date LastWriteTime far into the past so min(Created, LastWrite) is old.
+            var oldDate = DateTime.UtcNow.AddDays(-60);
+            Directory.SetLastWriteTimeUtc(tempDir, oldDate);
+            Directory.SetCreationTimeUtc(tempDir, oldDate);
+
+            Assert.True(helper.IsOldEnoughForDeletion(tempDir));
+        }
+        finally
+        {
+            Directory.Delete(tempDir);
+        }
+    }
+
+    [Fact]
+    public void IsOldEnoughForDeletion_Pre1980Timestamp_ReturnsFalse()
+    {
+        // Timestamps before 1980 are treated as corrupted (FAT filesystem epoch artefacts,
+        // clock-drift on embedded hardware, etc.).  The guard rejects them to prevent a
+        // directory with a bogus creation time from being considered arbitrarily old and
+        // therefore eligible for immediate deletion.
+        var cfg = new PluginConfiguration { OrphanMinAgeDays = 1 };
+        var helper = CreateHelper(cfg);
+        var tempDir = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            Directory.SetCreationTimeUtc(tempDir, new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            Directory.SetLastWriteTimeUtc(tempDir, new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+            Assert.False(helper.IsOldEnoughForDeletion(tempDir));
+        }
+        finally
+        {
+            Directory.Delete(tempDir);
+        }
+    }
+
     // ===== IsFileOldEnoughForDeletion =====
 
     [Fact]
@@ -760,5 +811,68 @@ public class CleanupConfigHelperTests
                 Directory.Delete(parent, recursive: true);
             }
         }
+    }
+
+    [Theory]
+    [InlineData("/media/film_collections/Movies")]
+    [InlineData("/collections_archive/TV")]
+    [InlineData("/my-collections-backup/data")]
+    public void GetFilteredLibraryLocations_PathWithCollectionsSubstring_NotExcluded(string location)
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        lm.Setup(m => m.GetVirtualFolders()).Returns([
+            new VirtualFolderInfo
+            {
+                Name = "Movies",
+                CollectionType = CollectionTypeOptions.movies,
+                Locations = [location]
+            }
+        ]);
+
+        var result = helper.GetFilteredLibraryLocations(lm.Object);
+
+        Assert.Contains(location, result);
+    }
+
+    [Theory]
+    [InlineData("/config/data/collections")]
+    [InlineData("/config/data/collections/")]
+    [InlineData("/jellyfin/data/collections/metadata")]
+    public void GetFilteredLibraryLocations_PathWithExactCollectionsSegment_IsExcluded(string location)
+    {
+        var helper = CreateHelper();
+        var lm = new Mock<ILibraryManager>();
+        lm.Setup(m => m.GetVirtualFolders()).Returns([
+            new VirtualFolderInfo
+            {
+                Name = "Movies",
+                CollectionType = CollectionTypeOptions.movies,
+                Locations = [location]
+            }
+        ]);
+
+        var result = helper.GetFilteredLibraryLocations(lm.Object);
+
+        Assert.DoesNotContain(location, result);
+    }
+
+    // ===== IsCollectionsPath =====
+
+    [Theory]
+    [InlineData("/config/data/collections", true)]
+    [InlineData("/config/data/collections/", true)]
+    [InlineData("/jellyfin/data/collections/metadata", true)]
+    [InlineData("/media/Collections/movies", true)]         // case-insensitive
+    [InlineData("/media/COLLECTIONS", true)]                // case-insensitive uppercase
+    [InlineData(@"C:\jellyfin\data\collections", true)]     // Windows backslash separator
+    [InlineData(@"C:\jellyfin\data\collections\artwork", true)]
+    [InlineData("/media/movies", false)]
+    [InlineData("/media/mycollectionsabc", false)]          // not a segment-exact match
+    [InlineData("/media/collections-extra", false)]         // hyphenated word is not the same segment
+    [InlineData("", false)]
+    public void IsCollectionsPath_SegmentExactMatch_ReturnsExpected(string path, bool expected)
+    {
+        Assert.Equal(expected, CleanupConfigHelper.IsCollectionsPath(path));
     }
 }

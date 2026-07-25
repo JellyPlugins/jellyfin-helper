@@ -88,8 +88,8 @@ public class SeerrIntegrationServiceTests : IDisposable
         {
             id = r.Id,
             createdAt = r.CreatedAt.ToString("O"),
-            status = 2,
-            media = new { mediaType = "movie", tmdbId = r.Id * 100, status = 5 }
+            status = 1,
+            media = new { mediaType = "movie", tmdbId = r.Id * 100, status = 1 }
         }).ToList();
 
         return JsonSerializer.Serialize(new
@@ -113,8 +113,8 @@ public class SeerrIntegrationServiceTests : IDisposable
         {
             id = r.Id,
             createdAt = r.CreatedAt.ToString("O"),
-            status = 2,
-            media = new { mediaType, tmdbId = r.Id * 100, status = 5 }
+            status = 1,
+            media = new { mediaType, tmdbId = r.Id * 100, status = 1 }
         }).ToList();
 
         return JsonSerializer.Serialize(new
@@ -508,7 +508,7 @@ public class SeerrIntegrationServiceTests : IDisposable
                 {
                     id = 42,
                     createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"),
-                    status = 2,
+                    status = 1,
                     media = (object?)null
                 }
             }
@@ -1121,5 +1121,242 @@ public class SeerrIntegrationServiceTests : IDisposable
         // Sanity: all 60 requests were young so none should be marked expired
         Assert.Equal(60, result.TotalChecked);
         Assert.Equal(0, result.ExpiredFound);
+    }
+
+    // ===== Cleanup must not delete approved/available requests =====
+
+    [Fact]
+    public async Task Cleanup_ApprovedRequest_IsNotDeleted()
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            pageInfo = new { page = 1, pages = 1, results = 1, pageSize = 50 },
+            results = new[]
+            {
+                new
+                {
+                    id = 99,
+                    createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"),
+                    status = 2, // approved
+                    media = new { mediaType = "movie", tmdbId = 9900, status = 2 }
+                }
+            }
+        });
+
+        var handler = CreateMockHandler(HttpStatusCode.OK, json);
+        var service = CreateService(handler.Object, out _, out _);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 30, false, CancellationToken.None);
+
+        // Request is old enough, but status=2 (approved) must prevent deletion
+        Assert.Equal(1, result.TotalChecked);
+        Assert.Equal(0, result.ExpiredFound);
+        Assert.Equal(0, result.Deleted);
+
+        // Verify DELETE was never sent
+        handler.Protected().Verify(
+            "SendAsync",
+            Times.Once(), // only the GET
+            ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Get),
+            ItExpr.IsAny<CancellationToken>());
+        handler.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Delete),
+            ItExpr.IsAny<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Cleanup_MixedStatuses_OnlyDeletesPending()
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            pageInfo = new { page = 1, pages = 1, results = 3, pageSize = 50 },
+            results = new[]
+            {
+                new { id = 1, createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"), status = 1, media = new { mediaType = "movie", tmdbId = 100, status = 1 } },
+                new { id = 2, createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"), status = 2, media = new { mediaType = "movie", tmdbId = 200, status = 2 } },
+                new { id = 3, createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"), status = 3, media = new { mediaType = "movie", tmdbId = 300, status = 3 } }
+            }
+        });
+
+        // GET page, then GET title for id=1, DELETE id=1, GET title for id=3, DELETE id=3
+        var handler = CreateSequenceHandler(
+            (HttpStatusCode.OK, json),
+            (HttpStatusCode.OK, MakeMovieDetails("Movie1")),
+            (HttpStatusCode.NoContent, ""),
+            (HttpStatusCode.OK, MakeMovieDetails("Movie3")),
+            (HttpStatusCode.NoContent, ""));
+
+        var service = CreateService(handler.Object, out _, out _);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 30, false, CancellationToken.None);
+
+        Assert.Equal(3, result.TotalChecked);
+        Assert.Equal(2, result.ExpiredFound);  // id=1 (pending) and id=3 (declined), not id=2 (approved)
+        Assert.Equal(2, result.Deleted);
+    }
+
+    // ===== Available/partially-available requests (status 4, 5) must never be deleted =====
+
+    [Theory]
+    [InlineData(4)] // available
+    [InlineData(5)] // partially available
+    public async Task Cleanup_AvailableOrPartiallyAvailableRequest_IsNotDeleted(int status)
+    {
+        // Requests with status=4 (available) or status=5 (partially available) represent
+        // content that has already been downloaded. Deleting them would break status tracking
+        // and could trigger unwanted re-requests.
+        var json = JsonSerializer.Serialize(new
+        {
+            pageInfo = new { page = 1, pages = 1, results = 1, pageSize = 50 },
+            results = new[]
+            {
+                new
+                {
+                    id = 42,
+                    createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"),
+                    status,
+                    media = new { mediaType = "movie", tmdbId = 4200, status }
+                }
+            }
+        });
+
+        var handler = CreateMockHandler(HttpStatusCode.OK, json);
+        var service = CreateService(handler.Object, out _, out _);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 30, false, CancellationToken.None);
+
+        Assert.Equal(1, result.TotalChecked);
+        Assert.Equal(0, result.ExpiredFound);
+        Assert.Equal(0, result.Deleted);
+
+        handler.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Delete),
+            ItExpr.IsAny<CancellationToken>());
+    }
+
+    // ===== phaseOneFailed circuit-breaker =====
+
+    [Fact]
+    public async Task Cleanup_Page2FetchFails_SkipsDeletion_EvenWhenPage1HadExpiredItems()
+    {
+        // This test pins the most critical safety guarantee in the service: when Phase 1
+        // pagination does not complete cleanly, Phase 2 must not delete anything — acting
+        // on a partial snapshot would permanently remove requests whose expiry status could
+        // not be confirmed from the missing pages.
+        //
+        // Setup: page 1 returns two expired, pending (deletable) requests with totalResults=100
+        // so the service knows there is a page 2.  The page 2 GET throws HttpRequestException.
+        // Expected: result.Deleted == 0 and no DELETE request is ever sent.
+
+        var page1 = JsonSerializer.Serialize(new
+        {
+            pageInfo = new { page = 1, pages = 2, results = 100, pageSize = 50 },
+            results = new[]
+            {
+                new
+                {
+                    id = 1,
+                    createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"),
+                    status = 1, // pending — would normally be deleted
+                    media = new { mediaType = "movie", tmdbId = 100, status = 1 }
+                },
+                new
+                {
+                    id = 2,
+                    createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"),
+                    status = 3, // declined — would normally be deleted
+                    media = new { mediaType = "movie", tmdbId = 200, status = 3 }
+                }
+            }
+        });
+
+        var callCount = 0;
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Returns<HttpRequestMessage, CancellationToken>((req, ct) =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    // First call: page 1 succeeds — two expired deletable requests
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new System.Net.Http.StringContent(page1, System.Text.Encoding.UTF8, "application/json")
+                    });
+                }
+
+                // Second call: page 2 fetch fails — pagination is incomplete
+                throw new HttpRequestException("connection reset by peer");
+            });
+
+        var service = CreateService(mock.Object, out _, out var pluginLogMock);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 30, false, CancellationToken.None);
+
+        // Phase 1 failed partway through: no deletion must occur regardless of what page 1 found
+        Assert.Equal(0, result.Deleted);
+        Assert.Equal(1, result.Failed);
+
+        // The phaseOneFailed warning must have been logged
+        pluginLogMock.Verify(
+            x => x.LogWarning(
+                "SeerrCleanup",
+                It.Is<string>(s => s.Contains("pagination") || s.Contains("incomplete") || s.Contains("snapshot")),
+                null,
+                It.IsAny<ILogger>()),
+            Times.Once);
+
+        // No DELETE request must ever leave the service
+        mock.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Delete),
+            ItExpr.IsAny<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Cleanup_AllPagesSucceed_DeletionProceeds()
+    {
+        // Counter-test: when all pages fetch successfully, Phase 2 deletion runs normally.
+        // This guards against a regression where phaseOneFailed is set too eagerly.
+        var page1 = JsonSerializer.Serialize(new
+        {
+            pageInfo = new { page = 1, pages = 1, results = 1, pageSize = 50 },
+            results = new[]
+            {
+                new
+                {
+                    id = 7,
+                    createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"),
+                    status = 1, // pending — must be deleted
+                    media = new { mediaType = "movie", tmdbId = 700, status = 1 }
+                }
+            }
+        });
+
+        var handler = CreateSequenceHandler(
+            (HttpStatusCode.OK, page1),
+            (HttpStatusCode.OK, MakeMovieDetails("OldMovie")),
+            (HttpStatusCode.NoContent, ""));
+
+        var service = CreateService(handler.Object, out _, out _);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 30, false, CancellationToken.None);
+
+        Assert.Equal(1, result.Deleted);
+        Assert.Equal(0, result.Failed);
     }
 }

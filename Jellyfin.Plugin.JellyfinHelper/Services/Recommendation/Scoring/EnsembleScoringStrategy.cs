@@ -659,6 +659,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             // Check validation loss quality gate
             var validationLoss = _learned.LastValidationLoss;
             var qualityGatePassed = !double.IsNaN(validationLoss) && validationLoss <= ValidationLossThreshold;
+            var trend = MetricsTrend.Stable;
 
             lock (_syncRoot)
             {
@@ -738,13 +739,9 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                         _neuralBeta = 0.0;
                     }
                 }
-            }
 
-            // Record metrics snapshot and analyze trend BEFORE saving state,
-            // so trend-driven alpha/beta adjustments are persisted in the same write.
-            MetricsTrend trend;
-            lock (_syncRoot)
-            {
+                // Record metrics snapshot and analyze trend BEFORE saving state,
+                // so trend-driven alpha/beta adjustments are persisted in the same write.
                 _metricsHistory.Add(
                     new MetricsSnapshot
                     {
@@ -792,7 +789,6 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                 }
             }
 
-            // Log training quality metrics including trend
             if (_logger is not null && _logger.IsEnabled(LogLevel.Information))
             {
                 _logger.LogInformation(

@@ -61,7 +61,8 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
         _pluginLog = pluginLog;
         _logger = logger;
 
-        var dataPath = Plugin.Instance?.DataFolderPath ?? string.Empty;
+        var dataPath = Plugin.Instance?.DataFolderPath
+            ?? throw new InvalidOperationException("Plugin.Instance is null; DiscoveryFeedbackStore cannot determine its data folder path.");
         _filePath = Path.Join(dataPath, FileName);
     }
 
@@ -400,7 +401,7 @@ public sealed class DiscoveryFeedbackStore : IDiscoveryFeedbackStore
 
             var json = File.ReadAllText(_filePath);
             _memoryCache = JsonSerializer.Deserialize<List<DiscoveryFeedbackResult>>(json, JsonOptions) ?? [];
-            return _memoryCache;
+            return _memoryCache.Select(CloneResult).ToList();
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {

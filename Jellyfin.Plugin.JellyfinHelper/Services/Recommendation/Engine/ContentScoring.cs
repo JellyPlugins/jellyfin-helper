@@ -346,12 +346,12 @@ internal static class ContentScoring
         for (var i = 0; i < watchedGenreSets.Count; i++)
         {
             // Genre Jaccard (50% of composite)
-            var genreJaccard = ComputeJaccard(candidateGenres, watchedGenreSets[i]);
+            var genreJaccard = SimilarityComputer.ComputeJaccardFromSets(candidateGenres, watchedGenreSets[i]);
 
             // People Jaccard (30% of composite). Missing parallel entry → 0 contribution
             // but the genre dimension keeps working.
             var peopleJaccard = candidatePeople is { Count: > 0 } && i < watchedPeopleSets.Count
-                ? ComputeJaccard(candidatePeople, watchedPeopleSets[i])
+                ? SimilarityComputer.ComputeJaccardFromSets(candidatePeople, watchedPeopleSets[i])
                 : 0.0;
 
             // Studio overlap (20% of composite) - binary: any shared studio = 1.0
@@ -388,24 +388,5 @@ internal static class ContentScoring
         return collaborativeScore > 0
             ? Math.Clamp(collaborativeScore * 0.8, 0.0, 1.0)
             : Math.Clamp(combinedCriticScore * 0.3, 0.0, 1.0);
-    }
-
-    /// <summary>
-    ///     Computes the Jaccard similarity coefficient between two string sets.
-    ///     Jaccard = |intersection| / |union|. Returns 0 when both sets are empty.
-    /// </summary>
-    private static double ComputeJaccard(HashSet<string> setA, HashSet<string> setB)
-    {
-        if (setA.Count == 0 && setB.Count == 0)
-        {
-            return 0.0;
-        }
-
-        // Iterate the smaller set for efficiency
-        var (smaller, larger) = setA.Count <= setB.Count ? (setA, setB) : (setB, setA);
-        var intersection = smaller.Count(item => larger.Contains(item));
-
-        var union = setA.Count + setB.Count - intersection;
-        return union > 0 ? (double)intersection / union : 0.0;
     }
 }

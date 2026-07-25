@@ -158,7 +158,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         symlinkHelper.Setup(h => h.IsSymlink(It.IsAny<string>()))
             .Returns<string>(symlinkPaths.Contains);
 
-        var service = CreateService(fs, new SymlinkHandler(symlinkHelper.Object, TestMockFactory.CreatePluginLogService()));
+        var service = CreateService(fs, new SymlinkHandler(symlinkHelper.Object));
 
         var sw = Stopwatch.StartNew();
         var result = service.FindLinkFiles(new List<string> { basePath });
@@ -198,7 +198,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         symlinkHelper.Setup(h => h.GetSymlinkTarget(It.IsAny<string>()))
             .Returns<string>(symlinkTargets.GetValueOrDefault);
 
-        var service = CreateService(fs, new SymlinkHandler(symlinkHelper.Object, TestMockFactory.CreatePluginLogService()));
+        var service = CreateService(fs, new SymlinkHandler(symlinkHelper.Object));
 
         var sw = Stopwatch.StartNew();
         var result = service.RepairLinks(new List<string> { basePath }, true);
@@ -253,7 +253,7 @@ public class LinkRepairPerformanceTests(ITestOutputHelper output)
         symlinkHelper.Setup(h => h.IsSymlink(It.IsAny<string>()))
             .Returns<string>(symlinkPaths.Contains);
 
-        var handlers = new ILinkHandler[] { new StrmLinkHandler(fs), new SymlinkHandler(symlinkHelper.Object, TestMockFactory.CreatePluginLogService()) };
+        var handlers = new ILinkHandler[] { new StrmLinkHandler(fs), new SymlinkHandler(symlinkHelper.Object) };
         var service = CreateServiceMultiHandler(fs, handlers);
 
         var sw = Stopwatch.StartNew();

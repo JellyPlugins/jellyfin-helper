@@ -79,7 +79,19 @@ public class LinkRepairService : ILinkRepairService
         _pluginLog.LogInfo("LinkRepair", $"Found {linkFiles.Count} link files to check", _logger);
 
         var normalizedLibraryPaths = paths
-            .Select(p => _fileSystem.Path.GetFullPath(p))
+            .Select(p =>
+            {
+                try
+                {
+                    return _fileSystem.Path.GetFullPath(p);
+                }
+                catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+                {
+                    _pluginLog.LogWarning("LinkRepair", $"Skipping malformed library path: {p}", logger: _logger);
+                    return null;
+                }
+            })
+            .OfType<string>()
             .ToList();
 
         foreach (var (filePath, handler) in linkFiles)
@@ -125,6 +137,7 @@ public class LinkRepairService : ILinkRepairService
             FindLinkFilesRecursive(libraryPath, linkFiles, visitedDirectories, out var limitReached, cancellationToken);
             if (limitReached)
             {
+                _pluginLog.LogWarning("LinkRepair", $"Visited-directory cap reached while scanning '{libraryPath}'. Remaining library paths will be skipped.", logger: _logger);
                 break;
             }
         }
@@ -175,7 +188,7 @@ public class LinkRepairService : ILinkRepairService
                 continue;
             }
 
-            if (visited.Count >= VisitedDirectoryCap)
+            if (visited.Count > VisitedDirectoryCap)
             {
                 _pluginLog.LogWarning(
                     "LinkRepair",

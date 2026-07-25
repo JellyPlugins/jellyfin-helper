@@ -73,22 +73,21 @@ public class RepairLinksTask
             $"Scanning {libraryPaths.Count} library paths...",
             _logger);
 
-        progress.Report(10);
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var result = _linkRepairService.RepairLinks(libraryPaths, dryRun, cancellationToken);
-
-        progress.Report(90);
-
-        _pluginLog.LogInfo(
-            "LinkRepair",
-            dryRun
-                ? $"Task finished (Dry Run). Valid: {result.ValidCount}, Would repair: {result.RepairedCount}, Broken: {result.BrokenCount}, Ambiguous: {result.AmbiguousCount}, Invalid: {result.InvalidContentCount}"
-                : $"Task finished. Valid: {result.ValidCount}, Repaired: {result.RepairedCount}, Broken: {result.BrokenCount}, Ambiguous: {result.AmbiguousCount}, Invalid: {result.InvalidContentCount}",
-            _logger);
-
-        progress.Report(100);
-        return Task.CompletedTask;
+        return Task.Run(
+            () =>
+            {
+                progress.Report(10);
+                cancellationToken.ThrowIfCancellationRequested();
+                var result = _linkRepairService.RepairLinks(libraryPaths, dryRun, cancellationToken);
+                progress.Report(90);
+                _pluginLog.LogInfo(
+                    "LinkRepair",
+                    dryRun
+                        ? $"Task finished (Dry Run). Valid: {result.ValidCount}, Would repair: {result.RepairedCount}, Broken: {result.BrokenCount}, Ambiguous: {result.AmbiguousCount}, Invalid: {result.InvalidContentCount}"
+                        : $"Task finished. Valid: {result.ValidCount}, Repaired: {result.RepairedCount}, Broken: {result.BrokenCount}, Ambiguous: {result.AmbiguousCount}, Invalid: {result.InvalidContentCount}",
+                    _logger);
+                progress.Report(100);
+            },
+            cancellationToken);
     }
 }

@@ -95,7 +95,7 @@ public class TrashController : ControllerBase
         var libraryFolders = _configHelper.GetFilteredLibraryLocations(_libraryManager);
         var existingPaths = new List<string>();
 
-        if (!string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathRooted(config.TrashFolderPath))
+        if (!string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathFullyQualified(config.TrashFolderPath))
         {
             // Absolute path: only one trash folder
             var normalizedPath = Path.GetFullPath(config.TrashFolderPath);
@@ -113,7 +113,7 @@ public class TrashController : ControllerBase
         return Ok(new TrashFoldersResponse
         {
             Paths = existingPaths,
-            IsAbsolute = !string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathRooted(config.TrashFolderPath),
+            IsAbsolute = !string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathFullyQualified(config.TrashFolderPath),
         });
     }
 
@@ -133,7 +133,7 @@ public class TrashController : ControllerBase
         var failed = new List<string>();
 
         var pathsToDelete = new List<string>();
-        if (!string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathRooted(config.TrashFolderPath))
+        if (!string.IsNullOrWhiteSpace(config.TrashFolderPath) && Path.IsPathFullyQualified(config.TrashFolderPath))
         {
             var fullPath = Path.GetFullPath(config.TrashFolderPath);
             if (!IsPathSafeForDeletion(fullPath, libraryFolders))
@@ -153,7 +153,9 @@ public class TrashController : ControllerBase
             {
                 var trashPath = Path.GetFullPath(_configHelper.GetTrashPath(folder));
                 var libraryRoot = Path.GetFullPath(folder);
-                if (!trashPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                if (!trashPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, OperatingSystem.IsLinux()
+                        ? StringComparison.Ordinal
+                        : StringComparison.OrdinalIgnoreCase))
                 {
                     _pluginLog.LogWarning("API", $"Refusing to delete trash path {trashPath}: it escapes library root {libraryRoot}.", logger: _logger);
                     continue;
@@ -213,7 +215,7 @@ public class TrashController : ControllerBase
                 libraries.Add(new TrashLibraryInfo
                 {
                     LibraryPath = folder,
-                    LibraryName = Path.GetFileName(folder),
+                    LibraryName = Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
                     Items = items,
                 });
             }
@@ -264,7 +266,7 @@ public class TrashController : ControllerBase
         return Ok(new TrashFoldersResponse
         {
             Paths = existingPaths,
-            IsAbsolute = Path.IsPathRooted(queryPath),
+            IsAbsolute = Path.IsPathFullyQualified(queryPath),
         });
     }
 
@@ -303,8 +305,8 @@ public class TrashController : ControllerBase
         string resolvedNew;
         try
         {
-            resolvedOld = Path.IsPathRooted(oldPath) ? Path.GetFullPath(oldPath) : oldPath;
-            resolvedNew = Path.IsPathRooted(newPath) ? Path.GetFullPath(newPath) : newPath;
+            resolvedOld = Path.IsPathFullyQualified(oldPath) ? Path.GetFullPath(oldPath) : oldPath;
+            resolvedNew = Path.IsPathFullyQualified(newPath) ? Path.GetFullPath(newPath) : newPath;
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
@@ -315,7 +317,7 @@ public class TrashController : ControllerBase
         var totalMoved = 0;
         var totalFailed = 0;
 
-        if (Path.IsPathRooted(oldPath) && Path.IsPathRooted(newPath))
+        if (Path.IsPathFullyQualified(oldPath) && Path.IsPathFullyQualified(newPath))
         {
             // Both absolute: single relocation
             if (!IsPathSafeForDeletion(resolvedOld, libraryFolders))
@@ -332,7 +334,7 @@ public class TrashController : ControllerBase
             totalMoved += moved;
             totalFailed += failed;
         }
-        else if (!Path.IsPathRooted(oldPath) && !Path.IsPathRooted(newPath))
+        else if (!Path.IsPathFullyQualified(oldPath) && !Path.IsPathFullyQualified(newPath))
         {
             // Both relative: relocate per library using existing trash folder lookup
             var existingOldFolders = _configHelper.GetExistingTrashFoldersForPath(_libraryManager, oldPath);
@@ -347,7 +349,7 @@ public class TrashController : ControllerBase
                 }
 
                 // Only relocate if old trash folder actually exists on disk
-                if (!existingOldFolders.Contains(perLibraryOld))
+                if (!existingOldFolders.Contains(perLibraryOld, StringComparer.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -357,7 +359,7 @@ public class TrashController : ControllerBase
                 totalFailed += failed;
             }
         }
-        else if (Path.IsPathRooted(oldPath) && !Path.IsPathRooted(newPath))
+        else if (Path.IsPathFullyQualified(oldPath) && !Path.IsPathFullyQualified(newPath))
         {
             // Old is absolute, new is relative: move from single old to first library's new path
             if (!IsPathSafeForDeletion(resolvedOld, libraryFolders))
@@ -393,7 +395,7 @@ public class TrashController : ControllerBase
             foreach (var folder in libraryFolders)
             {
                 var perLibraryOld = ResolveRelativeTrashPath(folder, oldPath);
-                if (perLibraryOld == null || !existingOldFoldersForMerge.Contains(perLibraryOld))
+                if (perLibraryOld == null || !existingOldFoldersForMerge.Contains(perLibraryOld, StringComparer.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -518,12 +520,15 @@ public class TrashController : ControllerBase
         var results = new List<TrashAccessEntry>();
         var allAccessible = true;
 
-        if (Path.IsPathRooted(queryPath))
+        if (Path.IsPathFullyQualified(queryPath))
         {
             // Absolute path: enforce the same library-root containment guard used by Delete
             // and Relocate. Without this check an admin could enumerate arbitrary host paths
             // or cause the Jellyfin process to create a probe file anywhere it can write.
-            if (!IsPathSafeForDeletion(queryPath, libraryFolders))
+            // IsPathFullyQualified (not IsPathRooted) is required: on Windows, IsPathRooted
+            // returns true for root-relative paths like \Windows\System32, which would bypass
+            // the containment check below because they are not fully qualified library roots.
+            if (!IsPathSafeForDeletion(Path.GetFullPath(queryPath), libraryFolders))
             {
                 return BadRequest("Path is outside of the permitted library trash directories.");
             }
@@ -549,10 +554,17 @@ public class TrashController : ControllerBase
         }
         else
         {
-            // Relative path: resolve per library and check each
+            // Relative path: resolve the submitted path against each library root and check access.
+            // ResolveRelativeTrashPath enforces root-containment so the submitted path cannot
+            // escape its library boundary via traversal sequences.
             foreach (var folder in libraryFolders)
             {
-                var resolvedPath = _configHelper.GetTrashPath(folder);
+                var resolvedPath = ResolveRelativeTrashPath(folder, queryPath);
+                if (resolvedPath == null)
+                {
+                    continue;
+                }
+
                 var accessResult = _trashService.CheckPathAccess(resolvedPath, _logger);
                 _pluginLog.LogInfo(
                     "API",

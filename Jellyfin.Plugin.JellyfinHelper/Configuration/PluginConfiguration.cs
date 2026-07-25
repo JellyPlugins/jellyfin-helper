@@ -205,7 +205,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public double EnsembleAlphaMin
     {
         get => _ensembleAlphaMin;
-        set => _ensembleAlphaMin = ClampAndReport(nameof(EnsembleAlphaMin), value, 0.0, 1.0);
+        set
+        {
+            _ensembleAlphaMin = ClampAndReport(nameof(EnsembleAlphaMin), value, 0.0, 1.0);
+            NormalizeAlphaRange();
+        }
     }
 
     /// <summary>

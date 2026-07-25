@@ -222,6 +222,28 @@ internal sealed class SimilarityComputer
         IReadOnlyList<string> candidateGenres,
         Dictionary<string, double> genrePreferences)
     {
+        var userNormSq = 0.0;
+        foreach (var w in genrePreferences.Values)
+        {
+            userNormSq += w * w;
+        }
+
+        return ComputeGenreSimilarity(candidateGenres, genrePreferences, userNormSq);
+    }
+
+    /// <summary>
+    ///     Computes genre similarity using a precomputed user-norm-squared value.
+    ///     Use this overload in per-candidate hot loops where genrePreferences is fixed per user.
+    /// </summary>
+    /// <param name="candidateGenres">The genres of the candidate item.</param>
+    /// <param name="genrePreferences">The user's genre preference vector.</param>
+    /// <param name="precomputedUserNormSq">Precomputed sum of squared genre-preference weights.</param>
+    /// <returns>A similarity score between 0 and 1.</returns>
+    internal static double ComputeGenreSimilarity(
+        IReadOnlyList<string> candidateGenres,
+        Dictionary<string, double> genrePreferences,
+        double precomputedUserNormSq)
+    {
         if (candidateGenres.Count == 0 || genrePreferences.Count == 0)
         {
             return 0;
@@ -270,13 +292,7 @@ internal sealed class SimilarityComputer
         var candidateNorm = Math.Sqrt(uniqueCandidateGenres.Count);
 
         // |user| = sqrt(sum of squared weights)
-        var userNormSq = 0.0;
-        foreach (var weight in genrePreferences.Values)
-        {
-            userNormSq += weight * weight;
-        }
-
-        var userNorm = Math.Sqrt(userNormSq);
+        var userNorm = Math.Sqrt(precomputedUserNormSq);
 
         if (double.IsNaN(userNorm) || double.IsInfinity(userNorm))
         {

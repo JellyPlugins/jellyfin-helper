@@ -83,6 +83,12 @@ public class SymlinkHelper : ISymlinkHelper
     }
 
     /// <inheritdoc />
+    public void ReplaceSymlink(string sourcePath, string destPath)
+    {
+        File.Move(sourcePath, destPath, overwrite: true);
+    }
+
+    /// <inheritdoc />
     public void DeleteSymlink(string linkPath)
     {
         // Read attributes once and reuse for both the symlink check and the

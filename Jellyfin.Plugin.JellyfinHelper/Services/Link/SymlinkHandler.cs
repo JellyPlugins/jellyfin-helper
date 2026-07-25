@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 
@@ -12,17 +11,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Link;
 public class SymlinkHandler : ILinkHandler
 {
     private readonly ISymlinkHelper _symlinkHelper;
-    private readonly IPluginLogService _pluginLog;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="SymlinkHandler" /> class.
     /// </summary>
     /// <param name="symlinkHelper">The symlink helper for filesystem operations.</param>
-    /// <param name="pluginLog">Plugin log service for warning on rollback failure.</param>
-    public SymlinkHandler(ISymlinkHelper symlinkHelper, IPluginLogService pluginLog)
+    public SymlinkHandler(ISymlinkHelper symlinkHelper)
     {
         _symlinkHelper = symlinkHelper;
-        _pluginLog = pluginLog;
     }
 
     /// <inheritdoc />
@@ -43,41 +39,24 @@ public class SymlinkHandler : ILinkHandler
     /// <inheritdoc />
     public void WriteTarget(string filePath, string targetPath)
     {
-        var previousTarget = _symlinkHelper.GetSymlinkTarget(filePath);
-        if (string.IsNullOrWhiteSpace(previousTarget))
-        {
-            _pluginLog.LogWarning(
-                "SymlinkHandler",
-                $"No existing symlink target found for '{filePath}'. Rollback will not be possible if the write fails.",
-                null);
-        }
-
-        var deleted = false;
+        var tempPath = filePath + ".jfh-tmp";
         try
         {
-            _symlinkHelper.DeleteSymlink(filePath);
-            deleted = true;
-            _symlinkHelper.CreateSymlink(filePath, targetPath);
+            _symlinkHelper.CreateSymlink(tempPath, targetPath);
+            _symlinkHelper.ReplaceSymlink(tempPath, filePath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or InvalidOperationException)
         {
-            if (!deleted || string.IsNullOrWhiteSpace(previousTarget))
-            {
-                throw;
-            }
-
             try
             {
-                _symlinkHelper.CreateSymlink(filePath, previousTarget);
+                if (_symlinkHelper.IsSymlink(tempPath))
+                {
+                    _symlinkHelper.DeleteSymlink(tempPath);
+                }
             }
-            catch (Exception rollbackEx) when (rollbackEx is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or InvalidOperationException)
+            catch
             {
-                // Rollback failed: the original symlink at filePath is permanently gone.
-                // Log at Warning so operators can detect and remediate manually.
-                _pluginLog.LogWarning(
-                    "SymlinkHandler",
-                    $"Rollback failed for '{filePath}': could not restore symlink to '{previousTarget}'. The link is permanently removed.",
-                    rollbackEx);
+                // Best-effort cleanup of temp file; original link was never touched.
             }
 
             throw;

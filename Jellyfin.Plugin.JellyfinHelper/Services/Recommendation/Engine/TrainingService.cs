@@ -181,7 +181,7 @@ internal sealed class TrainingService : IDisposable
 
             if (oldExamples.Count > 0)
             {
-                var rng = Random.Shared;
+                var rng = new Random(Engine.ComputeStableSeed(Guid.Empty, examples.Count));
                 var sampleCount = Math.Clamp(
                     (int)(oldExamples.Count * EngineConstants.IncrementalOldSampleRatio),
                     1,

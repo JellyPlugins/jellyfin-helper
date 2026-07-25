@@ -89,7 +89,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 $"Arr connection test failed for {baseUrl}: {ex.Message}",
                 ex,
                 _logger);
-            return (false, $"Connection failed: {ex.Message}");
+            return (false, "Connection failed. Check the URL and network connectivity.");
         }
         catch (InvalidOperationException ex)
         {
@@ -103,7 +103,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
                 $"Arr connection test failed for {baseUrl}: {ex.Message}",
                 ex,
                 _logger);
-            return (false, $"Error: {ex.Message}");
+            return (false, "Connection failed. Check the URL and network connectivity.");
         }
     }
 

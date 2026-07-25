@@ -146,7 +146,7 @@ public class ArrIntegrationServiceTests
         var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "testapikey");
 
         Assert.False(success);
-        Assert.Contains("Error", message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(string.IsNullOrWhiteSpace(message));
     }
 
     [Fact]
@@ -906,5 +906,45 @@ public class ArrIntegrationServiceTests
 
         // OrdinalIgnoreCase copy must match "Movie A (2020)" against "movie a (2020)"
         Assert.Single(result.InBoth);
+    }
+
+    // ===== Connection test must not leak internal network details =====
+
+    [Fact]
+    public async Task TestConnection_HttpRequestException_DoesNotLeakHostDetails()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Connection refused: 192.168.1.100:7878 internal host"));
+
+        var service = CreateService(handler.Object);
+        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "key");
+
+        Assert.False(success);
+        Assert.DoesNotContain("192.168.1.100", message);
+        Assert.DoesNotContain("Connection refused", message);
+        Assert.False(string.IsNullOrWhiteSpace(message));
+    }
+
+    [Fact]
+    public async Task TestConnection_HttpRequestException_ReturnsGenericUserMessage()
+    {
+        var handler = new Mock<HttpMessageHandler>();
+        handler.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("ECONNREFUSED 10.0.0.5:7878"));
+
+        var service = CreateService(handler.Object);
+        var (success, message) = await service.TestConnectionAsync("http://localhost:7878", "key");
+
+        Assert.False(success);
+        Assert.Contains("Check", message, StringComparison.OrdinalIgnoreCase);
     }
 }

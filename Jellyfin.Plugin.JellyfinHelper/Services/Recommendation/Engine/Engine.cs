@@ -884,6 +884,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var preferredTags = PreferenceBuilder.BuildTagPreferenceSet(userProfile, candidateLookup);
         var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile);
 
+        var userGenreNormSq = 0.0;
+        foreach (var w in genrePreferences.Values)
+        {
+            userGenreNormSq += w * w;
+        }
+
         // Pre-compute BoxSet membership for watched items to enable CollectionProgressionBoost
         // at inference time. Maps BoxSet ID → count of watched items in that BoxSet.
         // Uses the pre-resolved candidateBoxSetLookup for O(1) lookups (no parent traversal).
@@ -907,11 +913,23 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     : []);
 
             // People: resolve from peopleLookup (which maps item IDs to person name sets)
-            watchedPeopleSets.Add(peopleLookup.TryGetValue(w.ItemId, out var wp) ? new HashSet<string>(wp, StringComparer.OrdinalIgnoreCase) : []);
+            peopleLookup.TryGetValue(w.ItemId, out var wp);
+            if (wp == null && w.SeriesId.HasValue)
+            {
+                peopleLookup.TryGetValue(w.SeriesId.Value, out wp);
+            }
+
+            watchedPeopleSets.Add(wp != null ? new HashSet<string>(wp, StringComparer.OrdinalIgnoreCase) : []);
 
             // Studios: resolve from candidateLookup (which maps item IDs to BaseItems with Studios)
+            candidateLookup.TryGetValue(w.ItemId, out var wi);
+            if (wi == null && w.SeriesId.HasValue)
+            {
+                candidateLookup.TryGetValue(w.SeriesId.Value, out wi);
+            }
+
             watchedStudioSets.Add(
-                candidateLookup.TryGetValue(w.ItemId, out var wi) && wi.Studios is { Length: > 0 }
+                wi?.Studios is { Length: > 0 }
                     ? new HashSet<string>(wi.Studios, StringComparer.OrdinalIgnoreCase)
                     : []);
         }
@@ -958,6 +976,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     userProfile,
                     strategy,
                     genrePreferences,
+                    userGenreNormSq,
                     coOccurrence,
                     collaborativeMax,
                     averageYear,
@@ -1036,6 +1055,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         UserWatchProfile userProfile,
         IScoringStrategy strategy,
         Dictionary<string, double> genrePreferences,
+        double userGenreNormSq,
         Dictionary<Guid, double> coOccurrence,
         double collaborativeMax,
         double averageYear,
@@ -1055,7 +1075,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
         double alphaOffset = 0.0)
     {
-        var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences);
+        var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences, userGenreNormSq);
         var collabScore = ContentScoring.ComputeCollaborativeScore(candidate.Id, coOccurrence, collaborativeMax);
         var combinedCriticScore =
             ContentScoring.ComputeCombinedCriticScore(candidate.CommunityRating, candidate.CriticRating);

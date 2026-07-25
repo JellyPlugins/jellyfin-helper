@@ -222,24 +222,29 @@ public class TrashService : ITrashService
 
                 try
                 {
-                    var size = CalculateDirectorySize(dir);
                     var dirInfo = new DirectoryInfo(dir);
                     if (dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
                     {
-                        // Delete only the symlink/junction itself, not what it points to
+                        // Delete only the symlink/junction itself, not what it points to.
+                        // Size is 0 — only the link entry is removed, not the target data.
                         dirInfo.Delete();
+                        itemsPurged++;
+                        _pluginLog.LogInfo(
+                            "Trash",
+                            $"Purged expired trash directory: {dir} (reparse point, created {timestamp})",
+                            logger);
                     }
                     else
                     {
+                        var size = CalculateDirectorySize(dir);
                         Directory.Delete(dir, true);
+                        totalBytesFreed += size;
+                        itemsPurged++;
+                        _pluginLog.LogInfo(
+                            "Trash",
+                            $"Purged expired trash directory: {dir} ({size} bytes, created {timestamp})",
+                            logger);
                     }
-
-                    totalBytesFreed += size;
-                    itemsPurged++;
-                    _pluginLog.LogInfo(
-                        "Trash",
-                        $"Purged expired trash directory: {dir} ({size} bytes, created {timestamp})",
-                        logger);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -826,7 +831,13 @@ public class TrashService : ITrashService
         try
         {
             var dirInfo = new DirectoryInfo(path);
-            size += dirInfo.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+            foreach (var fi in dirInfo.EnumerateFiles("*", SearchOption.AllDirectories))
+            {
+                if ((fi.Attributes & FileAttributes.ReparsePoint) == 0)
+                {
+                    size += fi.Length;
+                }
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

@@ -218,7 +218,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineBoxSetTests.cs                   # BuildWatchedBoxSetCounts, ComputeCollectionProgressionBoostLive (train/serve parity)
 │       │   ├── EngineBoxSetLookupTests.cs             # Sparsity guarantee, fail-soft on corrupted metadata, mutability contract
 │       │   ├── EngineCommunityPopularityTests.cs      # BuildCommunityPopularityMap: batch and live paths produce identical output
-│       │   ├── EngineExceedsMaxRatingTests.cs         # SECURITY: parental-rating gate — null max = unrestricted, missing rating = REJECT, inclusive boundary
+│       │   ├── EngineEpisodicWatchHistoryTests.cs     # Episodic watch history must contribute people/studio signals via SeriesId fallback when ItemId is absent from peopleLookup/candidateLookup
+│       │   ├── EngineExceedsMaxRatingTests.cs         # Parental-rating gate — null max = unrestricted, missing rating = REJECT, inclusive boundary
 │       │   ├── EngineHelperTests.cs                   # Pure-static internal helpers untestable end-to-end
 │       │   ├── EngineFullPipelineTests.cs             # Cold-start and warm paths with real Movie instances; ghost-id, empty-library, two-user-gate coverage
 │       │   ├── EngineInstanceTests.cs                 # GetRecommendations/TrainStrategy contract: user-not-found=null, cancellation, Math.Clamp guards, empty deployment
@@ -230,7 +231,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── TrainingServiceTests.cs                # Process-wide TrainGate; tests serialised via ConfigOverride collection
 │       │   └── Training/
 │       │       ├── CollectionProgressionBoostTests.cs # Diminishing-returns formula 0.3+(n-1)×0.2; train/serve parity
-│       │       ├── TrainingDataBuilderTests.cs        # F-01 regression: Phase 3 negatives must be deterministic
+│       │       ├── TrainingDataBuilderTests.cs        # Phase 3 negatives must be deterministic
 │       │       └── TrainingFeatureComputerTests.cs    # Training features must stay in lock-step with live scoring path
 │       ├── Playlist/              # Playlist sync tests
 │       │   └── RecommendationPlaylistServiceTests.cs

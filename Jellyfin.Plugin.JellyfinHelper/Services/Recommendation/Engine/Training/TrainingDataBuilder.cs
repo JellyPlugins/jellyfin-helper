@@ -332,17 +332,12 @@ internal static class TrainingDataBuilder
                                 .OrderByDescending(e => e.LastPlayedDate)
                                 .FirstOrDefault();
 
-                            // Neutralise the user-interaction channels; keep the aggregated
-                            // completion ratio as a graded engagement magnitude, matching
-                            // ComputeCompletionRatio(null) → 0.5 for unwatched at inference.
+                            // Neutralise all user-interaction channels to match inference: the live path
+                            // filters watched series out of the candidate pool entirely, so any series
+                            // candidate at inference has hasUserInteraction=false and completionRatio=0.0.
                             hasUserInteraction = false;
                             userRatingScore = 0.5;
-                            completionRatio = episodesForScoring.Count > 0
-                                ? Math.Clamp(
-                                    episodesForScoring.Average(ContentScoring.ComputeCompletionRatio),
-                                    0.0,
-                                    1.0)
-                                : 0.5;
+                            completionRatio = 0.0;
                             break;
                         }
 
@@ -353,7 +348,7 @@ internal static class TrainingDataBuilder
                         // through the label branch below.
                         hasUserInteraction = false;
                         userRatingScore = 0.5;
-                        completionRatio = 0.5;
+                        completionRatio = 0.0;
                         break;
                     default:
                         hasUserInteraction = watchedItemForRec is not null;
@@ -973,7 +968,7 @@ internal static class TrainingDataBuilder
                         IsSeries = isSeries,
                         UserRatingScore = 0.5,
                         HasUserInteraction = false,
-                        CompletionRatio = 0.5,
+                        CompletionRatio = 0.0,
                         PeopleSimilarity = negPeopleSimilarity,
                         StudioMatch = negStudioMatch,
                         // SeriesProgressionBoost stays 0.0 - for cross-user negatives, the user

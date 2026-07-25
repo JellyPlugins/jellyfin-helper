@@ -1,3 +1,4 @@
+using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
@@ -24,7 +25,7 @@ public class LinkRepairServiceTests
         _fileSystem = new MockFileSystem();
         _strmHandler = new StrmLinkHandler(_fileSystem);
         _symlinkHelper = new Mock<ISymlinkHelper>();
-        _symlinkHandler = new SymlinkHandler(_symlinkHelper.Object, TestMockFactory.CreatePluginLogService());
+        _symlinkHandler = new SymlinkHandler(_symlinkHelper.Object);
         _service = new LinkRepairService(
             _fileSystem,
             [_strmHandler, _symlinkHandler],
@@ -297,8 +298,9 @@ public class LinkRepairServiceTests
         var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, false);
 
         Assert.Equal(LinkFileStatus.Repaired, result.Status);
-        _symlinkHelper.Verify(h => h.DeleteSymlink(symlinkFile), Times.Once);
-        _symlinkHelper.Verify(h => h.CreateSymlink(symlinkFile, newFile), Times.Once);
+        _symlinkHelper.Verify(h => h.CreateSymlink(symlinkFile + ".jfh-tmp", newFile), Times.Once);
+        _symlinkHelper.Verify(h => h.ReplaceSymlink(symlinkFile + ".jfh-tmp", symlinkFile), Times.Once);
+        _symlinkHelper.Verify(h => h.DeleteSymlink(symlinkFile), Times.Never);
     }
 
     // ===== ProcessLinkFile: Shared scenarios (handler-agnostic) =====
@@ -579,8 +581,6 @@ public class LinkRepairServiceTests
     [Fact]
     public void ProcessLinkFile_Symlink_ActualRepair_DeleteThrows_ReturnsBroken_AndClearsNewTargetPath()
     {
-        // BUG SURFACE: prior versions returned Repaired even when DeleteSymlink threw,
-        // producing a summary that reported repairs that never happened.
         var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-DeleteThrows");
         var newFile = _fileSystem.Path.Join(movieDir, "new.mkv");
         var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
@@ -589,21 +589,20 @@ public class LinkRepairServiceTests
 
         var symlinkFile = _fileSystem.Path.GetFullPath("/series/DeleteThrows/ep.mkv");
         _symlinkHelper.Setup(h => h.GetSymlinkTarget(symlinkFile)).Returns(brokenTarget);
-        _symlinkHelper.Setup(h => h.DeleteSymlink(symlinkFile))
+        _symlinkHelper.Setup(h => h.CreateSymlink(It.IsAny<string>(), It.IsAny<string>()))
             .Throws(new UnauthorizedAccessException("denied"));
 
         var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, dryRun: false);
 
         Assert.Equal(LinkFileStatus.Broken, result.Status);
         Assert.Null(result.NewTargetPath);
-        _symlinkHelper.Verify(h => h.CreateSymlink(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _symlinkHelper.Verify(h => h.ReplaceSymlink(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _symlinkHelper.Verify(h => h.DeleteSymlink(symlinkFile), Times.Never);
     }
 
     [Fact]
     public void ProcessLinkFile_Symlink_ActualRepair_CreateThrows_ReturnsBroken()
     {
-        // BUG SURFACE: DeleteSymlink succeeded but CreateSymlink threw — without the
-        // guard clause, the symlink would be permanently gone AND marked Repaired.
         var movieDir = _fileSystem.Path.GetFullPath("/movies/Movie-CreateThrows");
         var newFile = _fileSystem.Path.Join(movieDir, "new.mkv");
         var brokenTarget = _fileSystem.Path.Join(movieDir, "old.mkv");
@@ -612,13 +611,14 @@ public class LinkRepairServiceTests
 
         var symlinkFile = _fileSystem.Path.GetFullPath("/series/CreateThrows/ep.mkv");
         _symlinkHelper.Setup(h => h.GetSymlinkTarget(symlinkFile)).Returns(brokenTarget);
-        _symlinkHelper.Setup(h => h.CreateSymlink(symlinkFile, newFile))
+        _symlinkHelper.Setup(h => h.ReplaceSymlink(It.IsAny<string>(), It.IsAny<string>()))
             .Throws(new IOException("disk full"));
 
         var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, dryRun: false);
 
         Assert.Equal(LinkFileStatus.Broken, result.Status);
         Assert.Null(result.NewTargetPath);
+        _symlinkHelper.Verify(h => h.DeleteSymlink(symlinkFile), Times.Never);
     }
 
     [Fact]
@@ -1262,6 +1262,76 @@ public class LinkRepairServiceTests
         Assert.Equal(1, result.BrokenCount);
         Assert.Equal(1, result.AmbiguousCount);
         Assert.Equal(1, result.InvalidContentCount);
+    }
+
+    // =========================================================================
+    // RepairLinks: malformed library path in normalizedLibraryPaths
+    // =========================================================================
+
+    [Fact]
+    public void RepairLinks_MalformedLibraryPath_DoesNotThrow_ReturnsEmptyResult()
+    {
+        var fs = new ThrowingPathFileSystem("bad\0path");
+        var service = new LinkRepairService(
+            fs,
+            [_strmHandler, _symlinkHandler],
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<LinkRepairService>().Object);
+
+        var result = service.RepairLinks(["bad\0path"], dryRun: true);
+
+        Assert.Empty(result.FileResults);
+    }
+
+    [Fact]
+    public void RepairLinks_MalformedLibraryPathMixedWithValid_SkipsMalformedAndProcessesValid()
+    {
+        var badPath = "bad\0path";
+        var fs = new ThrowingPathFileSystem(badPath);
+
+        var validDir = fs.Path.GetFullPath("/series/Show1");
+        var validTarget = fs.Path.GetFullPath("/movies/Movie1/movie.mkv");
+        var linkFile = fs.Path.GetFullPath("/series/Show1/episode.strm");
+
+        fs.AddFile(linkFile, new MockFileData(validTarget));
+        fs.AddFile(validTarget, new MockFileData("video"));
+
+        var strmHandler = new StrmLinkHandler(fs);
+        var service = new LinkRepairService(
+            fs,
+            [strmHandler],
+            TestMockFactory.CreatePluginLogService(),
+            TestMockFactory.CreateLogger<LinkRepairService>().Object);
+
+        var result = service.RepairLinks([badPath, validDir], dryRun: true);
+
+        Assert.Single(result.FileResults);
+        Assert.Equal(LinkFileStatus.Valid, result.FileResults[0].Status);
+    }
+
+    private sealed class ThrowingPathFileSystem : MockFileSystem
+    {
+        private readonly string _throwOnPath;
+
+        public ThrowingPathFileSystem(string throwOnPath)
+        {
+            _throwOnPath = throwOnPath;
+        }
+
+        public override IPath Path => new ThrowingMockPath(this, _throwOnPath);
+
+        private sealed class ThrowingMockPath(MockFileSystem fs, string throwOnPath) : MockPath(fs)
+        {
+            public override string GetFullPath(string path)
+            {
+                if (path == throwOnPath)
+                {
+                    throw new ArgumentException("Invalid characters in path.", nameof(path));
+                }
+
+                return base.GetFullPath(path);
+            }
+        }
     }
 
     private sealed class LowCapLinkRepairService(

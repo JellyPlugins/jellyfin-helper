@@ -22,7 +22,7 @@ public static class LibraryPathResolver
 
         return libraryManager.GetVirtualFolders()
             .SelectMany(f => f.Locations)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase)
             .Select(p =>
             {
                 try

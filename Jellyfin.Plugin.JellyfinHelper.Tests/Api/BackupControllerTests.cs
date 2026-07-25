@@ -230,4 +230,61 @@ public class BackupControllerTests
         sb.Append("}}");
         File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
     }
+
+    [Fact]
+    public async Task ImportBackup_WithDifferentApiKey_ResponseIncludesCredentialsChanged()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            // Build a minimal backup JSON that has a different Seerr API key than the default config.
+            var backupJson = JsonSerializer.Serialize(new
+            {
+                seerrApiKey = "new-different-api-key-abc123",
+                seerrBaseUrl = "http://seerr.local:5055",
+                useTrash = false
+            });
+
+            var controller = CreateControllerWithJsonBody(tempDir, backupJson);
+            var result = await controller.ImportBackupAsync();
+
+            var okResult = Assert.IsType<OkObjectResult>(result);
+            var payloadJson = JsonSerializer.Serialize(okResult.Value);
+
+            Assert.Contains("credentialsChanged", payloadJson, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task ImportBackup_WithSameApiKey_CredentialsChangedIsFalse()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            // Empty or missing API key in backup means "leave existing" → no credential change.
+            var backupJson = JsonSerializer.Serialize(new
+            {
+                seerrApiKey = string.Empty,
+                useTrash = false
+            });
+
+            var controller = CreateControllerWithJsonBody(tempDir, backupJson);
+            var result = await controller.ImportBackupAsync();
+
+            var okResult = Assert.IsType<OkObjectResult>(result);
+            var payloadJson = JsonSerializer.Serialize(okResult.Value);
+
+            // Field must be present and false (no credential change occurred).
+            Assert.Contains("credentialsChanged", payloadJson, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("\"credentialsChanged\":false", payloadJson, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
 }

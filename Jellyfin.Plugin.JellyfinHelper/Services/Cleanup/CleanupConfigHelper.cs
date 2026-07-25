@@ -132,8 +132,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         // collections directory (typically /config/data/collections or similar).
         return filteredFolders
             .SelectMany(f => f.Locations ?? [])
-            .Where(loc => !loc.Contains("/collections", StringComparison.OrdinalIgnoreCase)
-                          && !loc.Contains("\\collections", StringComparison.OrdinalIgnoreCase))
+            .Where(loc => !IsCollectionsPath(loc))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -155,7 +154,15 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                 return false;
             }
 
-            var age = DateTime.UtcNow - dirInfo.CreationTimeUtc;
+            var created = dirInfo.CreationTimeUtc < dirInfo.LastWriteTimeUtc
+                ? dirInfo.CreationTimeUtc
+                : dirInfo.LastWriteTimeUtc;
+            if (created.Year < 1980)
+            {
+                return false;
+            }
+
+            var age = DateTime.UtcNow - created;
             return age.TotalDays >= config.OrphanMinAgeDays;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -182,7 +189,15 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                 return false;
             }
 
-            var age = DateTime.UtcNow - fileInfo.CreationTimeUtc;
+            var created = fileInfo.CreationTimeUtc < fileInfo.LastWriteTimeUtc
+                ? fileInfo.CreationTimeUtc
+                : fileInfo.LastWriteTimeUtc;
+            if (created.Year < 1980)
+            {
+                return false;
+            }
+
+            var age = DateTime.UtcNow - created;
             return age.TotalDays >= config.OrphanMinAgeDays;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -370,8 +385,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
                     return true;
                 })
                 .SelectMany(f => f.Locations ?? [])
-                .Where(loc => !loc.Contains("/collections", StringComparison.OrdinalIgnoreCase)
-                              && !loc.Contains("\\collections", StringComparison.OrdinalIgnoreCase))
+                .Where(loc => !IsCollectionsPath(loc))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -446,6 +460,27 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     public static bool IsDryRun(TaskMode mode)
     {
         return mode == TaskMode.DryRun;
+    }
+
+    /// <summary>
+    ///     Returns true when any path segment of <paramref name="location" /> is exactly "collections"
+    ///     (case-insensitive). Handles both forward-slash and backslash separators.
+    ///     Used to exclude Jellyfin's internal collections directory from all library-location filters.
+    /// </summary>
+    /// <param name="location">The filesystem path to test.</param>
+    /// <returns>
+    ///     <see langword="true" /> when a segment of the path equals "collections" (case-insensitive);
+    ///     otherwise <see langword="false" />.
+    /// </returns>
+    internal static bool IsCollectionsPath(string location)
+    {
+        if (string.IsNullOrEmpty(location))
+        {
+            return false;
+        }
+
+        var segments = location.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return segments.Any(s => string.Equals(s, "collections", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

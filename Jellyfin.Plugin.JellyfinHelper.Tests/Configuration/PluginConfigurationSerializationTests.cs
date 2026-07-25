@@ -499,32 +499,32 @@ public class PluginConfigurationSerializationTests
     [Fact]
     public void NormalizeAlphaRange_MinGreaterThanMax_SwappedAutomaticallyByMaxSetter()
     {
-        // EnsembleAlphaMax setter calls NormalizeAlphaRange internally.
-        // Setting Min=0.8 then Max=0.3 triggers the swap inside the Max setter.
-        // The values are already correct WITHOUT an explicit NormalizeAlphaRange() call.
+        // Set Max=0.8 first, then Min=0.3 — both setters call NormalizeAlphaRange.
+        // Setting Max first establishes the upper bound; Min below it stays valid.
         var config = new PluginConfiguration
         {
-            EnsembleAlphaMin = 0.8,
-            EnsembleAlphaMax = 0.3
+            EnsembleAlphaMax = 0.8,
+            EnsembleAlphaMin = 0.3
         };
 
         Assert.Equal(0.3, config.EnsembleAlphaMin, precision: 10);
         Assert.Equal(0.8, config.EnsembleAlphaMax, precision: 10);
 
         var reports = config.DrainClampReports();
-        Assert.Contains(reports, r => r.PropertyName.Contains("EnsembleAlphaRange",
+        Assert.DoesNotContain(reports, r => r.PropertyName.Contains("EnsembleAlphaRange",
             StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
     public void NormalizeAlphaRange_CalledManually_IsIdempotentWhenAlreadyOrdered()
     {
-        // After the setter has already normalized, calling NormalizeAlphaRange() again
-        // must be a no-op: values stay the same and no extra report is emitted.
+        // Set Max first, then Min below it — both setters now call NormalizeAlphaRange,
+        // so after construction Min <= Max invariant holds.
+        // Calling NormalizeAlphaRange() again must be a no-op.
         var config = new PluginConfiguration
         {
-            EnsembleAlphaMin = 0.8,
-            EnsembleAlphaMax = 0.3
+            EnsembleAlphaMax = 0.8,
+            EnsembleAlphaMin = 0.3
         };
         config.DrainClampReports();
 
@@ -572,5 +572,35 @@ public class PluginConfigurationSerializationTests
         Assert.Equal(0, config.SeerrCleanupAgeDays);
         var reports = config.DrainClampReports();
         Assert.Contains(reports, r => r.PropertyName == nameof(PluginConfiguration.SeerrCleanupAgeDays));
+    }
+
+    [Fact]
+    public void EnsembleAlphaMin_SetAboveMax_ClampsMaxToMin()
+    {
+        var config = new PluginConfiguration { EnsembleAlphaMax = 0.5 };
+        config.EnsembleAlphaMin = 0.8;
+
+        Assert.True(config.EnsembleAlphaMin <= config.EnsembleAlphaMax,
+            $"Min({config.EnsembleAlphaMin}) must be <= Max({config.EnsembleAlphaMax}) after setting Min above Max");
+    }
+
+    [Fact]
+    public void EnsembleAlphaMin_SetBelowMax_PreservesMax()
+    {
+        var config = new PluginConfiguration { EnsembleAlphaMax = 0.7 };
+        config.EnsembleAlphaMin = 0.3;
+
+        Assert.Equal(0.3, config.EnsembleAlphaMin);
+        Assert.Equal(0.7, config.EnsembleAlphaMax);
+    }
+
+    [Fact]
+    public void EnsembleAlphaMin_SetEqual_IsAllowed()
+    {
+        var config = new PluginConfiguration { EnsembleAlphaMax = 0.5 };
+        config.EnsembleAlphaMin = 0.5;
+
+        Assert.Equal(0.5, config.EnsembleAlphaMin);
+        Assert.Equal(0.5, config.EnsembleAlphaMax);
     }
 }

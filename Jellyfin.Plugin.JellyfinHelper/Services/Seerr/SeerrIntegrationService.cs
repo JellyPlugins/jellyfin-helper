@@ -129,6 +129,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         var skip = 0;
         bool hasMore;
         var phaseOneFailed = false;
+        const int MaxPages = 200;
 
         do
         {
@@ -211,12 +212,21 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                     continue;
                 }
 
+                // Never delete approved or available requests — Seerr uses these to track
+                // what was downloaded; deleting them breaks status tracking and may trigger
+                // duplicate re-requests. Only pending (1) and declined (3) are safe to remove.
+                //   2 = approved, 4 = available, 5 = partially available
+                if (request.Status is 2 or 4 or 5)
+                {
+                    continue;
+                }
+
                 result.ExpiredFound++;
                 expiredRequests.Add(request);
             }
 
             skip += PageSize;
-            hasMore = skip < page.PageInfo.Results;
+            hasMore = skip < page.PageInfo.Results && (skip / PageSize) < MaxPages;
         }
         while (hasMore);
 

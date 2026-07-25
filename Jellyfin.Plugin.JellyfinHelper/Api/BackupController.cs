@@ -299,7 +299,8 @@ public class BackupController : ControllerBase
                     {
                         summary.ConfigurationRestored,
                         summary.TimelineRestored,
-                        summary.BaselineRestored
+                        summary.BaselineRestored,
+                        summary.CredentialsChanged
                     }
                 });
         }

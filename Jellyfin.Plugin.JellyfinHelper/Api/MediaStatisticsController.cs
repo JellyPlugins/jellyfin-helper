@@ -90,14 +90,7 @@ public class MediaStatisticsController : ControllerBase
         }
 
         MediaStatisticsResult result;
-        try
-        {
-            result = _statisticsService.CalculateStatistics();
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            throw;
-        }
+        result = _statisticsService.CalculateStatistics();
 
         _cache.Set(StatsCacheKey, result, CacheDuration);
         _cacheService.SaveLatestResult(result);

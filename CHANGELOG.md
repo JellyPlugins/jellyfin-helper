@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin plugin ecosystem.
 
-## [3.0.0.0] - 2026-07-08
+## [3.0.0.0] - 2026-07-25
 
 ### Added
 - **Smarter recommendation engine** - The neural network behind your recommendations is now four times bigger and uses dropout regularisation, so it learns your taste more reliably and generalises better beyond what you've already watched.
@@ -26,6 +26,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **API keys protected on the settings page** - Saved API keys (Seerr, Radarr, Sonarr) are no longer sent back to the browser when the settings page loads. The fields show a placeholder instead, and saving without changing a field leaves the stored key untouched.
 - **Backup downloads warn about stored credentials** - The plugin now flags when a backup file contains API keys, so you know to keep the file private.
 - **Audit log when a backup replaces credentials** - Importing a backup that overwrites a stored API key is now recorded in the plugin log, giving you a clear trail if credentials change unexpectedly.
+- **Trash access check uses fully-qualified path validation on Windows** - The access-check endpoint now requires fully-qualified paths (e.g. `C:\...`) instead of merely rooted ones, closing a gap where Windows root-relative paths like `\Windows\System32` could bypass the library-containment guard.
 
 ### Fixed
 - **Recommendations sometimes silently drifted** - Four subtle bugs where training and live scoring used slightly different formulas (weekend detection, popularity, box-set progression, discovery feedback). Your recommendations are now trained on exactly the same signals they're scored on.
@@ -36,12 +37,15 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Partial restore inconsistency** - Historical data files (timeline, baseline) are now written *before* the configuration is saved, eliminating the window where credentials were updated but data was still stale on a failed file write.
 - **`SeerrCleanupAgeDays = 0` treated as absent in backup** - A legitimate zero value was silently skipped during restore. The field is now nullable so `null` means absent and `0` means immediate cleanup.
 - **Backup restore accepted `file://` URLs** - The `SeerrUrl` field in a backup was applied without scheme validation. Only `http://` and `https://` URLs are now accepted during restore.
+- **Seerr cleanup could delete available or partially-available requests** - The expiry guard previously only protected status 2 (approved). Statuses 4 (available) and 5 (partially available) - requests whose content has already been downloaded are now also protected from deletion.
+- **Seerr cleanup pagination was unbounded** - The request-list loop now stops after 200 pages (10 000 requests) regardless of what the API reports as the total result count, preventing runaway memory accumulation on misconfigured or adversarial instances.
+- **Library-root collections filter used substring matching** - Jellyfin's internal `collections` directory was excluded using a substring check (`Contains("/collections")`), which could incorrectly exclude libraries whose *parent* directory happened to contain the word. The filter now checks path segments exactly.
 
 ### Breaking
 - **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.6 (served from the same plugin repository).
 
 ### Tests
-- Total: **4172 tests** (+1764 vs. v2.1.0.6). New test classes: `ResponseDtoTests` (63 tests covering all 17 typed response DTOs — defaults, round-trip, null-safety, collection defaults).
+- Total: **4213 tests** (+1852 vs. v2.1.0.6). New test classes: `ResponseDtoTests` (63 tests covering all 17 typed response DTOs — defaults, round-trip, null-safety, collection defaults).
 
 ---
 
