@@ -124,46 +124,13 @@ public sealed class DiscoveryController : ControllerBase
         [FromBody] DiscoveryRequestDto dto,
         CancellationToken cancellationToken)
     {
-        if (dto == null)
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "Request body is required." });
-        }
+        // Input validation (TmdbId range, MediaType pattern, RootFolder path safety)
+        // is declared via DataAnnotations on DiscoveryRequestDto and enforced by
+        // [ApiController]'s automatic ModelState check before this method runs.
 
-        if (dto.TmdbId <= 0)
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "Invalid TMDb ID." });
-        }
+        var mediaType = dto.MediaType.Trim().ToLowerInvariant();
 
-        var mediaType = dto.MediaType?.Trim().ToLowerInvariant();
-        if (mediaType is not ("movie" or "tv"))
-        {
-            return BadRequest(new RequestResult { Success = false, Message = "mediaType must be 'movie' or 'tv'." });
-        }
-
-        // Normalize RootFolder: trim whitespace and coalesce whitespace-only to null.
-        // This prevents whitespace-only strings from bypassing validation guards below
-        // and being sent as meaningless overrides to the Seerr API.
         var rootFolder = string.IsNullOrWhiteSpace(dto.RootFolder) ? null : dto.RootFolder.Trim();
-
-        // Block path traversal attempts, control characters, and excessive length in rootFolder
-        if (rootFolder != null)
-        {
-            if (rootFolder.Length > 512)
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "Root folder path exceeds maximum length." });
-            }
-
-            if (rootFolder.Contains("..", StringComparison.Ordinal) ||
-                rootFolder.StartsWith('~'))
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "Invalid root folder path." });
-            }
-
-            if (rootFolder.Any(c => char.IsControl(c)))
-            {
-                return BadRequest(new RequestResult { Success = false, Message = "Root folder path contains invalid characters." });
-            }
-        }
 
         var callerUserId = GetCurrentUserId();
 
