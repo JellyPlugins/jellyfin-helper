@@ -9,6 +9,9 @@ artifacts
 *.ps1
 # But include CI scripts that must be checked in
 !.github/scripts/*.ps1
+# E2E test harness scripts must be checked in (overrides *.sh/*.ps1 above)
+!test/e2e/**/*.sh
+!test/e2e/**/*.ps1
 publish_output/
 publish_test/
 TestResults/
@@ -20,3 +23,9 @@ _diff_output.txt
 docs/css/
 docs/js/
 docs/i18n/
+# E2E runtime artifacts (generated, never committed)
+test/e2e/node_modules/
+test/e2e/playwright-report/
+test/e2e/test-results/
+test/e2e/.artifacts/
+test/e2e/runtime/

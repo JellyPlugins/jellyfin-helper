@@ -1,0 +1,135 @@
+/**
+ * Shared helpers for the E2E tests: a thin Jellyfin API client that knows how
+ * to authenticate, drive scheduled tasks, and reach the plugin's own endpoints
+ * (everything under the `JellyfinHelper/` route prefix).
+ *
+ * The admin token and base URL are produced by setup/global-setup.ts and
+ * handed to tests via environment variables (JELLYFIN_URL, JELLYFIN_TOKEN)
+ * and the persisted setup/auth.json.
+ */
+import { APIRequestContext, request as pwRequest } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+export const PLUGIN_GUID = '0c737645-5cbb-4bd8-80c7-d377b560aaa4';
+export const CLEANUP_TASK_KEY = 'HelperCleanup';
+
+export interface AuthInfo {
+  baseUrl: string;
+  token: string;
+  userId: string;
+  userName: string;
+}
+
+/** Load the auth info persisted by global-setup. */
+export function loadAuth(): AuthInfo {
+  const raw = readFileSync(join(__dirname, '..', 'setup', 'auth.json'), 'utf-8');
+  return JSON.parse(raw) as AuthInfo;
+}
+
+/**
+ * The MediaBrowser authorization header value. Jellyfin accepts client
+ * identification either before login (no token) or after (with token).
+ * Header NAME + exact token layout are set from the startup-API research.
+ */
+export function authHeader(token?: string): string {
+  const parts = [
+    'MediaBrowser Client="jfh-e2e"',
+    'Device="e2e-runner"',
+    'DeviceId="jfh-e2e-device"',
+    'Version="1.0.0"',
+  ];
+  if (token) parts.push(`Token="${token}"`);
+  return parts.join(', ');
+}
+
+/** Create a Playwright request context pre-authenticated as the admin. */
+export async function apiContext(auth: AuthInfo): Promise<APIRequestContext> {
+  return pwRequest.newContext({
+    baseURL: auth.baseUrl,
+    extraHTTPHeaders: {
+      Authorization: authHeader(auth.token),
+      Accept: 'application/json',
+    },
+  });
+}
+
+/** Build a plugin route path from a suffix, e.g. p('Configuration'). */
+export function p(suffix: string): string {
+  return `/JellyfinHelper/${suffix.replace(/^\/+/, '')}`;
+}
+
+// --- scheduled task control ------------------------------------------------
+
+interface TaskInfo {
+  Id: string;
+  Key: string;
+  State: 'Idle' | 'Running' | 'Cancelling';
+  LastExecutionResult?: { Status?: string; ErrorMessage?: string };
+}
+
+/** Resolve the internal task Id for a task Key (e.g. HelperCleanup). */
+export async function findTaskId(ctx: APIRequestContext, key: string): Promise<string> {
+  const res = await ctx.get('/ScheduledTasks');
+  if (!res.ok()) throw new Error(`GET /ScheduledTasks failed: ${res.status()}`);
+  const tasks = (await res.json()) as TaskInfo[];
+  const task = tasks.find((t) => t.Key === key);
+  if (!task) throw new Error(`Scheduled task with Key="${key}" not found`);
+  return task.Id;
+}
+
+/**
+ * Start the given scheduled task and poll until it returns to Idle.
+ * Returns the LastExecutionResult so callers can assert Completed vs Failed.
+ */
+export async function runTaskToCompletion(
+  ctx: APIRequestContext,
+  taskId: string,
+  { timeoutMs = 60_000, pollMs = 1000 }: { timeoutMs?: number; pollMs?: number } = {},
+): Promise<TaskInfo> {
+  const start = await ctx.post(`/ScheduledTasks/Running/${taskId}`);
+  if (!start.ok() && start.status() !== 204) {
+    throw new Error(`Failed to start task ${taskId}: ${start.status()}`);
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  // Give the scheduler a moment to flip to Running before we poll.
+  await sleep(500);
+  while (Date.now() < deadline) {
+    const res = await ctx.get(`/ScheduledTasks/${taskId}`);
+    if (res.ok()) {
+      const task = (await res.json()) as TaskInfo;
+      if (task.State === 'Idle') return task;
+    }
+    await sleep(pollMs);
+  }
+  throw new Error(`Task ${taskId} did not complete within ${timeoutMs}ms`);
+}
+
+/** Convenience: run the plugin's HelperCleanup task to completion. */
+export async function runCleanupTask(ctx: APIRequestContext, timeoutMs = 90_000): Promise<TaskInfo> {
+  const id = await findTaskId(ctx, CLEANUP_TASK_KEY);
+  return runTaskToCompletion(ctx, id, { timeoutMs });
+}
+
+export function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Assert the plugin is still loaded and Active (not Malfunctioned) — the key
+ * "did this edge case take the server down?" check, run after hardening tests.
+ */
+export async function assertPluginActive(ctx: APIRequestContext): Promise<void> {
+  const res = await ctx.get('/Plugins');
+  if (!res.ok()) throw new Error(`GET /Plugins failed: ${res.status()}`);
+  const plugins = (await res.json()) as Array<{ Id: string; Name: string; Status: string }>;
+  const plugin = plugins.find((pl) => pl.Id.replace(/-/g, '') === PLUGIN_GUID.replace(/-/g, ''));
+  if (!plugin) throw new Error('Jellyfin Helper plugin not found in /Plugins');
+  if (plugin.Status && plugin.Status !== 'Active') {
+    throw new Error(`Plugin status is "${plugin.Status}", expected Active`);
+  }
+}
