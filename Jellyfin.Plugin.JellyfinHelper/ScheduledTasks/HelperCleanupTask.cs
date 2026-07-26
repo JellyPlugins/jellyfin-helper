@@ -131,16 +131,22 @@ public class HelperCleanupTask : IScheduledTask
     {
         var config = _configHelper.GetConfig();
 
-        var subTasks = new (string Name, TaskMode Mode, Func<IProgress<double>, CancellationToken, Task> Execute)[]
+        // RunOnDeactivate: most sub-tasks are true no-ops when Deactivated and are skipped.
+        // "Smart Recommendations" is the exception — on Deactivate it must still run so its
+        // handler can PURGE any previously-created recommendation playlists (switching a
+        // library from Activate to Deactivate should not leave stale managed playlists
+        // behind). RunRecommendationsUpdate short-circuits all expensive work in Deactivate
+        // mode and only performs the cleanup.
+        var subTasks = new (string Name, TaskMode Mode, bool RunOnDeactivate, Func<IProgress<double>, CancellationToken, Task> Execute)[]
         {
-            ("Trickplay Cleanup", config.TrickplayTaskMode, RunTrickplayCleanup),
-            ("Empty Media Folder Cleanup", config.EmptyMediaFolderTaskMode, RunEmptyMediaFolderCleanup),
-            ("Orphaned Subtitle Cleanup", config.OrphanedSubtitleTaskMode, RunOrphanedSubtitleCleanup),
-            ("Link Repair", config.LinkRepairTaskMode, RunLinkRepair),
-            ("Seerr Cleanup", config.SeerrCleanupTaskMode, (p, ct) => RunSeerrCleanup(config, p, ct)),
-            ("User Watch Activity", config.RecommendationsTaskMode, (p, ct) => RunUserActivityUpdate(config, p, ct)),
-            ("Smart Recommendations", config.RecommendationsTaskMode, (p, ct) => RunRecommendationsUpdate(config, p, ct)),
-            ("Seerr Discovery", config.RecommendationsTaskMode, (p, ct) => RunSeerrDiscovery(config, p, ct))
+            ("Trickplay Cleanup", config.TrickplayTaskMode, false, RunTrickplayCleanup),
+            ("Empty Media Folder Cleanup", config.EmptyMediaFolderTaskMode, false, RunEmptyMediaFolderCleanup),
+            ("Orphaned Subtitle Cleanup", config.OrphanedSubtitleTaskMode, false, RunOrphanedSubtitleCleanup),
+            ("Link Repair", config.LinkRepairTaskMode, false, RunLinkRepair),
+            ("Seerr Cleanup", config.SeerrCleanupTaskMode, false, (p, ct) => RunSeerrCleanup(config, p, ct)),
+            ("User Watch Activity", config.RecommendationsTaskMode, false, (p, ct) => RunUserActivityUpdate(config, p, ct)),
+            ("Smart Recommendations", config.RecommendationsTaskMode, true, (p, ct) => RunRecommendationsUpdate(config, p, ct)),
+            ("Seerr Discovery", config.RecommendationsTaskMode, false, (p, ct) => RunSeerrDiscovery(config, p, ct))
         };
 
         var totalTasks = subTasks.Length;
@@ -148,16 +154,21 @@ public class HelperCleanupTask : IScheduledTask
         for (var i = 0; i < totalTasks; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var (name, mode, execute) = subTasks[i];
+            var (name, mode, runOnDeactivate, execute) = subTasks[i];
 
-            if (mode == TaskMode.Deactivate)
+            if (mode == TaskMode.Deactivate && !runOnDeactivate)
             {
                 _pluginLog.LogInfo("HelperCleanup", $"Skipping {name} (deactivated in settings).", _logger);
                 progress.Report((double)(i + 1) / totalTasks * 100);
                 continue;
             }
 
-            var modeLabel = mode == TaskMode.DryRun ? "Dry Run" : "Active";
+            var modeLabel = mode switch
+            {
+                TaskMode.DryRun => "Dry Run",
+                TaskMode.Deactivate => "Deactivated — cleanup only",
+                _ => "Active"
+            };
             _pluginLog.LogInfo("HelperCleanup", $"Starting {name} ({modeLabel})...", _logger);
 
             var succeeded = true;
