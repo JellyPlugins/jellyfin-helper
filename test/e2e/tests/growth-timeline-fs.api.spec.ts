@@ -65,6 +65,7 @@ test.describe('GrowthTimeline reflects the scanned library', () => {
 
   test('the latest cumulative totals are positive for a library that has media', async () => {
     const tl = await getTimeline();
+    expect(tl.dataPoints.length, 'the timeline has data points after a scan').toBeGreaterThan(0);
     const last = tl.dataPoints[tl.dataPoints.length - 1];
     expect(last.cumulativeFileCount, 'the library has media, so count > 0').toBeGreaterThan(0);
     expect(last.cumulativeSize, 'the library has bytes, so size > 0').toBeGreaterThan(0);

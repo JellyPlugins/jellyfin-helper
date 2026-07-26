@@ -4,7 +4,7 @@
  * media library.
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
+import { apiContext, loadAuth, p, assertPluginActive, runCleanupTask } from '../setup/api-client.ts';
 import { ensureCanariesPlanted, verifyCanaries, containerFileExists } from '../setup/fs-assert.ts';
 
 let ctx: APIRequestContext;
@@ -76,22 +76,31 @@ test('absolute /config trashFolderPath in a backup does not let cleanup escape',
   const res = await importBackup(backup);
   expect(res.status()).toBeLessThan(500);
 
-  // Even if the value persisted, a subsequent cleanup must not delete /config.
+  // Actually RUN a cleanup with the destructive FS stages ACTIVE — a mere PUT that
+  // leaves every stage Deactivated would prove nothing. Even with trashFolderPath
+  // pointing at /config, the run must not delete/move anything under /config.
   await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: {
-      TrickplayTaskMode: 'Deactivate', EmptyMediaFolderTaskMode: 'Deactivate',
-      OrphanedSubtitleTaskMode: 'Deactivate', LinkRepairTaskMode: 'Deactivate',
+      UseTrash: true, TrashFolderPath: '/config',
+      TrickplayTaskMode: 'Activate', EmptyMediaFolderTaskMode: 'Activate',
+      OrphanedSubtitleTaskMode: 'Activate', LinkRepairTaskMode: 'Activate',
       SeerrCleanupTaskMode: 'Deactivate', RecommendationsTaskMode: 'Deactivate',
     },
   });
+  const result = await runCleanupTask(ctx);
+  expect(result.LastExecutionResult?.Status, 'cleanup task must not have crashed').toBe('Completed');
   expect(containerFileExists('/config/jfh-canary/marker.txt')).toBe(true);
   expect(verifyCanaries()).toEqual([]);
 
-  // Restore a safe trash path.
+  // Restore a safe trash path and re-deactivate the FS stages.
   await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
-    data: { UseTrash: false, TrashFolderPath: '.jellyfin-trash' },
+    data: {
+      UseTrash: false, TrashFolderPath: '.jellyfin-trash',
+      TrickplayTaskMode: 'Deactivate', EmptyMediaFolderTaskMode: 'Deactivate',
+      OrphanedSubtitleTaskMode: 'Deactivate', LinkRepairTaskMode: 'Deactivate',
+    },
   });
   await assertPluginActive(ctx);
 });

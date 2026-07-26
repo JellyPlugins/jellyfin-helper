@@ -80,11 +80,14 @@ test.describe.serial('trash operations never escape the media library', () => {
   });
 
   test('Trash/Relocate into an absolute /config destination is refused', async () => {
-    // Seed a real relative trash source so only the destination is the problem.
+    // Seed a real relative trash source so only the DESTINATION is the problem. A
+    // relative old + absolute new routes to the "old-relative/new-absolute" branch
+    // where only the destination guard fires — genuinely exercising the target
+    // rejection instead of duplicating the source-guard tests above.
     containerMkdir('/media/Movies/.jellyfin-trash');
     const res = await ctx.post(p('Trash/Relocate'), {
       headers: { 'Content-Type': 'application/json' },
-      data: { OldTrashPath: '/config', NewTrashPath: '/config/stolen' },
+      data: { OldTrashPath: '.jellyfin-trash', NewTrashPath: '/config/stolen' },
     });
     expect(res.status()).toBe(400);
     expect(containerFileExists('/config/jfh-canary/marker.txt')).toBe(true);

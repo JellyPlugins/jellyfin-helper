@@ -121,9 +121,9 @@ test('Settings: Seerr Test Connection button hits Seerr/Test', async ({ page }) 
     ),
     testBtn.click(),
   ]);
-  // Against the mock this should succeed; a 400/502 would be a real config/mock
-  // problem, but never a 5xx crash.
-  expect(resp.status(), `Seerr/Test status ${resp.status()}`).toBeLessThan(500);
+  // The beforeAll configures a working mock-Seerr, so the Test call must genuinely
+  // succeed (2xx) — a 4xx/5xx here is a real config/mock regression, not tolerable noise.
+  expect(resp.ok(), `Seerr/Test failed: ${resp.status()}`).toBeTruthy();
 });
 
 test('Settings: Export Backup button produces a download', async ({ page }) => {
@@ -167,6 +167,6 @@ test('Settings: folder-browser opens for the trash path', async ({ page }: { pag
     ),
     browseBtn.click(),
   ]);
-  expect(browseResp.status(), `browse status ${browseResp.status()}`).toBeLessThan(500);
+  expect(browseResp.ok(), `browse request failed: ${browseResp.status()}`).toBeTruthy();
   await expect(page.locator('#folderBrowserOverlay')).toBeVisible({ timeout: 5000 });
 });

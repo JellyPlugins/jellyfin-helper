@@ -10,10 +10,11 @@ let ctx: APIRequestContext;
 
 test.beforeAll(async () => {
   ctx = await apiContext(loadAuth());
-  await ctx.put(p('Configuration'), {
+  const seed = await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: { UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 30 },
   });
+  expect(seed.ok(), `trash config seed failed: ${seed.status()}`).toBeTruthy();
 });
 test.afterAll(async () => {
   await ctx.dispose();

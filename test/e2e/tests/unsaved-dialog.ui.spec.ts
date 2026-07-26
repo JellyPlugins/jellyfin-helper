@@ -46,12 +46,16 @@ test('leaving the settings tab while dirty shows the unsaved-changes dialog', as
   const dialog = page.locator('#unsavedDialogOverlay');
   await expect(dialog, 'unsaved-changes dialog must appear').toBeVisible({ timeout: 5000 });
 
-  // Cancel keeps us on settings with the change intact.
-  await dialog.getByRole('button').filter({ hasText: /cancel|abbrechen/i }).first().click()
-    .catch(async () => {
-      // Fallback if button text is localized differently: click the first button.
-      await dialog.locator('button').first().click();
-    });
+  // Cancel keeps us on settings with the change intact. Check count() first (like the
+  // Discard lookup below) rather than click().catch() — otherwise a locale mismatch
+  // would burn the full ~30s default click timeout before the fallback runs.
+  const cancelBtn = dialog.getByRole('button').filter({ hasText: /cancel|abbrechen/i }).first();
+  if (await cancelBtn.count()) {
+    await cancelBtn.click();
+  } else {
+    // Fallback if button text is localized differently: click the first button.
+    await dialog.locator('button').first().click();
+  }
   await expect(page.locator('#tab-settings')).toHaveClass(/active/);
 });
 

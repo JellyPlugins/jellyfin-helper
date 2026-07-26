@@ -38,10 +38,10 @@ test('Arr tab: selecting an instance updates the reachability indicator', async 
   await expect(select).toBeVisible({ timeout: 15_000 });
 
   const status = page.locator('#arrStatusRadarr');
-  // Changing the selection triggers a TestConnection; the status should end up
-  // ok or error (never stuck) — against the mock it should be ok.
+  // Changing the selection triggers a TestConnection; against the mock the status
+  // must reach is-ok. A single assertion both proves the indicator left the pending
+  // state and fails fast (within one 15s window) if it ends up is-error instead.
   await select.selectOption({ index: 0 });
-  await expect(status).toHaveClass(/is-ok|is-error/, { timeout: 15_000 });
   await expect(status).toHaveClass(/is-ok/, { timeout: 15_000 });
 });
 

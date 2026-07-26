@@ -179,19 +179,25 @@ test('Arr instances persist (max 3, key masked)', async () => {
 });
 
 test('Language persists', async () => {
-  await putConfig({ Language: 'de' });
-  expect((await getConfig()).Language).toBe('de');
-  await putConfig({ Language: 'en' }); // restore
+  try {
+    await putConfig({ Language: 'de' });
+    expect((await getConfig()).Language).toBe('de');
+  } finally {
+    await putConfig({ Language: 'en' }); // restore even if the assertion threw
+  }
   expect((await getConfig()).Language).toBe('en');
 });
 
 test('unsupported / injection Language coerces to en on save', async () => {
-  for (const lang of ['xx', '<script>', '']) {
-    const res = await putConfig({ Language: lang });
-    expect(res.ok(), `lang=${lang}`).toBeTruthy();
-    expect((await getConfig()).Language).toBe('en');
+  try {
+    for (const lang of ['xx', '<script>', '']) {
+      const res = await putConfig({ Language: lang });
+      expect(res.ok(), `lang=${lang}`).toBeTruthy();
+      expect((await getConfig()).Language).toBe('en');
+    }
+  } finally {
+    await putConfig({ Language: 'en' });
   }
-  await putConfig({ Language: 'en' });
 });
 
 test('ensemble alpha values always persist within [0,1] and min <= max', async () => {

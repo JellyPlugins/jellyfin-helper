@@ -449,9 +449,32 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
                     _libraryManager.DeleteItem(playlist, new DeleteOptions { DeleteFileLocation = false });
                     fellBack = true;
                     var path = playlist.Path;
-                    if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+
+                    // playlist.Path is DB-sourced and, when a playlist's on-disk folder has
+                    // drifted, may not point where we expect. Before recursively deleting it,
+                    // confirm it resolves strictly INSIDE Jellyfin's own playlists root — never
+                    // the root itself, and never a system/sensitive location. This keeps a
+                    // fallback delete from ever escaping to /config, an OS dir, or another
+                    // library because of a stale/hostile path.
+                    var playlistsRoot = _playlistManager.GetPlaylistsFolder()?.Path;
+                    if (!string.IsNullOrEmpty(path)
+                        && !string.IsNullOrEmpty(playlistsRoot)
+                        && PathValidator.IsSafePath(path, playlistsRoot, _pluginLog)
+                        && !string.Equals(
+                            Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            Path.GetFullPath(playlistsRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                        && Directory.Exists(path))
                     {
                         Directory.Delete(path, recursive: true);
+                    }
+                    else if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+                    {
+                        _pluginLog.LogWarning(
+                            "PlaylistSync",
+                            $"Skipped recursive delete of playlist folder '{path}' (ID: {playlist.Id}): "
+                            + "path is outside the playlists root or is a sensitive location.",
+                            logger: _logger);
                     }
                 }
                 catch (Exception inner) when (!inner.IsFatal())

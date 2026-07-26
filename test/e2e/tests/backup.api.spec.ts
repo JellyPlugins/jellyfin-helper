@@ -33,12 +33,19 @@ async function importBackup(body: unknown) {
   });
 }
 
+/** Seed/mutate config and fail loudly if the save is rejected (mirrors hardening.api.spec.ts). */
+async function putConfig(data: Record<string, unknown>) {
+  const res = await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data,
+  });
+  expect(res.ok(), `setup putConfig failed: ${res.status()}`).toBeTruthy();
+  return res;
+}
+
 test('export produces a valid backup with redacted secrets by default', async () => {
   // Seed a known config first.
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: { Language: 'de', OrphanMinAgeDays: 12, SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'topsecret' },
-  });
+  await putConfig({ Language: 'de', OrphanMinAgeDays: 12, SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'topsecret' });
 
   const backup = await exportBackup(false);
   expect(backup.language).toBe('de');
@@ -58,10 +65,7 @@ test('round-trip: export → change config → import restores exported values',
   const backup = await exportBackup(true);
 
   // Mutate config away from the backup.
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: { Language: 'fr', OrphanMinAgeDays: 99 },
-  });
+  await putConfig({ Language: 'fr', OrphanMinAgeDays: 99 });
   const changed = await ctx.get(p('Configuration')).then((r) => r.json());
   expect(changed.Language).toBe('fr');
 
@@ -157,10 +161,7 @@ test('HARDENING: backup with negative trends values is handled without corruptio
 });
 
 test('redacted re-import preserves the live Seerr key (empty value = leave in place)', async () => {
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: { SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'topsecret' },
-  });
+  await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'topsecret' });
 
   const redacted = await exportBackup(false);
   expect(redacted.seerrApiKey === '' || redacted.seerrApiKey == null).toBeTruthy();
@@ -213,10 +214,7 @@ test('import clamps out-of-range numeric fields to succeed (not 400)', async () 
 });
 
 test('import success summary is a PascalCase four-field object; CredentialsChanged flips on new key', async () => {
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: { SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'oldkey' },
-  });
+  await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'oldkey' });
   const backup = await exportBackup(true);
   backup.seerrApiKey = 'a-different-key';
 
@@ -319,10 +317,7 @@ test('timeline round-trips: exported data points come back via GET GrowthTimelin
 
 test('Arr credential preserve (redacted import) then change (new key) round-trips', async () => {
   // Seed a known Radarr instance with a real key.
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: { RadarrInstances: [{ Name: 'R1', Url: 'http://mock-arr:9000', ApiKey: 'realkey' }] },
-  });
+  await putConfig({ RadarrInstances: [{ Name: 'R1', Url: 'http://mock-arr:9000', ApiKey: 'realkey' }] });
 
   // PRESERVE: a redacted export (empty key) imported back must keep the live key.
   const redacted = await exportBackup(false);
@@ -345,9 +340,6 @@ test('Arr credential preserve (redacted import) then change (new key) round-trip
   expect((await changed.json()).summary.CredentialsChanged, 'new key = changed').toBe(true);
 
   // Restore a known-good instance for later tests.
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: { RadarrInstances: [{ Name: 'Mock Radarr', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] },
-  });
+  await putConfig({ RadarrInstances: [{ Name: 'Mock Radarr', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] });
   await assertPluginActive(ctx);
 });

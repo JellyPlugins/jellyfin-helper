@@ -17,7 +17,7 @@ import { request as pwRequest, type FullConfig } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { authHeader } from './api-client.ts';
+import { authHeader, runLibraryScan } from './api-client.ts';
 import { hasDocker, plantCanaries, plantedCanaries } from './fs-assert.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -298,41 +298,6 @@ async function ensureLibrary(
   if (!res.ok() && res.status() !== 204) {
     throw new Error(`Create library "${name}" failed: ${res.status()} ${await res.text()}`);
   }
-}
-
-async function runLibraryScan(
-  admin: Awaited<ReturnType<typeof pwRequest.newContext>>,
-): Promise<void> {
-  const list = await admin.get('/ScheduledTasks');
-  const tasks = (await list.json()) as Array<{ Id: string; Key: string }>;
-  const scan = tasks.find((t) => t.Key === 'RefreshLibrary');
-  if (!scan) {
-    // Fall back to the blanket refresh endpoint.
-    await admin.post('/Library/Refresh').catch(() => undefined);
-  } else {
-    await admin.post(`/ScheduledTasks/Running/${scan.Id}`).catch(() => undefined);
-    await pollTaskIdle(admin, scan.Id, 120_000);
-  }
-  // Give Jellyfin a beat to persist the scanned items before tests query stats.
-  await new Promise((r) => setTimeout(r, 3000));
-}
-
-async function pollTaskIdle(
-  admin: Awaited<ReturnType<typeof pwRequest.newContext>>,
-  taskId: string,
-  timeoutMs: number,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  await new Promise((r) => setTimeout(r, 500));
-  while (Date.now() < deadline) {
-    const res = await admin.get(`/ScheduledTasks/${taskId}`);
-    if (res.ok()) {
-      const task = (await res.json()) as { State: string };
-      if (task.State === 'Idle') return;
-    }
-    await new Promise((r) => setTimeout(r, 1500));
-  }
-  throw new Error(`Library scan task did not finish within ${timeoutMs}ms`);
 }
 
 export default globalSetup;

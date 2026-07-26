@@ -1,4 +1,4 @@
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^                                                      # Jellyfin Helper — End-to-End Test Harness
+# Jellyfin Helper — End-to-End Test Harness
 
 Full end-to-end tests that run the plugin inside a **real Jellyfin 12.0-rc3
 server** in Docker, drive it exactly the way a human would (settings, tasks,
@@ -78,4 +78,5 @@ pins `jellyfin/jellyfin:12.0-rc3`. When 12.0 goes stable, bump that tag.
 ## CI
 
 Runs on every PR via `.github/workflows/e2e.yml`. On failure it uploads the
-Playwright HTML report, traces, screenshots, and the Jellyfin server log.
+Playwright HTML report, traces, and screenshots as artifacts, and prints the
+Jellyfin/mock container logs into the CI job log.

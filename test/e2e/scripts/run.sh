@@ -142,8 +142,10 @@ bash "$SCRIPT_DIR/write-meta.sh" "$PLUGIN_STAGE" "$PLUGIN_VERSION"
 # Run the container as the invoking user where possible (Linux/CI); on other
 # hosts the image's default user + the 777 above keep /config writable.
 if [ "$(uname -s)" = "Linux" ]; then
-  export JELLYFIN_UID="$(id -u)"
-  export JELLYFIN_GID="$(id -g)"
+  # Declare then export separately so the command substitution's exit status isn't
+  # masked by the export builtin (shellcheck SC2155).
+  JELLYFIN_UID="$(id -u)"; export JELLYFIN_UID
+  JELLYFIN_GID="$(id -g)"; export JELLYFIN_GID
 fi
 
 # --- 4. bring up the stack --------------------------------------------------

@@ -485,19 +485,28 @@ public class TrashController : ControllerBase
             return false;
         }
 
-        foreach (var folder in libraryFolders)
-        {
-            var libraryRoot = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var libraryRoots = libraryFolders
+            .Where(f => !string.IsNullOrWhiteSpace(f))
+            .Select(f => Path.GetFullPath(f).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            .ToList();
 
-            // Never allow a library root itself, nor a path that CONTAINS a library
-            // root (deleting/moving it would take the library with it).
+        // REJECT pass FIRST, over ALL libraries: never allow a library root itself, nor a
+        // path that CONTAINS a library root (deleting/moving it would take the library
+        // with it). This must run to completion before any allow, otherwise an early
+        // "strictly inside library A" allow could short-circuit a later "contains library
+        // B" reject for a nested library — approving a delete/relocate that wipes B.
+        foreach (var libraryRoot in libraryRoots)
+        {
             if (string.Equals(normalizedPath, libraryRoot, comparison)
                 || libraryRoot.StartsWith(normalizedPath + Path.DirectorySeparatorChar, comparison))
             {
                 return false;
             }
+        }
 
-            // Strictly inside a library root → always safe.
+        // ALLOW pass: strictly inside a library root → safe (a dedicated trash sub-folder).
+        foreach (var libraryRoot in libraryRoots)
+        {
             if (normalizedPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison))
             {
                 return true;

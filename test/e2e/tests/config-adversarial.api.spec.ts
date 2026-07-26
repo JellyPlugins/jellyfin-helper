@@ -77,22 +77,25 @@ test('oversized RadarrInstances array (10000) → 400, known-good list preserved
       })),
     }),
   });
-  expect([400, 413]).toContain(res.status());
-  expect(Date.now() - started, 'must not hang').toBeLessThan(20_000);
+  try {
+    expect([400, 413]).toContain(res.status());
+    expect(Date.now() - started, 'must not hang').toBeLessThan(20_000);
 
-  const cfg = await getConfig();
-  const instances = (cfg.RadarrInstances ?? []) as Array<{ Name: string }>;
-  expect(instances.length, 'stored list stays within the cap').toBeLessThanOrEqual(3);
-  // The rejected save must not have wiped the pre-existing known-good instance.
-  expect(instances.map((i) => i.Name), 'rejected oversized save must not corrupt existing config')
-    .toContain('Known Good');
-  await assertPluginActive(ctx);
-
-  // Restore the shared default so later specs see a working Radarr instance.
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: JSON.stringify({ RadarrInstances: [{ Name: 'Mock Radarr', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] }),
-  });
+    const cfg = await getConfig();
+    const instances = (cfg.RadarrInstances ?? []) as Array<{ Name: string }>;
+    expect(instances.length, 'stored list stays within the cap').toBeLessThanOrEqual(3);
+    // The rejected save must not have wiped the pre-existing known-good instance.
+    expect(instances.map((i) => i.Name), 'rejected oversized save must not corrupt existing config')
+      .toContain('Known Good');
+    await assertPluginActive(ctx);
+  } finally {
+    // Restore the shared default so later specs see a working Radarr instance —
+    // even if an assertion above threw (else the rejected/huge state would bleed).
+    await ctx.put(p('Configuration'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: JSON.stringify({ RadarrInstances: [{ Name: 'Mock Radarr', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] }),
+    });
+  }
 });
 
 test('XML-hostile ExcludedLibraries persists without corrupting the config on read-back', async () => {
@@ -101,18 +104,20 @@ test('XML-hostile ExcludedLibraries persists without corrupting the config on re
     headers: { 'Content-Type': 'application/json' },
     data: JSON.stringify({ ExcludedLibraries: hostile }),
   });
-  // Either accepted (and round-trips) or rejected (400) — never a 500 / corrupt state.
-  expect(res.status()).toBeLessThan(500);
-  // Config must still be readable afterwards (proves the XML file didn't corrupt).
-  const cfg = await getConfig();
-  expect(typeof cfg.ExcludedLibraries).toBe('string');
-  await assertPluginActive(ctx);
-
-  // Restore a clean value.
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: JSON.stringify({ ExcludedLibraries: '' }),
-  });
+  try {
+    // Either accepted (and round-trips) or rejected (400) — never a 500 / corrupt state.
+    expect(res.status()).toBeLessThan(500);
+    // Config must still be readable afterwards (proves the XML file didn't corrupt).
+    const cfg = await getConfig();
+    expect(typeof cfg.ExcludedLibraries).toBe('string');
+    await assertPluginActive(ctx);
+  } finally {
+    // Restore a clean value even if an assertion threw.
+    await ctx.put(p('Configuration'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: JSON.stringify({ ExcludedLibraries: '' }),
+    });
+  }
 });
 
 test('concurrent racing PUTs leave the config as exactly one coherent set', async () => {
@@ -130,16 +135,18 @@ test('concurrent racing PUTs leave the config as exactly one coherent set', asyn
     }),
   );
   const results = await Promise.all(puts);
-  for (const r of results) expect(r.status()).toBeLessThan(500);
+  try {
+    for (const r of results) expect(r.status()).toBeLessThan(500);
 
-  // Final persisted list must be exactly one of the two submitted sets (no torn/merged list).
-  const names = ((await getConfig()).RadarrInstances ?? []).map((i: any) => i.Name).sort();
-  expect([['A'], ['B1', 'B2']]).toContainEqual(names);
-  await assertPluginActive(ctx);
-
-  // Restore.
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: JSON.stringify({ RadarrInstances: [{ Name: 'Mock Radarr', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] }),
-  });
+    // Final persisted list must be exactly one of the two submitted sets (no torn/merged list).
+    const names = ((await getConfig()).RadarrInstances ?? []).map((i: any) => i.Name).sort();
+    expect([['A'], ['B1', 'B2']]).toContainEqual(names);
+    await assertPluginActive(ctx);
+  } finally {
+    // Restore even if an assertion threw.
+    await ctx.put(p('Configuration'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: JSON.stringify({ RadarrInstances: [{ Name: 'Mock Radarr', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] }),
+    });
+  }
 });

@@ -25,14 +25,52 @@ internal static class PathValidator
     /// read from, write to, delete, browse into, or repair links toward. This is the
     /// single source of truth — previously each of LinkRepairService, TrashController
     /// and FolderBrowserService kept its own (drifting) copy. Includes Jellyfin's own
-    /// data/config/cache mounts and OS system roots on both Linux and Windows.
+    /// data/config/cache mounts and OS system roots on both Linux and Windows. The
+    /// Windows roots include C: literals (defense-in-depth, matched even on non-Windows
+    /// hosts) plus the OS-resolved locations via <see cref="Environment.GetFolderPath(Environment.SpecialFolder)"/>
+    /// so a server installed on a drive other than C: is still protected.
+    /// NOTE: "/data" is deliberately listed — this plugin's containers mount media at
+    /// "/media", and "/data" is a Jellyfin-internal location that unit and e2e canary
+    /// tests require to be refused. Do not remove it.
     /// </summary>
-    private static readonly string[] SensitiveSystemRoots =
+    private static readonly string[] SensitiveSystemRoots = BuildSensitiveSystemRoots();
+
+    private static string[] BuildSensitiveSystemRoots()
     {
-        "/config", "/cache", "/data", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
-        "/boot", "/proc", "/sys", "/dev", "/var", "/root", "/run",
-        @"C:\Windows", @"C:\Program Files", @"C:\Program Files (x86)", @"C:\ProgramData",
-    };
+        var roots = new List<string>
+        {
+            "/config", "/cache", "/data", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
+            "/boot", "/proc", "/sys", "/dev", "/var", "/root", "/run",
+            // Common Windows system roots as literals so they are refused even on a non-Windows
+            // host (defense-in-depth for cross-platform string checks) and regardless of drive
+            // when the OS *is* installed on C:.
+            @"C:\Windows", @"C:\Program Files", @"C:\Program Files (x86)", @"C:\ProgramData",
+        };
+
+        // Additionally resolve the real Windows system dirs from the OS, so a server installed
+        // on a drive other than C: (e.g. D:\Windows) is also protected — the literals above
+        // only cover C:.
+        if (OperatingSystem.IsWindows())
+        {
+            foreach (var folder in new[]
+            {
+                Environment.SpecialFolder.Windows,
+                Environment.SpecialFolder.ProgramFiles,
+                Environment.SpecialFolder.ProgramFilesX86,
+                Environment.SpecialFolder.CommonApplicationData,
+            })
+            {
+                var path = Environment.GetFolderPath(folder);
+                if (!string.IsNullOrEmpty(path)
+                    && !roots.Contains(path, StringComparer.OrdinalIgnoreCase))
+                {
+                    roots.Add(path);
+                }
+            }
+        }
+
+        return roots.ToArray();
+    }
 
     /// <summary>
     /// Validates that a given path does not contain path traversal sequences

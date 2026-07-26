@@ -7,11 +7,24 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, assertPluginActive, runCleanupTask } from '../setup/api-client.ts';
 
 let ctx: APIRequestContext;
+let savedArr: { RadarrInstances: unknown; SonarrInstances: unknown } | null = null;
 
 test.beforeAll(async () => {
   ctx = await apiContext(loadAuth());
+  // Snapshot the Arr integration config so the tests below that wipe/replace
+  // RadarrInstances/SonarrInstances can restore it — otherwise a later spec would
+  // inherit an empty SonarrInstances and a throwaway Radarr instance.
+  const cfg = await ctx.get(p('Configuration')).then((r) => (r.ok() ? r.json() : null));
+  if (cfg) {
+    savedArr = { RadarrInstances: cfg.RadarrInstances ?? [], SonarrInstances: cfg.SonarrInstances ?? [] };
+  }
 });
 test.afterAll(async () => {
+  if (savedArr) {
+    await ctx
+      .put(p('Configuration'), { headers: { 'Content-Type': 'application/json' }, data: savedArr })
+      .catch(() => undefined);
+  }
   await ctx.dispose();
 });
 

@@ -65,7 +65,7 @@ export function hasDocker(): boolean {
 }
 
 /** POSIX-quote a path for safe interpolation into a container `sh -lc` command. */
-function q(path: string): string {
+export function q(path: string): string {
   return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
@@ -130,7 +130,11 @@ export function containerMkdir(path: string): void {
 
 /** Write text to a container file (creating parent dirs). */
 export function containerWriteFile(path: string, contents: string): void {
-  const dir = path.replace(/\/[^/]*$/, '');
+  // For a filesystem-root path like "/CANARY_ROOT.txt" the regex strips to "", so
+  // fall back to "/" — otherwise `mkdir -p ''` errors and the && short-circuits,
+  // silently never writing the file (which would drop the root canary from the
+  // containment proof without any failure).
+  const dir = path.replace(/\/[^/]*$/, '') || '/';
   const b64 = Buffer.from(contents, 'utf-8').toString('base64');
   // base64 round-trip avoids any quoting/escaping hazard with arbitrary contents.
   execInContainer(`mkdir -p ${q(dir)} && printf %s ${q(b64)} | base64 -d > ${q(path)}`);

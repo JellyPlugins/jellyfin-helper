@@ -68,10 +68,11 @@ test.describe.serial('UserActivity reflects real playback', () => {
 
   test.beforeAll(async () => {
     // Enable the feature so the endpoints don't 503 on the mode gate.
-    await ctx.put(p('Configuration'), {
+    const cfg = await ctx.put(p('Configuration'), {
       headers: { 'Content-Type': 'application/json' },
       data: { RecommendationsTaskMode: 'Activate' },
     });
+    expect(cfg.ok(), `enable RecommendationsTaskMode failed: ${cfg.status()}`).toBeTruthy();
     // Mark a specific movie as played for the admin user (modern Jellyfin route).
     played = await firstMovieItem();
     const mark = await ctx.post(`/UserPlayedItems/${played.id}?userId=${auth.userId}`);

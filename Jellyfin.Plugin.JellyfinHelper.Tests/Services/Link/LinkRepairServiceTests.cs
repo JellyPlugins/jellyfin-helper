@@ -1086,6 +1086,23 @@ public class LinkRepairServiceTests
 
             Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
         }
+        else
+        {
+            // On Windows "../../../etc/passwd" resolves to a non-sensitive drive-relative
+            // path (e.g. C:\etc\passwd), so the sensitive-system-target guard does NOT
+            // fire. The target simply does not exist → the link is Broken (not
+            // InvalidContent). Assert that explicitly so the test is not vacuous on Windows.
+            var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
+            _fileSystem.AddFile(linkFile, new MockFileData("../../../etc/passwd"));
+
+            var result = _service.ProcessLinkFile(
+                linkFile,
+                _strmHandler,
+                dryRun: true,
+                normalizedLibraryPaths: null);
+
+            Assert.Equal(LinkFileStatus.Broken, result.Status);
+        }
     }
 
     // =========================================================================

@@ -130,16 +130,18 @@ public static class BackupSanitizer
             return;
         }
 
-        // Limit count
+        // Drop any null entries FIRST — a backup JSON can contain `[null]` in the
+        // instance array, which would otherwise NRE below (sanitize runs before
+        // validation, so the validator's null guard hasn't executed yet). This must
+        // precede the count cap so a leading null can't consume a valid instance's slot
+        // (e.g. [null, v1..v10] must keep v1..vN, not drop vN while retaining the null).
+        instances.RemoveAll(i => i is null);
+
+        // Limit count (after null removal, so only real instances count toward the cap).
         while (instances.Count > BackupValidator.MaxArrInstances)
         {
             instances.RemoveAt(instances.Count - 1);
         }
-
-        // Drop any null entries first — a backup JSON can contain `[null]` in the
-        // instance array, which would otherwise NRE below (sanitize runs before
-        // validation, so the validator's null guard hasn't executed yet).
-        instances.RemoveAll(i => i is null);
 
         foreach (var instance in instances)
         {

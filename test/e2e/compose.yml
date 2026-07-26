@@ -22,7 +22,9 @@ services:
     # Overridable via JELLYFIN_UID/GID (defaults keep it simple locally).
     user: "${JELLYFIN_UID:-0}:${JELLYFIN_GID:-0}"
     ports:
-      - "${JELLYFIN_PORT:-8096}:8096"
+      # Bind to loopback like the mock services — the first-run wizard is
+      # unauthenticated until setup completes, so don't expose it on all interfaces.
+      - "127.0.0.1:${JELLYFIN_PORT:-8096}:8096"
     environment:
       # Jellyfin honours these for headless-friendly startup.
       - JELLYFIN_PublishedServerUrl=http://localhost:${JELLYFIN_PORT:-8096}

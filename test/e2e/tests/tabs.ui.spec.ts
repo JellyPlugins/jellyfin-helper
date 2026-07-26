@@ -23,17 +23,15 @@ test('all core tabs switch and activate without JS errors', async ({ page }) => 
   // NB: we intentionally do NOT switch to the Recommendations tab here — it has
   // dedicated coverage in recommendations.ui.spec.ts.
   //
-  // Filter benign failed-resource-load messages (HTTP status noise) from the
-  // assertion. The plugin injects a page-wide user-facing Discovery widget that
-  // probes GET Discovery/My; while DiscoveryUserAccessEnabled is off (the
-  // default, and what partial config PUTs from other specs leave it as) that
-  // probe correctly returns 403. The browser logs it as "Failed to load
-  // resource: … 403" with NO url, indistinguishable from any other 403. It is
-  // not a dashboard JS defect. Real uncaught exceptions arrive via 'pageerror'
-  // and genuine console.error JS messages — neither matches this pattern — so
-  // dropping failed-resource-load lines keeps this assertion strict about
-  // actual script errors.
-  const scriptErrors = errors.filter((e) => !/Failed to load resource/i.test(e));
+  // Filter ONLY the benign Discovery/My 403 probe noise — not every failed-resource
+  // message. The plugin injects a page-wide user-facing Discovery widget that probes
+  // GET Discovery/My; while DiscoveryUserAccessEnabled is off (the default, and what
+  // partial config PUTs from other specs leave it as) that probe correctly returns
+  // 403, logged as "Failed to load resource: … 403" with NO url. It is not a dashboard
+  // JS defect. We match on the 403 status specifically so any OTHER broken asset (a
+  // 404'd script/CSS/icon) still fails this assertion. Real uncaught exceptions arrive
+  // via 'pageerror' / genuine console.error messages, which don't match this pattern.
+  const scriptErrors = errors.filter((e) => !/Failed to load resource.*\b403\b/i.test(e));
   expect(scriptErrors, `uncaught JS errors: ${scriptErrors.join('\n')}`).toHaveLength(0);
 });
 

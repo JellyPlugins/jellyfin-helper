@@ -393,7 +393,10 @@ public class TrashControllerRelocateTests : IDisposable
 
         var result = controller.RelocateTrash(new TrashRelocateRequest
         {
-            OldTrashPath = sensitive, // both absolute → single-relocation branch, target checked too
+            // Safe absolute source (inside the library) so the OLD-path guard passes and
+            // the rejection can ONLY come from the sensitive DESTINATION — otherwise this
+            // test would short-circuit on the source guard and never exercise the target.
+            OldTrashPath = oldRelativeTrash,
             NewTrashPath = sensitive,
         });
 

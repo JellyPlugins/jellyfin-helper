@@ -20,6 +20,7 @@ import {
   containerIsSymlink,
   execInContainer,
   verifyCanaries,
+  q,
 } from '../setup/fs-assert.ts';
 
 const M = '/media/Movies';
@@ -170,7 +171,7 @@ test.describe.serial('trash move + retention purge', () => {
     const oldTs = containerTimestamp(30);
     const linkEntry = `${TRASH}/${oldTs}_LinkedOrphan`;
     containerMkdir(TRASH);
-    const ln = execInContainer(`ln -s ${JSON.stringify(target)} ${JSON.stringify(linkEntry)}`);
+    const ln = execInContainer(`ln -s ${q(target)} ${q(linkEntry)}`);
     test.skip(ln.code !== 0, 'symlink creation unsupported on this filesystem');
     expect(containerIsSymlink(linkEntry), 'precondition: the trash entry is a symlink').toBe(true);
 

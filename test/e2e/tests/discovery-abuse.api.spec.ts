@@ -19,12 +19,21 @@ let user: APIRequestContext | null;
 test.beforeAll(async () => {
   admin = await apiContext(auth);
   user = await normalUserContext(auth);
-  await admin.put(p('Configuration'), {
+  const seed = await admin.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: { SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'seerr-key' },
   });
+  expect(seed.ok(), `mock-Seerr seed failed: ${seed.status()}`).toBeTruthy();
 });
 test.afterAll(async () => {
+  // The last test enables DiscoveryUserAccessEnabled; reset it so the gate doesn't
+  // bleed into later specs that assume the default (disabled) state.
+  await admin
+    .put(p('Configuration'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: { DiscoveryUserAccessEnabled: false },
+    })
+    .catch(() => undefined);
   await admin.dispose();
   await user?.dispose();
 });
