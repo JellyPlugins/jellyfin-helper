@@ -16,13 +16,14 @@ let ctx: APIRequestContext;
 test.beforeAll(async () => {
   ctx = await apiContext(loadAuth());
   // Guarantee a reachable Mock Radarr instance exists for the UI to drive.
-  await ctx.put(p('Configuration'), {
+  const seed = await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: {
       RadarrInstances: [{ Name: 'Mock Radarr', Url: ARR_URL, ApiKey: 'radarr-key' }],
       SonarrInstances: [{ Name: 'Mock Sonarr', Url: ARR_URL, ApiKey: 'sonarr-key' }],
     },
   });
+  expect(seed.ok(), `Arr seed failed: ${seed.status()}`).toBeTruthy();
 });
 test.afterAll(async () => {
   await ctx.dispose();

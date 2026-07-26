@@ -43,30 +43,43 @@ test('radarrInstances:[null] is sanitized away (no null persists), never 500', a
   const after = await exportBackup();
   const radarr = (after.radarrInstances ?? []) as unknown[];
   expect(radarr.every((i) => i !== null), 'no null instance may survive into stored config').toBe(true);
+
+  // Restore a known-good Radarr instance so later specs inherit a working one
+  // (the [null] import may have left RadarrInstances empty).
+  await ctx
+    .put(p('Configuration'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: { RadarrInstances: [{ Name: 'Mock Radarr', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] },
+    })
+    .catch(() => undefined);
 });
 
 test('mixed [valid, null] instances: null dropped, valid kept, never 500', async () => {
   const backup = await exportBackup();
   backup.sonarrInstances = [{ Name: 'KeepMe', Url: 'http://mock-arr:9000', ApiKey: 'k' }, null];
   const res = await importBackup(backup);
-  expect(res.status()).toBeLessThan(500);
-  await assertPluginActive(ctx);
+  try {
+    expect(res.status()).toBeLessThan(500);
+    await assertPluginActive(ctx);
 
-  // If the import was accepted, the null is gone but the valid entry remains.
-  if (res.ok()) {
-    const after = await exportBackup();
-    // Export serializes with the camelCase policy (+ [JsonPropertyName("name")]),
-    // so the round-tripped instance key is `name`, not `Name`.
-    const sonarr = (after.sonarrInstances ?? []) as Array<{ name?: string } | null>;
-    expect(sonarr.every((i) => i !== null), 'null instance must be dropped').toBe(true);
-    expect(sonarr.some((i) => i?.name === 'KeepMe'), 'the valid instance must survive').toBe(true);
+    // If the import was accepted, the null is gone but the valid entry remains.
+    if (res.ok()) {
+      const after = await exportBackup();
+      // Export serializes with the camelCase policy (+ [JsonPropertyName("name")]),
+      // so the round-tripped instance key is `name`, not `Name`.
+      const sonarr = (after.sonarrInstances ?? []) as Array<{ name?: string } | null>;
+      expect(sonarr.every((i) => i !== null), 'null instance must be dropped').toBe(true);
+      expect(sonarr.some((i) => i?.name === 'KeepMe'), 'the valid instance must survive').toBe(true);
+    }
+  } finally {
+    // Restore the shared default so later specs aren't affected, even on failure.
+    await ctx
+      .put(p('Configuration'), {
+        headers: { 'Content-Type': 'application/json' },
+        data: { SonarrInstances: [{ Name: 'Mock Sonarr', Url: 'http://mock-arr:9000', ApiKey: 'sonarr-key' }] },
+      })
+      .catch(() => undefined);
   }
-
-  // Restore the shared default so later specs aren't affected.
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: { SonarrInstances: [{ Name: 'Mock Sonarr', Url: 'http://mock-arr:9000', ApiKey: 'sonarr-key' }] },
-  });
 });
 
 test('absolute /config trashFolderPath in a backup does not let cleanup escape', async () => {
@@ -79,7 +92,7 @@ test('absolute /config trashFolderPath in a backup does not let cleanup escape',
   // Actually RUN a cleanup with the destructive FS stages ACTIVE — a mere PUT that
   // leaves every stage Deactivated would prove nothing. Even with trashFolderPath
   // pointing at /config, the run must not delete/move anything under /config.
-  await ctx.put(p('Configuration'), {
+  const enableRes = await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: {
       UseTrash: true, TrashFolderPath: '/config',
@@ -88,20 +101,27 @@ test('absolute /config trashFolderPath in a backup does not let cleanup escape',
       SeerrCleanupTaskMode: 'Deactivate', RecommendationsTaskMode: 'Deactivate',
     },
   });
-  const result = await runCleanupTask(ctx);
-  expect(result.LastExecutionResult?.Status, 'cleanup task must not have crashed').toBe('Completed');
-  expect(containerFileExists('/config/jfh-canary/marker.txt')).toBe(true);
-  expect(verifyCanaries()).toEqual([]);
-
-  // Restore a safe trash path and re-deactivate the FS stages.
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: {
-      UseTrash: false, TrashFolderPath: '.jellyfin-trash',
-      TrickplayTaskMode: 'Deactivate', EmptyMediaFolderTaskMode: 'Deactivate',
-      OrphanedSubtitleTaskMode: 'Deactivate', LinkRepairTaskMode: 'Deactivate',
-    },
-  });
+  expect(enableRes.ok(), `enabling PUT failed: ${enableRes.status()}`).toBeTruthy();
+  try {
+    const result = await runCleanupTask(ctx);
+    expect(result.LastExecutionResult?.Status, 'cleanup task must not have crashed').toBe('Completed');
+    expect(containerFileExists('/config/jfh-canary/marker.txt')).toBe(true);
+    expect(verifyCanaries()).toEqual([]);
+  } finally {
+    // ALWAYS restore a safe trash path and re-deactivate the destructive stages —
+    // even if an assertion threw — so the shared container is never left with FS
+    // cleanup stages enabled and a /config trash target for later specs.
+    await ctx
+      .put(p('Configuration'), {
+        headers: { 'Content-Type': 'application/json' },
+        data: {
+          UseTrash: false, TrashFolderPath: '.jellyfin-trash',
+          TrickplayTaskMode: 'Deactivate', EmptyMediaFolderTaskMode: 'Deactivate',
+          OrphanedSubtitleTaskMode: 'Deactivate', LinkRepairTaskMode: 'Deactivate',
+        },
+      })
+      .catch(() => undefined);
+  }
   await assertPluginActive(ctx);
 });
 

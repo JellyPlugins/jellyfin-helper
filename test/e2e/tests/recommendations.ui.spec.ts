@@ -13,10 +13,11 @@ let ctx: APIRequestContext;
 
 test.beforeAll(async () => {
   ctx = await apiContext(loadAuth());
-  await ctx.put(p('Configuration'), {
+  const seed = await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: { RecommendationsTaskMode: 'DryRun' },
   });
+  expect(seed.ok(), `RecommendationsTaskMode seed failed: ${seed.status()}`).toBeTruthy();
 });
 test.afterAll(async () => {
   await ctx.dispose();

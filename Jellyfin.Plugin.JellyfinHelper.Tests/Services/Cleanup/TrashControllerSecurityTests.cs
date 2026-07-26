@@ -108,11 +108,10 @@ public class TrashControllerSecurityTests : IDisposable
     [Trait("Category", "Security")]
     public void DeleteTrashFolders_AbsolutePathIsSensitiveSystemDir_ReturnsBadRequest()
     {
-        // Simulate a config-like absolute path outside the library. We can't use a real
-        // "/config" cross-platform, so create a sibling dir and treat it as sensitive by
-        // pointing the trash there while the only library lives elsewhere. The guard must
-        // refuse any absolute path not strictly inside a library AND flagged sensitive.
-        // Use an actual sensitive root string so IsSensitiveSystemPath fires deterministically.
+        // Use a hardcoded sensitive-root string (a config/system dir, per OS) as the trash
+        // path while the only library lives elsewhere. No directory is created — the guard
+        // must refuse any absolute path that is IsSensitiveSystemPath and not strictly inside
+        // a library, regardless of whether it exists on disk.
         var sensitive = OperatingSystem.IsWindows() ? @"C:\Windows\Temp\jfh-x" : "/config/jfh-x";
         var config = new PluginConfiguration { TrashFolderPath = sensitive };
         var libraryFolders = new List<string> { Path.Join(_testRoot, "movies") };

@@ -105,7 +105,7 @@ test.describe.serial('HelperCleanup across modes', () => {
     await assertPluginActive(ctx);
   });
 
-  test('Activate with UseTrash → items moved to trash, trash summary non-empty', async () => {
+  test('Activate with UseTrash → cleanup completes and trash summary is coherent (non-negative)', async () => {
     // Re-generate fixtures first would be ideal, but a second Activate run with
     // trash enabled should still complete cleanly even if little remains.
     await putConfig({
@@ -149,35 +149,38 @@ test.describe.serial('HelperCleanup across modes', () => {
     // hard dependency of this test — if it's unreachable we must fail loudly, not
     // skip the deletion assertions and let the test pass vacuously.
     const mock = await pwRequest.newContext();
-    const reset = await mock.get(`${MOCK_SEERR_PUBLIC}/reset`);
-    expect(reset.ok(), `mock Seerr /reset failed: ${reset.status()}`).toBeTruthy();
-    const beforeRes = await mock.get(`${MOCK_SEERR_PUBLIC}/count`);
-    expect(beforeRes.ok(), `mock Seerr /count failed: ${beforeRes.status()}`).toBeTruthy();
-    const before = (await beforeRes.json()) as { count: number };
-    expect(before.count, 'mock should start with seeded requests').toBeGreaterThan(0);
+    try {
+      const reset = await mock.get(`${MOCK_SEERR_PUBLIC}/reset`);
+      expect(reset.ok(), `mock Seerr /reset failed: ${reset.status()}`).toBeTruthy();
+      const beforeRes = await mock.get(`${MOCK_SEERR_PUBLIC}/count`);
+      expect(beforeRes.ok(), `mock Seerr /count failed: ${beforeRes.status()}`).toBeTruthy();
+      const before = (await beforeRes.json()) as { count: number };
+      expect(before.count, 'mock should start with seeded requests').toBeGreaterThan(0);
 
-    // Point Seerr at the mock and enable cleanup with an age that makes the
-    // 2023-dated mock requests expired.
-    await putConfig({
-      SeerrUrl: 'http://mock-seerr:5055',
-      SeerrApiKey: 'e2e-seerr-key',
-      SeerrCleanupTaskMode: 'Activate',
-      SeerrCleanupAgeDays: 30,
-    });
+      // Point Seerr at the mock and enable cleanup with an age that makes the
+      // 2023-dated mock requests expired.
+      await putConfig({
+        SeerrUrl: 'http://mock-seerr:5055',
+        SeerrApiKey: 'e2e-seerr-key',
+        SeerrCleanupTaskMode: 'Activate',
+        SeerrCleanupAgeDays: 30,
+      });
 
-    const result = await runCleanupTask(ctx);
-    expect(result.LastExecutionResult?.Status).toBe('Completed');
+      const result = await runCleanupTask(ctx);
+      expect(result.LastExecutionResult?.Status).toBe('Completed');
 
-    // Verify the expired requests were actually deleted from the mock:
-    // ids 101 (old/pending) and 102 (old/declined) should be gone; 103
-    // (available, protected) and 104 (recent) should remain.
-    const afterRes = await mock.get(`${MOCK_SEERR_PUBLIC}/count`);
-    expect(afterRes.ok(), `mock Seerr /count failed: ${afterRes.status()}`).toBeTruthy();
-    const after = (await afterRes.json()) as { count: number; ids: number[] };
-    expect(after.count, 'expired requests should have been deleted').toBeLessThan(before.count);
-    expect(after.ids, 'protected available request must survive').toContain(103);
-    expect(after.ids, 'recent request must survive').toContain(104);
-    await mock.dispose();
+      // Verify the expired requests were actually deleted from the mock:
+      // ids 101 (old/pending) and 102 (old/declined) should be gone; 103
+      // (available, protected) and 104 (recent) should remain.
+      const afterRes = await mock.get(`${MOCK_SEERR_PUBLIC}/count`);
+      expect(afterRes.ok(), `mock Seerr /count failed: ${afterRes.status()}`).toBeTruthy();
+      const after = (await afterRes.json()) as { count: number; ids: number[] };
+      expect(after.count, 'expired requests should have been deleted').toBeLessThan(before.count);
+      expect(after.ids, 'protected available request must survive').toContain(103);
+      expect(after.ids, 'recent request must survive').toContain(104);
+    } finally {
+      await mock.dispose().catch(() => undefined);
+    }
     await assertPluginActive(ctx);
   });
 });

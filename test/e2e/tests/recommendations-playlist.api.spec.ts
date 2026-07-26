@@ -35,7 +35,9 @@ async function putConfig(body: Record<string, unknown>) {
 /** Count Jellyfin playlists whose name starts with the managed prefix. */
 async function managedPlaylistCount(): Promise<number> {
   const res = await ctx.get('/Items?IncludeItemTypes=Playlist&Recursive=true');
-  if (!res.ok()) return 0;
+  // Fail loudly on a transient 401/500 rather than mapping it to 0 — a swallowed
+  // error here would read as "no playlists" and make the purge assertion pass falsely.
+  expect(res.ok(), `playlist query failed: ${res.status()}`).toBeTruthy();
   const body = (await res.json()) as { Items?: Array<{ Name?: string }> };
   return (body.Items ?? []).filter((i) => (i.Name ?? '').startsWith(PLAYLIST_PREFIX)).length;
 }

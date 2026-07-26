@@ -26,7 +26,7 @@ server**.
 
 ## Architecture
 
-```
+```text
 test/e2e/
 ├── compose.yml            # Jellyfin 12.0-rc3 + mock-arr + mock-seerr
 ├── playwright.config.ts   # two projects: "api" (HTTP) and "ui" (browser)

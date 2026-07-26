@@ -80,16 +80,12 @@ for (const ep of getEndpoints) {
   test(`GET ${ep.path} responds without server error`, async () => {
     const res = await ctx.get(ep.path);
     const allowed = ep.okStatuses ?? [200];
-    // Never 404 (route regression) or an unhandled 5xx crash. Note: 503 is a
-    // legitimate "feature deactivated" guard for some endpoints (declared in
-    // okStatuses), so we must not blanket-reject >=500 before honouring it.
+    // Never 404 (route regression). Every endpoint must answer with a status in its
+    // declared allow-list, plus 429 (rate-limited scans) tolerated as non-fatal. This
+    // toContain hard-rejects anything else — including any 5xx — so the contract is
+    // strict, not merely "not a server error".
     expect(res.status(), `unexpected status for ${ep.path}`).not.toBe(404);
-    // Rate-limited scans can answer 429 — tolerate it as non-fatal.
     expect([...allowed, 429], `unexpected status for ${ep.path}`).toContain(res.status());
-    // Any status NOT explicitly allowed must still never be a server error.
-    if (![...allowed, 429].includes(res.status())) {
-      expect(res.status(), `server error for ${ep.path}`).toBeLessThan(500);
-    }
   });
 }
 

@@ -538,19 +538,29 @@ public class TrashController : ControllerBase
         var normalizedPath = Path.GetFullPath(fullPath)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
+        // Pick the LONGEST (most specific) containing library root, not the first one
+        // enumerated. With nested libraries (e.g. /media and /media/movies both
+        // registered) a source could be strictly inside both; returning whichever the
+        // unsorted GetVirtualFolders enumerated first would be non-deterministic — the
+        // same order-dependence just fixed in IsPathSafeForDeletion. For a single or
+        // sibling-only library layout this is a no-op (exactly one match).
+        string? best = null;
+        var bestLength = -1;
         foreach (var folder in libraryFolders)
         {
             var libraryRoot = Path.GetFullPath(folder)
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
             // Strictly inside (not equal to) the library root.
-            if (normalizedPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison))
+            if (normalizedPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison)
+                && libraryRoot.Length > bestLength)
             {
-                return folder;
+                best = folder; // return the original string so the caller's de-dup by value holds
+                bestLength = libraryRoot.Length;
             }
         }
 
-        return null;
+        return best;
     }
 
     /// <summary>

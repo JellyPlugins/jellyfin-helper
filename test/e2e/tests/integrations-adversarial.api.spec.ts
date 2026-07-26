@@ -127,10 +127,13 @@ test('garbage upstream body (force-garbage) → clean failure, never 500', async
 });
 
 test('Arr Compare index overflow / negative / non-numeric → all handled, never 500', async () => {
-  await ctx.put(p('Configuration'), {
+  const seed = await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: { RadarrInstances: [{ Name: 'Mock Radarr', Url: ARR, ApiKey: 'radarr-key' }] },
   });
+  // Assert the seed so the index sweep genuinely exercises the overflow paths — a
+  // rejected seed would leave no instance and make every index case trivially non-5xx.
+  expect(seed.ok(), `RadarrInstances seed failed: ${seed.status()}`).toBeTruthy();
   for (const idx of ['-1', '2147483647', '2147483648', 'abc']) {
     const res = await ctx.get(p(`ArrIntegration/Compare/Radarr?index=${idx}`));
     expect(res.status(), `index=${idx}`).toBeLessThan(500);

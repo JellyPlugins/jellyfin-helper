@@ -84,11 +84,13 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  // Leave discovery access off so later specs see the default state.
+  // Reset the config this suite's beforeAll enabled (discovery access + recommendations
+  // mode) back to defaults, so later specs don't inherit an enabled discovery gate or an
+  // Activated recommendations mode. SeerrUrl/key are left as-is (each spec owns its own).
   await admin
     .put(p('Configuration'), {
       headers: { 'Content-Type': 'application/json' },
-      data: { DiscoveryUserAccessEnabled: false },
+      data: { DiscoveryUserAccessEnabled: false, RecommendationsTaskMode: 'Deactivate' },
     })
     .catch(() => undefined);
   await admin.dispose();

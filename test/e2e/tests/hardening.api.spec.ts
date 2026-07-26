@@ -97,13 +97,18 @@ test('overlong trash path is rejected', async () => {
 test('Unicode / special-character library exclusion persists without corruption', async () => {
   const weird = 'Filmé 4K • Kids 子供 🎬,Ünïcødé';
   const res = await putConfig({ ExcludedLibraries: weird });
-  expect(res.status()).toBeLessThan(500);
-  if (res.ok()) {
-    const cfg = await ctx.get(p('Configuration')).then((r) => r.json());
-    expect(cfg.ExcludedLibraries).toBe(weird);
+  try {
+    expect(res.status()).toBeLessThan(500);
+    if (res.ok()) {
+      const cfg = await ctx.get(p('Configuration')).then((r) => r.json());
+      expect(cfg.ExcludedLibraries).toBe(weird);
+    }
+    await assertPluginActive(ctx);
+  } finally {
+    await ctx
+      .put(p('Configuration'), { headers: { 'Content-Type': 'application/json' }, data: { ExcludedLibraries: '' } })
+      .catch(() => undefined);
   }
-  await putConfig({ ExcludedLibraries: '' }); // restore
-  await assertPluginActive(ctx);
 });
 
 test('translations endpoint rejects malformed language codes', async () => {

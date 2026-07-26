@@ -89,31 +89,33 @@ test.describe.serial('Backup/Import is idempotent (2nd import of the same file s
     backup.language = 'de';
     backup.orphanMinAgeDays = 17;
 
-    const first = await importBackup(backup);
-    expect(first.ok(), `1st import failed: ${first.status()}`).toBeTruthy();
-    const firstSummary = ((await first.json()) as { summary: ImportSummary }).summary;
-    expect(firstSummary.CredentialsChanged, '1st import sees a NEW key → changed').toBe(true);
+    try {
+      const first = await importBackup(backup);
+      expect(first.ok(), `1st import failed: ${first.status()}`).toBeTruthy();
+      const firstSummary = ((await first.json()) as { summary: ImportSummary }).summary;
+      expect(firstSummary.CredentialsChanged, '1st import sees a NEW key → changed').toBe(true);
 
-    const cfgAfterFirst = await getConfig();
+      const cfgAfterFirst = await getConfig();
 
-    const second = await importBackup(backup);
-    expect(second.ok(), `2nd import failed: ${second.status()}`).toBeTruthy();
-    const secondSummary = ((await second.json()) as { summary: ImportSummary }).summary;
-    // The load-bearing idempotency signal: the SAME key is now already stored, so
-    // the repeat reports no credential change.
-    expect(secondSummary.CredentialsChanged, '2nd import: key already matches → NOT changed').toBe(false);
+      const second = await importBackup(backup);
+      expect(second.ok(), `2nd import failed: ${second.status()}`).toBeTruthy();
+      const secondSummary = ((await second.json()) as { summary: ImportSummary }).summary;
+      // The load-bearing idempotency signal: the SAME key is now already stored, so
+      // the repeat reports no credential change.
+      expect(secondSummary.CredentialsChanged, '2nd import: key already matches → NOT changed').toBe(false);
 
-    const cfgAfterSecond = await getConfig();
-    // Every restored scalar is identical after the 2nd import (pure overwrite, no drift).
-    expect(cfgAfterSecond.Language).toBe(cfgAfterFirst.Language);
-    expect(cfgAfterSecond.Language).toBe('de');
-    expect(cfgAfterSecond.OrphanMinAgeDays).toBe(cfgAfterFirst.OrphanMinAgeDays);
-    expect(cfgAfterSecond.OrphanMinAgeDays).toBe(17);
-    expect(cfgAfterSecond.SeerrUrl).toBe(cfgAfterFirst.SeerrUrl);
-    await assertPluginActive(ctx);
-
-    // Restore a benign baseline for later specs.
-    await putConfig({ Language: 'en', SeerrApiKey: 'seerr-key' });
+      const cfgAfterSecond = await getConfig();
+      // Every restored scalar is identical after the 2nd import (pure overwrite, no drift).
+      expect(cfgAfterSecond.Language).toBe(cfgAfterFirst.Language);
+      expect(cfgAfterSecond.Language).toBe('de');
+      expect(cfgAfterSecond.OrphanMinAgeDays).toBe(cfgAfterFirst.OrphanMinAgeDays);
+      expect(cfgAfterSecond.OrphanMinAgeDays).toBe(17);
+      expect(cfgAfterSecond.SeerrUrl).toBe(cfgAfterFirst.SeerrUrl);
+      await assertPluginActive(ctx);
+    } finally {
+      // Restore a benign baseline for later specs even if an assertion threw.
+      await putConfig({ Language: 'en', SeerrApiKey: 'seerr-key' });
+    }
   });
 });
 
@@ -136,15 +138,17 @@ test('PUT /Configuration twice with the same body yields identical stored state'
   await putConfig(body);
   const afterSecond = await getConfig();
 
-  for (const k of ['Language', 'OrphanMinAgeDays', 'UseTrash', 'TrashFolderPath', 'TrashRetentionDays', 'SeerrUrl'] as const) {
-    expect(afterSecond[k], `${k} stable across identical PUTs`).toEqual(afterFirst[k]);
+  try {
+    for (const k of ['Language', 'OrphanMinAgeDays', 'UseTrash', 'TrashFolderPath', 'TrashRetentionDays', 'SeerrUrl'] as const) {
+      expect(afterSecond[k], `${k} stable across identical PUTs`).toEqual(afterFirst[k]);
+    }
+    // And the values actually took (not just "equal to each other").
+    expect(afterSecond.OrphanMinAgeDays).toBe(21);
+    expect(afterSecond.TrashRetentionDays).toBe(14);
+    await assertPluginActive(ctx);
+  } finally {
+    await putConfig({ UseTrash: false, OrphanMinAgeDays: 30, TrashRetentionDays: 30 });
   }
-  // And the values actually took (not just "equal to each other").
-  expect(afterSecond.OrphanMinAgeDays).toBe(21);
-  expect(afterSecond.TrashRetentionDays).toBe(14);
-  await assertPluginActive(ctx);
-
-  await putConfig({ UseTrash: false, OrphanMinAgeDays: 30, TrashRetentionDays: 30 });
 });
 
 // --- discovery request: NO dedupe (the correct behavior) -------------------

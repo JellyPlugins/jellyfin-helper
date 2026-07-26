@@ -62,9 +62,9 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   // Restore the shared Configuration these tests mutated, so later specs run
-  // against the original backend state. SeerrApiKey is intentionally omitted:
-  // sending '***' would preserve the current key, and the snapshot never had the
-  // plaintext anyway; leaving it out keeps whatever key is stored now.
+  // against the original backend state. The snapshot never captured the plaintext
+  // SeerrApiKey, so we send the mask '***', which the backend treats as "keep the
+  // currently-stored key" rather than overwriting it.
   if (Object.keys(configSnapshot).length > 0) {
     await admin
       .put(p('Configuration'), {

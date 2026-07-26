@@ -29,6 +29,15 @@ test.beforeAll(async () => {
   ctx = await apiContext(loadAuth());
 });
 test.afterAll(async () => {
+  // Restore the default log level BEFORE disposing, so a thrown assertion in the
+  // racing-LogLevel test can't leak a non-default level into later specs (the
+  // restore used to be a trailing statement, skipped on failure).
+  await ctx
+    .put(p('Configuration/LogLevel'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: { PluginLogLevel: 'INFO' },
+    })
+    .catch(() => undefined);
   await ctx.dispose();
 });
 
@@ -90,14 +99,11 @@ test('racing PUT /Configuration/LogLevel between two valid levels leaves exactly
     expect(r.status(), `each racing LogLevel PUT succeeds (got ${r.status()})`).toBe(200);
   }
 
-  const cfg = await ctx.get(p('Configuration')).then((r) => r.json());
+  const cfgRes = await ctx.get(p('Configuration'));
+  expect(cfgRes.ok(), `config readback failed: ${cfgRes.status()}`).toBeTruthy();
+  const cfg = await cfgRes.json();
   expect(levels as readonly string[], `stored level is exactly one submitted value (got ${cfg.PluginLogLevel})`)
     .toContain(cfg.PluginLogLevel);
   await assertPluginActive(ctx);
-
-  // Restore the default so later specs see a clean level.
-  await ctx.put(p('Configuration/LogLevel'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: { PluginLogLevel: 'INFO' },
-  });
+  // Restore happens in afterAll so it runs even if an assertion above throws.
 });

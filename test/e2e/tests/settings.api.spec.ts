@@ -242,7 +242,7 @@ test('Arr instance validation: no-key rejected, >3 rejected, overlong name rejec
 });
 
 test('Seerr URL with blank key is rejected and does not mutate stored URL', async () => {
-  await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'realkey' });
+  expect((await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'realkey' })).ok(), 'setup seed').toBeTruthy();
   const before = (await getConfig()).SeerrUrl;
 
   const res = await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: '', SeerrCleanupAgeDays: 30 });
@@ -251,7 +251,7 @@ test('Seerr URL with blank key is rejected and does not mutate stored URL', asyn
 });
 
 test('invalid Seerr URL scheme is rejected without mutating stored URL', async () => {
-  await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: '***' });
+  expect((await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: '***' })).ok(), 'setup seed').toBeTruthy();
   const before = (await getConfig()).SeerrUrl;
   for (const url of ['ftp://x', 'javascript:alert(1)', 'file:///etc/passwd']) {
     const res = await putConfig({ SeerrUrl: url, SeerrApiKey: 'k' });
@@ -261,7 +261,7 @@ test('invalid Seerr URL scheme is rejected without mutating stored URL', async (
 });
 
 test('config-save strictly blocks traversal / invalid / blank-when-enabled trash paths', async () => {
-  await putConfig({ UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 30 });
+  expect((await putConfig({ UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 30 })).ok(), 'setup seed').toBeTruthy();
   for (const [path, useTrash] of [['../etc', true], ['bad|name', true], ['', true]] as Array<[string, boolean]>) {
     const res = await putConfig({ UseTrash: useTrash, TrashFolderPath: path, TrashRetentionDays: 30 });
     expect(res.status(), `path=${JSON.stringify(path)}`).toBe(400);

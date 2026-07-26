@@ -335,27 +335,34 @@ test('Arr credential preserve (redacted import) then change (new key) round-trip
   // Seed a known Radarr instance with a real key.
   await putConfig({ RadarrInstances: [{ Name: 'R1', Url: 'http://mock-arr:9000', ApiKey: 'realkey' }] });
 
-  // PRESERVE: a redacted export (empty key) imported back must keep the live key.
-  const redacted = await exportBackup(false);
-  const preserve = await importBackup(redacted);
-  expect(preserve.ok()).toBeTruthy();
-  expect((await preserve.json()).summary.CredentialsChanged, 'empty key = preserve').toBe(false);
-  let secretExport = await exportBackup(true);
-  let r1 = (secretExport.radarrInstances ?? []).find((i: any) => i.Name === 'R1' || i.name === 'R1');
-  expect(r1?.apiKey ?? r1?.ApiKey).toBe('realkey');
+  try {
+    // PRESERVE: a redacted export (empty key) imported back must keep the live key.
+    const redacted = await exportBackup(false);
+    const preserve = await importBackup(redacted);
+    expect(preserve.ok()).toBeTruthy();
+    expect((await preserve.json()).summary.CredentialsChanged, 'empty key = preserve').toBe(false);
+    let secretExport = await exportBackup(true);
+    let r1 = (secretExport.radarrInstances ?? []).find((i: any) => i.Name === 'R1' || i.name === 'R1');
+    expect(r1?.apiKey ?? r1?.ApiKey).toBe('realkey');
 
-  // CHANGE: a secrets export with a new key must flip CredentialsChanged true.
-  secretExport = await exportBackup(true);
-  const instances = secretExport.radarrInstances ?? [];
-  if (instances[0]) {
-    if ('apiKey' in instances[0]) instances[0].apiKey = 'brand-new-key';
-    else instances[0].ApiKey = 'brand-new-key';
+    // CHANGE: a secrets export with a new key must flip CredentialsChanged true.
+    secretExport = await exportBackup(true);
+    const instances = secretExport.radarrInstances ?? [];
+    if (instances[0]) {
+      if ('apiKey' in instances[0]) instances[0].apiKey = 'brand-new-key';
+      else instances[0].ApiKey = 'brand-new-key';
+    }
+    const changed = await importBackup(secretExport);
+    expect(changed.ok()).toBeTruthy();
+    expect((await changed.json()).summary.CredentialsChanged, 'new key = changed').toBe(true);
+    await assertPluginActive(ctx);
+  } finally {
+    // Restore a known-good instance for later tests even if an assertion threw.
+    await ctx
+      .put(p('Configuration'), {
+        headers: { 'Content-Type': 'application/json' },
+        data: { RadarrInstances: [{ Name: 'Mock Radarr', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] },
+      })
+      .catch(() => undefined);
   }
-  const changed = await importBackup(secretExport);
-  expect(changed.ok()).toBeTruthy();
-  expect((await changed.json()).summary.CredentialsChanged, 'new key = changed').toBe(true);
-
-  // Restore a known-good instance for later tests.
-  await putConfig({ RadarrInstances: [{ Name: 'Mock Radarr', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] });
-  await assertPluginActive(ctx);
 });

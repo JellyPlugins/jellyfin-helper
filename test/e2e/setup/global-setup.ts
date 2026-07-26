@@ -158,15 +158,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
 
   // --- 5. link the mock Seerr user to the real Jellyfin GUID ---------------
   // Uses the mock's test hook so Discovery user-matching resolves.
-  await pwRequest
-    .newContext()
-    .then((c) =>
-      c.post(`${publicSeerrUrl()}/seed-user`, {
-        headers: { 'Content-Type': 'application/json' },
-        data: { jellyfinUserId: userId },
-      }).catch(() => undefined),
-    )
-    .catch(() => undefined);
+  await seedSeerr('/seed-user', { jellyfinUserId: userId });
 
   // --- 5b. create a non-admin user for the Discovery/My (user-facing) tests -
   // These endpoints require a NON-elevated authenticated user + the
@@ -206,15 +198,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
         // authorization branches are actually reachable. Seeded here — before any
         // spec runs and before the plugin populates its 5-min Seerr-user cache —
         // so the linkage is deterministic and not defeated by cache staleness.
-        await pwRequest
-          .newContext()
-          .then((c) =>
-            c.post(`${publicSeerrUrl()}/seed-user2`, {
-              headers: { 'Content-Type': 'application/json' },
-              data: { jellyfinUserId: nj.User.Id, permissions: 32 },
-            }).catch(() => undefined),
-          )
-          .catch(() => undefined);
+        await seedSeerr('/seed-user2', { jellyfinUserId: nj.User.Id, permissions: 32 });
       } else {
         // Could not authenticate — do NOT report success silently. Log the
         // rejection so a broken provisioning path is visible; dependent tests skip
@@ -276,6 +260,27 @@ async function globalSetup(_config: FullConfig): Promise<void> {
 /** From the host, the mock is reachable on localhost; inside compose it's mock-seerr. */
 function publicSeerrUrl(): string {
   return process.env.MOCK_SEERR_PUBLIC_URL ?? 'http://localhost:5055';
+}
+
+/**
+ * Best-effort POST to a mock-Seerr test hook, always disposing the throwaway
+ * request context. Seeding must never fail global-setup (the mock link is a
+ * convenience for Discovery tests), so all errors are swallowed — but the socket
+ * pool is released in finally rather than leaked for the whole run.
+ */
+async function seedSeerr(path: string, data: unknown): Promise<void> {
+  let c: Awaited<ReturnType<typeof pwRequest.newContext>> | undefined;
+  try {
+    c = await pwRequest.newContext();
+    await c.post(`${publicSeerrUrl()}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      data,
+    });
+  } catch {
+    // best-effort seeding
+  } finally {
+    await c?.dispose().catch(() => undefined);
+  }
 }
 
 async function ensureLibrary(
