@@ -28,15 +28,26 @@ test('Logs tab: level filter change persists via LogLevel endpoint', async ({ pa
   await openDashboard(page);
   await switchTab(page, 'logs');
 
-  // Changing the level fires PUT /Configuration/LogLevel + a reload GET /Logs.
-  const [putReq] = await Promise.all([
-    page.waitForRequest(
-      (r) => r.url().includes('/JellyfinHelper/Configuration/LogLevel') && r.method() === 'PUT',
+  // Changing the level fires PUT /Configuration/LogLevel; assert it SUCCEEDS
+  // and that the level actually persisted (GET /Configuration reflects DEBUG).
+  const [putResp] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/JellyfinHelper/Configuration/LogLevel') && r.request().method() === 'PUT',
       { timeout: 15_000 },
     ),
     page.locator('#logsLevelFilter').selectOption('DEBUG'),
   ]);
-  expect(putReq).toBeTruthy();
+  expect(putResp.ok(), `LogLevel PUT failed: ${putResp.status()}`).toBeTruthy();
+
+  const cfg = await page.evaluate(async () => {
+    const res = await (window as any).ApiClient.ajax({
+      type: 'GET',
+      url: (window as any).ApiClient.getUrl('JellyfinHelper/Configuration'),
+      dataType: 'json',
+    });
+    return res;
+  });
+  expect(cfg.PluginLogLevel).toBe('DEBUG');
 });
 
 test('Logs tab: clear opens confirm dialog and empties on confirm', async ({ page }) => {
@@ -47,13 +58,17 @@ test('Logs tab: clear opens confirm dialog and empties on confirm', async ({ pag
   const dialog = page.locator('#logsClearDialogOverlay');
   await expect(dialog).toBeVisible();
 
-  // Confirm (the danger button) → DELETE /Logs.
-  const [delReq] = await Promise.all([
-    page.waitForRequest(
-      (r) => r.url().includes('/JellyfinHelper/Logs') && r.method() === 'DELETE',
+  // Confirm (the danger button) → DELETE /Logs; assert it SUCCEEDS and the
+  // table shows the empty state afterwards.
+  const [delResp] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/JellyfinHelper/Logs') && r.request().method() === 'DELETE',
       { timeout: 15_000 },
     ),
     dialog.locator('.logs-btn.danger, button.danger').last().click(),
   ]);
-  expect(delReq).toBeTruthy();
+  expect([200, 204], `Logs DELETE status ${delResp.status()}`).toContain(delResp.status());
+  // After clearing, the buffer is empty; the empty-state or a reduced table
+  // should render (auto-refresh reloads within ~10s, but the clear also reloads).
+  await expect(page.locator('.logs-empty, .logs-table tbody tr').first()).toBeVisible({ timeout: 15_000 });
 });

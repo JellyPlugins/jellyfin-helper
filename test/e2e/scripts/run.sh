@@ -48,17 +48,19 @@ for arg in "$@"; do
   esac
 done
 
-COMPOSE="docker compose -f $E2E_DIR/compose.yml"
+# Array form so paths containing spaces (common on Windows/Git-Bash under
+# "Program Files") survive without word-splitting surprises.
+COMPOSE=(docker compose -f "$E2E_DIR/compose.yml")
 
 log() { printf '\n\033[1;36m=== %s ===\033[0m\n' "$*"; }
 
 cleanup() {
   local code=$?
   if [ "$KEEP" -eq 1 ]; then
-    log "Leaving stack running (--keep). Tear down with: $COMPOSE down -v"
+    log "Leaving stack running (--keep). Tear down with: ${COMPOSE[*]} down -v"
   else
     log "Tearing down stack"
-    $COMPOSE down -v --remove-orphans 2>/dev/null || true
+    "${COMPOSE[@]}" down -v --remove-orphans 2>/dev/null || true
   fi
   exit $code
 }
@@ -79,7 +81,8 @@ fi
 
 # --- 2. fresh runtime dirs (wipe BEFORE staging the plugin into config) -----
 log "Resetting runtime state"
-rm -rf "$RUNTIME/config" "$RUNTIME/cache" "$RUNTIME/media"
+# Guard against an unset/empty RUNTIME expanding to rm -rf /config etc. (SC2115).
+rm -rf "${RUNTIME:?}/config" "${RUNTIME:?}/cache" "${RUNTIME:?}/media"
 mkdir -p "$RUNTIME/config/plugins" "$RUNTIME/cache" "$RUNTIME/media/.gen"
 cp "$E2E_DIR/fixtures/gen-media.sh" "$RUNTIME/media/.gen/gen-media.sh"
 
@@ -104,31 +107,42 @@ if [ "$(uname -s)" = "Linux" ]; then
   export JELLYFIN_GID="$(id -g)"
 fi
 
-# --- 3. bring up the stack --------------------------------------------------
+# --- 4. bring up the stack --------------------------------------------------
 log "Starting stack (Jellyfin 12.0-rc3 + mock Arr/Seerr)"
-$COMPOSE up -d --build
+"${COMPOSE[@]}" up -d --build
 
 log "Waiting for Jellyfin to become healthy"
-# compose healthcheck drives readiness; poll the container health state.
-for i in $(seq 1 60); do
-  status="$($COMPOSE ps jellyfin --format '{{.Health}}' 2>/dev/null || echo starting)"
-  [ "$status" = "healthy" ] && break
+# Poll the container's health via `docker inspect` — more portable than relying
+# on `compose ps --format {{.Health}}`, which varies across Compose versions.
+# The compose file defines the actual healthcheck; we just read its result.
+JELLYFIN_CONTAINER="jfh-e2e-jellyfin"
+healthy=0
+for _ in $(seq 1 60); do
+  status="$(docker inspect -f '{{.State.Health.Status}}' "$JELLYFIN_CONTAINER" 2>/dev/null || echo starting)"
+  if [ "$status" = "healthy" ]; then healthy=1; break; fi
+  # Bail early if the container died outright.
+  running="$(docker inspect -f '{{.State.Running}}' "$JELLYFIN_CONTAINER" 2>/dev/null || echo false)"
+  if [ "$running" = "false" ] && [ "$status" != "starting" ]; then break; fi
   sleep 3
-  [ "$i" -eq 60 ] && { echo "Jellyfin did not become healthy" >&2; $COMPOSE logs jellyfin; exit 1; }
 done
+if [ "$healthy" -ne 1 ]; then
+  echo "Jellyfin did not become healthy (last status: ${status:-unknown})" >&2
+  "${COMPOSE[@]}" logs jellyfin || true
+  exit 1
+fi
 echo "Jellyfin healthy."
 
-# --- 4. generate the fake media library (inside the container) -------------
+# --- 5. generate the fake media library (inside the container) -------------
 log "Generating fake media library"
-$COMPOSE exec -T jellyfin bash /media/.gen/gen-media.sh /media
+"${COMPOSE[@]}" exec -T jellyfin bash /media/.gen/gen-media.sh /media
 
-# --- 5. install Playwright deps (first run only) ---------------------------
+# --- 6. install Playwright deps (first run only) ---------------------------
 log "Installing test dependencies"
 cd "$E2E_DIR"
 [ -d node_modules ] || npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 npx playwright install --with-deps chromium >/dev/null 2>&1 || npx playwright install chromium
 
-# --- 6. run the tests -------------------------------------------------------
+# --- 7. run the tests -------------------------------------------------------
 # Setup (wizard + scan) runs as a Playwright global-setup, so the tests get a
 # ready server + admin token via storage state / env.
 log "Running E2E tests"

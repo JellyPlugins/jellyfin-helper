@@ -25,11 +25,15 @@ test('Recommendations tab: user selector loads per-user data; sections toggle', 
       page.waitForResponse(
         (r) => r.url().includes('/JellyfinHelper/Recommendations/WatchProfile/'),
         { timeout: 15_000 },
-      ).catch(() => null),
+      ),
       userSelect.selectOption({ index: 0 }),
     ]);
-    // Not fatal if a user has no profile yet; just ensure no crash.
-    expect(profileResp === null || profileResp.status() < 500).toBeTruthy();
+    // The request must actually fire and return a documented status. A user with
+    // no watch history legitimately yields 404/503; a 200 returns the profile.
+    // Anything else (esp. 5xx) is a real failure.
+    expect([200, 400, 404, 503], `WatchProfile status ${profileResp.status()}`).toContain(
+      profileResp.status(),
+    );
   }
 
   // Toggle the recommendations grid section open.

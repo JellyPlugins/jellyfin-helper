@@ -80,13 +80,13 @@ printf '1\n00:00:00,000 --> 00:00:01,000\nOrphan\n' \
 
 # (c) Broken .strm link: points at a non-existent target file.
 mkdir -p "$MOVIES/Broken Link (2020)"
-printf '/media/Movies/Does Not Exist (2020)/Does Not Exist (2020).mkv' \
+printf '%s\n' "$ROOT/Movies/Does Not Exist (2020)/Does Not Exist (2020).mkv" \
   > "$MOVIES/Broken Link (2020)/Broken Link (2020).strm"
 
 # (d) Repairable .strm link: target exists but under a renamed file in same dir.
 mkdir -p "$MOVIES/Repairable Link (2020)"
 make_clip "$MOVIES/Repairable Link (2020)/Actual File (2020).mkv" 640 480 libx264
-printf '/media/Movies/Repairable Link (2020)/Old Name (2020).mkv' \
+printf '%s\n' "$ROOT/Movies/Repairable Link (2020)/Old Name (2020).mkv" \
   > "$MOVIES/Repairable Link (2020)/Repairable Link (2020).strm"
 
 echo "[gen-media] done. Library tree:"

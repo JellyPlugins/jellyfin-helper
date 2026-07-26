@@ -95,6 +95,34 @@ dotnet test --filter "FullyQualifiedName~BackupServiceTests"
 dotnet test --filter "FullyQualifiedName~CreateBackup_IncludesAllSettings"
 ```
 
+### End-to-End Tests
+
+The `dotnet test` suite above covers logic in isolation. A separate
+**end-to-end suite** (`test/e2e/`) runs the built plugin inside a real
+Jellyfin 12 container with mock Radarr/Sonarr/Seerr servers, and drives it the
+way a user would — settings, scheduled-task modes, backup import/export, trends,
+trash, and every dashboard tab (including the unsaved-changes dialog and log
+download). It also covers hardening / edge cases (broken backups, invalid URLs,
+traversal guards, out-of-range values).
+
+Requires Docker + Docker Compose and Node 20+ (no host ffmpeg needed — media is
+generated inside the container).
+
+```bash
+# One command: build plugin → start stack → set up → run all tests → tear down
+bash test/e2e/scripts/run.sh
+
+# Faster iteration (reuse the last build)
+bash test/e2e/scripts/run.sh --no-build
+
+# Leave the stack running afterwards to poke around (http://localhost:8096)
+bash test/e2e/scripts/run.sh --keep
+```
+
+It runs automatically on every PR via `.github/workflows/e2e.yml`. See
+[`test/e2e/README.md`](test/e2e/README.md) for architecture and
+[`test/e2e/COVERAGE.md`](test/e2e/COVERAGE.md) for the coverage matrix.
+
 ### Test Structure
 
 Tests mirror the source structure:

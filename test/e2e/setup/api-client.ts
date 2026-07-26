@@ -17,17 +17,37 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const PLUGIN_GUID = '0c737645-5cbb-4bd8-80c7-d377b560aaa4';
 export const CLEANUP_TASK_KEY = 'HelperCleanup';
 
+export interface NormalUser {
+  token: string;
+  userId: string;
+  userName: string;
+}
+
 export interface AuthInfo {
   baseUrl: string;
   token: string;
   userId: string;
   userName: string;
+  /** Non-admin user for user-facing (Discovery/My) tests; null if unprovisioned. */
+  normalUser: NormalUser | null;
 }
 
 /** Load the auth info persisted by global-setup. */
 export function loadAuth(): AuthInfo {
   const raw = readFileSync(join(__dirname, '..', 'setup', 'auth.json'), 'utf-8');
   return JSON.parse(raw) as AuthInfo;
+}
+
+/** Create a Playwright request context authenticated as the NON-admin user. */
+export async function normalUserContext(auth: AuthInfo): Promise<APIRequestContext | null> {
+  if (!auth.normalUser) return null;
+  return pwRequest.newContext({
+    baseURL: auth.baseUrl,
+    extraHTTPHeaders: {
+      Authorization: authHeader(auth.normalUser.token),
+      Accept: 'application/json',
+    },
+  });
 }
 
 /**
@@ -68,7 +88,7 @@ interface TaskInfo {
   Id: string;
   Key: string;
   State: 'Idle' | 'Running' | 'Cancelling';
-  LastExecutionResult?: { Status?: string; ErrorMessage?: string };
+  LastExecutionResult?: { Status?: string; ErrorMessage?: string; EndTimeUtc?: string; StartTimeUtc?: string };
 }
 
 /** Resolve the internal task Id for a task Key (e.g. HelperCleanup). */
@@ -90,19 +110,31 @@ export async function runTaskToCompletion(
   taskId: string,
   { timeoutMs = 60_000, pollMs = 1000 }: { timeoutMs?: number; pollMs?: number } = {},
 ): Promise<TaskInfo> {
+  // Capture the prior run's end time so we can detect a NEW completion even if
+  // the task is too fast to ever be observed in the Running state.
+  const prior = await ctx.get(`/ScheduledTasks/${taskId}`).then((r) => (r.ok() ? r.json() : null));
+  const priorEnd = (prior as TaskInfo | null)?.LastExecutionResult?.EndTimeUtc ?? '';
+
   const start = await ctx.post(`/ScheduledTasks/Running/${taskId}`);
   if (!start.ok() && start.status() !== 204) {
     throw new Error(`Failed to start task ${taskId}: ${start.status()}`);
   }
 
   const deadline = Date.now() + timeoutMs;
-  // Give the scheduler a moment to flip to Running before we poll.
+  // Accept Idle as "completed" only once we've EITHER observed a Running state
+  // OR seen a fresh LastExecutionResult.EndTimeUtc (newer than before we
+  // started). This avoids two races: reading the stale pre-start Idle, and
+  // missing a task that ran and finished between two polls.
   await sleep(500);
+  let sawRunning = false;
   while (Date.now() < deadline) {
     const res = await ctx.get(`/ScheduledTasks/${taskId}`);
     if (res.ok()) {
       const task = (await res.json()) as TaskInfo;
-      if (task.State === 'Idle') return task;
+      if (task.State === 'Running' || task.State === 'Cancelling') sawRunning = true;
+      const end = task.LastExecutionResult?.EndTimeUtc ?? '';
+      const finishedFresh = end !== '' && end !== priorEnd;
+      if (task.State === 'Idle' && (sawRunning || finishedFresh)) return task;
     }
     await sleep(pollMs);
   }

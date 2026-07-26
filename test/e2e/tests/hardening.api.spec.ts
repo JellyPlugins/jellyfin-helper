@@ -15,11 +15,16 @@ test.afterAll(async () => {
   await ctx.dispose();
 });
 
-function putConfig(body: Record<string, unknown>) {
-  return ctx.put(p('Configuration'), {
+// Setup helper: applies a config change and FAILS LOUDLY if the save itself
+// didn't succeed — so a broken precondition surfaces as a clear setup error
+// instead of an unrelated downstream assertion failure.
+async function putConfig(body: Record<string, unknown>) {
+  const res = await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: body,
   });
+  expect(res.ok(), `setup putConfig failed: ${res.status()}`).toBeTruthy();
+  return res;
 }
 
 test('invalid Arr URL is rejected or degrades, never 500', async () => {

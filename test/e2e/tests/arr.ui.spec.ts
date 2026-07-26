@@ -40,7 +40,8 @@ test('Arr tab: Compare button renders a comparison card', async ({ page }) => {
     ),
     compareBtn.click(),
   ]);
-  expect(resp.status()).toBeLessThan(500);
+  // Against the mock this must succeed, not merely avoid a 500.
+  expect(resp.ok(), `Compare failed: ${resp.status()}`).toBeTruthy();
 
   // The result area shows a comparison card with sections.
   await expect(page.locator('#arrResult .arr-card, #arrResult .arr-section').first()).toBeVisible({

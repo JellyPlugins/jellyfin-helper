@@ -23,10 +23,16 @@ test('media statistics reflect the scanned fake library', async () => {
   // Ensure a scan result exists (Latest is 204 before the first scan).
   let res = await ctx.get(p('MediaStatistics/Latest'));
   if (res.status() === 204) {
-    // Trigger a scan and wait past the 30s rate-limit window if needed.
+    // Trigger a scan; only re-fire after the 30s rate-limit window if the
+    // first call was itself rate-limited (a second immediate call would just
+    // return 429 and fail the assertion below).
     const scan = await ctx.get(p('MediaStatistics/ScanLibraries'));
-    if (scan.status() === 429) await sleep(31_000);
-    res = await ctx.get(p('MediaStatistics/ScanLibraries'));
+    if (scan.status() === 429) {
+      await sleep(31_000);
+      res = await ctx.get(p('MediaStatistics/ScanLibraries'));
+    } else {
+      res = scan;
+    }
   }
   expect(res.ok(), `stats status ${res.status()}`).toBeTruthy();
   const stats = (await res.json()) as any;
@@ -49,6 +55,9 @@ test('growth timeline contains no negative or future data', async () => {
     body = await ctx.get(p('GrowthTimeline')).then((r) => (r.ok() ? r.json() : null));
   } else if (res.ok()) {
     body = await res.json();
+  } else {
+    // A genuine server error must fail the test, not silently skip it.
+    expect(res.status(), 'unexpected GrowthTimeline status').toBeLessThan(500);
   }
   test.skip(!body, 'timeline not available yet');
 

@@ -15,8 +15,12 @@
  * The fake library (fixtures/gen-media.sh) contains deliberately orphaned
  * items: an orphaned .trickplay folder, an orphaned subtitle, a broken .strm.
  */
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask, assertPluginActive } from '../setup/api-client.ts';
+
+// The mock Seerr is reachable from the host on localhost; inside compose it's
+// mock-seerr. Tests run on the host, so use the published port.
+const MOCK_SEERR_PUBLIC = process.env.MOCK_SEERR_PUBLIC_URL ?? 'http://localhost:5055';
 
 let ctx: APIRequestContext;
 
@@ -141,6 +145,14 @@ test.describe.serial('HelperCleanup across modes', () => {
   });
 
   test('Seerr cleanup Activate against mock → completes, deletes expired requests', async () => {
+    // Reset the mock to a known set, then read the starting count.
+    const mock = await pwRequest.newContext();
+    await mock.get(`${MOCK_SEERR_PUBLIC}/reset`).catch(() => undefined);
+    const before = await mock
+      .get(`${MOCK_SEERR_PUBLIC}/count`)
+      .then((r) => r.json())
+      .catch(() => ({ count: -1 }));
+
     // Point Seerr at the mock and enable cleanup with an age that makes the
     // 2023-dated mock requests expired.
     await putConfig({
@@ -152,6 +164,20 @@ test.describe.serial('HelperCleanup across modes', () => {
 
     const result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
+
+    // Verify the expired requests were actually deleted from the mock:
+    // ids 101 (old/pending) and 102 (old/declined) should be gone; 103
+    // (available, protected) and 104 (recent) should remain.
+    const after = await mock
+      .get(`${MOCK_SEERR_PUBLIC}/count`)
+      .then((r) => r.json())
+      .catch(() => ({ count: -1, ids: [] as number[] }));
+    if (before.count > 0) {
+      expect(after.count, 'expired requests should have been deleted').toBeLessThan(before.count);
+      expect(after.ids, 'protected available request must survive').toContain(103);
+      expect(after.ids, 'recent request must survive').toContain(104);
+    }
+    await mock.dispose();
     await assertPluginActive(ctx);
   });
 });

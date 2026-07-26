@@ -18,6 +18,9 @@ const FAIL_KEY = 'force-fail';
 // --- mutable state ---------------------------------------------------------
 
 function seedRequests() {
+  // "Recent" is relative to NOW so it always survives the age cutoff, no matter
+  // when the suite runs (a fixed date would eventually age past the threshold).
+  const recentIso = new Date().toISOString();
   return [
     // Old + status 1 (pending) => selected for deletion when maxAgeDays passes.
     { id: 101, createdAt: '2023-01-01T00:00:00.000Z', status: 1, media: { mediaType: 'movie', tmdbId: 27205, status: 3 } },
@@ -26,7 +29,7 @@ function seedRequests() {
     // Old but status 4 (available) => protected, must NOT be deleted.
     { id: 103, createdAt: '2023-03-01T00:00:00.000Z', status: 4, media: { mediaType: 'movie', tmdbId: 438631, status: 4 } },
     // Recent => survives the age cutoff regardless of status.
-    { id: 104, createdAt: '2026-07-20T00:00:00.000Z', status: 1, media: { mediaType: 'movie', tmdbId: 550, status: 3 } },
+    { id: 104, createdAt: recentIso, status: 1, media: { mediaType: 'movie', tmdbId: 550, status: 3 } },
   ];
 }
 let requests = seedRequests();
@@ -103,8 +106,9 @@ const server = http.createServer(async (req, res) => {
   // Health probe (unauthenticated).
   if (path === '/health') { send(res, 200, { ok: true }); return done(200); }
 
-  // Test hooks (unauthenticated, E2E-only): reset state / seed the Jellyfin GUID.
+  // Test hooks (unauthenticated, E2E-only): reset state / seed the Jellyfin GUID / count.
   if (path === '/reset') { requests = seedRequests(); send(res, 200, { ok: true }); return done(200); }
+  if (path === '/count') { send(res, 200, { count: requests.length, ids: requests.map((r) => r.id) }); return done(200); }
   if (path === '/seed-user' && method === 'POST') {
     const body = JSON.parse((await readBody(req)) || '{}');
     if (body.jellyfinUserId) users[0].jellyfinUserId = String(body.jellyfinUserId).replace(/-/g, '');

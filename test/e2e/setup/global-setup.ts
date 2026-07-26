@@ -24,43 +24,115 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const BASE_URL = process.env.JELLYFIN_URL ?? 'http://localhost:8096';
 const ADMIN_USER = process.env.JELLYFIN_ADMIN_USER ?? 'e2eadmin';
 const ADMIN_PASS = process.env.JELLYFIN_ADMIN_PASS ?? 'E2ePassw0rd!';
+const NORMAL_USER = process.env.JELLYFIN_USER ?? 'e2euser';
+const NORMAL_PASS = process.env.JELLYFIN_USER_PASS ?? 'E2eUserPass1!';
 const MOCK_SEERR_URL = process.env.MOCK_SEERR_URL ?? 'http://mock-seerr:5055';
 
 async function globalSetup(_config: FullConfig): Promise<void> {
   const ctx = await pwRequest.newContext({ baseURL: BASE_URL });
 
-  // --- 1. startup wizard ---------------------------------------------------
-  // These are best-effort: on a re-used server they 4xx (setup already done).
-  await ctx.post('/Startup/Configuration', {
-    headers: { 'Content-Type': 'application/json' },
-    data: {
-      UICulture: 'en-US',
-      MetadataCountryCode: 'US',
-      PreferredMetadataLanguage: 'en',
-      ServerName: 'jfh-e2e',
-    },
-  }).catch(() => undefined);
+  // Small helper: run a startup step, log its status, and don't hard-fail on a
+  // 4xx (a re-used server returns those) — but DO surface the status so a real
+  // wizard failure is visible in CI instead of silently swallowed.
+  const step = async (label: string, fn: () => Promise<{ status: () => number; text: () => Promise<string> }>) => {
+    try {
+      const res = await fn();
+      const s = res.status();
+      // eslint-disable-next-line no-console
+      console.log(`[global-setup] ${label} -> ${s}`);
+      if (s >= 500) {
+        // eslint-disable-next-line no-console
+        console.log(`[global-setup]   body: ${(await res.text()).slice(0, 300)}`);
+      }
+      return s;
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.log(`[global-setup] ${label} -> threw: ${(e as Error).message}`);
+      return -1;
+    }
+  };
 
-  await ctx.post('/Startup/User', {
+  // --- 1. startup wizard ---------------------------------------------------
+  // Source-verified JF12 flow: POST /Startup/User does NOT create a user — it
+  // configures the pre-existing default admin (renames it + sets its password).
+  // If that user already has a password it returns 403 and does nothing, so we
+  // must NOT swallow the response. Order: GET user (forces init) → Configuration
+  // → User (hard-checked) → RemoteAccess → Complete (finish user BEFORE Complete).
+
+  // GET forces _userManager.InitializeAsync() so the default user exists, and
+  // tells us its current name.
+  const firstUserRes = await ctx.get('/Startup/User');
+  // eslint-disable-next-line no-console
+  console.log(`[global-setup] GET Startup/User -> ${firstUserRes.status()}`);
+
+  await step('Startup/Configuration', () =>
+    ctx.post('/Startup/Configuration', {
+      headers: { 'Content-Type': 'application/json' },
+      data: {
+        UICulture: 'en-US',
+        MetadataCountryCode: 'US',
+        PreferredMetadataLanguage: 'en',
+        ServerName: 'jfh-e2e',
+      },
+    }),
+  );
+
+  // Configure the first user. 204 = success. 403 = the user already had a
+  // password (non-fresh container) — recover by using its existing name with
+  // our password won't work, so fail loudly with guidance. On a fresh run
+  // (run.sh wipes runtime/config) this should always be 204.
+  const userRes = await ctx.post('/Startup/User', {
     headers: { 'Content-Type': 'application/json' },
     data: { Name: ADMIN_USER, Password: ADMIN_PASS },
-  }).catch(() => undefined);
+  });
+  // eslint-disable-next-line no-console
+  console.log(`[global-setup] POST Startup/User -> ${userRes.status()}`);
+  if (userRes.status() !== 204 && !userRes.ok()) {
+    if (userRes.status() === 403) {
+      throw new Error(
+        'Startup/User returned 403: the first user already has a password. ' +
+          'The container config is not fresh — run.sh should wipe runtime/config before startup. ' +
+          'If iterating with --keep, run `docker compose ... down -v` first.',
+      );
+    }
+    throw new Error(`Startup/User failed: ${userRes.status()} ${await userRes.text()}`);
+  }
 
   // 12.0: EnableAutomaticPortMapping was removed — send only EnableRemoteAccess.
-  await ctx.post('/Startup/RemoteAccess', {
-    headers: { 'Content-Type': 'application/json' },
-    data: { EnableRemoteAccess: true },
-  }).catch(() => undefined);
+  await step('Startup/RemoteAccess', () =>
+    ctx.post('/Startup/RemoteAccess', {
+      headers: { 'Content-Type': 'application/json' },
+      data: { EnableRemoteAccess: true },
+    }),
+  );
 
-  await ctx.post('/Startup/Complete').catch(() => undefined);
+  // Finish the wizard LAST — after this, Startup/* stop accepting anon calls.
+  await step('Startup/Complete', () => ctx.post('/Startup/Complete'));
 
-  // --- 2. authenticate -----------------------------------------------------
-  const authRes = await ctx.post('/Users/AuthenticateByName', {
-    headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
-    data: { Username: ADMIN_USER, Pw: ADMIN_PASS },
-  });
+  // --- 2. authenticate (retry: Startup/Complete may need a moment) ---------
+  const authenticate = async () =>
+    ctx.post('/Users/AuthenticateByName', {
+      headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+      data: { Username: ADMIN_USER, Pw: ADMIN_PASS },
+    });
+
+  let authRes = await authenticate();
+  for (let attempt = 1; attempt <= 5 && !authRes.ok(); attempt++) {
+    // eslint-disable-next-line no-console
+    console.log(`[global-setup] auth attempt ${attempt} -> ${authRes.status()}; retrying...`);
+    await new Promise((r) => setTimeout(r, 2000));
+    authRes = await authenticate();
+  }
   if (!authRes.ok()) {
-    throw new Error(`AuthenticateByName failed: ${authRes.status()} ${await authRes.text()}`);
+    // Dump the current user list to help diagnose (which users actually exist?).
+    const usersDump = await ctx
+      .get('/Users/Public')
+      .then((r) => r.text())
+      .catch(() => '<none>');
+    throw new Error(
+      `AuthenticateByName failed: ${authRes.status()} ${await authRes.text()}\n` +
+        `Public users on server: ${usersDump.slice(0, 500)}`,
+    );
   }
   const auth = (await authRes.json()) as { AccessToken: string; User: { Id: string; Name: string } };
   const token = auth.AccessToken;
@@ -91,8 +163,44 @@ async function globalSetup(_config: FullConfig): Promise<void> {
     )
     .catch(() => undefined);
 
+  // --- 5b. create a non-admin user for the Discovery/My (user-facing) tests -
+  // These endpoints require a NON-elevated authenticated user + the
+  // DiscoveryUserAccessEnabled toggle. We provision one and capture its token.
+  let normalUser: { token: string; userId: string; userName: string } | null = null;
+  try {
+    const created = await admin.post('/Users/New', {
+      headers: { 'Content-Type': 'application/json' },
+      data: { Name: NORMAL_USER, Password: NORMAL_PASS },
+    });
+    if (created.ok()) {
+      const u = (await created.json()) as { Id: string; Name: string };
+      const nAuth = await ctx.post('/Users/AuthenticateByName', {
+        headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
+        data: { Username: NORMAL_USER, Pw: NORMAL_PASS },
+      });
+      if (nAuth.ok()) {
+        const nj = (await nAuth.json()) as { AccessToken: string; User: { Id: string } };
+        normalUser = { token: nj.AccessToken, userId: nj.User.Id, userName: NORMAL_USER };
+        // eslint-disable-next-line no-console
+        console.log(`[global-setup] created non-admin user ${NORMAL_USER} (${u.Id})`);
+      }
+    } else {
+      // eslint-disable-next-line no-console
+      console.log(`[global-setup] Users/New -> ${created.status()} (non-admin tests will skip)`);
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.log(`[global-setup] non-admin user provisioning failed: ${(e as Error).message}`);
+  }
+
   // --- 6. persist for the tests -------------------------------------------
-  const out = { baseUrl: BASE_URL, token, userId, userName: ADMIN_USER };
+  const out = {
+    baseUrl: BASE_URL,
+    token,
+    userId,
+    userName: ADMIN_USER,
+    normalUser, // null if provisioning failed → Discovery/My tests skip
+  };
   writeFileSync(join(__dirname, 'auth.json'), JSON.stringify(out, null, 2));
   process.env.JELLYFIN_TOKEN = token;
 
