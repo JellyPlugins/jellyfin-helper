@@ -30,6 +30,12 @@ test.beforeAll(async () => {
   ctx = await apiContext(loadAuth());
 });
 test.afterAll(async () => {
+  // Restore a benign shared state so later specs (e.g. smoke) don't inherit a
+  // Deactivated recommendations/activity backend from this destructive suite.
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { RecommendationsTaskMode: 'DryRun', UseTrash: false, OrphanMinAgeDays: 30 },
+  }).catch(() => undefined);
   await ctx.dispose();
 });
 

@@ -41,7 +41,21 @@ async function managedPlaylistCount(): Promise<number> {
 }
 
 test.describe.serial('recommendations playlist create → purge', () => {
+  test.beforeAll(async () => {
+    // Start from a clean slate: a prior run (or the earlier full suite against a
+    // persisted /config) can leave managed playlists on disk, which would make
+    // the create/purge deltas ambiguous. A Deactivate run purges them.
+    await putConfig({ RecommendationsTaskMode: 'Deactivate', SyncRecommendationsToPlaylist: false });
+    await runCleanupTask(ctx);
+    for (let i = 0; i < 8 && (await managedPlaylistCount()) > 0; i++) {
+      await sleep(1500);
+    }
+  });
+
   test('Activate+sync creates playlists; Deactivate purges them', async () => {
+    // Baseline should be clean after beforeAll.
+    expect(await managedPlaylistCount(), 'baseline should have no managed playlists').toBe(0);
+
     await putConfig({
       RecommendationsTaskMode: 'Activate',
       SyncRecommendationsToPlaylist: true,
@@ -63,9 +77,14 @@ test.describe.serial('recommendations playlist create → purge', () => {
     await putConfig({ RecommendationsTaskMode: 'Deactivate' });
     result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
-    await sleep(2000);
 
-    expect(await managedPlaylistCount(), 'Deactivate must purge managed playlists').toBe(0);
+    // Poll: playlist deletion + library refresh can lag behind task completion.
+    let remaining = created;
+    for (let i = 0; i < 10 && remaining > 0; i++) {
+      await sleep(1500);
+      remaining = await managedPlaylistCount();
+    }
+    expect(remaining, 'Deactivate must purge managed playlists').toBe(0);
   });
 
   test('Activate writes the recommendation cache file; DryRun does not', async () => {

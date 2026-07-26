@@ -415,8 +415,18 @@ public class LinkRepairService : ILinkRepairService
             return fileResult;
         }
 
-        // Search the parent directory for media files
-        var mediaFiles = FindMediaFilesInDirectory(parentDir);
+        // Search the parent directory for media files, EXCLUDING the link file
+        // itself. A symlink with a media extension (e.g. a broken "Movie.mkv"
+        // symlink) would otherwise be enumerated as one of its own repair
+        // candidates and make every such folder look ambiguous — a link can never
+        // legitimately repair to itself. (.strm links are already excluded from
+        // the candidate filter by extension, so this only affects symlinks.)
+        var mediaFiles = FindMediaFilesInDirectory(parentDir)
+            .Where(f => !string.Equals(
+                _fileSystem.Path.GetFullPath(f),
+                _fileSystem.Path.GetFullPath(fileResult.LinkFilePath),
+                OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         switch (mediaFiles.Count)
         {

@@ -29,6 +29,10 @@ test.beforeAll(async () => {
   ctx = await apiContext(loadAuth());
 });
 test.afterAll(async () => {
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { RecommendationsTaskMode: 'DryRun', UseTrash: false, OrphanMinAgeDays: 30 },
+  }).catch(() => undefined);
   await ctx.dispose();
 });
 
