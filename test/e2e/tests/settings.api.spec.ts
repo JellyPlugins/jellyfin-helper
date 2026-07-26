@@ -151,3 +151,87 @@ test('Language persists', async () => {
   await putConfig({ Language: 'en' }); // restore
   expect((await getConfig()).Language).toBe('en');
 });
+
+test('unsupported / injection Language coerces to en on save', async () => {
+  for (const lang of ['xx', '<script>', '']) {
+    const res = await putConfig({ Language: lang });
+    expect(res.ok(), `lang=${lang}`).toBeTruthy();
+    expect((await getConfig()).Language).toBe('en');
+  }
+  await putConfig({ Language: 'en' });
+});
+
+test('ensemble alpha values always persist within [0,1] and min <= max', async () => {
+  for (const body of [
+    { EnsembleAlphaMin: 0.9, EnsembleAlphaMax: 0.2, EnsembleGenrePenaltyFloor: 2.0 },
+    { EnsembleAlphaMin: -0.5, EnsembleAlphaMax: -0.1 },
+    { EnsembleAlphaMin: 0.3, EnsembleAlphaMax: 0.8 },
+  ]) {
+    const res = await putConfig(body);
+    expect(res.ok()).toBeTruthy();
+    const cfg = await getConfig();
+    expect(cfg.EnsembleAlphaMin).toBeGreaterThanOrEqual(0);
+    expect(cfg.EnsembleAlphaMax).toBeLessThanOrEqual(1);
+    expect(cfg.EnsembleAlphaMin).toBeLessThanOrEqual(cfg.EnsembleAlphaMax);
+    expect(cfg.EnsembleGenrePenaltyFloor).toBeGreaterThanOrEqual(0);
+    expect(cfg.EnsembleGenrePenaltyFloor).toBeLessThanOrEqual(1);
+  }
+});
+
+test('Arr instance validation: no-key rejected, >3 rejected, overlong name rejected, blank row skipped', async () => {
+  const noKey = await putConfig({ RadarrInstances: [{ Name: 'X', Url: 'http://mock-arr:9000', ApiKey: '' }] });
+  expect(noKey.status()).toBe(400);
+  expect((await noKey.json() as { message: string }).message).toContain('no API key');
+
+  const four = await putConfig({
+    RadarrInstances: Array.from({ length: 4 }, (_, i) => ({ Name: `R${i}`, Url: 'http://mock-arr:9000', ApiKey: 'k' })),
+  });
+  expect(four.status()).toBe(400);
+
+  const longName = await putConfig({ RadarrInstances: [{ Name: 'a'.repeat(101), Url: 'http://mock-arr:9000', ApiKey: 'k' }] });
+  expect(longName.status()).toBe(400);
+
+  const blankRow = await putConfig({ RadarrInstances: [{ Name: '', Url: '', ApiKey: '' }] });
+  expect(blankRow.ok(), 'a fully-blank instance row is skipped, not an error').toBeTruthy();
+
+  await putConfig({ RadarrInstances: [{ Name: 'Radarr Main', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] });
+});
+
+test('Seerr URL with blank key is rejected and does not mutate stored URL', async () => {
+  await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'realkey' });
+  const before = (await getConfig()).SeerrUrl;
+
+  const res = await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: '', SeerrCleanupAgeDays: 30 });
+  expect(res.status()).toBe(400);
+  expect((await getConfig()).SeerrUrl).toBe(before);
+});
+
+test('invalid Seerr URL scheme is rejected without mutating stored URL', async () => {
+  await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: '***' });
+  const before = (await getConfig()).SeerrUrl;
+  for (const url of ['ftp://x', 'javascript:alert(1)', 'file:///etc/passwd']) {
+    const res = await putConfig({ SeerrUrl: url, SeerrApiKey: 'k' });
+    expect(res.status(), `url=${url}`).toBe(400);
+    expect((await getConfig()).SeerrUrl).toBe(before);
+  }
+});
+
+test('config-save strictly blocks traversal / invalid / blank-when-enabled trash paths', async () => {
+  await putConfig({ UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 30 });
+  for (const [path, useTrash] of [['../etc', true], ['bad|name', true], ['', true]] as Array<[string, boolean]>) {
+    const res = await putConfig({ UseTrash: useTrash, TrashFolderPath: path, TrashRetentionDays: 30 });
+    expect(res.status(), `path=${JSON.stringify(path)}`).toBe(400);
+    expect((await getConfig()).TrashFolderPath).toBe('.jellyfin-trash');
+  }
+});
+
+test('LogLevel-differing save returns a non-empty warnings array and leaves level unchanged', async () => {
+  const before = (await getConfig()).PluginLogLevel;
+  const res = await putConfig({ PluginLogLevel: before === 'DEBUG' ? 'ERROR' : 'DEBUG' });
+  expect(res.ok()).toBeTruthy();
+  const body = (await res.json()) as { Warnings?: string[]; warnings?: string[] };
+  const warnings = body.Warnings ?? body.warnings ?? [];
+  expect(warnings.length).toBeGreaterThan(0);
+  expect(warnings.some((w) => /LogLevel|ignored/i.test(w))).toBe(true);
+  expect((await getConfig()).PluginLogLevel).toBe(before);
+});

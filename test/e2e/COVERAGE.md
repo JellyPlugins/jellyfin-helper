@@ -1,8 +1,8 @@
 # E2E Coverage Matrix
 
 What the end-to-end suite exercises, mapped to the test that covers it —
-endpoints, task modes, settings, backup, trends, trash, and every UI
-interaction. ~73 tests across 14 spec files.
+endpoints, task modes, settings, backup, trends, trash, authorization, and
+every UI interaction. ~100 API tests + UI tests across the spec files.
 
 ## How to see coverage live
 
@@ -56,6 +56,45 @@ interaction. ~73 tests across 14 spec files.
 - Unicode library exclusion; malformed language codes; empty/invalid user GUID.
 - Concurrent task triggers; rate-limit 429 + Retry-After.
 - (Setup putConfig calls fail loudly if a precondition save didn't succeed.)
+
+## 7b. Authorization gating → `authz.api.spec.ts`
+- **Non-admin denied (401/403) on every `[RequiresElevation]` controller** — GET, PUT/DELETE
+  and POST matrices across Configuration, Backup, Trash, Arr/Seerr, Discovery-admin,
+  Recommendations, UserActivity, stats/trends, Logs.
+- Admin positive control (elevated GET is allowed → not a blanket 403 from broken auth).
+- `Translations` is `[AllowAnonymous]`: reachable with no auth header; an elevated endpoint 401s anonymously.
+
+## 7c. Settings validation & contracts → `settings.api.spec.ts` (extended)
+- Arr instance rules: no-key → 400, >3 → 400, name >100 → 400, fully-blank row skipped.
+- Seerr URL with blank key → 400 (no mutation); invalid scheme → 400 (no mutation).
+- Ensemble alpha invariant: after any save `0 ≤ min ≤ max ≤ 1`, penalty floor clamped to [0,1].
+- Unsupported/injection Language coerces to `en`.
+- Config-save strictly blocks traversal / invalid-char / blank-when-enabled trash paths (400, no mutation).
+- LogLevel-differing save returns a non-empty `Warnings[]` and leaves the level unchanged.
+
+## 7d. Backup state-integrity & hardening → `backup.api.spec.ts` (extended)
+- Redacted re-import **preserves** the live Seerr key (empty value = leave in place; `CredentialsChanged` false).
+- Traversal trash path in a backup is defanged to `.jellyfin-trash` on restore.
+- Invalid `seerrUrl` scheme in a backup → 400 (hard validator error survives the sanitizer).
+- Out-of-range numerics clamp to a 200 restore (not 400); persisted values stay in-range.
+- Import success summary is a PascalCase four-field object; `CredentialsChanged` flips on a new key.
+- Wrong Content-Type rejected (400/415) before body read.
+
+## 7e. Trash contract & path-safety → `trash.api.spec.ts`
+- `Trash/Folders` shape (`IsAbsolute`, `Paths[]`); `Trash/Contents` shape (`UseTrash`, `RetentionDays`, `Libraries[]`).
+- `CheckAccess` rejects traversal + overlong; missing body/field → 400 `{Error}`.
+- `Relocate` error-body contract: traversal → bare string, missing field → `{Error}` object.
+
+## 7f. Logs & Translations API → `logs.api.spec.ts`
+- Logs envelope `{TotalBuffered, Returned, Entries}` with `Returned === Entries.length`; entry `Level` in the valid set.
+- Invalid `minLevel` → 400; lowercase level accepted (OrdinalIgnoreCase); `limit` clamped; `source` >200 → 400 (200 boundary OK).
+- `Logs/Download` validates `minLevel` and serves timestamped `text/plain`.
+- Translations happy-path returns a non-empty string map for `en`/`de`.
+
+## 8. Integrations (mock green-path + validation) → `integrations.api.spec.ts` (extended)
+- Radarr/Sonarr connection test + Compare bucketing; Seerr connection test.
+- `Seerr/Test` scheme guard (non-HTTP(S) → 400 exact message); blank URL/key/null body → 400.
+- Arr Compare 502 aggregation names the failing instance (force-fail key).
 
 ## 8. User-facing Discovery → `discovery-my.api.spec.ts`  ← NEW
 - **403 gating:** every `Discovery/My/*` endpoint returns 403 when

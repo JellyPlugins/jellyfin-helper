@@ -155,3 +155,90 @@ test('HARDENING: backup with negative trends values is handled without corruptio
     }
   }
 });
+
+test('redacted re-import preserves the live Seerr key (empty value = leave in place)', async () => {
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'topsecret' },
+  });
+
+  const redacted = await exportBackup(false);
+  expect(redacted.seerrApiKey === '' || redacted.seerrApiKey == null).toBeTruthy();
+  expect(redacted.containsSecrets).toBeFalsy();
+
+  const res = await importBackup(redacted);
+  expect(res.ok()).toBeTruthy();
+  const summary = (await res.json()) as { summary: { CredentialsChanged: boolean } };
+  expect(summary.summary.CredentialsChanged).toBeFalsy();
+
+  // The key survived the empty-value restore branch.
+  const withSecrets = await exportBackup(true);
+  expect(withSecrets.seerrApiKey).toBe('topsecret');
+  await assertPluginActive(ctx);
+});
+
+test('import defangs a traversal trash path (UseTrash off) to the default', async () => {
+  const backup = await exportBackup(true);
+  backup.useTrash = false;
+  backup.trashFolderPath = '../../etc';
+
+  const res = await importBackup(backup);
+  expect(res.ok()).toBeTruthy();
+  const cfg = await ctx.get(p('Configuration')).then((r) => r.json());
+  expect(cfg.TrashFolderPath).toBe('.jellyfin-trash');
+  await assertPluginActive(ctx);
+});
+
+test('import rejects an invalid SeerrUrl scheme with 400 (hard validator error)', async () => {
+  for (const url of ['file:///etc/passwd', 'javascript:alert(1)']) {
+    const backup = await exportBackup(true);
+    backup.seerrUrl = url;
+    const res = await importBackup(backup);
+    expect(res.status(), `url=${url}`).toBe(400);
+    await assertPluginActive(ctx);
+  }
+});
+
+test('import clamps out-of-range numeric fields to succeed (not 400)', async () => {
+  const backup = await exportBackup(true);
+  backup.orphanMinAgeDays = 999999;
+  backup.trashRetentionDays = -10;
+
+  const res = await importBackup(backup);
+  expect(res.status()).toBe(200);
+  const cfg = await ctx.get(p('Configuration')).then((r) => r.json());
+  expect(cfg.OrphanMinAgeDays).toBeLessThanOrEqual(3650);
+  expect(cfg.TrashRetentionDays).toBeGreaterThanOrEqual(0);
+  await assertPluginActive(ctx);
+});
+
+test('import success summary is a PascalCase four-field object; CredentialsChanged flips on new key', async () => {
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'oldkey' },
+  });
+  const backup = await exportBackup(true);
+  backup.seerrApiKey = 'a-different-key';
+
+  const res = await importBackup(backup);
+  expect(res.ok()).toBeTruthy();
+  const body = (await res.json()) as {
+    warnings: unknown[];
+    summary: { ConfigurationRestored: boolean; TimelineRestored: boolean; BaselineRestored: boolean; CredentialsChanged: boolean };
+  };
+  expect(Array.isArray(body.warnings)).toBe(true);
+  for (const k of ['ConfigurationRestored', 'TimelineRestored', 'BaselineRestored', 'CredentialsChanged'] as const) {
+    expect(typeof body.summary[k]).toBe('boolean');
+  }
+  expect(body.summary.CredentialsChanged).toBe(true);
+  await assertPluginActive(ctx);
+});
+
+test('import with wrong Content-Type is rejected before body read (no 500)', async () => {
+  const res = await ctx.post(p('Backup/Import'), {
+    headers: { 'Content-Type': 'text/plain' },
+    data: JSON.stringify({ backupVersion: 1 }),
+  });
+  expect([400, 415]).toContain(res.status());
+  await assertPluginActive(ctx);
+});

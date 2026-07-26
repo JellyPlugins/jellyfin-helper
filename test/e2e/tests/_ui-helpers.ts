@@ -20,16 +20,23 @@ export async function openDashboard(page: Page): Promise<void> {
   const auth = loadAuth();
   const base = auth.baseUrl.replace(/\/$/, '');
 
+  // The JF web client matches Servers[].Id against the live server's Id from
+  // /System/Info/Public. A hardcoded Id makes it treat the stored token as
+  // belonging to an unknown server, so it drops to the login page — fetch the
+  // real Id and use it.
+  const infoRes = await page.request.get(`${base}/System/Info/Public`);
+  const serverId = ((await infoRes.json()) as { Id: string }).Id;
+
   // Visit root first so localStorage is scoped to the right origin.
   await page.goto(`${base}/web/index.html`);
 
   await page.evaluate(
-    ({ base, token, userId }) => {
+    ({ base, token, userId, serverId }) => {
       const creds = {
         Servers: [
           {
             manualAddress: base,
-            Id: 'e2e-server',
+            Id: serverId,
             AccessToken: token,
             UserId: userId,
             DateLastAccessed: Date.now(),
@@ -40,11 +47,13 @@ export async function openDashboard(page: Page): Promise<void> {
       localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
       localStorage.setItem('enableAutoLogin', 'true');
     },
-    { base, token: auth.token, userId: auth.userId },
+    { base, token: auth.token, userId: auth.userId, serverId },
   );
 
-  // Navigate straight to the plugin config page.
-  await page.goto(`${base}/web/index.html#!/configurationpage?name=JellyfinHelper`);
+  // Navigate straight to the plugin config page. The page is registered under
+  // the plugin's Name ("Jellyfin Helper", with a space) — the un-encoded
+  // "JellyfinHelper" 404s and the shell never mounts.
+  await page.goto(`${base}/web/index.html#!/configurationpage?name=${encodeURIComponent('Jellyfin Helper')}`);
 
   // The shell is injected asynchronously; wait for the tab bar to exist.
   await expect(page.locator('.tab-bar')).toBeVisible({ timeout: 30_000 });

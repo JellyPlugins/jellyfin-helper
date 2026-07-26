@@ -29,3 +29,4 @@ test/e2e/playwright-report/
 test/e2e/test-results/
 test/e2e/.artifacts/
 test/e2e/runtime/
+test/e2e/setup/auth.json

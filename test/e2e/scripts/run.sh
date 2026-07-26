@@ -155,8 +155,19 @@ fi
 echo "Jellyfin healthy."
 
 # --- 5. generate the fake media library (inside the container) -------------
+# MSYS_NO_PATHCONV stops Git-Bash (Windows) from rewriting the container-side
+# "/media" argument into a host path; a no-op on Linux/macOS CI. Verify files
+# actually landed — an empty library would make every stats/scan test pass
+# vacuously, which is worse than a hard failure here.
 log "Generating fake media library"
-"${COMPOSE[@]}" exec -T jellyfin bash /media/.gen/gen-media.sh /media
+MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
+  "${COMPOSE[@]}" exec -T jellyfin bash /media/.gen/gen-media.sh /media
+media_count="$("${COMPOSE[@]}" exec -T jellyfin sh -c 'find /media -name "*.mkv" -o -name "*.mp4" 2>/dev/null | wc -l' | tr -d '[:space:]')"
+if [ "${media_count:-0}" -lt 1 ]; then
+  echo "Media generation produced no video files — aborting before tests run on an empty library." >&2
+  exit 1
+fi
+echo "Media generated (${media_count} video files)."
 
 # --- 6. install Playwright deps (first run only) ---------------------------
 log "Installing test dependencies"

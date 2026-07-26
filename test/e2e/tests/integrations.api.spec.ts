@@ -97,3 +97,53 @@ test('Discovery Services rejects invalid service type', async () => {
   const res = await ctx.get(p('Discovery/Services/notaservice'));
   expect(res.status()).toBe(400);
 });
+
+test('Seerr/Test rejects non-HTTP(S) schemes with the exact message', async () => {
+  for (const url of ['ftp://evil', 'javascript:alert(1)', 'not-a-url', 'file:///etc/passwd']) {
+    const res = await ctx.post(p('Seerr/Test'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: { Url: url, ApiKey: 'k' },
+    });
+    expect(res.status(), `url=${url}`).toBe(400);
+    const body = (await res.json()) as { Success: boolean; Message: string };
+    expect(body.Success).toBe(false);
+    expect(body.Message).toBe('A valid HTTP(S) URL is required.');
+  }
+  await assertPluginActive(ctx);
+});
+
+test('Seerr/Test rejects blank URL/key and null body before any network call', async () => {
+  const bodies: unknown[] = [
+    { Url: SEERR_URL, ApiKey: '' },
+    { Url: '', ApiKey: 'k' },
+    { Url: '   ', ApiKey: 'k' },
+    {},
+  ];
+  for (const data of bodies) {
+    const res = await ctx.post(p('Seerr/Test'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: JSON.stringify(data),
+    });
+    expect(res.status()).toBe(400);
+    const body = (await res.json()) as { Success: boolean; Message: string };
+    expect(body.Success).toBe(false);
+    expect(body.Message).toBe('URL and API Key are required.');
+  }
+  await assertPluginActive(ctx);
+});
+
+test('Arr Compare 502 aggregation names the failing instance', async () => {
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { RadarrInstances: [{ Name: 'FailBox', Url: ARR_URL, ApiKey: 'force-fail' }] },
+  });
+  const res = await ctx.get(p('ArrIntegration/Compare/Radarr?index=0'));
+  expect(res.status()).toBe(502);
+  expect(await res.text()).toContain('FailBox');
+  // Restore the working instance for any later test in this file.
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { RadarrInstances: [{ Name: 'Mock Radarr', Url: ARR_URL, ApiKey: 'radarr-key' }] },
+  });
+  await assertPluginActive(ctx);
+});
