@@ -147,6 +147,33 @@ export async function runCleanupTask(ctx: APIRequestContext, timeoutMs = 90_000)
   return runTaskToCompletion(ctx, id, { timeoutMs });
 }
 
+/**
+ * Run Jellyfin's built-in "Scan All Libraries" (RefreshLibrary) task to completion
+ * so that files freshly written to disk become visible in Jellyfin's item model —
+ * which is what the plugin's statistics / insights / growth-timeline read from
+ * (they analyze what Jellyfin already knows, NOT the raw disk). global-setup does
+ * this once at startup; behavioral specs that seed a new media file mid-run must
+ * re-run it themselves before asserting the file shows up in stats.
+ *
+ * Falls back to POST /Library/Refresh (fire-and-forget) if the scheduled task
+ * isn't present, mirroring global-setup. The trailing settle gives Jellyfin a beat
+ * to persist scanned items before the caller queries.
+ */
+export async function runLibraryScan(ctx: APIRequestContext, timeoutMs = 120_000): Promise<void> {
+  const res = await ctx.get('/ScheduledTasks');
+  if (res.ok()) {
+    const tasks = (await res.json()) as TaskInfo[];
+    const scan = tasks.find((t) => t.Key === 'RefreshLibrary');
+    if (scan) {
+      await runTaskToCompletion(ctx, scan.Id, { timeoutMs });
+      await sleep(3000);
+      return;
+    }
+  }
+  await ctx.post('/Library/Refresh').catch(() => undefined);
+  await sleep(3000);
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
