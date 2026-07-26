@@ -81,11 +81,9 @@ test.describe.serial('cleanup never escapes the media library', () => {
     const linkRes = execInContainer(`ln -s /srv/jfh-external "${M}/Symlink Trap (2020)/external"`);
     test.skip(linkRes.code !== 0, 'symlink creation unsupported on this filesystem');
 
-    await putConfig({
+    await isolateStage({
       TrickplayTaskMode: 'Activate', EmptyMediaFolderTaskMode: 'Activate',
-      OrphanedSubtitleTaskMode: 'Activate', LinkRepairTaskMode: 'Deactivate',
-      SeerrCleanupTaskMode: 'Deactivate', RecommendationsTaskMode: 'Deactivate',
-      UseTrash: false, OrphanMinAgeDays: 0,
+      OrphanedSubtitleTaskMode: 'Activate',
     });
     const result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
@@ -104,12 +102,11 @@ test.describe.serial('cleanup never escapes the media library', () => {
     containerMkdir(`${trash}/${oldTs}_ExcludedTrash`);
     containerWriteFile(`${trash}/${oldTs}_ExcludedTrash/x.txt`, 'keep');
 
-    await putConfig({
+    await isolateStage({
       ExcludedLibraries: 'Movies',
       TrickplayTaskMode: 'Activate', EmptyMediaFolderTaskMode: 'Activate',
-      OrphanedSubtitleTaskMode: 'Activate', LinkRepairTaskMode: 'Deactivate',
-      SeerrCleanupTaskMode: 'Deactivate', RecommendationsTaskMode: 'Deactivate',
-      UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 7, OrphanMinAgeDays: 0,
+      OrphanedSubtitleTaskMode: 'Activate',
+      UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 7,
     });
     const result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
@@ -127,11 +124,9 @@ test.describe.serial('cleanup never escapes the media library', () => {
     const emoji = `${M}/😀 Orphan 🎬 ${'x'.repeat(180)}`;
     containerMkdir(emoji);
     containerWriteFile(`${emoji}/note.txt`, 'x'); // non-video → looks orphaned
-    await putConfig({
-      EmptyMediaFolderTaskMode: 'Activate', TrickplayTaskMode: 'Deactivate',
-      OrphanedSubtitleTaskMode: 'Deactivate', LinkRepairTaskMode: 'Deactivate',
-      SeerrCleanupTaskMode: 'Deactivate', RecommendationsTaskMode: 'Deactivate',
-      UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 30, OrphanMinAgeDays: 0,
+    await isolateStage({
+      EmptyMediaFolderTaskMode: 'Activate',
+      UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 30,
     });
     const result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
