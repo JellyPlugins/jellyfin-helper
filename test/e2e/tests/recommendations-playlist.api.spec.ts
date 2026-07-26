@@ -45,15 +45,25 @@ test.describe.serial('recommendations playlist create → purge', () => {
     // Start from a clean slate: a prior run (or the earlier full suite against a
     // persisted /config) can leave managed playlists on disk, which would make
     // the create/purge deltas ambiguous. A Deactivate run purges them.
+    //
+    // Robust purge: on a loaded CI box the delete + library-refresh can lag well
+    // past a single task cycle, so we RE-RUN the Deactivate cleanup inside the
+    // poll loop (not just once) until the managed count reaches zero, matching the
+    // budget of the in-test purge assertion below. If it still can't reach a clean
+    // baseline we fail loudly here rather than let the test assert on a dirty state
+    // (which would otherwise look like a product bug in the create path).
     await putConfig({ RecommendationsTaskMode: 'Deactivate', SyncRecommendationsToPlaylist: false });
-    await runCleanupTask(ctx);
-    for (let i = 0; i < 8 && (await managedPlaylistCount()) > 0; i++) {
+    let baseline = await managedPlaylistCount();
+    for (let i = 0; i < 10 && baseline > 0; i++) {
+      await runCleanupTask(ctx);
       await sleep(1500);
+      baseline = await managedPlaylistCount();
     }
+    expect(baseline, 'beforeAll could not purge pre-existing managed playlists').toBe(0);
   });
 
   test('Activate+sync creates playlists; Deactivate purges them', async () => {
-    // Baseline should be clean after beforeAll.
+    // Baseline is clean after beforeAll (asserted there); re-check defensively.
     expect(await managedPlaylistCount(), 'baseline should have no managed playlists').toBe(0);
 
     await putConfig({
