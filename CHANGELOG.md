@@ -45,7 +45,7 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 - **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.6 (served from the same plugin repository).
 
 ### Tests
-- Total: **4250 tests** (+1925 vs. v2.1.0.6). New test classes: `ResponseDtoTests` (63 tests covering all 17 typed response DTOs — defaults, round-trip, null-safety, collection defaults).
+- Total: **4253 tests** (+1928 vs. v2.1.0.6). New test classes: `ResponseDtoTests` (63 tests covering all 17 typed response DTOs — defaults, round-trip, null-safety, collection defaults).
 - **New end-to-end test suite** - Alongside the unit tests, the plugin now runs inside a real Jellyfin 12 server (in a throwaway container, with stand-in Radarr/Sonarr/Jellyseerr services) and is exercised the way a real user would: changing settings, running the cleanup task in each mode, importing/exporting a backup, and clicking through every dashboard tab. This catches problems that only show up once everything is wired together, and it runs automatically on every change.
 
 ---
