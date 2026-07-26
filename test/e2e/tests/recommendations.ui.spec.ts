@@ -1,39 +1,68 @@
 /**
  * Recommendations tab: the per-user selector drives per-user data loads, and
- * the collapsible sections open. Only meaningful when RecommendationsTaskMode
- * != Deactivate (the tab button is hidden otherwise) — skip gracefully if so.
+ * the collapsible sections open. The tab button is hidden when
+ * RecommendationsTaskMode == Deactivate, so we set a non-Deactivate mode here
+ * via the API (DryRun — no side effects) rather than relying on leftover state
+ * from a prior api spec (which left it Deactivate, making this test skip).
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 import { openDashboard, switchTab } from './_ui-helpers.ts';
+import { apiContext, loadAuth, p } from '../setup/api-client.ts';
+
+let ctx: APIRequestContext;
+
+test.beforeAll(async () => {
+  ctx = await apiContext(loadAuth());
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { RecommendationsTaskMode: 'DryRun' },
+  });
+});
+test.afterAll(async () => {
+  await ctx.dispose();
+});
 
 test('Recommendations tab: user selector loads per-user data; sections toggle', async ({ page }) => {
   await openDashboard(page);
 
+  // The tab must be visible now (beforeAll set a non-Deactivate mode).
   const recsBtn = page.locator('.tab-btn[data-tab="recommendations"]');
-  if (!(await recsBtn.isVisible())) {
-    test.skip(true, 'Recommendations tab hidden (mode Deactivate)');
-  }
-  await switchTab(page, 'recommendations');
+  await expect(recsBtn).toBeVisible({ timeout: 15_000 });
 
-  // The user <select> should exist; changing it fires WatchProfile + Activity.
+  // Opening the tab auto-loads the initial user's data: initRecommendationsTab
+  // calls onUserChanged(initialIdx) → GET Recommendations/WatchProfile/{userId}
+  // (Recommendations.js). Arm the wait BEFORE switching so we catch that request
+  // — the <select> has no placeholder option, so re-selecting index 0 emits no
+  // 'change' event and would fire nothing.
+  const [profileResp] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/JellyfinHelper/Recommendations/WatchProfile/'),
+      { timeout: 20_000 },
+    ),
+    switchTab(page, 'recommendations'),
+  ]);
+  // A user with no watch history legitimately yields 404/503; 200 returns the
+  // profile. Anything else (esp. 5xx) is a real failure.
+  expect([200, 400, 404, 503], `WatchProfile status ${profileResp.status()}`).toContain(
+    profileResp.status(),
+  );
+
+  // The user <select> is populated (at least the current user).
   const userSelect = page.locator('#recsUserSelect');
   await expect(userSelect).toBeVisible({ timeout: 15_000 });
+  expect(await userSelect.locator('option').count()).toBeGreaterThan(0);
 
-  const optionCount = await userSelect.locator('option').count();
-  if (optionCount > 0) {
-    const [profileResp] = await Promise.all([
+  // Selecting a DIFFERENT user (if more than one exists) must fire a fresh
+  // WatchProfile load via the change handler.
+  if ((await userSelect.locator('option').count()) > 1) {
+    const [changeResp] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes('/JellyfinHelper/Recommendations/WatchProfile/'),
         { timeout: 15_000 },
       ),
-      userSelect.selectOption({ index: 0 }),
+      userSelect.selectOption({ index: 1 }),
     ]);
-    // The request must actually fire and return a documented status. A user with
-    // no watch history legitimately yields 404/503; a 200 returns the profile.
-    // Anything else (esp. 5xx) is a real failure.
-    expect([200, 400, 404, 503], `WatchProfile status ${profileResp.status()}`).toContain(
-      profileResp.status(),
-    );
+    expect([200, 400, 404, 503]).toContain(changeResp.status());
   }
 
   // Toggle the recommendations grid section open.

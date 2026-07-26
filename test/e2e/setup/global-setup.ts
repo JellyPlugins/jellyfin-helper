@@ -77,37 +77,42 @@ async function globalSetup(_config: FullConfig): Promise<void> {
     }),
   );
 
-  // Configure the first user. 204 = success. 403 = the user already had a
-  // password (non-fresh container) — recover by using its existing name with
-  // our password won't work, so fail loudly with guidance. On a fresh run
-  // (run.sh wipes runtime/config) this should always be 204.
+  // Configure the first user. 204 = success on a fresh container.
+  //
+  // Reused container (iterating with --keep, or a CI re-run against a warm
+  // volume): the wizard is already complete, so the anon Startup/* endpoints
+  // are closed and this returns 401 (endpoint locked) or 403 (user already has
+  // a password). Both mean "already provisioned" — we skip wizard setup and go
+  // straight to authenticating with the admin creds we expect. If those creds
+  // don't match what the container was set up with, the auth step below fails
+  // loudly with a diagnostic, so treating 401/403 as recoverable is safe.
   const userRes = await ctx.post('/Startup/User', {
     headers: { 'Content-Type': 'application/json' },
     data: { Name: ADMIN_USER, Password: ADMIN_PASS },
   });
   // eslint-disable-next-line no-console
   console.log(`[global-setup] POST Startup/User -> ${userRes.status()}`);
-  if (userRes.status() !== 204 && !userRes.ok()) {
-    if (userRes.status() === 403) {
-      throw new Error(
-        'Startup/User returned 403: the first user already has a password. ' +
-          'The container config is not fresh — run.sh should wipe runtime/config before startup. ' +
-          'If iterating with --keep, run `docker compose ... down -v` first.',
-      );
-    }
+  const wizardAlreadyDone = userRes.status() === 401 || userRes.status() === 403;
+  if (userRes.status() !== 204 && !userRes.ok() && !wizardAlreadyDone) {
     throw new Error(`Startup/User failed: ${userRes.status()} ${await userRes.text()}`);
   }
+  if (wizardAlreadyDone) {
+    // eslint-disable-next-line no-console
+    console.log('[global-setup] wizard already complete (reused container) — skipping to auth');
+  }
 
-  // 12.0: EnableAutomaticPortMapping was removed — send only EnableRemoteAccess.
-  await step('Startup/RemoteAccess', () =>
-    ctx.post('/Startup/RemoteAccess', {
-      headers: { 'Content-Type': 'application/json' },
-      data: { EnableRemoteAccess: true },
-    }),
-  );
+  if (!wizardAlreadyDone) {
+    // 12.0: EnableAutomaticPortMapping was removed — send only EnableRemoteAccess.
+    await step('Startup/RemoteAccess', () =>
+      ctx.post('/Startup/RemoteAccess', {
+        headers: { 'Content-Type': 'application/json' },
+        data: { EnableRemoteAccess: true },
+      }),
+    );
 
-  // Finish the wizard LAST — after this, Startup/* stop accepting anon calls.
-  await step('Startup/Complete', () => ctx.post('/Startup/Complete'));
+    // Finish the wizard LAST — after this, Startup/* stop accepting anon calls.
+    await step('Startup/Complete', () => ctx.post('/Startup/Complete'));
+  }
 
   // --- 2. authenticate (retry: Startup/Complete may need a moment) ---------
   const authenticate = async () =>
