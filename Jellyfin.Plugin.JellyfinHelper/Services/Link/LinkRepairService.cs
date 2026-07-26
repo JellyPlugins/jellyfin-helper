@@ -322,12 +322,14 @@ public class LinkRepairService : ILinkRepairService
                     _fileSystem.Path.Combine(
                         linkDir,
                         pathToNormalize));
-            // If the original path was relative, verify the resolved absolute path
-            // falls within one of the configured library roots. A relative target that
-            // escapes outside the library tree (e.g. "../../etc/passwd") is treated as
-            // invalid content rather than a broken link to avoid path-traversal abuse.
-            if (!_fileSystem.Path.IsPathRooted(pathToNormalize)
-                && normalizedLibraryPaths != null
+            // Verify the resolved absolute target falls within one of the configured
+            // library roots — for BOTH relative AND absolute targets. A relative target
+            // that escapes ("../../etc/passwd") and an absolute target that points
+            // outside every library (e.g. "/etc/passwd", "/config/data/library.db", or a
+            // "file:///etc/..." URI) are both treated as invalid content rather than a
+            // broken link. This stops link repair from enumerating or rewriting toward
+            // directories outside the media libraries (path-traversal / info-disclosure).
+            if (normalizedLibraryPaths != null
                 && normalizedLibraryPaths.Count > 0)
             {
                 var separator = _fileSystem.Path.DirectorySeparatorChar;

@@ -152,6 +152,14 @@ public class ConfigurationController : ControllerBase
     [ProducesResponseType(typeof(LogLevelResponse), StatusCodes.Status400BadRequest)]
     public ActionResult UpdateLogLevel([FromBody] LogLevelUpdateRequest request)
     {
+        // A literal `null` JSON body binds `request` to null on this [ApiController]
+        // (this endpoint has no ModelBindingLogFilter, unlike the main PUT), so guard
+        // explicitly to return a clean 400 instead of a NullReferenceException → 500.
+        if (request is null)
+        {
+            return BadRequest(new LogLevelResponse { Message = "Request body is required." });
+        }
+
         if (!_configService.IsInitialized)
         {
             return BadRequest(new LogLevelResponse { Message = "Plugin not initialized." });

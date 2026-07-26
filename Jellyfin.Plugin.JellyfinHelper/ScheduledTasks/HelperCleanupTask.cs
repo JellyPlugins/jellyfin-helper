@@ -190,7 +190,11 @@ public class HelperCleanupTask : IScheduledTask
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 _pluginLog.LogInfo("HelperCleanup", $"Running trash purge (retention: {config.TrashRetentionDays} days)...", _logger);
-                var libraryLocations = LibraryPathResolver.GetDistinctLibraryLocations(_libraryManager);
+                // Purge only the trash of libraries the cleanup actually operates on:
+                // GetFilteredLibraryLocations honours ExcludedLibraries and skips
+                // music/boxset libraries, so an admin-excluded library's trash is left
+                // untouched (matching the contract the cleanup stages themselves follow).
+                var libraryLocations = _configHelper.GetFilteredLibraryLocations(_libraryManager);
                 long totalBytesFreed = 0;
                 var totalItemsPurged = 0;
                 foreach (var location in libraryLocations)

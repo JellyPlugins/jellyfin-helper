@@ -449,8 +449,14 @@ public class TrashController : ControllerBase
     }
 
     /// <summary>
-    /// Validates that a path is safe for recursive deletion.
-    /// Rejects filesystem roots and paths that match or contain library root folders.
+    /// Validates that a path is safe for recursive deletion / relocation.
+    /// A path is safe when EITHER it lies strictly inside a configured library root,
+    /// OR it is a dedicated absolute directory that is not a filesystem root, not a
+    /// known system/sensitive directory (e.g. <c>/config</c>, <c>/etc</c>,
+    /// <c>C:\Windows</c>), and does not itself contain a library root. This keeps the
+    /// intended "absolute trash folder outside the library" feature working while
+    /// making it impossible for trash delete/relocate to touch Jellyfin's own config,
+    /// OS directories, or a whole library.
     /// </summary>
     private static bool IsPathSafeForDeletion(string fullPath, IReadOnlyList<string> libraryFolders)
     {
@@ -458,34 +464,68 @@ public class TrashController : ControllerBase
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
 
-        // Reject filesystem roots (e.g., "/", "C:\")
+        // Reject filesystem roots (e.g., "/", "C:\") outright.
         var root = Path.GetPathRoot(fullPath);
         var normalizedPath = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var normalizedRoot = root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (string.Equals(normalizedPath, normalizedRoot, comparison))
+        if (string.IsNullOrEmpty(normalizedPath) || string.Equals(normalizedPath, normalizedRoot, comparison))
         {
             return false;
         }
 
-        // Reject if the path equals any library root
         foreach (var folder in libraryFolders)
         {
             var libraryRoot = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var candidate = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-            if (string.Equals(candidate, libraryRoot, comparison))
+            // Never allow a library root itself, nor a path that CONTAINS a library
+            // root (deleting/moving it would take the library with it).
+            if (string.Equals(normalizedPath, libraryRoot, comparison)
+                || libraryRoot.StartsWith(normalizedPath + Path.DirectorySeparatorChar, comparison))
             {
                 return false;
             }
 
-            // Reject if a library root is inside the trash path (would delete library contents)
-            if (libraryRoot.StartsWith(candidate + Path.DirectorySeparatorChar, comparison))
+            // Strictly inside a library root → always safe.
+            if (normalizedPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison))
             {
-                return false;
+                return true;
             }
         }
 
-        return true;
+        // Outside every library root: allow only a dedicated absolute directory that is
+        // NOT a known system/sensitive location. This preserves the "trash folder on a
+        // separate volume" admin setup while blocking /config, OS dirs, etc.
+        return !IsSensitiveSystemPath(normalizedPath, comparison);
+    }
+
+    /// <summary>
+    /// True when the path is (or is inside) a well-known system / application directory
+    /// that must never be a trash-deletion or relocation target — most importantly
+    /// Jellyfin's own <c>/config</c>, plus common OS directories on Linux and Windows.
+    /// </summary>
+    private static bool IsSensitiveSystemPath(string normalizedPath, StringComparison comparison)
+    {
+        // Jellyfin container/app dirs + standard *nix system roots + Windows system dirs.
+        // A path equal to, or nested under, any of these is refused.
+        string[] sensitiveRoots =
+        {
+            "/config", "/cache", "/data", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
+            "/boot", "/proc", "/sys", "/dev", "/var", "/root", "/run",
+            @"C:\Windows", @"C:\Program Files", @"C:\Program Files (x86)", @"C:\ProgramData",
+        };
+
+        foreach (var sensitive in sensitiveRoots)
+        {
+            var s = sensitive.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.Equals(normalizedPath, s, comparison)
+                || normalizedPath.StartsWith(s + "/", comparison)
+                || normalizedPath.StartsWith(s + "\\", comparison))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

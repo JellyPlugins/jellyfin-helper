@@ -296,11 +296,59 @@ public class TrashControllerRelocateTests : IDisposable
             NewTrashPath = newAbsolutePath
         });
 
-        // Assert
-        Assert.IsType<OkObjectResult>(result);
-        trashServiceMock.Verify(ts => ts.RelocateTrashContents(
-            It.Is<string>(s => s == oldRelativeTrash),
-            It.Is<string>(s => s == Path.GetFullPath(newAbsolutePath)),
-            It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
+    [Fact]
+    [Trait("Category", "Security")]
+    public void RelocateTrash_AbsoluteSourceIsSensitiveSystemDir_ReturnsBadRequest()
+    {
+        // Regression (FS-escape bug): a fully-qualified OLD path pointing at a sensitive
+        // system directory (e.g. Jellyfin's /config) must be refused, so RelocateTrash
+        // can never drain the config dir into the library. Previously the guard only
+        // rejected fs-root + exact/parent library roots, letting /config through.
+        var libraryRoot = Path.Combine(_testRoot, "movies");
+        Directory.CreateDirectory(libraryRoot);
+        var sensitive = OperatingSystem.IsWindows() ? @"C:\Windows\Temp\jfh-src" : "/config/jfh-src";
+
+        var trashServiceMock = new Mock<ITrashService>();
+        var config = new PluginConfiguration();
+        var controller = CreateController(config, [libraryRoot], trashServiceMock);
+
+        var result = controller.RelocateTrash(new TrashRelocateRequest
+        {
+            OldTrashPath = sensitive,
+            NewTrashPath = Path.Combine(libraryRoot, ".new-trash"),
+        });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        // And nothing was moved.
+        trashServiceMock.Verify(
+            ts => ts.RelocateTrashContents(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()),
+            Times.Never);
+    }
+
+    [Fact]
+    [Trait("Category", "Security")]
+    public void RelocateTrash_AbsoluteTargetIsSensitiveSystemDir_ReturnsBadRequest()
+    {
+        // The NEW (destination) absolute path must likewise be refused when it is a
+        // sensitive system directory — trash must never be relocated INTO /config etc.
+        var libraryRoot = Path.Combine(_testRoot, "movies");
+        var oldRelativeTrash = Path.Combine(libraryRoot, ".old-trash");
+        Directory.CreateDirectory(oldRelativeTrash);
+        var sensitive = OperatingSystem.IsWindows() ? @"C:\Windows\Temp\jfh-dst" : "/config/jfh-dst";
+
+        var trashServiceMock = new Mock<ITrashService>();
+        var config = new PluginConfiguration();
+        var controller = CreateController(config, [libraryRoot], trashServiceMock);
+
+        var result = controller.RelocateTrash(new TrashRelocateRequest
+        {
+            OldTrashPath = sensitive, // both absolute → single-relocation branch, target checked too
+            NewTrashPath = sensitive,
+        });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        trashServiceMock.Verify(
+            ts => ts.RelocateTrashContents(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()),
+            Times.Never);
     }
 }

@@ -136,6 +136,11 @@ public static class BackupSanitizer
             instances.RemoveAt(instances.Count - 1);
         }
 
+        // Drop any null entries first — a backup JSON can contain `[null]` in the
+        // instance array, which would otherwise NRE below (sanitize runs before
+        // validation, so the validator's null guard hasn't executed yet).
+        instances.RemoveAll(i => i is null);
+
         foreach (var instance in instances)
         {
             instance.Name = TruncateString(instance.Name, BackupValidator.MaxInstanceNameLength);
