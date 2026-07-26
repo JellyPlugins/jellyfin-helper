@@ -91,10 +91,32 @@ cp "$E2E_DIR/fixtures/gen-media.sh" "$RUNTIME/media/.gen/gen-media.sh"
 chmod -R 777 "$RUNTIME/config" "$RUNTIME/cache" 2>/dev/null || true
 
 # --- 3. stage the plugin into the config volume ----------------------------
+# Copy EVERY dll from the publish output except the ones the Jellyfin host
+# already provides at runtime. Hand-picking individual dlls silently drops
+# transitive dependencies (System.IO.Abstractions pulls Testably.* /
+# TestableIO.*), which makes the loader throw FileNotFoundException during
+# service registration and Jellyfin disables the whole plugin — every
+# JellyfinHelper/ route then 404s. Bundling the plugin's own dependency
+# closure is what the release manifest does; the E2E staging must match it.
 log "Staging plugin DLLs"
 mkdir -p "$PLUGIN_STAGE"
-cp "$RUNTIME/publish/Jellyfin.Plugin.JellyfinHelper.dll" "$PLUGIN_STAGE/"
-cp "$RUNTIME/publish/System.IO.Abstractions.dll" "$PLUGIN_STAGE/" 2>/dev/null || true
+# Host-provided assemblies live in the Jellyfin image already; bundling our
+# copies risks assembly-identity conflicts. Everything else in publish/ is a
+# plugin-private dependency and must ship. The plugin's own assembly starts
+# with "Jellyfin.Plugin." and must NEVER be excluded by the host filter.
+host_provided='^(Jellyfin\.(Controller|Model|Data|Api|Common|Networking|Database|Server|Extensions|Naming|MediaEncoding|Drawing|Providers|LiveTv|Dlna|Api\.)|MediaBrowser\.|Microsoft\.|System\.(Text|Threading|Collections|Linq|Runtime|Net|Memory|Buffers|Diagnostics|Reflection|Security|Globalization|ComponentModel|Private)|netstandard)'
+staged=0
+for dll in "$RUNTIME"/publish/*.dll; do
+  base="$(basename "$dll")"
+  # Never drop our own plugin assembly, whatever the host filter says.
+  if [[ "$base" != Jellyfin.Plugin.JellyfinHelper.dll && "$base" =~ $host_provided ]]; then
+    continue
+  fi
+  cp "$dll" "$PLUGIN_STAGE/"
+  staged=$((staged + 1))
+done
+echo "[stage] copied $staged plugin dll(s) to $PLUGIN_STAGE"
+[ "$staged" -ge 1 ] || { echo "No plugin dlls staged — publish output missing?" >&2; exit 1; }
 cp "$RUNTIME/publish/logo.png" "$PLUGIN_STAGE/" 2>/dev/null || true
 # meta.json so Jellyfin shows a clean plugin entry (name/version/guid).
 # Invoked via `bash` so it works regardless of the file's execute bit.
