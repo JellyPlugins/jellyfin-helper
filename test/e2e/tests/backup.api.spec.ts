@@ -9,7 +9,7 @@
  *     the server + plugin survive it (hardening).
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
+import { apiContext, loadAuth, p, assertPluginActive, sleep } from '../setup/api-client.ts';
 
 let ctx: APIRequestContext;
 
@@ -146,17 +146,34 @@ test('HARDENING: backup with negative trends values is handled without corruptio
   };
 
   const res = await importBackup(backup);
-  expect(res.status(), 'must not throw a server error on negative values').toBeLessThan(500);
-  await assertPluginActive(ctx);
+  try {
+    expect(res.status(), 'must not throw a server error on negative values').toBeLessThan(500);
+    await assertPluginActive(ctx);
 
-  // Follow-up: the trends endpoint must not surface negative garbage.
-  const trends = await ctx.get(p('GrowthTimeline'));
-  if (trends.ok()) {
-    const body = (await trends.json()) as { DataPoints?: Array<{ CumulativeSize: number; CumulativeFileCount: number }> };
-    for (const pt of body.DataPoints ?? []) {
-      expect(pt.CumulativeSize, 'trends must not expose negative sizes').toBeGreaterThanOrEqual(0);
-      expect(pt.CumulativeFileCount).toBeGreaterThanOrEqual(0);
+    // Follow-up: the trends endpoint must not surface negative garbage.
+    const trends = await ctx.get(p('GrowthTimeline'));
+    if (trends.ok()) {
+      const tbody = (await trends.json()) as { DataPoints?: any[]; dataPoints?: any[] };
+      for (const pt of tbody.DataPoints ?? tbody.dataPoints ?? []) {
+        const size = pt.CumulativeSize ?? pt.cumulativeSize ?? 0;
+        const count = pt.CumulativeFileCount ?? pt.cumulativeFileCount ?? 0;
+        expect(size, 'trends must not expose negative sizes').toBeGreaterThanOrEqual(0);
+        expect(count).toBeGreaterThanOrEqual(0);
+      }
     }
+  } finally {
+    // This import PERSISTS the negative timeline into the shared (serial) backend's
+    // cache; a plain GET /GrowthTimeline then serves it. Recompute from the real
+    // library (forceRefresh recomputes AND overwrites the cache with non-negative
+    // data) so the poisoned -5000 can't bleed into trends.api.spec.ts or the
+    // timeline-round-trip test. Tolerate the 30s recompute rate-limit (429): wait
+    // and retry once so the cleanup actually lands.
+    let refresh = await ctx.get(p('GrowthTimeline?forceRefresh=true'));
+    if (refresh.status() === 429) {
+      await sleep(31_000);
+      refresh = await ctx.get(p('GrowthTimeline?forceRefresh=true'));
+    }
+    expect(refresh.ok(), `timeline cleanup recompute failed: ${refresh.status()}`).toBeTruthy();
   }
 });
 
