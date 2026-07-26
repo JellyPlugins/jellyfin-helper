@@ -25,6 +25,7 @@ public class HelperCleanupTaskTests
     private readonly Mock<ILogger<HelperCleanupTask>> _loggerMock;
     private readonly Mock<ISeerrIntegrationService> _seerrServiceMock;
     private readonly Mock<ISeerrDiscoveryService> _seerrDiscoveryServiceMock;
+    private readonly Mock<IRecommendationPlaylistService> _playlistServiceMock;
     private readonly HelperCleanupTask _task;
     private PluginConfiguration _config;
 
@@ -106,7 +107,7 @@ public class HelperCleanupTaskTests
             .Setup(e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .Returns(new Collection<RecommendationResult>());
         var recsCacheMock = new Mock<IRecommendationCacheService>();
-        var playlistServiceMock = new Mock<IRecommendationPlaylistService>();
+        _playlistServiceMock = new Mock<IRecommendationPlaylistService>();
 
         _seerrDiscoveryServiceMock = new Mock<ISeerrDiscoveryService>();
 
@@ -127,7 +128,7 @@ public class HelperCleanupTaskTests
             userActivityCacheMock.Object,
             recsEngineMock.Object,
             recsCacheMock.Object,
-            playlistServiceMock.Object,
+            _playlistServiceMock.Object,
             _seerrDiscoveryServiceMock.Object);
     }
 
@@ -185,9 +186,17 @@ public class HelperCleanupTaskTests
         VerifyLogContains("Skipping Link Repair (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Seerr Cleanup (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping User Watch Activity (deactivated in settings)", LogLevel.Information);
-        VerifyLogContains("Skipping Smart Recommendations (deactivated in settings)", LogLevel.Information);
+        // Smart Recommendations is NOT skipped on Deactivate — it runs cleanup-only so it can
+        // purge previously-created recommendation playlists (switching Activate→Deactivate
+        // must not leave stale managed playlists behind). It must NOT be logged as skipped.
+        VerifyLogNeverContains("Skipping Smart Recommendations (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Skipping Seerr Discovery (deactivated in settings)", LogLevel.Information);
         VerifyLogContains("Helper Cleanup finished", LogLevel.Information);
+
+        // The playlist purge must have been invoked on Deactivate.
+        _playlistServiceMock.Verify(
+            s => s.RemoveAllRecommendationPlaylistsAsync(It.IsAny<CancellationToken>()),
+            Times.AtLeastOnce);
 
         _seerrDiscoveryServiceMock.Verify(
             s => s.GenerateDiscoveryRecommendationsAsync(It.IsAny<CancellationToken>()),

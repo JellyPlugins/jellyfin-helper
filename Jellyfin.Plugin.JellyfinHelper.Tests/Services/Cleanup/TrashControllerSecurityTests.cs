@@ -97,6 +97,31 @@ public class TrashControllerSecurityTests : IDisposable
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
+    /// <summary>
+    ///     Regression (FS-escape bug): an absolute trash path that is OUTSIDE every
+    ///     library and is a sensitive system directory (e.g. Jellyfin's own /config)
+    ///     must be rejected — previously it slipped through because the guard only
+    ///     rejected the filesystem root and exact/parent library roots, so
+    ///     DeleteTrashFolders would have recursively deleted the config directory.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Security")]
+    public void DeleteTrashFolders_AbsolutePathIsSensitiveSystemDir_ReturnsBadRequest()
+    {
+        // Use a hardcoded sensitive-root string (a config/system dir, per OS) as the trash
+        // path while the only library lives elsewhere. No directory is created — the guard
+        // must refuse any absolute path that is IsSensitiveSystemPath and not strictly inside
+        // a library, regardless of whether it exists on disk.
+        var sensitive = OperatingSystem.IsWindows() ? @"C:\Windows\Temp\jfh-x" : "/config/jfh-x";
+        var config = new PluginConfiguration { TrashFolderPath = sensitive };
+        var libraryFolders = new List<string> { Path.Join(_testRoot, "movies") };
+
+        var controller = CreateController(config, libraryFolders);
+        var result = controller.DeleteTrashFolders();
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
     // ===== DeleteTrashFolders: Relative path safety =====
 
     [Fact]

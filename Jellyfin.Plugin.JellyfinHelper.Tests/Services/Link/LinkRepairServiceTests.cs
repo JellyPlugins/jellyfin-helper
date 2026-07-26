@@ -1041,8 +1041,15 @@ public class LinkRepairServiceTests
         // When normalizedLibraryPaths is null the path-traversal guard is skipped,
         // and a relative target that resolves to a non-existent file is Broken (not
         // InvalidContent). This is the behaviour used by the direct test-helper overload.
+        //
+        // The target must be a NON-sensitive relative sibling: an escaping target like
+        // "../../../etc/passwd" resolves to /etc/passwd on Linux, which the sensitive-
+        // system-target guard (IsSensitiveSystemTarget) correctly rejects as
+        // InvalidContent regardless of normalizedLibraryPaths — so it would NOT reach
+        // the Broken (existence) path on a Linux CI runner. A plain missing sibling
+        // exercises the guard-skipped → existence-check path identically on every OS.
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
-        _fileSystem.AddFile(linkFile, new MockFileData("../../../etc/passwd"));
+        _fileSystem.AddFile(linkFile, new MockFileData("MissingSibling.mkv"));
 
         var result = _service.ProcessLinkFile(
             linkFile,
@@ -1050,8 +1057,52 @@ public class LinkRepairServiceTests
             dryRun: true,
             normalizedLibraryPaths: null);
 
-        // The resolved path does not exist on the mock filesystem, so it is Broken.
+        // The resolved path (/series/Show1/MissingSibling.mkv) does not exist on the
+        // mock filesystem and is not sensitive, so it is Broken.
         Assert.Equal(LinkFileStatus.Broken, result.Status);
+    }
+
+    [Fact]
+    public void ProcessLinkFile_RelativeTarget_NullNormalizedPaths_SensitiveTarget_ReturnsInvalidContent()
+    {
+        // Even with the path-traversal guard skipped (normalizedLibraryPaths null), a
+        // relative target that escapes to a sensitive system directory must still be
+        // refused as InvalidContent by the sensitive-system-target guard — link repair
+        // must never enumerate or rewrite toward host paths like /etc. This is the
+        // cross-platform-sensitive counterpart to the missing-sibling case above; it is
+        // meaningful only where the resolved path lands under a sensitive root, so it is
+        // scoped to POSIX layouts (on Windows "../../../etc/passwd" resolves to a
+        // non-sensitive drive-relative path).
+        if (!OperatingSystem.IsWindows())
+        {
+            var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
+            _fileSystem.AddFile(linkFile, new MockFileData("../../../etc/passwd"));
+
+            var result = _service.ProcessLinkFile(
+                linkFile,
+                _strmHandler,
+                dryRun: true,
+                normalizedLibraryPaths: null);
+
+            Assert.Equal(LinkFileStatus.InvalidContent, result.Status);
+        }
+        else
+        {
+            // On Windows "../../../etc/passwd" resolves to a non-sensitive drive-relative
+            // path (e.g. C:\etc\passwd), so the sensitive-system-target guard does NOT
+            // fire. The target simply does not exist → the link is Broken (not
+            // InvalidContent). Assert that explicitly so the test is not vacuous on Windows.
+            var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
+            _fileSystem.AddFile(linkFile, new MockFileData("../../../etc/passwd"));
+
+            var result = _service.ProcessLinkFile(
+                linkFile,
+                _strmHandler,
+                dryRun: true,
+                normalizedLibraryPaths: null);
+
+            Assert.Equal(LinkFileStatus.Broken, result.Status);
+        }
     }
 
     // =========================================================================

@@ -322,10 +322,10 @@ public class LinkRepairService : ILinkRepairService
                     _fileSystem.Path.Combine(
                         linkDir,
                         pathToNormalize));
-            // If the original path was relative, verify the resolved absolute path
-            // falls within one of the configured library roots. A relative target that
-            // escapes outside the library tree (e.g. "../../etc/passwd") is treated as
-            // invalid content rather than a broken link to avoid path-traversal abuse.
+
+            // (a) A RELATIVE target that escapes outside all configured library roots
+            // (e.g. "../../etc/passwd") is treated as invalid content, not a broken
+            // link, to avoid path-traversal abuse.
             if (!_fileSystem.Path.IsPathRooted(pathToNormalize)
                 && normalizedLibraryPaths != null
                 && normalizedLibraryPaths.Count > 0)
@@ -348,6 +348,22 @@ public class LinkRepairService : ILinkRepairService
                     fileResult.Status = LinkFileStatus.InvalidContent;
                     return fileResult;
                 }
+            }
+
+            // (b) An ABSOLUTE target (or file:// URI) pointing at a sensitive system
+            // directory — Jellyfin's own /config, OS dirs like /etc, C:\Windows — is
+            // refused so link repair never enumerates or rewrites toward host files
+            // outside the media libraries (info-disclosure / traversal via absolute
+            // targets). A cross-location absolute media target (another library / mount)
+            // is still allowed; only sensitive locations are blocked.
+            if (IsSensitiveSystemTarget(normalizedTargetPath))
+            {
+                _pluginLog.LogWarning(
+                    "LinkRepair",
+                    $"Target path in link file {linkFilePath} points at a sensitive system directory: {normalizedTargetPath}",
+                    logger: _logger);
+                fileResult.Status = LinkFileStatus.InvalidContent;
+                return fileResult;
             }
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
@@ -399,8 +415,18 @@ public class LinkRepairService : ILinkRepairService
             return fileResult;
         }
 
-        // Search the parent directory for media files
-        var mediaFiles = FindMediaFilesInDirectory(parentDir);
+        // Search the parent directory for media files, EXCLUDING the link file
+        // itself. A symlink with a media extension (e.g. a broken "Movie.mkv"
+        // symlink) would otherwise be enumerated as one of its own repair
+        // candidates and make every such folder look ambiguous — a link can never
+        // legitimately repair to itself. (.strm links are already excluded from
+        // the candidate filter by extension, so this only affects symlinks.)
+        var mediaFiles = FindMediaFilesInDirectory(parentDir)
+            .Where(f => !string.Equals(
+                _fileSystem.Path.GetFullPath(f),
+                _fileSystem.Path.GetFullPath(fileResult.LinkFilePath),
+                OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         switch (mediaFiles.Count)
         {
@@ -497,4 +523,14 @@ public class LinkRepairService : ILinkRepairService
 
         return mediaFiles;
     }
+
+    /// <summary>
+    ///     True when an absolute target path is (or is inside) a sensitive system /
+    ///     application directory that link repair must never read from or rewrite
+    ///     toward — Jellyfin's own <c>/config</c>, plus common OS directories. A
+    ///     cross-location media target (another library or mount) is not sensitive
+    ///     and is allowed; only these locations are blocked.
+    /// </summary>
+    private static bool IsSensitiveSystemTarget(string normalizedTargetPath)
+        => PathValidator.IsSensitiveSystemPath(normalizedTargetPath);
 }

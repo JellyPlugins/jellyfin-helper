@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Mime;
+using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
@@ -362,15 +363,26 @@ public class TrashController : ControllerBase
         }
         else if (Path.IsPathFullyQualified(oldPath) && !Path.IsPathFullyQualified(newPath))
         {
-            // Old is absolute, new is relative: move from single old to first library's new path
+            // Old is absolute, new is relative: move the single absolute source into
+            // ONE library's resolved new path.
             if (!IsPathSafeForDeletion(resolvedOld, libraryFolders))
             {
                 return BadRequest(new { Error = "Old trash path is unsafe for relocation." });
             }
 
-            // Distribute to each library's resolved new path (split is not practical;
-            // move all to the first library that resolves successfully)
-            foreach (var folder in libraryFolders)
+            // Choose the target library deterministically and meaningfully: prefer the
+            // library that actually CONTAINS the absolute source, so e.g.
+            // /media/Movies/.abs-old drains into /media/Movies/<newRelative>. Only when
+            // no library contains the source (a trash dir on a separate volume) do we
+            // fall back to the first library whose relative path resolves. Library
+            // enumeration order (Jellyfin's GetVirtualFolders) is otherwise unsorted, so
+            // relying on "the first one" alone was non-deterministic.
+            var containingLibrary = FindContainingLibrary(resolvedOld, libraryFolders);
+            var candidateLibraries = containingLibrary != null
+                ? new[] { containingLibrary }.Concat(libraryFolders.Where(f => !string.Equals(f, containingLibrary, StringComparison.Ordinal)))
+                : libraryFolders;
+
+            foreach (var folder in candidateLibraries)
             {
                 var perLibraryNew = ResolveRelativeTrashPath(folder, newPath);
                 if (perLibraryNew == null)
@@ -381,7 +393,7 @@ public class TrashController : ControllerBase
                 var (moved, failed) = _trashService.RelocateTrashContents(resolvedOld, perLibraryNew, _logger);
                 totalMoved += moved;
                 totalFailed += failed;
-                break; // Only move once from absolute source
+                break; // Only move once from the absolute source
             }
         }
         else
@@ -449,8 +461,14 @@ public class TrashController : ControllerBase
     }
 
     /// <summary>
-    /// Validates that a path is safe for recursive deletion.
-    /// Rejects filesystem roots and paths that match or contain library root folders.
+    /// Validates that a path is safe for recursive deletion / relocation.
+    /// A path is safe when EITHER it lies strictly inside a configured library root,
+    /// OR it is a dedicated absolute directory that is not a filesystem root, not a
+    /// known system/sensitive directory (e.g. <c>/config</c>, <c>/etc</c>,
+    /// <c>C:\Windows</c>), and does not itself contain a library root. This keeps the
+    /// intended "absolute trash folder outside the library" feature working while
+    /// making it impossible for trash delete/relocate to touch Jellyfin's own config,
+    /// OS directories, or a whole library.
     /// </summary>
     private static bool IsPathSafeForDeletion(string fullPath, IReadOnlyList<string> libraryFolders)
     {
@@ -458,35 +476,102 @@ public class TrashController : ControllerBase
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
 
-        // Reject filesystem roots (e.g., "/", "C:\")
+        // Reject filesystem roots (e.g., "/", "C:\") outright.
         var root = Path.GetPathRoot(fullPath);
         var normalizedPath = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var normalizedRoot = root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (string.Equals(normalizedPath, normalizedRoot, comparison))
+        if (string.IsNullOrEmpty(normalizedPath) || string.Equals(normalizedPath, normalizedRoot, comparison))
         {
             return false;
         }
 
-        // Reject if the path equals any library root
-        foreach (var folder in libraryFolders)
+        var libraryRoots = libraryFolders
+            .Where(f => !string.IsNullOrWhiteSpace(f))
+            .Select(f => Path.GetFullPath(f).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            .ToList();
+
+        // REJECT pass FIRST, over ALL libraries: never allow a library root itself, nor a
+        // path that CONTAINS a library root (deleting/moving it would take the library
+        // with it). This must run to completion before any allow, otherwise an early
+        // "strictly inside library A" allow could short-circuit a later "contains library
+        // B" reject for a nested library — approving a delete/relocate that wipes B.
+        foreach (var libraryRoot in libraryRoots)
         {
-            var libraryRoot = Path.GetFullPath(folder).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var candidate = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-            if (string.Equals(candidate, libraryRoot, comparison))
-            {
-                return false;
-            }
-
-            // Reject if a library root is inside the trash path (would delete library contents)
-            if (libraryRoot.StartsWith(candidate + Path.DirectorySeparatorChar, comparison))
+            if (string.Equals(normalizedPath, libraryRoot, comparison)
+                || libraryRoot.StartsWith(normalizedPath + Path.DirectorySeparatorChar, comparison))
             {
                 return false;
             }
         }
 
-        return true;
+        // ALLOW pass: strictly inside a library root → safe (a dedicated trash sub-folder).
+        foreach (var libraryRoot in libraryRoots)
+        {
+            if (normalizedPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison))
+            {
+                return true;
+            }
+        }
+
+        // Outside every library root: allow only a dedicated absolute directory that is
+        // NOT a known system/sensitive location. This preserves the "trash folder on a
+        // separate volume" admin setup while blocking /config, OS dirs, etc.
+        return !IsSensitiveSystemPath(normalizedPath);
     }
+
+    /// <summary>
+    /// Returns the library root that strictly CONTAINS <paramref name="fullPath"/>, or
+    /// <c>null</c> when the path lies outside every library (e.g. a trash directory on a
+    /// separate volume). Used to relocate an absolute trash source into its own library's
+    /// relative target deterministically, rather than into whichever library Jellyfin's
+    /// unsorted enumeration happened to return first.
+    /// </summary>
+    /// <param name="fullPath">The already-resolved absolute path to locate.</param>
+    /// <param name="libraryFolders">The known library root folders.</param>
+    /// <returns>The containing library root (as provided in <paramref name="libraryFolders"/>), or null.</returns>
+    private static string? FindContainingLibrary(string fullPath, IReadOnlyList<string> libraryFolders)
+    {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        var normalizedPath = Path.GetFullPath(fullPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        // Pick the LONGEST (most specific) containing library root, not the first one
+        // enumerated. With nested libraries (e.g. /media and /media/movies both
+        // registered) a source could be strictly inside both; returning whichever the
+        // unsorted GetVirtualFolders enumerated first would be non-deterministic — the
+        // same order-dependence just fixed in IsPathSafeForDeletion. For a single or
+        // sibling-only library layout this is a no-op (exactly one match).
+        string? best = null;
+        var bestLength = -1;
+        foreach (var folder in libraryFolders)
+        {
+            var libraryRoot = Path.GetFullPath(folder)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            // Strictly inside (not equal to) the library root.
+            if (normalizedPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison)
+                && libraryRoot.Length > bestLength)
+            {
+                best = folder; // return the original string so the caller's de-dup by value holds
+                bestLength = libraryRoot.Length;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// True when the path is (or is inside) a well-known system / application directory
+    /// that must never be a trash-deletion or relocation target — most importantly
+    /// Jellyfin's own <c>/config</c>, plus common OS directories on Linux and Windows.
+    /// Delegates to the shared <see cref="PathValidator.IsSensitiveSystemPath"/> (single
+    /// source of truth; the OS-appropriate comparison is chosen there).
+    /// </summary>
+    private static bool IsSensitiveSystemPath(string normalizedPath)
+        => PathValidator.IsSensitiveSystemPath(normalizedPath);
 
     /// <summary>
     /// Checks whether the Jellyfin process has read/write access to a given trash path.

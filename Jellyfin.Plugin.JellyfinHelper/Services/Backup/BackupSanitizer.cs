@@ -78,6 +78,33 @@ public static class BackupSanitizer
             }
         }
 
+        // Clamp negative cumulative values to 0. A cumulative byte size / file count is
+        // physically non-negative; the validator only WARNS on negatives, and the timeline
+        // is written to the cache VERBATIM on restore, so without this a hostile/corrupt
+        // backup could plant a negative point that surfaces on GET GrowthTimeline and even
+        // survives a recompute (the append-only path preserves historical points, and
+        // TrimLeadingZeros keeps one leading point). Matches the Math.Clamp treatment every
+        // other backup numeric already gets and the aggregator's own Math.Max(0, …) output guard.
+        if (backup.GrowthTimeline != null)
+        {
+            foreach (var point in backup.GrowthTimeline.DataPoints)
+            {
+                point.CumulativeSize = Math.Max(0, point.CumulativeSize);
+                point.CumulativeFileCount = Math.Max(0, point.CumulativeFileCount);
+            }
+        }
+
+        // Same non-negativity guarantee for the growth baseline's per-directory size/count,
+        // which is likewise warn-only in the validator and written verbatim on restore.
+        if (backup.GrowthBaseline != null)
+        {
+            foreach (var entry in backup.GrowthBaseline.Directories.Values)
+            {
+                entry.Size = Math.Max(0, entry.Size);
+                entry.Count = Math.Max(0, entry.Count);
+            }
+        }
+
         // Baseline directories limit
         // Oldest entries by CreatedUtc are trimmed when over MaxBaselineDirectories
         if (backup.GrowthBaseline == null || backup.GrowthBaseline.Directories.Count <= BackupValidator.MaxBaselineDirectories)
@@ -130,7 +157,14 @@ public static class BackupSanitizer
             return;
         }
 
-        // Limit count
+        // Drop any null entries FIRST — a backup JSON can contain `[null]` in the
+        // instance array, which would otherwise NRE below (sanitize runs before
+        // validation, so the validator's null guard hasn't executed yet). This must
+        // precede the count cap so a leading null can't consume a valid instance's slot
+        // (e.g. [null, v1..v10] must keep v1..vN, not drop vN while retaining the null).
+        instances.RemoveAll(i => i is null);
+
+        // Limit count (after null removal, so only real instances count toward the cap).
         while (instances.Count > BackupValidator.MaxArrInstances)
         {
             instances.RemoveAt(instances.Count - 1);

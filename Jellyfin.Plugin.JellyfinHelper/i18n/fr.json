@@ -354,6 +354,7 @@
   "trashPathOnlySlashes": "Le chemin ne peut pas être composé uniquement de barres obliques ou inversées ou de caractères invalides.",
   "trashPathDoubleSlash": "Le chemin ne doit pas contenir de barres obliques ou inversées consécutives.",
   "trashPathDotSegment": "Le chemin ne doit pas contenir de références '.' ou '..'.",
+  "trashPathSensitive": "Il s'agit d'un dossier système protégé qui ne peut pas être utilisé.",
   "trashPathTrailingSlash": "Le chemin ne doit pas se terminer par une barre oblique ou inversée.",
   "trashPathSegmentEnds": "Les noms de dossiers ne doivent pas se terminer par un point ou un espace.",
   "libraryNoneExcluded": "Aucune exclue (par défaut)",

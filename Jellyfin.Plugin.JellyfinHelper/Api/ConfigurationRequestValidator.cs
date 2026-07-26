@@ -164,6 +164,18 @@ public static class ConfigurationRequestValidator
             return $"Trash folder path '{trashFolderPath}' is invalid: {ex.Message}";
         }
 
+        // Reject an ABSOLUTE trash path that points at a sensitive system / application
+        // directory (Jellyfin's own /config, /data, OS roots like /etc, C:\Windows). A
+        // relative path (the common ".jellyfin-trash") is resolved under each library at
+        // runtime and is unaffected. This is the same shared guard the folder picker,
+        // link-repair and trash-deletion use — so a value the picker refuses can't be
+        // slipped in via a hand-typed absolute path either.
+        if (Path.IsPathRooted(trashFolderPath)
+            && PathValidator.IsSensitiveSystemPath(Path.GetFullPath(trashFolderPath)))
+        {
+            return "Trash folder path must not be a protected system folder.";
+        }
+
         return null;
     }
 

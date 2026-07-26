@@ -497,4 +497,31 @@ public class ConfigurationRequestValidatorTests
         Assert.NotNull(error);
         Assert.Contains("'.'", error);
     }
+
+    [Theory]
+    [InlineData("/config")]
+    [InlineData("/config/data")]
+    [InlineData("/etc")]
+    [InlineData("/var/lib")]
+    public void ValidateTrashPathStrict_RejectsAbsoluteSensitiveSystemPath_Posix(string path)
+    {
+        // An absolute trash path pointing at a protected system/app dir must be refused,
+        // matching what the folder picker and the shared PathValidator guard enforce.
+        if (OperatingSystem.IsWindows()) return;
+        var error = ConfigurationRequestValidator.ValidateTrashPathStrict(path, true);
+        Assert.NotNull(error);
+        Assert.Contains("protected system folder", error);
+    }
+
+    [Theory]
+    [InlineData(".jellyfin-trash")]
+    [InlineData("trash/bin")]
+    [InlineData("MyTrash")]
+    public void ValidateTrashPathStrict_AllowsRelativePath_EvenIfSegmentLooksSystemish(string path)
+    {
+        // A RELATIVE path is resolved under each library at runtime and is never sensitive;
+        // the sensitive-path guard applies only to absolute paths.
+        var error = ConfigurationRequestValidator.ValidateTrashPathStrict(path, true);
+        Assert.Null(error);
+    }
 }

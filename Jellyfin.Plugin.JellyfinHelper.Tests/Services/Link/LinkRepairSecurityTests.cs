@@ -44,7 +44,13 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
-        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        // On Linux this traversal resolves to /etc/passwd and is refused as
+        // InvalidContent (sensitive system dir); on Windows the target resolves to a
+        // non-sensitive drive-relative path that doesn't exist → Broken. Either way it
+        // must never be repaired or treated as valid — that is the security property.
+        Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
+        Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
+        Assert.NotEqual(LinkFileStatus.Valid, result.Status);
     }
 
     [Fact]
@@ -56,7 +62,12 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
-        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        // On Windows this traversal resolves into C:\Windows and is refused as
+        // InvalidContent (sensitive system dir); on other hosts the backslash target
+        // simply doesn't exist and is Broken. Either way it must never be repaired.
+        Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
+        Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
+        Assert.NotEqual(LinkFileStatus.Valid, result.Status);
     }
 
     // ===== Symlink: Path Traversal =====
@@ -71,7 +82,12 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true);
 
-        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        // On Linux this resolves to /etc/passwd → InvalidContent (sensitive system
+        // dir); on Windows it resolves to a non-existent drive-relative path → Broken.
+        // Never repaired, never valid — that is the security property under test.
+        Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
+        Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
+        Assert.NotEqual(LinkFileStatus.Valid, result.Status);
     }
 
     [Fact]
@@ -84,7 +100,11 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true);
 
-        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        // On Windows this resolves into C:\Windows → InvalidContent (sensitive);
+        // elsewhere the backslash target doesn't exist → Broken. Never repaired.
+        Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
+        Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
+        Assert.NotEqual(LinkFileStatus.Valid, result.Status);
     }
 
     // ===== .strm: Command Injection =====
@@ -149,8 +169,13 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
-        // file:// URIs reference local files and must NOT bypass validation
-        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        // file:// URIs reference local files and must NOT bypass validation. The URI
+        // is converted to the local path /etc/passwd; on Linux that is a sensitive
+        // system dir → InvalidContent, on Windows it is a non-existent path → Broken.
+        // The security property is that it is never repaired or treated as valid.
+        Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
+        Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
+        Assert.NotEqual(LinkFileStatus.Valid, result.Status);
     }
 
     // ===== Symlink: URL-like targets =====
