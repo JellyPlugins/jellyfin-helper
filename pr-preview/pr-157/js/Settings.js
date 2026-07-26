@@ -364,8 +364,14 @@ function checkUnsavedAndProceed(onProceed) {
     }));
     d.btnRow.appendChild(createDialogBtn(T('discardChanges', 'Discard Changes'), 'danger', function () {
         removeDialogById('unsavedDialogOverlay');
+        // Discard means the in-memory edits are thrown away and the form is
+        // reverted to the persisted values — not merely that the dirty flag is
+        // cleared. Blank the snapshot first so leaving the tab now doesn't
+        // re-trigger this guard, proceed, then reload the form from the server
+        // so a later return to Settings shows the original (un-edited) values.
         _settingsSnapshot = '';
         onProceed();
+        if (typeof loadSettings === 'function') loadSettings();
     }));
     d.btnRow.appendChild(createDialogBtn(T('saveAndContinue', 'Save & Continue'), 'success', function () {
         removeDialogById('unsavedDialogOverlay');
