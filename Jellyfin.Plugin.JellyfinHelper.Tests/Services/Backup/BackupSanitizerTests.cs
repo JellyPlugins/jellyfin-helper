@@ -171,4 +171,67 @@ public class BackupSanitizerTests
 
         Assert.DoesNotContain(oldestKey, data.GrowthBaseline!.Directories.Keys);
     }
+
+    // ===== Negative-value clamping (corruption cannot enter the cache) =====
+
+    [Fact]
+    public void Sanitize_TimelineNegativeCumulativeValues_ClampedToZero()
+    {
+        // A cumulative byte size / file count is physically non-negative. A hostile or
+        // corrupt backup must not be able to plant a negative that is written verbatim to
+        // the cache and surfaces on GET GrowthTimeline (and survives a recompute).
+        var data = new BackupData
+        {
+            GrowthTimeline = new GrowthTimelineResult()
+        };
+        data.GrowthTimeline.DataPoints.Add(new GrowthTimelinePoint
+        {
+            Date = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            CumulativeSize = -5000,
+            CumulativeFileCount = -3
+        });
+
+        BackupSanitizer.Sanitize(data);
+
+        var point = data.GrowthTimeline.DataPoints[0];
+        Assert.Equal(0, point.CumulativeSize);
+        Assert.Equal(0, point.CumulativeFileCount);
+    }
+
+    [Fact]
+    public void Sanitize_TimelinePositiveCumulativeValues_LeftUnchanged()
+    {
+        var data = MakeTimelineBackup(3);
+        var expected = data.GrowthTimeline!.DataPoints
+            .Select(p => (p.CumulativeSize, p.CumulativeFileCount))
+            .ToList();
+
+        BackupSanitizer.Sanitize(data);
+
+        var actual = data.GrowthTimeline!.DataPoints
+            .Select(p => (p.CumulativeSize, p.CumulativeFileCount))
+            .ToList();
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void Sanitize_BaselineNegativeSizeAndCount_ClampedToZero()
+    {
+        var data = new BackupData
+        {
+            GrowthBaseline = new GrowthTimelineBaseline()
+        };
+        data.GrowthBaseline.Directories["/media/corrupt"] = new BaselineDirectoryEntry
+        {
+            CreatedUtc = DateTime.UtcNow,
+            Size = -1234,
+            Count = -7
+        };
+
+        BackupSanitizer.Sanitize(data);
+
+        var entry = data.GrowthBaseline.Directories["/media/corrupt"];
+        Assert.Equal(0, entry.Size);
+        Assert.Equal(0, entry.Count);
+    }
 }

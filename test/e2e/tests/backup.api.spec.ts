@@ -132,11 +132,10 @@ test('import tolerates/repairs missing fields without crashing', async () => {
   await assertPluginActive(ctx);
 });
 
-test('HARDENING: backup with negative trends values is handled without corruption', async () => {
-  // The research flagged that BackupValidator only WARNS (not rejects) on
-  // negative cumulativeSize/count. This test documents/verifies the behaviour:
-  // whatever the policy, it must not 500 and the plugin must stay Active. If the
-  // team decides to harden this to a rejection, flip the expectation below.
+test('HARDENING: backup with negative trends values is sanitized (clamped to 0), never corrupt', async () => {
+  // A cumulative byte size / file count is physically non-negative. BackupSanitizer
+  // clamps negatives to 0 on import (the validator only warns), so a hostile/corrupt
+  // backup can never plant a negative point that surfaces on GET GrowthTimeline.
   const backup = await exportBackup(true);
   backup.growthTimeline = {
     granularity: 'Daily',
@@ -150,30 +149,30 @@ test('HARDENING: backup with negative trends values is handled without corruptio
     expect(res.status(), 'must not throw a server error on negative values').toBeLessThan(500);
     await assertPluginActive(ctx);
 
-    // Follow-up: the trends endpoint must not surface negative garbage.
+    // The trends endpoint must not surface negative garbage — the sanitizer clamped
+    // the imported -5000 / -3 to 0 before they were ever persisted to the cache.
     const trends = await ctx.get(p('GrowthTimeline'));
     if (trends.ok()) {
       const tbody = (await trends.json()) as { DataPoints?: any[]; dataPoints?: any[] };
       for (const pt of tbody.DataPoints ?? tbody.dataPoints ?? []) {
         const size = pt.CumulativeSize ?? pt.cumulativeSize ?? 0;
         const count = pt.CumulativeFileCount ?? pt.cumulativeFileCount ?? 0;
-        expect(size, 'trends must not expose negative sizes').toBeGreaterThanOrEqual(0);
-        expect(count).toBeGreaterThanOrEqual(0);
+        expect(size, 'sanitizer clamped negative size to 0 on import').toBeGreaterThanOrEqual(0);
+        expect(count, 'sanitizer clamped negative count to 0 on import').toBeGreaterThanOrEqual(0);
       }
     }
   } finally {
-    // This import PERSISTS the negative timeline into the shared (serial) backend's
-    // cache; a plain GET /GrowthTimeline then serves it. Recompute from the real
-    // library (forceRefresh recomputes AND overwrites the cache with non-negative
-    // data) so the poisoned -5000 can't bleed into trends.api.spec.ts or the
-    // timeline-round-trip test. Tolerate the 30s recompute rate-limit (429): wait
-    // and retry once so the cleanup actually lands.
+    // Belt-and-suspenders hygiene: recompute a fresh timeline from the real library so
+    // downstream specs read library-derived data rather than this test's single planted
+    // (now clamped-to-0) point. Tolerate the 30s recompute rate-limit (429) with one retry.
+    // NOTE: recompute alone would NOT purge a negative if one had persisted — the
+    // append-only path keeps historical points; the real guarantee is the import-time clamp.
     let refresh = await ctx.get(p('GrowthTimeline?forceRefresh=true'));
     if (refresh.status() === 429) {
       await sleep(31_000);
       refresh = await ctx.get(p('GrowthTimeline?forceRefresh=true'));
     }
-    expect(refresh.ok(), `timeline cleanup recompute failed: ${refresh.status()}`).toBeTruthy();
+    expect(refresh.ok(), `timeline recompute failed: ${refresh.status()}`).toBeTruthy();
   }
 });
 
