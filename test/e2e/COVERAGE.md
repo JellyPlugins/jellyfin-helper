@@ -2,7 +2,8 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it —
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **207 tests** (API + UI) across the spec files.
+every UI interaction. **246 tests** (API + UI) across 38 spec files
+(authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
 **actually work on disk** and that **misuse breaks nothing**:
@@ -48,7 +49,10 @@ Beyond "does it route / does the UI render", the suite now proves features
 
 ## 3. Settings persistence & effect → `settings.api.spec.ts`
 - Task modes round-trip; numeric clamp; trash settings + blank-path reset.
-- API-key mask `***` preserves stored key; SeerrCleanupAgeDays→0 when URL blank.
+- API-key mask `***` **functionally proven** to preserve the stored key: after a
+  `***` (and whitespace-padded `' *** '`) re-save, an admin `Discovery/Request`
+  still authenticates to the mock with the real key — the mock now 401s a literal
+  `***`, so a wipe-to-mask would fail the test. `SeerrCleanupAgeDays→0` when URL blank.
 - PluginLogLevel ignored by PUT /Configuration, changed only via /LogLevel (+ invalid rejected).
 - Arr instances persist (max 3, masked); Language de↔en.
 
@@ -75,10 +79,15 @@ Beyond "does it route / does the UI render", the suite now proves features
 
 ## 7b. Authorization gating → `authz.api.spec.ts`
 - **Non-admin denied (401/403) on every `[RequiresElevation]` controller** — GET, PUT/DELETE
-  and POST matrices across Configuration, Backup, Trash, Arr/Seerr, Discovery-admin,
+  and POST matrices across Configuration, Backup, Trash (incl. the destructive
+  `Trash/Relocate` and `Trash/FoldersForPath`), Arr/Seerr, Discovery-admin,
   Recommendations, UserActivity, stats/trends, Logs.
 - Admin positive control (elevated GET is allowed → not a blanket 403 from broken auth).
 - `Translations` is `[AllowAnonymous]`: reachable with no auth header; an elevated endpoint 401s anonymously.
+- The non-admin-dependent tests use a shared `requireNormalUser()` guard: in CI
+  (`E2E_REQUIRE_NORMAL_USER=1`, set in both workflows) a missing fixture **fails**
+  rather than silently skips, so the authorization matrix can't vanish green.
+  global-setup also hard-fails at setup under the same flag if provisioning breaks.
 
 ## 7c. Settings validation & contracts → `settings.api.spec.ts` (extended)
 - Arr instance rules: no-key → 400, >3 → 400, name >100 → 400, fully-blank row skipped.
@@ -112,13 +121,24 @@ Beyond "does it route / does the UI render", the suite now proves features
 - `Seerr/Test` scheme guard (non-HTTP(S) → 400 exact message); blank URL/key/null body → 400.
 - Arr Compare 502 aggregation names the failing instance (force-fail key).
 
-## 8. User-facing Discovery → `discovery-my.api.spec.ts`  ← NEW
+## 8. User-facing Discovery → `discovery-my.api.spec.ts` + `discovery-request-auth.api.spec.ts`
 - **403 gating:** every `Discovery/My/*` endpoint returns 403 when
   `DiscoveryUserAccessEnabled` is off (tested as a real **non-admin user**).
 - **Enabled flow:** My, ExternalLinks, RequestPermissions, Services respond (not 403).
-- `Discovery/My/script` served anonymously (JS content-type).
+- `Discovery/My/script` is served **anonymously** — fetched with **no auth header**
+  (a bare context, not the admin token) and must return JS, not 401/403.
 - `Discovery/My/Dismiss` records dismissal.
-- **Admin gaps closed:** `Discovery/Request` submission to mock; `Trash/Relocate` move.
+- **Request authorization** (`discovery-request-auth`): the non-admin user is linked
+  in global-setup to the mock's second Seerr user with the Request permission, so
+  `POST /Discovery/My/Request` drives the real auth branches — ServerId-without-
+  ProfileId → 400; unmatched (ServerId,ProfileId) → 403; wrong RootFolder → 403; a
+  valid override AND a no-override submission → success, **forwarded to Seerr with
+  the caller's resolved SeerrUserId** (verified via the mock's `/last-request`); the
+  10s per-user rate limit → 2nd request 429 + `Retry-After`, and a rejected request
+  does not extend the window.
+- **Admin gaps closed:** `Discovery/Request` submission to mock; `Trash/Relocate`.
+- The two admin-side tests here **snapshot and restore** the shared Seerr/Trash
+  configuration (afterAll), so they don't leak state into later specs.
 
 ## 9. UI — all 8 tabs → `tabs.ui.spec.ts`
 - Overview, Codecs, Health, Trends, Settings, Arr, Logs switch + activate, **no uncaught
@@ -171,7 +191,14 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
 - **Trash move + retention** (`trash-fs`): orphan leaves the library and appears
   under `.jellyfin-trash` as `yyyyMMdd-HHmmss_<name>` with contents intact;
   **expired entries purge by name-timestamp, fresh survive**; `retention<=0`
-  disables purge; foreign non-timestamp entries untouched.
+  disables purge; foreign non-timestamp entries untouched; an **expired symlinked
+  entry is unlinked but its target survives byte-for-byte** (reparse-point =
+  link-only delete, guarding the recursive-delete data-loss path).
+- **Trash relocate** (`trash-relocate-fs`): all four abs/rel quadrants move REAL
+  seeded content — `Moved>0`/`Failed==0`, source folder emptied+removed, and the
+  destination holds exactly the moved entry with a matching **sha256**; plus the
+  `Trash/CheckAccess` **success** path (`AllAccessible=true` with per-library
+  read/write probes).
 - **Link repair** (`link-repair-fs`): repairable `.strm` rewritten to its lone
   sibling (**DryRun leaves it byte-unchanged first**); ambiguous / broken / URL
   targets untouched; **broken symlink repaired, valid symlink unchanged**;
@@ -185,18 +212,27 @@ Filesystem-verified via `docker exec` (skips loudly without Docker):
   growth timeline via `GET GrowthTimeline`, Arr credential preserve-then-change.
 
 ## 13. Adversarial — misuse breaks nothing (canary-guarded)
-Every destructive case asserts library-external **canary files survive**:
+Every destructive case asserts library-external **canary files survive**. The
+canaries are (re-)planted inside each destructive spec's `beforeAll`/`beforeEach`
+via `ensureCanariesPlanted()`, which also asserts at least one canary is actually
+present — so `verifyCanaries()` can never pass vacuously against an empty set, and
+the check works inside Playwright's worker processes (not just the global-setup
+process that first plants them). Without Docker the destructive specs skip loudly.
 - **Trash escape** (`trash-abuse`): absolute `/config` trash path via
   `DELETE /Trash/Folders` and every `Trash/Relocate` branch is refused; config
   dir intact. (Regression coverage for the fixed FS-escape bugs.)
 - **Config** (`config-adversarial`): `LogLevel` null body → 400 (was 500);
-  unknown enum atomic-reject; 10k-instance array bounded; XML-hostile input
+  unknown enum atomic-reject; 10k-instance array → 400 with a **pre-existing
+  known-good instance preserved** (not a vacuous length check); XML-hostile input
   no-corrupt; racing PUTs converge to one coherent set.
-- **Backup** (`backup-adversarial`): `[null]` instance no 500; absolute `/config`
-  trash path from a backup can't make cleanup escape; NaN/Infinity/overflow,
-  depth-bomb (bounded), array/truncated bodies all `<500`.
+- **Backup** (`backup-adversarial`): `[null]` instance is **sanitized away** (a
+  re-export proves no null persists) and a mixed `[valid,null]` keeps the valid
+  one; absolute `/config` trash path from a backup can't make cleanup escape;
+  NaN/Infinity/overflow, depth-bomb, array/truncated bodies → **exact 400** at the
+  JSON parse layer (never 500).
 - **Integrations** (`integrations-adversarial`): SSRF targets never succeed/hang;
-  non-HTTP schemes → exact-message 400; high-byte keys no 500; slow/giant/garbage
+  non-HTTP schemes → exact-message 400 on **both** `Seerr/Test` **and**
+  `ArrIntegration/TestConnection`; high-byte keys no 500; slow/giant/garbage
   upstreams degrade cleanly; Compare index overflow handled.
 - **Cleanup** (`cleanup-abuse`): symlink-out-of-library target survives cleanup;
   excluded library + its trash fully hands-off; emoji/long names ok.
@@ -212,12 +248,10 @@ Every destructive case asserts library-external **canary files survive**:
 - ⚠️ **`DELETE /Trash/Folders` mass deletion** — routing/guards tested, not bulk removal (determinism).
 - ⚠️ **`MaxRecommendationsPerUser` persistence** — no API update field by design (read-only / XML-only).
 - ⚠️ **Trends chart hover tooltip** (mouse-driven SVG) — data validated at the API layer instead.
-- ⚠️ **Discovery/My/Request full submission as the non-admin user** — permission + service paths are
-  covered; the end-to-end user submit is left for a later pass (admin `Discovery/Request` IS covered).
-- ⚠️ **`Trash/Relocate` / `Trash/CheckAccess` / `Trash/FoldersForPath` SUCCESS-body contracts** —
-  error branches + a loose `<500` relocation move are covered (`trash.api.spec.ts`,
-  `discovery-my.api.spec.ts:139`); the exact `{Moved, Failed}` / `{AllAccessible, Results[]}` /
-  `{Paths[], IsAbsolute}` success shapes are not yet pinned.
+- ⚠️ **`Trash/FoldersForPath` SUCCESS-body contract** (`{Paths[], IsAbsolute}`) — its auth gating and
+  error branches are covered; the exact success shape is not yet pinned. (`Trash/Relocate`'s
+  `{Moved, Failed}` and `Trash/CheckAccess`'s `{AllAccessible, Results[]}` success shapes ARE now
+  pinned in `trash-relocate-fs.api.spec.ts`.)
 - ⚠️ **Settings dialogs** — trash-disable "Keep/Delete" + trash-path-change relocation dialogs, the
   Excluded-Libraries multi-select, and the Backup **Import** confirm dialog are not yet UI-driven
   (Export is; the backup API round-trip is fully covered).

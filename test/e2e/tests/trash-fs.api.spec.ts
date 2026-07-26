@@ -7,7 +7,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask } from '../setup/api-client.ts';
 import {
-  hasDocker,
+  ensureCanariesPlanted,
   regenFixtures,
   containerExists,
   containerDirExists,
@@ -17,6 +17,8 @@ import {
   containerWriteFile,
   containerRm,
   containerTimestamp,
+  containerIsSymlink,
+  execInContainer,
   verifyCanaries,
 } from '../setup/fs-assert.ts';
 
@@ -46,7 +48,7 @@ async function putConfig(body: Record<string, unknown>) {
 
 test.describe.serial('trash move + retention purge', () => {
   test.beforeEach(() => {
-    test.skip(!hasDocker(), 'docker exec unavailable — cannot inspect container FS');
+    ensureCanariesPlanted(); // skips loudly w/o docker; guarantees a canary exists
     regenFixtures();
     containerRm(TRASH); // start each test from a clean trash
   });
@@ -144,5 +146,43 @@ test.describe.serial('trash move + retention purge', () => {
     await runCleanupTask(ctx);
     // Name doesn't parse as a trash timestamp → left alone.
     expect(containerDirExists(`${TRASH}/not-a-timestamp-folder`)).toBe(true);
+  });
+
+  test('an expired symlinked trash entry is unlinked, but its target survives (reparse-point = link-only delete)', async () => {
+    // Regression guard for the data-loss risk in PurgeExpiredTrash: a trash entry
+    // that is a symlink/junction (reparse point) must be removed as the LINK ONLY —
+    // never recursively followed into the target. If a regression flipped to the
+    // else-branch (Directory.Delete(dir, recursive:true)) it would wipe the
+    // target's real contents.
+    await putConfig({
+      TrickplayTaskMode: 'Deactivate', EmptyMediaFolderTaskMode: 'Deactivate',
+      OrphanedSubtitleTaskMode: 'Deactivate', LinkRepairTaskMode: 'Deactivate',
+      SeerrCleanupTaskMode: 'Deactivate', RecommendationsTaskMode: 'Deactivate',
+      UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 7, OrphanMinAgeDays: 0,
+    });
+
+    // A real target dir OUTSIDE the trash, holding data that must survive.
+    const target = `${M}/Symlink Target (2099)`;
+    containerRm(target);
+    containerWriteFile(`${target}/keep.mkv`, 'PRECIOUS-TARGET-DATA');
+
+    // An EXPIRED, timestamp-named trash entry that is a symlink to that target.
+    const oldTs = containerTimestamp(30);
+    const linkEntry = `${TRASH}/${oldTs}_LinkedOrphan`;
+    containerMkdir(TRASH);
+    const ln = execInContainer(`ln -s ${JSON.stringify(target)} ${JSON.stringify(linkEntry)}`);
+    test.skip(ln.code !== 0, 'symlink creation unsupported on this filesystem');
+    expect(containerIsSymlink(linkEntry), 'precondition: the trash entry is a symlink').toBe(true);
+
+    const result = await runCleanupTask(ctx);
+    expect(result.LastExecutionResult?.Status).toBe('Completed');
+
+    // The link entry is gone...
+    expect(containerExists(linkEntry), 'expired symlink entry must be unlinked').toBe(false);
+    // ...but the target directory and its data are byte-for-byte intact.
+    expect(containerDirExists(target), 'symlink target dir must survive').toBe(true);
+    expect(containerExists(`${target}/keep.mkv`), 'target data must survive the link-only delete').toBe(true);
+
+    containerRm(target);
   });
 });

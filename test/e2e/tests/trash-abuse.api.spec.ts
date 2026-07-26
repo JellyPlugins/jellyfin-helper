@@ -9,9 +9,8 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
 import {
-  hasDocker,
+  ensureCanariesPlanted,
   verifyCanaries,
-  containerWriteFile,
   containerFileExists,
   containerMkdir,
 } from '../setup/fs-assert.ts';
@@ -32,9 +31,10 @@ test.afterAll(async () => {
 
 test.describe.serial('trash operations never escape the media library', () => {
   test.beforeEach(() => {
-    test.skip(!hasDocker(), 'docker exec unavailable — cannot inspect container FS');
-    // Ensure a canary sits inside /config so a config-dir wipe would be caught.
-    containerWriteFile('/config/jfh-canary/marker.txt', 'CANARY-DO-NOT-TOUCH');
+    // Plants every canary (incl. /config/jfh-canary/marker.txt) and asserts at
+    // least one exists, so verifyCanaries() below can't pass vacuously; skips
+    // loudly when Docker is unreachable.
+    ensureCanariesPlanted();
   });
 
   test.afterEach(() => {

@@ -14,6 +14,7 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { test, expect } from '@playwright/test';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -169,51 +170,83 @@ export const CANARY_PATHS = [
 
 const CANARY_CONTENT = 'CANARY-DO-NOT-TOUCH';
 
-/** Canary paths that were successfully planted (writable in this environment). */
-let _plantedCanaries: string[] = [];
-
 /**
  * Plant the canary files (idempotent, best-effort). Call once in global-setup.
  * On CI the container may run as a non-root UID that can't write to `/` or
  * `/srv`; those are skipped and simply not verified later. `/config` is writable
  * (it's the plugin's own data mount) so the most important canary always lands.
+ *
+ * NOTE: This runs in the Playwright `globalSetup` PROCESS, which is separate from
+ * the worker processes that run the specs. Module state therefore does NOT cross
+ * that boundary — which is exactly why {@link verifyCanaries} and
+ * {@link plantedCanaries} re-derive their answer by probing the container on disk
+ * rather than trusting any in-memory list. Planting is an on-disk side effect, so
+ * it is visible to the workers; a module-scoped "what did I plant" array would not
+ * be, and relying on one made the whole canary assertion a no-op in the past.
  */
 export function plantCanaries(): void {
-  _plantedCanaries = [];
-  for (const p of CANARY_PATHS) {
-    containerWriteFile(p, CANARY_CONTENT);
-    if (containerFileExists(p)) {
-      _plantedCanaries.push(p);
-    }
+  for (const path of CANARY_PATHS) {
+    containerWriteFile(path, CANARY_CONTENT);
   }
 }
 
-/** The canary paths that were actually planted (writable) this run. */
+/**
+ * The canary paths that are actually present on the container's disk right now,
+ * with the expected content. Derived by probing the container so it is correct in
+ * any process (worker or global-setup), regardless of who planted them. Empty when
+ * Docker is unreachable or nothing was writable this run.
+ */
 export function plantedCanaries(): readonly string[] {
-  return _plantedCanaries;
+  return CANARY_PATHS.filter((path) => {
+    if (!containerFileExists(path)) return false;
+    try {
+      return readContainerFile(path).trim() === CANARY_CONTENT;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /**
- * Verify every SUCCESSFULLY-PLANTED canary still exists with its original
- * content. Returns the list of violated paths (empty = all intact). Tests
- * assert this is empty after every destructive case.
+ * True when at least one canary is present on disk. Destructive specs assert this
+ * in `beforeAll` so that {@link verifyCanaries} can never pass vacuously: if the
+ * canaries were never planted (or Docker is unreachable), the containment proof is
+ * meaningless and the spec must skip/fail loudly rather than assert on nothing.
+ */
+export function canariesPresent(): boolean {
+  return plantedCanaries().length > 0;
+}
+
+/**
+ * Verify every canary that is CURRENTLY present on disk still has its original
+ * content. Returns the list of violated paths (empty = all intact). Because the
+ * present-set is re-derived from the container, this works in worker processes
+ * where {@link plantCanaries} never ran.
+ *
+ * Callers must first gate on {@link canariesPresent} (typically in `beforeAll`):
+ * a destructive test could otherwise delete the sole canary and this would still
+ * return `[]` (an intact path went missing but there is nothing left to compare).
+ * The `beforeAll` guard proves canaries existed before the destructive action, so
+ * a `[]` result here genuinely means "nothing outside /media was touched".
  */
 export function verifyCanaries(): string[] {
   const violated: string[] = [];
-  for (const p of _plantedCanaries) {
-    if (!containerFileExists(p)) {
-      violated.push(`${p} (missing)`);
+  for (const path of CANARY_PATHS) {
+    if (!containerFileExists(path)) {
+      // Absent is only a violation if it was planted (writable) this run. We
+      // can't distinguish "never planted" from "deleted" after the fact, so the
+      // authoritative pre-condition is the canariesPresent() beforeAll guard.
       continue;
     }
     let content: string;
     try {
-      content = readContainerFile(p).trim();
+      content = readContainerFile(path).trim();
     } catch {
-      violated.push(`${p} (unreadable)`);
+      violated.push(`${path} (unreadable)`);
       continue;
     }
     if (content !== CANARY_CONTENT) {
-      violated.push(`${p} (content changed: "${content.slice(0, 40)}")`);
+      violated.push(`${path} (content changed: "${content.slice(0, 40)}")`);
     }
   }
   return violated;
@@ -225,4 +258,27 @@ export function regenFixtures(): void {
   if (res.code !== 0) {
     throw new Error(`regenFixtures failed (code ${res.code}): ${res.stderr || res.stdout}`);
   }
+}
+
+/**
+ * Destructive-spec `beforeAll` guard for the canary containment proof.
+ *
+ * global-setup plants the canaries once, but that runs in a separate process; a
+ * worker that only ever *reads* module state would see none. Planting is an
+ * idempotent on-disk write, so we (re-)plant here in the worker and then assert
+ * at least one canary is present. This makes every later `verifyCanaries()`
+ * assertion meaningful — it can no longer pass vacuously against an empty set.
+ *
+ * When Docker is unreachable from the worker there is nothing to prove, so the
+ * whole spec skips LOUDLY (never a silent green). Call once per destructive spec:
+ *
+ *   test.beforeAll(() => ensureCanariesPlanted());
+ */
+export function ensureCanariesPlanted(): void {
+  test.skip(!hasDocker(), 'docker exec unavailable — cannot plant/verify canaries');
+  plantCanaries();
+  expect(
+    plantedCanaries().length,
+    'canary containment proof is meaningless without at least one planted canary',
+  ).toBeGreaterThan(0);
 }

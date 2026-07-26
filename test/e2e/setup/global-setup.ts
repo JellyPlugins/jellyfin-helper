@@ -177,8 +177,20 @@ async function globalSetup(_config: FullConfig): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       data: { Name: NORMAL_USER, Password: NORMAL_PASS },
     });
-    if (created.ok()) {
-      const u = (await created.json()) as { Id: string; Name: string };
+    // On a warm/reused container the user already exists and Users/New returns a
+    // 4xx (e.g. 400 "user already exists"). That is NOT a provisioning failure —
+    // we can still authenticate as the existing user. So authenticate whenever the
+    // create succeeded OR the user plausibly already exists; only a 5xx (or a
+    // network throw) is a hard failure. This keeps provisioning idempotent across
+    // re-runs against a persistent volume.
+    const createdOk = created.ok();
+    const alreadyExists = !createdOk && created.status() >= 400 && created.status() < 500;
+    if (!createdOk && !alreadyExists) {
+      // eslint-disable-next-line no-console
+      console.log(`[global-setup] Users/New -> ${created.status()} (unexpected; non-admin tests will skip)`);
+    } else {
+      // eslint-disable-next-line no-console
+      console.log(`[global-setup] Users/New -> ${created.status()} (${createdOk ? 'created' : 'already exists — authenticating existing user'})`);
       const nAuth = await ctx.post('/Users/AuthenticateByName', {
         headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
         data: { Username: NORMAL_USER, Pw: NORMAL_PASS },
@@ -187,25 +199,47 @@ async function globalSetup(_config: FullConfig): Promise<void> {
         const nj = (await nAuth.json()) as { AccessToken: string; User: { Id: string } };
         normalUser = { token: nj.AccessToken, userId: nj.User.Id, userName: NORMAL_USER };
         // eslint-disable-next-line no-console
-        console.log(`[global-setup] created non-admin user ${NORMAL_USER} (${u.Id})`);
+        console.log(`[global-setup] non-admin user ${NORMAL_USER} ready (${nj.User.Id})`);
+
+        // Link this non-admin user to the mock's SECOND Seerr user (Bob) and grant
+        // the Request permission (bit 32) so the user-facing Discovery/My/Request
+        // authorization branches are actually reachable. Seeded here — before any
+        // spec runs and before the plugin populates its 5-min Seerr-user cache —
+        // so the linkage is deterministic and not defeated by cache staleness.
+        await pwRequest
+          .newContext()
+          .then((c) =>
+            c.post(`${publicSeerrUrl()}/seed-user2`, {
+              headers: { 'Content-Type': 'application/json' },
+              data: { jellyfinUserId: nj.User.Id, permissions: 32 },
+            }).catch(() => undefined),
+          )
+          .catch(() => undefined);
       } else {
-        // User exists now but we couldn't authenticate as them — do NOT report
-        // success silently. Log the rejection so a broken provisioning path is
-        // visible; Discovery/My tests will skip (normalUser stays null) rather
-        // than run against a half-provisioned user.
+        // Could not authenticate — do NOT report success silently. Log the
+        // rejection so a broken provisioning path is visible; dependent tests skip
+        // (normalUser stays null) rather than run against a half-provisioned user.
         // eslint-disable-next-line no-console
         console.log(
-          `[global-setup] non-admin auth failed after Users/New succeeded: ` +
+          `[global-setup] non-admin auth failed (Users/New was ${created.status()}): ` +
             `${nAuth.status()} ${(await nAuth.text()).slice(0, 200)} (Discovery/My tests will skip)`,
         );
       }
-    } else {
-      // eslint-disable-next-line no-console
-      console.log(`[global-setup] Users/New -> ${created.status()} (non-admin tests will skip)`);
     }
   } catch (e) {
     // eslint-disable-next-line no-console
     console.log(`[global-setup] non-admin user provisioning failed: ${(e as Error).message}`);
+  }
+
+  // In CI we require the non-admin fixture so the authorization / user-facing
+  // tests can't silently skip (E2E_REQUIRE_NORMAL_USER=1). Fail the whole run
+  // here — at setup — with a clear message rather than letting each dependent
+  // test skip and hide a broken provisioning path.
+  if (!normalUser && process.env.E2E_REQUIRE_NORMAL_USER === '1') {
+    throw new Error(
+      'E2E_REQUIRE_NORMAL_USER=1 but the non-admin user could not be provisioned — ' +
+        'see the [global-setup] logs above for the failing step (Users/New or AuthenticateByName).',
+    );
   }
 
   // --- 6. persist for the tests -------------------------------------------

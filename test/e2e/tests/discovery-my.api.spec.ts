@@ -12,17 +12,46 @@
  *   - Also fills two admin-side gaps: Discovery/Request submission and
  *     Trash/Relocate.
  */
-import { test, expect, type APIRequestContext } from '@playwright/test';
-import { apiContext, normalUserContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
+import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
+import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
 
 const auth = loadAuth();
 
 let admin: APIRequestContext;
 let user: APIRequestContext | null;
 
+// Snapshot of the shared-backend Configuration fields these tests mutate, so we
+// can restore them in afterAll and not leak state into later specs that assume a
+// pristine Seerr/Trash config (the state-bleed pattern already fixed elsewhere).
+interface ConfigSnapshot {
+  SeerrUrl?: string;
+  DiscoveryUserAccessEnabled?: boolean;
+  RecommendationsTaskMode?: string;
+  UseTrash?: boolean;
+  TrashFolderPath?: string;
+  TrashRetentionDays?: number;
+}
+let configSnapshot: ConfigSnapshot = {};
+
 test.beforeAll(async () => {
   admin = await apiContext(auth);
   user = await normalUserContext(auth);
+
+  // Capture the pre-test config so afterAll can put it back verbatim. GET masks
+  // the API key as '***'; re-sending '***' preserves the stored key (no wipe).
+  const current = await admin.get(p('Configuration'));
+  if (current.ok()) {
+    const c = (await current.json()) as ConfigSnapshot;
+    configSnapshot = {
+      SeerrUrl: c.SeerrUrl,
+      DiscoveryUserAccessEnabled: c.DiscoveryUserAccessEnabled,
+      RecommendationsTaskMode: c.RecommendationsTaskMode,
+      UseTrash: c.UseTrash,
+      TrashFolderPath: c.TrashFolderPath,
+      TrashRetentionDays: c.TrashRetentionDays,
+    };
+  }
+
   // Ensure Seerr points at the mock so discovery/permission calls resolve.
   const seed = await admin.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
@@ -32,6 +61,18 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
+  // Restore the shared Configuration these tests mutated, so later specs run
+  // against the original backend state. SeerrApiKey is intentionally omitted:
+  // sending '***' would preserve the current key, and the snapshot never had the
+  // plaintext anyway; leaving it out keeps whatever key is stored now.
+  if (Object.keys(configSnapshot).length > 0) {
+    await admin
+      .put(p('Configuration'), {
+        headers: { 'Content-Type': 'application/json' },
+        data: { ...configSnapshot, SeerrApiKey: '***' },
+      })
+      .catch(() => undefined);
+  }
   await admin.dispose();
   await user?.dispose();
 });
@@ -52,7 +93,7 @@ async function setDiscoveryAccess(enabled: boolean) {
 
 test.describe.serial('Discovery/My access gating', () => {
   test('all /My endpoints return 403 when access is disabled', async () => {
-    test.skip(!user, 'no non-admin user provisioned');
+    requireNormalUser(user);
     await setDiscoveryAccess(false);
 
     const endpoints = [
@@ -69,7 +110,7 @@ test.describe.serial('Discovery/My access gating', () => {
   });
 
   test('/My endpoints respond (not 403) when access is enabled', async () => {
-    test.skip(!user, 'no non-admin user provisioned');
+    requireNormalUser(user);
     await setDiscoveryAccess(true);
 
     // My cached recs — must succeed (2xx) once enabled; the body may be null
@@ -85,7 +126,7 @@ test.describe.serial('Discovery/My access gating', () => {
   });
 
   test('/My/RequestPermissions + Services resolve against the mock when enabled', async () => {
-    test.skip(!user, 'no non-admin user provisioned');
+    requireNormalUser(user);
     await setDiscoveryAccess(true);
 
     // RequestPermissions resolves the linked Seerr user against the mock — 2xx.
@@ -99,17 +140,24 @@ test.describe.serial('Discovery/My access gating', () => {
     await assertPluginActive(admin);
   });
 
-  test('/My/script is served anonymously (embedded JS)', async () => {
-    // AllowAnonymous — reachable even without the user token.
-    const res = await admin.get(p('Discovery/My/script'));
-    expect([200, 404]).toContain(res.status());
-    if (res.ok()) {
+  test('/My/script is served anonymously (embedded JS, no auth header)', async () => {
+    // [AllowAnonymous] — must be reachable with NO Authorization header at all
+    // (the sidebar script loads before the user is known). Use a bare context so
+    // anonymity is actually exercised, not an admin token.
+    const anon = await pwRequest.newContext({ baseURL: auth.baseUrl });
+    try {
+      const res = await anon.get(p('Discovery/My/script'));
+      expect(res.status(), 'anonymous script must not be 401/403').not.toBe(401);
+      expect(res.status()).not.toBe(403);
+      expect(res.ok(), `Discovery/My/script anonymous failed: ${res.status()}`).toBeTruthy();
       expect(res.headers()['content-type'] ?? '').toContain('javascript');
+    } finally {
+      await anon.dispose();
     }
   });
 
   test('/My/Dismiss records a dismissal (mutates feedback store)', async () => {
-    test.skip(!user, 'no non-admin user provisioned');
+    requireNormalUser(user);
     await setDiscoveryAccess(true);
     const res = await user!.post(p('Discovery/My/Dismiss'), {
       headers: { 'Content-Type': 'application/json' },

@@ -13,7 +13,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask } from '../setup/api-client.ts';
 import {
-  hasDocker,
+  ensureCanariesPlanted,
   regenFixtures,
   readContainerFile,
   readContainerSymlink,
@@ -57,7 +57,7 @@ const strm = (dir: string, file: string) => `${M}/${dir}/${file}`;
 
 test.describe.serial('link repair rewrites / refuses correctly', () => {
   test.beforeEach(() => {
-    test.skip(!hasDocker(), 'docker exec unavailable — cannot inspect container FS');
+    ensureCanariesPlanted(); // skips loudly w/o docker; guarantees a canary exists
     regenFixtures();
   });
 

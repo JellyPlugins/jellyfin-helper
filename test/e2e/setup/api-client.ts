@@ -7,7 +7,7 @@
  * handed to tests via environment variables (JELLYFIN_URL, JELLYFIN_TOKEN)
  * and the persisted setup/auth.json.
  */
-import { APIRequestContext, request as pwRequest } from '@playwright/test';
+import { APIRequestContext, request as pwRequest, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -48,6 +48,28 @@ export async function normalUserContext(auth: AuthInfo): Promise<APIRequestConte
       Accept: 'application/json',
     },
   });
+}
+
+/**
+ * Guard for tests that require the provisioned non-admin user. Without one these
+ * assertions cannot run — but silently skipping would let the most important
+ * authorization / user-facing checks vanish green if the fixture ever breaks.
+ *
+ * In CI we set E2E_REQUIRE_NORMAL_USER=1 so a missing user FAILS loudly; locally
+ * (unset) it still skips so a dev without the fixture isn't blocked. Call at the
+ * top of any test that dereferences the normal user:
+ *
+ *   test('…', async () => { requireNormalUser(user); … user!.get(…) … });
+ */
+export function requireNormalUser(user: APIRequestContext | null): void {
+  if (user) return;
+  if (process.env.E2E_REQUIRE_NORMAL_USER === '1') {
+    throw new Error(
+      'non-admin user was not provisioned, but E2E_REQUIRE_NORMAL_USER=1 — this test ' +
+        'must not be allowed to skip. Check the global-setup provisioning logs.',
+    );
+  }
+  test.skip(true, 'no non-admin user provisioned (set E2E_REQUIRE_NORMAL_USER=1 to fail instead)');
 }
 
 /**

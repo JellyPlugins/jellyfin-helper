@@ -14,7 +14,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask, assertPluginActive } from '../setup/api-client.ts';
 import {
-  hasDocker,
+  ensureCanariesPlanted,
   regenFixtures,
   containerExists,
   containerDirExists,
@@ -66,7 +66,7 @@ async function isolateStage(active: Record<string, unknown>) {
 // fixtures first, so ordering can't make one test poison the next.
 test.describe.serial('cleanup deletes the right thing, keeps the wrong thing', () => {
   test.beforeEach(() => {
-    test.skip(!hasDocker(), 'docker exec unavailable — cannot inspect container FS');
+    ensureCanariesPlanted(); // skips loudly w/o docker; guarantees a canary exists
     regenFixtures();
   });
 

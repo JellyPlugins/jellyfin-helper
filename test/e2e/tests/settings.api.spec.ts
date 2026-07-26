@@ -8,7 +8,10 @@
  *   - Task-mode round-trips (DryRun/Activate/Deactivate).
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { request as pwRequest } from '@playwright/test';
 import { apiContext, loadAuth, p } from '../setup/api-client.ts';
+
+const MOCK_SEERR_PUBLIC = process.env.MOCK_SEERR_PUBLIC_URL ?? 'http://localhost:5055';
 
 let ctx: APIRequestContext;
 
@@ -79,20 +82,50 @@ test('trash settings persist and toggle', async () => {
   expect((await getConfig()).TrashFolderPath).toBe('.jellyfin-trash');
 });
 
-test('Seerr API key mask (***): stored key preserved on re-save', async () => {
-  // Set a real key.
-  await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'secret-key-123', SeerrCleanupAgeDays: 30 });
-  const masked = await getConfig();
-  // GET masks the key.
-  expect(masked.SeerrApiKey).toBe('***');
+test('Seerr API key mask (***): stored key is preserved on re-save (functionally proven)', async () => {
+  // The admin Discovery/Request path submits to the mock using the STORED key and
+  // returns a non-2xx if that key is rejected — a cache-immune, per-call probe
+  // (unlike Discovery/Users, which caches for 5 min and swallows upstream 401s).
+  // The mock now 401s a literal '***' (mocks/seerr-server.js), so a wipe-to-mask
+  // is detectable: the submission would fail AND never reach the mock.
+  const mock = await pwRequest.newContext();
+  const resetAndSubmit = async (): Promise<{ recorded: number }> => {
+    const reset = await mock.get(`${MOCK_SEERR_PUBLIC}/reset`);
+    expect(reset.ok(), `mock /reset failed: ${reset.status()}`).toBeTruthy();
+    const res = await ctx.post(p('Discovery/Request'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: { TmdbId: 27205, MediaType: 'movie' },
+    });
+    expect(res.ok(), `Discovery/Request should reach the mock with the stored key: ${res.status()}`).toBeTruthy();
+    const last = await mock.get(`${MOCK_SEERR_PUBLIC}/last-request`);
+    expect(last.ok()).toBeTruthy();
+    return { recorded: ((await last.json()) as { count: number }).count };
+  };
 
-  // Re-save sending the mask back — key must be preserved (not overwritten to ***).
-  await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: '***', SeerrCleanupAgeDays: 30 });
-  // We can't read the plaintext (still masked), but the connection test on save
-  // would fail if the key were wiped. Assert save succeeded and URL intact.
-  const after = await getConfig();
-  expect(after.SeerrUrl).toBe('http://mock-seerr:5055');
-  expect(after.SeerrApiKey).toBe('***');
+  try {
+    // Set a REAL key the mock accepts, and confirm GET masks it.
+    const set = await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'seerr-key', SeerrCleanupAgeDays: 30 });
+    expect(set.ok(), `initial key save failed: ${set.status()}`).toBeTruthy();
+    expect((await getConfig()).SeerrApiKey, 'GET must mask the stored key').toBe('***');
+
+    // Baseline: the stored key authenticates to the mock (a request is recorded).
+    expect((await resetAndSubmit()).recorded, 'stored key must reach the mock (baseline)').toBe(1);
+
+    // Re-save echoing the mask: '***' must mean "keep the stored key", never
+    // persist the literal mask. Prove it — a submission must still reach the mock.
+    const resaveMask = await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: '***', SeerrCleanupAgeDays: 30 });
+    expect(resaveMask.ok(), `mask re-save failed: ${resaveMask.status()}`).toBeTruthy();
+    expect((await getConfig()).SeerrApiKey).toBe('***');
+    expect((await resetAndSubmit()).recorded, "stored key was WIPED by a '***' re-save").toBe(1);
+
+    // Same guarantee for a whitespace-padded mask ' *** ' (server trims before the
+    // sentinel compare — ConfigurationController preserves the key here too).
+    const resavePadded = await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: ' *** ', SeerrCleanupAgeDays: 30 });
+    expect(resavePadded.ok(), `padded-mask re-save failed: ${resavePadded.status()}`).toBeTruthy();
+    expect((await resetAndSubmit()).recorded, "stored key was WIPED by a ' *** ' re-save").toBe(1);
+  } finally {
+    await mock.dispose();
+  }
 });
 
 test('SeerrCleanupAgeDays forced to 0 when SeerrUrl is blank', async () => {

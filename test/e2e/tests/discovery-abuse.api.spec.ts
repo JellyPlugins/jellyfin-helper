@@ -8,7 +8,7 @@
  * provisioned.
  */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
-import { apiContext, normalUserContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
+import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
 
 const MOCK = process.env.MOCK_SEERR_PUBLIC_URL ?? 'http://localhost:5055';
 const auth = loadAuth();
@@ -58,7 +58,7 @@ async function lastRequests(): Promise<{ count: number; requests: any[] }> {
 
 test.describe.serial('Discovery/My write-side access control', () => {
   test('write endpoints 403 when access is DISABLED, and nothing reaches Seerr', async () => {
-    test.skip(!user, 'no non-admin user provisioned');
+    requireNormalUser(user);
     await setAccess(false);
     await mockReset();
 
@@ -80,7 +80,7 @@ test.describe.serial('Discovery/My write-side access control', () => {
   });
 
   test('adversarial /My/Dismiss inputs are 4xx, never 500', async () => {
-    test.skip(!user, 'no non-admin user provisioned');
+    requireNormalUser(user);
     await setAccess(true);
     const bad: unknown[] = [
       { TmdbId: 0, MediaType: 'movie' },
@@ -100,7 +100,7 @@ test.describe.serial('Discovery/My write-side access control', () => {
   });
 
   test('a non-admin cannot spoof another identity on /My/Request', async () => {
-    test.skip(!user, 'no non-admin user provisioned');
+    requireNormalUser(user);
     await setAccess(true);
     await mockReset();
 

@@ -61,6 +61,23 @@ test('Seerr/Test rejects non-HTTP(S) schemes with the exact message (400)', asyn
   await assertPluginActive(ctx);
 });
 
+test('ArrIntegration/TestConnection rejects non-HTTP(S) schemes with the exact message (400)', async () => {
+  // The Arr endpoint enforces the SAME SSRF scheme guard as Seerr/Test, but was
+  // previously only asserted to be <500. Pin the exact 400 + message + Success:false
+  // so a regression that let a non-HTTP(S) scheme through (or 500'd) is caught.
+  for (const url of ['ftp://evil', 'file:///etc/passwd', 'javascript:alert(1)', 'gopher://x']) {
+    const res = await ctx.post(p('ArrIntegration/TestConnection'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: { Url: url, ApiKey: 'k' },
+    });
+    expect(res.status(), `url=${url}`).toBe(400);
+    const body = (await res.json()) as { Success: boolean; Message: string };
+    expect(body.Success).toBe(false);
+    expect(body.Message).toBe('A valid HTTP(S) URL is required.');
+  }
+  await assertPluginActive(ctx);
+});
+
 test('high-byte / control API keys degrade cleanly (never 500)', async () => {
   for (const key of ['kéy', '😀-key', 'ab']) {
     const arr = await ctx.post(p('ArrIntegration/TestConnection'), {

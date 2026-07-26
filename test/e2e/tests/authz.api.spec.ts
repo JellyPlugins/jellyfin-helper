@@ -6,7 +6,7 @@
  * positive control so a blanket "everything 403s" (e.g. broken auth) also fails.
  */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
-import { apiContext, normalUserContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
+import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
 
 const auth = loadAuth();
 
@@ -53,13 +53,17 @@ const getGated = [
 const postGated: Array<{ path: string; body: unknown }> = [
   { path: p('Backup/Import'), body: { backupVersion: 1 } },
   { path: p('Trash/CheckAccess'), body: { TrashFolderPath: '.jellyfin-trash' } },
+  // The two most destructive gated mutations — a relaxed policy here would let a
+  // non-admin move/scan trash folders. Previously absent from this sweep.
+  { path: p('Trash/Relocate'), body: { OldTrashPath: '.jellyfin-trash', NewTrashPath: '.jellyfin-trash-2' } },
+  { path: p('Trash/FoldersForPath'), body: { TrashFolderPath: '.jellyfin-trash' } },
   { path: p('ArrIntegration/TestConnection'), body: { Url: 'http://mock-arr:9000', ApiKey: 'k' } },
   { path: p('Seerr/Test'), body: { Url: 'http://mock-seerr:5055', ApiKey: 'k' } },
   { path: p('Discovery/Request'), body: { TmdbId: 27205, MediaType: 'movie' } },
 ];
 
 test('non-admin GET is denied on every elevated endpoint', async () => {
-  test.skip(!user, 'no non-admin user provisioned');
+  requireNormalUser(user);
   for (const path of getGated) {
     const res = await user!.get(path);
     expect([401, 403], `${path} must deny non-admin`).toContain(res.status());
@@ -68,7 +72,7 @@ test('non-admin GET is denied on every elevated endpoint', async () => {
 });
 
 test('non-admin PUT/DELETE is denied on elevated Configuration + Logs', async () => {
-  test.skip(!user, 'no non-admin user provisioned');
+  requireNormalUser(user);
   const put = await user!.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: { Language: 'de' },
@@ -90,7 +94,7 @@ test('non-admin PUT/DELETE is denied on elevated Configuration + Logs', async ()
 });
 
 test('non-admin POST is denied on every elevated mutation', async () => {
-  test.skip(!user, 'no non-admin user provisioned');
+  requireNormalUser(user);
   for (const { path, body } of postGated) {
     const res = await user!.post(path, {
       headers: { 'Content-Type': 'application/json' },

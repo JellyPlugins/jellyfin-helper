@@ -8,7 +8,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask, assertPluginActive } from '../setup/api-client.ts';
 import {
-  hasDocker,
+  ensureCanariesPlanted,
   regenFixtures,
   verifyCanaries,
   containerExists,
@@ -55,7 +55,7 @@ async function isolateStage(active: Record<string, unknown>) {
 
 test.describe.serial('cleanup never escapes the media library', () => {
   test.beforeEach(() => {
-    test.skip(!hasDocker(), 'docker exec unavailable — cannot inspect container FS');
+    ensureCanariesPlanted(); // skips loudly w/o docker; guarantees a canary exists
     regenFixtures();
     containerWriteFile('/srv/jfh-external/secret.mkv', 'EXTERNAL-DATA');
   });

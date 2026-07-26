@@ -58,7 +58,16 @@ test('unknown task-mode enum on PUT /Configuration → 400, other fields untouch
   await assertPluginActive(ctx);
 });
 
-test('oversized RadarrInstances array (10000) → 400, stored list stays ≤3, no hang', async () => {
+test('oversized RadarrInstances array (10000) → 400, known-good list preserved, no hang', async () => {
+  // Establish a known-good single instance first, so we can prove the rejected
+  // oversized save did NOT wipe or corrupt the existing config (a `?? []` length
+  // check alone passes vacuously when the field is cleared).
+  const seed = await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: JSON.stringify({ RadarrInstances: [{ Name: 'Known Good', Url: 'http://mock-arr:9000', ApiKey: 'k' }] }),
+  });
+  expect(seed.ok(), `baseline save failed: ${seed.status()}`).toBeTruthy();
+
   const started = Date.now();
   const res = await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
@@ -70,9 +79,20 @@ test('oversized RadarrInstances array (10000) → 400, stored list stays ≤3, n
   });
   expect([400, 413]).toContain(res.status());
   expect(Date.now() - started, 'must not hang').toBeLessThan(20_000);
+
   const cfg = await getConfig();
-  expect((cfg.RadarrInstances ?? []).length).toBeLessThanOrEqual(3);
+  const instances = (cfg.RadarrInstances ?? []) as Array<{ Name: string }>;
+  expect(instances.length, 'stored list stays within the cap').toBeLessThanOrEqual(3);
+  // The rejected save must not have wiped the pre-existing known-good instance.
+  expect(instances.map((i) => i.Name), 'rejected oversized save must not corrupt existing config')
+    .toContain('Known Good');
   await assertPluginActive(ctx);
+
+  // Restore the shared default so later specs see a working Radarr instance.
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: JSON.stringify({ RadarrInstances: [{ Name: 'Mock Radarr', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] }),
+  });
 });
 
 test('XML-hostile ExcludedLibraries persists without corrupting the config on read-back', async () => {
