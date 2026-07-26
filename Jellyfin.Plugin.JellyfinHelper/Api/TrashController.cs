@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Mime;
+using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
 using MediaBrowser.Controller.Library;
@@ -495,38 +496,18 @@ public class TrashController : ControllerBase
         // Outside every library root: allow only a dedicated absolute directory that is
         // NOT a known system/sensitive location. This preserves the "trash folder on a
         // separate volume" admin setup while blocking /config, OS dirs, etc.
-        return !IsSensitiveSystemPath(normalizedPath, comparison);
+        return !IsSensitiveSystemPath(normalizedPath);
     }
 
     /// <summary>
     /// True when the path is (or is inside) a well-known system / application directory
     /// that must never be a trash-deletion or relocation target — most importantly
     /// Jellyfin's own <c>/config</c>, plus common OS directories on Linux and Windows.
+    /// Delegates to the shared <see cref="PathValidator.IsSensitiveSystemPath"/> (single
+    /// source of truth; the OS-appropriate comparison is chosen there).
     /// </summary>
-    private static bool IsSensitiveSystemPath(string normalizedPath, StringComparison comparison)
-    {
-        // Jellyfin container/app dirs + standard *nix system roots + Windows system dirs.
-        // A path equal to, or nested under, any of these is refused.
-        string[] sensitiveRoots =
-        {
-            "/config", "/cache", "/data", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
-            "/boot", "/proc", "/sys", "/dev", "/var", "/root", "/run",
-            @"C:\Windows", @"C:\Program Files", @"C:\Program Files (x86)", @"C:\ProgramData",
-        };
-
-        foreach (var sensitive in sensitiveRoots)
-        {
-            var s = sensitive.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (string.Equals(normalizedPath, s, comparison)
-                || normalizedPath.StartsWith(s + "/", comparison)
-                || normalizedPath.StartsWith(s + "\\", comparison))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private static bool IsSensitiveSystemPath(string normalizedPath)
+        => PathValidator.IsSensitiveSystemPath(normalizedPath);
 
     /// <summary>
     /// Checks whether the Jellyfin process has read/write access to a given trash path.

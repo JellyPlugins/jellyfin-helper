@@ -532,35 +532,5 @@ public class LinkRepairService : ILinkRepairService
     ///     and is allowed; only these locations are blocked.
     /// </summary>
     private static bool IsSensitiveSystemTarget(string normalizedTargetPath)
-    {
-        if (string.IsNullOrEmpty(normalizedTargetPath))
-        {
-            return false;
-        }
-
-        var comparison = OperatingSystem.IsWindows()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-        var path = normalizedTargetPath.TrimEnd('/', '\\');
-
-        string[] sensitiveRoots =
-        {
-            "/config", "/cache", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
-            "/boot", "/proc", "/sys", "/dev", "/var", "/root", "/run",
-            @"C:\Windows", @"C:\Program Files", @"C:\Program Files (x86)", @"C:\ProgramData",
-        };
-
-        foreach (var sensitive in sensitiveRoots)
-        {
-            var s = sensitive.TrimEnd('/', '\\');
-            if (string.Equals(path, s, comparison)
-                || path.StartsWith(s + "/", comparison)
-                || path.StartsWith(s + "\\", comparison))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+        => PathValidator.IsSensitiveSystemPath(normalizedTargetPath);
 }

@@ -1810,6 +1810,34 @@ function attachTrashDaysInputHandler() {
  * @param {boolean} useTrash - Whether the trash feature is enabled.
  * @returns {string|null}
  */
+// Mirror of the server-side PathValidator.IsSensitiveSystemPath canonical list. Kept in
+// sync with Services/PathValidator.cs — a protected system/app directory that the trash
+// path (and the folder picker) must never point at. Only meaningful for ABSOLUTE paths;
+// a relative path like ".jellyfin-trash" is resolved under each library and is never
+// sensitive. Client-side check is UX only; the server enforces the real boundary.
+var SENSITIVE_SYSTEM_ROOTS = [
+    '/config', '/cache', '/data', '/etc', '/usr', '/bin', '/sbin', '/lib', '/lib64',
+    '/boot', '/proc', '/sys', '/dev', '/var', '/root', '/run',
+    'C:\\Windows', 'C:\\Program Files', 'C:\\Program Files (x86)', 'C:\\ProgramData'
+];
+
+function isSensitiveSystemPath(path) {
+    if (!path) return false;
+    // Only absolute paths can be sensitive (a leading / or a Windows drive/UNC prefix).
+    var isAbsolute = /^([/\\]|[A-Za-z]:[/\\]|\\\\)/.test(path);
+    if (!isAbsolute) return false;
+    // Normalize separators to '/' and case-fold for a stable comparison (Windows roots are
+    // case-insensitive; on Linux the standard mounts are lowercase anyway).
+    var norm = path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    for (var i = 0; i < SENSITIVE_SYSTEM_ROOTS.length; i++) {
+        var root = SENSITIVE_SYSTEM_ROOTS[i].replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+        if (norm === root || norm.indexOf(root + '/') === 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function validateTrashPath(path, useTrash) {
     // When trash is disabled, path is irrelevant
     if (!useTrash) return null;
@@ -1824,6 +1852,15 @@ function validateTrashPath(path, useTrash) {
     // 1. Global invalid characters (filesystem-unsafe + control chars)
     if (/[*?<>|"\x00-\x1f]/.test(trimmed)) {
         return T('trashPathInvalidChars', 'Path contains invalid characters.');
+    }
+
+    // 1b. An ABSOLUTE path must not point at a protected system / application directory
+    // (Jellyfin's own /config, /data, /cache, OS roots like /etc, C:\Windows). Mirrors the
+    // shared server-side guard (PathValidator.IsSensitiveSystemPath) so the user gets the
+    // same immediate, inline feedback the picker gives — before the save round-trips and is
+    // rejected with a 400. A relative path (the common ".jellyfin-trash") is never sensitive.
+    if (isSensitiveSystemPath(trimmed)) {
+        return T('trashPathSensitive', 'This is a protected system folder and cannot be used.');
     }
 
     // 2. Must not end with slash or backslash

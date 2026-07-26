@@ -354,6 +354,7 @@
   "trashPathOnlySlashes": "O caminho não pode consistir apenas em barras ou barras invertidas, ou em caracteres inválidos.",
   "trashPathDoubleSlash": "O caminho não deve conter barras ou barras invertidas consecutivas.",
   "trashPathDotSegment": "O caminho não deve conter referências de diretório '.' ou '..'.",
+  "trashPathSensitive": "Esta é uma pasta de sistema protegida e não pode ser usada.",
   "trashPathTrailingSlash": "O caminho não deve terminar com uma barra ou barra invertida.",
   "trashPathSegmentEnds": "Nomes de pastas não devem terminar com ponto ou espaço.",
   "libraryNoneExcluded": "Nenhuma excluída (padrão)",

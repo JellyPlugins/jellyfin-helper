@@ -21,6 +21,20 @@ internal static class PathValidator
             .ToHashSet();
 
     /// <summary>
+    /// Canonical set of sensitive system directories that plugin features must never
+    /// read from, write to, delete, browse into, or repair links toward. This is the
+    /// single source of truth — previously each of LinkRepairService, TrashController
+    /// and FolderBrowserService kept its own (drifting) copy. Includes Jellyfin's own
+    /// data/config/cache mounts and OS system roots on both Linux and Windows.
+    /// </summary>
+    private static readonly string[] SensitiveSystemRoots =
+    {
+        "/config", "/cache", "/data", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
+        "/boot", "/proc", "/sys", "/dev", "/var", "/root", "/run",
+        @"C:\Windows", @"C:\Program Files", @"C:\Program Files (x86)", @"C:\ProgramData",
+    };
+
+    /// <summary>
     /// Validates that a given path does not contain path traversal sequences
     /// and resolves to a location within the allowed base directory.
     /// </summary>
@@ -138,6 +152,41 @@ internal static class PathValidator
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Determines whether a fully-normalized absolute path equals, or is inside, a
+    /// sensitive system directory (see <see cref="SensitiveSystemRoots"/>). Callers pass
+    /// an already-normalized path (e.g. from <see cref="Path.GetFullPath(string)"/>).
+    /// A cross-location media target (another library / mount) is NOT sensitive — only
+    /// the well-known system/config locations are refused.
+    /// </summary>
+    /// <param name="normalizedPath">A normalized absolute path.</param>
+    /// <returns><c>true</c> if the path is a sensitive system location; otherwise <c>false</c>.</returns>
+    internal static bool IsSensitiveSystemPath(string? normalizedPath)
+    {
+        if (string.IsNullOrEmpty(normalizedPath))
+        {
+            return false;
+        }
+
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var path = normalizedPath.TrimEnd('/', '\\');
+
+        foreach (var sensitive in SensitiveSystemRoots)
+        {
+            var s = sensitive.TrimEnd('/', '\\');
+            if (string.Equals(path, s, comparison)
+                || path.StartsWith(s + "/", comparison)
+                || path.StartsWith(s + "\\", comparison))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

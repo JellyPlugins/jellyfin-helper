@@ -217,6 +217,45 @@ public sealed class FolderBrowserServiceTests : IDisposable
         Assert.Equal("Path must be absolute.", _service.ValidatePath("C:temp"));
     }
 
+    // ===== ValidatePath: sensitive system directories are refused =====
+
+    [Fact]
+    public void ValidatePath_SensitiveSystemDir_IsRefused_Posix()
+    {
+        // On Linux/macOS, well-known system + Jellyfin app dirs must be refused with the
+        // protected-folder message (never browsed into or selected).
+        if (OperatingSystem.IsWindows()) return;
+        foreach (var sensitive in new[] { "/etc", "/config", "/data", "/var", "/proc", "/etc/ssl" })
+        {
+            Assert.Equal(
+                "This is a protected system folder and cannot be browsed.",
+                _service.ValidatePath(sensitive));
+        }
+    }
+
+    [Fact]
+    public void ValidatePath_SensitiveSystemDir_IsRefused_Windows()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        foreach (var sensitive in new[] { @"C:\Windows", @"C:\Windows\System32", @"C:\Program Files" })
+        {
+            Assert.Equal(
+                "This is a protected system folder and cannot be browsed.",
+                _service.ValidatePath(sensitive));
+        }
+    }
+
+    [Fact]
+    public void ValidatePath_SensitiveCheckPrecedesExistence()
+    {
+        // The sensitive-path refusal must fire regardless of whether the dir exists on the
+        // test host — /config need not exist on a Windows dev box for the guard to apply.
+        if (OperatingSystem.IsWindows()) return;
+        Assert.Equal(
+            "This is a protected system folder and cannot be browsed.",
+            _service.ValidatePath("/config/data/plugins"));
+    }
+
     // ===== ValidatePath: existence / kind =====
 
     [Fact]

@@ -311,6 +311,20 @@ public class FolderBrowserService : IFolderBrowserService
         {
             var normalized = Path.GetFullPath(path);
 
+            // Refuse sensitive system / application directories (Jellyfin's own /config, /data,
+            // OS roots like /etc, C:\Windows, …). The folder picker must never browse into or
+            // select these — mirrors the same guard used by link-repair and trash operations
+            // (shared PathValidator.IsSensitiveSystemPath). Log a warning so a manual attempt to
+            // reach a sensitive path leaves an audit trail (the explicit '..'/absolute rejects
+            // above are benign typos; a sensitive-target request is worth recording).
+            if (PathValidator.IsSensitiveSystemPath(normalized))
+            {
+                _logger.LogWarning(
+                    "Folder-browse request refused for sensitive system path {Path}",
+                    SanitizeForLog(path));
+                return "This is a protected system folder and cannot be browsed.";
+            }
+
             // Verify directory exists — use Attributes to distinguish access-denied from missing.
             // Directory.Exists() returns false for BOTH cases, which would collapse
             // permission errors into the wrong "does not exist" message. However, on modern .NET
@@ -451,6 +465,17 @@ public class FolderBrowserService : IFolderBrowserService
     /// <returns>True if the directory should be hidden from the browser.</returns>
     private static bool IsSystemOrHiddenCritical(DirectoryInfo dirInfo)
     {
+        // Hide sensitive system / application directories from listings entirely, on every
+        // OS — Jellyfin's own /config, /data, /cache and OS roots like /etc, C:\Windows.
+        // Uses the shared PathValidator source of truth so the picker, link-repair and trash
+        // guards all agree on what "sensitive" means. (This supersedes the narrow, Linux-only
+        // DangerousLinuxPaths set below, which is kept for its /proc,/sys,… entries that are
+        // also covered here.)
+        if (PathValidator.IsSensitiveSystemPath(dirInfo.FullName))
+        {
+            return true;
+        }
+
         // Block dangerous Linux/macOS virtual file-systems by absolute path
         if (!OperatingSystem.IsWindows())
         {

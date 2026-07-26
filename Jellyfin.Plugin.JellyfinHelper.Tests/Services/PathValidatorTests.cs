@@ -162,4 +162,48 @@ public class PathValidatorTests
             Path.DirectorySeparatorChar.ToString(), "media", "..", "etc");
         Assert.False(PathValidator.IsSafePath(path, Path.Combine(Path.DirectorySeparatorChar.ToString(), "media")));
     }
+
+    // ===== IsSensitiveSystemPath =====
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void IsSensitiveSystemPath_NullOrEmpty_ReturnsFalse(string? path)
+        => Assert.False(PathValidator.IsSensitiveSystemPath(path));
+
+    [Theory]
+    [InlineData("/config")]
+    [InlineData("/config/data/plugins")]
+    [InlineData("/data")]
+    [InlineData("/cache")]
+    [InlineData("/etc")]
+    [InlineData("/etc/ssl/private")]
+    [InlineData("/var/log")]
+    [InlineData("/proc")]
+    [InlineData("/root")]
+    public void IsSensitiveSystemPath_PosixSystemRoots_ReturnTrue(string path)
+        => Assert.True(PathValidator.IsSensitiveSystemPath(path));
+
+    [Theory]
+    [InlineData("/media")]
+    [InlineData("/media/Movies")]
+    [InlineData("/mnt/library2")]
+    [InlineData("/srv/media")]
+    [InlineData("/configuration")] // NOT /config — must not false-match on a prefix
+    [InlineData("/etcetera")] // NOT /etc
+    public void IsSensitiveSystemPath_MediaAndLookalikes_ReturnFalse(string path)
+        => Assert.False(PathValidator.IsSensitiveSystemPath(path));
+
+    [Theory]
+    [InlineData(@"C:\Windows")]
+    [InlineData(@"C:\Windows\System32")]
+    [InlineData(@"C:\Program Files")]
+    [InlineData(@"C:\Program Files (x86)\Foo")]
+    [InlineData(@"C:\ProgramData")]
+    public void IsSensitiveSystemPath_WindowsSystemRoots_ReturnTrue(string path)
+    {
+        // Windows roots are matched case-insensitively; the check is OS-agnostic on the
+        // literal string, so this holds on any host runner.
+        Assert.True(PathValidator.IsSensitiveSystemPath(path));
+    }
 }
