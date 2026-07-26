@@ -105,6 +105,29 @@ Beyond "does it route / does the UI render", the suite now proves features
 - Import success summary is a PascalCase four-field object; `CredentialsChanged` flips on a new key.
 - Wrong Content-Type rejected (400/415) before body read.
 
+## 7g. Backup versioning & config schema-evolution → `migration.api.spec.ts`
+- Forward-dated `backupVersion` (2) → 400 with an `errors[]` naming the unsupported version
+  (only `{1}` is accepted; `BackupValidator.MaxBackupVersion=1`); 999 / -1 / 0 likewise 400.
+- **Missing** `backupVersion` → accepted (deserializes to the C# default 1), 200 with `ConfigurationRestored`.
+- Non-numeric `backupVersion` ("abc") → a **distinct** 400 (`could not parse`, no `errors[]`), separating
+  the parse-failure branch from the version-range validation branch.
+- Older-shaped backup (newer fields absent) restores with safe defaults: `DiscoveryUserAccessEnabled`
+  and `SyncRecommendationsToPlaylist` → false, `RecommendationsTaskMode` → `DryRun` (ParseTaskMode
+  fallback), and a null `SeerrCleanupAgeDays` leaves the prior live value unchanged.
+- Unknown/removed fields are silently ignored on both backup import and `PUT /Configuration` (no reject).
+- `GET /Configuration` exposes an inert numeric `ConfigVersion` (pinned so a future migration can build on it).
+
+## 7h. Idempotency — repeated mutations converge → `idempotency.api.spec.ts`
+- Re-importing the SAME secrets backup: `CredentialsChanged` flips **true → false** (run 2's key already
+  matches), and every restored config scalar is identical after both imports (pure overwrite, no drift).
+- `PUT /Configuration` twice with the same body → identical `GET` state (keys sent masked so no
+  network-dependent connection-test warnings make the assertion flaky).
+- Admin `Discovery/Request` submitted twice → the mock's forwarded-request count increments to **2**:
+  the plugin deliberately does **not** dedupe the upstream Seerr submission (local cache/feedback
+  bookkeeping dedupes; the submission does not) — asserting the correct behavior, not a wrong "dedupe".
+- `Trash/Relocate` of an already-drained source → clean no-op `{Moved:0, Failed:0}` 200, destination
+  untouched (filesystem-backed; skips loudly without docker).
+
 ## 7e. Trash contract & path-safety → `trash.api.spec.ts`
 - `Trash/Folders` shape (`IsAbsolute`, `Paths[]`); `Trash/Contents` shape (`UseTrash`, `RetentionDays`, `Libraries[]`).
 - `CheckAccess` rejects traversal + overlong; missing body/field → 400 `{Error}`.
@@ -245,6 +268,15 @@ process that first plants them). Without Docker the destructive specs skip loudl
 ## Still NOT covered (and why)
 - ⚠️ **Real Radarr/Sonarr/Seerr servers** — replaced by mocks by design; mocks return the exact
   response shapes the plugin deserializes.
+- ⚠️ **Backup restore partial-failure / "manual-recovery" branch** (`BackupService.RestoreBackup`) —
+  only triggers when a timeline/baseline file write succeeds and a later step throws. File writes
+  swallow I/O errors (return false, no throw) and every restored config value is clamped/sanitized
+  before write, so validated HTTP input cannot make the config-restore step throw. Reaching it needs
+  filesystem/permission tampering — deliberately out of scope for the HTTP-only `migration.api.spec.ts`
+  rather than faked with a vacuous assertion. Covered instead at the unit level.
+- ⚠️ **XML config schema migration on load** (obsolete-element discarding, clamp-report startup
+  warnings) — happens during `XmlSerializer` load of the on-disk config; no HTTP endpoint feeds
+  arbitrary XML. The clamp *effect* is testable via a config round-trip; the load-time warning is not.
 - ⚠️ **`DELETE /Trash/Folders` mass deletion** — routing/guards tested, not bulk removal (determinism).
 - ⚠️ **`MaxRecommendationsPerUser` persistence** — no API update field by design (read-only / XML-only).
 - ⚠️ **Trends chart hover tooltip** (mouse-driven SVG) — data validated at the API layer instead.
