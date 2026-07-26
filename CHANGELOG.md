@@ -7,46 +7,48 @@ and this project uses 4-part versioning (`x.x.x.x`) consistent with the Jellyfin
 
 ## [3.0.0.0] - 2026-07-25
 
-### Added
-- **Smarter recommendation engine** - The neural network behind your recommendations is now four times bigger and uses dropout regularisation, so it learns your taste more reliably and generalises better beyond what you've already watched.
-
-### Improved
-- **Better recommendations from day one** - Re-watching a favourite nudges the algorithm noticeably now. Actors and directors you love outrank cameo overlaps. Box-set suggestions ("finish the trilogy") stay consistent between what you see and what the model learned from.
-- **Fairer cold-start** - Brand-new users get community-blended suggestions (top-rated + trending) instead of pure recency, so the first list feels curated rather than random.
-- **More diverse top picks** - Ranking now balances genre, studio and release era — no more ten Marvel films in a row.
-- **Faster scans on big libraries** - Watch-history and recommendation scans use Jellyfin 12's batch APIs; on large libraries this shaves seconds off every scheduled run.
-- **Cleaner Settings page** - Reorganised into four clear cards (General, Tasks & Trash, Integrations, Backup) with a sticky save bar and an unsaved-changes indicator, so nothing gets lost.
-- **Health tab now in tidy cards** - Library health checks and trash contents each live in their own card, so the page feels calmer and easier to scan.
-- **Arr tab redesigned** - Instead of one button per instance, each Arr type (Radarr, Sonarr) now has a single dropdown to pick which instance to compare, with a live "reachable" indicator right on the dropdown (green tick, red cross, or a spinner while checking). Fewer buttons, no more layout jumping when instance names differ in length, and you see straight away whether the selected instance is online.
-- **Better on phones** - The Health, Arr and Settings tabs now shrink their padding on small screens and keep long library names and file paths from breaking the layout.
-- **Compact weight serialization** - Persisted recommendation weights now use compact (non-indented) JSON, roughly a third the size of the equivalent indented form. Note: the v3 neural architecture has ~4.5× more parameters than v2, so on-disk files are larger than v2 files even in compact form.
-- **Discovery credits enrichment 15× faster** - The per-user credits enrichment loop (up to 20 Seerr API calls) now runs with 3-way concurrency instead of sequentially. Worst-case per-user time drops from ~610 s to ~40 s. Each call also has a 5 s individual timeout so a single slow response no longer blocks the rest.
-
-### Security
-- **API keys protected on the settings page** - Saved API keys (Seerr, Radarr, Sonarr) are no longer sent back to the browser when the settings page loads. The fields show a placeholder instead, and saving without changing a field leaves the stored key untouched.
-- **Backup downloads warn about stored credentials** - The plugin now flags when a backup file contains API keys, so you know to keep the file private.
-- **Audit log when a backup replaces credentials** - Importing a backup that overwrites a stored API key is now recorded in the plugin log, giving you a clear trail if credentials change unexpectedly.
-- **Trash access check uses fully-qualified path validation on Windows** - The access-check endpoint now requires fully-qualified paths (e.g. `C:\...`) instead of merely rooted ones, closing a gap where Windows root-relative paths like `\Windows\System32` could bypass the library-containment guard.
-
-### Fixed
-- **Recommendations sometimes silently drifted** - Four subtle bugs where training and live scoring used slightly different formulas (weekend detection, popularity, box-set progression, discovery feedback). Your recommendations are now trained on exactly the same signals they're scored on.
-- **Rare "lost save" on Windows** - Cache and state files could occasionally be dropped when an antivirus scanner briefly held the target file. All writes now retry automatically.
-- **HTTP connection pool exhaustion under load** - The Seerr HTTP client was incorrectly disposed after each call, destroying the connection pool. All calls now share the factory-managed handler correctly.
-- **Duplicate API-key headers on repeated Seerr calls** - The `X-Api-Key` header was appended to the shared client on every call instead of being set per request, causing header accumulation. Each request now carries its own headers.
-- **Backup restore credential race** - A concurrent config save during restore could silently mix fields from two sources. The entire read-mutate-save sequence is now lock-guarded.
-- **Partial restore inconsistency** - Historical data files (timeline, baseline) are now written *before* the configuration is saved, eliminating the window where credentials were updated but data was still stale on a failed file write.
-- **`SeerrCleanupAgeDays = 0` treated as absent in backup** - A legitimate zero value was silently skipped during restore. The field is now nullable so `null` means absent and `0` means immediate cleanup.
-- **Backup restore accepted `file://` URLs** - The `SeerrUrl` field in a backup was applied without scheme validation. Only `http://` and `https://` URLs are now accepted during restore.
-- **Seerr cleanup could delete available or partially-available requests** - The expiry guard previously only protected status 2 (approved). Statuses 4 (available) and 5 (partially available) - requests whose content has already been downloaded are now also protected from deletion.
-- **Seerr cleanup pagination was unbounded** - The request-list loop now stops after 200 pages (10 000 requests) regardless of what the API reports as the total result count, preventing runaway memory accumulation on misconfigured or adversarial instances.
-- **Library-root collections filter used substring matching** - Jellyfin's internal `collections` directory was excluded using a substring check (`Contains("/collections")`), which could incorrectly exclude libraries whose *parent* directory happened to contain the word. The filter now checks path segments exactly.
+A major release for Jellyfin 12. Smarter, fairer recommendations; a redesigned
+dashboard; a big push on security and data-safety; and a brand-new end-to-end
+test suite that runs the plugin inside a real Jellyfin server on every change.
 
 ### Breaking
-- **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on Jellyfin 10.x, stay on v2.1.0.6 (served from the same plugin repository).
+- **Requires Jellyfin 12.0+** - v3.x will not install on Jellyfin 10.x. If you're still on 10.x, stay on v2.1.0.6 (served from the same plugin repository).
+- **Recommendations retrain from scratch** - The recommendation model is a new, much larger design, so any model your server had already trained is discarded on upgrade and rebuilt automatically over the next scheduled runs. Your suggestions settle back in after the plugin has seen your library again.
+- **A few API responses changed** (only relevant if you script against the plugin) - Saving configuration now uses `PUT` instead of `POST`; the log level is set through its own endpoint rather than the settings save; and several endpoints return clearer status codes (a submitted request now reports "created", clearing logs reports "no content", a failed integration test reports a gateway error instead of a fake success, and the user-activity endpoints report "unavailable" until the scheduled task has built their data). The growth-timeline export field `totalFilesScanned` is now `totalDirectoriesScanned`.
+
+### Added
+- **Smarter recommendation engine** - The neural network behind your recommendations is much bigger now and uses dropout regularisation, so it learns your taste more reliably and generalises better beyond what you've already watched.
+- **Recommendation tuning without a restart** - The ensemble balance and diversity controls can be adjusted from configuration and take effect immediately.
+
+### Improved
+- **Better recommendations from day one** - Re-watching a favourite nudges the algorithm noticeably now. Actors and directors you love outrank cameo overlaps. Shows you actually finished shape your taste more than ones you dropped after two episodes. Box-set suggestions ("finish the trilogy") stay consistent between what you see and what the model learned from.
+- **Fairer cold-start** - Brand-new users get community-blended suggestions (top-rated + trending + what the rest of the household watches) instead of pure recency, so the first list feels curated rather than random.
+- **More diverse top picks** - Ranking now balances genre, studio and release era together - no more ten near-identical superhero films in a row. Small recommendation lists no longer fill up with random exploration picks, and your list stays stable across a restart on the same day.
+- **Fresh suggestions between nightly runs** - On-demand recommendations now notice newly added library items within about half an hour, instead of waiting for the next scheduled run.
+- **Faster on big libraries** - Watch-history and recommendation scans use Jellyfin 12's batch APIs, and the Discovery credits lookup now runs several calls at once (with a per-call timeout), cutting worst-case time dramatically.
+- **Cleaner Settings page** - Reorganised into clear cards (General, Tasks & Trash, Integrations, Backup) with a sticky save bar and an unsaved-changes indicator, so nothing gets lost.
+- **Health tab in tidy cards** - Library health checks and trash contents each live in their own card.
+- **Arr tab redesigned** - Each Arr type (Radarr, Sonarr) now has a single dropdown to pick which instance to compare, with a live "reachable" indicator right on the dropdown (green tick, red cross, or a spinner while checking). Fewer buttons, no layout jumping, and you see at a glance whether the selected instance is online.
+- **Better on phones** - Health, Arr and Settings shrink their padding on small screens and keep long names and paths from breaking the layout.
+- **Sturdier saves** - Configuration, cache and model files now write atomically and retry automatically, so a passing antivirus or indexer scan can no longer cause a rare "lost save". Hand-edited config values that are out of range are gently corrected and reported as a startup warning instead of silently breaking things.
+
+### Security
+- **API keys never leave the server in plain text** - Saved keys (Seerr, Radarr, Sonarr) are masked everywhere they'd otherwise be sent to the browser, and saving without changing a field keeps the stored key untouched.
+- **Safer backups** - Backup downloads leave API keys out by default and flag when a file does contain secrets, so you know to keep it private. Importing a backup that replaces a key is recorded in the plugin log.
+- **Cleanup can never escape your libraries** - Trash, delete, relocate and link-repair now refuse system locations (like `/config`, `/etc`, `C:\Windows`), stay strictly inside your configured libraries (even when libraries are nested), and reject path-traversal tricks. Link repair also refuses to point at unsafe targets.
+- **Blocked server-probing and injection tricks** - Connection tests only accept normal web addresses (no probing internal services), API keys with hidden control characters are rejected, and the dashboard escapes text so a crafted library or file name can't inject content into the page.
+- **Guards against abuse and corruption** - Discovery requests and timeline recomputes are rate-limited, and corrupted or oversized data files are rejected on load instead of crashing the plugin.
+
+### Fixed
+- **Recommendations no longer silently drift** - Several subtle mismatches where training and live scoring used slightly different signals (weekend detection, popularity, box-set progression, series handling, discovery feedback) are fixed, so your recommendations are scored on exactly what they were trained on.
+- **Trash and cleanup are safer** - A retention of 0 now truly turns purging off; trashing a shortcut removes only the shortcut, never the file it points to; shortcut detection is fixed on Windows (and no longer trips over OneDrive/cloud placeholders); and very deep folder trees no longer risk a crash during scanning.
+- **More accurate library stats** - Audio files are no longer mistaken for orphaned metadata, sidecar subtitles are recognised, very large libraries no longer overflow their counters, and growth totals can't go negative.
+- **Safer Seerr cleanup** - It never deletes requests whose content is already available, stops early if the request list couldn't be fully read (rather than acting on a partial view), and won't run away on a huge or misbehaving server.
+- **More reliable backup restore** - Restore is lock-guarded and writes history data before configuration, an age of 0 is honoured, and only normal web addresses are accepted.
 
 ### Tests
-- Total: **4253 tests** (+1928 vs. v2.1.0.6). New test classes: `ResponseDtoTests` (63 tests covering all 17 typed response DTOs — defaults, round-trip, null-safety, collection defaults).
-- **New end-to-end test suite** - Alongside the unit tests, the plugin now runs inside a real Jellyfin 12 server (in a throwaway container, with stand-in Radarr/Sonarr/Jellyseerr services) and is exercised the way a real user would: changing settings, running the cleanup task in each mode, importing/exporting a backup, and clicking through every dashboard tab. It also deliberately throws bad input and edge cases at the plugin to prove your media stays put — cleanup never deletes or touches anything outside your libraries. This catches problems that only show up once everything is wired together, and it runs automatically on every change.
+- **New end-to-end test suite** - Alongside the unit tests, the plugin now runs inside a real Jellyfin 12 server (in a throwaway container, with stand-in Radarr/Sonarr/Jellyseerr services) and is exercised the way a real user would: changing settings, running each cleanup mode, importing/exporting a backup, and clicking through every dashboard tab. It also deliberately throws bad and hostile input at the plugin and uses "canary" files to prove that cleanup never deletes or touches anything outside your libraries, and that every admin-only action stays locked to admins. **267 tests across 42 files**, running automatically on every change plus a nightly full run.
+- **Unit tests: 4253 total** (+1928 vs. v2.1.0.6), including full coverage of the typed API responses.
 
 ---
 

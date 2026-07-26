@@ -13,13 +13,16 @@ owner: "JellyPlugins"
 artifacts:
   - "Jellyfin.Plugin.JellyfinHelper.dll"
 changelog: |-
-  v3.0.0.0 — Major release for Jellyfin 12.0+
+  v3.0.0.0 - Major release for Jellyfin 12.0+
 
-  - Smarter recommendations: a bigger neural net (4.5x more parameters), fairer cold-start for new users, and more diverse top picks (no more ten Marvel films in a row)
-  - Faster scans on big libraries using Jellyfin 12 batch APIs
-  - Fixed four train/score divergence bugs in the recommendation engine
-  - Settings and Health redesigned into tidy cards; Arr tab redesigned with a single dropdown + Compare button and a live reachability indicator
+  - Smarter recommendations: a much bigger model, fairer suggestions for brand-new users, and more variety in your top picks (no more ten near-identical films in a row)
+  - Fresh picks appear between nightly runs, and faster generation on big libraries
+  - Redesigned Settings, Health and Arr tabs with a live 'reachable' indicator, plus a sticky save bar and unsaved-changes warning
   - Better on phones
-  - Security: saved API keys are no longer sent back to the browser; backup downloads warn about stored credentials; credential-replacing imports are audit-logged
-  - New end-to-end test suite runs the plugin inside a real Jellyfin 12 server on every change, and deliberately throws bad input at it to prove cleanup never deletes or touches anything outside your libraries
-  - Breaking: requires Jellyfin 12.0 — users on Jellyfin 10.x should stay on v2.1.0.6
+  - Stronger security: API keys are never shown to the browser, backups can leave keys out, and cleanup can never delete or touch anything outside your media libraries
+  - Safer trash and cleanup: turning retention off really turns it off, trashing a shortcut never removes the file it points to, and Windows shortcut handling is fixed
+  - More accurate library stats and safer Seerr request cleanup
+  - More reliable saves and backups (no more rare 'lost save' when antivirus is scanning)
+  - New end-to-end test suite runs the plugin inside a real Jellyfin 12 server on every change and proves cleanup stays inside your libraries
+  - Note: your recommendation model retrains from scratch after upgrading, so suggestions settle back in over the next scheduled runs
+  - Requires Jellyfin 12.0 - if you are on Jellyfin 10.x, stay on v2.1.0.6
