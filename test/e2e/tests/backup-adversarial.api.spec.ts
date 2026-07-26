@@ -4,8 +4,8 @@
  * media library.
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { apiContext, loadAuth, p, assertPluginActive, runCleanupTask } from '../setup/api-client.ts';
-import { ensureCanariesPlanted, verifyCanaries, containerFileExists } from '../setup/fs-assert.ts';
+import { apiContext, loadAuth, p, assertPluginActive, runCleanupTask, runLibraryScan } from '../setup/api-client.ts';
+import { ensureCanariesPlanted, verifyCanaries, containerFileExists, regenFixtures } from '../setup/fs-assert.ts';
 
 let ctx: APIRequestContext;
 
@@ -84,33 +84,43 @@ test('mixed [valid, null] instances: null dropped, valid kept, never 500', async
 
 test('absolute /config trashFolderPath in a backup does not let cleanup escape', async () => {
   ensureCanariesPlanted(); // plants + asserts a canary exists (skips loudly w/o docker)
-  const backup = await exportBackup();
-  Object.assign(backup, { useTrash: true, trashFolderPath: '/config', trashRetentionDays: 30 });
-  const res = await importBackup(backup);
-  expect(res.status()).toBeLessThan(500);
 
-  // Actually RUN a cleanup with the destructive FS stages ACTIVE — a mere PUT that
-  // leaves every stage Deactivated would prove nothing. Even with trashFolderPath
-  // pointing at /config, the run must not delete/move anything under /config.
-  const enableRes = await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: {
-      UseTrash: true, TrashFolderPath: '/config',
-      TrickplayTaskMode: 'Activate', EmptyMediaFolderTaskMode: 'Activate',
-      OrphanedSubtitleTaskMode: 'Activate', LinkRepairTaskMode: 'Activate',
-      SeerrCleanupTaskMode: 'Deactivate', RecommendationsTaskMode: 'Deactivate',
-    },
+  // Drive the ENTIRE hostile setup through the backup IMPORT, not a PUT. The import
+  // guard (BackupService.RestoreConfiguration) only strips `..` traversal — it does
+  // NOT reject an absolute sensitive path — so it persists trashFolderPath='/config'
+  // verbatim AND applies the task modes from the backup. A PUT /Configuration with
+  // a sensitive absolute TrashFolderPath + UseTrash:true is (correctly) rejected 400
+  // by ValidateTrashPathStrict, so it can't be used to arm this test. This asymmetry
+  // — weaker import guard vs stricter PUT guard — is exactly what the test proves:
+  // even when /config slips in via import with the destructive FS stages ACTIVE,
+  // cleanup must still refuse to touch anything under /config.
+  // (Task-mode keys are camelCase so System.Text.Json binds them onto BackupData.)
+  const backup = await exportBackup();
+  Object.assign(backup, {
+    useTrash: true,
+    trashFolderPath: '/config',
+    trashRetentionDays: 30,
+    trickplayTaskMode: 'Activate',
+    emptyMediaFolderTaskMode: 'Activate',
+    orphanedSubtitleTaskMode: 'Activate',
+    linkRepairTaskMode: 'Activate',
+    seerrCleanupTaskMode: 'Deactivate',
+    recommendationsTaskMode: 'Deactivate',
   });
-  expect(enableRes.ok(), `enabling PUT failed: ${enableRes.status()}`).toBeTruthy();
+  const res = await importBackup(backup);
+  expect(res.status(), 'hostile /config import must not 500').toBeLessThan(500);
+
   try {
+    // Cleanup now runs with the destructive FS stages ACTIVE and trash pointed at
+    // /config. Even so, nothing under /config may be deleted or moved.
     const result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status, 'cleanup task must not have crashed').toBe('Completed');
     expect(containerFileExists('/config/jfh-canary/marker.txt')).toBe(true);
     expect(verifyCanaries()).toEqual([]);
   } finally {
-    // ALWAYS restore a safe trash path and re-deactivate the destructive stages —
-    // even if an assertion threw — so the shared container is never left with FS
-    // cleanup stages enabled and a /config trash target for later specs.
+    // ALWAYS restore a SAFE, relative trash path and re-deactivate the destructive
+    // stages — even if an assertion threw. A relative path ('.jellyfin-trash') is not
+    // sensitive, so this PUT is accepted (never 400) by ValidateTrashPathStrict.
     await ctx
       .put(p('Configuration'), {
         headers: { 'Content-Type': 'application/json' },
@@ -121,6 +131,13 @@ test('absolute /config trashFolderPath in a backup does not let cleanup escape',
         },
       })
       .catch(() => undefined);
+    // This is the first spec that runs the destructive FS stages GENUINELY active
+    // against /media (the old PUT-based version 400'd and never truly activated them).
+    // Those stages consume the shared /media fixtures, so rebuild them and re-scan —
+    // otherwise later FS specs that DON'T regenerate (growth-timeline-fs, insights-fs,
+    // media-stats-fs) would see a depleted library.
+    regenFixtures();
+    await runLibraryScan(ctx).catch(() => undefined);
   }
   await assertPluginActive(ctx);
 });
