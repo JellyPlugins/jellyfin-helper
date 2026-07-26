@@ -27,36 +27,71 @@ export async function openDashboard(page: Page): Promise<void> {
   const infoRes = await page.request.get(`${base}/System/Info/Public`);
   const serverId = ((await infoRes.json()) as { Id: string }).Id;
 
-  // Visit root first so localStorage is scoped to the right origin.
-  await page.goto(`${base}/web/index.html`);
-
-  await page.evaluate(
-    ({ base, token, userId, serverId }) => {
-      const creds = {
+  // Field names + the sign-in gate are taken from jellyfin-apiclient
+  // (connectToServer): State = AccessToken && enableAutoLogin !== false
+  // ? "SignedIn" : "ServerSignIn". Addresses on reconnect are read from the
+  // PascalCase ManualAddress/LocalAddress (lowercase manualAddress is ignored),
+  // and enableAutoLogin must already be set before boot.
+  //
+  // This runs in the BROWSER, so it must be a pure function of its argument —
+  // it cannot close over Node-scope variables (base/auth/serverId).
+  const seedArg = { base, token: auth.token, userId: auth.userId, serverId };
+  const seedCreds = (a: { base: string; token: string; userId: string; serverId: string }) => {
+    localStorage.setItem(
+      'jellyfin_credentials',
+      JSON.stringify({
         Servers: [
           {
-            manualAddress: base,
-            Id: serverId,
-            AccessToken: token,
-            UserId: userId,
-            DateLastAccessed: Date.now(),
+            Id: a.serverId,
+            ManualAddress: a.base,
+            LocalAddress: a.base,
+            AccessToken: a.token,
+            UserId: a.userId,
+            DateLastAccessed: 1,
             LastConnectionMode: 1,
           },
         ],
-      };
-      localStorage.setItem('jellyfin_credentials', JSON.stringify(creds));
-      localStorage.setItem('enableAutoLogin', 'true');
-    },
-    { base, token: auth.token, userId: auth.userId, serverId },
-  );
+      }),
+    );
+    localStorage.setItem('enableAutoLogin', 'true');
+  };
 
-  // Navigate straight to the plugin config page. The page is registered under
-  // the plugin's Name ("Jellyfin Helper", with a space) — the un-encoded
-  // "JellyfinHelper" 404s and the shell never mounts.
-  await page.goto(`${base}/web/index.html#!/configurationpage?name=${encodeURIComponent('Jellyfin Helper')}`);
+  // Re-seed on EVERY document load (runs before any page script) so the value
+  // is present the instant the credentialProvider constructor reads it — this
+  // covers the initial load and the config-page load below without a race.
+  await page.addInitScript(seedCreds, seedArg);
 
-  // The shell is injected asynchronously; wait for the tab bar to exist.
-  await expect(page.locator('.tab-bar')).toBeVisible({ timeout: 30_000 });
+  // First load establishes the origin + runs the init script. Also seed
+  // explicitly in case init-script timing differs across browsers.
+  await page.goto(`${base}/web/index.html`);
+  await page.evaluate(seedCreds, seedArg);
+
+  // Navigate to the plugin config page as a FULL document load so
+  // ServerConnections is constructed fresh against the (now seeded) store and
+  // resolves to SignedIn instead of redirecting to /session/login. The page is
+  // registered under the plugin's Name ("Jellyfin Helper", with a space) — the
+  // un-encoded "JellyfinHelper" 404s and the shell never mounts.
+  const configUrl = `${base}/web/index.html#!/configurationpage?name=${encodeURIComponent('Jellyfin Helper')}`;
+  // A plain goto to a URL that differs only in the hash from the current one
+  // is treated as a same-document nav and won't re-boot the SPA. We're coming
+  // from #/ (home) here, but force a reload afterwards to be certain the app
+  // re-initializes from the seeded credentials and lands on the config route.
+  await page.goto(configUrl);
+  await page.reload();
+
+  // If the app briefly lands on the dashboard home after auto-login instead of
+  // the deep-linked config route, nudge it back to the config page (a hash nav
+  // is enough here — the SPA is already booted + signed in).
+  const tabBar = page.locator('.tab-bar');
+  try {
+    await expect(tabBar).toBeVisible({ timeout: 20_000 });
+  } catch {
+    await page.evaluate((url) => {
+      window.location.hash = new URL(url).hash;
+    }, configUrl);
+    // The shell is injected asynchronously; wait for the tab bar to exist.
+    await expect(tabBar).toBeVisible({ timeout: 15_000 });
+  }
 }
 
 /** Switch to a tab by its data-tab value and assert the panel becomes active. */

@@ -59,13 +59,16 @@ test('Logs tab: clear opens confirm dialog and empties on confirm', async ({ pag
   await expect(dialog).toBeVisible();
 
   // Confirm (the danger button) → DELETE /Logs; assert it SUCCEEDS and the
-  // table shows the empty state afterwards.
+  // table shows the empty state afterwards. Dialog buttons are built by
+  // createDialogBtn(), which sets only inline styles — no CSS class — so the
+  // confirm button must be matched by its label (Cancel / Clear), not a class.
+  const confirmBtn = dialog.getByRole('button', { name: /clear|löschen|leeren/i }).last();
   const [delResp] = await Promise.all([
     page.waitForResponse(
       (r) => r.url().includes('/JellyfinHelper/Logs') && r.request().method() === 'DELETE',
       { timeout: 15_000 },
     ),
-    dialog.locator('.logs-btn.danger, button.danger').last().click(),
+    confirmBtn.click(),
   ]);
   expect([200, 204], `Logs DELETE status ${delResp.status()}`).toContain(delResp.status());
   // After clearing, the buffer is empty; the empty-state or a reduced table

@@ -59,9 +59,21 @@ test('after saving, leaving the tab does NOT show the dialog', async ({ page }) 
   await openSettings(page);
   await makeDirty(page);
 
-  // Save via the band button.
-  await page.locator('#btnSaveSettings').click();
-  // Band transitions to saved (or at least leaves the unsaved state).
+  // Save via the band button, and wait for the PUT to actually complete — not
+  // just for the band to drop is-unsaved. The band flips out of is-unsaved the
+  // instant saving STARTS (renderSaveBand('saving')), but the dirty-baseline
+  // snapshot only updates after the PUT /Configuration succeeds. Switching tabs
+  // in that window would still be seen as dirty and (correctly) pop the dialog —
+  // a test race, not an app bug.
+  const [saveResp] = await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes('/JellyfinHelper/Configuration') && r.request().method() === 'PUT',
+      { timeout: 15_000 },
+    ),
+    page.locator('#btnSaveSettings').click(),
+  ]);
+  expect(saveResp.ok(), `save PUT failed: ${saveResp.status()}`).toBeTruthy();
+  // Band should also have left the unsaved state.
   await expect(page.locator('#settingsSaveBand')).not.toHaveClass(/is-unsaved/, { timeout: 10_000 });
 
   // Now switching tabs should be clean — no dialog.
