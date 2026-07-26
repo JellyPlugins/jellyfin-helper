@@ -24,10 +24,11 @@ test.beforeAll(async () => {
   admin = await apiContext(auth);
   user = await normalUserContext(auth);
   // Ensure Seerr points at the mock so discovery/permission calls resolve.
-  await admin.put(p('Configuration'), {
+  const seed = await admin.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: { SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: 'seerr-key' },
   });
+  expect(seed.ok(), `initial mock-Seerr config failed: ${seed.status()}`).toBeTruthy();
 });
 
 test.afterAll(async () => {
@@ -71,15 +72,14 @@ test.describe.serial('Discovery/My access gating', () => {
     test.skip(!user, 'no non-admin user provisioned');
     await setDiscoveryAccess(true);
 
-    // My cached recs — 200 (possibly null body) once enabled.
+    // My cached recs — must succeed (2xx) once enabled; the body may be null
+    // (no cached recs yet) but the request itself must not fail.
     const my = await user!.get(p('Discovery/My'));
-    expect(my.status(), 'Discovery/My').not.toBe(403);
-    expect(my.status()).toBeLessThan(500);
+    expect(my.ok(), `Discovery/My failed: ${my.status()}`).toBeTruthy();
 
-    // External links returns the configured Seerr URL.
+    // External links returns the configured (mock) Seerr URL — a green-path 2xx.
     const links = await user!.get(p('Discovery/My/ExternalLinks'));
-    expect(links.status()).not.toBe(403);
-    expect(links.status()).toBeLessThan(500);
+    expect(links.ok(), `Discovery/My/ExternalLinks failed: ${links.status()}`).toBeTruthy();
 
     await assertPluginActive(admin);
   });
@@ -88,13 +88,14 @@ test.describe.serial('Discovery/My access gating', () => {
     test.skip(!user, 'no non-admin user provisioned');
     await setDiscoveryAccess(true);
 
+    // RequestPermissions resolves the linked Seerr user against the mock — 2xx.
     const perms = await user!.get(p('Discovery/My/RequestPermissions/radarr?mediaType=movie'));
-    expect(perms.status()).toBeLessThan(500);
-    expect(perms.status()).not.toBe(403);
+    expect(perms.ok(), `RequestPermissions failed: ${perms.status()}`).toBeTruthy();
 
     const services = await user!.get(p('Discovery/My/Services/radarr'));
-    // 200 (list) or 503 (permission gated) are both valid; never 500/403-when-enabled.
-    expect([200, 400, 503]).toContain(services.status());
+    // 200 (service list) or 503 (user lacks the Seerr permission to select a
+    // service) are both legitimate; anything else — esp. 400/500/403 — is a bug.
+    expect([200, 503], `Services status ${services.status()}`).toContain(services.status());
     await assertPluginActive(admin);
   });
 
@@ -114,8 +115,9 @@ test.describe.serial('Discovery/My access gating', () => {
       headers: { 'Content-Type': 'application/json' },
       data: { TmdbId: 27205, MediaType: 'movie' },
     });
-    // Valid outcomes: 200 (recorded) or 400 (validation) — never 500.
-    expect(res.status()).toBeLessThan(500);
+    // A well-formed dismissal for an enabled user must be recorded (2xx). A
+    // 400 here would mean the valid payload was rejected — a real regression.
+    expect(res.ok(), `Dismiss failed: ${res.status()}`).toBeTruthy();
     await assertPluginActive(admin);
   });
 });
@@ -123,30 +125,34 @@ test.describe.serial('Discovery/My access gating', () => {
 // --- admin-side gaps -------------------------------------------------------
 
 test('admin Discovery/Request submission reaches the mock', async () => {
-  await admin.put(p('Configuration'), {
+  const cfg = await admin.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: { SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: '***' },
   });
+  expect(cfg.ok(), `request-test config failed: ${cfg.status()}`).toBeTruthy();
   const res = await admin.post(p('Discovery/Request'), {
     headers: { 'Content-Type': 'application/json' },
     data: { TmdbId: 27205, MediaType: 'movie' },
   });
-  // Mock returns 201 → plugin maps to success; validation issues → 400. Not 500.
-  expect(res.status()).toBeLessThan(500);
+  // The mock accepts the request (maps to 201 → plugin success). A well-formed
+  // submission against the configured mock must succeed, not merely avoid 500.
+  expect(res.ok(), `Discovery/Request failed: ${res.status()}`).toBeTruthy();
   await assertPluginActive(admin);
 });
 
 test('Trash/Relocate moves between paths (or degrades cleanly)', async () => {
   // Enable trash first so relocation has meaning.
-  await admin.put(p('Configuration'), {
+  const cfg = await admin.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: { UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 30 },
   });
+  expect(cfg.ok(), `trash config failed: ${cfg.status()}`).toBeTruthy();
   const res = await admin.post(p('Trash/Relocate'), {
     headers: { 'Content-Type': 'application/json' },
     data: { OldTrashPath: '.jellyfin-trash', NewTrashPath: '.jellyfin-trash-2' },
   });
-  // 200 (moved/nothing-to-move) or 400 (guard) — never a server error.
-  expect(res.status()).toBeLessThan(500);
+  // 200 (moved / nothing-to-move) or 400 (path guard rejected the relocation)
+  // are both documented outcomes; a 5xx would be a genuine server error.
+  expect([200, 400], `Relocate status ${res.status()}`).toContain(res.status());
   await assertPluginActive(admin);
 });

@@ -137,13 +137,18 @@ test('Arr Compare 502 aggregation names the failing instance', async () => {
     headers: { 'Content-Type': 'application/json' },
     data: { RadarrInstances: [{ Name: 'FailBox', Url: ARR_URL, ApiKey: 'force-fail' }] },
   });
-  const res = await ctx.get(p('ArrIntegration/Compare/Radarr?index=0'));
-  expect(res.status()).toBe(502);
-  expect(await res.text()).toContain('FailBox');
-  // Restore the working instance for any later test in this file.
-  await ctx.put(p('Configuration'), {
-    headers: { 'Content-Type': 'application/json' },
-    data: { RadarrInstances: [{ Name: 'Mock Radarr', Url: ARR_URL, ApiKey: 'radarr-key' }] },
-  });
+  try {
+    const res = await ctx.get(p('ArrIntegration/Compare/Radarr?index=0'));
+    expect(res.status()).toBe(502);
+    expect(await res.text()).toContain('FailBox');
+  } finally {
+    // Restore the working instance even if an assertion above throws, so this
+    // shared backend isn't left pinned to the broken FailBox config for later
+    // tests/files that assume a reachable Radarr.
+    await ctx.put(p('Configuration'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: { RadarrInstances: [{ Name: 'Mock Radarr', Url: ARR_URL, ApiKey: 'radarr-key' }] },
+    });
+  }
   await assertPluginActive(ctx);
 });

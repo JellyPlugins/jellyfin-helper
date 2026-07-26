@@ -26,7 +26,6 @@ const ADMIN_USER = process.env.JELLYFIN_ADMIN_USER ?? 'e2eadmin';
 const ADMIN_PASS = process.env.JELLYFIN_ADMIN_PASS ?? 'E2ePassw0rd!';
 const NORMAL_USER = process.env.JELLYFIN_USER ?? 'e2euser';
 const NORMAL_PASS = process.env.JELLYFIN_USER_PASS ?? 'E2eUserPass1!';
-const MOCK_SEERR_URL = process.env.MOCK_SEERR_URL ?? 'http://mock-seerr:5055';
 
 async function globalSetup(_config: FullConfig): Promise<void> {
   const ctx = await pwRequest.newContext({ baseURL: BASE_URL });
@@ -188,6 +187,16 @@ async function globalSetup(_config: FullConfig): Promise<void> {
         normalUser = { token: nj.AccessToken, userId: nj.User.Id, userName: NORMAL_USER };
         // eslint-disable-next-line no-console
         console.log(`[global-setup] created non-admin user ${NORMAL_USER} (${u.Id})`);
+      } else {
+        // User exists now but we couldn't authenticate as them — do NOT report
+        // success silently. Log the rejection so a broken provisioning path is
+        // visible; Discovery/My tests will skip (normalUser stays null) rather
+        // than run against a half-provisioned user.
+        // eslint-disable-next-line no-console
+        console.log(
+          `[global-setup] non-admin auth failed after Users/New succeeded: ` +
+            `${nAuth.status()} ${(await nAuth.text()).slice(0, 200)} (Discovery/My tests will skip)`,
+        );
       }
     } else {
       // eslint-disable-next-line no-console

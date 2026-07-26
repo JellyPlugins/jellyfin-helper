@@ -145,13 +145,16 @@ test.describe.serial('HelperCleanup across modes', () => {
   });
 
   test('Seerr cleanup Activate against mock → completes, deletes expired requests', async () => {
-    // Reset the mock to a known set, then read the starting count.
+    // Reset the mock to a known set, then read the starting count. The mock is a
+    // hard dependency of this test — if it's unreachable we must fail loudly, not
+    // skip the deletion assertions and let the test pass vacuously.
     const mock = await pwRequest.newContext();
-    await mock.get(`${MOCK_SEERR_PUBLIC}/reset`).catch(() => undefined);
-    const before = await mock
-      .get(`${MOCK_SEERR_PUBLIC}/count`)
-      .then((r) => r.json())
-      .catch(() => ({ count: -1 }));
+    const reset = await mock.get(`${MOCK_SEERR_PUBLIC}/reset`);
+    expect(reset.ok(), `mock Seerr /reset failed: ${reset.status()}`).toBeTruthy();
+    const beforeRes = await mock.get(`${MOCK_SEERR_PUBLIC}/count`);
+    expect(beforeRes.ok(), `mock Seerr /count failed: ${beforeRes.status()}`).toBeTruthy();
+    const before = (await beforeRes.json()) as { count: number };
+    expect(before.count, 'mock should start with seeded requests').toBeGreaterThan(0);
 
     // Point Seerr at the mock and enable cleanup with an age that makes the
     // 2023-dated mock requests expired.
@@ -168,15 +171,12 @@ test.describe.serial('HelperCleanup across modes', () => {
     // Verify the expired requests were actually deleted from the mock:
     // ids 101 (old/pending) and 102 (old/declined) should be gone; 103
     // (available, protected) and 104 (recent) should remain.
-    const after = await mock
-      .get(`${MOCK_SEERR_PUBLIC}/count`)
-      .then((r) => r.json())
-      .catch(() => ({ count: -1, ids: [] as number[] }));
-    if (before.count > 0) {
-      expect(after.count, 'expired requests should have been deleted').toBeLessThan(before.count);
-      expect(after.ids, 'protected available request must survive').toContain(103);
-      expect(after.ids, 'recent request must survive').toContain(104);
-    }
+    const afterRes = await mock.get(`${MOCK_SEERR_PUBLIC}/count`);
+    expect(afterRes.ok(), `mock Seerr /count failed: ${afterRes.status()}`).toBeTruthy();
+    const after = (await afterRes.json()) as { count: number; ids: number[] };
+    expect(after.count, 'expired requests should have been deleted').toBeLessThan(before.count);
+    expect(after.ids, 'protected available request must survive').toContain(103);
+    expect(after.ids, 'recent request must survive').toContain(104);
     await mock.dispose();
     await assertPluginActive(ctx);
   });

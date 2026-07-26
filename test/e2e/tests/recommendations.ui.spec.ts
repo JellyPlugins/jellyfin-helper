@@ -41,9 +41,11 @@ test('Recommendations tab: user selector loads per-user data; sections toggle', 
     ),
     switchTab(page, 'recommendations'),
   ]);
-  // A user with no watch history legitimately yields 404/503; 200 returns the
-  // profile. Anything else (esp. 5xx) is a real failure.
-  expect([200, 400, 404, 503], `WatchProfile status ${profileResp.status()}`).toContain(
+  // WatchProfile is loaded for the initial user. With a non-Deactivate mode set
+  // in beforeAll, the request must not be gated (503) or malformed (400): it
+  // either returns the profile (200) or, for a user with genuinely no watch
+  // history, a documented 404. Accept only those two; anything else is a bug.
+  expect([200, 404], `WatchProfile status ${profileResp.status()}`).toContain(
     profileResp.status(),
   );
 
@@ -62,7 +64,7 @@ test('Recommendations tab: user selector loads per-user data; sections toggle', 
       ),
       userSelect.selectOption({ index: 1 }),
     ]);
-    expect([200, 400, 404, 503]).toContain(changeResp.status());
+    expect([200, 404], `WatchProfile status ${changeResp.status()}`).toContain(changeResp.status());
   }
 
   // Toggle the recommendations grid section open.

@@ -179,22 +179,27 @@ test('ensemble alpha values always persist within [0,1] and min <= max', async (
 });
 
 test('Arr instance validation: no-key rejected, >3 rejected, overlong name rejected, blank row skipped', async () => {
-  const noKey = await putConfig({ RadarrInstances: [{ Name: 'X', Url: 'http://mock-arr:9000', ApiKey: '' }] });
-  expect(noKey.status()).toBe(400);
-  expect((await noKey.json() as { message: string }).message).toContain('no API key');
+  try {
+    const noKey = await putConfig({ RadarrInstances: [{ Name: 'X', Url: 'http://mock-arr:9000', ApiKey: '' }] });
+    expect(noKey.status()).toBe(400);
+    expect((await noKey.json() as { message: string }).message).toContain('no API key');
 
-  const four = await putConfig({
-    RadarrInstances: Array.from({ length: 4 }, (_, i) => ({ Name: `R${i}`, Url: 'http://mock-arr:9000', ApiKey: 'k' })),
-  });
-  expect(four.status()).toBe(400);
+    const four = await putConfig({
+      RadarrInstances: Array.from({ length: 4 }, (_, i) => ({ Name: `R${i}`, Url: 'http://mock-arr:9000', ApiKey: 'k' })),
+    });
+    expect(four.status()).toBe(400);
 
-  const longName = await putConfig({ RadarrInstances: [{ Name: 'a'.repeat(101), Url: 'http://mock-arr:9000', ApiKey: 'k' }] });
-  expect(longName.status()).toBe(400);
+    const longName = await putConfig({ RadarrInstances: [{ Name: 'a'.repeat(101), Url: 'http://mock-arr:9000', ApiKey: 'k' }] });
+    expect(longName.status()).toBe(400);
 
-  const blankRow = await putConfig({ RadarrInstances: [{ Name: '', Url: '', ApiKey: '' }] });
-  expect(blankRow.ok(), 'a fully-blank instance row is skipped, not an error').toBeTruthy();
-
-  await putConfig({ RadarrInstances: [{ Name: 'Radarr Main', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] });
+    const blankRow = await putConfig({ RadarrInstances: [{ Name: '', Url: '', ApiKey: '' }] });
+    expect(blankRow.ok(), 'a fully-blank instance row is skipped, not an error').toBeTruthy();
+  } finally {
+    // Restore a known-good instance even if an assertion above throws, so the
+    // shared backend isn't left in a rejected/undefined Radarr state for the
+    // tests that run after this one.
+    await putConfig({ RadarrInstances: [{ Name: 'Radarr Main', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] });
+  }
 });
 
 test('Seerr URL with blank key is rejected and does not mutate stored URL', async () => {

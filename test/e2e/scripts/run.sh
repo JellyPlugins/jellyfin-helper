@@ -87,8 +87,15 @@ mkdir -p "$RUNTIME/config/plugins" "$RUNTIME/cache" "$RUNTIME/media/.gen"
 cp "$E2E_DIR/fixtures/gen-media.sh" "$RUNTIME/media/.gen/gen-media.sh"
 
 # The container may run as any UID; make config writable so Jellyfin can create
-# its plugin-dir markers and databases regardless of user mapping.
-chmod -R 777 "$RUNTIME/config" "$RUNTIME/cache" 2>/dev/null || true
+# its plugin-dir markers and databases regardless of user mapping. On Linux the
+# container already runs as the invoking user (JELLYFIN_UID/GID exported below),
+# so a group/user-writable bit is enough — no world-writable state dirs on CI.
+# Elsewhere (Docker Desktop, unknown UID mapping) fall back to the blanket 777.
+if [ "$(uname -s)" = "Linux" ]; then
+  chmod -R u+rwX,g+rwX "$RUNTIME/config" "$RUNTIME/cache" 2>/dev/null || true
+else
+  chmod -R 777 "$RUNTIME/config" "$RUNTIME/cache" 2>/dev/null || true
+fi
 
 # --- 3. stage the plugin into the config volume ----------------------------
 # Copy EVERY dll from the publish output except the ones the Jellyfin host
@@ -155,12 +162,14 @@ fi
 echo "Jellyfin healthy."
 
 # --- 5. generate the fake media library (inside the container) -------------
-# MSYS_NO_PATHCONV stops Git-Bash (Windows) from rewriting the container-side
-# "/media" argument into a host path; a no-op on Linux/macOS CI. Verify files
-# actually landed — an empty library would make every stats/scan test pass
-# vacuously, which is worse than a hard failure here.
+# On Git-Bash (Windows) MSYS rewrites Unix-looking arguments into host paths.
+# We must keep that conversion ON for the host-side compose file path
+# (-f "$E2E_DIR/compose.yml") but OFF for the container-side "/media" argument,
+# so scope the exclusion to just that prefix. A no-op on Linux/macOS CI. Verify
+# files actually landed — an empty library would make every stats/scan test
+# pass vacuously, which is worse than a hard failure here.
 log "Generating fake media library"
-MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
+MSYS2_ARG_CONV_EXCL='/media' \
   "${COMPOSE[@]}" exec -T jellyfin bash /media/.gen/gen-media.sh /media
 media_count="$("${COMPOSE[@]}" exec -T jellyfin sh -c 'find /media -name "*.mkv" -o -name "*.mp4" 2>/dev/null | wc -l' | tr -d '[:space:]')"
 if [ "${media_count:-0}" -lt 1 ]; then
@@ -173,7 +182,14 @@ echo "Media generated (${media_count} video files)."
 log "Installing test dependencies"
 cd "$E2E_DIR"
 [ -d node_modules ] || npm ci --no-audit --no-fund || npm install --no-audit --no-fund
-npx playwright install --with-deps chromium >/dev/null 2>&1 || npx playwright install chromium
+# Try the full "--with-deps" install first (needs sudo/apt for OS libs). If that
+# fails — common on hosts without root/apt — log why and fall back to a
+# browser-only install so a real network/permission error isn't hidden behind
+# an opaque browser-launch failure later.
+npx playwright install --with-deps chromium >/dev/null || {
+  echo "[run] '--with-deps' install failed (likely no sudo/apt); retrying browser-only." >&2
+  npx playwright install chromium
+}
 
 # --- 7. run the tests -------------------------------------------------------
 # Setup (wizard + scan) runs as a Playwright global-setup, so the tests get a

@@ -9,7 +9,9 @@ every UI interaction. **146 tests** (API + UI) across the spec files.
 - **HTML report:** after any run — `cd test/e2e && npx playwright show-report`.
   Lists every test, pass/fail, timings; on failure embeds trace + screenshot + video.
 - **In CI:** the `E2E (Docker)` workflow uploads `e2e-playwright-report` on every
-  run (traces/screenshots + Jellyfin server log on failure). PR → Checks → E2E → Artifacts.
+  run (plus a separate `e2e-traces` artifact with traces/screenshots on failure).
+  The Jellyfin/mock container logs are **printed into the job log** on failure
+  (not bundled into an artifact). PR → Checks → E2E → Artifacts.
 - **List without running:** `cd test/e2e && npx playwright test --list`.
 
 ---

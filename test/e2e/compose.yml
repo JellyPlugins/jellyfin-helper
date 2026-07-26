@@ -64,8 +64,11 @@ services:
     container_name: jfh-e2e-mock-arr
     command: ["node", "arr-server.js"]
     # Exposed to the host so host-side tests can hit the mock's test hooks.
+    # Bound to loopback: these are unauthenticated, state-mutating test mocks —
+    # publishing them on all interfaces would let any reachable process reset
+    # fixtures. Host-side setup still reaches them via localhost.
     ports:
-      - "${MOCK_ARR_PORT:-9000}:9000"
+      - "127.0.0.1:${MOCK_ARR_PORT:-9000}:9000"
     environment:
       - PORT=9000
     healthcheck:
@@ -84,8 +87,11 @@ services:
     container_name: jfh-e2e-mock-seerr
     command: ["node", "seerr-server.js"]
     # Exposed to the host so global-setup can seed the Jellyfin user GUID.
+    # Bound to loopback: seerr-server.js exposes unauthenticated state-mutating
+    # hooks (/reset, /seed-user); binding to all interfaces would let any
+    # reachable process replace the seeded user. Host-side setup uses localhost.
     ports:
-      - "${MOCK_SEERR_PORT:-5055}:5055"
+      - "127.0.0.1:${MOCK_SEERR_PORT:-5055}:5055"
     environment:
       - PORT=5055
     healthcheck:
