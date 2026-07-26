@@ -192,7 +192,7 @@ printf '%s\n' "http://example.com/stream.m3u8" \
 # rather than silently skipping the coverage.
 mkdir -p "$MOVIES/Valid Symlink (2020)"
 make_clip "$MOVIES/Valid Symlink (2020)/Real Target (2020).mkv" 320 240 libx264
-if ln -s "Real Target (2020).mkv" "$MOVIES/Valid Symlink (2020)/Valid Symlink (2020).mkv"; then
+if ln -sf "Real Target (2020).mkv" "$MOVIES/Valid Symlink (2020)/Valid Symlink (2020).mkv"; then
   echo "[gen-media]   created valid symlink"
 else
   echo "[gen-media] ERROR: symlink creation failed (filesystem may not support symlinks)" >&2
@@ -200,7 +200,7 @@ else
 fi
 mkdir -p "$MOVIES/Broken Symlink (2020)"
 make_clip "$MOVIES/Broken Symlink (2020)/Renamed Actual (2020).mkv" 320 240 libx264
-ln -s "Missing Original (2020).mkv" "$MOVIES/Broken Symlink (2020)/Broken Symlink (2020).mkv"
+ln -sf "Missing Original (2020).mkv" "$MOVIES/Broken Symlink (2020)/Broken Symlink (2020).mkv"
 
 echo "[gen-media] done. Library tree:"
 find "$ROOT" -maxdepth 3 -type f | sort | sed 's/^/[gen-media]   /'

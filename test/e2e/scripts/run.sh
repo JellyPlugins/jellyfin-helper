@@ -79,6 +79,16 @@ else
     echo "No prior build found in $RUNTIME/publish. Run without --no-build first." >&2; exit 1; }
 fi
 
+# --- 1b. tear down any pre-existing stack BEFORE wiping host state ----------
+# A prior --keep/CI run (or a crash) can leave containers running. `up -d --build`
+# below would REUSE them, so the host-side `rm -rf runtime/media` would race a
+# container that still holds /media open — on Windows Docker Desktop bind mounts
+# this desyncs the container's view from the host and makes gen-media see phantom
+# "File exists" symlinks. Removing the stack first releases the mounts before the
+# wipe and guarantees `up` creates fresh containers against fresh bind mounts.
+log "Removing any pre-existing stack"
+"${COMPOSE[@]}" down -v --remove-orphans 2>/dev/null || true
+
 # --- 2. fresh runtime dirs (wipe BEFORE staging the plugin into config) -----
 log "Resetting runtime state"
 # Guard against an unset/empty RUNTIME expanding to rm -rf /config etc. (SC2115).
