@@ -68,6 +68,15 @@ test.describe.serial('cleanup never escapes the media library', () => {
   test('an orphan-looking folder containing a symlink out of the library does not delete the target', async () => {
     // A folder whose only "content" is a symlink to an external dir. Whatever the
     // cleanup decides about the folder, the EXTERNAL target's data must survive.
+    containerWriteFile('/srv/jfh-external/secret.mkv', 'EXTERNAL-DATA');
+    // On CI the container runs as a non-root UID that may not be able to write to /srv;
+    // if the external seed didn't land, skip loudly rather than assert on a phantom file
+    // (which would look like a data-loss failure when nothing was ever created).
+    test.skip(
+      !containerFileExists('/srv/jfh-external/secret.mkv'),
+      '/srv not writable in this environment — cannot seed the external target',
+    );
+
     containerMkdir(`${M}/Symlink Trap (2020)`);
     const linkRes = execInContainer(`ln -s /srv/jfh-external "${M}/Symlink Trap (2020)/external"`);
     test.skip(linkRes.code !== 0, 'symlink creation unsupported on this filesystem');

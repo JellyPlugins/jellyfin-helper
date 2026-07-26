@@ -41,16 +41,21 @@ test.describe.serial('trash operations never escape the media library', () => {
     expect(verifyCanaries(), 'nothing outside /media may be touched').toEqual([]);
   });
 
-  test('DELETE /Trash/Folders with an absolute /config trash path is refused', async () => {
-    // Persist a dangerous absolute trash path, then try the destructive delete.
-    await ctx.put(p('Configuration'), {
+  test('an absolute /config trash path is refused at save, and DELETE never wipes config', async () => {
+    // Containment now happens at CONFIG-SAVE time: persisting an absolute sensitive
+    // trash path (Jellyfin's own /config) is rejected with 400, so the dangerous value
+    // never lands — a strictly stronger defense than catching it later at delete time.
+    const put = await ctx.put(p('Configuration'), {
       headers: { 'Content-Type': 'application/json' },
       data: { UseTrash: true, TrashFolderPath: '/config', TrashRetentionDays: 30 },
     });
+    expect(put.status(), 'sensitive absolute trash path must be rejected at save').toBe(400);
+
+    // Because it was never persisted, a subsequent delete operates on the safe default
+    // path and must NOT recursively delete Jellyfin's config dir.
     const res = await ctx.delete(p('Trash/Folders'));
-    // Must NOT recursively delete Jellyfin's config dir.
-    expect(res.status(), 'sensitive absolute trash path must be rejected').toBe(400);
-    expect(containerFileExists('/config/jfh-canary/marker.txt')).toBe(true);
+    expect(res.status(), 'delete runs against the safe default, never /config').not.toBe(500);
+    expect(containerFileExists('/config/jfh-canary/marker.txt'), 'config canary intact').toBe(true);
     await assertPluginActive(ctx);
   });
 
