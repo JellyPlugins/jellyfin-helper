@@ -119,7 +119,12 @@ test('a non-numeric backupVersion fails to parse with a DISTINCT 400 body', asyn
 test('an older-shaped backup (newer fields absent) restores with safe defaults', async () => {
   // Seed a distinct prior state so we can prove "absent field → left unchanged"
   // for the null-preserving field, and "absent field → hard default" for the rest.
+  // NOTE: PUT /Configuration only applies SeerrCleanupAgeDays when SeerrUrl is set
+  // (ConfigurationController: `string.IsNullOrEmpty(config.SeerrUrl) ? 0 : clamp(...)`),
+  // so the seed MUST include a SeerrUrl or the 42 silently becomes 0.
   await putConfig({
+    SeerrUrl: 'http://mock-seerr:5055',
+    SeerrApiKey: 'seerr-key',
     DiscoveryUserAccessEnabled: true,
     SyncRecommendationsToPlaylist: true,
     RecommendationsTaskMode: 'Activate',
