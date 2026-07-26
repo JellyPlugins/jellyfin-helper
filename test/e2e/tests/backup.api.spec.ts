@@ -242,3 +242,112 @@ test('import with wrong Content-Type is rejected before body read (no 500)', asy
   expect([400, 415]).toContain(res.status());
   await assertPluginActive(ctx);
 });
+
+// --- full round-trip: prove restore actually restores (not just "no 500") ---
+
+async function getConfig(): Promise<any> {
+  const res = await ctx.get(p('Configuration'));
+  expect(res.ok()).toBeTruthy();
+  return res.json();
+}
+
+test('full config field-set round-trips through export → mutate → import', async () => {
+  const backup = await exportBackup(true);
+  // Mutate a broad set of fields with real restore logic to distinct known values.
+  Object.assign(backup, {
+    language: 'de',
+    excludedLibraries: 'Music,Home Videos',
+    orphanMinAgeDays: 9,
+    useTrash: true,
+    trashFolderPath: '.custom-trash',
+    trashRetentionDays: 7,
+    seerrCleanupAgeDays: 0, // the "0 is applied" (not null=absent) case
+    trickplayTaskMode: 'Activate',
+    emptyMediaFolderTaskMode: 'DryRun',
+    orphanedSubtitleTaskMode: 'Deactivate',
+    linkRepairTaskMode: 'DryRun',
+    recommendationsTaskMode: 'Activate',
+    syncRecommendationsToPlaylist: true,
+    discoveryUserAccessEnabled: true,
+    pluginLogLevel: 'DEBUG',
+  });
+  const res = await importBackup(backup);
+  expect(res.ok(), `import failed: ${res.status()}`).toBeTruthy();
+
+  const cfg = await getConfig();
+  expect(cfg.Language).toBe('de');
+  expect(cfg.ExcludedLibraries).toBe('Music,Home Videos');
+  expect(cfg.OrphanMinAgeDays).toBe(9);
+  expect(cfg.UseTrash).toBe(true);
+  expect(cfg.TrashFolderPath).toBe('.custom-trash');
+  expect(cfg.TrashRetentionDays).toBe(7);
+  expect(cfg.SeerrCleanupAgeDays).toBe(0);
+  expect(cfg.TrickplayTaskMode).toBe('Activate');
+  expect(cfg.EmptyMediaFolderTaskMode).toBe('DryRun');
+  expect(cfg.OrphanedSubtitleTaskMode).toBe('Deactivate');
+  expect(cfg.LinkRepairTaskMode).toBe('DryRun');
+  expect(cfg.RecommendationsTaskMode).toBe('Activate');
+  expect(cfg.SyncRecommendationsToPlaylist).toBe(true);
+  expect(cfg.DiscoveryUserAccessEnabled).toBe(true);
+  // Backup restore DOES apply PluginLogLevel (unlike PUT /Configuration, which ignores it).
+  expect(cfg.PluginLogLevel).toBe('DEBUG');
+  await assertPluginActive(ctx);
+});
+
+test('timeline round-trips: exported data points come back via GET GrowthTimeline', async () => {
+  // Ensure a timeline exists (tolerate the 429 recompute rate-limit).
+  const warm = await ctx.get(p('GrowthTimeline?forceRefresh=true'));
+  if (warm.status() === 429) await new Promise((r) => setTimeout(r, 31_000));
+
+  const backup = await exportBackup(true);
+  const points = backup.growthTimeline?.dataPoints ?? backup.growthTimeline?.DataPoints;
+  test.skip(!Array.isArray(points) || points.length === 0, 'no timeline data points to round-trip yet');
+
+  const res = await importBackup(backup);
+  expect(res.ok(), `import failed: ${res.status()}`).toBeTruthy();
+  const summary = (await res.json()).summary as { TimelineRestored: boolean };
+  expect(summary.TimelineRestored).toBe(true);
+
+  // GET without forceRefresh reads the persisted (just-restored) file.
+  const after = await ctx.get(p('GrowthTimeline'));
+  expect(after.ok()).toBeTruthy();
+  const body = (await after.json()) as { DataPoints?: unknown[]; dataPoints?: unknown[] };
+  const restored = body.DataPoints ?? body.dataPoints ?? [];
+  expect(restored.length).toBe(points.length);
+  await assertPluginActive(ctx);
+});
+
+test('Arr credential preserve (redacted import) then change (new key) round-trips', async () => {
+  // Seed a known Radarr instance with a real key.
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { RadarrInstances: [{ Name: 'R1', Url: 'http://mock-arr:9000', ApiKey: 'realkey' }] },
+  });
+
+  // PRESERVE: a redacted export (empty key) imported back must keep the live key.
+  const redacted = await exportBackup(false);
+  const preserve = await importBackup(redacted);
+  expect(preserve.ok()).toBeTruthy();
+  expect((await preserve.json()).summary.CredentialsChanged, 'empty key = preserve').toBe(false);
+  let secretExport = await exportBackup(true);
+  let r1 = (secretExport.radarrInstances ?? []).find((i: any) => i.Name === 'R1' || i.name === 'R1');
+  expect(r1?.apiKey ?? r1?.ApiKey).toBe('realkey');
+
+  // CHANGE: a secrets export with a new key must flip CredentialsChanged true.
+  secretExport = await exportBackup(true);
+  const instances = secretExport.radarrInstances ?? [];
+  if (instances[0]) {
+    if ('apiKey' in instances[0]) instances[0].apiKey = 'brand-new-key';
+    else instances[0].ApiKey = 'brand-new-key';
+  }
+  const changed = await importBackup(secretExport);
+  expect(changed.ok()).toBeTruthy();
+  expect((await changed.json()).summary.CredentialsChanged, 'new key = changed').toBe(true);
+
+  // Restore a known-good instance for later tests.
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { RadarrInstances: [{ Name: 'Mock Radarr', Url: 'http://mock-arr:9000', ApiKey: 'radarr-key' }] },
+  });
+  await assertPluginActive(ctx);
+});
