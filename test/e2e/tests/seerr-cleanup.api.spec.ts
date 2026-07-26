@@ -42,6 +42,24 @@ async function count(): Promise<{ count: number; ids: number[] }> {
   return body;
 }
 
+/** Arm the mock so page 1 succeeds but reports a 2nd page, and page 2 (skip=50) 500s. */
+async function armPageTwoFailure() {
+  const m = await pwRequest.newContext();
+  const r = await m.get(`${MOCK}/force-fail-page2`);
+  expect(r.ok(), `mock /force-fail-page2 failed: ${r.status()}`).toBeTruthy();
+  await m.dispose();
+}
+
+/** The (skip, status) of each request-list fetch the mock served since the last reset/arm. */
+async function listCalls(): Promise<Array<{ skip: number; status: number }>> {
+  const m = await pwRequest.newContext();
+  const r = await m.get(`${MOCK}/list-calls`);
+  expect(r.ok(), `mock /list-calls failed: ${r.status()}`).toBeTruthy();
+  const body = (await r.json()) as { calls: Array<{ skip: number; status: number }> };
+  await m.dispose();
+  return body.calls;
+}
+
 test.describe.serial('Seerr cleanup selects exactly the right requests', () => {
   test.beforeEach(async () => {
     await resetMock();
@@ -104,5 +122,35 @@ test.describe.serial('Seerr cleanup selects exactly the right requests', () => {
     expect(result.LastExecutionResult?.Status).toBe('Completed');
     const after = await count();
     expect(after.count, 'no deletion on an incomplete snapshot').toBe(before.count);
+  });
+
+  test('page-2 fetch failure mid-pagination deletes nothing (incomplete snapshot guard)', async () => {
+    // Stronger than the force-fail case above: page 1 SUCCEEDS (and would yield
+    // deletable ids 101/102/108), but page 2 fails — so the snapshot is incomplete
+    // and the guard must abort ALL deletions, not just delete what page 1 covered.
+    await armPageTwoFailure();
+    const before = await count();
+
+    await putConfig({
+      SeerrUrl: 'http://mock-seerr:5055',
+      SeerrApiKey: 'e2e-seerr-key', // green key: connection test + page 1 + titles succeed
+      SeerrCleanupTaskMode: 'Activate',
+      SeerrCleanupAgeDays: 30,
+    });
+    const result = await runCleanupTask(ctx);
+    // Page-2 failure is swallowed into result.Failed; the task still Completes.
+    expect(result.LastExecutionResult?.Status).toBe('Completed');
+
+    // Nothing was deleted — the full seeded id set survives, including the ids that
+    // page 1 alone would have marked deletable (101/102/108).
+    const after = await count();
+    expect(after.count, 'incomplete snapshot must delete nothing').toBe(before.count);
+    expect(after.ids.sort((a, b) => a - b)).toEqual(before.ids.sort((a, b) => a - b));
+
+    // Prove this genuinely exercised the page-2 branch: page 1 (skip=0) returned 200
+    // AND page 2 (skip=50) returned 500 — distinguishing it from a page-1 failure.
+    const calls = await listCalls();
+    expect(calls.some((c) => c.skip === 0 && c.status === 200), 'page 1 succeeded').toBe(true);
+    expect(calls.some((c) => c.skip === 50 && c.status === 500), 'page 2 failed').toBe(true);
   });
 });

@@ -128,6 +128,23 @@ Beyond "does it route / does the UI render", the suite now proves features
 - `Trash/Relocate` of an already-drained source → clean no-op `{Moved:0, Failed:0}` 200, destination
   untouched (filesystem-backed; skips loudly without docker).
 
+## 7i. Concurrency invariants → `concurrency.api.spec.ts`
+- Concurrent `GET GrowthTimeline?forceRefresh=true` (Promise.all): the process-static semaphore + 30s
+  throttle let **at most one** recompute (200); every rejected one is a **429 with a numeric Retry-After**
+  — never a 500 or a 2nd concurrent compute. The cached read-back is coherent (non-negative, non-decreasing
+  cumulative series → no torn write). Asserted as an interleaving-safe invariant (not a strict [200,429]
+  pair, which would be flaky since `_lastRefreshTime` is process-static).
+- Racing `PUT /Configuration/LogLevel` (10 concurrent, alternating DEBUG/ERROR): `ReadAndMutate` serializes
+  the writes, so the stored `PluginLogLevel` is exactly one submitted value — never torn/invalid, never 500.
+  (Complements the existing racing-`RadarrInstances`-PUTs test in `config-adversarial.api.spec.ts`.)
+
+## 7j. Partial downstream failure — Seerr cleanup → `seerr-cleanup.api.spec.ts` (extended)
+- **Page-2 fetch fails mid-pagination** (mock `force-fail-page2`: page 1 succeeds and reports a 2nd page,
+  page 2 at skip=50 → 500): the plugin's incomplete-snapshot guard aborts ALL deletions — the full seeded
+  id set survives, including ids 101/102/108 that page 1 alone would have marked deletable. A `/list-calls`
+  hook proves page 1 (200) AND page 2 (500) were both observed, so this genuinely exercises the page-2
+  branch (unlike the existing `force-fail` test, which 500s the very first call).
+
 ## 7e. Trash contract & path-safety → `trash.api.spec.ts`
 - `Trash/Folders` shape (`IsAbsolute`, `Paths[]`); `Trash/Contents` shape (`UseTrash`, `RetentionDays`, `Libraries[]`).
 - `CheckAccess` rejects traversal + overlong; missing body/field → 400 `{Error}`.

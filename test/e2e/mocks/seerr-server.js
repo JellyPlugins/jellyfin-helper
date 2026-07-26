@@ -51,6 +51,15 @@ let requests = seedRequests();
 // (identity-spoofing guard) and that denied/disabled flows never reach Seerr.
 let submittedRequests = [];
 
+// Partial-pagination-failure test hook: when armed, GET /api/v1/request reports
+// more results than one page holds (so the plugin fetches page 2 at skip=50) and
+// then 500s that page-2 fetch — simulating "page 1 OK, page 2 fails mid-scan".
+// listCalls records the (skip, status) of every request-list call so a test can
+// prove BOTH page 1 (200) and page 2 (500) were actually observed.
+let failListSkip = null; // when a number, GET /request with this skip → 500
+let inflateResults = false; // when true, page 1's pageInfo.results forces a 2nd page
+let listCalls = [];
+
 // --- canned payloads -------------------------------------------------------
 
 const mainSettings = { applicationTitle: 'Jellyseerr' };
@@ -133,8 +142,29 @@ const server = http.createServer(async (req, res) => {
   if (path === '/health') { send(res, 200, { ok: true }); return done(200); }
 
   // Test hooks (unauthenticated, E2E-only): reset state / seed the Jellyfin GUID / count.
-  if (path === '/reset') { requests = seedRequests(); submittedRequests = []; send(res, 200, { ok: true }); return done(200); }
+  if (path === '/reset') {
+    requests = seedRequests();
+    submittedRequests = [];
+    failListSkip = null;
+    inflateResults = false;
+    listCalls = [];
+    send(res, 200, { ok: true });
+    return done(200);
+  }
   if (path === '/count') { send(res, 200, { count: requests.length, ids: requests.map((r) => r.id) }); return done(200); }
+  // Arm the partial-pagination failure: page 1 (skip=0) succeeds but claims a 2nd
+  // page exists; page 2 (skip=50) then 500s. Uses a normal green-path key so the
+  // connection test and title lookups still work — only the page-2 list fetch fails.
+  if (path === '/force-fail-page2') {
+    failListSkip = 50;
+    inflateResults = true;
+    listCalls = [];
+    send(res, 200, { ok: true });
+    return done(200);
+  }
+  // Which request-list pages were fetched and with what status (proves page 1 was
+  // reached AND page 2 failed, distinguishing this from a page-1 failure).
+  if (path === '/list-calls') { send(res, 200, { calls: listCalls }); return done(200); }
   // What was actually submitted to Seerr (identity-spoof / no-leak assertions).
   if (path === '/last-request') {
     send(res, 200, { count: submittedRequests.length, requests: submittedRequests });
@@ -193,12 +223,24 @@ const server = http.createServer(async (req, res) => {
   // Se1. connection test
   if (path === '/api/v1/settings/main') { send(res, 200, mainSettings); return done(200); }
 
-  // Se2. request list (paginated) — single page.
+  // Se2. request list (paginated). One page by default; the /force-fail-page2 hook
+  // makes it report a 2nd page and then 500 that page-2 (skip=50) fetch.
   if (path === '/api/v1/request' && method === 'GET') {
     const skip = Number(url.searchParams.get('skip') ?? 0);
     const take = Number(url.searchParams.get('take') ?? 50);
+    if (failListSkip !== null && skip === failListSkip) {
+      listCalls.push({ skip, status: 500 });
+      send(res, 500, { error: 'forced page failure' });
+      return done(500);
+    }
     const slice = requests.slice(skip, skip + take);
-    send(res, 200, { pageInfo: { page: 1, pages: 1, results: requests.length, pageSize: take }, results: slice });
+    // Inflate the total so the plugin's hasMore (skip < results) requests page 2.
+    const totalResults = inflateResults ? Math.max(requests.length, take + 1) : requests.length;
+    listCalls.push({ skip, status: 200 });
+    send(res, 200, {
+      pageInfo: { page: (skip / take) + 1, pages: inflateResults ? 2 : 1, results: totalResults, pageSize: take },
+      results: slice,
+    });
     return done(200);
   }
   // Se3. request submission
