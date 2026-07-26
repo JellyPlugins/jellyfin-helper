@@ -354,6 +354,7 @@
   "trashPathOnlySlashes": "Pfad darf nicht nur aus Schräg-/Backslashes oder ungültigen Zeichen bestehen.",
   "trashPathDoubleSlash": "Pfad darf keine aufeinanderfolgenden Schräg- oder Backslashes enthalten.",
   "trashPathDotSegment": "Pfad darf keine '.' oder '..' Verzeichnisreferenzen enthalten.",
+  "trashPathSensitive": "Dies ist ein geschützter Systemordner und kann nicht verwendet werden.",
   "trashPathTrailingSlash": "Pfad darf nicht mit einem Schräg- oder Backslash enden.",
   "trashPathSegmentEnds": "Ordnernamen dürfen nicht mit einem Punkt oder Leerzeichen enden.",
   "libraryNoneExcluded": "Keine ausgeschlossen (Standard)",
