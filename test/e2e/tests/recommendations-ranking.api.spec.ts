@@ -48,6 +48,14 @@ test.beforeAll(async () => {
   ctx = await apiContext(auth);
 });
 test.afterAll(async () => {
+  // Leave no managed playlists behind: switch to Deactivate and run the cleanup so any
+  // playlists (from this or a prior spec) are purged before the recommendations-playlist
+  // spec establishes its baseline. Then restore a benign DryRun.
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { RecommendationsTaskMode: 'Deactivate', SyncRecommendationsToPlaylist: false },
+  }).catch(() => undefined);
+  await runCleanupTask(ctx).catch(() => undefined);
   await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
     data: { RecommendationsTaskMode: 'DryRun' },
@@ -69,7 +77,10 @@ test.describe.serial('Recommendations rank from a real watch profile', () => {
   test.beforeAll(async () => {
     await ctx.put(p('Configuration'), {
       headers: { 'Content-Type': 'application/json' },
-      data: { RecommendationsTaskMode: 'Activate' },
+      // Activate the engine but keep playlist sync OFF — this spec only reads the
+      // recommendation/profile APIs and must NOT create managed playlists that would
+      // bleed into the recommendations-playlist spec's baseline.
+      data: { RecommendationsTaskMode: 'Activate', SyncRecommendationsToPlaylist: false },
     });
 
     const movies = await movieItems();
