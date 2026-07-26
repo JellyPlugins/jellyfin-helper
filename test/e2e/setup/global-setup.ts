@@ -18,6 +18,7 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { authHeader } from './api-client.ts';
+import { hasDocker, plantCanaries, plantedCanaries } from './fs-assert.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -220,6 +221,20 @@ async function globalSetup(_config: FullConfig): Promise<void> {
 
   // eslint-disable-next-line no-console
   console.log(`[global-setup] ready: admin=${ADMIN_USER} userId=${userId}`);
+
+  // --- 7. plant canary files outside the media library --------------------
+  // Adversarial FS tests assert these survive every destructive case, proving
+  // no misuse deletes/moves data outside /media. Best-effort: skipped cleanly
+  // when Docker isn't reachable from the test host (FS tests then skip too).
+  if (hasDocker()) {
+    plantCanaries();
+    // eslint-disable-next-line no-console
+    console.log(`[global-setup] planted canaries: ${plantedCanaries().join(', ') || '(none writable)'}`);
+  } else {
+    // eslint-disable-next-line no-console
+    console.log('[global-setup] docker exec unavailable — FS-assertion tests will skip');
+  }
+
   await ctx.dispose();
   await admin.dispose();
 }

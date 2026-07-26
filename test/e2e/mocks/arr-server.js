@@ -19,6 +19,11 @@ const PORT = Number(process.env.PORT ?? 9000);
 // A request carrying this API key gets a 500, to exercise the plugin's
 // error/502 path in negative tests.
 const FAIL_KEY = 'force-fail';
+// Adversarial sentinel keys (hardening tests only): slow-loris, over-large body,
+// non-JSON garbage. Green-path keys are unaffected.
+const SLOW_KEY = 'force-slow';
+const GIANT_KEY = 'force-giant';
+const GARBAGE_KEY = 'force-garbage';
 
 // --- canned payloads -------------------------------------------------------
 
@@ -66,6 +71,31 @@ const server = http.createServer((req, res) => {
   // Everything else requires an API key (mirrors real Arr behaviour).
   if (!apiKey) return finish(path, send(res, 401, { error: 'missing X-Api-Key' }));
   if (apiKey === FAIL_KEY) return finish(path, send(res, 500, { error: 'forced failure' }));
+
+  // Adversarial sentinel keys.
+  if (apiKey === SLOW_KEY) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    setTimeout(() => { try { res.end('[]'); } catch { /* client gone */ } }, 40_000);
+    return finish(path, undefined);
+  }
+  if (apiKey === GIANT_KEY) {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked' });
+    res.write('[');
+    const chunk = `{"title":"${'x'.repeat(1024 * 1024)}"},`;
+    let sent = 0;
+    const pump = () => {
+      if (sent >= 120) { res.end('{}]'); return; }
+      sent += 1;
+      if (res.write(chunk)) { setImmediate(pump); } else { res.once('drain', pump); }
+    };
+    pump();
+    return finish(path, undefined);
+  }
+  if (apiKey === GARBAGE_KEY) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('<html>not json</html>{truncated');
+    return finish(path, undefined);
+  }
 
   if (path === '/api/v3/system/status') {
     // Distinguish Radarr vs Sonarr by an optional ?app= hint; default Radarr.

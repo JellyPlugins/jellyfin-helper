@@ -89,5 +89,118 @@ make_clip "$MOVIES/Repairable Link (2020)/Actual File (2020).mkv" 640 480 libx26
 printf '%s\n' "$ROOT/Movies/Repairable Link (2020)/Old Name (2020).mkv" \
   > "$MOVIES/Repairable Link (2020)/Repairable Link (2020).strm"
 
+# =============================================================================
+# Behavioral / adversarial fixtures (added for the hardened E2E suite). These
+# exercise the discrimination logic — right thing removed/repaired, wrong thing
+# kept — and the safety guards, so the tests can assert real filesystem effects.
+# =============================================================================
+
+# ---- Trickplay discrimination --------------------------------------------
+# VALID: a .trickplay WITH a matching video → must SURVIVE cleanup.
+make_clip "$MOVIES/Valid Trick (2020)/Valid Trick (2020).mkv" 640 480 libx264
+mkdir -p "$MOVIES/Valid Trick (2020)/Valid Trick (2020).trickplay"
+printf 'valid tile' > "$MOVIES/Valid Trick (2020)/Valid Trick (2020).trickplay/tile_0.jpg"
+
+# NESTED: outer .trickplay kept by a matching video; inner nested .trickplay must
+# not be independently deleted (nested-skip branch).
+make_clip "$MOVIES/Nested (2020)/Nested (2020).mkv" 640 480 libx264
+mkdir -p "$MOVIES/Nested (2020)/Nested (2020).trickplay/inner.trickplay"
+printf 'inner tile' > "$MOVIES/Nested (2020)/Nested (2020).trickplay/inner.trickplay/tile_0.jpg"
+
+# NON-VIDEO companion must NOT save a .trickplay (extension-aware match): a
+# same-basename .srt but no video → orphan .trickplay must be removed.
+mkdir -p "$MOVIES/Sub Only (2020)/Sub Only (2020).trickplay"
+printf 'orphan tile' > "$MOVIES/Sub Only (2020)/Sub Only (2020).trickplay/tile_0.jpg"
+printf '1\n00:00:00,000 --> 00:00:01,000\nX\n' > "$MOVIES/Sub Only (2020)/Sub Only (2020).en.srt"
+
+# ---- Subtitle discrimination ---------------------------------------------
+# GENUINE ORPHAN in a dir that ALSO contains a video (the branch the subtitle
+# stage actually deletes; the existing "Lonely Sub" fixture is video-less and
+# gets SKIPPED by the subtitle stage). The orphan .srt must be removed; the
+# video and its own matching sub must survive.
+make_clip "$MOVIES/Mixed Bag (2018)/Mixed Bag (2018).mkv" 1280 720 libx264
+printf '1\n00:00:00,000 --> 00:00:01,000\nkeep\n' > "$MOVIES/Mixed Bag (2018)/Mixed Bag (2018).en.srt"
+printf '1\n00:00:00,000 --> 00:00:01,000\norphan\n' > "$MOVIES/Mixed Bag (2018)/Ghost Subtitle (2001).en.srt"
+
+# MULTI-LANGUAGE valid subs (allowlist survivors) + one non-language orphan.
+make_clip "$MOVIES/Polyglot (2016)/Polyglot (2016).mkv" 1280 720 libx264
+for suf in en "es.forced" "de.sdh" "zh-Hans"; do
+  printf '1\n00:00:00,000 --> 00:00:01,000\n%s\n' "$suf" \
+    > "$MOVIES/Polyglot (2016)/Polyglot (2016).$suf.srt"
+done
+printf 'sub' > "$MOVIES/Polyglot (2016)/Polyglot (2016).pt-BR.ass"
+# ".DTS" is NOT a language/flag → treated as orphan and removed.
+printf '1\n00:00:00,000 --> 00:00:01,000\ndts\n' > "$MOVIES/Polyglot (2016)/Polyglot (2016).DTS.srt"
+
+# FALSE-ORPHAN fallback: a title literally ending in a language token; naive
+# stripping would mis-base it, the fallback keeps it valid → must survive.
+make_clip "$MOVIES/Interview with the en (2004)/Interview with the en (2004).mkv" 640 480 libx264
+printf '1\n00:00:00,000 --> 00:00:01,000\nkeep\n' \
+  > "$MOVIES/Interview with the en (2004)/Interview with the en (2004).srt"
+
+# ---- Empty-folder discrimination -----------------------------------------
+# Nested video protects the whole top-level folder (extras/notes.txt present but
+# a video lives deeper) → entire folder must SURVIVE.
+mkdir -p "$MOVIES/Mixed Keep (2016)/extras"
+printf 'notes' > "$MOVIES/Mixed Keep (2016)/extras/notes.txt"
+make_clip "$MOVIES/Mixed Keep (2016)/Season 01/Mixed Keep S01E01.mkv" 640 480 libx264
+
+# Metadata-only folder (poster + nfo, no media) → wanted-placeholder, SURVIVES.
+mkdir -p "$MOVIES/Wanted Placeholder (2027)"
+printf 'jpg' > "$MOVIES/Wanted Placeholder (2027)/poster.jpg"
+printf '<movie/>' > "$MOVIES/Wanted Placeholder (2027)/movie.nfo"
+
+# Audio-only folder inside a video library → music guard, SURVIVES.
+mkdir -p "$MOVIES/Soundtrack Only (2016)"
+printf 'ID3' > "$MOVIES/Soundtrack Only (2016)/track.mp3"
+
+# ---- Unlisted-codec false-orphan probe -----------------------------------
+# A real movie whose container is NOT in the video allowlist (.mxf). Documents
+# whether its sibling .trickplay / folder is wrongly treated as orphaned.
+mkdir -p "$MOVIES/Odd Codec (2003)"
+printf 'MXF' > "$MOVIES/Odd Codec (2003)/Odd Codec (2003).mxf"
+mkdir -p "$MOVIES/Odd Codec (2003)/Odd Codec (2003).trickplay"
+printf 'tile' > "$MOVIES/Odd Codec (2003)/Odd Codec (2003).trickplay/tile_0.jpg"
+
+# ---- Link-repair adversarial fixtures ------------------------------------
+# AMBIGUOUS: 2+ candidate videos in the broken target's dir → must NOT guess.
+mkdir -p "$MOVIES/Ambiguous Link (2020)"
+make_clip "$MOVIES/Ambiguous Link (2020)/Candidate A (2020).mkv" 320 240 libx264
+make_clip "$MOVIES/Ambiguous Link (2020)/Candidate B (2020).mkv" 320 240 libx264
+printf '%s\n' "$ROOT/Movies/Ambiguous Link (2020)/Old (2020).mkv" \
+  > "$MOVIES/Ambiguous Link (2020)/Ambiguous Link (2020).strm"
+
+# ESCAPE: a relative .strm target that climbs out of the library → InvalidContent.
+mkdir -p "$MOVIES/Escape Link (2020)"
+printf '%s\n' "../../../../../../etc/passwd" \
+  > "$MOVIES/Escape Link (2020)/Escape Link (2020).strm"
+
+# ABSOLUTE-ESCAPE: an absolute .strm target outside every library → InvalidContent.
+mkdir -p "$MOVIES/Abs Escape (2020)"
+printf '%s\n' "/etc/passwd" \
+  > "$MOVIES/Abs Escape (2020)/Abs Escape (2020).strm"
+
+# URL: an http(s) .strm target is inert (Valid, never repaired).
+mkdir -p "$MOVIES/Stream Link (2020)"
+printf '%s\n' "http://example.com/stream.m3u8" \
+  > "$MOVIES/Stream Link (2020)/Stream Link (2020).strm"
+
+# ---- Symlink fixtures (Linux container supports ln -s) --------------------
+# VALID symlink → existing sibling (must stay untouched). BROKEN symlink →
+# missing target with exactly one lone renamed sibling (must be repaired).
+# Guard loudly: if symlink creation fails (unsupported FS), fail generation
+# rather than silently skipping the coverage.
+mkdir -p "$MOVIES/Valid Symlink (2020)"
+make_clip "$MOVIES/Valid Symlink (2020)/Real Target (2020).mkv" 320 240 libx264
+if ln -s "Real Target (2020).mkv" "$MOVIES/Valid Symlink (2020)/Valid Symlink (2020).mkv"; then
+  echo "[gen-media]   created valid symlink"
+else
+  echo "[gen-media] ERROR: symlink creation failed (filesystem may not support symlinks)" >&2
+  exit 1
+fi
+mkdir -p "$MOVIES/Broken Symlink (2020)"
+make_clip "$MOVIES/Broken Symlink (2020)/Renamed Actual (2020).mkv" 320 240 libx264
+ln -s "Missing Original (2020).mkv" "$MOVIES/Broken Symlink (2020)/Broken Symlink (2020).mkv"
+
 echo "[gen-media] done. Library tree:"
 find "$ROOT" -maxdepth 3 -type f | sort | sed 's/^/[gen-media]   /'
