@@ -296,6 +296,14 @@ public class TrashControllerRelocateTests : IDisposable
             NewTrashPath = newAbsolutePath
         });
 
+        // Assert
+        Assert.IsType<OkObjectResult>(result);
+        trashServiceMock.Verify(ts => ts.RelocateTrashContents(
+            It.Is<string>(s => s == oldRelativeTrash),
+            It.Is<string>(s => s == Path.GetFullPath(newAbsolutePath)),
+            It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
+    }
+
     [Fact]
     [Trait("Category", "Security")]
     public void RelocateTrash_AbsoluteSourceIsSensitiveSystemDir_ReturnsBadRequest()

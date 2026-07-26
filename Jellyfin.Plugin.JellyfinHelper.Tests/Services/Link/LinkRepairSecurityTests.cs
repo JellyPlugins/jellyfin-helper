@@ -56,7 +56,12 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
-        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        // On Windows this traversal resolves into C:\Windows and is refused as
+        // InvalidContent (sensitive system dir); on other hosts the backslash target
+        // simply doesn't exist and is Broken. Either way it must never be repaired.
+        Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
+        Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
+        Assert.NotEqual(LinkFileStatus.Valid, result.Status);
     }
 
     // ===== Symlink: Path Traversal =====
@@ -84,7 +89,11 @@ public class LinkRepairSecurityTests
 
         var result = _service.ProcessLinkFile(symlinkFile, _symlinkHandler, true);
 
-        Assert.Equal(LinkFileStatus.Broken, result.Status);
+        // On Windows this resolves into C:\Windows → InvalidContent (sensitive);
+        // elsewhere the backslash target doesn't exist → Broken. Never repaired.
+        Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
+        Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
+        Assert.NotEqual(LinkFileStatus.Valid, result.Status);
     }
 
     // ===== .strm: Command Injection =====

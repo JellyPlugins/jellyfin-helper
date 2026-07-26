@@ -322,14 +322,12 @@ public class LinkRepairService : ILinkRepairService
                     _fileSystem.Path.Combine(
                         linkDir,
                         pathToNormalize));
-            // Verify the resolved absolute target falls within one of the configured
-            // library roots — for BOTH relative AND absolute targets. A relative target
-            // that escapes ("../../etc/passwd") and an absolute target that points
-            // outside every library (e.g. "/etc/passwd", "/config/data/library.db", or a
-            // "file:///etc/..." URI) are both treated as invalid content rather than a
-            // broken link. This stops link repair from enumerating or rewriting toward
-            // directories outside the media libraries (path-traversal / info-disclosure).
-            if (normalizedLibraryPaths != null
+
+            // (a) A RELATIVE target that escapes outside all configured library roots
+            // (e.g. "../../etc/passwd") is treated as invalid content, not a broken
+            // link, to avoid path-traversal abuse.
+            if (!_fileSystem.Path.IsPathRooted(pathToNormalize)
+                && normalizedLibraryPaths != null
                 && normalizedLibraryPaths.Count > 0)
             {
                 var separator = _fileSystem.Path.DirectorySeparatorChar;
@@ -350,6 +348,22 @@ public class LinkRepairService : ILinkRepairService
                     fileResult.Status = LinkFileStatus.InvalidContent;
                     return fileResult;
                 }
+            }
+
+            // (b) An ABSOLUTE target (or file:// URI) pointing at a sensitive system
+            // directory — Jellyfin's own /config, OS dirs like /etc, C:\Windows — is
+            // refused so link repair never enumerates or rewrites toward host files
+            // outside the media libraries (info-disclosure / traversal via absolute
+            // targets). A cross-location absolute media target (another library / mount)
+            // is still allowed; only sensitive locations are blocked.
+            if (IsSensitiveSystemTarget(normalizedTargetPath))
+            {
+                _pluginLog.LogWarning(
+                    "LinkRepair",
+                    $"Target path in link file {linkFilePath} points at a sensitive system directory: {normalizedTargetPath}",
+                    logger: _logger);
+                fileResult.Status = LinkFileStatus.InvalidContent;
+                return fileResult;
             }
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
@@ -498,5 +512,45 @@ public class LinkRepairService : ILinkRepairService
         }
 
         return mediaFiles;
+    }
+
+    /// <summary>
+    ///     True when an absolute target path is (or is inside) a sensitive system /
+    ///     application directory that link repair must never read from or rewrite
+    ///     toward — Jellyfin's own <c>/config</c>, plus common OS directories. A
+    ///     cross-location media target (another library or mount) is not sensitive
+    ///     and is allowed; only these locations are blocked.
+    /// </summary>
+    private static bool IsSensitiveSystemTarget(string normalizedTargetPath)
+    {
+        if (string.IsNullOrEmpty(normalizedTargetPath))
+        {
+            return false;
+        }
+
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var path = normalizedTargetPath.TrimEnd('/', '\\');
+
+        string[] sensitiveRoots =
+        {
+            "/config", "/cache", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
+            "/boot", "/proc", "/sys", "/dev", "/var", "/root", "/run",
+            @"C:\Windows", @"C:\Program Files", @"C:\Program Files (x86)", @"C:\ProgramData",
+        };
+
+        foreach (var sensitive in sensitiveRoots)
+        {
+            var s = sensitive.TrimEnd('/', '\\');
+            if (string.Equals(path, s, comparison)
+                || path.StartsWith(s + "/", comparison)
+                || path.StartsWith(s + "\\", comparison))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
