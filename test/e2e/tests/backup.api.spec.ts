@@ -68,8 +68,8 @@ test('round-trip: export → change config → import restores exported values',
   // Import the earlier backup — should restore language + age.
   const res = await importBackup(backup);
   expect(res.ok(), `import failed: ${res.status()} ${await res.text()}`).toBeTruthy();
-  const summary = (await res.json()) as { ConfigurationRestored: boolean };
-  expect(summary.ConfigurationRestored).toBe(true);
+  const summary = (await res.json()) as { summary: { ConfigurationRestored: boolean } };
+  expect(summary.summary.ConfigurationRestored).toBe(true);
 
   const restored = await ctx.get(p('Configuration')).then((r) => r.json());
   expect(restored.Language).toBe('de');

@@ -42,10 +42,10 @@ test('plugin is installed and Active (not Malfunctioned)', async () => {
 });
 
 test('plugin configuration page is registered', async () => {
-  // Jellyfin exposes plugin config pages under /web/ConfigurationPage?name=...
-  const res = await ctx.get(`/web/ConfigurationPage?name=JellyfinHelper`);
-  // Some builds serve it under the plugin name with a space; accept either 200
-  // or a redirect, but never 404/500.
+  // The page is registered under the plugin's Name ("Jellyfin Helper", with a
+  // space) via GetPages(); the ConfigurationPage route matches on that exact name.
+  const res = await ctx.get(`/web/ConfigurationPage?name=${encodeURIComponent('Jellyfin Helper')}`);
+  // Accept 200 or a redirect, but never 404/500.
   expect([200, 301, 302]).toContain(res.status());
 });
 
