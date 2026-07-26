@@ -354,6 +354,7 @@
   "trashPathOnlySlashes": "Path cannot consist of only slashes or invalid characters.",
   "trashPathDoubleSlash": "Path must not contain consecutive slashes or backslashes.",
   "trashPathDotSegment": "Path must not contain '.' or '..' directory references.",
+  "trashPathSensitive": "This is a protected system folder and cannot be used.",
   "trashPathTrailingSlash": "Path must not end with a slash or backslash.",
   "trashPathSegmentEnds": "Folder names must not end with a dot or space.",
   "libraryNoneExcluded": "None excluded (default)",

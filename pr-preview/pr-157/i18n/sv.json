@@ -354,6 +354,7 @@
   "trashPathOnlySlashes": "Sökvägen kan inte bestå av enbart snedstreck/omvända snedstreck eller ogiltiga tecken.",
   "trashPathDoubleSlash": "Sökvägen får inte innehålla på varandra följande snedstreck eller omvända snedstreck.",
   "trashPathDotSegment": "Sökvägen får inte innehålla '.' eller '..' katalogreferenser.",
+  "trashPathSensitive": "Detta är en skyddad systemmapp och kan inte användas.",
   "trashPathTrailingSlash": "Sökvägen får inte sluta med ett snedstreck eller omvänt snedstreck.",
   "trashPathSegmentEnds": "Mappnamn får inte sluta med en punkt eller mellanslag.",
   "libraryNoneExcluded": "Inga exkluderade (standard)",

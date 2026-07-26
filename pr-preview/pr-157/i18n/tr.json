@@ -354,6 +354,7 @@
   "trashPathOnlySlashes": "Yol yalnızca eğik çizgi/ters eğik çizgi veya geçersiz karakterlerden oluşamaz.",
   "trashPathDoubleSlash": "Yol ardışık eğik çizgi veya ters eğik çizgi içeremez.",
   "trashPathDotSegment": "Yol '.' veya '..' dizin referansları içeremez.",
+  "trashPathSensitive": "Bu korumalı bir sistem klasörüdür ve kullanılamaz.",
   "trashPathTrailingSlash": "Yol eğik çizgi veya ters eğik çizgi ile bitemez.",
   "trashPathSegmentEnds": "Klasör adları nokta veya boşluk ile bitemez.",
   "libraryNoneExcluded": "Hiçbiri hariç tutulmadı (varsayılan)",

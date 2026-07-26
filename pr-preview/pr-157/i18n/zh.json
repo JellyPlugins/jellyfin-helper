@@ -354,6 +354,7 @@
   "trashPathOnlySlashes": "路径不能仅由斜杠、反斜杠或无效字符组成。",
   "trashPathDoubleSlash": "路径不能包含连续的斜杠或反斜杠。",
   "trashPathDotSegment": "路径不能包含 '.' 或 '..' 目录引用。",
+  "trashPathSensitive": "这是受保护的系统文件夹，无法使用。",
   "trashPathTrailingSlash": "路径不能以斜杠或反斜杠结尾。",
   "trashPathSegmentEnds": "文件夹名称不能以点或空格结尾。",
   "libraryNoneExcluded": "无排除（默认）",
