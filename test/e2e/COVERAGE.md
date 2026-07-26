@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it —
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. ~100 API tests + UI tests across the spec files.
+every UI interaction. **146 tests** (API + UI) across the spec files.
 
 ## How to see coverage live
 
@@ -105,8 +105,12 @@ every UI interaction. ~100 API tests + UI tests across the spec files.
 - **Admin gaps closed:** `Discovery/Request` submission to mock; `Trash/Relocate` move.
 
 ## 9. UI — all 8 tabs → `tabs.ui.spec.ts`
-- Overview, Codecs, Health, Trends, Settings, Arr, Logs (+ Recommendations when visible)
-  switch + activate, **no JS console errors**. Overview renders stat cards after scan.
+- Overview, Codecs, Health, Trends, Settings, Arr, Logs switch + activate, **no uncaught
+  JS errors** (failed-resource-load status noise is filtered; real pageerror/console.error
+  JS still fails). Overview renders stat cards after scan. The Arr and Recommendations UI
+  specs now **self-provision** their preconditions (configure Mock Radarr / set a
+  non-Deactivate recs mode via API in `beforeAll`) instead of relying on leftover state,
+  so they run rather than skip.
 
 ## 10. UI — interactions
 | Covered | File |
@@ -117,6 +121,26 @@ every UI interaction. ~100 API tests + UI tests across the spec files.
 | **Unsaved dialog** — dirty band; appears on leaving dirty tab; absent after save; Discard drops edit | `unsaved-dialog.ui.spec.ts` |
 | Arr dropdown → reachability (is-ok); Compare → **successful** comparison card | `arr.ui.spec.ts` |
 | Recommendations user selector → WatchProfile response (documented status); sections toggle | `recommendations.ui.spec.ts` |
+| Overview **Scan Libraries** button → ScanLibraries + button re-enable lifecycle | `interactions.ui.spec.ts` |
+| Settings task-mode change → **quiet auto-save** PUT (no unsaved band) | `interactions.ui.spec.ts` |
+| Trends **insight cards** → expand + mutual-collapse | `interactions.ui.spec.ts` |
+| Settings Seerr **Test Connection** → POST /Seerr/Test (expands section, fills inputs) | `interactions.ui.spec.ts` |
+| Settings **Export Backup** → file download | `interactions.ui.spec.ts` |
+| Settings **folder-browser** → opens overlay (enables UseTrash fieldset first) | `interactions.ui.spec.ts` |
+
+## 11. API contract pinning → `contracts.api.spec.ts`
+Endpoints that smoke only *routed* or hardening only *tolerated a status class*
+([200,400,404,503]) — pinned here so a regression flipping a branch can't slip
+through:
+- **503 Deactivate guards** on all Recommendation + UserActivity endpoints (message asserted).
+- **empty-GUID → 400** on `Recommendations/{id}`, `Recommendations/WatchProfile/{id}`, `UserActivity/User/{id}`.
+- `UserActivity/User/{id}`: valid-but-unknown user → **404**; `maxResults` clamp holds.
+- `Discovery/Request` validation → **400** — documents the actual `ValidationProblemDetails`
+  envelope from `[ApiController]` (TmdbId/MediaType messages), plus the null-body 400.
+- `Ping` → `{Ok:true, Plugin:"JellyfinHelper", Version}` liveness contract.
+- `Translations` no-`lang` → configured-language fallback (non-empty map); malformed `lang` → **400** pinned.
+- `Configuration/Libraries` + `Configuration/LibraryPaths` response shapes.
+- `GrowthTimeline?forceRefresh=true` recompute path (200 or 429 + `Retry-After`).
 
 ---
 
@@ -128,6 +152,13 @@ every UI interaction. ~100 API tests + UI tests across the spec files.
 - ⚠️ **Trends chart hover tooltip** (mouse-driven SVG) — data validated at the API layer instead.
 - ⚠️ **Discovery/My/Request full submission as the non-admin user** — permission + service paths are
   covered; the end-to-end user submit is left for a later pass (admin `Discovery/Request` IS covered).
+- ⚠️ **`Trash/Relocate` / `Trash/CheckAccess` / `Trash/FoldersForPath` SUCCESS-body contracts** —
+  error branches + a loose `<500` relocation move are covered (`trash.api.spec.ts`,
+  `discovery-my.api.spec.ts:139`); the exact `{Moved, Failed}` / `{AllAccessible, Results[]}` /
+  `{Paths[], IsAbsolute}` success shapes are not yet pinned.
+- ⚠️ **Settings dialogs** — trash-disable "Keep/Delete" + trash-path-change relocation dialogs, the
+  Excluded-Libraries multi-select, and the Backup **Import** confirm dialog are not yet UI-driven
+  (Export is; the backup API round-trip is fully covered).
 
 ## First-run caveat
 Type-checked and infra-validated. The stack now boots (Jellyfin healthy, media generated, deps
