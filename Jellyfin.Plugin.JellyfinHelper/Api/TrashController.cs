@@ -363,15 +363,26 @@ public class TrashController : ControllerBase
         }
         else if (Path.IsPathFullyQualified(oldPath) && !Path.IsPathFullyQualified(newPath))
         {
-            // Old is absolute, new is relative: move from single old to first library's new path
+            // Old is absolute, new is relative: move the single absolute source into
+            // ONE library's resolved new path.
             if (!IsPathSafeForDeletion(resolvedOld, libraryFolders))
             {
                 return BadRequest(new { Error = "Old trash path is unsafe for relocation." });
             }
 
-            // Distribute to each library's resolved new path (split is not practical;
-            // move all to the first library that resolves successfully)
-            foreach (var folder in libraryFolders)
+            // Choose the target library deterministically and meaningfully: prefer the
+            // library that actually CONTAINS the absolute source, so e.g.
+            // /media/Movies/.abs-old drains into /media/Movies/<newRelative>. Only when
+            // no library contains the source (a trash dir on a separate volume) do we
+            // fall back to the first library whose relative path resolves. Library
+            // enumeration order (Jellyfin's GetVirtualFolders) is otherwise unsorted, so
+            // relying on "the first one" alone was non-deterministic.
+            var containingLibrary = FindContainingLibrary(resolvedOld, libraryFolders);
+            var candidateLibraries = containingLibrary != null
+                ? new[] { containingLibrary }.Concat(libraryFolders.Where(f => !string.Equals(f, containingLibrary, StringComparison.Ordinal)))
+                : libraryFolders;
+
+            foreach (var folder in candidateLibraries)
             {
                 var perLibraryNew = ResolveRelativeTrashPath(folder, newPath);
                 if (perLibraryNew == null)
@@ -382,7 +393,7 @@ public class TrashController : ControllerBase
                 var (moved, failed) = _trashService.RelocateTrashContents(resolvedOld, perLibraryNew, _logger);
                 totalMoved += moved;
                 totalFailed += failed;
-                break; // Only move once from absolute source
+                break; // Only move once from the absolute source
             }
         }
         else
@@ -497,6 +508,40 @@ public class TrashController : ControllerBase
         // NOT a known system/sensitive location. This preserves the "trash folder on a
         // separate volume" admin setup while blocking /config, OS dirs, etc.
         return !IsSensitiveSystemPath(normalizedPath);
+    }
+
+    /// <summary>
+    /// Returns the library root that strictly CONTAINS <paramref name="fullPath"/>, or
+    /// <c>null</c> when the path lies outside every library (e.g. a trash directory on a
+    /// separate volume). Used to relocate an absolute trash source into its own library's
+    /// relative target deterministically, rather than into whichever library Jellyfin's
+    /// unsorted enumeration happened to return first.
+    /// </summary>
+    /// <param name="fullPath">The already-resolved absolute path to locate.</param>
+    /// <param name="libraryFolders">The known library root folders.</param>
+    /// <returns>The containing library root (as provided in <paramref name="libraryFolders"/>), or null.</returns>
+    private static string? FindContainingLibrary(string fullPath, IReadOnlyList<string> libraryFolders)
+    {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        var normalizedPath = Path.GetFullPath(fullPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        foreach (var folder in libraryFolders)
+        {
+            var libraryRoot = Path.GetFullPath(folder)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            // Strictly inside (not equal to) the library root.
+            if (normalizedPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, comparison))
+            {
+                return folder;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

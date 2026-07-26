@@ -271,6 +271,49 @@ public class TrashControllerRelocateTests : IDisposable
     }
 
     [Fact]
+    public void RelocateTrash_AbsoluteOldRelativeNew_ResolvesUnderTheLibraryContainingTheSource()
+    {
+        // Arrange: two libraries, and an absolute source INSIDE the second-registered
+        // one. The relative new path resolves under BOTH libraries, so a naive "first
+        // library that resolves" would target the first (movies) — a non-deterministic,
+        // wrong result driven by enumeration order. The correct behaviour is to relocate
+        // WITHIN the library that actually contains the source (shows).
+        var moviesRoot = Path.Combine(_testRoot, "movies");
+        var showsRoot = Path.Combine(_testRoot, "shows");
+        Directory.CreateDirectory(moviesRoot);
+        Directory.CreateDirectory(showsRoot);
+        var oldAbsolutePath = Path.Combine(showsRoot, ".abs-old");
+        Directory.CreateDirectory(oldAbsolutePath);
+
+        var trashServiceMock = new Mock<ITrashService>();
+        trashServiceMock.Setup(ts => ts.RelocateTrashContents(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Microsoft.Extensions.Logging.ILogger>()))
+            .Returns((1, 0));
+
+        var config = new PluginConfiguration();
+        // movies registered FIRST on purpose — the source lives under shows.
+        var controller = CreateController(config, [moviesRoot, showsRoot], trashServiceMock);
+
+        // Act
+        var result = controller.RelocateTrash(new TrashRelocateRequest
+        {
+            OldTrashPath = oldAbsolutePath,
+            NewTrashPath = ".jellyfin-trash-2"
+        });
+
+        // Assert: moved exactly once, into SHOWS (the containing library), never movies.
+        Assert.IsType<OkObjectResult>(result);
+        trashServiceMock.Verify(ts => ts.RelocateTrashContents(
+            It.Is<string>(s => s == Path.GetFullPath(oldAbsolutePath)),
+            It.Is<string>(s => s == Path.Combine(showsRoot, ".jellyfin-trash-2")),
+            It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Once);
+        trashServiceMock.Verify(ts => ts.RelocateTrashContents(
+            It.IsAny<string>(),
+            It.Is<string>(s => s == Path.Combine(moviesRoot, ".jellyfin-trash-2")),
+            It.IsAny<Microsoft.Extensions.Logging.ILogger>()), Times.Never);
+    }
+
+    [Fact]
     public void RelocateTrash_RelativeOldAbsoluteNew_MergesIntoAbsoluteTarget()
     {
         // Arrange: old is relative, new is absolute → merge all library trash into one absolute target

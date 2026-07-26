@@ -55,9 +55,11 @@ test('mixed [valid, null] instances: null dropped, valid kept, never 500', async
   // If the import was accepted, the null is gone but the valid entry remains.
   if (res.ok()) {
     const after = await exportBackup();
-    const sonarr = (after.sonarrInstances ?? []) as Array<{ Name?: string } | null>;
+    // Export serializes with the camelCase policy (+ [JsonPropertyName("name")]),
+    // so the round-tripped instance key is `name`, not `Name`.
+    const sonarr = (after.sonarrInstances ?? []) as Array<{ name?: string } | null>;
     expect(sonarr.every((i) => i !== null), 'null instance must be dropped').toBe(true);
-    expect(sonarr.some((i) => i?.Name === 'KeepMe'), 'the valid instance must survive').toBe(true);
+    expect(sonarr.some((i) => i?.name === 'KeepMe'), 'the valid instance must survive').toBe(true);
   }
 
   // Restore the shared default so later specs aren't affected.

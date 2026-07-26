@@ -141,7 +141,8 @@ test.describe.serial('Trash/Relocate moves real content across all four quadrant
     expect(body.Failed).toBe(0);
     expect(body.Moved, 'the absolute source moved once (to the first library)').toBe(1);
 
-    // The controller moves an absolute source to the FIRST library that resolves.
+    // The controller relocates an absolute source WITHIN the library that contains
+    // it (deterministic, source-driven — not "whichever library enumerated first").
     expect(containerFileExists(`${MOVIES}/.jellyfin-trash-2/From Absolute/payload.mkv`)).toBe(true);
     expect(sha256(`${MOVIES}/.jellyfin-trash-2/From Absolute/payload.mkv`)).toBe(before);
     expect(containerDirExists(oldAbs), 'absolute source removed once empty').toBe(false);

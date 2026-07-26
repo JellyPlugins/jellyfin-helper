@@ -138,18 +138,21 @@ test.describe('Discovery/Request validation', () => {
     expect(JSON.stringify(body.errors ?? body)).toContain('MediaType must be either');
   });
 
-  test('null body → 400 (hand-built RequestResult path)', async () => {
-    // A null/empty JSON body slips past model validation into the action, which
-    // returns the controller's own {Success:false, Message} envelope. Pin that
-    // body (not just the status) — every other contract test here pins the shape.
+  test('null body → 400 (rejected by [ApiController] model validation)', async () => {
+    // A literal `null` / empty JSON body is a required-body violation: [ApiController]
+    // auto-validation short-circuits with an RFC9110 ValidationProblemDetails
+    // envelope ({title, status, errors}) BEFORE the action's own {Success:false}
+    // null-guard can run (that guard is only reachable via direct in-process calls).
+    // Pin the observable wire contract, like the TmdbId/MediaType cases above.
     const res = await ctx.post(p('Discovery/Request'), {
       headers: { 'Content-Type': 'application/json' },
       data: 'null',
     });
     expect(res.status()).toBe(400);
-    const body = (await res.json()) as { Success: boolean; Message?: string };
-    expect(body.Success).toBe(false);
-    expect(body.Message?.length ?? 0).toBeGreaterThan(0);
+    const body = (await res.json()) as { title?: string; status?: number; errors?: Record<string, string[]> };
+    // No {Success} field on this path; assert the problem-details shape instead.
+    expect(body.errors ?? body.title, 'problem-details envelope expected').toBeTruthy();
+    expect(JSON.stringify(body)).toMatch(/body|required/i);
   });
 });
 
