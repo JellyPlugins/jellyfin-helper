@@ -2,7 +2,21 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it —
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **146 tests** (API + UI) across the spec files.
+every UI interaction. **207 tests** (API + UI) across the spec files.
+
+Beyond "does it route / does the UI render", the suite now proves features
+**actually work on disk** and that **misuse breaks nothing**:
+- **Behavioral (filesystem-verified):** cleanup deletes the orphan and keeps the
+  valid file; trash actually moves items and purges by retention date; link
+  repair rewrites the right `.strm`/symlink and refuses the wrong ones; Seerr
+  cleanup deletes exactly the expired requests; backup round-trips real data.
+  These read the container FS via `docker exec` (see `setup/fs-assert.ts`); when
+  Docker isn't reachable from the test host they **skip loudly**, never pass
+  vacuously.
+- **Adversarial (canary-guarded):** fat-finger and hostile inputs must fail
+  cleanly (400/502/504, never 500/hang), and **canary files planted outside
+  `/media` must survive every destructive test** — the proof that no misuse can
+  delete or move data outside the media library.
 
 ## How to see coverage live
 
@@ -143,6 +157,52 @@ through:
 - `Translations` no-`lang` → configured-language fallback (non-empty map); malformed `lang` → **400** pinned.
 - `Configuration/Libraries` + `Configuration/LibraryPaths` response shapes.
 - `GrowthTimeline?forceRefresh=true` recompute path (200 or 429 + `Retry-After`).
+
+---
+
+## 12. Behavioral — features actually work on disk (`*-fs.api.spec.ts`)
+Filesystem-verified via `docker exec` (skips loudly without Docker):
+- **Cleanup discrimination** (`cleanup-fs`): each stage in isolation deletes the
+  orphan AND keeps the valid — video-backed `.trickplay` survives, matching &
+  multi-language subtitles survive, `.DTS` non-language orphan removed,
+  metadata-only / audio-only / nested-video folders survive; **DryRun leaves all
+  orphans on disk**; permanent-delete creates no trash; **age gating** keeps a
+  too-new orphan then removes it at 0.
+- **Trash move + retention** (`trash-fs`): orphan leaves the library and appears
+  under `.jellyfin-trash` as `yyyyMMdd-HHmmss_<name>` with contents intact;
+  **expired entries purge by name-timestamp, fresh survive**; `retention<=0`
+  disables purge; foreign non-timestamp entries untouched.
+- **Link repair** (`link-repair-fs`): repairable `.strm` rewritten to its lone
+  sibling (**DryRun leaves it byte-unchanged first**); ambiguous / broken / URL
+  targets untouched; **broken symlink repaired, valid symlink unchanged**;
+  relative-traversal and absolute-out-of-library targets refused.
+- **Seerr cleanup** (`seerr-cleanup`): **exact-id** deletion (expired
+  pending/declined gone; status 2/4/5 + recent + inside-age-boundary survive);
+  DryRun deletes nothing; incomplete-snapshot (force-fail) deletes nothing.
+- **Recommendations playlists** (`recommendations-playlist`): Activate+sync
+  creates then Deactivate purges; cache written on Activate, absent on DryRun.
+- **Backup round-trip** (`backup.api.spec.ts` extended): full config field-set,
+  growth timeline via `GET GrowthTimeline`, Arr credential preserve-then-change.
+
+## 13. Adversarial — misuse breaks nothing (canary-guarded)
+Every destructive case asserts library-external **canary files survive**:
+- **Trash escape** (`trash-abuse`): absolute `/config` trash path via
+  `DELETE /Trash/Folders` and every `Trash/Relocate` branch is refused; config
+  dir intact. (Regression coverage for the fixed FS-escape bugs.)
+- **Config** (`config-adversarial`): `LogLevel` null body → 400 (was 500);
+  unknown enum atomic-reject; 10k-instance array bounded; XML-hostile input
+  no-corrupt; racing PUTs converge to one coherent set.
+- **Backup** (`backup-adversarial`): `[null]` instance no 500; absolute `/config`
+  trash path from a backup can't make cleanup escape; NaN/Infinity/overflow,
+  depth-bomb (bounded), array/truncated bodies all `<500`.
+- **Integrations** (`integrations-adversarial`): SSRF targets never succeed/hang;
+  non-HTTP schemes → exact-message 400; high-byte keys no 500; slow/giant/garbage
+  upstreams degrade cleanly; Compare index overflow handled.
+- **Cleanup** (`cleanup-abuse`): symlink-out-of-library target survives cleanup;
+  excluded library + its trash fully hands-off; emoji/long names ok.
+- **Discovery** (`discovery-abuse`): write endpoints 403 when access disabled
+  with **no leak to Seerr**; adversarial Dismiss inputs 4xx; identity-spoof
+  `SeerrUserId` not forwarded.
 
 ---
 
