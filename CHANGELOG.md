@@ -18,7 +18,6 @@ test suite that runs the plugin inside a real Jellyfin server on every change.
 
 ### Added
 - **Smarter recommendation engine** - The neural network behind your recommendations is much bigger now and uses dropout regularisation, so it learns your taste more reliably and generalises better beyond what you've already watched.
-- **Recommendation tuning without a restart** - The ensemble balance and diversity controls can be adjusted from configuration and take effect immediately.
 
 ### Improved
 - **Better recommendations from day one** - Re-watching a favourite nudges the algorithm noticeably now. Actors and directors you love outrank cameo overlaps. Shows you actually finished shape your taste more than ones you dropped after two episodes. Box-set suggestions ("finish the trilogy") stay consistent between what you see and what the model learned from.
