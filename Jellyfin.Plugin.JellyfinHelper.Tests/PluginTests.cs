@@ -681,4 +681,59 @@ public sealed class PluginTests : IDisposable
 
         Assert.Null(ex);
     }
+
+    // ================================================================================================
+    // IsFileTransformationAssembly — precise, positive identity check for the File Transformation plugin
+    // ================================================================================================
+
+    [Fact]
+    public void IsFileTransformationAssembly_MatchesExactSimpleName()
+    {
+        // The File Transformation plugin's assembly simple name is
+        // "Jellyfin.Plugin.FileTransformation" (its csproj has no explicit <AssemblyName>, so the
+        // simple name is the project file name). This is the exact string the detection must match.
+        var name = new System.Reflection.AssemblyName("Jellyfin.Plugin.FileTransformation");
+        var dynamicAsm = System.Reflection.Emit.AssemblyBuilder.DefineDynamicAssembly(
+            name,
+            System.Reflection.Emit.AssemblyBuilderAccess.Run);
+
+        Assert.True(
+            Plugin.IsFileTransformationAssembly(dynamicAsm),
+            "an assembly whose simple name is exactly 'Jellyfin.Plugin.FileTransformation' must match");
+    }
+
+    [Fact]
+    public void IsFileTransformationAssembly_DoesNotMatchOurOwnAssembly()
+    {
+        // BUG GUARD: our own assembly is "Jellyfin.Plugin.JellyfinHelper" and it CONTAINS a
+        // ".FileTransformation" *namespace* (Services.FileTransformation). The old loose
+        // FullName.Contains(".FileTransformation") check would have false-positived here; the
+        // precise simple-name check must NOT — otherwise the plugin would try to register a
+        // transformation against ITSELF.
+        Assert.False(
+            Plugin.IsFileTransformationAssembly(typeof(Plugin).Assembly),
+            "our own assembly (with a Services.FileTransformation namespace) must NOT be mistaken for the plugin");
+    }
+
+    [Fact]
+    public void IsFileTransformationAssembly_DoesNotMatchSubstringOrSuffixNames()
+    {
+        // Names that merely contain or extend the target must not match — the check is exact identity,
+        // not a substring/prefix scan.
+        foreach (var candidate in new[]
+                 {
+                     "Jellyfin.Plugin.FileTransformation.Extras",
+                     "My.Jellyfin.Plugin.FileTransformation",
+                     "Jellyfin.Plugin.FileTransformationHelper",
+                     "FileTransformation",
+                 })
+        {
+            var asm = System.Reflection.Emit.AssemblyBuilder.DefineDynamicAssembly(
+                new System.Reflection.AssemblyName(candidate),
+                System.Reflection.Emit.AssemblyBuilderAccess.Run);
+            Assert.False(
+                Plugin.IsFileTransformationAssembly(asm),
+                $"'{candidate}' must NOT match the exact File Transformation assembly name");
+        }
+    }
 }

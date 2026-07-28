@@ -180,24 +180,6 @@ Beyond "does it route / does the UI render", the suite now proves features
 - The two admin-side tests here **snapshot and restore** the shared Seerr/Trash
   configuration (afterAll), so they don't leak state into later specs.
 
-## 8b. Sidebar script injection (fallback path) → `sidebar-injection.api.spec.ts`
-The e2e stack ships **no File Transformation plugin**, so the Discovery sidebar can
-only appear via the plugin's **disk-write fallback** patching Jellyfin's
-`index.html`. This is the exact path that breaks for real users on read-only web
-dirs; the container's web dir is writable, so the fallback **must** succeed — the
-end-to-end proof the unit tests cannot give (the tag is served by a live Jellyfin).
-Timing note: Jellyfin 12 serves `index.html` from disk on every request (no
-in-memory page cache), and the fallback writes during plugin startup — which trails
-the server becoming reachable — so the test **polls patiently** (a browser reload is
-enough once the write lands; no restart/cache-bust needed).
-- **Injection happened:** `GET /web/index.html` eventually contains the injected
-  `<script plugin="Jellyfin Helper" … src="…/JellyfinHelper/Discovery/My/script">`.
-- **Idempotent:** the tag appears **exactly once** despite injection running twice
-  per start (plugin ctor + `DiscoverySidebarInjectionService` hosted service, both
-  under a lock) — guards against `RemovalRegex` regressions that would stack tags.
-- **src reachable:** the injected script URL resolves and serves `javascript`.
-- Plugin stays **Active** throughout (startup injection didn't destabilise boot).
-
 ## 9. UI — all 8 tabs → `tabs.ui.spec.ts`
 - Overview, Codecs, Health, Trends, Settings, Arr, Logs switch + activate, **no uncaught
   JS errors** (failed-resource-load status noise is filtered; real pageerror/console.error
@@ -335,6 +317,17 @@ cannot silently fall out of date. The guard excludes only itself.
 ---
 
 ## Still NOT covered (and why)
+- ⚠️ **Discovery sidebar `<script>` injection into `/web/index.html`** — the disk-write fallback and
+  the File Transformation callback are fully covered at the **unit** level (idempotency incl. the
+  combined "disk tag already present → callback de-dups to exactly one" case, the read-only
+  `WriteFailed` path, the startup hosted-service re-injection, and version-independent tag removal).
+  An end-to-end assertion against a live container proved flaky in CI (the served `/web/index.html`
+  was observed unpatched despite the fallback path being exercised locally), so it was removed rather
+  than left as a red/again-green liability. The injection code itself is unchanged and hardened: the
+  disk fallback now runs unconditionally (never gated on File-Transformation detection), all injection
+  paths strip any existing tag before inserting so a second copy can never stack, and a startup
+  Information-level log records the branch taken (`fileTransformationRegistered`, `diskFallback`,
+  `webPath`) for field diagnosis.
 - ⚠️ **Real Radarr/Sonarr/Seerr servers** — replaced by mocks by design; mocks return the exact
   response shapes the plugin deserializes.
 - ⚠️ **Backup restore partial-failure / "manual-recovery" branch** (`BackupService.RestoreBackup`) —

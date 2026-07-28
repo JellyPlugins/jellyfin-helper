@@ -237,4 +237,28 @@ public class TransformationPatchesTests
         Assert.True(scriptPos > templateClose,
             "Script tag must be injected after </template>, not inside it.");
     }
+
+    [Fact]
+    public void IndexHtml_OnDiskFallbackTagThenCallback_ProducesExactlyOneTag()
+    {
+        // For the "always run the disk fallback" design: when File
+        // Transformation IS installed AND the disk fallback has ALSO already written the tag to
+        // index.html, the File Transformation callback runs on that already-tagged on-disk content.
+        // It must de-duplicate to EXACTLY ONE tag — never stack a second copy.
+        //
+        // The tag is built by DiscoveryScriptTag.Build(version) in BOTH paths, and the version is
+        // NOT hard-coded here on purpose — the plugin version changes every release and the
+        // de-duplication must never depend on it. We deliberately use a DIFFERENT (older) version
+        // for the pre-existing on-disk tag than the callback will emit, to prove the RemovalRegex
+        // matches our tag regardless of the version attribute (the real upgrade scenario), not just
+        // when the versions happen to be identical.
+        var onDiskOldVersionTag = DiscoveryScriptTag.Build("0.0.1-old");
+        var diskInjected = "<html><body><div>app</div>\n" + onDiskOldVersionTag + "\n</body></html>";
+
+        var served = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = diskInjected });
+
+        Assert.Equal(1, CountOccurrences(served, "plugin=\"Jellyfin Helper\""));
+        // The stale on-disk version must have been stripped, leaving only the freshly emitted tag.
+        Assert.DoesNotContain("0.0.1-old", served, StringComparison.Ordinal);
+    }
 }

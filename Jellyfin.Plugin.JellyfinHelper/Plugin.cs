@@ -274,6 +274,30 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
+    ///     Determines whether a loaded assembly is the File Transformation plugin, matching on its
+    ///     exact simple assembly name (<c>Jellyfin.Plugin.FileTransformation</c>).
+    ///     <para>
+    ///         This is a precise, positive identity check — not a loose substring scan of the full
+    ///         assembly name — so an unrelated assembly that merely happens to contain the text
+    ///         ".FileTransformation" somewhere (including this plugin's own
+    ///         <c>...Services.FileTransformation</c> namespace, which is a namespace, not an assembly
+    ///         name) can never be mistaken for the File Transformation plugin. Getting this wrong in
+    ///         either direction is harmless to correctness now that the disk fallback always runs
+    ///         (see <see cref="InjectScript"/>), but a precise check keeps the registration path and
+    ///         its logging honest.
+    ///     </para>
+    /// </summary>
+    /// <param name="assembly">The assembly to test.</param>
+    /// <returns><c>true</c> if this is the File Transformation plugin assembly.</returns>
+    internal static bool IsFileTransformationAssembly(Assembly assembly)
+    {
+        return string.Equals(
+            assembly.GetName().Name,
+            "Jellyfin.Plugin.FileTransformation",
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     ///     Attempts to register the script injection with the File Transformation plugin.
     ///     This plugin intercepts file serving and transforms content on-the-fly,
     ///     avoiding the need to write to the read-only filesystem in Docker containers.
@@ -285,7 +309,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             var fileTransformationAssembly = AssemblyLoadContext.All
                 .SelectMany(x => x.Assemblies)
-                .FirstOrDefault(x => x.FullName?.Contains(".FileTransformation", StringComparison.Ordinal) ?? false);
+                .FirstOrDefault(x => IsFileTransformationAssembly(x));
 
             if (fileTransformationAssembly == null)
             {
@@ -389,7 +413,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             var fileTransformationAssembly = AssemblyLoadContext.All
                 .SelectMany(x => x.Assemblies)
-                .FirstOrDefault(x => x.FullName?.Contains(".FileTransformation", StringComparison.Ordinal) ?? false);
+                .FirstOrDefault(x => IsFileTransformationAssembly(x));
 
             if (fileTransformationAssembly == null)
             {
