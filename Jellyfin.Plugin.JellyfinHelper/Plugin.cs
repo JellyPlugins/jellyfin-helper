@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
@@ -26,6 +27,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILogger<Plugin> _logger;
 
     /// <summary>
+    ///     Guards the "install File Transformation" warning so it is emitted at most once per
+    ///     server start, even though <see cref="InjectScript"/> runs both from the constructor and
+    ///     again from the startup hosted service (and could be retried). <c>0</c> = not yet warned,
+    ///     <c>1</c> = already warned; flipped atomically via <see cref="Interlocked.Exchange(ref int, int)"/>.
+    /// </summary>
+    private int _readOnlyWarningEmitted;
+
+    /// <summary>
     ///     Initializes a new instance of the <see cref="Plugin" /> class.
     /// </summary>
     /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths" /> interface.</param>
@@ -40,6 +49,34 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Api.UserDiscoveryController.ClearRateLimitState();
         ReportClampedConfigValues();
         InjectScript();
+    }
+
+    /// <summary>
+    ///     Outcome of a fallback <see cref="UpdateIndexHtml"/> attempt, so callers can react to a
+    ///     genuine write failure (e.g. a read-only web directory) without re-inspecting the file.
+    /// </summary>
+    internal enum IndexHtmlUpdateResult
+    {
+        /// <summary>
+        ///     The desired state was achieved: the tag was injected/removed and persisted, or the
+        ///     file already matched the desired content so no write was needed.
+        /// </summary>
+        Success,
+
+        /// <summary>
+        ///     The file could not be modified for a reason that installing File Transformation would
+        ///     resolve — most importantly the web directory being read-only (the write threw
+        ///     <see cref="UnauthorizedAccessException"/>/<see cref="IOException"/>), but also a
+        ///     missing <c>index.html</c> that we cannot create on a read-only image.
+        /// </summary>
+        WriteFailed,
+
+        /// <summary>
+        ///     Injection did not apply for a content/layout reason (no <c>&lt;/body&gt;</c> to anchor
+        ///     to). This is not a permissions problem, so suggesting File Transformation would not
+        ///     help; the existing warning already describes it.
+        /// </summary>
+        NotApplicable,
     }
 
     /// <inheritdoc />
@@ -175,6 +212,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ///     Injects the discovery sidebar script tag into Jellyfin's index.html.
     ///     Tries the File Transformation plugin first (on-the-fly, no filesystem write needed).
     ///     Falls back to direct index.html modification if File Transformation is not installed.
+    ///     When the fallback cannot write (read-only web directory, the common case on Jellyfin 12
+    ///     / Docker images), a single actionable warning recommends installing File Transformation.
     /// </summary>
     internal void InjectScript()
     {
@@ -188,15 +227,25 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 _logger.LogDebug("[Discovery Sidebar] Registered with File Transformation plugin — no direct file write needed");
             }
-        }
-        else
-        {
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                _logger.LogDebug("[Discovery Sidebar] File Transformation plugin not found, using fallback (direct index.html write)");
-            }
 
-            UpdateIndexHtml(true);
+            return;
+        }
+
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("[Discovery Sidebar] File Transformation plugin not found, using fallback (direct index.html write)");
+        }
+
+        var result = UpdateIndexHtml(true);
+        if (result == IndexHtmlUpdateResult.WriteFailed
+            && Interlocked.Exchange(ref _readOnlyWarningEmitted, 1) == 0)
+        {
+            // The read-only-web-directory case (typical on Jellyfin 12 / Docker). The disk fallback
+            // cannot help here; File Transformation can, because it rewrites the served HTTP response
+            // instead of the file on disk. Emit ONE actionable warning per server start (not a raw
+            // stack trace, not on every re-injection attempt) so the admin knows exactly what to do.
+            _logger.LogWarning(
+                "[Discovery Sidebar] Could not inject the sidebar script into index.html (the Jellyfin web directory appears to be read-only) and the File Transformation plugin is not installed. Install the 'File Transformation' plugin so the Discovery sidebar can be injected without writing to disk.");
         }
     }
 
@@ -300,9 +349,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    ///     Attempts to unregister the script injection from the File Transformation plugin.
-    ///     Best-effort: if the plugin is not installed or lacks an unregister method, this is a no-op.
+    ///     Attempts to remove the script injection from the File Transformation plugin.
+    ///     Best-effort: if the plugin is not installed or lacks the removal method, this is a no-op.
     ///     Called during <see cref="OnUninstalling"/> to clean up the registered transformation.
+    ///     <para>
+    ///         Targets the v12 API <c>PluginInterface.RemoveTransformation(Guid)</c>. Earlier
+    ///         plugin builds exposed <c>UnregisterTransformation(string)</c>; that name is
+    ///         intentionally not probed since this plugin supports the v12 File Transformation
+    ///         API only (the runtime ABI is Jellyfin 12 / net10).
+    ///     </para>
     /// </summary>
     private void UnregisterFileTransformation()
     {
@@ -323,16 +378,19 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return;
             }
 
-            var unregisterMethod = pluginInterfaceType.GetMethod("UnregisterTransformation");
-            if (unregisterMethod == null)
+            // v12 removal API: static void RemoveTransformation(Guid id). Bind the Guid overload
+            // explicitly so we don't accidentally match a same-named method with a different
+            // signature, and pass the plugin Id as a Guid (not its string form).
+            var removeMethod = pluginInterfaceType.GetMethod("RemoveTransformation", new[] { typeof(Guid) });
+            if (removeMethod == null)
             {
                 return;
             }
 
-            unregisterMethod.Invoke(null, new object[] { Id.ToString() });
+            removeMethod.Invoke(null, new object[] { Id });
             if (_logger.IsEnabled(LogLevel.Debug))
             {
-                _logger.LogDebug("[Discovery Sidebar] Unregistered from File Transformation plugin");
+                _logger.LogDebug("[Discovery Sidebar] Removed transformation from File Transformation plugin");
             }
         }
         catch (Exception ex) when (ex is IOException
@@ -351,7 +409,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             if (_logger.IsEnabled(LogLevel.Debug))
             {
-                _logger.LogDebug(ex, "[Discovery Sidebar] Failed to unregister from File Transformation plugin (best-effort)");
+                _logger.LogDebug(ex, "[Discovery Sidebar] Failed to remove transformation from File Transformation plugin (best-effort)");
             }
         }
     }
@@ -362,7 +420,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ///     When false, the tag is removed entirely (used during uninstall).
     /// </summary>
     /// <param name="inject">Whether to inject (true) or remove (false) the script tag.</param>
-    internal void UpdateIndexHtml(bool inject)
+    /// <returns>
+    ///     An <see cref="IndexHtmlUpdateResult"/> describing whether the update succeeded, failed to
+    ///     write (read-only / missing file), or did not apply for a content reason.
+    /// </returns>
+    internal IndexHtmlUpdateResult UpdateIndexHtml(bool inject)
     {
         try
         {
@@ -380,7 +442,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             if (!File.Exists(indexPath))
             {
                 _logger.LogWarning("[Discovery Sidebar] index.html NOT FOUND at {IndexPath}", indexPath);
-                return;
+
+                // A missing index.html when injecting is a genuine "cannot inject via disk" case that
+                // File Transformation would resolve (it transforms the served response, not the file).
+                // When removing (uninstall cleanup), a missing file is already the desired end state.
+                return inject ? IndexHtmlUpdateResult.WriteFailed : IndexHtmlUpdateResult.Success;
             }
 
             // CA1873: guard every LogDebug in this method consistently.
@@ -417,7 +483,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 else
                 {
                     _logger.LogWarning("[Discovery Sidebar] Could not find </body> tag in index.html");
-                    return;
+                    return IndexHtmlUpdateResult.NotApplicable;
                 }
             }
             else if (_logger.IsEnabled(LogLevel.Debug))
@@ -441,10 +507,20 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 _logger.LogDebug("[Discovery Sidebar] index.html already up to date; skipping write");
             }
+
+            return IndexHtmlUpdateResult.Success;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            _logger.LogError(ex, "[Discovery Sidebar] Failed to update index.html");
+            // A write failure here is the read-only-web-directory case that motivates the
+            // File Transformation plugin. Log at debug (the actionable guidance is emitted once,
+            // higher up in InjectScript) and report the failure to the caller.
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogDebug(ex, "[Discovery Sidebar] Failed to update index.html on disk");
+            }
+
+            return IndexHtmlUpdateResult.WriteFailed;
         }
     }
 

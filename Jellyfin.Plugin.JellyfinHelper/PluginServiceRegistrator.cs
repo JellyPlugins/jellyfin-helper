@@ -7,6 +7,7 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
 using Jellyfin.Plugin.JellyfinHelper.Services.Backup;
 using Jellyfin.Plugin.JellyfinHelper.Services.Cleanup;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
+using Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
 using Jellyfin.Plugin.JellyfinHelper.Services.FolderBrowser;
 using Jellyfin.Plugin.JellyfinHelper.Services.Link;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -144,5 +145,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         // matches the built-in filter lifecycle and avoids surprises when the filter ever
         // grows request-scoped dependencies.
         serviceCollection.AddScoped<ModelBindingLogFilter>();
+
+        // Re-run the Discovery sidebar injection at server startup (after DI is built and the web
+        // root is mounted). The plugin constructor already injects once, but this hosted service
+        // runs at a more robust point and self-heals the disk-write fallback after a Jellyfin web
+        // update overwrites index.html. Injection is idempotent, so running it twice is safe.
+        serviceCollection.AddHostedService<DiscoverySidebarInjectionService>();
     }
 }

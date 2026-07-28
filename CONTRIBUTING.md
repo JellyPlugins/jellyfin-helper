@@ -203,6 +203,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── ConfigAccess/              # Configuration access tests
 │   ├── FileTransformation/        # File Transformation plugin integration tests
 │   │   ├── DiscoveryScriptTagTests.cs      # Build() well-formed HTML, RemovalRegex round-trips, must not eat unrelated script tags
+│   │   ├── DiscoverySidebarInjectionServiceTests.cs # Startup hosted service: StartAsync re-injects, idempotent (no stacked tags), null Plugin.Instance is a no-op, StopAsync completes
 │   │   ├── PatchRequestPayloadTests.cs     # "contents" (lowercase-camel) round-trip for File Transformation payloads
 │   │   └── TransformationPatchesTests.cs   # IndexHtml callback: null/empty-Contents, idempotent re-serving, case-insensitive </BODY>
 │   ├── FolderBrowser/             # Server-side folder browsing tests
@@ -460,6 +461,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── PluginLog/               # Structured plugin logging
 │   ├── FileTransformation/      # File Transformation plugin integration
 │   │   ├── DiscoveryScriptTag.cs     # Shared script tag builder + removal regex (single source of truth)
+│   │   ├── DiscoverySidebarInjectionService.cs  # IHostedService that re-runs Plugin.InjectScript() at server startup (post-DI, web root mounted) — self-heals the disk-write fallback after a Jellyfin web update; idempotent alongside the ctor injection
 │   │   ├── PatchRequestPayload.cs    # Payload model for transformation callbacks
 │   │   └── TransformationPatches.cs  # index.html script injection (on-the-fly via File Transformation plugin)
 │   ├── Seerr/                   # Jellyseerr/Overseerr integration
@@ -533,7 +535,7 @@ Jellyfin.Plugin.JellyfinHelper/
 
 ### Service Registration
 
-All services are registered as **singletons** in `PluginServiceRegistrator.cs`:
+Most services are registered as **singletons** in `PluginServiceRegistrator.cs`:
 
 ```csharp
 serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
@@ -544,6 +546,14 @@ serviceCollection.AddSingleton<IPluginLogService, PluginLogService>();
 serviceCollection.AddSingleton<IMediaStatisticsService, MediaStatisticsService>();
 serviceCollection.AddSingleton<IFolderBrowserService, FolderBrowserService>();
 // (additional services omitted for brevity - see PluginServiceRegistrator.cs for the complete list)
+```
+
+A few registrations use other lifetimes where appropriate:
+
+```csharp
+serviceCollection.AddScoped<ModelBindingLogFilter>();                    // per-request action filter
+serviceCollection.AddHostedService<DiscoverySidebarInjectionService>();  // startup re-injection of the sidebar script
+serviceCollection.AddHttpClient("ArrIntegration", /* ... */);            // named HttpClient factories
 ```
 
 ### TaskMode Pattern
@@ -616,11 +626,11 @@ UserWatchProfiles → Genre/People/Language preferences
 Discovery results are also displayed on the Jellyfin home screen via a separate script (`js/discovery-sidebar.js`) that is injected into Jellyfin's `index.html`:
 
 ```text
-Plugin starts → Plugin.InjectScript()
-                    ↓
+Plugin starts → Plugin.InjectScript()  (from the ctor AND again from
+                    ↓                    DiscoverySidebarInjectionService at server startup)
     ┌─── File Transformation plugin available? ───┐
     │ YES                                         │ NO
-    │ Register callback via reflection            │ Direct index.html write
+    │ Register callback via reflection            │ Direct index.html write (fallback)
     │ (no filesystem write needed)                │ (requires writable filesystem)
     └─────────────────────────────────────────────┘
                     ↓
@@ -631,8 +641,10 @@ Plugin starts → Plugin.InjectScript()
       2. Loads i18n strings from /JellyfinHelper/Translations
       3. Observes DOM for Custom Tab container (.jellyfinhelper.discovery)
       4. Renders discovery cards when container appears
-      5. Injects sidebar navigation link
+      5. Injects sidebar navigation link (only when the discovery API returns results)
 ```
+
+**Injection runs unconditionally, twice per server start:** once from the `Plugin` constructor (very early during plugin discovery) and once from `DiscoverySidebarInjectionService` (an `IHostedService`) after DI is built and the web root is mounted. The second run is the robust one — it also self-heals the disk-write fallback after a Jellyfin web update overwrites `index.html`. Injection is idempotent (`DiscoveryScriptTag.RemovalRegex` strips any prior tag; `UpdateIndexHtml` skips the write when the file already matches), so running it twice never stacks tags or churns the file. Whether the user actually *sees* the sidebar item is a separate, client-side decision in `discovery-sidebar.js` (see below) — the `<script>` tag is always injected regardless of `RecommendationsTaskMode`.
 
 **Companion plugins (optional):**
 - [Custom Tab Plugin](https://github.com/JellyPlugins/jellyfin-plugin-custom-tabs) - Provides the `.jellyfinhelper.discovery` container on the home page
@@ -646,7 +658,7 @@ Plugin starts → Plugin.InjectScript()
 | Only File Transformation | Sidebar navigation link appears, clicking it navigates to `/JellyfinHelper/discoveryPage` (full-page fallback) |
 | Only Custom Tabs | Script injection falls back to direct `index.html` write (requires writable filesystem); Custom Tab container renders Discovery |
 | Neither plugin installed | Script injection writes to `index.html` (requires writable filesystem); sidebar link navigates to fallback page URL |
-| Read-only filesystem + no File Transformation | Script injection fails silently (logged at Debug level); Discovery is still accessible via direct URL `/JellyfinHelper/discoveryPage` but no automatic injection occurs |
+| Read-only filesystem + no File Transformation | Script injection cannot write to disk; the plugin logs **one** actionable warning per server start recommending the File Transformation plugin. Discovery is still reachable via the direct URL `/JellyfinHelper/discoveryPage`, but no automatic injection occurs until File Transformation is installed |
 
 **Task Mode Coupling:** Discovery generation shares the `RecommendationsTaskMode` setting — there is no separate toggle. When `RecommendationsTaskMode` is set to `Deactivate`, no Discovery recommendations are generated. This is intentional: Discovery depends on the same watch profile data that the Recommendations engine produces.
 
