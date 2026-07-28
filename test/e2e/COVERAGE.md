@@ -186,11 +186,15 @@ only appear via the plugin's **disk-write fallback** patching Jellyfin's
 `index.html`. This is the exact path that breaks for real users on read-only web
 dirs; the container's web dir is writable, so the fallback **must** succeed — the
 end-to-end proof the unit tests cannot give (the tag is served by a live Jellyfin).
-- **Injection happened:** `GET /web/index.html` contains the injected
+Timing note: Jellyfin 12 serves `index.html` from disk on every request (no
+in-memory page cache), and the fallback writes during plugin startup — which trails
+the server becoming reachable — so the test **polls patiently** (a browser reload is
+enough once the write lands; no restart/cache-bust needed).
+- **Injection happened:** `GET /web/index.html` eventually contains the injected
   `<script plugin="Jellyfin Helper" … src="…/JellyfinHelper/Discovery/My/script">`.
 - **Idempotent:** the tag appears **exactly once** despite injection running twice
-  per start (plugin ctor + `DiscoverySidebarInjectionService` hosted service) —
-  guards against `RemovalRegex` regressions that would stack tags.
+  per start (plugin ctor + `DiscoverySidebarInjectionService` hosted service, both
+  under a lock) — guards against `RemovalRegex` regressions that would stack tags.
 - **src reachable:** the injected script URL resolves and serves `javascript`.
 - Plugin stays **Active** throughout (startup injection didn't destabilise boot).
 

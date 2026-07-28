@@ -220,40 +220,54 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <summary>
     ///     Injects the discovery sidebar script tag into Jellyfin's index.html.
-    ///     Tries the File Transformation plugin first (on-the-fly, no filesystem write needed).
-    ///     Falls back to direct index.html modification if File Transformation is not installed.
-    ///     When the fallback cannot write (read-only web directory, the common case on Jellyfin 12
-    ///     / Docker images), a single actionable warning recommends installing File Transformation.
+    ///     Registers with the File Transformation plugin when present (on-the-fly response
+    ///     rewriting, survives web-asset updates, works on read-only web dirs) AND always writes
+    ///     the disk fallback as a belt-and-suspenders guarantee.
+    ///     <para>
+    ///         Why always write the disk fallback rather than skipping it when File Transformation
+    ///         registered: "registered" does not prove the transformation is actually being applied
+    ///         to the served response (the plugin could be a stale/incompatible build, or the
+    ///         registration could silently no-op). Relying on registration alone is exactly what
+    ///         made the sidebar silently absent on a fresh server. The two paths are safe together —
+    ///         <see cref="TransformationPatches.IndexHtml"/> strips any existing tag via
+    ///         <see cref="DiscoveryScriptTag.RemovalRegex"/> before inserting, so a disk-injected tag
+    ///         is de-duplicated in the served output; and <see cref="UpdateIndexHtml"/> is idempotent
+    ///         (skips the write when the file already carries the current tag). The only case the disk
+    ///         write cannot cover — a read-only web dir — is precisely where File Transformation is
+    ///         needed, and we surface that as one actionable warning.
+    ///     </para>
     /// </summary>
     internal void InjectScript()
     {
-        if (RegisterFileTransformation())
+        var registered = RegisterFileTransformation();
+        if (registered && _logger.IsEnabled(LogLevel.Debug))
         {
-            // Clean up any older fallback-based injection now that runtime transformation is active.
-            // Without this, upgrading from fallback to FileTransformation would leave the old
-            // <script> tag in index.html, causing the sidebar script to load twice.
-            UpdateIndexHtml(false);
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                _logger.LogDebug("[Discovery Sidebar] Registered with File Transformation plugin — no direct file write needed");
-            }
-
-            return;
+            _logger.LogDebug("[Discovery Sidebar] Registered with File Transformation plugin (on-the-fly rewriting active)");
         }
 
-        if (_logger.IsEnabled(LogLevel.Debug))
-        {
-            _logger.LogDebug("[Discovery Sidebar] File Transformation plugin not found, using fallback (direct index.html write)");
-        }
-
+        // Always attempt the disk fallback too. It is idempotent (no write when the tag is already
+        // present) and de-duplicated by the File Transformation callback, so writing it while a
+        // transformation is also registered is harmless — but it guarantees the sidebar appears even
+        // when File Transformation is absent, or registered-but-not-actually-applying.
         var result = UpdateIndexHtml(true);
+
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation(
+                "[Discovery Sidebar] Injection at startup: fileTransformationRegistered={Registered}, diskFallback={Result}, webPath={WebPath}",
+                registered,
+                result,
+                _applicationPaths.WebPath);
+        }
+
         if (result == IndexHtmlUpdateResult.WriteFailed
+            && !registered
             && Interlocked.Exchange(ref _readOnlyWarningEmitted, 1) == 0)
         {
-            // The read-only-web-directory case (typical on Jellyfin 12 / Docker). The disk fallback
-            // cannot help here; File Transformation can, because it rewrites the served HTTP response
-            // instead of the file on disk. Emit ONE actionable warning per server start (not a raw
-            // stack trace, not on every re-injection attempt) so the admin knows exactly what to do.
+            // The disk fallback could not write (read-only web dir — the common case on Jellyfin 12
+            // / Docker) AND File Transformation is not available to rewrite the response instead.
+            // Emit ONE actionable warning per server start (not a raw stack trace, not on every
+            // re-injection attempt) so the admin knows exactly what to do.
             _logger.LogWarning(
                 "[Discovery Sidebar] Could not inject the sidebar script into index.html (the Jellyfin web directory appears to be read-only) and the File Transformation plugin is not installed. Install the 'File Transformation' plugin so the Discovery sidebar can be injected without writing to disk.");
         }
