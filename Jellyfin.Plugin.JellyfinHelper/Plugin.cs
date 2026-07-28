@@ -27,6 +27,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILogger<Plugin> _logger;
 
     /// <summary>
+    ///     Serializes the read-modify-write in <see cref="UpdateIndexHtml"/>. Injection runs from
+    ///     both the constructor and the startup hosted service (and could overlap under real
+    ///     parallelism), so without this lock two threads could both read the pre-injection
+    ///     content, both insert the tag, and race the write — risking a duplicated tag or a lost
+    ///     update. The lock makes "check whether our tag is already present, and only write if it
+    ///     changed" a single atomic section.
+    /// </summary>
+    private readonly object _indexHtmlLock = new();
+
+    /// <summary>
     ///     Guards the "install File Transformation" warning so it is emitted at most once per
     ///     server start, even though <see cref="InjectScript"/> runs both from the constructor and
     ///     again from the startup hosted service (and could be retried). <c>0</c> = not yet warned,
@@ -426,101 +436,109 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </returns>
     internal IndexHtmlUpdateResult UpdateIndexHtml(bool inject)
     {
-        try
+        // Serialize the whole read-modify-write: the ctor and the startup hosted service can call
+        // this concurrently, and "read current content → strip old tag → insert current tag → write
+        // only if changed" must be atomic so a second caller cannot inject a duplicate or clobber
+        // the first write. When our tag is already present the content is unchanged and no write
+        // happens (idempotent), so repeated calls are cheap and safe.
+        lock (_indexHtmlLock)
         {
-            // Sweep any orphaned atomic-write temp files from a prior hard-killed run before
-            // writing again, so unique-named leftovers cannot accumulate across restarts.
-            CleanupWebPathTempFiles();
-
-            var indexPath = IndexHtmlPath;
-            if (_logger.IsEnabled(LogLevel.Debug))
+            try
             {
-                _logger.LogDebug("[Discovery Sidebar] WebPath = {WebPath}", _applicationPaths.WebPath);
-                _logger.LogDebug("[Discovery Sidebar] IndexHtmlPath = {IndexPath}", indexPath);
-            }
+                // Sweep any orphaned atomic-write temp files from a prior hard-killed run before
+                // writing again, so unique-named leftovers cannot accumulate across restarts.
+                CleanupWebPathTempFiles();
 
-            if (!File.Exists(indexPath))
-            {
-                _logger.LogWarning("[Discovery Sidebar] index.html NOT FOUND at {IndexPath}", indexPath);
-
-                // A missing index.html when injecting is a genuine "cannot inject via disk" case that
-                // File Transformation would resolve (it transforms the served response, not the file).
-                // When removing (uninstall cleanup), a missing file is already the desired end state.
-                return inject ? IndexHtmlUpdateResult.WriteFailed : IndexHtmlUpdateResult.Success;
-            }
-
-            // CA1873: guard every LogDebug in this method consistently.
-            // These particular calls use constant messages (no expensive argument evaluation),
-            // so the runtime win is negligible — the value of the guard here is _consistency_:
-            // it prevents future maintainers from adding a parameterized LogDebug to this
-            // block and accidentally regressing the CA1873 pattern the class opted into.
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                _logger.LogDebug("[Discovery Sidebar] index.html found, reading content...");
-            }
-
-            var originalContent = File.ReadAllText(indexPath);
-            var content = originalContent;
-            var scriptTag = DiscoveryScriptTag.Build(Version.ToString());
-
-            // Remove any old versions of the script tag first
-            content = DiscoveryScriptTag.RemovalRegex.Replace(content, string.Empty);
-
-            if (inject)
-            {
-                var closingBodyTag = "</body>";
-                var htmlCloseIndex = content.LastIndexOf("</html>", StringComparison.OrdinalIgnoreCase);
-                var searchBound = htmlCloseIndex > 0 ? htmlCloseIndex - 1 : content.Length - 1;
-                var closingBodyIndex = content.LastIndexOf(closingBodyTag, searchBound, StringComparison.OrdinalIgnoreCase);
-                if (closingBodyIndex >= 0)
-                {
-                    content = content.Insert(closingBodyIndex, scriptTag + "\n");
-                    if (_logger.IsEnabled(LogLevel.Debug))
-                    {
-                        _logger.LogDebug("[Discovery Sidebar] Script tag injected successfully before </body>");
-                    }
-                }
-                else
-                {
-                    _logger.LogWarning("[Discovery Sidebar] Could not find </body> tag in index.html");
-                    return IndexHtmlUpdateResult.NotApplicable;
-                }
-            }
-            else if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                _logger.LogDebug("[Discovery Sidebar] Removing script tag from index.html");
-            }
-
-            if (!string.Equals(content, originalContent, StringComparison.Ordinal))
-            {
-                // Use AtomicFile so a transient sharing violation on the final File.Move
-                // (typical when Jellyfin's web server or an AV scanner briefly holds the
-                // file handle) gets a bounded retry with backoff. AtomicFile also handles
-                // temp-file cleanup internally, so no finally block is required here.
-                AtomicFile.WriteAllText(indexPath, content);
+                var indexPath = IndexHtmlPath;
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
-                    _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
+                    _logger.LogDebug("[Discovery Sidebar] WebPath = {WebPath}", _applicationPaths.WebPath);
+                    _logger.LogDebug("[Discovery Sidebar] IndexHtmlPath = {IndexPath}", indexPath);
                 }
-            }
-            else if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                _logger.LogDebug("[Discovery Sidebar] index.html already up to date; skipping write");
-            }
 
-            return IndexHtmlUpdateResult.Success;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-        {
-            // A write failure here is the read-only-web-directory case that motivates the
-            // File Transformation plugin. Log at debug (the actionable guidance is emitted once,
-            // higher up in InjectScript) and report the failure to the caller.
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                _logger.LogDebug(ex, "[Discovery Sidebar] Failed to update index.html on disk");
-            }
+                if (!File.Exists(indexPath))
+                {
+                    _logger.LogWarning("[Discovery Sidebar] index.html NOT FOUND at {IndexPath}", indexPath);
 
-            return IndexHtmlUpdateResult.WriteFailed;
+                    // A missing index.html when injecting is a genuine "cannot inject via disk" case that
+                    // File Transformation would resolve (it transforms the served response, not the file).
+                    // When removing (uninstall cleanup), a missing file is already the desired end state.
+                    return inject ? IndexHtmlUpdateResult.WriteFailed : IndexHtmlUpdateResult.Success;
+                }
+
+                // CA1873: guard every LogDebug in this method consistently.
+                // These particular calls use constant messages (no expensive argument evaluation),
+                // so the runtime win is negligible — the value of the guard here is _consistency_:
+                // it prevents future maintainers from adding a parameterized LogDebug to this
+                // block and accidentally regressing the CA1873 pattern the class opted into.
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("[Discovery Sidebar] index.html found, reading content...");
+                }
+
+                var originalContent = File.ReadAllText(indexPath);
+                var content = originalContent;
+                var scriptTag = DiscoveryScriptTag.Build(Version.ToString());
+
+                // Remove any old versions of the script tag first
+                content = DiscoveryScriptTag.RemovalRegex.Replace(content, string.Empty);
+
+                if (inject)
+                {
+                    var closingBodyTag = "</body>";
+                    var htmlCloseIndex = content.LastIndexOf("</html>", StringComparison.OrdinalIgnoreCase);
+                    var searchBound = htmlCloseIndex > 0 ? htmlCloseIndex - 1 : content.Length - 1;
+                    var closingBodyIndex = content.LastIndexOf(closingBodyTag, searchBound, StringComparison.OrdinalIgnoreCase);
+                    if (closingBodyIndex >= 0)
+                    {
+                        content = content.Insert(closingBodyIndex, scriptTag + "\n");
+                        if (_logger.IsEnabled(LogLevel.Debug))
+                        {
+                            _logger.LogDebug("[Discovery Sidebar] Script tag injected successfully before </body>");
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[Discovery Sidebar] Could not find </body> tag in index.html");
+                        return IndexHtmlUpdateResult.NotApplicable;
+                    }
+                }
+                else if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("[Discovery Sidebar] Removing script tag from index.html");
+                }
+
+                if (!string.Equals(content, originalContent, StringComparison.Ordinal))
+                {
+                    // Use AtomicFile so a transient sharing violation on the final File.Move
+                    // (typical when Jellyfin's web server or an AV scanner briefly holds the
+                    // file handle) gets a bounded retry with backoff. AtomicFile also handles
+                    // temp-file cleanup internally, so no finally block is required here.
+                    AtomicFile.WriteAllText(indexPath, content);
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                    {
+                        _logger.LogDebug("[Discovery Sidebar] index.html written successfully");
+                    }
+                }
+                else if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("[Discovery Sidebar] index.html already up to date; skipping write");
+                }
+
+                return IndexHtmlUpdateResult.Success;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                // A write failure here is the read-only-web-directory case that motivates the
+                // File Transformation plugin. Log at debug (the actionable guidance is emitted once,
+                // higher up in InjectScript) and report the failure to the caller.
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug(ex, "[Discovery Sidebar] Failed to update index.html on disk");
+                }
+
+                return IndexHtmlUpdateResult.WriteFailed;
+            }
         }
     }
 
