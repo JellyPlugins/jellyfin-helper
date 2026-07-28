@@ -180,6 +180,20 @@ Beyond "does it route / does the UI render", the suite now proves features
 - The two admin-side tests here **snapshot and restore** the shared Seerr/Trash
   configuration (afterAll), so they don't leak state into later specs.
 
+## 8b. Sidebar script injection (fallback path) → `sidebar-injection.api.spec.ts`
+The e2e stack ships **no File Transformation plugin**, so the Discovery sidebar can
+only appear via the plugin's **disk-write fallback** patching Jellyfin's
+`index.html`. This is the exact path that breaks for real users on read-only web
+dirs; the container's web dir is writable, so the fallback **must** succeed — the
+end-to-end proof the unit tests cannot give (the tag is served by a live Jellyfin).
+- **Injection happened:** `GET /web/index.html` contains the injected
+  `<script plugin="Jellyfin Helper" … src="…/JellyfinHelper/Discovery/My/script">`.
+- **Idempotent:** the tag appears **exactly once** despite injection running twice
+  per start (plugin ctor + `DiscoverySidebarInjectionService` hosted service) —
+  guards against `RemovalRegex` regressions that would stack tags.
+- **src reachable:** the injected script URL resolves and serves `javascript`.
+- Plugin stays **Active** throughout (startup injection didn't destabilise boot).
+
 ## 9. UI — all 8 tabs → `tabs.ui.spec.ts`
 - Overview, Codecs, Health, Trends, Settings, Arr, Logs switch + activate, **no uncaught
   JS errors** (failed-resource-load status noise is filtered; real pageerror/console.error
@@ -222,34 +236,62 @@ through:
 
 ## 12. Behavioral — features actually work on disk (`*-fs.api.spec.ts`)
 Filesystem-verified via `docker exec` (skips loudly without Docker):
-- **Cleanup discrimination** (`cleanup-fs`): each stage in isolation deletes the
+- **Cleanup discrimination** (`cleanup-fs.api.spec.ts`): each stage in isolation deletes the
   orphan AND keeps the valid — video-backed `.trickplay` survives, matching &
   multi-language subtitles survive, `.DTS` non-language orphan removed,
   metadata-only / audio-only / nested-video folders survive; **DryRun leaves all
   orphans on disk**; permanent-delete creates no trash; **age gating** keeps a
   too-new orphan then removes it at 0.
-- **Trash move + retention** (`trash-fs`): orphan leaves the library and appears
+- **Trash move + retention** (`trash-fs.api.spec.ts`): orphan leaves the library and appears
   under `.jellyfin-trash` as `yyyyMMdd-HHmmss_<name>` with contents intact;
   **expired entries purge by name-timestamp, fresh survive**; `retention<=0`
   disables purge; foreign non-timestamp entries untouched; an **expired symlinked
   entry is unlinked but its target survives byte-for-byte** (reparse-point =
   link-only delete, guarding the recursive-delete data-loss path).
-- **Trash relocate** (`trash-relocate-fs`): all four abs/rel quadrants move REAL
+- **Trash relocate** (`trash-relocate-fs.api.spec.ts`): all four abs/rel quadrants move REAL
   seeded content — `Moved>0`/`Failed==0`, source folder emptied+removed, and the
   destination holds exactly the moved entry with a matching **sha256**; plus the
   `Trash/CheckAccess` **success** path (`AllAccessible=true` with per-library
   read/write probes).
-- **Link repair** (`link-repair-fs`): repairable `.strm` rewritten to its lone
+- **Link repair** (`link-repair-fs.api.spec.ts`): repairable `.strm` rewritten to its lone
   sibling (**DryRun leaves it byte-unchanged first**); ambiguous / broken / URL
   targets untouched; **broken symlink repaired, valid symlink unchanged**;
   relative-traversal and absolute-out-of-library targets refused.
-- **Seerr cleanup** (`seerr-cleanup`): **exact-id** deletion (expired
+- **Seerr cleanup** (`seerr-cleanup.api.spec.ts`): **exact-id** deletion (expired
   pending/declined gone; status 2/4/5 + recent + inside-age-boundary survive);
   DryRun deletes nothing; incomplete-snapshot (force-fail) deletes nothing.
-- **Recommendations playlists** (`recommendations-playlist`): Activate+sync
+- **Recommendations playlists** (`recommendations-playlist.api.spec.ts`): Activate+sync
   creates then Deactivate purges; cache written on Activate, absent on DryRun.
+- **Recommendations ranking** (`recommendations-ranking.api.spec.ts`): the engine
+  consumes a REAL watch profile — `WatchProfile/{userId}` reflects played items,
+  `Recommendations/{userId}` EXCLUDES anything watched, and results are ranked
+  (Score in [0,1], sorted descending).
+- **Media statistics** (`media-stats-fs.api.spec.ts`): codec / resolution / health
+  breakdowns match the KNOWN fixtures — H.264 / HEVC / MPEG-4 keys with positive
+  counts, sub-less clips reflected in the no-subtitle health count.
+- **Growth timeline** (`growth-timeline-fs.api.spec.ts`): the cumulative series is
+  non-empty and monotonically non-decreasing, latest totals are positive/coherent
+  (bytes > 0, files > 0), directories-scanned positive, no future-dated point.
+- **Library insights** (`insights-fs.api.spec.ts`): "largest dirs" sorted by size
+  descending over real `/media` dirs with `LargestTotalSize == sum(sizes)`, a known
+  generated movie present — ranking/aggregate invariants that hold despite the 15m cache.
+- **User activity** (`user-activity-fs.api.spec.ts`): mark an item PLAYED via
+  Jellyfin's API, rebuild the activity cache, and assert it surfaces as watched in
+  both `UserActivity/Latest` and `UserActivity/User/{userId}` with a matching play count.
 - **Backup round-trip** (`backup.api.spec.ts` extended): full config field-set,
   growth timeline via `GET GrowthTimeline`, Arr credential preserve-then-change.
+
+## 12b. Feature coverage — folder browser & per-stage task modes
+- **Folder browser** (`folder-browser.api.spec.ts`): behavioral (browsing roots and
+  a known media dir lists real children; going up works; LibraryPaths lists the
+  configured libraries) **plus** adversarial/hardening — read-only endpoint refuses
+  any mutation, rejects `..` traversal, non-absolute paths, NUL bytes, and sensitive
+  system dirs; validation failures surface as HTTP 200 with a non-null `Error` body.
+- **Per-stage task modes** (`task-modes.api.spec.ts`): proves each mode value does
+  what it promises at STAGE granularity in one mixed pass — Deactivate skips
+  entirely (orphan survives, no dry-run log), DryRun runs+logs but changes nothing
+  on disk, Activate performs the real delete/trash move — distinguishing Deactivate
+  from DryRun (which `cleanup-fs` cannot) and proving modes are honoured independently.
 
 ## 13. Adversarial — misuse breaks nothing (canary-guarded)
 Every destructive case asserts library-external **canary files survive**. The
@@ -258,27 +300,33 @@ via `ensureCanariesPlanted()`, which also asserts at least one canary is actuall
 present — so `verifyCanaries()` can never pass vacuously against an empty set, and
 the check works inside Playwright's worker processes (not just the global-setup
 process that first plants them). Without Docker the destructive specs skip loudly.
-- **Trash escape** (`trash-abuse`): absolute `/config` trash path via
+- **Trash escape** (`trash-abuse.api.spec.ts`): absolute `/config` trash path via
   `DELETE /Trash/Folders` and every `Trash/Relocate` branch is refused; config
   dir intact. (Regression coverage for the fixed FS-escape bugs.)
-- **Config** (`config-adversarial`): `LogLevel` null body → 400 (was 500);
+- **Config** (`config-adversarial.api.spec.ts`): `LogLevel` null body → 400 (was 500);
   unknown enum atomic-reject; 10k-instance array → 400 with a **pre-existing
   known-good instance preserved** (not a vacuous length check); XML-hostile input
   no-corrupt; racing PUTs converge to one coherent set.
-- **Backup** (`backup-adversarial`): `[null]` instance is **sanitized away** (a
+- **Backup** (`backup-adversarial.api.spec.ts`): `[null]` instance is **sanitized away** (a
   re-export proves no null persists) and a mixed `[valid,null]` keeps the valid
   one; absolute `/config` trash path from a backup can't make cleanup escape;
   NaN/Infinity/overflow, depth-bomb, array/truncated bodies → **exact 400** at the
   JSON parse layer (never 500).
-- **Integrations** (`integrations-adversarial`): SSRF targets never succeed/hang;
+- **Integrations** (`integrations-adversarial.api.spec.ts`): SSRF targets never succeed/hang;
   non-HTTP schemes → exact-message 400 on **both** `Seerr/Test` **and**
   `ArrIntegration/TestConnection`; high-byte keys no 500; slow/giant/garbage
   upstreams degrade cleanly; Compare index overflow handled.
-- **Cleanup** (`cleanup-abuse`): symlink-out-of-library target survives cleanup;
+- **Cleanup** (`cleanup-abuse.api.spec.ts`): symlink-out-of-library target survives cleanup;
   excluded library + its trash fully hands-off; emoji/long names ok.
-- **Discovery** (`discovery-abuse`): write endpoints 403 when access disabled
+- **Discovery** (`discovery-abuse.api.spec.ts`): write endpoints 403 when access disabled
   with **no leak to Seerr**; adversarial Dismiss inputs 4xx; identity-spoof
   `SeerrUserId` not forwarded.
+
+## 14. Documentation drift guard → `coverage-doc.api.spec.ts`
+A pure-filesystem meta-test (no Jellyfin stack needed) that reads the `tests/`
+directory and asserts **every `*.spec.ts` is referenced by filename in this file**.
+Add a spec without documenting it here and this guard fails — so this coverage map
+cannot silently fall out of date. The guard excludes only itself.
 
 ---
 
