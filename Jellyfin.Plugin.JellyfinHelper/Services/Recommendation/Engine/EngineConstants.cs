@@ -350,7 +350,7 @@ internal static class EngineConstants
     ///         already watched in the same BoxSet. Non-positive counts return <c>0.0</c>.
     ///     </para>
     ///     <para>
-    ///         Roadmap v3 (C3.1 — "perfect" hardening pass): before this helper both call sites
+    ///         Before this helper both call sites
     ///         contained the identical <c>Math.Clamp(0.3 + ((n-1) * 0.2), 0, 1)</c> block. The
     ///         16 formula-contract tests in <c>CollectionProgressionBoostTests</c> now guard the
     ///         single canonical implementation, guaranteeing train / serve parity by construction

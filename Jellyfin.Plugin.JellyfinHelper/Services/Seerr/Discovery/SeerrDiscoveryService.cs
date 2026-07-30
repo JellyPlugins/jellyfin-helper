@@ -216,6 +216,14 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library only — per-user dismissed/requested merged later).",
             _logger);
 
+        // Per-series total-episode-count map, built ONCE per discovery run and shared across all
+        // users. Threaded into BuildGenrePreferenceVector below so the discovery genre preference
+        // vector is progression-weighted identically to the engine's training pipeline
+        // (DiscoveryFeedbackExampleBuilder passes the same map). Without it, discovery inference
+        // computed genre preferences without progression weighting while the model was trained
+        // with it — a train/serve skew on GenreSimilarity, topGenres and genreExposure.
+        var seriesEpisodeCounts = _watchHistoryService.GetSeriesEpisodeCounts();
+
         // Step 2: Process each user
         var allResults = new List<DiscoveryResult>(activeProfiles.Count);
 
@@ -226,7 +234,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             try
             {
                 var userResult = await GenerateForUserAsync(
-                    profile, config, excludedTmdbIds, cancellationToken).ConfigureAwait(false);
+                    profile, config, excludedTmdbIds, seriesEpisodeCounts, cancellationToken).ConfigureAwait(false);
 
                 if (userResult != null)
                 {
@@ -1101,9 +1109,10 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         UserWatchProfile profile,
         PluginConfiguration config,
         HashSet<(int TmdbId, string MediaType)> excludedTmdbIds,
+        IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
         CancellationToken cancellationToken)
     {
-        var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile);
+        var genrePreferences = PreferenceBuilder.BuildGenrePreferenceVector(profile, seriesEpisodeCounts);
         if (genrePreferences.Count == 0)
         {
             return null;

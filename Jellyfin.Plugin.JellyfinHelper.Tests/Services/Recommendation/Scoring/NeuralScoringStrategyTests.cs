@@ -8,7 +8,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 ///     Tests for <see cref="NeuralScoringStrategy"/>: Forward-Pass, Backprop/Training,
 ///     Adam optimizer, Weight Persistence, Xavier initialization, Sigmoid, Dropout.
 ///     Architecture
-///     <see cref="CandidateFeatures.FeatureCount"/> inputs → 62 hidden₁ → 96 hidden₂ →
+///     <see cref="CandidateFeatures.FeatureCount"/> inputs → 76 hidden₁ → 96 hidden₂ →
 ///     48 hidden₃ → 24 hidden₄ → 1 output.
 /// </summary>
 public sealed class NeuralScoringStrategyTests : IDisposable
@@ -837,21 +837,21 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Hidden3Size_IsV3Value()
     {
-        // Roadmap v3 A1: 12 → 48 (half of Hidden2; compression stage).
+        // 12 → 48 (half of Hidden2; compression stage).
         Assert.Equal(48, NeuralScoringStrategy.Hidden3Size);
     }
 
     [Fact]
     public void Hidden4Size_IsV3Value()
     {
-        // Roadmap v3 A1: 6 → 24 (final layer feeding the sigmoid output).
+        // 6 → 24 (final layer feeding the sigmoid output).
         Assert.Equal(24, NeuralScoringStrategy.Hidden4Size);
     }
 
     [Fact]
     public void CurrentWeightsVersion_IsV3()
     {
-        // Roadmap v3 A1: version bump 2 → 3 signals to persistence-loaders that the
+        // Version bump 2 → 3 signals to persistence-loaders that the
         // stored array shapes no longer match; a v2 file will be discarded on load.
         Assert.Equal(3, NeuralScoringStrategy.CurrentWeightsVersion);
     }
@@ -887,13 +887,46 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     }
 
     // ============================================================
-    // Dropout Tests (Roadmap v3 A2)
+    // Dropout Tests
     // ============================================================
+
+    [Fact]
+    public void Train_WithDropoutActive_ConvergesAndStaysFinite()
+    {
+        // Dropout-on backprop must be numerically correct AND stable. With inverted dropout the
+        // activation is a = mask · relu(pre) · invKeep, so the error propagated into each hidden
+        // layer's pre-activation carries exactly one invKeep factor. A missing OR doubled invKeep
+        // would mis-scale the hidden gradients and either stall learning or diverge. This test
+        // trains well above MinExamplesForDropout on a learnable signal (label = genreSim > 0.5)
+        // and asserts the model both (a) produces a finite validation loss and (b) actually learns
+        // the signal — the strongest black-box guard that the per-layer invKeep scaling is right.
+        var trainCount = NeuralScoringStrategy.MinExamplesForDropout * 6; // comfortably dropout-active
+        Assert.True(trainCount >= NeuralScoringStrategy.MinExamplesForDropout);
+
+        var strategy = new NeuralScoringStrategy();
+        var examples = GenerateExamples(trainCount);
+
+        Assert.True(strategy.Train(examples));
+
+        // (a) Finite, non-negative validation loss — no NaN/Inf from mis-scaled gradients.
+        Assert.False(double.IsNaN(strategy.LastValidationLoss));
+        Assert.False(double.IsInfinity(strategy.LastValidationLoss));
+        Assert.True(strategy.LastValidationLoss >= 0.0);
+
+        // (b) The signal was actually learned: a strong-genre-match candidate must score higher
+        // than a weak-genre-match one. Divergent or wrongly-signed gradients would break this.
+        var strong = strategy.Score(new CandidateFeatures { GenreSimilarity = 1.0 });
+        var weak = strategy.Score(new CandidateFeatures { GenreSimilarity = 0.0 });
+        Assert.True(double.IsFinite(strong) && double.IsFinite(weak));
+        Assert.True(
+            strong > weak,
+            $"Dropout-active training should learn the genre signal (strong={strong:F4} should exceed weak={weak:F4})");
+    }
 
     [Fact]
     public void DropoutKeepProbability_Is080()
     {
-        // Roadmap v3 A2: mid-range 20% drop rate for small tabular MLPs.
+        // Mid-range 20% drop rate for small tabular MLPs.
         Assert.Equal(0.8, NeuralScoringStrategy.DropoutKeepProbability);
     }
 

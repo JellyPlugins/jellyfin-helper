@@ -127,6 +127,43 @@ public sealed class WatchHistoryService : IWatchHistoryService
         });
     }
 
+    /// <inheritdoc />
+    public IReadOnlyDictionary<Guid, int> GetSeriesEpisodeCounts()
+    {
+        var allEpisodes = _libraryManager.GetItemList(new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Episode],
+            IsFolder = false
+        });
+
+        return CountPlayableEpisodesPerSeries(allEpisodes);
+    }
+
+    /// <summary>
+    ///     Collapses a flat episode list into a per-series playable-episode count. Only episodes
+    ///     with a non-empty <c>Path</c> and a valid <c>SeriesId</c> are counted, matching the
+    ///     engine's identical rule (see the recommendation engine's candidate load) so the
+    ///     progression ratio (watched / total) stays consistent across both subsystems.
+    /// </summary>
+    /// <param name="episodes">The flat episode list.</param>
+    /// <returns>A map of series ID to playable-episode count.</returns>
+    private static Dictionary<Guid, int> CountPlayableEpisodesPerSeries(IReadOnlyList<BaseItem> episodes)
+    {
+        var seriesEpisodeCounts = new Dictionary<Guid, int>();
+        foreach (var episode in episodes.OfType<Episode>())
+        {
+            if (string.IsNullOrEmpty(episode.Path) || episode.SeriesId == Guid.Empty)
+            {
+                continue;
+            }
+
+            seriesEpisodeCounts.TryGetValue(episode.SeriesId, out var count);
+            seriesEpisodeCounts[episode.SeriesId] = count + 1;
+        }
+
+        return seriesEpisodeCounts;
+    }
+
     /// <summary>
     ///     Builds a complete watch profile for a single user using pre-loaded library items.
     /// </summary>
@@ -218,7 +255,19 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 DateCreated = item.DateCreated,
                 PrimaryImageTag = null,
                 PeopleNames = billedNames,
-                PeopleWeights = billedWeights
+                PeopleWeights = billedWeights,
+
+                // Content-affinity source fields. Populated here on the watched side so the preference
+                // builders (franchise/country/inherited-tag/writer/series-completability) have real
+                // signal to compare live candidates against — extracted with the exact same shared,
+                // library-free resolvers the live scoring and precompute paths use, guaranteeing parity.
+                // WriterNames reuses the people list already fetched above (no extra GetPeople call).
+                TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(item),
+                ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(item),
+                InheritedTags = ContentAffinityResolver.ResolveInheritedTags(item),
+                SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(item),
+                EndDate = ContentAffinityResolver.ResolveSeriesEndDate(item),
+                WriterNames = ContentAffinityResolver.ExtractWriterNames(itemPeople)
             };
 
             profile.WatchedItems.Add(watchedItem);
@@ -336,7 +385,18 @@ public sealed class WatchHistoryService : IWatchHistoryService
                     DateCreated = series.DateCreated,
                     PrimaryImageTag = null,
                     PeopleNames = favBilledNames,
-                    PeopleWeights = favBilledWeights
+                    PeopleWeights = favBilledWeights,
+
+                    // Content-affinity source fields for the favorited series, using the same shared
+                    // resolvers as the primary loop so a favorited series contributes franchise/country/
+                    // inherited-tag/writer/completability preference signal identically to a watched item.
+                    // WriterNames reuses seriesPeople (already fetched); SeriesStatus/EndDate are real here.
+                    TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(series),
+                    ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(series),
+                    InheritedTags = ContentAffinityResolver.ResolveInheritedTags(series),
+                    SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(series),
+                    EndDate = ContentAffinityResolver.ResolveSeriesEndDate(series),
+                    WriterNames = ContentAffinityResolver.ExtractWriterNames(seriesPeople)
                 });
 
                 // Also accumulate genre distribution for series-level favorites

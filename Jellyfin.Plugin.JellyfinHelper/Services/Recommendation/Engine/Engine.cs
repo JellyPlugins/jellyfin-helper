@@ -319,6 +319,13 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var batchGeneration = Interlocked.Increment(ref _batchGeneration);
         PersistBatchGeneration(batchGeneration);
 
+        // Freshness watermark for the stale-publish guard: read the publication sequence NOW,
+        // before the slow candidate build below, so that if a live-refresh publishes a newer
+        // snapshot while this batch is still assembling, TryPublishSnapshot can detect that our
+        // work started against an older world and drop this write instead of clobbering the
+        // fresher snapshot. Interlocked.Read for an atomic 64-bit read outside the publish lock.
+        var observedSequence = Interlocked.Read(ref _publicationSequence);
+
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
         var (candidates, seriesEpisodeCounts) = LoadCandidateItems();
         var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
@@ -390,6 +397,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             CommunityPopularityComputed: true, // batch path has executed the O(U×M) scan
             BatchGeneration: batchGeneration,
             PublicationSequence: 0, // assigned atomically inside TryPublishSnapshot
+            ObservedSequence: observedSequence, // watermark captured before the build began
             DateTime.UtcNow,
             contentAffinityLookup));
 
@@ -605,11 +613,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 SubtitleLanguages = ResolveSubtitleLanguages(s.Item),
                 BoxSetIds = ResolveBoxSetIds(s.Item),
                 DateCreated = s.Item.DateCreated,
-                TmdbCollectionName = ResolveTmdbCollectionName(s.Item),
-                ProductionCountries = ResolveProductionCountries(s.Item),
-                InheritedTags = ResolveInheritedTags(s.Item),
-                SeriesStatus = ResolveSeriesStatus(s.Item),
-                EndDate = ResolveSeriesEndDate(s.Item),
+                TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(s.Item),
+                ProductionCountries = ContentAffinityResolver.ResolveProductionCountries(s.Item),
+                InheritedTags = ContentAffinityResolver.ResolveInheritedTags(s.Item),
+                SeriesStatus = ContentAffinityResolver.ResolveSeriesStatus(s.Item),
+                EndDate = ContentAffinityResolver.ResolveSeriesEndDate(s.Item),
                 WriterNames = ResolveWriterNames(s.Item),
                 PeopleWeights = []
             })
@@ -1192,15 +1200,22 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // No interaction: no completion data, use 0.0 (not 0.5 which implies 50% progress)
         var completionRatio = hasUserInteraction ? ContentScoring.ComputeCompletionRatio(watchedItem) : 0.0;
 
-        // Pre-build candidate genre/studio sets once; reused for studioMatch and ContentNearestNeighborScore.
-        var candidateGenreSet = new HashSet<string>(candidate.Genres ?? [], StringComparer.OrdinalIgnoreCase);
-        var candidateStudioSet = candidate.Studios is { Length: > 0 }
-            ? new HashSet<string>(candidate.Studios, StringComparer.OrdinalIgnoreCase)
-            : null;
+        // Resolve the candidate's user-invariant content-affinity data from the per-snapshot
+        // precompute (built once per candidate, never per user). Besides the seven content-affinity
+        // source fields, it also carries the pre-built candidate genre/studio sets, so this hot path
+        // does NOT re-allocate those HashSets per (candidate × user). Only a candidate genuinely
+        // absent from the snapshot (added between build and scoring) falls back to a live resolve.
+        var content = contentAffinityLookup.TryGetValue(candidate.Id, out var cachedContent)
+            ? cachedContent
+            : ResolveContentAffinity(candidate);
+
+        // Aliases onto the precomputed sets; reused for studioMatch and ContentNearestNeighborScore.
+        var candidateGenreSet = content.GenreSet;
+        var candidateStudioSet = content.StudioSet;
 
         var studioMatch = candidateStudioSet is not null && candidateStudioSet.Any(preferredStudios.Contains);
 
-        // Roadmap v3 (C2): use the weighted overload so a candidate carrying the user's
+        // Use the weighted overload so a candidate carrying the user's
         // heavy-hitter collaborators (e.g. a director the user has watched 8 times) drives
         // similarity more than one-off cameo appearances that both the unweighted HashSet
         // and the previous overlap coefficient would treat identically.
@@ -1227,16 +1242,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var languageAffinity = ComputeLanguageAffinityFromStreams(userProfile, candidate, out var candidateMediaLanguages);
 
         // New content-affinity signals. All seven read their candidate-side source data from the
-        // per-snapshot ContentAffinity precompute (built once per candidate, never per user), so this
-        // hot path performs no GetInheritedTags() traversal and no GetPeople round-trip. The lookup is
-        // dense, so a present-but-metadata-sparse candidate returns cached empties without a re-resolve;
-        // only a candidate genuinely absent from the snapshot (added between build and scoring) falls
-        // back to a live resolve. Every shared SimilarityComputer helper returns a neutral value
-        // (0.0, or 0.5 for completability) for empty input — a missing field is a silent no-op, never a
-        // crash — and these are the SAME shared helpers the training path uses (train/serve parity).
-        var content = contentAffinityLookup.TryGetValue(candidate.Id, out var cachedContent)
-            ? cachedContent
-            : ResolveContentAffinity(candidate);
+        // per-snapshot `content` precompute resolved above (built once per candidate, never per
+        // user), so this hot path performs no GetInheritedTags() traversal and no GetPeople
+        // round-trip. Every shared SimilarityComputer helper returns a neutral value (0.0, or 0.5
+        // for completability) for empty input — a missing field is a silent no-op, never a crash —
+        // and these are the SAME shared helpers the training path uses (train/serve parity).
         var franchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(
             content.TmdbCollectionName, preferredFranchises);
         var productionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(
@@ -1541,110 +1551,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
-    ///     Resolves the TMDb collection (franchise) name of a movie, if any. Non-movies and
-    ///     items without a collection return null. Used to cache FranchiseAffinity source data.
-    /// </summary>
-    /// <param name="candidate">The candidate item.</param>
-    /// <returns>The TMDb collection name, or null.</returns>
-    private static string? ResolveTmdbCollectionName(BaseItem candidate)
-    {
-        try
-        {
-            if (candidate is MediaBrowser.Controller.Entities.Movies.Movie movie)
-            {
-                var name = movie.TmdbCollectionName;
-                return string.IsNullOrWhiteSpace(name) ? null : name;
-            }
-
-            return null;
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            return null; // Graceful fallback
-        }
-    }
-
-    /// <summary>
-    ///     Resolves the production countries/locations of an item. Returns an empty list when
-    ///     unavailable. Used to cache ProductionLocationAffinity source data.
-    /// </summary>
-    /// <param name="candidate">The candidate item.</param>
-    /// <returns>The production locations, or an empty list.</returns>
-    private static List<string> ResolveProductionCountries(BaseItem candidate)
-    {
-        try
-        {
-            var locations = candidate.ProductionLocations;
-            return locations is { Length: > 0 } ? [.. locations] : [];
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            return []; // Graceful fallback
-        }
-    }
-
-    /// <summary>
-    ///     Resolves the inherited tags of an item (own tags unioned with parent/collection/library-folder
-    ///     tags). Returns an empty list when unavailable. Used to cache InheritedTagSimilarity source data.
-    /// </summary>
-    /// <param name="candidate">The candidate item.</param>
-    /// <returns>The inherited tags, or an empty list.</returns>
-    private static List<string> ResolveInheritedTags(BaseItem candidate)
-    {
-        try
-        {
-            var tags = candidate.GetInheritedTags();
-            return tags is { Count: > 0 } ? [.. tags] : [];
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            return []; // Graceful fallback
-        }
-    }
-
-    /// <summary>
-    ///     Resolves the series lifecycle status string (e.g. "Continuing", "Ended", "Unreleased").
-    ///     Non-series or items without a status return null.
-    /// </summary>
-    /// <param name="candidate">The candidate item.</param>
-    /// <returns>The series status name, or null.</returns>
-    private static string? ResolveSeriesStatus(BaseItem candidate)
-    {
-        try
-        {
-            if (candidate is Series series && series.Status.HasValue)
-            {
-                return series.Status.Value.ToString();
-            }
-
-            return null;
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            return null; // Graceful fallback
-        }
-    }
-
-    /// <summary>
-    ///     Resolves the series end date, if any. Non-series or ongoing series return null.
-    /// </summary>
-    /// <param name="candidate">The candidate item.</param>
-    /// <returns>The end date, or null.</returns>
-    private static DateTime? ResolveSeriesEndDate(BaseItem candidate)
-    {
-        try
-        {
-            return candidate is Series series ? series.EndDate : null;
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            return null; // Graceful fallback
-        }
-    }
-
-    /// <summary>
     ///     Resolves the writer (screenplay/creator) names of an item via the library people index.
-    ///     Returns an empty list when unavailable. Name-based, deduplicated case-insensitively.
+    ///     Returns an empty list when unavailable. Thin wrapper around the shared, library-free
+    ///     <see cref="ContentAffinityResolver.ExtractWriterNames"/> that adds the one GetPeople call.
     /// </summary>
     /// <param name="candidate">The candidate item.</param>
     /// <returns>The distinct writer names, or an empty list.</returns>
@@ -1652,60 +1561,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     {
         try
         {
-            return ExtractWriterNames(_libraryManager.GetPeople(candidate));
+            return ContentAffinityResolver.ExtractWriterNames(_libraryManager.GetPeople(candidate));
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
             return []; // Graceful fallback
-        }
-    }
-
-    /// <summary>
-    ///     Extracts distinct writer names from an already-fetched people list (no library call).
-    ///     Shared by the live per-item resolver and the per-snapshot batch precompute so both paths
-    ///     produce identical writer sets.
-    /// </summary>
-    /// <param name="people">The item's people, or null.</param>
-    /// <returns>Distinct writer names (case-insensitive), or an empty list.</returns>
-    private static List<string> ExtractWriterNames(IReadOnlyList<PersonInfo>? people)
-    {
-        if (people is null || people.Count == 0)
-        {
-            return [];
-        }
-
-        var writers = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var person in people)
-        {
-            if (person.Type == PersonKind.Writer
-                && !string.IsNullOrWhiteSpace(person.Name)
-                && seen.Add(person.Name))
-            {
-                writers.Add(person.Name);
-            }
-        }
-
-        return writers;
-    }
-
-    /// <summary>
-    ///     Builds a case-insensitive map of billed cast/director name → billing weight for an item,
-    ///     derived from <see cref="PersonInfo.SortOrder"/> via <see cref="EngineConstants.ComputeBillingWeight"/>.
-    ///     Duplicate names keep the highest (most top-billed) weight. Used as the source for
-    ///     BillingWeightedPeople. Returns an empty map on any failure.
-    /// </summary>
-    /// <param name="candidate">The candidate item.</param>
-    /// <returns>A name → billing-weight map.</returns>
-    private Dictionary<string, double> ResolveBillingWeightMap(BaseItem candidate)
-    {
-        try
-        {
-            return ExtractBillingWeightMap(_libraryManager.GetPeople(candidate));
-        }
-        catch (Exception ex) when (!ex.IsFatal())
-        {
-            return new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase); // Graceful fallback
         }
     }
 
@@ -1787,17 +1647,39 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             }
 
             lookup[candidate.Id] = new CandidateContentAffinity(
-                ResolveTmdbCollectionName(candidate),
-                ResolveProductionCountries(candidate),
-                ResolveInheritedTags(candidate),
-                ResolveSeriesStatus(candidate),
-                ResolveSeriesEndDate(candidate),
-                ExtractWriterNames(people),
-                ExtractBillingWeightMap(people));
+                ContentAffinityResolver.ResolveTmdbCollectionName(candidate),
+                ContentAffinityResolver.ResolveProductionCountries(candidate),
+                ContentAffinityResolver.ResolveInheritedTags(candidate),
+                ContentAffinityResolver.ResolveSeriesStatus(candidate),
+                ContentAffinityResolver.ResolveSeriesEndDate(candidate),
+                ContentAffinityResolver.ExtractWriterNames(people),
+                ExtractBillingWeightMap(people),
+                BuildGenreSet(candidate),
+                BuildStudioSet(candidate));
         }
 
         return lookup;
     }
+
+    /// <summary>
+    ///     Builds the case-insensitive genre set for a candidate. Extracted so the per-snapshot
+    ///     precompute and the live fallback build it identically.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>A case-insensitive set of the candidate's genres (never null; possibly empty).</returns>
+    private static HashSet<string> BuildGenreSet(BaseItem candidate)
+        => new(candidate.Genres ?? [], StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Builds the case-insensitive studio set for a candidate, or null when it has no studios.
+    ///     Extracted so the per-snapshot precompute and the live fallback build it identically.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>A case-insensitive set of the candidate's studios, or null when there are none.</returns>
+    private static HashSet<string>? BuildStudioSet(BaseItem candidate)
+        => candidate.Studios is { Length: > 0 } studios
+            ? new HashSet<string>(studios, StringComparer.OrdinalIgnoreCase)
+            : null;
 
     /// <summary>
     ///     Live fallback that builds a single <see cref="CandidateContentAffinity"/> for a candidate not
@@ -1820,13 +1702,15 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         }
 
         return new CandidateContentAffinity(
-            ResolveTmdbCollectionName(candidate),
-            ResolveProductionCountries(candidate),
-            ResolveInheritedTags(candidate),
-            ResolveSeriesStatus(candidate),
-            ResolveSeriesEndDate(candidate),
-            ExtractWriterNames(people),
-            ExtractBillingWeightMap(people));
+            ContentAffinityResolver.ResolveTmdbCollectionName(candidate),
+            ContentAffinityResolver.ResolveProductionCountries(candidate),
+            ContentAffinityResolver.ResolveInheritedTags(candidate),
+            ContentAffinityResolver.ResolveSeriesStatus(candidate),
+            ContentAffinityResolver.ResolveSeriesEndDate(candidate),
+            ContentAffinityResolver.ExtractWriterNames(people),
+            ExtractBillingWeightMap(people),
+            BuildGenreSet(candidate),
+            BuildStudioSet(candidate));
     }
 
     /// <summary>
@@ -2139,6 +2023,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 CommunityPopularityComputed: false, // live rebuild has no all-user data yet — first cold-start hit will fill this in
                 BatchGeneration: 0, // live-refresh writes carry BatchGeneration=0; kept for exploration-seed semantics only
                 PublicationSequence: seq,
+                ObservedSequence: seq, // built and published under the same lock; the guard never applies here
                 DateTime.UtcNow,
                 contentAffinityLookup);
 
@@ -2186,30 +2071,24 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     {
         lock (_snapshotRefreshLock)
         {
-            // Capture the sequence of whatever is currently cached BEFORE incrementing.
-            // This is the watermark that represents "freshest snapshot seen when this
-            // batch started committing". If a concurrent live-refresh increments the
-            // counter and writes a snapshot between our Increment call and our cache
-            // write, the post-increment current will have a sequence higher than the
-            // pre-increment baseline, and we can detect the race.
-            var previousSeq = _cachedSnapshot?.PublicationSequence ?? 0;
-
-            // Increment inside the lock so that sequence assignment and the cache write
-            // are atomic. This prevents the batch path (which builds its snapshot outside
-            // the lock) from racing with a concurrent live-refresh and obtaining a sequence
-            // number that misrepresents actual publish order.
-            var seq = Interlocked.Increment(ref _publicationSequence);
-            var stamped = candidate with { PublicationSequence = seq };
-
+            // Stale-guard: reject this publish if a strictly-newer snapshot was published AFTER
+            // this candidate's builder observed the sequence counter (captured at build-start via
+            // candidate.ObservedSequence, before the slow load). Comparing the currently-cached
+            // sequence against that build-start watermark — rather than a value re-read inside this
+            // lock — is what makes the guard reachable: a slow batch that began before a live-refresh
+            // published will see current.PublicationSequence > its ObservedSequence and back off,
+            // so it cannot roll the cache back to older candidates.
             var current = _cachedSnapshot;
-            if (current is not null && current.PublicationSequence > previousSeq)
+            if (current is not null && current.PublicationSequence > candidate.ObservedSequence)
             {
-                // A newer publish landed after this batch started. Reject this write so
-                // the stale batch cannot roll the cache back.
                 return false;
             }
 
-            _cachedSnapshot = stamped;
+            // Assign the sequence and write atomically under the lock so the batch path (which
+            // builds its snapshot outside the lock) cannot race a concurrent live-refresh into
+            // an out-of-order sequence number.
+            var seq = Interlocked.Increment(ref _publicationSequence);
+            _cachedSnapshot = candidate with { PublicationSequence = seq };
             return true;
         }
     }
@@ -2224,7 +2103,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     internal bool TryPublishSnapshotForTest(long publicationSequence)
     {
         var snapshot = new CandidateSnapshot(
-            [], [], [], [], null, false, 0, publicationSequence, DateTime.UtcNow, []);
+            [], [], [], [], null, false, 0, publicationSequence, publicationSequence, DateTime.UtcNow, []);
 
         lock (_snapshotRefreshLock)
         {
@@ -2305,7 +2184,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     instead of per-candidate parent traversal + child enumeration. Returns a progression
     ///     ratio proportional to how many collection siblings are already watched.
     ///     <para>
-    ///         Roadmap v3 (C3.1): the diminishing-returns scale (<c>0.3 + (n-1) × 0.2, clamped [0,1]</c>)
+    ///         The diminishing-returns scale (<c>0.3 + (n-1) × 0.2, clamped [0,1]</c>)
     ///         lives centrally in <see cref="EngineConstants.ComputeCollectionProgressionBoost(int)"/> so
     ///         that this live path and the training-time
     ///         <c>TrainingDataBuilder.ComputeCollectionProgressionBoostWithCounts</c> can never drift.
@@ -2696,6 +2575,15 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="SeriesEndDate">The candidate's series end date, or null.</param>
     /// <param name="Writers">Distinct writer names (never null; possibly empty).</param>
     /// <param name="Billing">Billed cast/director name → billing weight (never null; possibly empty).</param>
+    /// <param name="GenreSet">
+    ///     Case-insensitive set of the candidate's genres, pre-built once per candidate. Candidate-invariant
+    ///     (independent of the user), so hoisting it here removes a per-(candidate × user) HashSet
+    ///     allocation from the <see cref="ScoreCandidate"/> hot path. Never null; possibly empty.
+    /// </param>
+    /// <param name="StudioSet">
+    ///     Case-insensitive set of the candidate's studios, pre-built once per candidate, or null when the
+    ///     candidate has no studios. Same hoisting rationale as <paramref name="GenreSet"/>.
+    /// </param>
     private sealed record CandidateContentAffinity(
         string? TmdbCollectionName,
         List<string> ProductionCountries,
@@ -2703,7 +2591,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         string? SeriesStatus,
         DateTime? SeriesEndDate,
         List<string> Writers,
-        Dictionary<string, double> Billing);
+        Dictionary<string, double> Billing,
+        HashSet<string> GenreSet,
+        HashSet<string>? StudioSet);
 
     /// <summary>
     ///     Immutable snapshot of candidate items and their people lookup.
@@ -2771,6 +2661,16 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     newer live-refresh, the publication sequence reflects actual publish order and
     ///     closes that stale-overwrite gap regardless of write origin.
     /// </param>
+    /// <param name="ObservedSequence">
+    ///     The value of <see cref="_publicationSequence"/> read when this snapshot's builder
+    ///     STARTED assembling candidates (before the slow <c>LoadCandidateItems</c> /
+    ///     <c>BuildCandidate*Lookup</c> work, outside the publish lock). This is the freshness
+    ///     watermark the stale-guard in <see cref="TryPublishSnapshot"/> compares against: if a
+    ///     concurrent publish landed a strictly-newer sequence AFTER this builder observed the
+    ///     counter, the batch is stale and its publish is dropped. Capturing it at build-start —
+    ///     rather than re-reading inside the publish lock, where it would trivially equal the
+    ///     cached value and make the guard unreachable — is what gives the guard real teeth.
+    /// </param>
     /// <param name="ContentAffinityLookup">Item ID → per-candidate content-affinity source data (5 metadata fields + writers + billing), pre-computed once per snapshot.</param>
     private sealed record CandidateSnapshot(
         List<BaseItem> Candidates,
@@ -2781,6 +2681,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         bool CommunityPopularityComputed,
         int BatchGeneration,
         long PublicationSequence,
+        long ObservedSequence,
         DateTime CreatedAtUtc,
         Dictionary<Guid, CandidateContentAffinity> ContentAffinityLookup);
 }

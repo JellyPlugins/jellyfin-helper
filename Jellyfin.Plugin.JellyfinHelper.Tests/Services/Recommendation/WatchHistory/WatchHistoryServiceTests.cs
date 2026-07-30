@@ -730,6 +730,39 @@ public sealed class WatchHistoryServiceTests
             Times.Never);
     }
 
+    [Fact]
+    public void GetSeriesEpisodeCounts_CountsPlayableEpisodesPerSeries_SkippingPathlessAndOrphans()
+    {
+        // Two series, mixed playability. The count must include only episodes that have a
+        // non-empty Path AND a valid SeriesId — the exact rule the recommendation engine uses
+        // when building the progression-weighting map, so discovery genre preferences stay in
+        // lock-step with the engine's training pipeline.
+        var seriesA = Guid.NewGuid();
+        var seriesB = Guid.NewGuid();
+
+        var episodes = new List<BaseItem>
+        {
+            new Episode { Id = Guid.NewGuid(), SeriesId = seriesA, Path = "/media/a/s01e01.mkv" },
+            new Episode { Id = Guid.NewGuid(), SeriesId = seriesA, Path = "/media/a/s01e02.mkv" },
+            // No Path (Arr placeholder before download) — must NOT be counted.
+            new Episode { Id = Guid.NewGuid(), SeriesId = seriesA, Path = null },
+            new Episode { Id = Guid.NewGuid(), SeriesId = seriesB, Path = "/media/b/s01e01.mkv" },
+            // Orphan episode with no SeriesId — must NOT be counted.
+            new Episode { Id = Guid.NewGuid(), SeriesId = Guid.Empty, Path = "/media/orphan.mkv" }
+        };
+
+        _mockLibraryManager
+            .Setup(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
+            .Returns(episodes);
+
+        var counts = _service.GetSeriesEpisodeCounts();
+
+        Assert.Equal(2, counts.Count);
+        Assert.Equal(2, counts[seriesA]);
+        Assert.Equal(1, counts[seriesB]);
+        Assert.False(counts.ContainsKey(Guid.Empty));
+    }
+
     private static Jellyfin.Database.Implementations.Entities.User CreateTestUser(string username)
     {
         return new Jellyfin.Database.Implementations.Entities.User(username, "default", "default") { Id = Guid.NewGuid() };

@@ -27,7 +27,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     Genre penalty is applied to both the final score AND per-feature contributions
 ///     for consistency (sum of contributions ≈ finalScore).
 /// </remarks>
-public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrategy
+public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrategy, IDisposable
 {
     /// <summary>
     ///     Default minimum blending factor (heuristic dominates with no training data).
@@ -663,7 +663,13 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
             lock (_syncRoot)
             {
-                // Always track cumulative examples
+                // Track examples seen across training rounds. In production the scheduled task
+                // trains incrementally (new + subsampled-old examples per run), so this running
+                // total approximates "examples the ensemble has learned from over its lifetime" —
+                // exactly the quantity the alpha sigmoid and the neural-beta activation threshold
+                // are calibrated against. The value only feeds those two schedules; alpha is
+                // independently clamped to [alphaMin, alphaMax] and gated by validation quality,
+                // so the running total is a monotonic progression signal, never a hard output.
                 _trainingExampleCount += examples.Count;
 
                 // Compute the target alpha from the sigmoid curve using the adaptive midpoint.
@@ -1387,6 +1393,19 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         }
 
         return MetricsTrend.Stable;
+    }
+
+    /// <summary>
+    ///     Disposes the composed neural strategy, which owns a
+    ///     <see cref="System.Threading.ReaderWriterLockSlim"/>. Without this the lock leaked on
+    ///     plugin unload: the engine only disposed the ensemble (its <see cref="IScoringStrategy"/>),
+    ///     and the ensemble did not previously implement <see cref="IDisposable"/>, so the neural
+    ///     strategy's own <c>Dispose</c> never ran. The heuristic and learned strategies are sealed
+    ///     and hold no disposable state, so they need no disposal here.
+    /// </summary>
+    public void Dispose()
+    {
+        _neural?.Dispose();
     }
 
     /// <summary>
