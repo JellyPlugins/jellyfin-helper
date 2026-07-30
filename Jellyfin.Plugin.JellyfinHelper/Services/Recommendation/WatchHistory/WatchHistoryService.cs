@@ -5,6 +5,7 @@ using System.Linq;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
+using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -172,6 +173,32 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 continue;
             }
 
+            // Billed cast/directors for this item, cached as aligned name/weight lists so the training
+            // path can compute BillingWeightedPeople with the same shared helper the live path uses
+            // (closes the organic/aggregated-series train/serve gap that previously hardcoded 0.0).
+            // Resolved ONLY for non-episode items (movies + series), which are exactly the item types
+            // that appear as live scoring candidates — episodes never do. Skipping episodes also
+            // preserves the invariant that people are aggregated at series level, never per episode
+            // (GetPeople is never called on an Episode), avoiding guest-cast noise.
+            IReadOnlyList<PersonInfo>? itemPeople = null;
+            if (item is not Episode)
+            {
+                try
+                {
+                    itemPeople = _libraryManager.GetPeople(item);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (!ex.IsFatal())
+                {
+                    itemPeople = null;
+                }
+            }
+
+            var (billedNames, billedWeights) = SimilarityComputer.ExtractBilledPeople(itemPeople);
+
             var watchedItem = new WatchedItemInfo
             {
                 ItemId = item.Id,
@@ -189,7 +216,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 Year = item.ProductionYear,
                 SeriesId = item is Episode ep ? (ep.SeriesId != Guid.Empty ? ep.SeriesId : null) : null,
                 DateCreated = item.DateCreated,
-                PrimaryImageTag = null
+                PrimaryImageTag = null,
+                PeopleNames = billedNames,
+                PeopleWeights = billedWeights
             };
 
             profile.WatchedItems.Add(watchedItem);
@@ -272,6 +301,22 @@ public sealed class WatchHistoryService : IWatchHistoryService
                 // with the FavoriteGenreBoostFactor (3×). Without this, favoriting a series
                 // only populates FavoriteSeriesIds (used for candidate exclusion) but does NOT
                 // influence genre preferences, studio preferences, or training labels.
+                IReadOnlyList<PersonInfo>? seriesPeople;
+                try
+                {
+                    seriesPeople = _libraryManager.GetPeople(series);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (!ex.IsFatal())
+                {
+                    seriesPeople = null;
+                }
+
+                var (favBilledNames, favBilledWeights) = SimilarityComputer.ExtractBilledPeople(seriesPeople);
+
                 profile.WatchedItems.Add(new WatchedItemInfo
                 {
                     ItemId = series.Id,
@@ -289,7 +334,9 @@ public sealed class WatchHistoryService : IWatchHistoryService
                     Year = series.ProductionYear,
                     SeriesId = null, // This IS the series itself, not an episode
                     DateCreated = series.DateCreated,
-                    PrimaryImageTag = null
+                    PrimaryImageTag = null,
+                    PeopleNames = favBilledNames,
+                    PeopleWeights = favBilledWeights
                 });
 
                 // Also accumulate genre distribution for series-level favorites

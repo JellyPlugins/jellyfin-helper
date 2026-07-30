@@ -677,6 +677,9 @@ internal sealed class SimilarityComputer
     ///     division-safe weighted people-similarity primitive so it behaves identically to the
     ///     actor/director people channel while staying a separate signal.
     ///     <para>Returns 0.0 when either side is empty.</para>
+    ///     <para>This eager overload recomputes the top-K average per call; hot paths that score many
+    ///     candidates for one user should precompute the average via <see cref="ComputeAveragePreferredWeight"/>
+    ///     once and call the three-argument overload instead.</para>
     /// </summary>
     /// <param name="candidateWriters">The candidate's writer names.</param>
     /// <param name="preferredWriterWeights">The user's writer → weight map.</param>
@@ -684,6 +687,25 @@ internal sealed class SimilarityComputer
     internal static double ComputeWriterAffinity(
         IReadOnlyList<string>? candidateWriters,
         IReadOnlyDictionary<string, double> preferredWriterWeights)
+        => ComputeWriterAffinity(
+            candidateWriters,
+            preferredWriterWeights,
+            ComputeAveragePreferredWeight(preferredWriterWeights));
+
+    /// <summary>
+    ///     Batched writer-affinity overload taking a precomputed top-K average writer weight, so the
+    ///     O(W log W) sort inside <see cref="ComputeAveragePreferredWeight"/> runs once per user rather
+    ///     than once per candidate. Mirrors the precomputed-average <c>ComputePeopleSimilarity</c> path.
+    ///     <para>Returns 0.0 when either side is empty.</para>
+    /// </summary>
+    /// <param name="candidateWriters">The candidate's writer names.</param>
+    /// <param name="preferredWriterWeights">The user's writer → weight map.</param>
+    /// <param name="averageWriterWeight">Precomputed top-K average from <see cref="ComputeAveragePreferredWeight"/>.</param>
+    /// <returns>Writer affinity in [0, 1].</returns>
+    internal static double ComputeWriterAffinity(
+        IReadOnlyList<string>? candidateWriters,
+        IReadOnlyDictionary<string, double> preferredWriterWeights,
+        double averageWriterWeight)
     {
         if (candidateWriters is not { Count: > 0 } || preferredWriterWeights.Count == 0)
         {
@@ -698,8 +720,7 @@ internal sealed class SimilarityComputer
             return 0.0;
         }
 
-        var avg = ComputeAveragePreferredWeight(preferredWriterWeights);
-        return ComputePeopleSimilarity(candidateSet, preferredWriterWeights, avg);
+        return ComputePeopleSimilarity(candidateSet, preferredWriterWeights, averageWriterWeight);
     }
 
     /// <summary>
@@ -798,5 +819,57 @@ internal sealed class SimilarityComputer
         Accumulate(candidateStudios);
 
         return counted > 0 ? Math.Clamp(sum / counted, 0.0, 1.0) : 0.0;
+    }
+
+    /// <summary>
+    ///     Extracts billed cast/director names and their billing weights from an item's people list,
+    ///     as two positionally-aligned lists suitable for caching on <c>WatchedItemInfo</c>. Billing
+    ///     weight is derived from <see cref="PersonInfo.SortOrder"/> via
+    ///     <see cref="EngineConstants.ComputeBillingWeight"/> — the SAME formula the live scoring path
+    ///     uses — so a training example rebuilt from these cached lists yields an identical
+    ///     BillingWeightedPeople value (train/serve parity). Duplicate names keep the highest weight.
+    ///     <para>Returns empty lists when no billable people are present (fail-soft).</para>
+    /// </summary>
+    /// <param name="people">The item's people (from <c>ILibraryManager.GetPeople</c>), or null.</param>
+    /// <returns>Aligned (names, weights) for the item's billed cast/directors.</returns>
+    internal static (List<string> Names, List<double> Weights) ExtractBilledPeople(IReadOnlyList<PersonInfo>? people)
+    {
+        var names = new List<string>();
+        var weights = new List<double>();
+        if (people is null || people.Count == 0)
+        {
+            return (names, weights);
+        }
+
+        var index = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var fallbackOrder = 0;
+        foreach (var person in people)
+        {
+            if ((person.Type != PersonKind.Actor && person.Type != PersonKind.Director)
+                || string.IsNullOrWhiteSpace(person.Name))
+            {
+                continue;
+            }
+
+            var order = person.SortOrder ?? fallbackOrder;
+            var weight = EngineConstants.ComputeBillingWeight(order);
+            if (index.TryGetValue(person.Name, out var existing))
+            {
+                if (weight > weights[existing])
+                {
+                    weights[existing] = weight;
+                }
+            }
+            else
+            {
+                index[person.Name] = names.Count;
+                names.Add(person.Name);
+                weights.Add(weight);
+            }
+
+            fallbackOrder++;
+        }
+
+        return (names, weights);
     }
 }

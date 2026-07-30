@@ -809,15 +809,17 @@ internal static class TrainingDataBuilder
                     // train/serve skew on these two dimensions.
                     LanguageAffinity = 0.5,
                     SubtitleLanguageAffinity = 0.5,
-                    // Content-affinity signals from WatchedItemInfo's cached fields (same shared helpers
-                    // as live scoring). BillingWeightedPeople is NEUTRALIZED (0.0): WatchedItemInfo carries
-                    // no per-item people/billing list for organic rows, exactly like LanguageAffinity above.
+                    // Content-affinity signals from WatchedItemInfo's cached fields, using the SAME shared
+                    // helpers as live scoring. BillingWeightedPeople now reads the cached PeopleNames/
+                    // PeopleWeights (billing weights persisted at watch-history build) so organic examples
+                    // carry the same real value the live path computes — closing the prior 0.0 skew.
                     FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(w.TmdbCollectionName, preferredFranchisesOrganic),
                     ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(w.ProductionCountries, preferredCountriesOrganic),
                     InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(w.InheritedTags, preferredInheritedTagsOrganic),
                     SeriesCompletability = EngineConstants.ComputeSeriesCompletability(isSeries, w.SeriesStatus, w.EndDate.HasValue),
                     WriterAffinity = SimilarityComputer.ComputeWriterAffinity(w.WriterNames, preferredWriterWeightsOrganic),
-                    BillingWeightedPeople = 0.0,
+                    BillingWeightedPeople = SimilarityComputer.ComputeBillingWeightedPeople(
+                        TrainingFeatureComputer.BuildBillingMapFromCache(w.PeopleNames, w.PeopleWeights), preferredPeopleWeightsOrganic),
                     GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(w.Genres, null, genreStudioIdf)
                 };
 

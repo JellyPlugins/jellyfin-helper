@@ -12,6 +12,8 @@ public sealed class WatchedItemInfo
     private IReadOnlyList<string> _inheritedTags = [];
     private IReadOnlyList<string> _productionCountries = [];
     private IReadOnlyList<string> _writerNames = [];
+    private IReadOnlyList<string> _peopleNames = [];
+    private IReadOnlyList<double> _peopleWeights = [];
 
     /// <summary>
     ///     Gets or sets the Jellyfin item ID.
@@ -147,6 +149,31 @@ public sealed class WatchedItemInfo
     {
         get => _writerNames;
         set => _writerNames = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the billed cast/director names associated with this item, aligned positionally
+    ///     to <see cref="PeopleWeights"/>. Used to compute BillingWeightedPeople for organic /
+    ///     aggregated-series training examples with the SAME shared helper the live path uses, closing
+    ///     the train/serve gap where these examples previously hardcoded 0.0.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<string> PeopleNames
+    {
+        get => _peopleNames;
+        set => _peopleNames = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the billing weights (derived from PersonInfo.SortOrder) aligned positionally to
+    ///     <see cref="PeopleNames"/>. Legacy cache entries lacking this field deserialize to empty, in
+    ///     which case BillingWeightedPeople self-neutralizes (length mismatch → empty map → 0.0).
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<double> PeopleWeights
+    {
+        get => _peopleWeights;
+        set => _peopleWeights = value ?? [];
     }
 
     /// <summary>

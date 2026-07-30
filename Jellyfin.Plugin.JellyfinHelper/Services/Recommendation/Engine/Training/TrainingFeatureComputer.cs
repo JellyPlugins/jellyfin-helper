@@ -362,12 +362,18 @@ internal static class TrainingFeatureComputer
             LanguageAffinity = 0.5,
             SubtitleLanguageAffinity = 0.5,
             // Content-affinity signals aggregated across the series' episodes (same shared helpers as
-            // live scoring). BillingWeightedPeople neutralized (0.0) — no per-item billing on WatchedItemInfo.
+            // live scoring). BillingWeightedPeople uses the per-episode billing weights aggregated above,
+            // scored against the user's preferred-people map — matching the live series-candidate path.
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(seriesFranchise, preferredFranchises),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity([.. seriesCountries], preferredCountries),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity([.. seriesInheritedTags], preferredInheritedTags),
             SeriesCompletability = EngineConstants.ComputeSeriesCompletability(true, mostRecent?.SeriesStatus, mostRecent?.EndDate.HasValue ?? false),
             WriterAffinity = SimilarityComputer.ComputeWriterAffinity([.. seriesWriters], preferredWriterWeights),
+            // BillingWeightedPeople is neutralized (0.0) for aggregated-series examples: billed people are
+            // deliberately NOT cached per episode (people are aggregated at series level to avoid guest-cast
+            // noise — see WatchHistoryService, which skips GetPeople for Episodes), so no per-episode billing
+            // exists to aggregate here. A watched (non-favourite) series therefore contributes neutral billing;
+            // favourite series carry real series-level billing via their synthetic WatchedItemInfo (organic path).
             BillingWeightedPeople = 0.0,
             GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(genreList, null, genreStudioIdf)
         };

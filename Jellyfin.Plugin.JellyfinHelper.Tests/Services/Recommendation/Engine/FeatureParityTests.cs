@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Training;
+using MediaBrowser.Controller.Entities;
 using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
@@ -103,6 +105,46 @@ public sealed class FeatureParityTests
     public void BillingMapFromCache_EmptyInputs_ReturnEmpty()
     {
         Assert.Empty(TrainingFeatureComputer.BuildBillingMapFromCache([], []));
+    }
+
+    [Fact]
+    public void ExtractBilledPeople_ThenBuildBillingMapFromCache_RoundTripsIdentically()
+    {
+        // Serve side: WatchHistoryService caches (names, weights) via ExtractBilledPeople.
+        // Train side: TrainingFeatureComputer rebuilds the billing map from those cached lists.
+        // The rebuilt map must equal the map ExtractBillingWeightMap would have produced live —
+        // this is the train/serve parity contract for BillingWeightedPeople on organic examples.
+        var people = new List<PersonInfo>
+        {
+            new() { Name = "Lead", Type = PersonKind.Actor, SortOrder = 0 },
+            new() { Name = "Support", Type = PersonKind.Actor, SortOrder = 3 },
+            new() { Name = "Director", Type = PersonKind.Director, SortOrder = 0 },
+            new() { Name = "Composer", Type = PersonKind.Composer, SortOrder = 0 }, // ignored (not Actor/Director)
+        };
+
+        var (names, weights) = SimilarityComputer.ExtractBilledPeople(people);
+        Assert.Equal(names.Count, weights.Count);
+        Assert.DoesNotContain("Composer", names); // only Actor/Director are billed
+
+        var rebuilt = TrainingFeatureComputer.BuildBillingMapFromCache(names, weights);
+
+        // Top-billed (SortOrder 0) outranks deep-billed (SortOrder 3).
+        Assert.Equal(1.0, rebuilt["Lead"], 10);
+        Assert.True(rebuilt["Lead"] > rebuilt["Support"]);
+        Assert.Equal(3, rebuilt.Count);
+    }
+
+    [Fact]
+    public void ExtractBilledPeople_NullOrNoBilledPeople_ReturnsEmpty()
+    {
+        var (names, weights) = SimilarityComputer.ExtractBilledPeople(null);
+        Assert.Empty(names);
+        Assert.Empty(weights);
+
+        var composerOnly = new List<PersonInfo> { new() { Name = "C", Type = PersonKind.Composer } };
+        var (n2, w2) = SimilarityComputer.ExtractBilledPeople(composerOnly);
+        Assert.Empty(n2);
+        Assert.Empty(w2);
     }
 
     // ===================== SeriesCompletability (canonical formula) =====================
