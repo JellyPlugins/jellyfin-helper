@@ -1299,4 +1299,135 @@ public class PreferenceBuilderTests
             "An item with PlayCount > 0 must be treated as a meaningful interaction " +
             "regardless of Played or IsFavorite flags (train/serve parity).");
     }
+
+    // ===================== New content-affinity preference builders =====================
+
+    [Fact]
+    public void BuildFranchisePreferenceVector_EmptyHistory_ReturnsEmpty()
+    {
+        var profile = new UserWatchProfile();
+        Assert.Empty(PreferenceBuilder.BuildFranchisePreferenceVector(profile));
+    }
+
+    [Fact]
+    public void BuildFranchisePreferenceVector_ItemsWithoutCollectionName_AreSkipped()
+    {
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, TmdbCollectionName = null },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, TmdbCollectionName = "   " }
+            ]
+        };
+        Assert.Empty(PreferenceBuilder.BuildFranchisePreferenceVector(profile));
+    }
+
+    [Fact]
+    public void BuildFranchisePreferenceVector_NormalizesTopFranchiseToOne_FavoriteOutranksRewatch()
+    {
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, IsFavorite = true, LastPlayedDate = DateTime.UtcNow.AddDays(-30), TmdbCollectionName = "Marvel" },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-30), TmdbCollectionName = "DC" }
+            ]
+        };
+        var vector = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+        Assert.Equal(1.0, vector["Marvel"], 10);           // max-normalized
+        Assert.True(vector["Marvel"] > vector["DC"]);       // favorite boost
+    }
+
+    [Fact]
+    public void BuildProductionCountryPreferenceVector_EmptyHistory_ReturnsEmpty()
+    {
+        Assert.Empty(PreferenceBuilder.BuildProductionCountryPreferenceVector(new UserWatchProfile()));
+    }
+
+    [Fact]
+    public void BuildProductionCountryPreferenceVector_AggregatesAndNormalizes()
+    {
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-10), ProductionCountries = ["Japan"] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-10), ProductionCountries = ["Japan", "USA"] }
+            ]
+        };
+        var vector = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
+        Assert.Equal(1.0, vector["Japan"], 10);   // appears twice → dominant → normalized to 1.0
+        Assert.True(vector["Japan"] > vector["USA"]);
+    }
+
+    [Fact]
+    public void BuildInheritedTagPreferenceSet_EmptyHistoryOrNoTags_ReturnsEmpty()
+    {
+        Assert.Empty(PreferenceBuilder.BuildInheritedTagPreferenceSet(new UserWatchProfile()));
+
+        var profile = new UserWatchProfile
+        {
+            WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, InheritedTags = [] }]
+        };
+        Assert.Empty(PreferenceBuilder.BuildInheritedTagPreferenceSet(profile));
+    }
+
+    [Fact]
+    public void BuildInheritedTagPreferenceSet_CollectsDistinctTags_CaseInsensitive()
+    {
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, InheritedTags = ["Marvel", "  "] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, InheritedTags = ["marvel", "Christmas"] }
+            ]
+        };
+        var set = PreferenceBuilder.BuildInheritedTagPreferenceSet(profile);
+        Assert.Equal(2, set.Count); // Marvel (deduped case-insensitively) + Christmas; whitespace skipped
+        Assert.Contains("MARVEL", set); // case-insensitive membership
+        Assert.Contains("christmas", set);
+    }
+
+    [Fact]
+    public void BuildWriterPreferenceWeights_EmptyHistoryOrNoWriters_ReturnsEmpty()
+    {
+        Assert.Empty(PreferenceBuilder.BuildWriterPreferenceWeights(new UserWatchProfile()));
+
+        var profile = new UserWatchProfile
+        {
+            WatchedItems = [new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, WriterNames = [] }]
+        };
+        Assert.Empty(PreferenceBuilder.BuildWriterPreferenceWeights(profile));
+    }
+
+    [Fact]
+    public void BuildWriterPreferenceWeights_AccumulatesPerRow_FavoriteOutranks()
+    {
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, IsFavorite = true, LastPlayedDate = DateTime.UtcNow.AddDays(-20), WriterNames = ["Sorkin"] },
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-20), WriterNames = ["Kaufman"] }
+            ]
+        };
+        var weights = PreferenceBuilder.BuildWriterPreferenceWeights(profile);
+        Assert.True(weights["Sorkin"] > weights["Kaufman"]); // favorite additive boost
+    }
+
+    [Fact]
+    public void BuildWriterPreferenceWeights_DuplicateWriterOnSameRow_CountedOnce()
+    {
+        var profile = new UserWatchProfile
+        {
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = Guid.NewGuid(), Played = true, LastPlayedDate = DateTime.UtcNow.AddDays(-20), WriterNames = ["Sorkin", "sorkin"] }
+            ]
+        };
+        var weights = PreferenceBuilder.BuildWriterPreferenceWeights(profile);
+        Assert.Single(weights); // per-row de-dup, case-insensitive
+    }
 }

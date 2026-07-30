@@ -682,6 +682,207 @@ internal static class PreferenceBuilder
     }
 
     /// <summary>
+    ///     Builds a max-normalized franchise preference map (TMDb collection name → weight in [0,1])
+    ///     from the user's watched/favorited movies. Mirrors <see cref="BuildGenrePreferenceVector"/>'s
+    ///     temporal-decay + play-count + favorite-boost composition so franchise affinity is comparable
+    ///     in magnitude to genre affinity. Source is <see cref="WatchedItemInfo.TmdbCollectionName"/>
+    ///     directly (no BaseItem lookup needed).
+    ///     <para>Empty watch history or items without a collection name yield an empty map — a candidate
+    ///     with no franchise, or a franchise the user never engaged with, scores 0.0 (no crash, no bias).</para>
+    /// </summary>
+    /// <param name="profile">The user's watch profile.</param>
+    /// <returns>A case-insensitive franchise → normalized-weight map (empty when no signal).</returns>
+    internal static Dictionary<string, double> BuildFranchisePreferenceVector(UserWatchProfile profile)
+    {
+        var vector = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (profile.WatchedItems.Count == 0)
+        {
+            return vector;
+        }
+
+        foreach (var item in profile.WatchedItems)
+        {
+            if (!IsEligibleForPreferenceWeighting(item)
+                || string.IsNullOrWhiteSpace(item.TmdbCollectionName))
+            {
+                continue;
+            }
+
+            var weight = ComputePreferenceRowWeight(item);
+            vector.TryGetValue(item.TmdbCollectionName, out var current);
+            vector[item.TmdbCollectionName] = current + weight;
+        }
+
+        NormalizeByMax(vector);
+        return vector;
+    }
+
+    /// <summary>
+    ///     Builds a max-normalized production-country preference map (country → weight in [0,1]) from the
+    ///     user's watched/favorited items, using the same weighting as
+    ///     <see cref="BuildFranchisePreferenceVector"/>. Source is
+    ///     <see cref="WatchedItemInfo.ProductionCountries"/> directly.
+    ///     <para>Empty history or items without countries yield an empty map → candidate scores 0.0.</para>
+    /// </summary>
+    /// <param name="profile">The user's watch profile.</param>
+    /// <returns>A case-insensitive country → normalized-weight map (empty when no signal).</returns>
+    internal static Dictionary<string, double> BuildProductionCountryPreferenceVector(UserWatchProfile profile)
+    {
+        var vector = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (profile.WatchedItems.Count == 0)
+        {
+            return vector;
+        }
+
+        foreach (var item in profile.WatchedItems)
+        {
+            if (!IsEligibleForPreferenceWeighting(item)
+                || item.ProductionCountries is not { Count: > 0 })
+            {
+                continue;
+            }
+
+            var weight = ComputePreferenceRowWeight(item);
+            foreach (var country in item.ProductionCountries.Where(static c => !string.IsNullOrWhiteSpace(c)))
+            {
+                vector.TryGetValue(country, out var current);
+                vector[country] = current + weight;
+            }
+        }
+
+        NormalizeByMax(vector);
+        return vector;
+    }
+
+    /// <summary>
+    ///     Builds a set of preferred inherited tags from the user's watched/favorited items, reading
+    ///     <see cref="WatchedItemInfo.InheritedTags"/> directly. Mirrors <see cref="BuildTagPreferenceSet"/>
+    ///     but over the inherited (own + parent/collection/library-folder) tag set.
+    ///     <para>Empty history or items without inherited tags yield an empty set → candidate scores 0.0.</para>
+    /// </summary>
+    /// <param name="profile">The user's watch profile.</param>
+    /// <returns>A case-insensitive set of preferred inherited tags (empty when no signal).</returns>
+    internal static HashSet<string> BuildInheritedTagPreferenceSet(UserWatchProfile profile)
+    {
+        var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in profile.WatchedItems)
+        {
+            if (!IsEligibleForPreferenceWeighting(item)
+                || item.InheritedTags is not { Count: > 0 })
+            {
+                continue;
+            }
+
+            foreach (var t in item.InheritedTags.Where(static t => !string.IsNullOrWhiteSpace(t)))
+            {
+                tags.Add(t);
+            }
+        }
+
+        return tags;
+    }
+
+    /// <summary>
+    ///     Builds a weighted writer preference map (writer name → weight) from the user's watched/favorited
+    ///     items, reading <see cref="WatchedItemInfo.WriterNames"/> directly. Kept separate from the
+    ///     actor/director people profile so writer affinity does not dilute
+    ///     <see cref="SimilarityComputer.ComputePeopleSimilarity(System.Collections.Generic.HashSet{string},System.Collections.Generic.IReadOnlyDictionary{string,double})"/>.
+    ///     Each writer is counted once per row (progression-weighted), mirroring
+    ///     <see cref="BuildPeoplePreferenceWeights"/>.
+    ///     <para>Empty history or items without writers yield an empty map → candidate scores 0.0.</para>
+    /// </summary>
+    /// <param name="profile">The user's watch profile.</param>
+    /// <returns>A case-insensitive writer → weight map (empty when no signal).</returns>
+    internal static Dictionary<string, double> BuildWriterPreferenceWeights(UserWatchProfile profile)
+    {
+        var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in profile.WatchedItems)
+        {
+            if (!IsEligibleForPreferenceWeighting(item)
+                || item.WriterNames is not { Count: > 0 })
+            {
+                continue;
+            }
+
+            var weight = ComputePreferenceRowWeight(item);
+            var seenThisRow = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var name in item.WriterNames.Where(static n => !string.IsNullOrWhiteSpace(n)))
+            {
+                if (!seenThisRow.Add(name))
+                {
+                    continue;
+                }
+
+                weights.TryGetValue(name, out var current);
+                weights[name] = current + weight;
+            }
+        }
+
+        return weights;
+    }
+
+    /// <summary>
+    ///     Computes the per-row preference weight shared by the franchise/country/writer builders,
+    ///     using the SAME temporal-decay + play-count-log1p + favorite-additive composition as
+    ///     <see cref="BuildGenrePreferenceVector"/> (without series-progression, which needs a series
+    ///     episode-count map not threaded here — it degrades to the neutral 1.0 multiplier anyway).
+    ///     All arithmetic is finite (Log/Exp of clamped non-negative inputs), so no NaN is produced.
+    /// </summary>
+    /// <param name="item">The watched item row.</param>
+    /// <returns>A non-negative preference weight.</returns>
+    private static double ComputePreferenceRowWeight(WatchedItemInfo item)
+    {
+        double temporalWeight;
+        if (item.LastPlayedDate.HasValue)
+        {
+            var ageDays = Math.Max(0.0, (DateTime.UtcNow - item.LastPlayedDate.Value).TotalDays);
+            temporalWeight = Math.Exp(-GenreDecayConstant * ageDays);
+        }
+        else
+        {
+            temporalWeight = item.IsFavorite ? 1.0 : Math.Exp(-GenreDecayConstant * 365.0);
+        }
+
+        var clampedPlayCount = Math.Clamp(item.PlayCount, 0, PlayCountMaxForLog1p);
+        var playCountBoost = Math.Log(1.0 + clampedPlayCount) * PlayCountLog1pScale;
+
+        var weight = temporalWeight + playCountBoost;
+        if (item.IsFavorite)
+        {
+            weight += EngineConstants.FavoriteGenreBoostFactor;
+        }
+
+        return weight;
+    }
+
+    /// <summary>
+    ///     Max-normalizes a weight map in place so its largest value becomes 1.0, matching the
+    ///     normalization tail of <see cref="BuildGenrePreferenceVector"/>. Guarded against empty maps
+    ///     and non-positive maxima (no division by zero).
+    /// </summary>
+    /// <param name="vector">The weight map to normalize in place.</param>
+    private static void NormalizeByMax(Dictionary<string, double> vector)
+    {
+        if (vector.Count == 0)
+        {
+            return;
+        }
+
+        var maxWeight = vector.Values.Max();
+        if (maxWeight <= 0.0)
+        {
+            return;
+        }
+
+        foreach (var key in vector.Keys.ToList())
+        {
+            vector[key] /= maxWeight;
+        }
+    }
+
+    /// <summary>
     ///     Builds the genre exposure analysis for a user. This is computed once per user
     ///     and reused for all candidate items to avoid redundant computation.
     ///     Returns a neutral (invalid) analysis when the user has insufficient watch history.

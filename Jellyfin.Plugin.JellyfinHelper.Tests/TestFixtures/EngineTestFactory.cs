@@ -8,6 +8,9 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 using Moq;
 
@@ -18,7 +21,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.TestFixtures;
 ///     <see cref="Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine"/>
 ///     under test.
 ///     <para>
-///         The engine has seven constructor dependencies. Wiring all of them by hand
+///         The engine has eight constructor dependencies. Wiring all of them by hand
 ///         in every test file bloats the suite and makes future refactors of the
 ///         Engine constructor a shotgun-surgery nightmare. Centralising the "sensible
 ///         empty defaults" here means:
@@ -44,6 +47,7 @@ internal static class EngineTestFactory
     /// <param name="Logger">The mock logger.</param>
     /// <param name="StrategySelector">The mock strategy selector (returns 0.0 alpha offset by default).</param>
     /// <param name="FeedbackStore">The mock discovery feedback store.</param>
+    /// <param name="ItemRepository">The mock item repository (returns empty genre/studio counts by default).</param>
     internal sealed record EngineHarness(
         Engine Engine,
         Mock<IWatchHistoryService> WatchHistory,
@@ -51,7 +55,8 @@ internal static class EngineTestFactory
         Mock<IPluginLogService> PluginLog,
         Mock<ILogger<Engine>> Logger,
         Mock<IStrategySelector> StrategySelector,
-        Mock<IDiscoveryFeedbackStore> FeedbackStore);
+        Mock<IDiscoveryFeedbackStore> FeedbackStore,
+        Mock<IItemRepository> ItemRepository);
 
     /// <summary>
     ///     Constructs an <see cref="Engine"/> with sensible empty-collection defaults on
@@ -98,6 +103,15 @@ internal static class EngineTestFactory
         feedbackStore.Setup(f => f.LoadAll())
                      .Returns(new List<DiscoveryFeedbackResult>());
 
+        // Empty genre/studio counts by default → BuildGenreStudioIdfTable yields an empty table
+        // and the GenreStudioIdfPrior feature stays neutral (0.0), keeping the batch path in its
+        // normal control flow for the no-library scenario.
+        var itemRepository = new Mock<IItemRepository>();
+        itemRepository.Setup(r => r.GetGenres(It.IsAny<InternalItemsQuery>()))
+                      .Returns(new QueryResult<(BaseItem, ItemCounts)>());
+        itemRepository.Setup(r => r.GetStudios(It.IsAny<InternalItemsQuery>()))
+                      .Returns(new QueryResult<(BaseItem, ItemCounts)>());
+
         var engine = new Engine(
             watchHistory.Object,
             libraryManager.Object,
@@ -105,7 +119,8 @@ internal static class EngineTestFactory
             logger.Object,
             strategy,
             strategySelector.Object,
-            feedbackStore.Object);
+            feedbackStore.Object,
+            itemRepository.Object);
 
         return new EngineHarness(
             engine,
@@ -114,6 +129,7 @@ internal static class EngineTestFactory
             pluginLog,
             logger,
             strategySelector,
-            feedbackStore);
+            feedbackStore,
+            itemRepository);
     }
 }

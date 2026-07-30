@@ -16,6 +16,7 @@ changelog: |-
   v3.0.0.0 - Major release for Jellyfin 12.0+
 
   - Smarter recommendations: a much bigger model, fairer suggestions for brand-new users, and more variety in your top picks (no more ten near-identical films in a row)
+  - Recommendations now also learn from franchises/collections, country of origin, collection & folder themes, whether a series is finished or ongoing, writers/creators, top-billed cast, and how rare a genre or studio is in your library (each signal is optional per item, so missing metadata never skews a pick)
   - Fresh picks appear between nightly runs, and faster generation on big libraries
   - Redesigned Settings, Health and Arr tabs with a live 'reachable' indicator, plus a sticky save bar and unsaved-changes warning
   - Better on phones

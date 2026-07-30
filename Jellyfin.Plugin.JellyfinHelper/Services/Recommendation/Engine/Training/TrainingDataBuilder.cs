@@ -26,7 +26,7 @@ internal static class TrainingDataBuilder
         Collection<UserWatchProfile> allProfiles,
         CancellationToken cancellationToken)
     {
-        return BuildExamples(previousResults, allProfiles, discoveryFeedback: null, seriesEpisodeCounts: null, cancellationToken);
+        return BuildExamples(previousResults, allProfiles, discoveryFeedback: null, seriesEpisodeCounts: null, genreStudioIdf: null, cancellationToken);
     }
 
     /// <summary>
@@ -50,7 +50,7 @@ internal static class TrainingDataBuilder
         IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback,
         CancellationToken cancellationToken)
     {
-        return BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts: null, cancellationToken);
+        return BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts: null, genreStudioIdf: null, cancellationToken);
     }
 
     /// <summary>
@@ -68,6 +68,10 @@ internal static class TrainingDataBuilder
     ///     When null/empty, every episode row keeps neutral weight (1.0), matching the pre-fix and
     ///     no-library-data behavior.
     /// </param>
+    /// <param name="genreStudioIdf">
+    ///     Library-wide genre/studio IDF rarity table — the SAME table the inference path uses — so the
+    ///     GenreStudioIdfPrior feature is identical between train and serve. Null → neutral 0.0 both sides.
+    /// </param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>
     ///     A tuple with the training examples and three separate counters — organic watches
@@ -82,6 +86,7 @@ internal static class TrainingDataBuilder
         Collection<UserWatchProfile> allProfiles,
         IReadOnlyList<DiscoveryFeedbackResult>? discoveryFeedback,
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
+        IReadOnlyDictionary<string, double>? genreStudioIdf,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -175,7 +180,11 @@ internal static class TrainingDataBuilder
             PreferenceBuilder.GenreExposureAnalysis GenreExposure,
             IReadOnlyDictionary<string, double> PeopleWeights,
             HashSet<string> PreferredStudios,
-            HashSet<string> PreferredTags)>();
+            HashSet<string> PreferredTags,
+            IReadOnlyDictionary<string, double> PreferredFranchises,
+            IReadOnlyDictionary<string, double> PreferredCountries,
+            HashSet<string> PreferredInheritedTags,
+            IReadOnlyDictionary<string, double> PreferredWriterWeights)>();
 
         // Build a lookup for O(1) profile access by user ID (avoids O(N) FirstOrDefault per result)
         var profileById = new Dictionary<Guid, UserWatchProfile>(allProfiles.Count);
@@ -198,7 +207,14 @@ internal static class TrainingDataBuilder
             var pw = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, cachedPeopleLookup, seriesEpisodeCounts);
             var ps = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, itemStudiosLookup);
             var pt = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, itemTagsLookup);
-            perUserCache[profile.UserId] = (gp, co, cm, ay, ge, pw, ps, pt);
+            // The new content-affinity preference maps read directly off WatchedItemInfo's cached
+            // fields, so the SAME PreferenceBuilder functions used at live scoring time apply here —
+            // identical inputs → identical maps → train/serve parity by construction.
+            var pf = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
+            var pc = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
+            var pit = PreferenceBuilder.BuildInheritedTagPreferenceSet(profile);
+            var pww = PreferenceBuilder.BuildWriterPreferenceWeights(profile);
+            perUserCache[profile.UserId] = (gp, co, cm, ay, ge, pw, ps, pt, pf, pc, pit, pww);
             profileById[profile.UserId] = profile;
         }
 
@@ -218,7 +234,8 @@ internal static class TrainingDataBuilder
                 continue;
             }
 
-            var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposure, preferredPeopleWeights, preferredStudios, preferredTags) =
+            var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposure, preferredPeopleWeights, preferredStudios, preferredTags,
+                preferredFranchises, preferredCountries, preferredInheritedTags, preferredWriterWeights) =
                 perUserCache[userProfile.UserId];
 
             var watchedItemLookup = new Dictionary<Guid, WatchedItemInfo>(userProfile.WatchedItems.Count);
@@ -442,7 +459,18 @@ internal static class TrainingDataBuilder
                         watchedStudioSets),
                     LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(rec.AudioLanguages, userProfile),
                     CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(rec.BoxSetIds, watchedBoxSetCounts),
-                    SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(rec.SubtitleLanguages, userProfile)
+                    SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(rec.SubtitleLanguages, userProfile),
+                    // Content-affinity signals — SAME shared helpers as live scoring, over the cached
+                    // RecommendedItem fields. Missing/legacy fields (null string, empty list) self-neutralize
+                    // to 0.0 (or 0.5 for completability) inside the helpers, so old cache entries never crash.
+                    FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(rec.TmdbCollectionName, preferredFranchises),
+                    ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(rec.ProductionCountries, preferredCountries),
+                    InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(rec.InheritedTags, preferredInheritedTags),
+                    SeriesCompletability = EngineConstants.ComputeSeriesCompletability(isSeries, rec.SeriesStatus, rec.EndDate.HasValue),
+                    WriterAffinity = SimilarityComputer.ComputeWriterAffinity(rec.WriterNames, preferredWriterWeights),
+                    BillingWeightedPeople = SimilarityComputer.ComputeBillingWeightedPeople(
+                        TrainingFeatureComputer.BuildBillingMapFromCache(rec.PeopleNames, rec.PeopleWeights), preferredPeopleWeights),
+                    GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(rec.Genres, rec.Studios, genreStudioIdf)
                 };
 
                 // Genre exposure features: compute from cached per-user analysis
@@ -544,7 +572,8 @@ internal static class TrainingDataBuilder
             cancellationToken.ThrowIfCancellationRequested();
 
             var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureOrganic,
-                 preferredPeopleWeightsOrganic, preferredStudiosOrganic, preferredTagsOrganic) =
+                 preferredPeopleWeightsOrganic, preferredStudiosOrganic, preferredTagsOrganic,
+                 preferredFranchisesOrganic, preferredCountriesOrganic, preferredInheritedTagsOrganic, preferredWriterWeightsOrganic) =
                 perUserCache[userProfile.UserId];
 
             // Resolve the per-user recommended set; users with no previous results get an empty set
@@ -653,6 +682,11 @@ internal static class TrainingDataBuilder
                             preferredStudiosOrganic,
                             itemTagsLookup,
                             preferredTagsOrganic,
+                            preferredFranchisesOrganic,
+                            preferredCountriesOrganic,
+                            preferredInheritedTagsOrganic,
+                            preferredWriterWeightsOrganic,
+                            genreStudioIdf,
                             organicFallbackTimestamp);
                         organicCount++;
                     }
@@ -774,7 +808,17 @@ internal static class TrainingDataBuilder
                     // scoring path which also returns 0.5 when stream data is unavailable, preventing
                     // train/serve skew on these two dimensions.
                     LanguageAffinity = 0.5,
-                    SubtitleLanguageAffinity = 0.5
+                    SubtitleLanguageAffinity = 0.5,
+                    // Content-affinity signals from WatchedItemInfo's cached fields (same shared helpers
+                    // as live scoring). BillingWeightedPeople is NEUTRALIZED (0.0): WatchedItemInfo carries
+                    // no per-item people/billing list for organic rows, exactly like LanguageAffinity above.
+                    FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(w.TmdbCollectionName, preferredFranchisesOrganic),
+                    ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(w.ProductionCountries, preferredCountriesOrganic),
+                    InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(w.InheritedTags, preferredInheritedTagsOrganic),
+                    SeriesCompletability = EngineConstants.ComputeSeriesCompletability(isSeries, w.SeriesStatus, w.EndDate.HasValue),
+                    WriterAffinity = SimilarityComputer.ComputeWriterAffinity(w.WriterNames, preferredWriterWeightsOrganic),
+                    BillingWeightedPeople = 0.0,
+                    GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(w.Genres, null, genreStudioIdf)
                 };
 
                 // Genre exposure features: compute from cached per-user analysis (mirrors Phase 1)
@@ -854,7 +898,8 @@ internal static class TrainingDataBuilder
                 }
 
                 var (genrePreferences, coOccurrence, collaborativeMax, avgYear, genreExposureNeg,
-                     preferredPeopleWeightsNeg, preferredStudiosNeg, preferredTagsNeg) =
+                     preferredPeopleWeightsNeg, preferredStudiosNeg, preferredTagsNeg,
+                     preferredFranchisesNeg, preferredCountriesNeg, preferredInheritedTagsNeg, preferredWriterWeightsNeg) =
                     perUserCache[userProfile.UserId];
 
                 // Build watched genre/people/studio sets for ContentNearestNeighborScore (mirrors Phase 1).
@@ -999,7 +1044,18 @@ internal static class TrainingDataBuilder
                         // no watched BoxSet counts exist for the user (empty dictionary → 0.0 from
                         // ComputeCollectionProgressionBoostWithCounts, which is the correct signal).
                         CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(neg.BoxSetIds, watchedBoxSetCountsNeg),
-                        SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(neg.SubtitleLanguages, userProfile)
+                        SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(neg.SubtitleLanguages, userProfile),
+                        // Content-affinity signals — same shared helpers, over the cached RecommendedItem
+                        // negative sample. neg carries the full field set (incl. PeopleWeights), so billing
+                        // is real here (unlike the organic branch). Empty/legacy fields self-neutralize.
+                        FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(neg.TmdbCollectionName, preferredFranchisesNeg),
+                        ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(neg.ProductionCountries, preferredCountriesNeg),
+                        InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(neg.InheritedTags, preferredInheritedTagsNeg),
+                        SeriesCompletability = EngineConstants.ComputeSeriesCompletability(isSeries, neg.SeriesStatus, neg.EndDate.HasValue),
+                        WriterAffinity = SimilarityComputer.ComputeWriterAffinity(neg.WriterNames, preferredWriterWeightsNeg),
+                        BillingWeightedPeople = SimilarityComputer.ComputeBillingWeightedPeople(
+                            TrainingFeatureComputer.BuildBillingMapFromCache(neg.PeopleNames, neg.PeopleWeights), preferredPeopleWeightsNeg),
+                        GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(neg.Genres, neg.Studios, genreStudioIdf)
                     };
 
                     // Genre exposure features

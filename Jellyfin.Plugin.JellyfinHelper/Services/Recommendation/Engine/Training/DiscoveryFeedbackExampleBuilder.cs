@@ -258,7 +258,19 @@ internal static class DiscoveryFeedbackExampleBuilder
             ContentNearestNeighborScore = 0.0,
             LanguageAffinity = 0.5,
             SubtitleLanguageAffinity = 0.5,
-            CollectionProgressionBoost = 0.0
+            CollectionProgressionBoost = 0.0,
+
+            // Lock-step with ExternalCandidateFeatureBuilder: the same 7 new library-only signals are
+            // neutralized identically (overlap → 0.0, SeriesCompletability → 0.5) because the discovery
+            // feedback entry carries no collection/country/writer/billing/status data. Any divergence
+            // between these two files reintroduces train/serve skew.
+            FranchiseAffinity = 0.0,
+            ProductionLocationAffinity = 0.0,
+            InheritedTagSimilarity = 0.0,
+            SeriesCompletability = 0.5,
+            WriterAffinity = 0.0,
+            BillingWeightedPeople = 0.0,
+            GenreStudioIdfPrior = 0.0
         };
 
         // Genre exposure features

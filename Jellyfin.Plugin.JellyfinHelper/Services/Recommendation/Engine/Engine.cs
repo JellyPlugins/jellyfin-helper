@@ -16,7 +16,10 @@ using Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
@@ -38,6 +41,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     private readonly TrainingService _trainingService;
     private readonly IWatchHistoryService _watchHistoryService;
     private readonly IDiscoveryFeedbackStore _discoveryFeedbackStore;
+    private readonly IItemRepository _itemRepository;
 
     // Short-lived candidate-metadata cache — NOT a recommendation-result cache. Holds the
     // library-derived working set (candidate BaseItems, people lookup, BoxSet membership,
@@ -72,6 +76,11 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     // Stored as a single immutable snapshot to prevent concurrent readers from mixing data across batches.
     private volatile CandidateSnapshot? _cachedSnapshot;
 
+    // Library-wide genre/studio IDF rarity table, refreshed alongside the candidate snapshot.
+    // Null until the first snapshot computes it, in which case the GenreStudioIdfPrior feature
+    // degrades to a neutral 0.0. Volatile: written on the batch/refresh thread, read by scorers.
+    private volatile IReadOnlyDictionary<string, double>? _genreStudioIdf;
+
     private static readonly TimeSpan CandidateSnapshotMaxAge = TimeSpan.FromMinutes(30);
 
     // Monotonic counter incremented once per GetAllRecommendations invocation. Snapshotted before the
@@ -95,6 +104,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="strategy">The scoring strategy resolved via DI.</param>
     /// <param name="strategySelector">The strategy selector for A/B testing.</param>
     /// <param name="discoveryFeedbackStore">The discovery feedback store for training data enrichment.</param>
+    /// <param name="itemRepository">The item repository used to derive library-wide genre/studio rarity (IDF).</param>
     public Engine(
         IWatchHistoryService watchHistoryService,
         ILibraryManager libraryManager,
@@ -102,7 +112,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         ILogger<Engine> logger,
         IScoringStrategy strategy,
         IStrategySelector strategySelector,
-        IDiscoveryFeedbackStore discoveryFeedbackStore)
+        IDiscoveryFeedbackStore discoveryFeedbackStore,
+        IItemRepository itemRepository)
     {
         _watchHistoryService = watchHistoryService;
         _libraryManager = libraryManager;
@@ -111,6 +122,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         _strategy = strategy;
         _strategySelector = strategySelector;
         _discoveryFeedbackStore = discoveryFeedbackStore;
+        _itemRepository = itemRepository;
         _similarityComputer = new SimilarityComputer(libraryManager, pluginLog, logger);
         _trainingService = new TrainingService(watchHistoryService, discoveryFeedbackStore, pluginLog, logger);
 
@@ -198,6 +210,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var seriesEpisodeCounts = snapshot.SeriesEpisodeCounts;
         var peopleLookup = snapshot.PeopleLookup;
         var boxSetLookup = snapshot.CandidateBoxSetLookup;
+        var writerLookup = snapshot.WriterLookup;
+        var billingLookup = snapshot.BillingLookup;
         var alphaOffset = _strategySelector.GetAlphaOffset(userProfile.UserId);
         // Live single-user path: no batch-scoped CollaborativeContext exists here (only the batch
         // path builds one). We therefore pass null and let GenerateForUser derive the aggregates
@@ -211,6 +225,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             candidates,
             peopleLookup,
             boxSetLookup,
+            writerLookup,
+            billingLookup,
             seriesEpisodeCounts,
             maxResults,
             _strategy,
@@ -239,7 +255,12 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // vectors weighted 0.3–1.5 — a train/serve skew. Same source as LoadCandidateItems.
         var seriesEpisodeCounts = BuildSeriesEpisodeCounts();
 
-        var trained = _trainingService.Train(_strategy, previousResults, seriesEpisodeCounts, incremental, cancellationToken);
+        // Build the genre/studio IDF table now and reuse the SAME instance for both this training
+        // run and the subsequent scoring pass, guaranteeing the GenreStudioIdfPrior feature is
+        // computed identically in train and serve (train/serve parity for the rarity prior).
+        _genreStudioIdf = BuildGenreStudioIdfTable();
+
+        var trained = _trainingService.Train(_strategy, previousResults, seriesEpisodeCounts, incremental, _genreStudioIdf, cancellationToken);
 
         // After training, apply cohort-based feedback to adapt the sigmoid midpoint.
         // This compares watch-rates across exploration cohorts and shifts the midpoint
@@ -303,6 +324,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
         var (candidates, seriesEpisodeCounts) = LoadCandidateItems();
         var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
+        var (writerLookup, billingLookup) = BuildCandidatePeopleDetailLookups(candidates);
+
+        // Refresh the library-wide genre/studio IDF rarity table once per batch (shared across users).
+        _genreStudioIdf = BuildGenreStudioIdfTable();
 
         // Pre-compute BoxSet membership for all candidates once (shared across all users).
         // Avoids redundant parent-hierarchy traversals in ScoreCandidate / BuildWatchedBoxSetCounts.
@@ -361,7 +386,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             CommunityPopularityComputed: true, // batch path has executed the O(U×M) scan
             BatchGeneration: batchGeneration,
             PublicationSequence: 0, // assigned atomically inside TryPublishSnapshot
-            DateTime.UtcNow));
+            DateTime.UtcNow,
+            writerLookup,
+            billingLookup));
 
         _pluginLog.LogInfo(
             "Recommendations",
@@ -407,6 +434,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                             candidates,
                             peopleLookup,
                             candidateBoxSetLookup,
+                            writerLookup,
+                            billingLookup,
                             seriesEpisodeCounts,
                             maxResultsPerUser,
                             _strategy,
@@ -573,7 +602,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 AudioLanguages = ResolveAudioLanguages(s.Item),
                 SubtitleLanguages = ResolveSubtitleLanguages(s.Item),
                 BoxSetIds = ResolveBoxSetIds(s.Item),
-                DateCreated = s.Item.DateCreated
+                DateCreated = s.Item.DateCreated,
+                TmdbCollectionName = ResolveTmdbCollectionName(s.Item),
+                ProductionCountries = ResolveProductionCountries(s.Item),
+                InheritedTags = ResolveInheritedTags(s.Item),
+                SeriesStatus = ResolveSeriesStatus(s.Item),
+                EndDate = ResolveSeriesEndDate(s.Item),
+                WriterNames = ResolveWriterNames(s.Item),
+                PeopleWeights = []
             })
             .ToList();
 
@@ -743,6 +779,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <param name="allCandidates">Pre-loaded candidate items from the library.</param>
     /// <param name="peopleLookup">Pre-built people lookup (item ID → person names).</param>
     /// <param name="candidateBoxSetLookup">Pre-resolved BoxSet IDs per candidate (sparse: only items in BoxSets).</param>
+    /// <param name="writerLookup">Pre-resolved writer names per candidate (sparse), from the snapshot precompute.</param>
+    /// <param name="billingLookup">Pre-resolved billed-people weight maps per candidate (sparse), from the snapshot precompute.</param>
     /// <param name="seriesEpisodeCounts">
     ///     Per-series total episode count (from <see cref="LoadCandidateItems"/>) used by
     ///     <see cref="PreferenceBuilder"/> to weight watched-episode signals by the fraction
@@ -778,6 +816,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         List<BaseItem> allCandidates,
         Dictionary<Guid, HashSet<string>> peopleLookup,
         Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
+        Dictionary<Guid, List<string>> writerLookup,
+        Dictionary<Guid, Dictionary<string, double>> billingLookup,
         IReadOnlyDictionary<Guid, int> seriesEpisodeCounts,
         int maxResults,
         IScoringStrategy strategy,
@@ -883,6 +923,21 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var averagePreferredPeopleWeight = SimilarityComputer.ComputeAveragePreferredWeight(preferredPeopleWeights);
         var preferredTags = PreferenceBuilder.BuildTagPreferenceSet(userProfile, candidateLookup);
         var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, userProfile);
+
+        // Per-user preference maps for the content-affinity signals. Built once per user from the
+        // watch profile (empty when the user has no history / no items carrying the field), then
+        // passed to every ScoreCandidate call. The user's weighted people map doubles as the
+        // "favoured billed people" reference for BillingWeightedPeople (same source rows → parity).
+        var preferredFranchises = PreferenceBuilder.BuildFranchisePreferenceVector(userProfile);
+        var preferredCountries = PreferenceBuilder.BuildProductionCountryPreferenceVector(userProfile);
+        var preferredInheritedTags = PreferenceBuilder.BuildInheritedTagPreferenceSet(userProfile);
+        var preferredWriterWeights = PreferenceBuilder.BuildWriterPreferenceWeights(userProfile);
+        var preferredBilledPeople = preferredPeopleWeights;
+
+        // Library-wide genre/studio IDF rarity table. Computed once per candidate snapshot (see
+        // Phase 2H — IItemRepository) and threaded through here; null until then, which makes
+        // ComputeGenreStudioIdfPrior return a neutral 0.0 (no bias) rather than crash.
+        var genreStudioIdf = _genreStudioIdf;
 
         var userGenreNormSq = 0.0;
         foreach (var w in genrePreferences.Values)
@@ -994,6 +1049,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                     watchedStudioSets,
                     watchedBoxSetCounts,
                     candidateBoxSetLookup,
+                    writerLookup,
+                    billingLookup,
+                    preferredFranchises,
+                    preferredCountries,
+                    preferredInheritedTags,
+                    preferredWriterWeights,
+                    preferredBilledPeople,
+                    genreStudioIdf,
                     alphaOffset));
         }
 
@@ -1022,7 +1085,16 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 AudioLanguages = ResolveAudioLanguages(s.Item),
                 SubtitleLanguages = ResolveSubtitleLanguages(s.Item),
                 BoxSetIds = candidateBoxSetLookup.TryGetValue(s.Item.Id, out var bsIds) ? bsIds : [],
-                DateCreated = s.Item.DateCreated
+                DateCreated = s.Item.DateCreated,
+                TmdbCollectionName = ResolveTmdbCollectionName(s.Item),
+                ProductionCountries = ResolveProductionCountries(s.Item),
+                InheritedTags = ResolveInheritedTags(s.Item),
+                SeriesStatus = ResolveSeriesStatus(s.Item),
+                EndDate = ResolveSeriesEndDate(s.Item),
+                WriterNames = ResolveWriterNames(s.Item),
+                PeopleWeights = ResolveBillingWeightsAligned(
+                    s.Item,
+                    peopleLookup.TryGetValue(s.Item.Id, out var pw) ? pw : null)
             })
             .ToList();
 
@@ -1073,6 +1145,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         List<HashSet<string>> watchedStudioSets,
         Dictionary<Guid, int> watchedBoxSetCounts,
         Dictionary<Guid, List<Guid>> candidateBoxSetLookup,
+        Dictionary<Guid, List<string>> candidateWriterLookup,
+        Dictionary<Guid, Dictionary<string, double>> candidateBillingLookup,
+        IReadOnlyDictionary<string, double> preferredFranchises,
+        IReadOnlyDictionary<string, double> preferredCountries,
+        HashSet<string> preferredInheritedTags,
+        IReadOnlyDictionary<string, double> preferredWriterWeights,
+        IReadOnlyDictionary<string, double> preferredBilledPeople,
+        IReadOnlyDictionary<string, double>? genreStudioIdf,
         double alphaOffset = 0.0)
     {
         var genreScore = SimilarityComputer.ComputeGenreSimilarity(candidate.Genres ?? [], genrePreferences, userGenreNormSq);
@@ -1131,6 +1211,36 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // SubtitleLanguageAffinity is assigned (C# does not guarantee named-arg evaluation order).
         var languageAffinity = ComputeLanguageAffinityFromStreams(userProfile, candidate, out var candidateMediaLanguages);
 
+        // New content-affinity signals. Each computation is fully null/empty-safe: the live resolvers
+        // return null/empty when the candidate lacks the metadata (e.g. a movie with no TMDb collection),
+        // and the shared SimilarityComputer helpers return the neutral value (0.0, or 0.5 for
+        // completability) for any empty input — so a missing field is a silent no-op, never a crash.
+        // These are the SAME shared helpers the training path calls over cached fields (train/serve parity).
+        var franchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(
+            ResolveTmdbCollectionName(candidate), preferredFranchises);
+        var productionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(
+            ResolveProductionCountries(candidate), preferredCountries);
+        var inheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(
+            ResolveInheritedTags(candidate), preferredInheritedTags);
+        var seriesCompletability = EngineConstants.ComputeSeriesCompletability(
+            candidate is Series, ResolveSeriesStatus(candidate), ResolveSeriesEndDate(candidate).HasValue);
+        // Writer + billing come from the per-snapshot precompute (one GetPeople call per candidate,
+        // done once at snapshot-build time) instead of two GetPeople calls per (candidate × user) in
+        // this hot path. Fall back to a live resolve only if the candidate is somehow absent from the
+        // lookup (e.g. a candidate added between snapshot build and scoring) — still fully null-safe.
+        var candidateWriters = candidateWriterLookup.TryGetValue(candidate.Id, out var cachedWriters)
+            ? cachedWriters
+            : ResolveWriterNames(candidate);
+        var candidateBilling = candidateBillingLookup.TryGetValue(candidate.Id, out var cachedBilling)
+            ? cachedBilling
+            : ResolveBillingWeightMap(candidate);
+        var writerAffinity = SimilarityComputer.ComputeWriterAffinity(
+            candidateWriters, preferredWriterWeights);
+        var billingWeightedPeople = SimilarityComputer.ComputeBillingWeightedPeople(
+            candidateBilling, preferredBilledPeople);
+        var genreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(
+            candidate.Genres, candidate.Studios, genreStudioIdf);
+
         // Build feature vector and delegate scoring to strategy
         var features = new CandidateFeatures
         {
@@ -1173,7 +1283,14 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 watchedBoxSetCounts),
             // Subtitle language affinity: reuses the already-resolved subtitle languages
             // from the single ResolveMediaLanguages() call above (no second stream scan).
-            SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromStreams(userProfile, candidateMediaLanguages.Subtitles)
+            SubtitleLanguageAffinity = ComputeSubtitleLanguageAffinityFromStreams(userProfile, candidateMediaLanguages.Subtitles),
+            FranchiseAffinity = franchiseAffinity,
+            ProductionLocationAffinity = productionLocationAffinity,
+            InheritedTagSimilarity = inheritedTagSimilarity,
+            SeriesCompletability = seriesCompletability,
+            WriterAffinity = writerAffinity,
+            BillingWeightedPeople = billingWeightedPeople,
+            GenreStudioIdfPrior = genreStudioIdfPrior
         };
 
         // Genre exposure features: soft signals for genre distribution awareness
@@ -1413,6 +1530,376 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     }
 
     /// <summary>
+    ///     Resolves the TMDb collection (franchise) name of a movie, if any. Non-movies and
+    ///     items without a collection return null. Used to cache FranchiseAffinity source data.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>The TMDb collection name, or null.</returns>
+    private static string? ResolveTmdbCollectionName(BaseItem candidate)
+    {
+        try
+        {
+            if (candidate is MediaBrowser.Controller.Entities.Movies.Movie movie)
+            {
+                var name = movie.TmdbCollectionName;
+                return string.IsNullOrWhiteSpace(name) ? null : name;
+            }
+
+            return null;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return null; // Graceful fallback
+        }
+    }
+
+    /// <summary>
+    ///     Resolves the production countries/locations of an item. Returns an empty list when
+    ///     unavailable. Used to cache ProductionLocationAffinity source data.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>The production locations, or an empty list.</returns>
+    private static List<string> ResolveProductionCountries(BaseItem candidate)
+    {
+        try
+        {
+            var locations = candidate.ProductionLocations;
+            return locations is { Length: > 0 } ? [.. locations] : [];
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return []; // Graceful fallback
+        }
+    }
+
+    /// <summary>
+    ///     Resolves the inherited tags of an item (own tags unioned with parent/collection/library-folder
+    ///     tags). Returns an empty list when unavailable. Used to cache InheritedTagSimilarity source data.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>The inherited tags, or an empty list.</returns>
+    private static List<string> ResolveInheritedTags(BaseItem candidate)
+    {
+        try
+        {
+            var tags = candidate.GetInheritedTags();
+            return tags is { Count: > 0 } ? [.. tags] : [];
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return []; // Graceful fallback
+        }
+    }
+
+    /// <summary>
+    ///     Resolves the series lifecycle status string (e.g. "Continuing", "Ended", "Unreleased").
+    ///     Non-series or items without a status return null.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>The series status name, or null.</returns>
+    private static string? ResolveSeriesStatus(BaseItem candidate)
+    {
+        try
+        {
+            if (candidate is Series series && series.Status.HasValue)
+            {
+                return series.Status.Value.ToString();
+            }
+
+            return null;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return null; // Graceful fallback
+        }
+    }
+
+    /// <summary>
+    ///     Resolves the series end date, if any. Non-series or ongoing series return null.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>The end date, or null.</returns>
+    private static DateTime? ResolveSeriesEndDate(BaseItem candidate)
+    {
+        try
+        {
+            return candidate is Series series ? series.EndDate : null;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return null; // Graceful fallback
+        }
+    }
+
+    /// <summary>
+    ///     Resolves the writer (screenplay/creator) names of an item via the library people index.
+    ///     Returns an empty list when unavailable. Name-based, deduplicated case-insensitively.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>The distinct writer names, or an empty list.</returns>
+    private List<string> ResolveWriterNames(BaseItem candidate)
+    {
+        try
+        {
+            return ExtractWriterNames(_libraryManager.GetPeople(candidate));
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return []; // Graceful fallback
+        }
+    }
+
+    /// <summary>
+    ///     Extracts distinct writer names from an already-fetched people list (no library call).
+    ///     Shared by the live per-item resolver and the per-snapshot batch precompute so both paths
+    ///     produce identical writer sets.
+    /// </summary>
+    /// <param name="people">The item's people, or null.</param>
+    /// <returns>Distinct writer names (case-insensitive), or an empty list.</returns>
+    private static List<string> ExtractWriterNames(IReadOnlyList<PersonInfo>? people)
+    {
+        if (people is null || people.Count == 0)
+        {
+            return [];
+        }
+
+        var writers = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var person in people)
+        {
+            if (person.Type == PersonKind.Writer
+                && !string.IsNullOrWhiteSpace(person.Name)
+                && seen.Add(person.Name))
+            {
+                writers.Add(person.Name);
+            }
+        }
+
+        return writers;
+    }
+
+    /// <summary>
+    ///     Builds a case-insensitive map of billed cast/director name → billing weight for an item,
+    ///     derived from <see cref="PersonInfo.SortOrder"/> via <see cref="EngineConstants.ComputeBillingWeight"/>.
+    ///     Duplicate names keep the highest (most top-billed) weight. Used as the source for
+    ///     BillingWeightedPeople. Returns an empty map on any failure.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <returns>A name → billing-weight map.</returns>
+    private Dictionary<string, double> ResolveBillingWeightMap(BaseItem candidate)
+    {
+        try
+        {
+            return ExtractBillingWeightMap(_libraryManager.GetPeople(candidate));
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            return new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase); // Graceful fallback
+        }
+    }
+
+    /// <summary>
+    ///     Extracts a name → billing-weight map from an already-fetched people list (no library call).
+    ///     Shared by the live per-item resolver and the per-snapshot batch precompute so both paths
+    ///     produce identical billing maps.
+    /// </summary>
+    /// <param name="people">The item's people, or null.</param>
+    /// <returns>A name → billing-weight map (empty when no billed cast/directors).</returns>
+    private static Dictionary<string, double> ExtractBillingWeightMap(IReadOnlyList<PersonInfo>? people)
+    {
+        var map = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (people is null || people.Count == 0)
+        {
+            return map;
+        }
+
+        var fallbackOrder = 0;
+        foreach (var person in people)
+        {
+            if ((person.Type != PersonKind.Actor && person.Type != PersonKind.Director)
+                || string.IsNullOrWhiteSpace(person.Name))
+            {
+                continue;
+            }
+
+            // SortOrder is ascending (0 = top-billed). Missing → use encounter order as a proxy.
+            var order = person.SortOrder ?? fallbackOrder;
+            var weight = EngineConstants.ComputeBillingWeight(order);
+            if (!map.TryGetValue(person.Name, out var existing) || weight > existing)
+            {
+                map[person.Name] = weight;
+            }
+
+            fallbackOrder++;
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    ///     Pre-computes, once per candidate snapshot, the writer names and billing-weight map for every
+    ///     candidate — with a SINGLE <see cref="ILibraryManager.GetPeople(BaseItem)"/> call per item. This replaces
+    ///     the two per-candidate GetPeople calls that the live scoring path would otherwise make for
+    ///     WriterAffinity and BillingWeightedPeople, mirroring how <c>BuildCandidatePeopleLookup</c>
+    ///     amortises the actor/director name lookup across the whole batch.
+    ///     <para>
+    ///         There is no batch API that exposes <see cref="PersonInfo.SortOrder"/> (the name-only
+    ///         <c>GetPeopleNamesByItems</c> cannot feed billing), so the per-item GetPeople call is
+    ///         unavoidable — but it now happens exactly once per item at snapshot-build time, outside
+    ///         the per-user scoring hot path, instead of twice per (candidate × user).
+    ///     </para>
+    ///     Fail-soft: a candidate whose people cannot be read is simply absent from both maps, and the
+    ///     scoring path falls back to a live resolve (which itself degrades to empty → neutral 0.0).
+    /// </summary>
+    /// <param name="candidates">The candidate items in the snapshot.</param>
+    /// <returns>Per-item writer-name and billing-weight lookups keyed by item id.</returns>
+    private (Dictionary<Guid, List<string>> WriterLookup, Dictionary<Guid, Dictionary<string, double>> BillingLookup)
+        BuildCandidatePeopleDetailLookups(List<BaseItem> candidates)
+    {
+        var writerLookup = new Dictionary<Guid, List<string>>(candidates.Count);
+        var billingLookup = new Dictionary<Guid, Dictionary<string, double>>(candidates.Count);
+
+        foreach (var candidate in candidates)
+        {
+            IReadOnlyList<PersonInfo>? people;
+            try
+            {
+                people = _libraryManager.GetPeople(candidate);
+            }
+            catch (Exception ex) when (!ex.IsFatal())
+            {
+                continue; // Absent → live-resolve fallback at score time.
+            }
+
+            if (people is null || people.Count == 0)
+            {
+                continue;
+            }
+
+            var writers = ExtractWriterNames(people);
+            if (writers.Count > 0)
+            {
+                writerLookup[candidate.Id] = writers;
+            }
+
+            var billing = ExtractBillingWeightMap(people);
+            if (billing.Count > 0)
+            {
+                billingLookup[candidate.Id] = billing;
+            }
+        }
+
+        return (writerLookup, billingLookup);
+    }
+
+    /// <summary>
+    ///     Resolves billing weights aligned positionally to a supplied people-name set (the same set
+    ///     cached as <see cref="RecommendedItem.PeopleNames"/>), so the two cached lists stay index-aligned
+    ///     for parity-safe consumption at training time. Names absent from the billing map (e.g. writers
+    ///     or people the library reports without SortOrder) receive weight 0.0.
+    /// </summary>
+    /// <param name="candidate">The candidate item.</param>
+    /// <param name="alignedNames">The people names the weights must align to; null/empty → empty result.</param>
+    /// <returns>Billing weights aligned to <paramref name="alignedNames"/> in enumeration order.</returns>
+    private List<double> ResolveBillingWeightsAligned(BaseItem candidate, HashSet<string>? alignedNames)
+    {
+        if (alignedNames is null || alignedNames.Count == 0)
+        {
+            return [];
+        }
+
+        var map = ResolveBillingWeightMap(candidate);
+        var weights = new List<double>(alignedNames.Count);
+        foreach (var name in alignedNames)
+        {
+            weights.Add(map.TryGetValue(name, out var w) ? w : 0.0);
+        }
+
+        return weights;
+    }
+
+    /// <summary>
+    ///     Builds a library-wide genre/studio IDF (inverse document frequency) rarity table, normalized
+    ///     to [0, 1], where ubiquitous genres/studios score near 0 and rare ones near 1. Computed once per
+    ///     candidate snapshot from <see cref="IItemRepository.GetGenres"/> / <see cref="IItemRepository.GetStudios"/>
+    ///     item counts. Fully guarded: an empty/failed query yields an empty table (→ neutral 0.0 downstream);
+    ///     add-one smoothing and a positive document count guarantee no division by zero and no log domain error.
+    /// </summary>
+    /// <returns>A case-insensitive genre/studio → normalized-IDF map (empty when unavailable).</returns>
+    private Dictionary<string, double> BuildGenreStudioIdfTable()
+    {
+        var table = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var query = new InternalItemsQuery { Recursive = true };
+            var rawIdf = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            var maxIdf = 0.0;
+
+            void Accumulate(QueryResult<(BaseItem Item, ItemCounts ItemCounts)>? result)
+            {
+                if (result?.Items is not { Count: > 0 } items)
+                {
+                    return;
+                }
+
+                // N = number of distinct terms (documents) in this facet; guaranteed > 0 here.
+                var n = items.Count;
+                foreach (var (item, counts) in items)
+                {
+                    var name = item?.Name;
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        continue;
+                    }
+
+                    // add-one smoothing on the document frequency → never log(N/0); df>=0 always.
+                    var df = Math.Max(0, counts.ItemCount);
+                    var idf = Math.Log((double)(n + 1) / (df + 1));
+                    if (!double.IsFinite(idf) || idf < 0.0)
+                    {
+                        idf = 0.0;
+                    }
+
+                    // Keep the higher IDF if a term appears in both facets (defensive; keys rarely collide).
+                    if (!rawIdf.TryGetValue(name, out var existing) || idf > existing)
+                    {
+                        rawIdf[name] = idf;
+                    }
+
+                    if (idf > maxIdf)
+                    {
+                        maxIdf = idf;
+                    }
+                }
+            }
+
+            Accumulate(_itemRepository.GetGenres(query));
+            Accumulate(_itemRepository.GetStudios(query));
+
+            if (rawIdf.Count == 0 || maxIdf <= 0.0)
+            {
+                return table; // empty → neutral 0.0 downstream (no division by zero)
+            }
+
+            // Normalize to [0,1] so the prior is comparable to the other bounded features.
+            foreach (var (name, idf) in rawIdf)
+            {
+                table[name] = Math.Clamp(idf / maxIdf, 0.0, 1.0);
+            }
+
+            return table;
+        }
+        catch (Exception ex) when (!ex.IsFatal())
+        {
+            _pluginLog.LogWarning(
+                "Recommendations",
+                $"Failed to build genre/studio IDF table; GenreStudioIdfPrior will be neutral. {ex.Message}",
+                logger: _logger);
+            return new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>
     ///     Computes subtitle language affinity between a candidate's available subtitle languages
     ///     and the user's subtitle language profile. Returns 0.5 (neutral) when no data is available.
     ///     Uses the same chosen-vs-forced logic as audio language affinity.
@@ -1597,6 +2084,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             var (candidates, seriesEpisodeCounts) = LoadCandidateItems();
             var peopleLookup = _similarityComputer.BuildCandidatePeopleLookup(candidates);
             var boxSetLookup = BuildCandidateBoxSetLookupFresh(candidates);
+            var (writerLookup, billingLookup) = BuildCandidatePeopleDetailLookups(candidates);
+
+            // Refresh the library-wide genre/studio IDF rarity table alongside the live snapshot.
+            _genreStudioIdf = BuildGenreStudioIdfTable();
 
             // Increment inside the lock so the sequence is assigned atomically with the
             // cache write, preventing a race with the batch path's TryPublishSnapshot.
@@ -1610,7 +2101,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 CommunityPopularityComputed: false, // live rebuild has no all-user data yet — first cold-start hit will fill this in
                 BatchGeneration: 0, // live-refresh writes carry BatchGeneration=0; kept for exploration-seed semantics only
                 PublicationSequence: seq,
-                DateTime.UtcNow);
+                DateTime.UtcNow,
+                writerLookup,
+                billingLookup);
 
             // Republish so subsequent live requests hit the fresh cache without re-entering
             // this method's slow path. We're already inside the refresh lock; publishing the
@@ -1694,7 +2187,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     internal bool TryPublishSnapshotForTest(long publicationSequence)
     {
         var snapshot = new CandidateSnapshot(
-            [], [], [], [], null, false, 0, publicationSequence, DateTime.UtcNow);
+            [], [], [], [], null, false, 0, publicationSequence, DateTime.UtcNow, [], []);
 
         lock (_snapshotRefreshLock)
         {
@@ -2219,6 +2712,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     newer live-refresh, the publication sequence reflects actual publish order and
     ///     closes that stale-overwrite gap regardless of write origin.
     /// </param>
+    /// <param name="WriterLookup">Item ID → distinct writer names, pre-computed once per snapshot.</param>
+    /// <param name="BillingLookup">Item ID → billed-people name→weight map, pre-computed once per snapshot.</param>
     private sealed record CandidateSnapshot(
         List<BaseItem> Candidates,
         Dictionary<Guid, HashSet<string>> PeopleLookup,
@@ -2228,5 +2723,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         bool CommunityPopularityComputed,
         int BatchGeneration,
         long PublicationSequence,
-        DateTime CreatedAtUtc);
+        DateTime CreatedAtUtc,
+        Dictionary<Guid, List<string>> WriterLookup,
+        Dictionary<Guid, Dictionary<string, double>> BillingLookup);
 }

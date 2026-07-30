@@ -580,4 +580,223 @@ internal sealed class SimilarityComputer
         var union = setA.Count + setB.Count - intersection;
         return union > 0 ? (double)intersection / union : 0;
     }
+
+    /// <summary>
+    ///     Computes franchise affinity: how strongly a candidate's TMDb collection matches the user's
+    ///     franchise preference map. This is the single shared implementation called by BOTH the live
+    ///     scoring path and the training path so the two cannot drift (train/serve parity).
+    ///     <para>Returns 0.0 when the candidate has no collection name or the user has no franchise
+    ///     preference (empty map / unknown franchise) — never throws, never divides.</para>
+    /// </summary>
+    /// <param name="candidateFranchise">The candidate's TMDb collection name, or null/empty.</param>
+    /// <param name="preferredFranchises">The user's normalized franchise → weight map.</param>
+    /// <returns>Franchise affinity in [0, 1].</returns>
+    internal static double ComputeFranchiseAffinity(
+        string? candidateFranchise,
+        IReadOnlyDictionary<string, double> preferredFranchises)
+    {
+        if (string.IsNullOrWhiteSpace(candidateFranchise) || preferredFranchises.Count == 0)
+        {
+            return 0.0;
+        }
+
+        // The preference map is already max-normalized to [0,1]; a direct lookup gives the
+        // user's affinity for this exact franchise (0.0 when never engaged with).
+        return preferredFranchises.TryGetValue(candidateFranchise, out var weight)
+            ? Math.Clamp(weight, 0.0, 1.0)
+            : 0.0;
+    }
+
+    /// <summary>
+    ///     Computes production-location affinity: weighted overlap of a candidate's production countries
+    ///     with the user's country-preference map. Single shared implementation for live + training.
+    ///     <para>Returns 0.0 when the candidate has no countries or the user has no country preference —
+    ///     never throws, never divides (averages over the candidate's own country count only).</para>
+    /// </summary>
+    /// <param name="candidateCountries">The candidate's production countries.</param>
+    /// <param name="preferredCountries">The user's normalized country → weight map.</param>
+    /// <returns>Production-location affinity in [0, 1].</returns>
+    internal static double ComputeProductionLocationAffinity(
+        IReadOnlyList<string>? candidateCountries,
+        IReadOnlyDictionary<string, double> preferredCountries)
+    {
+        if (candidateCountries is not { Count: > 0 } || preferredCountries.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var matched = 0.0;
+        var counted = 0;
+        foreach (var country in candidateCountries)
+        {
+            if (string.IsNullOrWhiteSpace(country))
+            {
+                continue;
+            }
+
+            counted++;
+            if (preferredCountries.TryGetValue(country, out var weight) && weight > 0.0)
+            {
+                matched += weight;
+            }
+        }
+
+        // Average the matched preference weight over the candidate's own (whitespace-filtered) country
+        // count. counted == 0 (all-whitespace) short-circuits the division safely.
+        return counted > 0 ? Math.Clamp(matched / counted, 0.0, 1.0) : 0.0;
+    }
+
+    /// <summary>
+    ///     Computes inherited-tag similarity: Jaccard overlap of a candidate's inherited tags with the
+    ///     user's preferred inherited-tag set. Single shared implementation for live + training.
+    ///     Delegates to the division-safe <see cref="ComputeJaccardFromSets"/>.
+    ///     <para>Returns 0.0 when either side is empty.</para>
+    /// </summary>
+    /// <param name="candidateInheritedTags">The candidate's inherited tags.</param>
+    /// <param name="preferredInheritedTags">The user's preferred inherited-tag set (case-insensitive).</param>
+    /// <returns>Inherited-tag similarity in [0, 1].</returns>
+    internal static double ComputeInheritedTagSimilarity(
+        IReadOnlyList<string>? candidateInheritedTags,
+        HashSet<string> preferredInheritedTags)
+    {
+        if (candidateInheritedTags is not { Count: > 0 } || preferredInheritedTags.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var candidateSet = new HashSet<string>(
+            candidateInheritedTags.Where(static t => !string.IsNullOrWhiteSpace(t)),
+            StringComparer.OrdinalIgnoreCase);
+
+        return ComputeJaccardFromSets(candidateSet, preferredInheritedTags);
+    }
+
+    /// <summary>
+    ///     Computes writer affinity: weighted name-overlap of a candidate's writers with the user's
+    ///     writer-preference map. Single shared implementation for live + training. Reuses the
+    ///     division-safe weighted people-similarity primitive so it behaves identically to the
+    ///     actor/director people channel while staying a separate signal.
+    ///     <para>Returns 0.0 when either side is empty.</para>
+    /// </summary>
+    /// <param name="candidateWriters">The candidate's writer names.</param>
+    /// <param name="preferredWriterWeights">The user's writer → weight map.</param>
+    /// <returns>Writer affinity in [0, 1].</returns>
+    internal static double ComputeWriterAffinity(
+        IReadOnlyList<string>? candidateWriters,
+        IReadOnlyDictionary<string, double> preferredWriterWeights)
+    {
+        if (candidateWriters is not { Count: > 0 } || preferredWriterWeights.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var candidateSet = new HashSet<string>(
+            candidateWriters.Where(static w => !string.IsNullOrWhiteSpace(w)),
+            StringComparer.OrdinalIgnoreCase);
+        if (candidateSet.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var avg = ComputeAveragePreferredWeight(preferredWriterWeights);
+        return ComputePeopleSimilarity(candidateSet, preferredWriterWeights, avg);
+    }
+
+    /// <summary>
+    ///     Computes billing-weighted people affinity: like the actor/director people channel but the
+    ///     candidate side carries per-person billing weights (top-billed cast count for more). Single
+    ///     shared implementation for live + training. Scores the candidate's billed people against the
+    ///     user's favoured billed-people map, weighting each match by the candidate's billing weight.
+    ///     <para>Returns 0.0 when either side is empty — never divides by zero (denominator floored).</para>
+    /// </summary>
+    /// <param name="candidateBilling">Candidate name → billing weight (top-billed → higher).</param>
+    /// <param name="preferredBilledPeople">The user's favoured billed-people name → weight map.</param>
+    /// <returns>Billing-weighted people affinity in [0, 1].</returns>
+    internal static double ComputeBillingWeightedPeople(
+        IReadOnlyDictionary<string, double> candidateBilling,
+        IReadOnlyDictionary<string, double> preferredBilledPeople)
+    {
+        if (candidateBilling.Count == 0 || preferredBilledPeople.Count == 0)
+        {
+            return 0.0;
+        }
+
+        // matched = Σ over shared names of (candidate billing weight × user preference weight);
+        // normalized by the candidate's total billing budget so a top-billed match dominates a
+        // deep-cast match. Denominator is the candidate's own billing sum (always > 0 here).
+        var matched = 0.0;
+        var billingBudget = 0.0;
+        foreach (var (name, billing) in candidateBilling)
+        {
+            if (billing <= 0.0 || string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            billingBudget += billing;
+            if (preferredBilledPeople.TryGetValue(name, out var pref) && pref > 0.0)
+            {
+                matched += billing * pref;
+            }
+        }
+
+        if (billingBudget <= 0.0 || matched <= 0.0)
+        {
+            return 0.0;
+        }
+
+        return Math.Clamp(matched / billingBudget, 0.0, 1.0);
+    }
+
+    /// <summary>
+    ///     Computes the genre/studio IDF rarity prior for a candidate: the mean inverse-document-frequency
+    ///     of its genres and studios against a library-wide IDF table. Rare genres/studios score higher.
+    ///     Single shared implementation for live + training.
+    ///     <para>Returns 0.0 when the candidate has no genres/studios or the IDF table is empty/unavailable —
+    ///     never throws, never divides by zero (the table is pre-normalized to [0,1]).</para>
+    /// </summary>
+    /// <param name="candidateGenres">The candidate's genres.</param>
+    /// <param name="candidateStudios">The candidate's studios.</param>
+    /// <param name="genreStudioIdf">Library-wide genre/studio → normalized-IDF map (null/empty → 0.0).</param>
+    /// <returns>Mean IDF rarity prior in [0, 1].</returns>
+    internal static double ComputeGenreStudioIdfPrior(
+        IReadOnlyList<string>? candidateGenres,
+        IReadOnlyList<string>? candidateStudios,
+        IReadOnlyDictionary<string, double>? genreStudioIdf)
+    {
+        if (genreStudioIdf is null || genreStudioIdf.Count == 0)
+        {
+            return 0.0;
+        }
+
+        var sum = 0.0;
+        var counted = 0;
+
+        void Accumulate(IReadOnlyList<string>? terms)
+        {
+            if (terms is not { Count: > 0 })
+            {
+                return;
+            }
+
+            foreach (var term in terms)
+            {
+                if (string.IsNullOrWhiteSpace(term))
+                {
+                    continue;
+                }
+
+                counted++;
+                if (genreStudioIdf.TryGetValue(term, out var idf))
+                {
+                    sum += idf;
+                }
+            }
+        }
+
+        Accumulate(candidateGenres);
+        Accumulate(candidateStudios);
+
+        return counted > 0 ? Math.Clamp(sum / counted, 0.0, 1.0) : 0.0;
+    }
 }

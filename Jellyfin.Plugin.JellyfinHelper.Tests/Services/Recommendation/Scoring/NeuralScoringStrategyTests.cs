@@ -821,10 +821,10 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     // ============================================================
 
     [Fact]
-    public void Hidden1Size_IsV3Value()
+    public void Hidden1Size_MatchesExpansionFactor()
     {
-        // 48 → 62 (≈ 2× InputSize expansion factor for tabular MLPs).
-        Assert.Equal(62, NeuralScoringStrategy.Hidden1Size);
+        // 76 ≈ 2× InputSize (38) — expansion factor for tabular MLPs.
+        Assert.Equal(76, NeuralScoringStrategy.Hidden1Size);
     }
 
     [Fact]
@@ -1144,8 +1144,8 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 
         Assert.InRange(result, 0.0, 1.0);
 
-        // With keep-p = 0.5 across 24 + 48 + 96 + 62 = 230 Bernoulli draws, the probability
-        // of getting all-ones OR all-zeros is astronomically small (~ 2^-230). We assert the
+        // With keep-p = 0.5 across 24 + 48 + 96 + 76 = 244 Bernoulli draws, the probability
+        // of getting all-ones OR all-zeros is astronomically small (~ 2^-244). We assert the
         // strictly weaker property that AT LEAST ONE neuron in Hidden4 is dropped AND at
         // least one is kept. The chance of this failing due to bad luck is ~ 2 × (0.5)^24
         // ≈ 1.2 × 10^-7 (still deterministic here thanks to the fixed seed).

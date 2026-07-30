@@ -99,7 +99,19 @@ internal static class ExternalCandidateFeatureBuilder
             ContentNearestNeighborScore = 0.0,
             LanguageAffinity = 0.5,
             SubtitleLanguageAffinity = 0.5,
-            CollectionProgressionBoost = 0.0
+            CollectionProgressionBoost = 0.0,
+
+            // New content-affinity signals are library-only and cannot be derived from the TMDb
+            // discover payload (no collection id, countries, writers, billing, or series status),
+            // so they are neutralized: overlap-style signals → 0.0, SeriesCompletability → 0.5 (N/A).
+            // These MUST stay lock-step with DiscoveryFeedbackExampleBuilder to avoid train/serve skew.
+            FranchiseAffinity = 0.0,
+            ProductionLocationAffinity = 0.0,
+            InheritedTagSimilarity = 0.0,
+            SeriesCompletability = 0.5,
+            WriterAffinity = 0.0,
+            BillingWeightedPeople = 0.0,
+            GenreStudioIdfPrior = 0.0
         };
 
         // Genre exposure features: MUST be computed here (inference) with the same analysis

@@ -14,17 +14,18 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     Neural network scoring strategy using a four-hidden-layer MLP (Multi-Layer Perceptron).
 ///     Learns non-linear feature interactions from user watch history via backpropagation.
 ///     <para>
-///         Architecture (WeightsVersion 3):
-///         <c>InputSize → 62 hidden₁ (ReLU) → 96 hidden₂ (ReLU) → 48 hidden₃ (ReLU) →
+///         Architecture:
+///         <c>InputSize → 76 hidden₁ (ReLU) → 96 hidden₂ (ReLU) → 48 hidden₃ (ReLU) →
 ///         24 hidden₄ (ReLU) → 1 output (Sigmoid)</c>.
 ///     </para>
 ///     <para>
-///         Parameter count with 31 inputs:
-///         <c>(31·62 + 62) + (62·96 + 96) + (96·48 + 48) + (48·24 + 24) + (24·1 + 1) = 13 889</c>
-///         parameters — roughly 4.5× the previous v2 architecture (48-24-12-6 = 3 097 params) to
-///         accommodate a wider first layer (~2× input) as recommended for tabular MLPs, plus a
-///         genuinely expressive second layer (96) so the network can compose interaction terms
-///         between the ~30 features without an artificial early bottleneck.
+///         Parameter count with 38 inputs:
+///         <c>(38·76 + 76) + (76·96 + 96) + (96·48 + 48) + (48·24 + 24) + (24·1 + 1) = 16 213</c>
+///         parameters. Hidden₁ = 76 keeps the first-layer expansion factor at ~2.0× (76/38), the
+///         best-practice ratio for tabular MLPs; the wider second layer (96 &gt; 76) preserves the
+///         trapezoid shape without an early bottleneck. Hidden₂/₃/₄ depend on the prior layer, not
+///         on InputSize, and are sized to avoid over-parameterising the net for the small
+///         watch-history datasets it typically trains on.
 ///     </para>
 ///     <para>
 ///         Bernoulli dropout (keep-p = <see cref="DropoutKeepProbability"/>) is
@@ -43,22 +44,22 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Scoring;
 ///     He/Xavier weight initialization, temporal sample weighting, dropout (v3 A2), and
 ///     early stopping. Genre-mismatch penalties are NOT applied here - handled centrally
 ///     by the ensemble layer. Weights are persisted to disk so they survive server restarts.
-///     v2 weight files are automatically discarded on load because their array lengths do
-///     not match the v3 architecture.
+///     A persisted weight set whose array lengths do not match the current architecture
+///     (38 inputs, Hidden1 = 76) is automatically discarded on load.
 /// </remarks>
 public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy, IDisposable
 {
     /// <summary>
     ///     Number of neurons in the first hidden layer.
-    ///     ~2× InputSize (31→62) — best-practice expansion factor for tabular MLPs.
+    ///     ~2× InputSize (38→76) — best-practice expansion factor for tabular MLPs.
     /// </summary>
-    internal const int Hidden1Size = 62;
+    internal const int Hidden1Size = 76;
 
     /// <summary>
     ///     Number of neurons in the second hidden layer.
     ///     96 — deliberately WIDER than Hidden1 so the model has capacity to compose
     ///     high-order feature interactions (genre×critic, people×genre, etc.) rather than being
-    ///     forced through an early bottleneck. The trapezoid shape 62→96→48→24 mirrors classical
+    ///     forced through an early bottleneck. The trapezoid shape 76→96→48→24 mirrors classical
     ///     tabular deep-learning topologies where the widest layer sits after the first projection.
     /// </summary>
     internal const int Hidden2Size = 96;
@@ -143,18 +144,17 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
 
     /// <summary>
     ///     Schema version for persisted weights.
-    ///     Architecture rescale (Hidden1 48→62, Hidden2 24→96 etc.)
-    ///     old v2 weights are silently discarded on load because their array lengths no longer
-    ///     match the new layer sizes. The load path emits a warning and resets to defaults so
-    ///     the next training run rebuilds from scratch.
+    ///     A persisted weight set whose array lengths no longer match the current layer sizes
+    ///     (e.g. after a feature-count or hidden-size change) is silently discarded on load: the
+    ///     load path emits a warning and resets to defaults so the next training run rebuilds
+    ///     from scratch.
     /// </summary>
     internal const int CurrentWeightsVersion = 3;
 
     /// <summary>
     ///     JSON serializer options for weight persistence.
     ///     Compact (non-indented) output cuts the file to roughly a third of the indented form
-    ///     for a 13889-parameter dump (~120 KB vs ~410 KB) with no loss of information.
-    ///     Weights are machine-read only, so indentation adds no operational value.
+    ///     with no loss of information. Weights are machine-read only, so indentation adds no value.
     /// </summary>
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false };
 
@@ -707,7 +707,14 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                 attr[(int)FeatureIndex.ContentNearestNeighborScore] +
                 attr[(int)FeatureIndex.LanguageAffinity] +
                 attr[(int)FeatureIndex.CollectionProgressionBoost] +
-                attr[(int)FeatureIndex.SubtitleLanguageAffinity];
+                attr[(int)FeatureIndex.SubtitleLanguageAffinity] +
+                attr[(int)FeatureIndex.FranchiseAffinity] +
+                attr[(int)FeatureIndex.ProductionLocationAffinity] +
+                attr[(int)FeatureIndex.InheritedTagSimilarity] +
+                attr[(int)FeatureIndex.SeriesCompletability] +
+                attr[(int)FeatureIndex.WriterAffinity] +
+                attr[(int)FeatureIndex.BillingWeightedPeople] +
+                attr[(int)FeatureIndex.GenreStudioIdfPrior];
 
             return new ScoreExplanation
             {

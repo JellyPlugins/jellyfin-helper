@@ -200,6 +200,51 @@ public static class DefaultWeights
     /// </summary>
     public const double SubtitleLanguageAffinity = 0.020;
 
+    /// <summary>
+    ///     Weight for franchise affinity signal (TMDb collection membership the user has engaged with).
+    ///     Anchored just below <see cref="CollectionProgressionBoost"/> (0.045) since TMDb-collection
+    ///     coverage is sparser than curated BoxSets. The ML model learns the true magnitude.
+    /// </summary>
+    public const double FranchiseAffinity = 0.040;
+
+    /// <summary>
+    ///     Weight for production-location (country-of-origin) affinity signal.
+    ///     Anchored just below <see cref="StudioMatch"/> (0.020) as a content-origin taste axis.
+    /// </summary>
+    public const double ProductionLocationAffinity = 0.018;
+
+    /// <summary>
+    ///     Weight for inherited-tag similarity signal. Same magnitude as the leaf-tag
+    ///     <see cref="TagSimilarity"/> (0.015) — a parallel Jaccard channel over inherited tags.
+    /// </summary>
+    public const double InheritedTagSimilarity = 0.015;
+
+    /// <summary>
+    ///     Weight for series completability signal (Ended vs Continuing vs Unreleased).
+    ///     Small positive prior; the ML model learns the true sign/strength. Neutral (0.5) for movies.
+    /// </summary>
+    public const double SeriesCompletability = 0.020;
+
+    /// <summary>
+    ///     Weight for writer/creator affinity signal. Deliberately below <see cref="PeopleSimilarity"/>
+    ///     (0.050) — writers are less predictive than cast/director; kept in a separate profile so it
+    ///     does not dilute the people channel.
+    /// </summary>
+    public const double WriterAffinity = 0.030;
+
+    /// <summary>
+    ///     Weight for billing-weighted people affinity signal. Kept low because it overlaps heavily
+    ///     with <see cref="PeopleSimilarity"/> (0.050); a small weight avoids double-counting the
+    ///     people channel while still rewarding top-billed matches.
+    /// </summary>
+    public const double BillingWeightedPeople = 0.010;
+
+    /// <summary>
+    ///     Weight for the genre/studio IDF rarity prior. Near-neutral soft tiebreaker
+    ///     (anchored near <see cref="PopularityScore"/>); the ML model learns the true magnitude.
+    /// </summary>
+    public const double GenreStudioIdfPrior = 0.010;
+
     /// <summary>Default bias term for the learned strategy.</summary>
     public const double Bias = 0.05;
 
@@ -259,6 +304,13 @@ public static class DefaultWeights
         Set(FeatureIndex.LanguageAffinity, LanguageAffinity);
         Set(FeatureIndex.CollectionProgressionBoost, CollectionProgressionBoost);
         Set(FeatureIndex.SubtitleLanguageAffinity, SubtitleLanguageAffinity);
+        Set(FeatureIndex.FranchiseAffinity, FranchiseAffinity);
+        Set(FeatureIndex.ProductionLocationAffinity, ProductionLocationAffinity);
+        Set(FeatureIndex.InheritedTagSimilarity, InheritedTagSimilarity);
+        Set(FeatureIndex.SeriesCompletability, SeriesCompletability);
+        Set(FeatureIndex.WriterAffinity, WriterAffinity);
+        Set(FeatureIndex.BillingWeightedPeople, BillingWeightedPeople);
+        Set(FeatureIndex.GenreStudioIdfPrior, GenreStudioIdfPrior);
 
         // Detect missing per-index assignments. The count check above catches
         // new enum values without FeatureCount bump, but this catches the more likely

@@ -260,6 +260,33 @@ internal static class EngineConstants
     internal const double CollectionProgressionIncrement = 0.2;
 
     /// <summary>
+    ///     Neutral value returned by <see cref="ComputeSeriesCompletability"/> when the signal does
+    ///     not apply (movies, unknown status). Matches the neutral backing default of the feature slot.
+    /// </summary>
+    internal const double SeriesCompletabilityNeutral = 0.5;
+
+    /// <summary>
+    ///     Completability value for a finished ("Ended") series — a fully watchable, bounded arc.
+    /// </summary>
+    internal const double SeriesCompletabilityEnded = 1.0;
+
+    /// <summary>
+    ///     Completability value for an ongoing ("Continuing") series — watchable but open-ended.
+    /// </summary>
+    internal const double SeriesCompletabilityContinuing = 0.5;
+
+    /// <summary>
+    ///     Completability value for an unreleased series — nothing to watch yet.
+    /// </summary>
+    internal const double SeriesCompletabilityUnreleased = 0.0;
+
+    /// <summary>
+    ///     Decay scale for <see cref="ComputeBillingWeight"/>. With scale 4, top-billed (order 0) → 1.0,
+    ///     4th-billed → 0.5, and the weight tails off smoothly for deep-cast/bit-part entries.
+    /// </summary>
+    internal const double BillingWeightDecayScale = 4.0;
+
+    /// <summary>
     ///     Number of heavy-hitter preferred people used to compute the average weight that
     ///     drives the weighted-people-similarity denominator. Averaging over the whole
     ///     preferred set dilutes heavy signals with one-off cameos (a 100-person profile
@@ -346,5 +373,68 @@ internal static class EngineConstants
             CollectionProgressionBaseBoost + ((watchedSiblingCount - 1) * CollectionProgressionIncrement),
             0.0,
             1.0);
+    }
+
+    /// <summary>
+    ///     Shared series-completability formula used by BOTH the live inference path
+    ///     (<c>Engine.ScoreCandidate</c>) and the training path so the two call sites cannot drift.
+    ///     <para>
+    ///         Maps a series lifecycle status to a <c>[0,1]</c> "how completable is this arc" signal:
+    ///         Ended → <see cref="SeriesCompletabilityEnded"/>, Continuing → <see cref="SeriesCompletabilityContinuing"/>,
+    ///         Unreleased → <see cref="SeriesCompletabilityUnreleased"/>. A present
+    ///         <paramref name="hasEndDate"/> reinforces "Continuing" toward ended (a wrapped-but-not-yet-flagged
+    ///         series). Non-series items and unknown/absent status return <see cref="SeriesCompletabilityNeutral"/>
+    ///         so the feature is a no-op for movies.
+    ///     </para>
+    ///     The model learns the sign/magnitude; this only supplies a stable, parity-safe encoding.
+    /// </summary>
+    /// <param name="isSeries">Whether the candidate is a series.</param>
+    /// <param name="seriesStatus">The <c>SeriesStatus</c> name (e.g. "Continuing", "Ended", "Unreleased"), or null.</param>
+    /// <param name="hasEndDate">Whether the series has a known end date.</param>
+    /// <returns>A completability signal in <c>[0.0, 1.0]</c>; <see cref="SeriesCompletabilityNeutral"/> when N/A.</returns>
+    internal static double ComputeSeriesCompletability(bool isSeries, string? seriesStatus, bool hasEndDate)
+    {
+        if (!isSeries)
+        {
+            return SeriesCompletabilityNeutral;
+        }
+
+        if (string.Equals(seriesStatus, "Ended", StringComparison.OrdinalIgnoreCase))
+        {
+            return SeriesCompletabilityEnded;
+        }
+
+        if (string.Equals(seriesStatus, "Unreleased", StringComparison.OrdinalIgnoreCase))
+        {
+            return SeriesCompletabilityUnreleased;
+        }
+
+        if (string.Equals(seriesStatus, "Continuing", StringComparison.OrdinalIgnoreCase))
+        {
+            // A known end date on a still-"Continuing" series signals it has effectively wrapped.
+            return hasEndDate
+                ? (SeriesCompletabilityContinuing + SeriesCompletabilityEnded) / 2.0
+                : SeriesCompletabilityContinuing;
+        }
+
+        // Unknown / absent status → neutral (do not bias ranking).
+        return SeriesCompletabilityNeutral;
+    }
+
+    /// <summary>
+    ///     Shared billing-weight formula used by BOTH the live inference path
+    ///     (<c>Engine.ResolveBillingWeightMap</c>) and the training path so the two call sites cannot drift.
+    ///     <para>
+    ///         Maps a <c>PersonInfo.SortOrder</c> (ascending, 0 = top-billed) to a <c>(0,1]</c> billing
+    ///         weight via <c>scale / (scale + order)</c>. Negative orders are clamped to 0 (treated as
+    ///         top-billed). Monotonically non-increasing in <paramref name="sortOrder"/>.
+    ///     </para>
+    /// </summary>
+    /// <param name="sortOrder">The ascending billing position (0 = top-billed).</param>
+    /// <returns>A billing weight in <c>(0.0, 1.0]</c>.</returns>
+    internal static double ComputeBillingWeight(int sortOrder)
+    {
+        var order = sortOrder < 0 ? 0 : sortOrder;
+        return BillingWeightDecayScale / (BillingWeightDecayScale + order);
     }
 }

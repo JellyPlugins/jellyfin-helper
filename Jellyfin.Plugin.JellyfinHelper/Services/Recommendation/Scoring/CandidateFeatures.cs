@@ -144,6 +144,56 @@ public enum FeatureIndex
     ///     Based on chosen-vs-forced distinction analogous to audio language affinity.
     /// </summary>
     SubtitleLanguageAffinity = 30,
+
+    /// <summary>
+    ///     Franchise affinity (0–1). How strongly the candidate belongs to a TMDb collection
+    ///     (franchise) the user has already engaged with. Complements CollectionProgressionBoost
+    ///     for the common case where no admin-curated BoxSet exists. 0 = no franchise match / not a movie.
+    /// </summary>
+    FranchiseAffinity = 31,
+
+    /// <summary>
+    ///     Production-location affinity (0–1). Weighted overlap of the candidate's production
+    ///     countries with the user's watched-country distribution (K-drama, Bollywood, Euro arthouse …).
+    ///     0 = no overlap / no data.
+    /// </summary>
+    ProductionLocationAffinity = 32,
+
+    /// <summary>
+    ///     Inherited-tag similarity (0–1). Jaccard overlap of the candidate's INHERITED tags
+    ///     (own tags unioned with parent/collection/library-folder tags) with the user's preferred
+    ///     inherited tags. Distinct from <see cref="TagSimilarity"/>, which uses leaf tags only.
+    ///     0 = no overlap / no data.
+    /// </summary>
+    InheritedTagSimilarity = 33,
+
+    /// <summary>
+    ///     Series completability (0–1). Encodes a series' lifecycle: Ended → 1.0, Continuing → 0.5,
+    ///     Unreleased → 0.0. Movies and unknown status → 0.5 (neutral / not applicable), so the
+    ///     feature is a no-op for non-series. The model learns whether users prefer finished arcs.
+    /// </summary>
+    SeriesCompletability = 34,
+
+    /// <summary>
+    ///     Writer affinity (0–1). Name-overlap of the candidate's writers/creators with the user's
+    ///     preferred writers (a lightweight profile kept separately from cast/director so it does not
+    ///     dilute <see cref="PeopleSimilarity"/>). 0 = no overlap / no data.
+    /// </summary>
+    WriterAffinity = 35,
+
+    /// <summary>
+    ///     Billing-weighted people affinity (0–1). Like <see cref="PeopleSimilarity"/> but weighted by
+    ///     each person's billing position (PersonInfo.SortOrder): top-billed cast the user favours count
+    ///     for more than deep-cast/bit-part entries. 0 = no billed-people overlap / no data.
+    /// </summary>
+    BillingWeightedPeople = 36,
+
+    /// <summary>
+    ///     Genre/studio IDF (inverse-document-frequency) rarity prior (0–1). Library-wide rarity of the
+    ///     candidate's genres and studios: ubiquitous genres are down-weighted, rare ones up-weighted.
+    ///     A soft tiebreaker. 0.0 = no data (neutral for this overlap-style prior).
+    /// </summary>
+    GenreStudioIdfPrior = 37,
 }
 
 /// <summary>
@@ -155,7 +205,7 @@ public sealed class CandidateFeatures
     /// <summary>
     ///     The number of features produced by <see cref="ToVector"/>.
     /// </summary>
-    public const int FeatureCount = 31;
+    public const int FeatureCount = 38;
 
     /// <summary>
     ///     Normalization ceiling for genre count (items with ≥ this many genres map to 1.0).
@@ -190,6 +240,13 @@ public sealed class CandidateFeatures
     private double _languageAffinity = 0.5;
     private double _collectionProgressionBoost;
     private double _subtitleLanguageAffinity = 0.5;
+    private double _franchiseAffinity;
+    private double _productionLocationAffinity;
+    private double _inheritedTagSimilarity;
+    private double _seriesCompletability = 0.5;
+    private double _writerAffinity;
+    private double _billingWeightedPeople;
+    private double _genreStudioIdfPrior;
 
     /// <summary>Gets or sets the genre similarity score (0–1). Values are clamped to [0, 1]; NaN defaults to 0.</summary>
     public double GenreSimilarity
@@ -412,6 +469,76 @@ public sealed class CandidateFeatures
     }
 
     /// <summary>
+    ///     Gets or sets the franchise affinity (0–1). How strongly the candidate belongs to a TMDb
+    ///     collection (franchise) the user has engaged with. Values are clamped to [0, 1]; NaN defaults to 0.
+    /// </summary>
+    public double FranchiseAffinity
+    {
+        get => _franchiseAffinity;
+        set => _franchiseAffinity = Clamp01(value);
+    }
+
+    /// <summary>
+    ///     Gets or sets the production-location affinity (0–1). Weighted overlap of the candidate's
+    ///     production countries with the user's watched-country distribution. Values are clamped to [0, 1]; NaN defaults to 0.
+    /// </summary>
+    public double ProductionLocationAffinity
+    {
+        get => _productionLocationAffinity;
+        set => _productionLocationAffinity = Clamp01(value);
+    }
+
+    /// <summary>
+    ///     Gets or sets the inherited-tag similarity (0–1). Jaccard overlap of the candidate's inherited
+    ///     tags with the user's preferred inherited tags. Values are clamped to [0, 1]; NaN defaults to 0.
+    /// </summary>
+    public double InheritedTagSimilarity
+    {
+        get => _inheritedTagSimilarity;
+        set => _inheritedTagSimilarity = Clamp01(value);
+    }
+
+    /// <summary>
+    ///     Gets or sets the series completability (0–1). Ended → 1.0, Continuing → 0.5, Unreleased → 0.0.
+    ///     Movies and unknown status → 0.5 (neutral). Values are clamped to [0, 1]; NaN defaults to 0.5 (neutral).
+    /// </summary>
+    public double SeriesCompletability
+    {
+        get => _seriesCompletability;
+        set => _seriesCompletability = Clamp01(value, 0.5);
+    }
+
+    /// <summary>
+    ///     Gets or sets the writer affinity (0–1). Name-overlap of the candidate's writers/creators with
+    ///     the user's preferred writers. Values are clamped to [0, 1]; NaN defaults to 0.
+    /// </summary>
+    public double WriterAffinity
+    {
+        get => _writerAffinity;
+        set => _writerAffinity = Clamp01(value);
+    }
+
+    /// <summary>
+    ///     Gets or sets the billing-weighted people affinity (0–1). Billing-position-weighted overlap of
+    ///     the candidate's cast/directors with the user's favoured billed people. Values are clamped to [0, 1]; NaN defaults to 0.
+    /// </summary>
+    public double BillingWeightedPeople
+    {
+        get => _billingWeightedPeople;
+        set => _billingWeightedPeople = Clamp01(value);
+    }
+
+    /// <summary>
+    ///     Gets or sets the genre/studio IDF rarity prior (0–1). Library-wide rarity of the candidate's
+    ///     genres and studios (rare → higher). Values are clamped to [0, 1]; NaN defaults to 0.
+    /// </summary>
+    public double GenreStudioIdfPrior
+    {
+        get => _genreStudioIdfPrior;
+        set => _genreStudioIdfPrior = Clamp01(value);
+    }
+
+    /// <summary>
     ///     Clamps a value to [0, 1], returning <paramref name="defaultWhenNaN"/> if the value is NaN or Infinity.
     ///     Math.Clamp does not normalize NaN - it preserves it - so this helper prevents
     ///     NaN from flowing into interaction terms and poisoning learned/neural scoring.
@@ -483,5 +610,12 @@ public sealed class CandidateFeatures
         buffer[(int)FeatureIndex.LanguageAffinity] = LanguageAffinity;
         buffer[(int)FeatureIndex.CollectionProgressionBoost] = CollectionProgressionBoost;
         buffer[(int)FeatureIndex.SubtitleLanguageAffinity] = SubtitleLanguageAffinity;
+        buffer[(int)FeatureIndex.FranchiseAffinity] = FranchiseAffinity;
+        buffer[(int)FeatureIndex.ProductionLocationAffinity] = ProductionLocationAffinity;
+        buffer[(int)FeatureIndex.InheritedTagSimilarity] = InheritedTagSimilarity;
+        buffer[(int)FeatureIndex.SeriesCompletability] = SeriesCompletability;
+        buffer[(int)FeatureIndex.WriterAffinity] = WriterAffinity;
+        buffer[(int)FeatureIndex.BillingWeightedPeople] = BillingWeightedPeople;
+        buffer[(int)FeatureIndex.GenreStudioIdfPrior] = GenreStudioIdfPrior;
     }
 }

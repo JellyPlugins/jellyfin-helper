@@ -846,6 +846,11 @@ public class TrainingFeatureComputerTests
             preferredStudios,
             itemTagsLookup,
             preferredTags,
+            preferredFranchises: new Dictionary<string, double>(),
+            preferredCountries: new Dictionary<string, double>(),
+            preferredInheritedTags: new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            preferredWriterWeights: new Dictionary<string, double>(),
+            genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
 
         Assert.Single(examples);
@@ -898,6 +903,11 @@ public class TrainingFeatureComputerTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             new Dictionary<Guid, IReadOnlyList<string>>(),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double>(),
+            new Dictionary<string, double>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double>(),
+            genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
 
         Assert.Single(examples);
@@ -933,6 +943,11 @@ public class TrainingFeatureComputerTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             new Dictionary<Guid, IReadOnlyList<string>>(),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double>(),
+            new Dictionary<string, double>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double>(),
+            genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
 
         Assert.Single(examples);
@@ -987,6 +1002,11 @@ public class TrainingFeatureComputerTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             new Dictionary<Guid, IReadOnlyList<string>>(),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double>(),
+            new Dictionary<string, double>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double>(),
+            genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
 
         Assert.Single(examples);
@@ -1025,6 +1045,11 @@ public class TrainingFeatureComputerTests
             preferredStudios,
             new Dictionary<Guid, IReadOnlyList<string>>(),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double>(),
+            new Dictionary<string, double>(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, double>(),
+            genreStudioIdf: null,
             organicFallbackTimestamp: DateTime.UtcNow);
 
         Assert.Single(examples);

@@ -253,6 +253,8 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineFullPipelineTests.cs             # Cold-start and warm paths with real Movie instances; ghost-id, empty-library, two-user-gate coverage
 │       │   ├── EngineInstanceTests.cs                 # GetRecommendations/TrainStrategy contract: user-not-found=null, cancellation, Math.Clamp guards, empty deployment
 │       │   ├── EngineLanguageAffinityTests.cs         # ComputeLanguageAffinity/SubtitleLanguageAffinity: empty profile → 0.5 neutral; cross-feature isolation
+│       │   ├── FeatureAffinityComputerTests.cs        # Shared content-affinity helpers (franchise/country/inherited-tag/writer/billing/IDF): empty/null → neutral, no divide-by-zero
+│       │   ├── FeatureParityTests.cs                  # Train/serve parity for the 7 content features; SeriesCompletability + BillingWeight canonical formulas
 │       │   ├── PreferenceBuilderTests.cs
 │       │   ├── ReasonResolverTests.cs                 # All DetermineReason branches + StripWatchedItemsForResponse; EngineConstants as contract
 │       │   ├── SimilarityComputerTests.cs             # People-batch + per-item fallback; weighted PeopleSimilarity
@@ -425,7 +427,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── EnsembleScoringStrategy.cs   # Blends heuristic + learned + neural
 │   │   │   ├── StrategySelector.cs          # A/B testing: deterministic user→strategy routing
 │   │   │   ├── NeuralFeatureImportance.cs   # Permutation-based feature importance for MLP
-│   │   │   ├── CandidateFeatures.cs         # 31-feature vector with FeatureIndex enum
+│   │   │   ├── CandidateFeatures.cs         # 38-feature vector with FeatureIndex enum
 │   │   │   ├── DefaultWeights.cs            # Centralized default weights
 │   │   │   ├── ScoringHelper.cs             # Shared scoring utilities
 │   │   │   ├── ScoreExplanation.cs          # Per-feature score breakdown
@@ -471,7 +473,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │       ├── ISeerrDiscoveryService.cs
 │   │       ├── SeerrDiscoveryService.cs  # Orchestrator: profiles → TMDb query → scoring → results
 │   │       ├── DiscoveryCacheService.cs  # Disk + memory persistence
-│   │       ├── ExternalCandidateFeatureBuilder.cs  # Builds 31-feature vector for TMDb items
+│   │       ├── ExternalCandidateFeatureBuilder.cs  # Builds 38-feature vector for TMDb items
 │   │       ├── NullableDateTimeConverter.cs  # Graceful DateTime? JSON deserialization (handles empty strings from TMDb)
 │   │       ├── ParentalRatingHelper.cs   # Child-safe content filtering
 │   │       ├── TmdbGenreMap.cs           # Jellyfin ↔ TMDb genre ID mapping
@@ -1175,7 +1177,7 @@ Each task receives its mode from `PluginConfiguration` and logs differently base
 The ML recommendation system uses a layered scoring approach:
 
 ```text
-User Watch History → Feature Extraction (31 features) → Scoring Strategy → Ranked Results
+User Watch History → Feature Extraction (38 features) → Scoring Strategy → Ranked Results
                                                               ↑
                                                     ┌─────────┴──────────┐
                                                     │  EnsembleScoringStrategy  │
@@ -1189,7 +1191,7 @@ User Watch History → Feature Extraction (31 features) → Scoring Strategy →
 
 - **HeuristicScoringStrategy**: Fixed hand-tuned weights, always available
 - **LearnedScoringStrategy**: Linear model trained via SGD on implicit feedback
-- **NeuralScoringStrategy**: 4-hidden-layer MLP (31→48→24→12→6→1) with Adam optimizer
+- **NeuralScoringStrategy**: 4-hidden-layer MLP (38→76→96→48→24→1) with Adam optimizer
 - **EnsembleScoringStrategy**: Blends all three with dynamic α/β weighting
 
 Training uses implicit feedback: previously recommended items are compared against current watch data to generate labeled training examples. The EnsembleScoringStrategy records a rolling history of training quality metrics (validation loss, P@K, R@K, NDCG@K) that are persisted across server restarts for future trend analysis.
@@ -1209,14 +1211,14 @@ UserWatchProfiles → Genre/People/Language preferences
                          ↓
          Phase 2: Enrich top-20 with credits (actors/directors via Seerr)
                          ↓
-         Phase 3: Final score with EnsembleScoringStrategy (full 31 features)
+         Phase 3: Final score with EnsembleScoringStrategy (full 38 features)
                          ↓
          Top-10 per user → DiscoveryCacheService → Frontend
 ```
 
 - Coupled to **Seerr configuration** (URL + API Key) - independent of Seerr Cleanup task mode
 - Runs as part of `HelperCleanupTask` when `RecommendationsTaskMode != Deactivate`
-- Uses `ExternalCandidateFeatureBuilder` to construct the same 31-feature vector used for internal recommendations
+- Uses `ExternalCandidateFeatureBuilder` to construct the same 38-feature vector used for internal recommendations
 - Results persisted to `jellyfin-helper-discovery-results.json` with in-memory cache
 - Request submission via `POST /JellyfinHelper/Discovery/Request` with optional Seerr user/server/profile mapping
 

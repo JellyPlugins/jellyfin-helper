@@ -18,6 +18,7 @@ test suite that runs the plugin inside a real Jellyfin server on every change.
 
 ### Added
 - **Smarter recommendation engine** - The neural network behind your recommendations is much bigger now and uses dropout regularisation, so it learns your taste more reliably and generalises better beyond what you've already watched.
+- **Seven new taste signals** - Recommendations now also learn from film franchises/collections (so you're offered the next entry in a series you've engaged with, even without a curated box set), country of origin (K-drama, Bollywood, European arthouse), collection- and folder-level themes, whether a series is finished vs. still running, the writers/creators behind what you watch, top-billed cast (a lead you love counts for more than a background face), and how rare a genre or studio is across your library (so niche tastes aren't drowned out by ubiquitous ones). Every one of these is optional per item - anything without the underlying metadata (e.g. a film with no franchise) simply doesn't contribute rather than skewing the result.
 
 ### Improved
 - **Better recommendations from day one** - Re-watching a favourite nudges the algorithm noticeably now. Actors and directors you love outrank cameo overlaps. Shows you actually finished shape your taste more than ones you dropped after two episodes. Box-set suggestions ("finish the trilogy") stay consistent between what you see and what the model learned from.
@@ -47,7 +48,7 @@ test suite that runs the plugin inside a real Jellyfin server on every change.
 
 ### Tests
 - **New end-to-end test suite** - Alongside the unit tests, the plugin now runs inside a real Jellyfin 12 server (in a throwaway container, with stand-in Radarr/Sonarr/Jellyseerr services) and is exercised the way a real user would: changing settings, running each cleanup mode, importing/exporting a backup, and clicking through every dashboard tab. It also deliberately throws bad and hostile input at the plugin and uses "canary" files to prove that cleanup never deletes or touches anything outside your libraries, and that every admin-only action stays locked to admins. **268 tests across 43 files**, running automatically on every change plus a nightly full run.
-- **Unit tests: 4264 total** (+1939 vs. v2.1.0.6), including full coverage of the typed API responses.
+- **Unit tests: 4315 total** (+1990 vs. v2.1.0.6), including full coverage of the typed API responses.
 
 ---
 

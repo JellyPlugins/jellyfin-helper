@@ -9,6 +9,9 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.WatchHistory;
 public sealed class WatchedItemInfo
 {
     private IReadOnlyList<string> _genres = [];
+    private IReadOnlyList<string> _inheritedTags = [];
+    private IReadOnlyList<string> _productionCountries = [];
+    private IReadOnlyList<string> _writerNames = [];
 
     /// <summary>
     ///     Gets or sets the Jellyfin item ID.
@@ -95,6 +98,56 @@ public sealed class WatchedItemInfo
     ///     Gets or sets the primary image tag for poster display.
     /// </summary>
     public string? PrimaryImageTag { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the TMDb collection (franchise) name this movie belongs to, if any.
+    ///     Used for FranchiseAffinity profile building and train/serve parity (Phase 2/3 organic items).
+    /// </summary>
+    public string? TmdbCollectionName { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the production country codes/names associated with this item.
+    ///     Used for ProductionLocationAffinity profile building and train/serve parity.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<string> ProductionCountries
+    {
+        get => _productionCountries;
+        set => _productionCountries = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the inherited tags (own tags unioned with parent/collection/library-folder tags).
+    ///     Used for InheritedTagSimilarity profile building and train/serve parity.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<string> InheritedTags
+    {
+        get => _inheritedTags;
+        set => _inheritedTags = value ?? [];
+    }
+
+    /// <summary>
+    ///     Gets or sets the series lifecycle status (e.g. "Continuing", "Ended", "Unreleased"); null for non-series.
+    ///     Used for SeriesCompletability train/serve parity on aggregated-series examples.
+    /// </summary>
+    public string? SeriesStatus { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the series end date, if any. Contributes to SeriesCompletability alongside <see cref="SeriesStatus"/>.
+    /// </summary>
+    public DateTime? EndDate { get; set; }
+
+    /// <summary>
+    ///     Gets or sets the writer (screenplay/creator) names associated with this item.
+    ///     Used for WriterAffinity profile building and train/serve parity.
+    ///     Setter coalesces null to empty to prevent NRE from deserialized cache data.
+    /// </summary>
+    public IReadOnlyList<string> WriterNames
+    {
+        get => _writerNames;
+        set => _writerNames = value ?? [];
+    }
 
     /// <summary>
     ///     Determines whether this item represents a meaningful user interaction.

@@ -80,7 +80,10 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Current schema version for persisted weights. Increment when the feature set or
-    ///     weight semantics change so that stale weights are discarded on load.
+    ///     weight semantics change so that stale weights are discarded on load. Note that a
+    ///     changed <see cref="CandidateFeatures.FeatureCount"/> is already caught independently by
+    ///     the array-length check on load, so a persisted array from a different feature set is
+    ///     discarded regardless of this value.
     /// </summary>
     internal const int CurrentWeightsVersion = 2;
 

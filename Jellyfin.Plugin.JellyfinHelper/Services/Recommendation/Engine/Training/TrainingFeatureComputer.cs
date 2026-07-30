@@ -214,6 +214,11 @@ internal static class TrainingFeatureComputer
         HashSet<string> preferredStudios,
         Dictionary<Guid, IReadOnlyList<string>> itemTagsLookup,
         HashSet<string> preferredTags,
+        IReadOnlyDictionary<string, double> preferredFranchises,
+        IReadOnlyDictionary<string, double> preferredCountries,
+        HashSet<string> preferredInheritedTags,
+        IReadOnlyDictionary<string, double> preferredWriterWeights,
+        IReadOnlyDictionary<string, double>? genreStudioIdf,
         DateTime organicFallbackTimestamp)
     {
         // Use the most-recently-watched episode for temporal features (mirrors Phase 1 series logic)
@@ -283,6 +288,37 @@ internal static class TrainingFeatureComputer
 
         var genreList = allGenres.ToList();
 
+        // Aggregate the new content fields across episodes (union of countries / inherited tags /
+        // writers; first non-empty franchise name). Series lifecycle comes from the representative
+        // episode row. Billing is neutralized (no per-item people/billing cached on WatchedItemInfo),
+        // mirroring the organic branch. All reads are null-safe (setters coalesce null → []).
+        string? seriesFranchise = null;
+        var seriesCountries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seriesInheritedTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seriesWriters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ep in episodes)
+        {
+            if (seriesFranchise is null && !string.IsNullOrWhiteSpace(ep.TmdbCollectionName))
+            {
+                seriesFranchise = ep.TmdbCollectionName;
+            }
+
+            foreach (var c in ep.ProductionCountries.Where(static c => !string.IsNullOrWhiteSpace(c)))
+            {
+                seriesCountries.Add(c);
+            }
+
+            foreach (var t in ep.InheritedTags.Where(static t => !string.IsNullOrWhiteSpace(t)))
+            {
+                seriesInheritedTags.Add(t);
+            }
+
+            foreach (var wn in ep.WriterNames.Where(static w => !string.IsNullOrWhiteSpace(w)))
+            {
+                seriesWriters.Add(wn);
+            }
+        }
+
         var features = new CandidateFeatures
         {
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genreList, genrePreferences),
@@ -324,7 +360,16 @@ internal static class TrainingFeatureComputer
             // path also returns neutral for Series candidates (GetMediaStreams() is empty
             // on folder-type items), maintaining train/serve parity.
             LanguageAffinity = 0.5,
-            SubtitleLanguageAffinity = 0.5
+            SubtitleLanguageAffinity = 0.5,
+            // Content-affinity signals aggregated across the series' episodes (same shared helpers as
+            // live scoring). BillingWeightedPeople neutralized (0.0) — no per-item billing on WatchedItemInfo.
+            FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(seriesFranchise, preferredFranchises),
+            ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity([.. seriesCountries], preferredCountries),
+            InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity([.. seriesInheritedTags], preferredInheritedTags),
+            SeriesCompletability = EngineConstants.ComputeSeriesCompletability(true, mostRecent?.SeriesStatus, mostRecent?.EndDate.HasValue ?? false),
+            WriterAffinity = SimilarityComputer.ComputeWriterAffinity([.. seriesWriters], preferredWriterWeights),
+            BillingWeightedPeople = 0.0,
+            GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(genreList, null, genreStudioIdf)
         };
 
         // Genre exposure features
@@ -377,6 +422,46 @@ internal static class TrainingFeatureComputer
 
         var candidateSet = new HashSet<string>(candidateTags, StringComparer.OrdinalIgnoreCase);
         return SimilarityComputer.ComputeJaccardFromSets(candidateSet, preferredTags);
+    }
+
+    /// <summary>
+    ///     Rebuilds a candidate name → billing-weight map from the positionally-aligned
+    ///     <see cref="RecommendedItem.PeopleNames"/> / <see cref="RecommendedItem.PeopleWeights"/>
+    ///     cached lists, for the BillingWeightedPeople feature. This is the training-side mirror of the
+    ///     live <c>Engine.ResolveBillingWeightMap</c>, keeping train/serve parity.
+    ///     <para>Returns an empty map (→ neutral 0.0 downstream) when the lists are empty OR their
+    ///     lengths do not match — the latter is the legacy signal for cache entries written before
+    ///     billing weights were persisted, so old data self-neutralizes instead of misaligning.</para>
+    /// </summary>
+    /// <param name="peopleNames">Cached people names.</param>
+    /// <param name="peopleWeights">Cached billing weights, aligned positionally to <paramref name="peopleNames"/>.</param>
+    /// <returns>A case-insensitive name → billing-weight map (empty when unavailable/mismatched).</returns>
+    internal static Dictionary<string, double> BuildBillingMapFromCache(
+        IReadOnlyList<string> peopleNames,
+        IReadOnlyList<double> peopleWeights)
+    {
+        var map = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        if (peopleNames.Count == 0 || peopleNames.Count != peopleWeights.Count)
+        {
+            return map;
+        }
+
+        for (var i = 0; i < peopleNames.Count; i++)
+        {
+            var name = peopleNames[i];
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            var weight = peopleWeights[i];
+            if (!map.TryGetValue(name, out var existing) || weight > existing)
+            {
+                map[name] = weight;
+            }
+        }
+
+        return map;
     }
 
     /// <summary>

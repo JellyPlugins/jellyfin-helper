@@ -70,6 +70,10 @@ internal sealed class TrainingService : IDisposable
     ///     case the builder falls back to the neutral (unweighted) path.
     /// </param>
     /// <param name="incremental">When true, subsample older examples for efficiency.</param>
+    /// <param name="genreStudioIdf">
+    ///     Library-wide genre/studio IDF rarity table (the SAME table used at inference), threaded in so
+    ///     the GenreStudioIdfPrior feature is identical between train and serve. Null → neutral 0.0 both sides.
+    /// </param>
     /// <param name="cancellationToken">Token to cancel the training operation.</param>
     /// <returns>True if training was performed, false if skipped.</returns>
     internal bool Train(
@@ -77,6 +81,7 @@ internal sealed class TrainingService : IDisposable
         IReadOnlyList<RecommendationResult> previousResults,
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts = null,
         bool incremental = false,
+        IReadOnlyDictionary<string, double>? genreStudioIdf = null,
         CancellationToken cancellationToken = default)
     {
         if (previousResults.Count == 0)
@@ -98,7 +103,7 @@ internal sealed class TrainingService : IDisposable
 
         try
         {
-            return TrainCore(strategy, previousResults, seriesEpisodeCounts, incremental, cancellationToken);
+            return TrainCore(strategy, previousResults, seriesEpisodeCounts, incremental, genreStudioIdf, cancellationToken);
         }
         finally
         {
@@ -115,6 +120,7 @@ internal sealed class TrainingService : IDisposable
         IReadOnlyList<RecommendationResult> previousResults,
         IReadOnlyDictionary<Guid, int>? seriesEpisodeCounts,
         bool incremental,
+        IReadOnlyDictionary<string, double>? genreStudioIdf,
         CancellationToken cancellationToken)
     {
         var allProfiles = _watchHistoryService.GetAllUserWatchProfiles();
@@ -145,7 +151,7 @@ internal sealed class TrainingService : IDisposable
 
         // Delegate example building to the TrainingDataBuilder (includes Phase 4 discovery feedback)
         var (examples, organicCount, randomNegativeCount, discoveryCount) =
-            TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, cancellationToken);
+            TrainingDataBuilder.BuildExamples(previousResults, allProfiles, discoveryFeedback, seriesEpisodeCounts, genreStudioIdf, cancellationToken);
 
         var positiveCount = examples.Count(e => e.Label > 0.5);
         // Separate discovery from organic in the log so operators can see whether positive

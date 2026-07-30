@@ -155,7 +155,14 @@ internal static class ScoringHelper
             GetContribution(vector, weights, FeatureIndex.ContentNearestNeighborScore) +
             GetContribution(vector, weights, FeatureIndex.LanguageAffinity) +
             GetContribution(vector, weights, FeatureIndex.CollectionProgressionBoost) +
-            GetContribution(vector, weights, FeatureIndex.SubtitleLanguageAffinity);
+            GetContribution(vector, weights, FeatureIndex.SubtitleLanguageAffinity) +
+            GetContribution(vector, weights, FeatureIndex.FranchiseAffinity) +
+            GetContribution(vector, weights, FeatureIndex.ProductionLocationAffinity) +
+            GetContribution(vector, weights, FeatureIndex.InheritedTagSimilarity) +
+            GetContribution(vector, weights, FeatureIndex.SeriesCompletability) +
+            GetContribution(vector, weights, FeatureIndex.WriterAffinity) +
+            GetContribution(vector, weights, FeatureIndex.BillingWeightedPeople) +
+            GetContribution(vector, weights, FeatureIndex.GenreStudioIdfPrior);
         var interactionContrib = double.IsFinite(interactionSum) ? interactionSum : 0.0;
 
         // Compute FinalScore from the sum of contributions + bias instead of re-calling
