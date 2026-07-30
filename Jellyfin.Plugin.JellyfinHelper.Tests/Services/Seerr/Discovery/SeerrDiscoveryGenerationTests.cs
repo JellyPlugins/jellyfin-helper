@@ -59,6 +59,8 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
         _history = new Mock<IWatchHistoryService>();
         _history.Setup(h => h.GetAllUserWatchProfiles())
             .Returns(new Collection<UserWatchProfile>());
+        _history.Setup(h => h.GetSeriesEpisodeCounts())
+            .Returns(new Dictionary<Guid, int>());
 
         var arr = new Mock<IArrIntegrationService>();
         var learned = new LearnedScoringStrategy(null, new Mock<ILogger<LearnedScoringStrategy>>().Object);

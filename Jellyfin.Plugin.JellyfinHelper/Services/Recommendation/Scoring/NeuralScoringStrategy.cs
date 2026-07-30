@@ -972,20 +972,26 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                     // its activation was zero. The mask check duplicates the pre>0 check
                     // for clarity; both are cheap.
 
-                    // Hidden4 layer error (backprop through ReLU + dropout mask from output)
+                    // Hidden4 layer error (backprop through ReLU + inverted-dropout scale).
+                    // With inverted dropout the forward activation is a = mask · relu(pre) · invKeep,
+                    // so ∂a/∂pre = invKeep for a kept neuron. The error w.r.t. pre-activation is
+                    // therefore δ_pre = δ_a · invKeep. We fold that invKeep in HERE, once per layer,
+                    // so every consumer of hNErr (the inter-layer propagation below AND the weight/
+                    // bias gradients further down, which pair hNErr with the *upstream* activation)
+                    // sees the correct δ_pre. The downstream activation used by the output-layer
+                    // update (h4Act) carries its own invKeep independently — no double counting.
+                    // When dropout is inactive dropoutInvKeep == 1.0, so this is an exact no-op and
+                    // the dropout-off numerics stay bit-identical.
                     for (var k = 0; k < Hidden4Size; k++)
                     {
-                        // outErr already contains the sigmoid derivative and sample weight.
-                        // Do NOT multiply by dropoutInvKeep here: the inverted-dropout scale is
-                        // already embedded in h4Act[k] (used for the output-layer weight update).
-                        // Applying it again would give (1/keep)^2 scaling instead of (1/keep),
-                        // biasing hidden-layer gradients and causing training instability.
                         h4Err[k] = (h4Pre[k] > 0 && h4Mask[k] > 0)
-                            ? outErr * _weightsH4O[k]
+                            ? outErr * _weightsH4O[k] * dropoutInvKeep
                             : 0.0;
                     }
 
-                    // Hidden3 layer error (backprop through ReLU + dropout mask from hidden4)
+                    // Hidden3 layer error (backprop through ReLU + inverted-dropout scale from hidden4).
+                    // h4Err already holds δ_pre for hidden4, so summing it against the weights yields
+                    // δ_a for hidden3; multiplying by dropoutInvKeep converts that to δ_pre for hidden3.
                     for (var k = 0; k < Hidden3Size; k++)
                     {
                         if (h3Pre[k] <= 0 || h3Mask[k] == 0.0)
@@ -1000,10 +1006,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                             sum += h4Err[m] * _weightsH3H4[(m * Hidden3Size) + k];
                         }
 
-                        h3Err[k] = sum;
+                        h3Err[k] = sum * dropoutInvKeep;
                     }
 
-                    // Hidden2 layer error (backprop through ReLU + dropout mask from hidden3)
+                    // Hidden2 layer error (backprop through ReLU + inverted-dropout scale from hidden3)
                     for (var k = 0; k < Hidden2Size; k++)
                     {
                         if (h2Pre[k] <= 0 || h2Mask[k] <= 0.0)
@@ -1018,10 +1024,10 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                             sum += h3Err[l] * _weightsH2H3[(l * Hidden2Size) + k];
                         }
 
-                        h2Err[k] = sum;
+                        h2Err[k] = sum * dropoutInvKeep;
                     }
 
-                    // Hidden1 layer error (backprop through ReLU + dropout mask from hidden2)
+                    // Hidden1 layer error (backprop through ReLU + inverted-dropout scale from hidden2)
                     for (var j = 0; j < Hidden1Size; j++)
                     {
                         if (h1Pre[j] <= 0 || h1Mask[j] <= 0.0)
@@ -1036,7 +1042,7 @@ public sealed class NeuralScoringStrategy : IScoringStrategy, ITrainableStrategy
                             sum += h2Err[k] * _weightsH1H2[(k * Hidden1Size) + j];
                         }
 
-                        h1Err[j] = sum;
+                        h1Err[j] = sum * dropoutInvKeep;
                     }
 
                     // === Now update all weights using the pre-computed error signals ===

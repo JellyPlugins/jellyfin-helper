@@ -416,6 +416,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   │   ├── ReasonResolver.cs    # Human-readable recommendation explanations
 │   │   │   ├── SimilarityComputer.cs # Genre/people/tag similarity
 │   │   │   ├── CollaborativeFilter.cs # Jaccard + IDF co-occurrence
+│   │   │   ├── ContentAffinityResolver.cs # Shared library-free resolvers for content-affinity source data
 │   │   │   ├── ContentScoring.cs    # Recency, rating, engagement scoring
 │   │   │   └── EngineConstants.cs   # Shared constants (thresholds, windows)
 │   │   ├── Scoring/                 # Pluggable scoring strategies
@@ -1015,6 +1016,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper/Services/Recommendation/Engine/`
 
 - `CollaborativeFilter.cs`
+- `ContentAffinityResolver.cs`
 - `ContentScoring.cs`
 - `DiversityReranker.cs`
 - `Engine.cs`

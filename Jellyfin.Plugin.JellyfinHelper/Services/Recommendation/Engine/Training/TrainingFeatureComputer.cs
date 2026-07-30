@@ -250,7 +250,7 @@ internal static class TrainingFeatureComputer
         const double seriesProgressionBoost = 0.0;
 
         // PeopleSimilarity: try seriesId first (most likely hit for series-level metadata).
-        // Roadmap v3 (C2): weighted overload for train/serve parity with Engine.ScoreCandidate.
+        // Weighted overload for train/serve parity with Engine.ScoreCandidate.
         var peopleSimilarity = cachedPeopleLookup.TryGetValue(seriesId, out var seriesPeople)
             ? SimilarityComputer.ComputePeopleSimilarity(seriesPeople, preferredPeopleWeights)
             : 0.0;

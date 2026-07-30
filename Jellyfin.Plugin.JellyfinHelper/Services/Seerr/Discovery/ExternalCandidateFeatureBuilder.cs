@@ -74,8 +74,14 @@ internal static class ExternalCandidateFeatureBuilder
             // Strong signals (derivable from TMDb)
             GenreSimilarity = SimilarityComputer.ComputeGenreSimilarity(genres, genrePreferences),
             CombinedCriticScore = Math.Clamp(candidate.VoteAverage / 10.0, 0.0, 1.0),
-            RecencyScore = candidate.EffectiveReleaseDate.HasValue
-                ? ContentScoring.ComputeRecencyScore(candidate.EffectiveReleaseDate.Value)
+            // Recency is quantized to the release YEAR (mid-year anchor) rather than the full
+            // EffectiveReleaseDate, to stay bit-identical with the discovery TRAINING path
+            // (DiscoveryFeedbackExampleBuilder), which only has the release year cached on the
+            // feedback entry. Using the full date here would make the same title score a slightly
+            // different recency at train vs. serve — a subtle skew on this feature.
+            RecencyScore = candidate.EffectiveReleaseDate is { } releaseDate
+                                && releaseDate.Year is >= 1 and <= 9999
+                ? ContentScoring.ComputeRecencyScore(new DateTime(releaseDate.Year, 7, 1))
                 : 0.5,
             YearProximityScore = ContentScoring.ComputeYearProximity(
                 candidate.EffectiveReleaseDate?.Year, avgYear),

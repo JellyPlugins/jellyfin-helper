@@ -106,6 +106,20 @@ internal static class EngineConstants
     internal const double MmrLambda = 0.7;
 
     /// <summary>
+    ///     Rating prior substituted for a FULLY unrated candidate (no community and no critic rating)
+    ///     in the cold-start scalar ranking formula only. The shared
+    ///     <see cref="ContentScoring.ComputeCombinedCriticScore"/> returns a neutral 0.5 for unrated
+    ///     items — correct for the ML feature vector, but in the standalone cold-start formula a 0.5
+    ///     ranked an unknown-quality title ABOVE one the community explicitly rated poorly (a 3/10
+    ///     maps to 0.30, and 0.5 &gt; 0.30 — a quality inversion). Set to 0.30 so an "unknown quality"
+    ///     item scores exactly at the bottom of the mediocre band: it no longer outranks a 3/10 (they
+    ///     tie on the rating term and any real rating ≥ 3.0/10 wins), while genuinely bad titles
+    ///     (&lt; 3/10) still rank below the unknown — a defensible ordering — and recency/popularity
+    ///     still surface brand-new, not-yet-rated additions rather than burying them.
+    /// </summary>
+    internal const double ColdStartUnratedRatingPrior = 0.30;
+
+    /// <summary>
     ///     Minimum watch completion ratio below which an item is considered "abandoned".
     ///     Items abandoned by the user receive a penalty in scoring to avoid re-recommending
     ///     content the user already tried and didn't like.
@@ -350,7 +364,7 @@ internal static class EngineConstants
     ///         already watched in the same BoxSet. Non-positive counts return <c>0.0</c>.
     ///     </para>
     ///     <para>
-    ///         Roadmap v3 (C3.1 — "perfect" hardening pass): before this helper both call sites
+    ///         Before this helper both call sites
     ///         contained the identical <c>Math.Clamp(0.3 + ((n-1) * 0.2), 0, 1)</c> block. The
     ///         16 formula-contract tests in <c>CollectionProgressionBoostTests</c> now guard the
     ///         single canonical implementation, guaranteeing train / serve parity by construction

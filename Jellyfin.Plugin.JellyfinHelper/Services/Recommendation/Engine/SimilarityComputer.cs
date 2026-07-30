@@ -371,7 +371,7 @@ internal sealed class SimilarityComputer
     /// <summary>
     ///     Weighted variant of <see cref="ComputePeopleSimilarity(HashSet{string}, HashSet{string})"/>
     ///     that scores candidates based on how much of the user's <b>weight mass</b> they carry,
-    ///     rather than raw set membership. Roadmap v3 (C2 hardening pass) — used at inference by
+    ///     rather than raw set membership. Used at inference by
     ///     <c>Engine.ScoreCandidate</c> and consistently across all training phases in
     ///     <c>TrainingDataBuilder</c> so the ML feature has identical semantics on both sides.
     ///     <para>

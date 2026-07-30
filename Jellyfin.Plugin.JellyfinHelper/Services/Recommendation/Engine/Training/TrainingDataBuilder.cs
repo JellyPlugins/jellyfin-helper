@@ -392,7 +392,7 @@ internal static class TrainingDataBuilder
                 const double seriesProgressionBoost = 0.0;
 
                 // Compute PeopleSimilarity from cached data using the weighted overload
-                // (Roadmap v3 C2) - matches Engine.ScoreCandidate() live logic for train/serve parity.
+                // Matches Engine.ScoreCandidate() live logic for train/serve parity.
                 var peopleSimilarity = cachedPeopleLookup.TryGetValue(rec.ItemId, out var candidatePeople)
                     ? SimilarityComputer.ComputePeopleSimilarity(candidatePeople, preferredPeopleWeights)
                     : 0.0;
@@ -733,7 +733,7 @@ internal static class TrainingDataBuilder
                 }
 
                 // Compute PeopleSimilarity from cached data using the weighted overload
-                // (Roadmap v3 C2) - matches Engine.ScoreCandidate() live logic for train/serve parity.
+                // Matches Engine.ScoreCandidate() live logic for train/serve parity.
                 var peopleSimilarity = cachedPeopleLookup.TryGetValue(w.ItemId, out var organicPeople)
                     ? SimilarityComputer.ComputePeopleSimilarity(organicPeople, preferredPeopleWeightsOrganic)
                     : 0.0;
@@ -742,7 +742,14 @@ internal static class TrainingDataBuilder
                 var studioMatch = false;
                 var tagSimilarity = 0.0;
 
-                if (itemStudiosLookup.TryGetValue(w.ItemId, out var organicStudios) && organicStudios.Count > 0)
+                // Resolve the item's studios once: used for BOTH StudioMatch and the genre/studio IDF
+                // prior below. The live scoring path feeds candidate.Studios into
+                // ComputeGenreStudioIdfPrior, so the organic training path must feed the same real
+                // studios (not null) or the prior's studio-rarity contribution silently differs
+                // between train and serve.
+                itemStudiosLookup.TryGetValue(w.ItemId, out var organicStudios);
+
+                if (organicStudios is { Count: > 0 })
                 {
                     studioMatch = organicStudios.Any(preferredStudiosOrganic.Contains);
                 }
@@ -796,6 +803,12 @@ internal static class TrainingDataBuilder
                     CollectionProgressionBoost = itemBoxSetIdsLookup.TryGetValue(w.ItemId, out var orgBoxSetIds2)
                         ? ComputeCollectionProgressionBoostWithCounts(orgBoxSetIds2, watchedBoxSetCountsOrganic)
                         : 0.0,
+                    // Popularity prior: identical composition to Phase 1, Phase 3 and the live scoring
+                    // path (collaborative + critic blend). Previously omitted here, leaving organic
+                    // examples at the 0.0 default while every other path fed a real value — a
+                    // train/serve skew on this dimension. collabScore/combinedCriticScore are the same
+                    // locals already feeding CollaborativeScore/CombinedCriticScore above.
+                    PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
                     DayOfWeekAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenreSet, userProfile, isDay: true),
                     HourOfDayAffinity = TrainingFeatureComputer.ComputeTrainingTemporalAffinity(w, wGenreSet, userProfile, isDay: false),
                     IsWeekend = TemporalFeatures.ResolveIsWeekend(userProfile, w.LastPlayedDate),
@@ -820,7 +833,7 @@ internal static class TrainingDataBuilder
                     WriterAffinity = SimilarityComputer.ComputeWriterAffinity(w.WriterNames, preferredWriterWeightsOrganic),
                     BillingWeightedPeople = SimilarityComputer.ComputeBillingWeightedPeople(
                         TrainingFeatureComputer.BuildBillingMapFromCache(w.PeopleNames, w.PeopleWeights), preferredPeopleWeightsOrganic),
-                    GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(w.Genres, null, genreStudioIdf)
+                    GenreStudioIdfPrior = SimilarityComputer.ComputeGenreStudioIdfPrior(w.Genres, organicStudios, genreStudioIdf)
                 };
 
                 // Genre exposure features: compute from cached per-user analysis (mirrors Phase 1)
@@ -985,7 +998,7 @@ internal static class TrainingDataBuilder
                     var isSeries = string.Equals(neg.ItemType, "Series", StringComparison.OrdinalIgnoreCase);
 
                     // Compute PeopleSimilarity from cached data using the weighted overload
-                    // (Roadmap v3 C2) - matches Engine.ScoreCandidate() live logic for train/serve parity.
+                    // Matches Engine.ScoreCandidate() live logic for train/serve parity.
                     var negPeopleSimilarity = cachedPeopleLookup.TryGetValue(neg.ItemId, out var negPeople)
                         ? SimilarityComputer.ComputePeopleSimilarity(negPeople, preferredPeopleWeightsNeg)
                         : 0.0;

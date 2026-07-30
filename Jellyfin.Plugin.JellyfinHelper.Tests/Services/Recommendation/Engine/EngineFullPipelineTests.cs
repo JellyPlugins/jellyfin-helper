@@ -109,6 +109,50 @@ public sealed class EngineFullPipelineTests
     }
 
     [Fact]
+    public void GetRecommendations_ColdStart_UnratedItem_DoesNotOutrankKnownMediocre()
+    {
+        // REGRESSION GUARD (audit finding coldstart-05-rating): the cold-start scalar formula must
+        // NOT let a fully-unrated candidate outrank a candidate the community explicitly rated poorly.
+        // Previously ComputeCombinedCriticScore returned the neutral 0.5 for unrated items, so an
+        // unrated title scored 0.6*0.5=0.30 (rating term) while a real 3/10 scored 0.6*0.30=0.18 —
+        // a 0.12 quality inversion. The fix substitutes a 0.30 unrated prior LOCALLY in cold-start,
+        // so an unknown-quality item now ties a 3/10 on the rating term and never outranks it.
+        // Both movies share genre + year, so recency and diversity-reranking are equal and the
+        // rating term is the only differentiator; we assert on Score (not list position) so an
+        // equal-score tie is not flipped by the reranker's deterministic ordering.
+        var harness = EngineTestFactory.Create();
+        var userId = Guid.NewGuid();
+        harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId))
+            .Returns(new UserWatchProfile { UserId = userId, UserName = "newbie", WatchedItems = [] });
+
+        var mediocre = MakeMovie("Known Mediocre", 2020, ["Action"], communityRating: 3.0f);
+        var unrated = MakeMovie("Unknown Quality", 2020, ["Action"], communityRating: null);
+        // Ensure the "unrated" item truly has NEITHER rating, and the mediocre item has only the 3/10.
+        unrated.CriticRating = null;
+        mediocre.CriticRating = null;
+
+        WireLibrary(harness, [mediocre, unrated]);
+
+        var result = harness.Engine.GetRecommendations(userId, 10, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("strategyColdStart", result!.ScoringStrategyKey);
+        Assert.NotEmpty(result.Recommendations);
+
+        var mediocreRec = result.Recommendations.FirstOrDefault(r => r.ItemId == mediocre.Id);
+        var unratedRec = result.Recommendations.FirstOrDefault(r => r.ItemId == unrated.Id);
+        Assert.NotNull(mediocreRec);
+        Assert.NotNull(unratedRec);
+
+        // Core anti-inversion contract: the unrated item must NOT score higher than the 3/10 item.
+        // With the 0.30 prior and identical recency they tie exactly; the old neutral-0.5 prior made
+        // the unrated item beat the 3/10 by ~0.12, which this assertion would have caught.
+        Assert.True(
+            unratedRec!.Score <= mediocreRec!.Score,
+            $"Unrated item (score={unratedRec.Score}) must not outrank the community-rated 3/10 item (score={mediocreRec.Score}).");
+    }
+
+    [Fact]
     public void GetRecommendations_ColdStartUser_WithMovies_ExecutesPipelineAndProducesValidResult()
     {
         // Drives cold-start scoring end-to-end: rating filter, combined-critic + recency,
