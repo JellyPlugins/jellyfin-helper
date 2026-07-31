@@ -231,7 +231,7 @@ profiles:[{id:4,name:"HD-1080p"},{id:6,name:"Ultra-HD"}],
 rootFolders:[{id:1,path:"/data/movies"}]
 }];
 
-// Sonarr services: empty (no popup for TV requests — uses server defaults)
+// Sonarr services: empty (no popup for TV requests - uses server defaults)
 var MOCK_SEERR_SERVICES_SONARR=[];
 
 var MOCK_RECOMMENDATIONS=[

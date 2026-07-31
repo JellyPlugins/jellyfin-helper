@@ -458,7 +458,7 @@ function initArrButtons(cfg) {
     // Reset the result cache so a config change immediately re-tests
     // instead of showing a stale ✓/✗ for a URL that may have changed.
     _arrStatusCache = {};
-    // IMPORTANT: do NOT reset _arrStatusReqSeq — advance it. If we reset
+    // IMPORTANT: do NOT reset _arrStatusReqSeq - advance it. If we reset
     // to {} an in-flight request that started before this call would still
     // hold reqId=1, and the very next refreshArrInstanceStatus() call
     // would issue reqId=1 again, so the stale-response guard
@@ -506,8 +506,8 @@ function initArrButtons(cfg) {
     // Wire up per-type handlers: change on the dropdown re-runs the health
     // check for the newly-selected instance (cached 60 s), click on the
     // Compare button dispatches the comparison. Uses onclick/onchange
-    // assignment (not addEventListener) so a subsequent re-render — e.g.
-    // after settings save — never stacks duplicate listeners on the same
+    // assignment (not addEventListener) so a subsequent re-render - e.g.
+    // after settings save - never stacks duplicate listeners on the same
     // element instance.
     _wireArrCompareControls('Radarr', radarrInstances);
     _wireArrCompareControls('Sonarr', sonarrInstances);

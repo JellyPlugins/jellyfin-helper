@@ -119,7 +119,7 @@ function openFolderBrowserDialog() {
             selectedPath += newName.trim();
         }
         if (selectedPath) {
-            // Validate path locally before attempting save — shows specific error in picker
+            // Validate path locally before attempting save - shows specific error in picker
             var pathError = validateTrashPath(selectedPath, true);
             if (pathError) {
                 var listingEl = document.getElementById('folderBrowserListing');

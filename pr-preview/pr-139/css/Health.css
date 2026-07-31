@@ -109,7 +109,7 @@
     margin-top: 0.4em;
 }
 
-/* Inside a card, the section-title acts as the card header — kill the
+/* Inside a card, the section-title acts as the card header - kill the
    large default top margin the section-title uses. */
 /* noinspection CssUnusedSymbol */
 .health-card > .section-title:first-child {

@@ -274,8 +274,8 @@ function renderFileTree(result, title) {
  * has been injected into the DOM.
  *
  * Handles:
- *   - [data-tree-toggle]  — folder toggle buttons (expand/collapse tree node)
- *   - [data-tree-action]  — "Expand All" / "Collapse All" buttons
+ *   - [data-tree-toggle]  - folder toggle buttons (expand/collapse tree node)
+ *   - [data-tree-action]  - "Expand All" / "Collapse All" buttons
  *
  * @param {HTMLElement} container - The DOM element whose innerHTML was set with
  *                                  the output of renderFileTree.
@@ -868,7 +868,7 @@ function collectDictPaths(libraries, prop, key) {
 /**
  * Creates a modal dialog overlay with title, body, and button row.
  * Returns { overlay, dialog, body, btnRow } so callers can add content or buttons.
- * bodyContent is always set via textContent — callers needing rich content
+ * bodyContent is always set via textContent - callers needing rich content
  * should leave bodyContent empty and append child elements to the returned body element.
  */
 function createDialogOverlay(overlayId, titleText, titleColor, bodyContent) {
