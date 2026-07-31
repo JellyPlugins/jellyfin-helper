@@ -8,7 +8,7 @@
 #   test/e2e/scripts/run.sh --ui         # open the Playwright UI runner instead of headless
 #
 # Works locally (Windows/Git-Bash, macOS, Linux) and in CI. Requires: docker,
-# docker compose, dotnet SDK 10, node/npm. ffmpeg is NOT required on the host —
+# docker compose, dotnet SDK 10, node/npm. ffmpeg is NOT required on the host -
 # media is generated inside the Jellyfin container.
 #
 # Exit code is the Playwright exit code (0 = all green), so CI can gate on it.
@@ -82,7 +82,7 @@ fi
 # --- 1b. tear down any pre-existing stack BEFORE wiping host state ----------
 # A prior --keep/CI run (or a crash) can leave containers running. `up -d --build`
 # below would REUSE them, so the host-side `rm -rf runtime/media` would race a
-# container that still holds /media open — on Windows Docker Desktop bind mounts
+# container that still holds /media open - on Windows Docker Desktop bind mounts
 # this desyncs the container's view from the host and makes gen-media see phantom
 # "File exists" symlinks. Removing the stack first releases the mounts before the
 # wipe and guarantees `up` creates fresh containers against fresh bind mounts.
@@ -99,7 +99,7 @@ cp "$E2E_DIR/fixtures/gen-media.sh" "$RUNTIME/media/.gen/gen-media.sh"
 # The container may run as any UID; make config writable so Jellyfin can create
 # its plugin-dir markers and databases regardless of user mapping. On Linux the
 # container already runs as the invoking user (JELLYFIN_UID/GID exported below),
-# so a group/user-writable bit is enough — no world-writable state dirs on CI.
+# so a group/user-writable bit is enough - no world-writable state dirs on CI.
 # Elsewhere (Docker Desktop, unknown UID mapping) fall back to the blanket 777.
 if [ "$(uname -s)" = "Linux" ]; then
   chmod -R u+rwX,g+rwX "$RUNTIME/config" "$RUNTIME/cache" 2>/dev/null || true
@@ -112,7 +112,7 @@ fi
 # already provides at runtime. Hand-picking individual dlls silently drops
 # transitive dependencies (System.IO.Abstractions pulls Testably.* /
 # TestableIO.*), which makes the loader throw FileNotFoundException during
-# service registration and Jellyfin disables the whole plugin — every
+# service registration and Jellyfin disables the whole plugin - every
 # JellyfinHelper/ route then 404s. Bundling the plugin's own dependency
 # closure is what the release manifest does; the E2E staging must match it.
 log "Staging plugin DLLs"
@@ -133,7 +133,7 @@ for dll in "$RUNTIME"/publish/*.dll; do
   staged=$((staged + 1))
 done
 echo "[stage] copied $staged plugin dll(s) to $PLUGIN_STAGE"
-[ "$staged" -ge 1 ] || { echo "No plugin dlls staged — publish output missing?" >&2; exit 1; }
+[ "$staged" -ge 1 ] || { echo "No plugin dlls staged - publish output missing?" >&2; exit 1; }
 cp "$RUNTIME/publish/logo.png" "$PLUGIN_STAGE/" 2>/dev/null || true
 # meta.json so Jellyfin shows a clean plugin entry (name/version/guid).
 # Invoked via `bash` so it works regardless of the file's execute bit.
@@ -153,7 +153,7 @@ log "Starting stack (Jellyfin 12.0-rc3 + mock Arr/Seerr)"
 "${COMPOSE[@]}" up -d --build
 
 log "Waiting for Jellyfin to become healthy"
-# Poll the container's health via `docker inspect` — more portable than relying
+# Poll the container's health via `docker inspect` - more portable than relying
 # on `compose ps --format {{.Health}}`, which varies across Compose versions.
 # The compose file defines the actual healthcheck; we just read its result.
 JELLYFIN_CONTAINER="jfh-e2e-jellyfin"
@@ -178,14 +178,14 @@ echo "Jellyfin healthy."
 # We must keep that conversion ON for the host-side compose file path
 # (-f "$E2E_DIR/compose.yml") but OFF for the container-side "/media" argument,
 # so scope the exclusion to just that prefix. A no-op on Linux/macOS CI. Verify
-# files actually landed — an empty library would make every stats/scan test
+# files actually landed - an empty library would make every stats/scan test
 # pass vacuously, which is worse than a hard failure here.
 log "Generating fake media library"
 MSYS2_ARG_CONV_EXCL='/media' \
   "${COMPOSE[@]}" exec -T jellyfin bash /media/.gen/gen-media.sh /media
 media_count="$("${COMPOSE[@]}" exec -T jellyfin sh -c 'find /media -name "*.mkv" -o -name "*.mp4" 2>/dev/null | wc -l' | tr -d '[:space:]')"
 if [ "${media_count:-0}" -lt 1 ]; then
-  echo "Media generation produced no video files — aborting before tests run on an empty library." >&2
+  echo "Media generation produced no video files - aborting before tests run on an empty library." >&2
   exit 1
 fi
 echo "Media generated (${media_count} video files)."
@@ -195,7 +195,7 @@ log "Installing test dependencies"
 cd "$E2E_DIR"
 [ -d node_modules ] || npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 # Try the full "--with-deps" install first (needs sudo/apt for OS libs). If that
-# fails — common on hosts without root/apt — log why and fall back to a
+# fails - common on hosts without root/apt - log why and fall back to a
 # browser-only install so a real network/permission error isn't hidden behind
 # an opaque browser-launch failure later.
 npx playwright install --with-deps chromium >/dev/null || {

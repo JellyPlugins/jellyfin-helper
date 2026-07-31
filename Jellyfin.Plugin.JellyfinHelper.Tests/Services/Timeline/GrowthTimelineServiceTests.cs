@@ -269,7 +269,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
         // The second call must (a) return an empty transient result, AND (b) actually
         // PERSIST that empty state to disk so LoadTimelineAsync reflects reality.
         // A test that only inspects the transient return value could pass even if
-        // SaveTimelineAsync was silently skipped — leaving stale non-zero data on disk.
+        // SaveTimelineAsync was silently skipped - leaving stale non-zero data on disk.
         // We therefore reload from a fresh instance below to prove the persisted point
         // is the zero snapshot.
         var libRoot = Path.Join(_dataPath, "library");
@@ -328,7 +328,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
 
         await _sut.ComputeTimelineAsync(CancellationToken.None);
 
-        // AtomicFile writes fully or not at all — the file must exist and be valid JSON.
+        // AtomicFile writes fully or not at all - the file must exist and be valid JSON.
         var baselinePath = Path.Join(_dataPath, "jellyfin-helper-growth-baseline.json");
         Assert.True(File.Exists(baselinePath), "Baseline file was not written to disk.");
 
@@ -385,7 +385,7 @@ public sealed class GrowthTimelineServiceTests : IDisposable
 
         await _sut.ComputeTimelineAsync(CancellationToken.None);
 
-        // AtomicFile must clean up its .tmp file on success — no orphans.
+        // AtomicFile must clean up its .tmp file on success - no orphans.
         var tmpFiles = Directory.GetFiles(_dataPath, "*.tmp");
         Assert.Empty(tmpFiles);
     }

@@ -132,7 +132,7 @@ public class HelperCleanupTask : IScheduledTask
         var config = _configHelper.GetConfig();
 
         // RunOnDeactivate: most sub-tasks are true no-ops when Deactivated and are skipped.
-        // "Smart Recommendations" is the exception — on Deactivate it must still run so its
+        // "Smart Recommendations" is the exception - on Deactivate it must still run so its
         // handler can PURGE any previously-created recommendation playlists (switching a
         // library from Activate to Deactivate should not leave stale managed playlists
         // behind). RunRecommendationsUpdate short-circuits all expensive work in Deactivate
@@ -166,7 +166,7 @@ public class HelperCleanupTask : IScheduledTask
             var modeLabel = mode switch
             {
                 TaskMode.DryRun => "Dry Run",
-                TaskMode.Deactivate => "Deactivated — cleanup only",
+                TaskMode.Deactivate => "Deactivated - cleanup only",
                 _ => "Active"
             };
             _pluginLog.LogInfo("HelperCleanup", $"Starting {name} ({modeLabel})...", _logger);

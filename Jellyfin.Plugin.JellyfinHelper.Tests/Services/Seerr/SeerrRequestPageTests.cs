@@ -32,7 +32,7 @@ public sealed class SeerrRequestPageTests
     [Fact]
     public void Results_NonNullAssignment_PreservesReference()
     {
-        // Non-null input must be stored as-is — no defensive copy, no re-wrap.
+        // Non-null input must be stored as-is - no defensive copy, no re-wrap.
         // A regression that wrapped the input in a fresh list would break `Assert.Same`
         // and would double the memory allocation on every page.
         var input = new List<SeerrRequest>

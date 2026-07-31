@@ -1,8 +1,8 @@
 /**
  * Contract assertions for endpoints that the rest of the suite only *routes*
  * (smoke) or *tolerates a status class* for (hardening's [200,400,404,503]).
- * Those loose checks let a regression that flips a 400 into a silent 200 — or a
- * 503 guard into a 200 — pass unnoticed. Here we PIN the documented status +
+ * Those loose checks let a regression that flips a 400 into a silent 200 - or a
+ * 503 guard into a 200 - pass unnoticed. Here we PIN the documented status +
  * body for each branch, verified against the controller source.
  *
  * State handling: several endpoints gate on RecommendationsTaskMode. Each block
@@ -116,7 +116,7 @@ test.describe('UserActivity/User behavior', () => {
 // [ApiController]'s automatic model validation, which short-circuits with an
 // RFC9110 ValidationProblemDetails envelope ({title, status, errors:{Field:[…]}})
 // BEFORE the action body's hand-built {Success:false} path runs. We assert the
-// actual, observable contract — the DataAnnotation ErrorMessage still surfaces.
+// actual, observable contract - the DataAnnotation ErrorMessage still surfaces.
 test.describe('Discovery/Request validation', () => {
   test('TmdbId 0 → 400 problem-details with the TmdbId message', async () => {
     const res = await ctx.post(p('Discovery/Request'), {

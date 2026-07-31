@@ -64,7 +64,7 @@ public class StrmLinkHandler : ILinkHandler
     {
         // Crash-safe write: stage the new content in a sibling temp file and atomically move it
         // over the target. An in-place File.WriteAllText truncates first, so an interrupted write
-        // (crash, power loss, process kill) would leave a truncated/empty .strm — the original
+        // (crash, power loss, process kill) would leave a truncated/empty .strm - the original
         // target pointer is destroyed by the truncate and, on the next run, reads back empty →
         // InvalidContent, permanently losing the pointer. The temp+atomic-move gives .strm repair
         // the same durability guarantee SymlinkHandler already has.

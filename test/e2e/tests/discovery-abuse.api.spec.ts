@@ -1,5 +1,5 @@
 /**
- * Adversarial user-facing Discovery tests — access-control and write-side abuse.
+ * Adversarial user-facing Discovery tests - access-control and write-side abuse.
  * The gate must never leak to Seerr when disabled/denied, must reject malformed
  * input with 400 (not 500), and must not let a user spoof another identity.
  *
@@ -113,7 +113,7 @@ test.describe.serial('Discovery/My write-side access control', () => {
     await setAccess(true);
     await mockReset();
 
-    // Submit with a SeerrUserId that is NOT the caller's — the plugin must ignore
+    // Submit with a SeerrUserId that is NOT the caller's - the plugin must ignore
     // the body value and resolve the CALLER's own identity (or reject).
     const res = await user!.post(p('Discovery/My/Request'), {
       headers: { 'Content-Type': 'application/json' },

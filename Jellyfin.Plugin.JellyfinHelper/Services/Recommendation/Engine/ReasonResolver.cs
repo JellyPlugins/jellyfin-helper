@@ -267,7 +267,7 @@ internal static class ReasonResolver
                 profile.GenreDistribution,
                 profile.GenreDistribution.Comparer),
             // Language / subtitle / people profiles are aggregated stats too (like GenreDistribution),
-            // so they belong in the stripped response for consistency — omitting them made the API
+            // so they belong in the stripped response for consistency - omitting them made the API
             // report empty language/subtitle/people aggregates while GenreDistribution was correct.
             // Their setters already defensive-copy with OrdinalIgnoreCase, so a direct assign is safe.
             LanguageProfile = profile.LanguageProfile,

@@ -42,11 +42,11 @@ internal sealed class NullableDateTimeConverter : JsonConverter<DateTime?>
                 return parsed;
             }
 
-            // Unrecognized format — treat as missing rather than throwing
+            // Unrecognized format - treat as missing rather than throwing
             return null;
         }
 
-        // Unexpected token type — consume the token to satisfy the JsonConverter contract
+        // Unexpected token type - consume the token to satisfy the JsonConverter contract
         reader.Skip();
         return null;
     }

@@ -20,7 +20,7 @@ public sealed class TrainingDataBuilderTests
         // Two users, each with one recommendation of a unique item. Neither user has
         // watched the OTHER's recommended item → both are eligible cross-user negatives
         // in Phase 3. We repeat BuildExamples() with an identical fresh copy of the input
-        // (same GUIDs, same order) — the deterministic seed introduced in F-01 must yield
+        // (same GUIDs, same order) - the deterministic seed introduced in F-01 must yield
         // bit-identical randomNegativeCount, generatedAtUtc, and label sequences across
         // both runs. A regression to Random.Shared would keep the counts stable (sample
         // size is capped) but the picked items would change on nearly every retry.

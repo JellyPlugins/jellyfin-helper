@@ -37,7 +37,7 @@ internal static class TrainingDataBuilder
     /// <param name="discoveryFeedback">Optional discovery feedback data for Phase 4.</param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>
-    ///     A tuple with the training examples and three separate counters — organic watches
+    ///     A tuple with the training examples and three separate counters - organic watches
     ///     (Phase 2), cross-user random negatives (Phase 3) and discovery interactions
     ///     (Phase 4). Splitting the discovery counter out of <c>OrganicCount</c> lets
     ///     operators tell at a glance whether the positive signal comes from actual
@@ -64,17 +64,17 @@ internal static class TrainingDataBuilder
     ///     Per-series total-episode-count map (SeriesId → playable episodes in the library). When
     ///     supplied, the genre/people preference vectors built here apply the SAME progression
     ///     multiplier the inference path applies (see <see cref="PreferenceBuilder"/>), so the model
-    ///     trains on the feature distribution it is actually served — eliminating train/serve skew.
+    ///     trains on the feature distribution it is actually served - eliminating train/serve skew.
     ///     When null/empty, every episode row keeps neutral weight (1.0), matching the pre-fix and
     ///     no-library-data behavior.
     /// </param>
     /// <param name="genreStudioIdf">
-    ///     Library-wide genre/studio IDF rarity table — the SAME table the inference path uses — so the
+    ///     Library-wide genre/studio IDF rarity table - the SAME table the inference path uses - so the
     ///     GenreStudioIdfPrior feature is identical between train and serve. Null → neutral 0.0 both sides.
     /// </param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>
-    ///     A tuple with the training examples and three separate counters — organic watches
+    ///     A tuple with the training examples and three separate counters - organic watches
     ///     (Phase 2), cross-user random negatives (Phase 3) and discovery interactions
     ///     (Phase 4). Splitting the discovery counter out of <c>OrganicCount</c> lets
     ///     operators tell at a glance whether the positive signal comes from actual
@@ -208,7 +208,7 @@ internal static class TrainingDataBuilder
             var ps = TrainingFeatureComputer.BuildStudioPreferenceSetFromCache(profile, itemStudiosLookup);
             var pt = TrainingFeatureComputer.BuildTagPreferenceSetFromCache(profile, itemTagsLookup);
             // The new content-affinity preference maps read directly off WatchedItemInfo's cached
-            // fields, so the SAME PreferenceBuilder functions used at live scoring time apply here —
+            // fields, so the SAME PreferenceBuilder functions used at live scoring time apply here -
             // identical inputs → identical maps → train/serve parity by construction.
             var pf = PreferenceBuilder.BuildFranchisePreferenceVector(profile);
             var pc = PreferenceBuilder.BuildProductionCountryPreferenceVector(profile);
@@ -335,8 +335,8 @@ internal static class TrainingDataBuilder
                 // as an engagement magnitude rather than a user-interaction gate.
                 //
                 // We still resolve watchedItemForRec from the most recent episode so that temporal
-                // features (DayOfWeek/HourOfDay/IsWeekend) — which do have real inference-time
-                // signal from user-anchored watch times — stay grounded.
+                // features (DayOfWeek/HourOfDay/IsWeekend) - which do have real inference-time
+                // signal from user-anchored watch times - stay grounded.
                 double userRatingScore;
                 double completionRatio;
                 bool hasUserInteraction;
@@ -460,7 +460,7 @@ internal static class TrainingDataBuilder
                     LanguageAffinity = TrainingFeatureComputer.ComputeLanguageAffinityFromCache(rec.AudioLanguages, userProfile),
                     CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(rec.BoxSetIds, watchedBoxSetCounts),
                     SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(rec.SubtitleLanguages, userProfile),
-                    // Content-affinity signals — SAME shared helpers as live scoring, over the cached
+                    // Content-affinity signals - SAME shared helpers as live scoring, over the cached
                     // RecommendedItem fields. Missing/legacy fields (null string, empty list) self-neutralize
                     // to 0.0 (or 0.5 for completability) inside the helpers, so old cache entries never crash.
                     FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(rec.TmdbCollectionName, preferredFranchises),
@@ -805,7 +805,7 @@ internal static class TrainingDataBuilder
                         : 0.0,
                     // Popularity prior: identical composition to Phase 1, Phase 3 and the live scoring
                     // path (collaborative + critic blend). Previously omitted here, leaving organic
-                    // examples at the 0.0 default while every other path fed a real value — a
+                    // examples at the 0.0 default while every other path fed a real value - a
                     // train/serve skew on this dimension. collabScore/combinedCriticScore are the same
                     // locals already feeding CollaborativeScore/CombinedCriticScore above.
                     PopularityScore = ContentScoring.ComputePopularityScore(collabScore, combinedCriticScore),
@@ -825,7 +825,7 @@ internal static class TrainingDataBuilder
                     // Content-affinity signals from WatchedItemInfo's cached fields, using the SAME shared
                     // helpers as live scoring. BillingWeightedPeople now reads the cached PeopleNames/
                     // PeopleWeights (billing weights persisted at watch-history build) so organic examples
-                    // carry the same real value the live path computes — closing the prior 0.0 skew.
+                    // carry the same real value the live path computes - closing the prior 0.0 skew.
                     FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(w.TmdbCollectionName, preferredFranchisesOrganic),
                     ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity(w.ProductionCountries, preferredCountriesOrganic),
                     InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity(w.InheritedTags, preferredInheritedTagsOrganic),
@@ -918,7 +918,7 @@ internal static class TrainingDataBuilder
                     perUserCache[userProfile.UserId];
 
                 // Build watched genre/people/studio sets for ContentNearestNeighborScore (mirrors Phase 1).
-                // Use HasMeaningfulInteraction() for train/serve parity — see Phase 1 comment above.
+                // Use HasMeaningfulInteraction() for train/serve parity - see Phase 1 comment above.
                 var watchedGenreSetsNeg = new List<HashSet<string>>();
                 var watchedPeopleSetsNeg = new List<HashSet<string>>();
                 var watchedStudioSetsNeg = new List<HashSet<string>>();
@@ -1060,7 +1060,7 @@ internal static class TrainingDataBuilder
                         // ComputeCollectionProgressionBoostWithCounts, which is the correct signal).
                         CollectionProgressionBoost = ComputeCollectionProgressionBoostWithCounts(neg.BoxSetIds, watchedBoxSetCountsNeg),
                         SubtitleLanguageAffinity = TrainingFeatureComputer.ComputeSubtitleLanguageAffinityFromCache(neg.SubtitleLanguages, userProfile),
-                        // Content-affinity signals — same shared helpers, over the cached RecommendedItem
+                        // Content-affinity signals - same shared helpers, over the cached RecommendedItem
                         // negative sample. neg carries the full field set (incl. PeopleWeights), so billing
                         // is real here (unlike the organic branch). Empty/legacy fields self-neutralize.
                         FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(neg.TmdbCollectionName, preferredFranchisesNeg),
@@ -1100,7 +1100,7 @@ internal static class TrainingDataBuilder
         // Only added when discovery feedback is available (non-null, non-empty).
         // Kept as a separate counter (not folded into organicCount) so operators can see
         // exactly how much of the positive training signal comes from external Seerr
-        // requests vs. actual watched consumption — the two mixed together used to make
+        // requests vs. actual watched consumption - the two mixed together used to make
         // a "205 organic" log look healthy when in fact only 5 items were truly watched.
         var discoveryCount = 0;
         if (discoveryFeedback is { Count: > 0 })
@@ -1170,7 +1170,7 @@ internal static class TrainingDataBuilder
         // Find the best progression signal across all BoxSets the candidate belongs to.
         // The formula itself is delegated to the shared helper in EngineConstants so the live
         // inference path (Engine.ComputeCollectionProgressionBoostLive) uses exactly the same
-        // implementation — guaranteeing train/serve parity by construction.
+        // implementation - guaranteeing train/serve parity by construction.
         var bestBoost = 0.0;
         foreach (var boxSetId in boxSetIds)
         {

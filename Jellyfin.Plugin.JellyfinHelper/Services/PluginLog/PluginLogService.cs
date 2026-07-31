@@ -281,7 +281,7 @@ public class PluginLogService : IPluginLogService
 
     /// <summary>
     ///     Strips CR, LF, and NUL from a string to prevent log-forging via injected newlines.
-    ///     Applied at the public API boundary so all paths — ILogger forwarding and buffer storage —
+    ///     Applied at the public API boundary so all paths - ILogger forwarding and buffer storage -
     ///     receive sanitized values.
     /// </summary>
     private static string SanitizeForLog(string value)

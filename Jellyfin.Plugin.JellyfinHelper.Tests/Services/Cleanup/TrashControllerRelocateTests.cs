@@ -275,7 +275,7 @@ public class TrashControllerRelocateTests : IDisposable
     {
         // Arrange: two libraries, and an absolute source INSIDE the second-registered
         // one. The relative new path resolves under BOTH libraries, so a naive "first
-        // library that resolves" would target the first (movies) — a non-deterministic,
+        // library that resolves" would target the first (movies) - a non-deterministic,
         // wrong result driven by enumeration order. The correct behaviour is to relocate
         // WITHIN the library that actually contains the source (shows).
         var moviesRoot = Path.Combine(_testRoot, "movies");
@@ -291,7 +291,7 @@ public class TrashControllerRelocateTests : IDisposable
             .Returns((1, 0));
 
         var config = new PluginConfiguration();
-        // movies registered FIRST on purpose — the source lives under shows.
+        // movies registered FIRST on purpose - the source lives under shows.
         var controller = CreateController(config, [moviesRoot, showsRoot], trashServiceMock);
 
         // Act
@@ -381,7 +381,7 @@ public class TrashControllerRelocateTests : IDisposable
     public void RelocateTrash_AbsoluteTargetIsSensitiveSystemDir_ReturnsBadRequest()
     {
         // The NEW (destination) absolute path must likewise be refused when it is a
-        // sensitive system directory — trash must never be relocated INTO /config etc.
+        // sensitive system directory - trash must never be relocated INTO /config etc.
         var libraryRoot = Path.Combine(_testRoot, "movies");
         var oldRelativeTrash = Path.Combine(libraryRoot, ".old-trash");
         Directory.CreateDirectory(oldRelativeTrash);
@@ -394,7 +394,7 @@ public class TrashControllerRelocateTests : IDisposable
         var result = controller.RelocateTrash(new TrashRelocateRequest
         {
             // Safe absolute source (inside the library) so the OLD-path guard passes and
-            // the rejection can ONLY come from the sensitive DESTINATION — otherwise this
+            // the rejection can ONLY come from the sensitive DESTINATION - otherwise this
             // test would short-circuit on the source guard and never exercise the target.
             OldTrashPath = oldRelativeTrash,
             NewTrashPath = sensitive,

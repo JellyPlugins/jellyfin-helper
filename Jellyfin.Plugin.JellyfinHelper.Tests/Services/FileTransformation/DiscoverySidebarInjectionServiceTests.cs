@@ -12,7 +12,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FileTransformation;
 
 /// <summary>
-///     Tests for <see cref="DiscoverySidebarInjectionService"/> — the startup hosted service that
+///     Tests for <see cref="DiscoverySidebarInjectionService"/> - the startup hosted service that
 ///     re-runs the Discovery sidebar injection at a robust point in the Jellyfin boot sequence
 ///     (after DI is built and the web root is mounted), self-healing the disk-write fallback after
 ///     a web update.
@@ -75,7 +75,7 @@ public sealed class DiscoverySidebarInjectionServiceTests : IDisposable
     public async Task StartAsync_ReInjectsScriptTagIntoIndexHtml()
     {
         // The hosted service must re-run injection at startup. On a writable web dir with the
-        // File Transformation plugin absent, that means the fallback tag is (re)written to disk —
+        // File Transformation plugin absent, that means the fallback tag is (re)written to disk -
         // even if it had been stripped after the constructor ran (simulating a web update).
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body></body></html>");
@@ -96,7 +96,7 @@ public sealed class DiscoverySidebarInjectionServiceTests : IDisposable
     public async Task StartAsync_IsIdempotent_DoesNotStackTags()
     {
         // Running the constructor injection plus the hosted service (and a second start) must not
-        // stack multiple <script> tags — the injection is idempotent via RemovalRegex.
+        // stack multiple <script> tags - the injection is idempotent via RemovalRegex.
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body></body></html>");
 

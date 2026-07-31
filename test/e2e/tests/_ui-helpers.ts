@@ -22,7 +22,7 @@ export async function openDashboard(page: Page): Promise<void> {
 
   // The JF web client matches Servers[].Id against the live server's Id from
   // /System/Info/Public. A hardcoded Id makes it treat the stored token as
-  // belonging to an unknown server, so it drops to the login page — fetch the
+  // belonging to an unknown server, so it drops to the login page - fetch the
   // real Id and use it.
   const infoRes = await page.request.get(`${base}/System/Info/Public`);
   const serverId = ((await infoRes.json()) as { Id: string }).Id;
@@ -33,7 +33,7 @@ export async function openDashboard(page: Page): Promise<void> {
   // PascalCase ManualAddress/LocalAddress (lowercase manualAddress is ignored),
   // and enableAutoLogin must already be set before boot.
   //
-  // This runs in the BROWSER, so it must be a pure function of its argument —
+  // This runs in the BROWSER, so it must be a pure function of its argument -
   // it cannot close over Node-scope variables (base/auth/serverId).
   const seedArg = { base, token: auth.token, userId: auth.userId, serverId };
   const seedCreds = (a: { base: string; token: string; userId: string; serverId: string }) => {
@@ -57,7 +57,7 @@ export async function openDashboard(page: Page): Promise<void> {
   };
 
   // Re-seed on EVERY document load (runs before any page script) so the value
-  // is present the instant the credentialProvider constructor reads it — this
+  // is present the instant the credentialProvider constructor reads it - this
   // covers the initial load and the config-page load below without a race.
   await page.addInitScript(seedCreds, seedArg);
 
@@ -69,7 +69,7 @@ export async function openDashboard(page: Page): Promise<void> {
   // Navigate to the plugin config page as a FULL document load so
   // ServerConnections is constructed fresh against the (now seeded) store and
   // resolves to SignedIn instead of redirecting to /session/login. The page is
-  // registered under the plugin's Name ("Jellyfin Helper", with a space) — the
+  // registered under the plugin's Name ("Jellyfin Helper", with a space) - the
   // un-encoded "JellyfinHelper" 404s and the shell never mounts.
   const configUrl = `${base}/web/index.html#!/configurationpage?name=${encodeURIComponent('Jellyfin Helper')}`;
   // A plain goto to a URL that differs only in the hash from the current one
@@ -81,7 +81,7 @@ export async function openDashboard(page: Page): Promise<void> {
 
   // If the app briefly lands on the dashboard home after auto-login instead of
   // the deep-linked config route, nudge it back to the config page (a hash nav
-  // is enough here — the SPA is already booted + signed in).
+  // is enough here - the SPA is already booted + signed in).
   const tabBar = page.locator('.tab-bar');
   try {
     await expect(tabBar).toBeVisible({ timeout: 20_000 });

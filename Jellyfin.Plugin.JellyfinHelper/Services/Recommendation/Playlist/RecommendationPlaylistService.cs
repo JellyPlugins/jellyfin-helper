@@ -417,7 +417,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
             // Delete the playlist resiliently. Two hardening points learned from an
             // orphaned-folder case:
-            //   1. Per-playlist try/catch — a single failure must not abort deleting the
+            //   1. Per-playlist try/catch - a single failure must not abort deleting the
             //      user's other managed playlists (the caller's catch is per-USER).
             //   2. DeleteFileLocation=true can THROW when the on-disk playlist folder is
             //      missing or its path drifted (Jellyfin appends a "1" dedupe suffix when a
@@ -452,7 +452,7 @@ public sealed class RecommendationPlaylistService : IRecommendationPlaylistServi
 
                     // playlist.Path is DB-sourced and, when a playlist's on-disk folder has
                     // drifted, may not point where we expect. Before recursively deleting it,
-                    // confirm it resolves strictly INSIDE Jellyfin's own playlists root — never
+                    // confirm it resolves strictly INSIDE Jellyfin's own playlists root - never
                     // the root itself, and never a system/sensitive location. This keeps a
                     // fallback delete from ever escaping to /config, an OS dir, or another
                     // library because of a stale/hostile path.

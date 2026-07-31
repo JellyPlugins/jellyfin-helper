@@ -3,7 +3,7 @@
  * under JellyfinHelper/ responds without 404/500. This is the automated version
  * of the manual "does it load and do the endpoints answer" check.
  *
- * We assert on status *classes* (not exact bodies) here — behaviour-specific
+ * We assert on status *classes* (not exact bodies) here - behaviour-specific
  * assertions live in the other api specs. A 401 would mean auth broke; a 404
  * means a route regressed; a 500 means the endpoint threw.
  */
@@ -68,7 +68,7 @@ const getEndpoints: Array<{ path: string; okStatuses?: number[] }> = [
   { path: p('Translations') },
   { path: p('Discovery') },
   // Cache-backed endpoints may legitimately answer 503 before their task runs,
-  // or 204/200 depending on state — all are "not a routing/500 failure".
+  // or 204/200 depending on state - all are "not a routing/500 failure".
   { path: p('MediaStatistics/Latest'), okStatuses: [200, 204] },
   { path: p('GrowthTimeline') },
   { path: p('Recommendations'), okStatuses: [200, 503] },
@@ -82,7 +82,7 @@ for (const ep of getEndpoints) {
     const allowed = ep.okStatuses ?? [200];
     // Never 404 (route regression). Every endpoint must answer with a status in its
     // declared allow-list, plus 429 (rate-limited scans) tolerated as non-fatal. This
-    // toContain hard-rejects anything else — including any 5xx — so the contract is
+    // toContain hard-rejects anything else - including any 5xx - so the contract is
     // strict, not merely "not a server error".
     expect(res.status(), `unexpected status for ${ep.path}`).not.toBe(404);
     expect([...allowed, 429], `unexpected status for ${ep.path}`).toContain(res.status());
@@ -98,7 +98,7 @@ test('per-user recommendation + activity endpoints route correctly', async () =>
     const res = await ctx.get(path);
     expect(res.status(), path).not.toBe(404);
     // 503 = feature deactivated (a valid guard state), 429 = rate-limited, 400 =
-    // validation — none are server errors. Only a real 5xx crash fails here.
+    // validation - none are server errors. Only a real 5xx crash fails here.
     expect([200, 400, 429, 503], path).toContain(res.status());
   }
 });

@@ -7,7 +7,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Common;
 ///     Unit tests for <see cref="BatchFallbackHelper.TryRunBatch{T}"/>.
 ///     The behavioural contract this class enforces is what the three batch call sites
 ///     in <c>SimilarityComputer</c>, <c>WatchHistoryService</c> and
-///     <c>UserActivityInsightsService</c> silently rely on — so we lock it down here.
+///     <c>UserActivityInsightsService</c> silently rely on - so we lock it down here.
 /// </summary>
 public sealed class BatchFallbackHelperTests
 {
@@ -31,7 +31,7 @@ public sealed class BatchFallbackHelperTests
     public void TryRunBatch_Success_WithNullResult_ReturnsNullNotFallback()
     {
         // If the batch legitimately returns null (e.g. Jellyfin API contract), we must
-        // pass that through — NOT confuse it with a failure and return the fallback value.
+        // pass that through - NOT confuse it with a failure and return the fallback value.
         var result = BatchFallbackHelper.TryRunBatch<string?>(
             batchCall: () => null,
             fallbackValue: "should-not-see-this",
@@ -103,7 +103,7 @@ public sealed class BatchFallbackHelperTests
     [Fact]
     public void TryRunBatch_TaskCanceledException_PropagatesLikeOperationCanceled()
     {
-        // TaskCanceledException derives from OperationCanceledException — same treatment.
+        // TaskCanceledException derives from OperationCanceledException - same treatment.
         var callbackCalls = 0;
 
         Assert.Throws<System.Threading.Tasks.TaskCanceledException>(() =>
@@ -132,7 +132,7 @@ public sealed class BatchFallbackHelperTests
     }
 
     // Note: We do NOT unit-test StackOverflowException. It cannot be reliably caught /
-    // rethrown in userspace on modern .NET runtimes — the process is dead by then. The
+    // rethrown in userspace on modern .NET runtimes - the process is dead by then. The
     // filter is documentation of intent and CLR-level protection, nothing more.
 
     // === Argument validation ===
@@ -205,7 +205,7 @@ public sealed class BatchFallbackHelperTests
     [Fact]
     public void TryRunBatch_OnFailureThrows_ExceptionDoesNotPropagate()
     {
-        // A callback exception must be swallowed silently — otherwise the caller sees
+        // A callback exception must be swallowed silently - otherwise the caller sees
         // an unexpected exception type (the logger's) instead of getting fallbackValue.
         // Verified by Record.Exception returning null.
         var thrown = Record.Exception(() =>
@@ -222,7 +222,7 @@ public sealed class BatchFallbackHelperTests
     {
         // The outer catch turns any non-cancellation batch exception into a
         // graceful fallback, so if the callback then observes cancellation the signal
-        // must still bubble out — otherwise a batch that gets cancelled during logging
+        // must still bubble out - otherwise a batch that gets cancelled during logging
         // silently degrades to fallback instead of stopping. The inner filter used to
         // swallow OCE here, which broke the graceful-degradation contract's promise
         // that cancellation is always a stop signal.

@@ -228,7 +228,7 @@ public sealed class CollectionProgressionBoostTests
     {
         // Defensive edge case: a BoxSet ID is present in the counts map but its
         // count is zero (should not happen in practice, but the method must not
-        // emit a 0.3 boost for it — the "n > 0" guard in the code must hold).
+        // emit a 0.3 boost for it - the "n > 0" guard in the code must hold).
         var boxSetId = Guid.NewGuid();
         var counts = new Dictionary<Guid, int> { { boxSetId, 0 } };
 

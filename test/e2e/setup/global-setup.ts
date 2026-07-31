@@ -1,5 +1,5 @@
 /**
- * Playwright global setup — runs once before any test, after scripts/run.sh has
+ * Playwright global setup - runs once before any test, after scripts/run.sh has
  * brought the stack up and generated the fake media.
  *
  * Steps (all via Jellyfin's HTTP API, verified against the 12.0-rc source):
@@ -32,7 +32,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   const ctx = await pwRequest.newContext({ baseURL: BASE_URL });
 
   // Small helper: run a startup step, log its status, and don't hard-fail on a
-  // 4xx (a re-used server returns those) — but DO surface the status so a real
+  // 4xx (a re-used server returns those) - but DO surface the status so a real
   // wizard failure is visible in CI instead of silently swallowed.
   const step = async (label: string, fn: () => Promise<{ status: () => number; text: () => Promise<string> }>) => {
     try {
@@ -53,7 +53,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   };
 
   // --- 1. startup wizard ---------------------------------------------------
-  // Source-verified JF12 flow: POST /Startup/User does NOT create a user — it
+  // Source-verified JF12 flow: POST /Startup/User does NOT create a user - it
   // configures the pre-existing default admin (renames it + sets its password).
   // If that user already has a password it returns 403 and does nothing, so we
   // must NOT swallow the response. Order: GET user (forces init) → Configuration
@@ -82,7 +82,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   // Reused container (iterating with --keep, or a CI re-run against a warm
   // volume): the wizard is already complete, so the anon Startup/* endpoints
   // are closed and this returns 401 (endpoint locked) or 403 (user already has
-  // a password). Both mean "already provisioned" — we skip wizard setup and go
+  // a password). Both mean "already provisioned" - we skip wizard setup and go
   // straight to authenticating with the admin creds we expect. If those creds
   // don't match what the container was set up with, the auth step below fails
   // loudly with a diagnostic, so treating 401/403 as recoverable is safe.
@@ -98,11 +98,11 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   }
   if (wizardAlreadyDone) {
     // eslint-disable-next-line no-console
-    console.log('[global-setup] wizard already complete (reused container) — skipping to auth');
+    console.log('[global-setup] wizard already complete (reused container) - skipping to auth');
   }
 
   if (!wizardAlreadyDone) {
-    // 12.0: EnableAutomaticPortMapping was removed — send only EnableRemoteAccess.
+    // 12.0: EnableAutomaticPortMapping was removed - send only EnableRemoteAccess.
     await step('Startup/RemoteAccess', () =>
       ctx.post('/Startup/RemoteAccess', {
         headers: { 'Content-Type': 'application/json' },
@@ -110,7 +110,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
       }),
     );
 
-    // Finish the wizard LAST — after this, Startup/* stop accepting anon calls.
+    // Finish the wizard LAST - after this, Startup/* stop accepting anon calls.
     await step('Startup/Complete', () => ctx.post('/Startup/Complete'));
   }
 
@@ -170,7 +170,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
       data: { Name: NORMAL_USER, Password: NORMAL_PASS },
     });
     // On a warm/reused container the user already exists and Users/New returns a
-    // 4xx (e.g. 400 "user already exists"). That is NOT a provisioning failure —
+    // 4xx (e.g. 400 "user already exists"). That is NOT a provisioning failure -
     // we can still authenticate as the existing user. So authenticate whenever the
     // create succeeded OR the user plausibly already exists; only a 5xx (or a
     // network throw) is a hard failure. This keeps provisioning idempotent across
@@ -182,7 +182,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
       console.log(`[global-setup] Users/New -> ${created.status()} (unexpected; non-admin tests will skip)`);
     } else {
       // eslint-disable-next-line no-console
-      console.log(`[global-setup] Users/New -> ${created.status()} (${createdOk ? 'created' : 'already exists — authenticating existing user'})`);
+      console.log(`[global-setup] Users/New -> ${created.status()} (${createdOk ? 'created' : 'already exists - authenticating existing user'})`);
       const nAuth = await ctx.post('/Users/AuthenticateByName', {
         headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
         data: { Username: NORMAL_USER, Pw: NORMAL_PASS },
@@ -195,12 +195,12 @@ async function globalSetup(_config: FullConfig): Promise<void> {
 
         // Link this non-admin user to the mock's SECOND Seerr user (Bob) and grant
         // the Request permission (bit 32) so the user-facing Discovery/My/Request
-        // authorization branches are actually reachable. Seeded here — before any
-        // spec runs and before the plugin populates its 5-min Seerr-user cache —
+        // authorization branches are actually reachable. Seeded here - before any
+        // spec runs and before the plugin populates its 5-min Seerr-user cache -
         // so the linkage is deterministic and not defeated by cache staleness.
         await seedSeerr('/seed-user2', { jellyfinUserId: nj.User.Id, permissions: 32 });
       } else {
-        // Could not authenticate — do NOT report success silently. Log the
+        // Could not authenticate - do NOT report success silently. Log the
         // rejection so a broken provisioning path is visible; dependent tests skip
         // (normalUser stays null) rather than run against a half-provisioned user.
         // eslint-disable-next-line no-console
@@ -217,11 +217,11 @@ async function globalSetup(_config: FullConfig): Promise<void> {
 
   // In CI we require the non-admin fixture so the authorization / user-facing
   // tests can't silently skip (E2E_REQUIRE_NORMAL_USER=1). Fail the whole run
-  // here — at setup — with a clear message rather than letting each dependent
+  // here - at setup - with a clear message rather than letting each dependent
   // test skip and hide a broken provisioning path.
   if (!normalUser && process.env.E2E_REQUIRE_NORMAL_USER === '1') {
     throw new Error(
-      'E2E_REQUIRE_NORMAL_USER=1 but the non-admin user could not be provisioned — ' +
+      'E2E_REQUIRE_NORMAL_USER=1 but the non-admin user could not be provisioned - ' +
         'see the [global-setup] logs above for the failing step (Users/New or AuthenticateByName).',
     );
   }
@@ -250,7 +250,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
     console.log(`[global-setup] planted canaries: ${plantedCanaries().join(', ') || '(none writable)'}`);
   } else {
     // eslint-disable-next-line no-console
-    console.log('[global-setup] docker exec unavailable — FS-assertion tests will skip');
+    console.log('[global-setup] docker exec unavailable - FS-assertion tests will skip');
   }
 
   await ctx.dispose();
@@ -265,7 +265,7 @@ function publicSeerrUrl(): string {
 /**
  * Best-effort POST to a mock-Seerr test hook, always disposing the throwaway
  * request context. Seeding must never fail global-setup (the mock link is a
- * convenience for Discovery tests), so all errors are swallowed — but the socket
+ * convenience for Discovery tests), so all errors are swallowed - but the socket
  * pool is released in finally rather than leaked for the whole run.
  */
 async function seedSeerr(path: string, data: unknown): Promise<void> {

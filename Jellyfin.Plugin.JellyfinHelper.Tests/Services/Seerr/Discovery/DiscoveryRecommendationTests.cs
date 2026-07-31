@@ -5,8 +5,8 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
 ///     Tests the setter guards on <see cref="DiscoveryRecommendation"/>.
-///     The class stores three <c>double</c> fields — <see cref="DiscoveryRecommendation.Score"/>,
-///     <see cref="DiscoveryRecommendation.TmdbRating"/>, and <see cref="DiscoveryRecommendation.Popularity"/> —
+///     The class stores three <c>double</c> fields - <see cref="DiscoveryRecommendation.Score"/>,
+///     <see cref="DiscoveryRecommendation.TmdbRating"/>, and <see cref="DiscoveryRecommendation.Popularity"/> -
 ///     each protected by an inline setter that must:
 ///     <list type="bullet">
 ///         <item>Reject non-finite input (<c>NaN</c>, ±<c>Infinity</c>) by coercing to <c>0</c>.</item>
@@ -139,7 +139,7 @@ public sealed class DiscoveryRecommendationTests
     [Fact]
     public void Popularity_PositiveInfinity_CoercedToZero()
     {
-        // Unlike Score/TmdbRating this field has NO upper clamp — Infinity would be
+        // Unlike Score/TmdbRating this field has NO upper clamp - Infinity would be
         // an arbitrarily-large valid value if we treated it "as-is". The guard therefore
         // has to reject non-finite explicitly, which this test pins.
         var sut = new DiscoveryRecommendation { Popularity = double.PositiveInfinity };
@@ -160,7 +160,7 @@ public sealed class DiscoveryRecommendationTests
     [Fact]
     public void Popularity_Zero_StoredAsZero()
     {
-        // The guard uses `> 0` — exactly 0 falls through to the else-branch and lands
+        // The guard uses `> 0` - exactly 0 falls through to the else-branch and lands
         // at 0.0. This is behaviourally equivalent to the "positive value" branch for
         // the boundary but exercises the alternative code path.
         var sut = new DiscoveryRecommendation { Popularity = 0.0 };

@@ -144,7 +144,7 @@ public sealed class BackupService : IBackupService
             DiscoveryUserAccessEnabled = config.DiscoveryUserAccessEnabled
         };
 
-        // Arr instances — API keys are included so that credentials survive a full
+        // Arr instances - API keys are included so that credentials survive a full
         // backup/restore cycle. ContainsSecrets is set below when any key is non-empty.
         foreach (var instance in config.RadarrInstances)
         {
@@ -264,7 +264,7 @@ public sealed class BackupService : IBackupService
                     _logger);
             }
 
-            // Restore configuration last — uses ReadAndMutate so the entire
+            // Restore configuration last - uses ReadAndMutate so the entire
             // read-mutate-save sequence is atomic with respect to concurrent callers.
             RestoreConfiguration(backup, summary);
         }
@@ -361,7 +361,7 @@ public sealed class BackupService : IBackupService
 
             // Seerr settings
             // An empty backup URL means "leave the existing URL in place", mirroring the API key
-            // guard below — a backup created without Seerr must not silently wipe a working URL.
+            // guard below - a backup created without Seerr must not silently wipe a working URL.
             // Also validate the URL scheme so a crafted backup cannot persist a non-http(s)
             // URL (e.g. "file:///etc/passwd") into the live configuration.
             if (!string.IsNullOrEmpty(backup.SeerrUrl))
@@ -376,7 +376,7 @@ public sealed class BackupService : IBackupService
                 {
                     _pluginLog.LogWarning(
                         "Backup",
-                        $"Backup SeerrUrl '{truncatedUrl}' is not a valid http/https URL — skipping to avoid persisting an unsafe scheme.",
+                        $"Backup SeerrUrl '{truncatedUrl}' is not a valid http/https URL - skipping to avoid persisting an unsafe scheme.",
                         logger: _logger);
                 }
             }
@@ -403,8 +403,8 @@ public sealed class BackupService : IBackupService
             }
 
             // Null means "absent in backup" (older plugin version or
-            // field omitted), so leave the live value unchanged. A non-null value — including
-            // 0 ("immediate cleanup") — is always applied after clamping.
+            // field omitted), so leave the live value unchanged. A non-null value - including
+            // 0 ("immediate cleanup") - is always applied after clamping.
             if (backup.SeerrCleanupAgeDays.HasValue)
             {
                 config.SeerrCleanupAgeDays = Math.Clamp(
@@ -418,7 +418,7 @@ public sealed class BackupService : IBackupService
             // Reject traversal sequences so a crafted backup cannot escape the library root.
             // Split on the LITERAL ['/', '\\'] (not Path.DirectorySeparatorChar/AltDirectorySeparatorChar,
             // which both collapse to '/' on Unix and would let a Windows-style "foo\..\bar" slip through
-            // on a Linux host), and reject "." as well as ".." — matching the validators.
+            // on a Linux host), and reject "." as well as ".." - matching the validators.
             var rawTrashPath = backup.TrashFolderPath;
             var hasTraversal = !string.IsNullOrWhiteSpace(rawTrashPath) &&
                 rawTrashPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
@@ -438,7 +438,7 @@ public sealed class BackupService : IBackupService
             // Discovery user access - defaults to false for older backups without this field
             config.DiscoveryUserAccessEnabled = backup.DiscoveryUserAccessEnabled;
 
-            // Arr instances — preserve live keys when the backup omitted them, and flag any
+            // Arr instances - preserve live keys when the backup omitted them, and flag any
             // credential replacements via CredentialsChanged on the summary.
             RestoreArrInstances(backup.RadarrInstances, config.RadarrInstances, "Radarr", summary);
             RestoreArrInstances(backup.SonarrInstances, config.SonarrInstances, "Sonarr", summary);
@@ -481,7 +481,7 @@ public sealed class BackupService : IBackupService
 
         foreach (var instance in backupInstances.Take(BackupValidator.MaxArrInstances))
         {
-            // An empty backup key means "preserve the live key" — fall back to the previously
+            // An empty backup key means "preserve the live key" - fall back to the previously
             // stored key for this instance name, consistent with the SeerrApiKey guard above.
             var backupKeyEmpty = string.IsNullOrEmpty(instance.ApiKey);
             var apiKey = backupKeyEmpty

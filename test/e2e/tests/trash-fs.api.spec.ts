@@ -1,6 +1,6 @@
 /**
  * Behavioural filesystem tests for the trash bin: move-to-trash and date-based
- * retention purge — both entirely unverified by the shape/counter tests today.
+ * retention purge - both entirely unverified by the shape/counter tests today.
  *
  * Requires the container FS (docker exec); skips loudly when unavailable.
  */
@@ -99,7 +99,7 @@ test.describe.serial('trash move + retention purge', () => {
       OrphanMinAgeDays: 0,
     });
     // Seed two trash entries with names whose TIMESTAMP encodes their age (purge
-    // reads the name, not real mtimes — deterministic, not flaky).
+    // reads the name, not real mtimes - deterministic, not flaky).
     const oldTs = containerTimestamp(30);
     const freshTs = containerTimestamp(0);
     containerMkdir(`${TRASH}/${oldTs}_OldOrphan`);
@@ -151,7 +151,7 @@ test.describe.serial('trash move + retention purge', () => {
 
   test('an expired symlinked trash entry is unlinked, but its target survives (reparse-point = link-only delete)', async () => {
     // Regression guard for the data-loss risk in PurgeExpiredTrash: a trash entry
-    // that is a symlink/junction (reparse point) must be removed as the LINK ONLY —
+    // that is a symlink/junction (reparse point) must be removed as the LINK ONLY -
     // never recursively followed into the target. If a regression flipped to the
     // else-branch (Directory.Delete(dir, recursive:true)) it would wipe the
     // target's real contents.

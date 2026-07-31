@@ -274,7 +274,7 @@ public class ConfigurationRequestValidatorTests
         };
         Assert.Null(ConfigurationRequestValidator.Validate(req));
 
-        // Absolute path variant — also valid and must pass Validate().
+        // Absolute path variant - also valid and must pass Validate().
         var reqWithAbsolutePath = new ConfigurationUpdateRequest
         {
             UseTrash = true,
@@ -291,7 +291,7 @@ public class ConfigurationRequestValidatorTests
         // Demonstrates that ValidateTrashPath (advisory) and ValidateTrashPathStrict (blocking)
         // are separate layers. A path with ".." triggers BOTH: a warning from the advisory method
         // AND an error from the strict method. This proves Validate() correctly uses only the strict
-        // check — it does not need to suppress warnings because they operate independently.
+        // check - it does not need to suppress warnings because they operate independently.
         const string escapingPath = "../../escape";
 
         // Advisory method: produces a warning (non-null)
@@ -340,7 +340,7 @@ public class ConfigurationRequestValidatorTests
     [Fact]
     public void ValidateTrashPath_ReturnsWarning_ForDotPath()
     {
-        // "." resolves to the library root itself — admin should be warned.
+        // "." resolves to the library root itself - admin should be warned.
         var warning = ConfigurationRequestValidator.ValidateTrashPath(".");
         Assert.NotNull(warning);
         Assert.Contains("resolves to the library root itself", warning);

@@ -14,7 +14,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 ///     that other tests may set or clear. The <see cref="Plugin"/> singleton itself
 ///     cannot be instantiated in a unit test without a full Jellyfin host (its
 ///     constructor requires <c>IApplicationPaths</c>, <c>IXmlSerializer</c>, and a
-///     logger), so this seam exposes ONLY the properties the service actually reads —
+///     logger), so this seam exposes ONLY the properties the service actually reads -
 ///     a much smaller surface that any test double can satisfy.
 /// </para>
 /// </summary>
@@ -40,7 +40,7 @@ public class PluginConfigurationService : IPluginConfigurationService
     /// with an injected accessor (testing seam). Allows a test host to pin both the
     /// "plugin present" and "plugin absent" branches without racing against
     /// process-wide state managed by other tests. Marked <c>internal</c> so it is not
-    /// part of the public API surface — only
+    /// part of the public API surface - only
     /// <see cref="System.Runtime.CompilerServices.InternalsVisibleToAttribute"/>-linked
     /// assemblies (i.e. the test project) can invoke it.
     /// </summary>
@@ -56,7 +56,7 @@ public class PluginConfigurationService : IPluginConfigurationService
     /// <summary>
     /// Minimal abstraction over the <see cref="Plugin.Instance"/> singleton, exposing
     /// only the shape the service consumes. Kept internal because callers outside
-    /// this project have no legitimate need to swap it out — the DI container always
+    /// this project have no legitimate need to swap it out - the DI container always
     /// constructs the service through the parameterless production constructor.
     /// </summary>
     internal interface IPluginAccessor
@@ -125,7 +125,7 @@ public class PluginConfigurationService : IPluginConfigurationService
             var config = _accessor.Configuration;
             if (config == null)
             {
-                // Plugin not initialised — nothing to mutate or save.
+                // Plugin not initialised - nothing to mutate or save.
                 return;
             }
 

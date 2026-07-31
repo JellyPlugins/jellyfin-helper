@@ -100,12 +100,12 @@ dotnet test --filter "FullyQualifiedName~CreateBackup_IncludesAllSettings"
 The `dotnet test` suite above covers logic in isolation. A separate
 **end-to-end suite** (`test/e2e/`) runs the built plugin inside a real
 Jellyfin 12 container with mock Radarr/Sonarr/Seerr servers, and drives it the
-way a user would — settings, scheduled-task modes, backup import/export, trends,
+way a user would - settings, scheduled-task modes, backup import/export, trends,
 trash, and every dashboard tab (including the unsaved-changes dialog and log
 download). It also covers hardening / edge cases (broken backups, invalid URLs,
 traversal guards, out-of-range values).
 
-Requires Docker + Docker Compose and Node 20+ (no host ffmpeg needed — media is
+Requires Docker + Docker Compose and Node 20+ (no host ffmpeg needed - media is
 generated inside the container).
 
 ```bash
@@ -148,7 +148,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │   ├── TrashControllerTests.cs
 │   ├── UserActivityControllerTests.cs
 │   ├── UserDiscoveryControllerTests.cs
-│   ├── UserDiscoveryControllerAccessEnabledTests.cs  # Access gate ENABLED — request validation and permission surfaces
+│   ├── UserDiscoveryControllerAccessEnabledTests.cs  # Access gate ENABLED - request validation and permission surfaces
 │   ├── UserDiscoveryControllerSubmitTests.cs         # SubmitMyRequest + DismissItem with gate ENABLED
 │   └── ...
 ├── Configuration/                 # Config serialization tests
@@ -248,7 +248,7 @@ Jellyfin.Plugin.JellyfinHelper.Tests/
 │       │   ├── EngineBoxSetLookupTests.cs             # Sparsity guarantee, fail-soft on corrupted metadata, mutability contract
 │       │   ├── EngineCommunityPopularityTests.cs      # BuildCommunityPopularityMap: batch and live paths produce identical output
 │       │   ├── EngineEpisodicWatchHistoryTests.cs     # Episodic watch history must contribute people/studio signals via SeriesId fallback when ItemId is absent from peopleLookup/candidateLookup
-│       │   ├── EngineExceedsMaxRatingTests.cs         # Parental-rating gate — null max = unrestricted, missing rating = REJECT, inclusive boundary
+│       │   ├── EngineExceedsMaxRatingTests.cs         # Parental-rating gate - null max = unrestricted, missing rating = REJECT, inclusive boundary
 │       │   ├── EngineHelperTests.cs                   # Pure-static internal helpers untestable end-to-end
 │       │   ├── EngineFullPipelineTests.cs             # Cold-start and warm paths with real Movie instances; ghost-id, empty-library, two-user-gate coverage
 │       │   ├── EngineInstanceTests.cs                 # GetRecommendations/TrainStrategy contract: user-not-found=null, cancellation, Math.Clamp guards, empty deployment
@@ -311,10 +311,10 @@ ControllerTestFactory.ResetPluginConfiguration(); // start from known defaults
 ControllerTestFactory.TeardownPluginInstance();   // null the static field so the next class starts clean
 ```
 
-- Always call `TeardownPluginInstance()` in `IDisposable.Dispose()` — not just `ResetPluginConfiguration()`.  
+- Always call `TeardownPluginInstance()` in `IDisposable.Dispose()` - not just `ResetPluginConfiguration()`.  
   `Reset` only overwrites the config object; the next test class that calls `Initialize` will silently skip re-init (the guard `if (Plugin.Instance != null) return`) and inherit whatever state the previous class left behind.
 - Tests that mutate `Plugin.Instance.Configuration` must be placed in the `[Collection("ConfigOverride")]` collection so xUnit serialises them and prevents cross-class races.
-- Never depend on `Plugin.Instance` being non-null in a test that does not call `InitializePluginInstance()` — the singleton is not set up by the xUnit runner.
+- Never depend on `Plugin.Instance` being non-null in a test that does not call `InitializePluginInstance()` - the singleton is not set up by the xUnit runner.
 
 ## Architecture Overview
 
@@ -335,7 +335,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── BackupController.cs              # Backup/restore API
 │   ├── CleanupStatisticsController.cs   # Cleanup statistics API
 │   ├── ConfigurationController.cs       # Plugin configuration API
-│   ├── ConfigurationResponse.cs         # Read-only masked projection of PluginConfiguration returned by GET /Configuration — all API key fields replaced with "***" sentinel; empty string when no key is stored. Static factory method FromConfig(PluginConfiguration) keeps the mapping in one place.
+│   ├── ConfigurationResponse.cs         # Read-only masked projection of PluginConfiguration returned by GET /Configuration - all API key fields replaced with "***" sentinel; empty string when no key is stored. Static factory method FromConfig(PluginConfiguration) keeps the mapping in one place.
 │   ├── MaskedArrInstanceConfig.cs       # Arr-instance view model used inside ConfigurationResponse (Name, Url, masked ApiKey). Separate from ArrInstanceConfig so the real key never appears in the serialized GET response.
 │   ├── DiscoveryController.cs           # Seerr Discovery API - admin (all users, services, requests)
 │   ├── UserDiscoveryController.cs       # Seerr Discovery API - user-facing (own results, requests)
@@ -347,7 +347,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── LibraryInsightsController.cs     # Library insights API
 │   ├── LogsController.cs               # Plugin logs API
 │   ├── MediaStatisticsController.cs     # Media statistics API
-│   ├── ModelBindingLogFilter.cs        # IAsyncActionFilter (Order = int.MinValue) attached to endpoints via [ServiceFilter]. Surfaces model-binding failures (invalid field types, null request body) into IPluginLogService BEFORE [ApiController]'s auto-400 short-circuits the request — without this filter, the auto-400 makes it out but no plugin-log entry is written, leaving admins with a bare HTTP 400 and no server-side trace to debug against. Registered as Scoped in PluginServiceRegistrator; do NOT register globally (would rewrite responses of other Jellyfin controllers that have their own error contracts).
+│   ├── ModelBindingLogFilter.cs        # IAsyncActionFilter (Order = int.MinValue) attached to endpoints via [ServiceFilter]. Surfaces model-binding failures (invalid field types, null request body) into IPluginLogService BEFORE [ApiController]'s auto-400 short-circuits the request - without this filter, the auto-400 makes it out but no plugin-log entry is written, leaving admins with a bare HTTP 400 and no server-side trace to debug against. Registered as Scoped in PluginServiceRegistrator; do NOT register globally (would rewrite responses of other Jellyfin controllers that have their own error contracts).
 │   ├── PingController.cs               # /JellyfinHelper/Ping liveness endpoint - no dependencies, returns { ok, plugin, version }. The Settings save flow probes this after a failed save to distinguish "backend unreachable" (Ping also fails) from "backend reachable, request rejected" (Ping succeeds). Uses the same [Authorize(RequiresElevation)] policy as the other admin endpoints so a successful ping proves the entire auth + routing + reverse-proxy chain is intact for admins.
 │   ├── RecommendationController.cs      # ML recommendations API
 │   ├── SeerrController.cs              # Jellyseerr/Overseerr integration API
@@ -388,8 +388,8 @@ Jellyfin.Plugin.JellyfinHelper/
 │   │   ├── UserActivitySummary.cs
 │   │   └── UserItemActivity.cs
 │   ├── Backup/
-│   │   ├── BackupData.cs              # Backup data model — `ContainsSecrets` flag (true when any API key is included in the export) so callers can warn the user before download
-│   │   ├── BackupRestoreSummary.cs    # Restore outcome DTO — `CredentialsChanged` flag (true when any API key was overwritten with a different value from the backup); set by RestoreConfiguration alongside a WARN log entry
+│   │   ├── BackupData.cs              # Backup data model - `ContainsSecrets` flag (true when any API key is included in the export) so callers can warn the user before download
+│   │   ├── BackupRestoreSummary.cs    # Restore outcome DTO - `CredentialsChanged` flag (true when any API key was overwritten with a different value from the backup); set by RestoreConfiguration alongside a WARN log entry
 │   │   ├── BackupService.cs           # Create/restore backup
 │   │   ├── BackupValidator.cs         # Comprehensive input validation
 │   │   └── BackupSanitizer.cs         # Clamp/normalize values
@@ -464,7 +464,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   ├── PluginLog/               # Structured plugin logging
 │   ├── FileTransformation/      # File Transformation plugin integration
 │   │   ├── DiscoveryScriptTag.cs     # Shared script tag builder + removal regex (single source of truth)
-│   │   ├── DiscoverySidebarInjectionService.cs  # IHostedService that re-runs Plugin.InjectScript() at server startup (post-DI, web root mounted) — self-heals the disk-write fallback after a Jellyfin web update; idempotent alongside the ctor injection
+│   │   ├── DiscoverySidebarInjectionService.cs  # IHostedService that re-runs Plugin.InjectScript() at server startup (post-DI, web root mounted) - self-heals the disk-write fallback after a Jellyfin web update; idempotent alongside the ctor injection
 │   │   ├── PatchRequestPayload.cs    # Payload model for transformation callbacks
 │   │   └── TransformationPatches.cs  # index.html script injection (on-the-fly via File Transformation plugin)
 │   ├── Seerr/                   # Jellyseerr/Overseerr integration
@@ -504,7 +504,7 @@ Jellyfin.Plugin.JellyfinHelper/
 │   └── Timeline/                # Library growth tracking
 │       ├── IGrowthTimelineService.cs   # Interface for timeline generation
 │       ├── GrowthTimelineService.cs    # Orchestrator: scans library directories, builds incremental entries, writes result JSON
-│       ├── TimelineAggregator.cs       # Pure stateless aggregation: DetermineGranularity (daily/weekly/monthly/quarterly/yearly by span), GenerateBucketStarts, BuildIncrementalEntries, ConsolidateToGranularity — all internal static, no I/O
+│       ├── TimelineAggregator.cs       # Pure stateless aggregation: DetermineGranularity (daily/weekly/monthly/quarterly/yearly by span), GenerateBucketStarts, BuildIncrementalEntries, ConsolidateToGranularity - all internal static, no I/O
 │       ├── GrowthTimelineBaseline.cs   # Baseline snapshot DTO (first-scan directory sizes + timestamps)
 │       ├── BaselineDirectoryEntry.cs   # Single directory entry in the baseline
 │       ├── GrowthTimelineResult.cs     # Timeline result DTO (buckets + granularity label)
@@ -540,7 +540,7 @@ Jellyfin.Plugin.JellyfinHelper/
 
 The trees above are a curated, commented overview. **This index is the authoritative,
 complete listing** of every tracked source and test file (`.cs` / `.html` / `.css` /
-`.js`) in the two projects — enforced by the `ContributingDocCoverageTests` drift
+`.js`) in the two projects - enforced by the `ContributingDocCoverageTests` drift
 guard, which fails the build if any tracked file is missing here. Generated build
 artifacts (`bin/`, `obj/`) and the composed `PluginPages/configPage.html` (git-ignored)
 are intentionally excluded. When you add a file, add a line for it here.
@@ -553,8 +553,8 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/`
 
-- `MediaExtensionsTests.cs` — Tests MediaExtensions video/subtitle/image/audio/nfo sets, codec map, and language codes
-- `ContributingDocCoverageTests.cs` — Drift guard: every tracked source/test file must be listed in this index
+- `MediaExtensionsTests.cs` - Tests MediaExtensions video/subtitle/image/audio/nfo sets, codec map, and language codes
+- `ContributingDocCoverageTests.cs` - Drift guard: every tracked source/test file must be listed in this index
 - `PluginServiceRegistratorTests.cs`
 - `PluginTests.cs`
 
@@ -564,23 +564,23 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `ArrIntegrationControllerTests.cs`
 - `BackupControllerExtendedTests.cs`
 - `BackupControllerTests.cs`
-- `CleanupStatisticsControllerTests.cs` — Tests CleanupStatisticsController returns cleanup stats payload (bytes freed, items, timestamp)
+- `CleanupStatisticsControllerTests.cs` - Tests CleanupStatisticsController returns cleanup stats payload (bytes freed, items, timestamp)
 - `ConfigurationControllerTests.cs`
-- `ConfigurationRequestValidatorTests.cs` — Tests ConfigurationRequestValidator: age/retention bounds, Arr/Seerr rules, trash-path traversal guards
+- `ConfigurationRequestValidatorTests.cs` - Tests ConfigurationRequestValidator: age/retention bounds, Arr/Seerr rules, trash-path traversal guards
 - `ConfigurationResponseTests.cs`
 - `DiscoveryControllerExtendedTests.cs`
 - `DiscoveryControllerTests.cs`
 - `FolderBrowserControllerTests.cs`
-- `GrowthTimelineControllerTests.cs` — Tests GrowthTimelineController computed/cached timeline and 429 refresh rate-limiting
-- `LibraryInsightsControllerTests.cs` — Tests LibraryInsightsController compute-and-cache behavior and recompute on cache expiry
-- `LogsControllerTests.cs` — Tests LogsController get/download/clear logs and min-level/source input validation
-- `MediaStatisticsControllerTests.cs` — Tests MediaStatisticsController scan, cache persistence, and latest-result retrieval
+- `GrowthTimelineControllerTests.cs` - Tests GrowthTimelineController computed/cached timeline and 429 refresh rate-limiting
+- `LibraryInsightsControllerTests.cs` - Tests LibraryInsightsController compute-and-cache behavior and recompute on cache expiry
+- `LogsControllerTests.cs` - Tests LogsController get/download/clear logs and min-level/source input validation
+- `MediaStatisticsControllerTests.cs` - Tests MediaStatisticsController scan, cache persistence, and latest-result retrieval
 - `ModelBindingLogFilterTests.cs`
 - `PingControllerTests.cs`
 - `RecommendationControllerTests.cs`
 - `ResponseDtoTests.cs`
-- `SeerrControllerTests.cs` — Tests SeerrController TestConnection input validation and success/failure/timeout responses
-- `TranslationsControllerTests.cs` — Tests TranslationsController language lookup, config-default fallback, and lang-code validation
+- `SeerrControllerTests.cs` - Tests SeerrController TestConnection input validation and success/failure/timeout responses
+- `TranslationsControllerTests.cs` - Tests TranslationsController language lookup, config-default fallback, and lang-code validation
 - `TrashControllerTests.cs`
 - `UserActivityControllerTests.cs`
 - `UserDiscoveryControllerAccessEnabledTests.cs`
@@ -612,12 +612,12 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/ScheduledTasks/`
 
-- `CleanEmptyMediaFoldersTaskTests.cs` — Tests CleanEmptyMediaFoldersTask orphan detection, placeholder/library-type skips, and byte accounting
+- `CleanEmptyMediaFoldersTaskTests.cs` - Tests CleanEmptyMediaFoldersTask orphan detection, placeholder/library-type skips, and byte accounting
 - `CleanOrphanedSubtitlesTaskProcessLocationTests.cs`
-- `CleanOrphanedSubtitlesTaskTests.cs` — Tests CleanOrphanedSubtitlesTask base-name parsing and BCP-47 language/flag suffix stripping
-- `CleanTrickplayTaskTests.cs` — Tests CleanTrickplayTask orphaned .trickplay folder detection, media-match keeps, and error handling
+- `CleanOrphanedSubtitlesTaskTests.cs` - Tests CleanOrphanedSubtitlesTask base-name parsing and BCP-47 language/flag suffix stripping
+- `CleanTrickplayTaskTests.cs` - Tests CleanTrickplayTask orphaned .trickplay folder detection, media-match keeps, and error handling
 - `CleanTrickplayTrashExclusionTests.cs`
-- `HelperCleanupTaskTests.cs` — Tests HelperCleanupTask orchestration: sub-task activate/dry-run/skip, Seerr, progress, trash purge
+- `HelperCleanupTaskTests.cs` - Tests HelperCleanupTask orchestration: sub-task activate/dry-run/skip, Seerr, progress, trash purge
 - `RecommendationsTaskTests.cs`
 - `RepairLinksTaskTests.cs`
 - `UserActivityUpdateTaskTests.cs`
@@ -625,19 +625,19 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/`
 
 - `DateTimeNormalizationTests.cs`
-- `FileSystemHelperTests.cs` — Tests FileSystemHelper directory-size calc and dictionary count/accumulate/path helpers
-- `I18nServiceTests.cs` — Tests I18nService translations, config-page key sync, and Lazy load concurrency
-- `PathValidatorTests.cs` — Tests PathValidator safe-path, filename sanitization, and sensitive-system-path checks
+- `FileSystemHelperTests.cs` - Tests FileSystemHelper directory-size calc and dictionary count/accumulate/path helpers
+- `I18nServiceTests.cs` - Tests I18nService translations, config-page key sync, and Lazy load concurrency
+- `PathValidatorTests.cs` - Tests PathValidator safe-path, filename sanitization, and sensitive-system-path checks
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Activity/`
 
-- `UserActivityCacheServiceTests.cs` — Tests JSON cache save/load round-trip, corruption recovery, and directory auto-creation
-- `UserActivityDtoTests.cs` — Tests activity DTO defaults, UTC normalization, and reference-equality semantics
-- `UserActivityInsightsServiceTests.cs` — Tests activity report building, completion math, and batch user-data fallback contract
+- `UserActivityCacheServiceTests.cs` - Tests JSON cache save/load round-trip, corruption recovery, and directory auto-creation
+- `UserActivityDtoTests.cs` - Tests activity DTO defaults, UTC normalization, and reference-equality semantics
+- `UserActivityInsightsServiceTests.cs` - Tests activity report building, completion math, and batch user-data fallback contract
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Arr/`
 
-- `ArrComparisonResultTests.cs` — Tests ArrComparisonResult collection defaults, item addition, and ordering
+- `ArrComparisonResultTests.cs` - Tests ArrComparisonResult collection defaults, item addition, and ordering
 - `ArrIntegrationServiceTests.cs`
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Backup/`
@@ -650,18 +650,18 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Cleanup/`
 
-- `CleanupConfigHelperTests.cs` — Tests cleanup config helpers: task modes, trash-path resolution, library filtering, age guards
-- `CleanupTrackingServiceTests.cs` — Tests cleanup statistics recording and accumulation when Plugin.Instance is null
+- `CleanupConfigHelperTests.cs` - Tests cleanup config helpers: task modes, trash-path resolution, library filtering, age guards
+- `CleanupTrackingServiceTests.cs` - Tests cleanup statistics recording and accumulation when Plugin.Instance is null
 - `TrashControllerAccessTests.cs`
 - `TrashControllerRelocateTests.cs`
-- `TrashControllerSecurityTests.cs` — Security tests: TrashController rejects unsafe delete paths outside libraries
+- `TrashControllerSecurityTests.cs` - Security tests: TrashController rejects unsafe delete paths outside libraries
 - `TrashServiceAccessTests.cs`
 - `TrashServiceGuardTests.cs`
 - `TrashServiceInternalHelpersTests.cs`
 - `TrashServicePathLengthTests.cs`
 - `TrashServiceRelocateTests.cs`
-- `TrashServiceSecurityTests.cs` — Security tests: TrashService resists path traversal, null bytes, and malicious names
-- `TrashServiceTests.cs` — Tests trash move, timestamp parsing, retention purge, and contents/summary listing
+- `TrashServiceSecurityTests.cs` - Security tests: TrashService resists path traversal, null bytes, and malicious names
+- `TrashServiceTests.cs` - Tests trash move, timestamp parsing, retention purge, and contents/summary listing
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Common/`
 
@@ -671,7 +671,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/ConfigAccess/`
 
-- `PluginConfigurationServiceTests.cs` — Tests PluginConfigurationService via fake accessor: init state, version, get/save config
+- `PluginConfigurationServiceTests.cs` - Tests PluginConfigurationService via fake accessor: init state, version, get/save config
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/FileTransformation/`
 
@@ -687,17 +687,17 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Link/`
 
-- `LinkRepairPerformanceTests.cs` — Performance tests for LinkRepairService on large .strm/symlink/mixed directory trees
-- `LinkRepairSecurityTests.cs` — Security tests: path traversal, injection, oversized/null-byte link content stay safe
-- `LinkRepairServiceTests.cs` — Unit tests for LinkRepairService find/process/repair logic across strm and symlink handlers
-- `StrmLinkHandlerTests.cs` — Unit tests for StrmLinkHandler CanHandle, ReadTarget, and WriteTarget behavior
-- `SymlinkHandlerTests.cs` — Unit tests for SymlinkHandler including atomic temp-then-replace WriteTarget path
+- `LinkRepairPerformanceTests.cs` - Performance tests for LinkRepairService on large .strm/symlink/mixed directory trees
+- `LinkRepairSecurityTests.cs` - Security tests: path traversal, injection, oversized/null-byte link content stay safe
+- `LinkRepairServiceTests.cs` - Unit tests for LinkRepairService find/process/repair logic across strm and symlink handlers
+- `StrmLinkHandlerTests.cs` - Unit tests for StrmLinkHandler CanHandle, ReadTarget, and WriteTarget behavior
+- `SymlinkHandlerTests.cs` - Unit tests for SymlinkHandler including atomic temp-then-replace WriteTarget path
 - `SymlinkHelperTests.cs`
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/PluginLog/`
 
-- `PluginLogEntryTests.cs` — Unit tests for PluginLogEntry model defaults, init properties, and edge cases
-- `PluginLogServiceTests.cs` — Unit tests for PluginLogService logging, level filtering, ring buffer, and export
+- `PluginLogEntryTests.cs` - Unit tests for PluginLogEntry model defaults, init properties, and edge cases
+- `PluginLogServiceTests.cs` - Unit tests for PluginLogService logging, level filtering, ring buffer, and export
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Recommendation/`
 
@@ -773,8 +773,8 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `ParentalRatingHelperTests.cs`
 - `SeerrDiscoveryDtoTests.cs`
 - `SeerrDiscoveryGenerationTests.cs`
-- `SeerrDiscoveryServiceCacheStampedeTests.cs` — Concurrency tests for SeerrDiscoveryService user-cache stampede correctness
-- `SeerrDiscoveryServiceCacheTests.cs` — Tests for SeerrDiscoveryService TTL user cache: warm/cold hits and non-caching of failures
+- `SeerrDiscoveryServiceCacheStampedeTests.cs` - Concurrency tests for SeerrDiscoveryService user-cache stampede correctness
+- `SeerrDiscoveryServiceCacheTests.cs` - Tests for SeerrDiscoveryService TTL user cache: warm/cold hits and non-caching of failures
 - `SeerrDiscoveryServiceHelperTests.cs`
 - `SeerrDiscoveryServiceHttpTests.cs`
 - `SeerrDiscoveryServiceReasonTests.cs`
@@ -785,42 +785,42 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Statistics/`
 
-- `MediaStatisticsResultTests.cs` — Unit tests for MediaStatisticsResult aggregate totals and dictionary rollups
-- `MediaStatisticsServiceTests.cs` — Unit tests for MediaStatisticsService library scanning and statistics calculation
-- `MediaStatisticsServiceTvShowTests.cs` — Unit tests for MediaStatisticsService TV show structure and orphaned-metadata handling
-- `StatisticsCacheServiceTests.cs` — Unit tests for StatisticsCacheService persisting and loading cached statistics results
+- `MediaStatisticsResultTests.cs` - Unit tests for MediaStatisticsResult aggregate totals and dictionary rollups
+- `MediaStatisticsServiceTests.cs` - Unit tests for MediaStatisticsService library scanning and statistics calculation
+- `MediaStatisticsServiceTvShowTests.cs` - Unit tests for MediaStatisticsService TV show structure and orphaned-metadata handling
+- `StatisticsCacheServiceTests.cs` - Unit tests for StatisticsCacheService persisting and loading cached statistics results
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/Services/Timeline/`
 
-- `GrowthTimelineModelTests.cs` — Unit tests for growth timeline models and their JSON serialization
-- `GrowthTimelinePerformanceTests.cs` — Performance tests for TimelineAggregator cumulative-timeline computation on large datasets
-- `GrowthTimelineServiceTests.cs` — Unit tests for GrowthTimelineService building growth timelines from library files
+- `GrowthTimelineModelTests.cs` - Unit tests for growth timeline models and their JSON serialization
+- `GrowthTimelinePerformanceTests.cs` - Performance tests for TimelineAggregator cumulative-timeline computation on large datasets
+- `GrowthTimelineServiceTests.cs` - Unit tests for GrowthTimelineService building growth timelines from library files
 - `GrowthTimelineSymlinkTests.cs`
 - `LibraryInsightsResultTests.cs`
-- `LibraryInsightsServiceTests.cs` — Unit tests for LibraryInsightsService change-type classification and insights logic
+- `LibraryInsightsServiceTests.cs` - Unit tests for LibraryInsightsService change-type classification and insights logic
 - `TimelineAggregatorTests.cs`
 
 `Jellyfin.Plugin.JellyfinHelper.Tests/TestFixtures/`
 
-- `CleanupTaskTestBase.cs` — Base class for cleanup task tests providing mocked config/tracking/trash and log helpers
-- `ConfigOverrideCollection.cs` — xUnit collection definition serializing tests that mutate shared plugin configuration
-- `ControllerTestFactory.cs` — Factory building API controllers and plugin instances with mocked dependencies for tests
+- `CleanupTaskTestBase.cs` - Base class for cleanup task tests providing mocked config/tracking/trash and log helpers
+- `ConfigOverrideCollection.cs` - xUnit collection definition serializing tests that mutate shared plugin configuration
+- `ControllerTestFactory.cs` - Factory building API controllers and plugin instances with mocked dependencies for tests
 - `EngineTestFactory.cs`
 - `PluginSingletonLifecycleTests.cs`
-- `TestDataGenerator.cs` — Central generator for test data objects like VirtualFolderInfo and LibraryStatistics
-- `TestMockFactory.cs` — Central factory for commonly used mocks and PluginLogService instances across tests
+- `TestDataGenerator.cs` - Central generator for test data objects like VirtualFolderInfo and LibraryStatistics
+- `TestMockFactory.cs` - Central factory for commonly used mocks and PluginLogService instances across tests
 
 `Jellyfin.Plugin.JellyfinHelper/Api/`
 
 - `ArrIntegrationController.cs`
-- `ArrTestConnectionRequest.cs` — Request DTO carrying URL and API key for testing a Radarr/Sonarr connection
+- `ArrTestConnectionRequest.cs` - Request DTO carrying URL and API key for testing a Radarr/Sonarr connection
 - `BackupController.cs`
 - `CleanupStatisticsController.cs`
 - `ConfigurationController.cs`
-- `ConfigurationRequestValidator.cs` — Validates config-update fields: ranges, Arr instances, Seerr URL, trash path safety
+- `ConfigurationRequestValidator.cs` - Validates config-update fields: ranges, Arr instances, Seerr URL, trash path safety
 - `ConfigurationResponse.cs`
 - `ConfigurationSaveResponse.cs`
-- `ConfigurationUpdateRequest.cs` — Request DTO for updating the full plugin configuration via the API
+- `ConfigurationUpdateRequest.cs` - Request DTO for updating the full plugin configuration via the API
 - `ConnectionTestResponse.cs`
 - `DiscoveryController.cs`
 - `DiscoveryDismissDto.cs`
@@ -833,7 +833,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `LibraryListResponse.cs`
 - `LibraryPathEntry.cs`
 - `LogLevelResponse.cs`
-- `LogLevelUpdateRequest.cs` — Request DTO for updating only the plugin log level via PUT /Configuration/LogLevel
+- `LogLevelUpdateRequest.cs` - Request DTO for updating only the plugin log level via PUT /Configuration/LogLevel
 - `LogsController.cs`
 - `MaskedArrInstanceConfig.cs`
 - `MediaStatisticsController.cs`
@@ -843,7 +843,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `RecommendationController.cs`
 - `RequestResult.cs`
 - `SeerrController.cs`
-- `SeerrTestRequest.cs` — Request DTO carrying URL and API key for testing a Seerr connection
+- `SeerrTestRequest.cs` - Request DTO carrying URL and API key for testing a Seerr connection
 - `SeerrUrlResponse.cs`
 - `TranslationsController.cs`
 - `TrashAccessEntry.cs`
@@ -903,7 +903,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper/ScheduledTasks/`
 
-- `BaseLibraryCleanupTask.cs` — Abstract Template Method base for library cleanup tasks: iterate locations, delete, log, record
+- `BaseLibraryCleanupTask.cs` - Abstract Template Method base for library cleanup tasks: iterate locations, delete, log, record
 - `CleanEmptyMediaFoldersTask.cs`
 - `CleanOrphanedSubtitlesTask.cs`
 - `CleanTrickplayTask.cs`
@@ -914,12 +914,12 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper/Services/`
 
-- `DateTimeNormalization.cs` — Shared UTC DateTime normalization helpers for DTOs
-- `FileSystemHelper.cs` — Best-effort filesystem helpers: directory sizing and dictionary accumulation
-- `I18nService.cs` — i18n translation loader from embedded JSON resources with caching
-- `JsonDefaults.cs` — Shared JSON serializer options (camelCase, indented, case-insensitive)
-- `LibraryPathResolver.cs` — Resolves and deduplicates library folder paths from the library manager
-- `PathValidator.cs` — Path validation guarding traversal, sensitive system roots, and safe deletion
+- `DateTimeNormalization.cs` - Shared UTC DateTime normalization helpers for DTOs
+- `FileSystemHelper.cs` - Best-effort filesystem helpers: directory sizing and dictionary accumulation
+- `I18nService.cs` - i18n translation loader from embedded JSON resources with caching
+- `JsonDefaults.cs` - Shared JSON serializer options (camelCase, indented, case-insensitive)
+- `LibraryPathResolver.cs` - Resolves and deduplicates library folder paths from the library manager
+- `PathValidator.cs` - Path validation guarding traversal, sensitive system roots, and safe deletion
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Activity/`
 
@@ -933,22 +933,22 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Arr/`
 
-- `ArrComparisonResult.cs` — Result of comparing an Arr app with Jellyfin: InBoth, InArrOnly, InArrOnlyMissing, InJellyfinOnly
-- `ArrIntegrationService.cs` — Radarr/Sonarr API client: test connection, fetch movies/series, compare against Jellyfin folders
-- `ArrMovie.cs` — DTO representing a Radarr movie (title, year, IMDb/TMDb ID, HasFile, path)
-- `ArrSeries.cs` — DTO representing a Sonarr series (title, year, IDs, path, episode file/total counts)
-- `IArrIntegrationService.cs` — Interface for the Radarr/Sonarr integration service (connection test, fetch movies/series)
+- `ArrComparisonResult.cs` - Result of comparing an Arr app with Jellyfin: InBoth, InArrOnly, InArrOnlyMissing, InJellyfinOnly
+- `ArrIntegrationService.cs` - Radarr/Sonarr API client: test connection, fetch movies/series, compare against Jellyfin folders
+- `ArrMovie.cs` - DTO representing a Radarr movie (title, year, IMDb/TMDb ID, HasFile, path)
+- `ArrSeries.cs` - DTO representing a Sonarr series (title, year, IDs, path, episode file/total counts)
+- `IArrIntegrationService.cs` - Interface for the Radarr/Sonarr integration service (connection test, fetch movies/series)
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Backup/`
 
-- `BackupArrInstance.cs` — Plain DTO for an Arr instance in backup data (name, url, apiKey) for safe deserialization
+- `BackupArrInstance.cs` - Plain DTO for an Arr instance in backup data (name, url, apiKey) for safe deserialization
 - `BackupData.cs`
 - `BackupRestoreSummary.cs`
 - `BackupSanitizer.cs`
 - `BackupService.cs`
-- `BackupValidationResult.cs` — Result of validating a backup payload: Errors, Warnings, and IsValid flag
+- `BackupValidationResult.cs` - Result of validating a backup payload: Errors, Warnings, and IsValid flag
 - `BackupValidator.cs`
-- `IBackupService.cs` — Interface for creating and restoring plugin backups (oversize check, create, restore)
+- `IBackupService.cs` - Interface for creating and restoring plugin backups (oversize check, create, restore)
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Cleanup/`
 
@@ -969,8 +969,8 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper/Services/ConfigAccess/`
 
-- `IPluginConfigurationService.cs` — Testable abstraction for reading/mutating/saving plugin configuration
-- `PluginConfigurationService.cs` — Config service backed by Plugin.Instance with lock-guarded read-mutate-save
+- `IPluginConfigurationService.cs` - Testable abstraction for reading/mutating/saving plugin configuration
+- `PluginConfigurationService.cs` - Config service backed by Plugin.Instance with lock-guarded read-mutate-save
 
 `Jellyfin.Plugin.JellyfinHelper/Services/FileTransformation/`
 
@@ -988,22 +988,22 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Link/`
 
-- `ILinkHandler.cs` — Strategy interface for reading/writing a single link type (.strm, symlink)
-- `ILinkRepairService.cs` — Interface for scanning libraries and repairing broken link references
-- `ISymlinkHelper.cs` — Abstraction over symlink filesystem ops to enable testing without real symlinks
-- `LinkFileResult.cs` — Result model for a single inspected link file (paths and status)
-- `LinkFileStatus.cs` — Enum of link inspection outcomes: Valid, Repaired, Broken, Ambiguous, InvalidContent
-- `LinkRepairResult.cs` — Aggregate result of a repair run with per-status counts over file results
-- `LinkRepairService.cs` — Scans libraries, validates link targets, and repairs broken links via handlers
-- `StrmLinkHandler.cs` — Link handler reading/writing .strm text files (supports URL targets)
-- `SymlinkHandler.cs` — Link handler for symlinks; rewrites atomically via temp-link plus replace
-- `SymlinkHelper.cs` — Production ISymlinkHelper using real File APIs; detects links via reparse+LinkTarget
+- `ILinkHandler.cs` - Strategy interface for reading/writing a single link type (.strm, symlink)
+- `ILinkRepairService.cs` - Interface for scanning libraries and repairing broken link references
+- `ISymlinkHelper.cs` - Abstraction over symlink filesystem ops to enable testing without real symlinks
+- `LinkFileResult.cs` - Result model for a single inspected link file (paths and status)
+- `LinkFileStatus.cs` - Enum of link inspection outcomes: Valid, Repaired, Broken, Ambiguous, InvalidContent
+- `LinkRepairResult.cs` - Aggregate result of a repair run with per-status counts over file results
+- `LinkRepairService.cs` - Scans libraries, validates link targets, and repairs broken links via handlers
+- `StrmLinkHandler.cs` - Link handler reading/writing .strm text files (supports URL targets)
+- `SymlinkHandler.cs` - Link handler for symlinks; rewrites atomically via temp-link plus replace
+- `SymlinkHelper.cs` - Production ISymlinkHelper using real File APIs; detects links via reparse+LinkTarget
 
 `Jellyfin.Plugin.JellyfinHelper/Services/PluginLog/`
 
-- `IPluginLogService.cs` — Interface for the in-memory ring-buffer plugin log service with dual-logging support
-- `PluginLogEntry.cs` — Model for a single plugin log entry (timestamp, level, source, message, exception)
-- `PluginLogService.cs` — Thread-safe ring-buffer plugin log service with dual-logging, filtering, and text export
+- `IPluginLogService.cs` - Interface for the in-memory ring-buffer plugin log service with dual-logging support
+- `PluginLogEntry.cs` - Model for a single plugin log entry (timestamp, level, source, message, exception)
+- `PluginLogService.cs` - Thread-safe ring-buffer plugin log service with dual-logging, filtering, and text export
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Recommendation/`
 
@@ -1058,7 +1058,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper/Services/Recommendation/WatchHistory/`
 
 - `IWatchHistoryService.cs`
-- `LanguageProfileEntry.cs` — Tracks chosen vs forced audio-language counts with a weighted preference score
+- `LanguageProfileEntry.cs` - Tracks chosen vs forced audio-language counts with a weighted preference score
 - `UserWatchProfile.cs`
 - `WatchHistoryService.cs`
 - `WatchedItemInfo.cs`
@@ -1066,14 +1066,14 @@ are intentionally excluded. When you add a file, add a line for it here.
 `Jellyfin.Plugin.JellyfinHelper/Services/Seerr/`
 
 - `ISeerrIntegrationService.cs`
-- `SeerrCleanupResult.cs` — Result model with checked/expired/deleted/failed counts for a Seerr cleanup run
+- `SeerrCleanupResult.cs` - Result model with checked/expired/deleted/failed counts for a Seerr cleanup run
 - `SeerrIntegrationService.cs`
-- `SeerrMainSettings.cs` — Model of Seerr main settings response used for connection testing
-- `SeerrMedia.cs` — Model of media info (type, TMDB ID, status) attached to a Seerr request
-- `SeerrMediaDetails.cs` — Model of Seerr movie/TV detail response resolving a display title from title or name
-- `SeerrPageInfo.cs` — Pagination metadata model (page, pages, results, pageSize) from the Seerr API
-- `SeerrRequest.cs` — Model of a single Seerr media request (id, createdAt, status, media)
-- `SeerrRequestPage.cs` — Model of a paginated Seerr /api/v1/request response with null-safe results list
+- `SeerrMainSettings.cs` - Model of Seerr main settings response used for connection testing
+- `SeerrMedia.cs` - Model of media info (type, TMDB ID, status) attached to a Seerr request
+- `SeerrMediaDetails.cs` - Model of Seerr movie/TV detail response resolving a display title from title or name
+- `SeerrPageInfo.cs` - Pagination metadata model (page, pages, results, pageSize) from the Seerr API
+- `SeerrRequest.cs` - Model of a single Seerr media request (id, createdAt, status, media)
+- `SeerrRequestPage.cs` - Model of a paginated Seerr /api/v1/request response with null-safe results list
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Seerr/Discovery/`
 
@@ -1102,7 +1102,7 @@ are intentionally excluded. When you add a file, add a line for it here.
 - `SeerrServiceInfo.cs`
 - `SeerrUser.cs`
 - `SeerrUserPage.cs`
-- `SeerrUserPageInfo.cs` — Pagination metadata model for paginated Seerr user API responses
+- `SeerrUserPageInfo.cs` - Pagination metadata model for paginated Seerr user API responses
 - `TmdbDiscoverItem.cs`
 - `TmdbDiscoverResponse.cs`
 - `TmdbGenreMap.cs`
@@ -1110,12 +1110,12 @@ are intentionally excluded. When you add a file, add a line for it here.
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Statistics/`
 
-- `IMediaStatisticsService.cs` — Interface for the service that calculates media file statistics per library type
-- `IStatisticsCacheService.cs` — Interface for persisting and loading the latest full statistics scan to/from disk
-- `LibraryStatistics.cs` — Per-library statistics model: file sizes/counts, codec/quality breakdowns, health checks
-- `MediaStatisticsResult.cs` — Aggregated media scan result grouping libraries by type with computed totals
-- `MediaStatisticsService.cs` — Recursively scans libraries computing size, codec, resolution, and health statistics
-- `StatisticsCacheService.cs` — Persists the latest statistics result to disk as JSON via atomic write
+- `IMediaStatisticsService.cs` - Interface for the service that calculates media file statistics per library type
+- `IStatisticsCacheService.cs` - Interface for persisting and loading the latest full statistics scan to/from disk
+- `LibraryStatistics.cs` - Per-library statistics model: file sizes/counts, codec/quality breakdowns, health checks
+- `MediaStatisticsResult.cs` - Aggregated media scan result grouping libraries by type with computed totals
+- `MediaStatisticsService.cs` - Recursively scans libraries computing size, codec, resolution, and health statistics
+- `StatisticsCacheService.cs` - Persists the latest statistics result to disk as JSON via atomic write
 
 `Jellyfin.Plugin.JellyfinHelper/Services/Timeline/`
 
@@ -1247,7 +1247,7 @@ Plugin starts → Plugin.InjectScript()  (from the ctor AND again from
       5. Injects sidebar navigation link (only when the discovery API returns results)
 ```
 
-**Injection runs unconditionally, twice per server start:** once from the `Plugin` constructor (very early during plugin discovery) and once from `DiscoverySidebarInjectionService` (an `IHostedService`) after DI is built and the web root is mounted. The second run is the robust one — it also self-heals the disk-write fallback after a Jellyfin web update overwrites `index.html`. Injection is idempotent (`DiscoveryScriptTag.RemovalRegex` strips any prior tag; `UpdateIndexHtml` skips the write when the file already matches), so running it twice never stacks tags or churns the file. Whether the user actually *sees* the sidebar item is a separate, client-side decision in `discovery-sidebar.js` (see below) — the `<script>` tag is always injected regardless of `RecommendationsTaskMode`.
+**Injection runs unconditionally, twice per server start:** once from the `Plugin` constructor (very early during plugin discovery) and once from `DiscoverySidebarInjectionService` (an `IHostedService`) after DI is built and the web root is mounted. The second run is the robust one - it also self-heals the disk-write fallback after a Jellyfin web update overwrites `index.html`. Injection is idempotent (`DiscoveryScriptTag.RemovalRegex` strips any prior tag; `UpdateIndexHtml` skips the write when the file already matches), so running it twice never stacks tags or churns the file. Whether the user actually *sees* the sidebar item is a separate, client-side decision in `discovery-sidebar.js` (see below) - the `<script>` tag is always injected regardless of `RecommendationsTaskMode`.
 
 **Companion plugins (optional):**
 - [Custom Tab Plugin](https://github.com/JellyPlugins/jellyfin-plugin-custom-tabs) - Provides the `.jellyfinhelper.discovery` container on the home page
@@ -1263,7 +1263,7 @@ Plugin starts → Plugin.InjectScript()  (from the ctor AND again from
 | Neither plugin installed | Script injection writes to `index.html` (requires writable filesystem); sidebar link navigates to fallback page URL |
 | Read-only filesystem + no File Transformation | Script injection cannot write to disk; the plugin logs **one** actionable warning per server start recommending the File Transformation plugin. Discovery is still reachable via the direct URL `/JellyfinHelper/discoveryPage`, but no automatic injection occurs until File Transformation is installed |
 
-**Task Mode Coupling:** Discovery generation shares the `RecommendationsTaskMode` setting — there is no separate toggle. When `RecommendationsTaskMode` is set to `Deactivate`, no Discovery recommendations are generated. This is intentional: Discovery depends on the same watch profile data that the Recommendations engine produces.
+**Task Mode Coupling:** Discovery generation shares the `RecommendationsTaskMode` setting - there is no separate toggle. When `RecommendationsTaskMode` is set to `Deactivate`, no Discovery recommendations are generated. This is intentional: Discovery depends on the same watch profile data that the Recommendations engine produces.
 
 The File Transformation registration uses reflection to avoid a hard dependency - the plugin loads the assembly at runtime and constructs a Newtonsoft.Json `JObject` payload with `id`, `fileNamePattern`, `callbackAssembly`, `callbackClass`, and `callbackMethod`.
 

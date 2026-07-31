@@ -177,9 +177,9 @@ public class PreferenceBuilderTests
     // path (TrainingDataBuilder), so the model trained on unweighted vectors but was served
     // progression-weighted ones. The fix threads the same per-series total-episode-count map into
     // the training builders. These tests pin the two invariants that make the fix meaningful:
-    //   (1) the map is NOT a no-op — supplying it genuinely reshapes the vectors, so training with
+    //   (1) the map is NOT a no-op - supplying it genuinely reshapes the vectors, so training with
     //       it produces a different (and now serve-matching) distribution than the old null path; and
-    //   (2) given the SAME profile and the SAME map, the builder is a pure function — the vector the
+    //   (2) given the SAME profile and the SAME map, the builder is a pure function - the vector the
     //       training path computes equals the vector the inference path computes.
 
     [Fact]
@@ -226,7 +226,7 @@ public class PreferenceBuilderTests
     {
         // Purity guard: the builder is deterministic in (profile, map), so the vector the training
         // path now computes is byte-for-byte the vector the inference path computes. This is the
-        // property the fix restores — the two call sites can no longer diverge.
+        // property the fix restores - the two call sites can no longer diverge.
         var seriesId = Guid.NewGuid();
         var now = DateTime.UtcNow.AddDays(-15);
         var profile = new UserWatchProfile();
@@ -410,7 +410,7 @@ public class PreferenceBuilderTests
     {
         // Contract: after ExpandGenreProximity fires the vector must remain max-normalised
         // (largest weight == 1.0, everything in [0, 1]), AND the co-occurrence-derived boost
-        // must be observable in the final normalised weights — otherwise this test could pass
+        // must be observable in the final normalised weights - otherwise this test could pass
         // with the expansion removed entirely.
         //
         // Full profile row counts:
@@ -420,7 +420,7 @@ public class PreferenceBuilderTests
         //   → Direct row counts: Action 20, Adventure 20, SciFi 16.
         //
         // ExpandGenreProximity reinforces peer weights by adding a co-occurrence-derived
-        // additive to existing entries (v3 hardening pass — the earlier ContainsKey-guarded
+        // additive to existing entries (v3 hardening pass - the earlier ContainsKey-guarded
         // version was a no-op for the common case where every neighbour was already direct).
         // We assert this reinforcement by comparing SciFi's normalised weight against a
         // proximity-OFF baseline built with the same direct frequencies but each genre on its
@@ -467,7 +467,7 @@ public class PreferenceBuilderTests
         // needs at least two distinct genres on a row to build the co-occurrence map, so a
         // single-genre-per-row baseline gives us the same direct-watch signal without any
         // proximity contribution. Any observable difference between the two vectors therefore
-        // MUST come from ExpandGenreProximity — a stubbed-out no-op expansion would produce
+        // MUST come from ExpandGenreProximity - a stubbed-out no-op expansion would produce
         // an identical vector.
         //
         // Row counts (kept in lock-step with the full profile above):
@@ -539,7 +539,7 @@ public class PreferenceBuilderTests
     // These four tests lock the "strict completion" rule for the per-series progression
     // multiplier used by BuildGenrePreferenceVector and BuildPeoplePreferenceWeights.
     // A previous version of the counter used WatchedItemInfo.HasPlaybackActivity(), which
-    // also treats PlaybackPositionTicks > 0 as "watched" — meaning a user who briefly opens
+    // also treats PlaybackPositionTicks > 0 as "watched" - meaning a user who briefly opens
     // every episode of a series (a 30-second click-through) would push playedEps up to
     // totalEps and unlock the maximum ProgressionCeiling (1.5) even though no episode was
     // actually finished. The strict counter (Played || PlayCount > 0) treats partial starts
@@ -556,7 +556,7 @@ public class PreferenceBuilderTests
         //   * SciFi: 1 episode watched of 1 total → rawRatio = 1.0 → multiplier ≈ 1.5.
         //   * Drama: 1 episode watched of 5 total → rawRatio = 0.2 → multiplier ≈ 0.54.
         // If ComputeProgressionMultiplier ever regressed to a constant (e.g. always 1.0),
-        // both rows would produce identical genre weights and this test would fail — that is
+        // both rows would produce identical genre weights and this test would fail - that is
         // the regression it is designed to catch. A previous version of this test seeded
         // 5 SciFi rows vs. 1 Drama row, which already produced SciFi > Drama purely by row
         // count and would silently pass even after ComputeProgressionMultiplier was neutered.
@@ -602,7 +602,7 @@ public class PreferenceBuilderTests
         // The strict completion predicate must ignore rows with PlaybackPositionTicks > 0 but
         // Played=false and PlayCount=0. A non-series "Anchor" movie row (immune to the
         // progression multiplier, which returns 1.0 for non-episode rows) is added to both
-        // profiles as a normalisation reference — because both profiles produce a vector with
+        // profiles as a normalisation reference - because both profiles produce a vector with
         // "SciFi" and "Anchor", the SciFi/Anchor ratio exposes the progression multiplier that
         // would otherwise be hidden by max-normalisation.
         //
@@ -684,7 +684,7 @@ public class PreferenceBuilderTests
         // A's Actor-Z weight would be strictly larger. Asserting equality (with a tiny epsilon
         // for floating-point noise) is robust to any tuning of the ProgressionFloor / span
         // constants because the two profiles walk through the same code path with the same
-        // input to the multiplier — they only differ in the count of noise rows.
+        // input to the multiplier - they only differ in the count of noise rows.
         var series = Guid.NewGuid();
         var counts = new Dictionary<Guid, int> { { series, 5 } };
         var now = DateTime.UtcNow.AddDays(-1);
@@ -740,7 +740,7 @@ public class PreferenceBuilderTests
         //     Actor B (favorite bypass). Actor A's total therefore lands around 1.54, Actor B
         //     at exactly 1.0.
         //
-        // The critical assertion: Actor B — who ONLY appears on the unplayed favorite row —
+        // The critical assertion: Actor B - who ONLY appears on the unplayed favorite row -
         // must have weight ≈ 1.0, not 0.3. A regression that reintroduced the multiplier for
         // this row would drop Actor B to ~0.3, which the assertion below rejects.
         var series = Guid.NewGuid();
@@ -792,7 +792,7 @@ public class PreferenceBuilderTests
         //       = 0.3 + 0.24 = 0.54
         //   (b) unplayed favorite bypass: 1.0
         // Total ≈ 1.54. Assert strictly greater than Actor B's 1.0, and greater than the
-        // sum of two multipliers if BOTH were bypassed (2.0) — the played row still uses the
+        // sum of two multipliers if BOTH were bypassed (2.0) - the played row still uses the
         // ratio, only the favorite gets bypassed.
         Assert.True(weights.TryGetValue("Actor A", out var actorAWeight));
         Assert.True(actorAWeight > actorBWeight,
@@ -811,7 +811,7 @@ public class PreferenceBuilderTests
     [Fact]
     public void BuildGenrePreferenceVector_PhantomRowsForDeletedSeries_AreIgnored()
     {
-        // Series was fully deleted from the library — seriesEpisodeCounts no longer has an
+        // Series was fully deleted from the library - seriesEpisodeCounts no longer has an
         // entry for it, but old watch rows still exist. Without the skip guard those rows
         // would drive the multiplier off a series length of zero (or, historically, from a
         // reused row's Genres alone) and could still push the vector towards the deleted
@@ -854,7 +854,7 @@ public class PreferenceBuilderTests
     public void ComputeProgressionMultiplier_AbandonedSeries_StillContributesFloor()
     {
         // Locks the ProgressionFloor invariant: a barely-started series (1 of 20 episodes
-        // played) must NOT collapse to a near-zero weight — the floor guarantees the signal
+        // played) must NOT collapse to a near-zero weight - the floor guarantees the signal
         // stays audible so users with mostly-abandoned history are not left with an empty
         // preference vector.
         //
@@ -961,7 +961,7 @@ public class PreferenceBuilderTests
         // With the guard, "Action"'s watch-derived weight (~1.0 before the Drama entry is added)
         // stays intact. Note: "Drama" is inserted at count/max = 10/10 = 1.0, which ties with
         // or exceeds Action's raw watch-derived weight, so after normalisation Action may land
-        // below 1.0 in the withGd vector — that is expected and correct. The key assertion is
+        // below 1.0 in the withGd vector - that is expected and correct. The key assertion is
         // that Action's weight in withGd is clearly above the 0.1 the overwrite path would give.
         var now = DateTime.UtcNow.AddDays(-7);
         var profile = new UserWatchProfile
@@ -972,8 +972,8 @@ public class PreferenceBuilderTests
             ],
             GenreDistribution = new Dictionary<string, int>
             {
-                { "Action", 1 },   // same key — must NOT overwrite the watch-derived weight
-                { "Drama", 10 }    // new key — must be inserted as a fallback
+                { "Action", 1 },   // same key - must NOT overwrite the watch-derived weight
+                { "Drama", 10 }    // new key - must be inserted as a fallback
             }
         };
 
@@ -1005,7 +1005,7 @@ public class PreferenceBuilderTests
     [Fact]
     public void BuildGenrePreferenceVector_FewItems_ProximityExpansionDoesNotFire()
     {
-        // 9 items — one short of the minimum-10 gate. The two genres appear together on every
+        // 9 items - one short of the minimum-10 gate. The two genres appear together on every
         // row (maximum co-occurrence signal) but expansion must still be suppressed. We compare
         // against a single-genre-per-row baseline: if expansion had fired, the co-occurrence
         // boost would lift one or both genres above the baseline value. A no-op keeps them equal.
@@ -1077,7 +1077,7 @@ public class PreferenceBuilderTests
         // The key invariant: Thriller must appear in the vector even if we artificially remove
         // it from the WatchedItems to confirm the insertion path (not just reinforcement).
         // We achieve this by using a profile where the ONLY source of Thriller is via
-        // co-occurrence with Action — i.e. a profile where Action appears alone on 10+ items
+        // co-occurrence with Action - i.e. a profile where Action appears alone on 10+ items
         // and also co-occurs with Thriller on 10 additional items.
         var baseDate = new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -1160,7 +1160,7 @@ public class PreferenceBuilderTests
     {
         // A deleted series has two watched-episode rows still in the history cache.
         // The people lookup has entries for both the live and the deleted series.
-        // With the phantom guard those two rows must not contribute to the weights —
+        // With the phantom guard those two rows must not contribute to the weights -
         // only the one live-series row should be counted.
         var deletedSeries = Guid.NewGuid();
         var liveSeries = Guid.NewGuid();
@@ -1190,11 +1190,11 @@ public class PreferenceBuilderTests
 
         var weights = PreferenceBuilder.BuildPeoplePreferenceWeights(profile, lookup, counts);
 
-        // "Actor Live" must be present — their row belongs to a series still in the library.
+        // "Actor Live" must be present - their row belongs to a series still in the library.
         Assert.True(weights.ContainsKey("Actor Live"),
             "Actor from live series must appear in the people weights.");
 
-        // "Actor Ghost" must be absent — their rows belong to a deleted series.
+        // "Actor Ghost" must be absent - their rows belong to a deleted series.
         Assert.False(weights.ContainsKey("Actor Ghost"),
             "Actor from deleted (phantom) series must be excluded from people weights.");
     }
@@ -1204,20 +1204,20 @@ public class PreferenceBuilderTests
     // the favorite-bypass branch must NOT fire. The row must go through the normal
     // rawRatio path so completion state AND favorite intent are both reflected. Without
     // this, a completed-favorite episode of a barely-watched series would receive the
-    // neutral 1.0 multiplier instead of the correct ratio-derived value — silently
+    // neutral 1.0 multiplier instead of the correct ratio-derived value - silently
     // making completed favorites indistinguishable from non-series items in the genre vector.
 
     [Fact]
     public void BuildGenrePreferenceVector_CompletedFavoriteEpisode_UsesRatioNotBypass()
     {
         // Two profiles; each has exactly ONE row contributing to "SciFi" and one "Anchor" movie.
-        // The SciFi row differs only in IsFavorite — but in BOTH cases the row is Played=true.
+        // The SciFi row differs only in IsFavorite - but in BOTH cases the row is Played=true.
         //
         // Profile A: SciFi episode is Played=true, IsFavorite=false → goes through ratio path.
         // Profile B: SciFi episode is Played=true, IsFavorite=true  → must ALSO go through ratio path.
         //
         // If the bypass fired for profile B, the multiplier would be 1.0 (neutral, same as a
-        // non-episode movie), whereas the ratio path for 1/5 episodes yields ~0.54 — strictly
+        // non-episode movie), whereas the ratio path for 1/5 episodes yields ~0.54 - strictly
         // less than 1.0. That distinction shows up in the SciFi/Anchor weight ratio once we
         // add an Anchor movie row (no SeriesId → always multiplier 1.0).
         //
@@ -1261,7 +1261,7 @@ public class PreferenceBuilderTests
         var ratioFav    = sciFiFav    / anchorFav;
 
         // Profile B has an additional +3.0 FavoriteGenreBoostFactor additive on the SciFi row,
-        // so its SciFi/Anchor ratio will be larger — that is expected and correct. The key guard
+        // so its SciFi/Anchor ratio will be larger - that is expected and correct. The key guard
         // is that BOTH ratios must be strictly less than if the bypass had fired (which would give
         // the neutral multiplier 1.0 and produce a lower overall SciFi weight in relation to the
         // ratio). We verify by checking that ratioNonFav is in the range produced by the ratio

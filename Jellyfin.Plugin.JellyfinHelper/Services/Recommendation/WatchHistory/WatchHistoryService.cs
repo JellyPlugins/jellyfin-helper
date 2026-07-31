@@ -214,7 +214,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             // path can compute BillingWeightedPeople with the same shared helper the live path uses
             // (closes the organic/aggregated-series train/serve gap that previously hardcoded 0.0).
             // Resolved ONLY for non-episode items (movies + series), which are exactly the item types
-            // that appear as live scoring candidates — episodes never do. Skipping episodes also
+            // that appear as live scoring candidates - episodes never do. Skipping episodes also
             // preserves the invariant that people are aggregated at series level, never per episode
             // (GetPeople is never called on an Episode), avoiding guest-cast noise.
             IReadOnlyList<PersonInfo>? itemPeople = null;
@@ -259,7 +259,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
 
                 // Content-affinity source fields. Populated here on the watched side so the preference
                 // builders (franchise/country/inherited-tag/writer/series-completability) have real
-                // signal to compare live candidates against — extracted with the exact same shared,
+                // signal to compare live candidates against - extracted with the exact same shared,
                 // library-free resolvers the live scoring and precompute paths use, guaranteeing parity.
                 // WriterNames reuses the people list already fetched above (no extra GetPeople call).
                 TmdbCollectionName = ContentAffinityResolver.ResolveTmdbCollectionName(item),
@@ -474,7 +474,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
             }
             catch (OperationCanceledException)
             {
-                // Cancellation is a stop signal — propagate instead of skipping items silently.
+                // Cancellation is a stop signal - propagate instead of skipping items silently.
                 // Same contract as BatchFallbackHelper enforces for the batch call sites above.
                 throw;
             }
@@ -708,7 +708,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
         }
         catch (OperationCanceledException)
         {
-            // Cancellation must propagate — skipping the item silently would defeat
+            // Cancellation must propagate - skipping the item silently would defeat
             // any cooperative cancellation the caller relies on.
             throw;
         }
@@ -834,7 +834,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Fetches user data for many items in one shot via the Jellyfin 12+
     ///     <c>IUserDataManager.GetUserDataBatch</c> call. Returns <c>null</c> on failure so
     ///     the caller can fall back to per-item lookups. An empty <paramref name="items"/>
-    ///     list short-circuits with an empty dictionary — treated as "batch succeeded, no
+    ///     list short-circuits with an empty dictionary - treated as "batch succeeded, no
     ///     results" rather than "batch failed, fall back".
     ///     The try/catch shape is delegated to <see cref="BatchFallbackHelper"/> so the
     ///     three batch call sites in the plugin can't drift apart on cancellation handling.
@@ -877,7 +877,7 @@ public sealed class WatchHistoryService : IWatchHistoryService
     ///     Looks up user data for a single item, preferring the pre-fetched batch dictionary
     ///     but falling back to a per-item <c>GetUserData</c> call when the batch was not
     ///     available for this user (batch returned <c>null</c> due to an exception upstream).
-    ///     A missing entry in a valid batch is treated as "no user data" — identical to
+    ///     A missing entry in a valid batch is treated as "no user data" - identical to
     ///     the pre-batch behavior of <c>GetUserData</c> returning <c>null</c>.
     /// </summary>
     /// <param name="lookup">The batch lookup, or <c>null</c> if the batch failed.</param>

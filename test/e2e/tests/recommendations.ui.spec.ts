@@ -2,7 +2,7 @@
  * Recommendations tab: the per-user selector drives per-user data loads, and
  * the collapsible sections open. The tab button is hidden when
  * RecommendationsTaskMode == Deactivate, so we set a non-Deactivate mode here
- * via the API (DryRun — no side effects) rather than relying on leftover state
+ * via the API (DryRun - no side effects) rather than relying on leftover state
  * from a prior api spec (which left it Deactivate, making this test skip).
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
@@ -33,7 +33,7 @@ test('Recommendations tab: user selector loads per-user data; sections toggle', 
   // Opening the tab auto-loads the initial user's data: initRecommendationsTab
   // calls onUserChanged(initialIdx) → GET Recommendations/WatchProfile/{userId}
   // (Recommendations.js). Arm the wait BEFORE switching so we catch that request
-  // — the <select> has no placeholder option, so re-selecting index 0 emits no
+  // - the <select> has no placeholder option, so re-selecting index 0 emits no
   // 'change' event and would fire nothing.
   const [profileResp] = await Promise.all([
     page.waitForResponse(

@@ -1,8 +1,8 @@
-# Jellyfin Helper — End-to-End Test Harness
+# Jellyfin Helper - End-to-End Test Harness
 
 Full end-to-end tests that run the plugin inside a **real Jellyfin 12.0-rc3
 server** in Docker, drive it exactly the way a human would (settings, tasks,
-backup/restore, every dashboard tab), and assert it all works — including
+backup/restore, every dashboard tab), and assert it all works - including
 hardening / edge-case behaviour.
 
 This complements the ~4200 xUnit unit tests: the unit tests verify logic in
@@ -20,9 +20,9 @@ server**.
 | Backup round-trip | Export → tamper with JSON → import → assert validation & restore |
 | Trends integrity | Assert timeline/insights contain no garbage (negative sizes, false zeroes) |
 | Arr / Seerr | Against **mock servers**: connection test, Compare, reachability indicator |
-| UI — all 8 tabs | Overview, Codecs, Health, Trends, Settings, Arr, Recommendations, Logs |
+| UI - all 8 tabs | Overview, Codecs, Health, Trends, Settings, Arr, Recommendations, Logs |
 | UI interactions | Codec collapsible trees expand/collapse, Logs arrive + download, unsaved-changes dialog appears when leaving dirty settings |
-| Hardening | Empty library, broken backup XML/JSON, invalid Arr URLs, out-of-range numbers, Unicode paths, concurrent task runs — must degrade cleanly, never crash |
+| Hardening | Empty library, broken backup XML/JSON, invalid Arr URLs, out-of-range numbers, Unicode paths, concurrent task runs - must degrade cleanly, never crash |
 
 ## Architecture
 
@@ -66,12 +66,12 @@ test/e2e/scripts/run.sh --ui
 ```
 
 **Requirements:** Docker + Docker Compose, .NET SDK 10, Node 20+. **No host
-ffmpeg needed** — media is generated inside the Jellyfin container.
+ffmpeg needed** - media is generated inside the Jellyfin container.
 
 ## Why the image tag is pinned
 
 The plugin targets ABI `12.0.0.0` (built against `Jellyfin.Controller
-12.0.0-rcrc3`). Jellyfin 12 is currently **release-candidate only** — the
+12.0.0-rcrc3`). Jellyfin 12 is currently **release-candidate only** - the
 stable `latest` / `10.x` line would refuse to load the plugin. `compose.yml`
 pins `jellyfin/jellyfin:12.0-rc3`. When 12.0 goes stable, bump that tag.
 

@@ -245,7 +245,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
         }
 
         // Resolve relative path against the library root and verify it does not escape
-        // via ".." sequences. Path.Join does not resolve ".." — only GetFullPath does.
+        // via ".." sequences. Path.Join does not resolve ".." - only GetFullPath does.
         // Guard against malformed or excessively long paths that would otherwise throw.
         string resolved;
         string normalizedRoot;
@@ -269,14 +269,14 @@ public class CleanupConfigHelper : ICleanupConfigHelper
 
         if (string.Equals(resolvedTrimmed, rootTrimmed, pathComparison))
         {
-            // TrashFolderPath resolves to the library root itself (e.g. ".") — not safe.
+            // TrashFolderPath resolves to the library root itself (e.g. ".") - not safe.
             return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
         }
 
         var rootPrefix = rootTrimmed + Path.DirectorySeparatorChar;
         if (!resolved.StartsWith(rootPrefix, pathComparison))
         {
-            // Relative path escapes the library root — fall back to the safe default.
+            // Relative path escapes the library root - fall back to the safe default.
             // Note: admins who intend a path outside the library root should use an absolute path.
             return Path.GetFullPath(Path.Join(libraryRootPath, ".jellyfin-trash"));
         }
@@ -438,7 +438,7 @@ public class CleanupConfigHelper : ICleanupConfigHelper
     ///     Returns the OS-appropriate <see cref="StringComparison" /> for file-system path comparisons.
     ///     Note: macOS is treated as case-insensitive because the overwhelming majority of installations
     ///     use case-insensitive APFS/HFS+. While case-sensitive APFS volumes exist, using OrdinalIgnoreCase
-    ///     is the safer default for a cleanup/trash tool — it may produce false positives (treating two
+    ///     is the safer default for a cleanup/trash tool - it may produce false positives (treating two
     ///     case-differing paths as identical) but never false negatives (missing a match that could lead
     ///     to operating on a library root). If case-sensitive macOS volumes become a reported issue,
     ///     a volume-aware probe can be added here.

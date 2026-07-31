@@ -16,7 +16,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 /// Controllers decorated with <c>[ApiController]</c> automatically return 400 for invalid
 /// <c>ModelState</c> (or a null request body) via <c>ModelStateInvalidFilter</c>. That short-circuit
 /// happens <em>before</em> the action method runs, so a hand-written <c>if (!ModelState.IsValid)</c>
-/// inside the action is dead code on the real request pipeline — the raw HTTP 400 makes it out,
+/// inside the action is dead code on the real request pipeline - the raw HTTP 400 makes it out,
 /// but no <see cref="IPluginLogService"/> entry is written.
 /// </para>
 /// <para>
@@ -29,7 +29,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 /// </para>
 /// <para>
 /// Registered as a scoped service so it can be attached via <c>[ServiceFilter(typeof(...))]</c>
-/// on the target action. Do NOT register globally — other Jellyfin controllers have their own
+/// on the target action. Do NOT register globally - other Jellyfin controllers have their own
 /// error-handling contracts and must not have their responses rewritten by this filter.
 /// </para>
 /// </remarks>
@@ -41,7 +41,7 @@ public sealed class ModelBindingLogFilter : IAsyncActionFilter, IOrderedFilter
     /// <summary>
     /// Initializes a new instance of the <see cref="ModelBindingLogFilter"/> class.
     /// </summary>
-    /// <param name="pluginLog">Plugin log service — WARNING entries land here so admins see them in the Logs tab.</param>
+    /// <param name="pluginLog">Plugin log service - WARNING entries land here so admins see them in the Logs tab.</param>
     /// <param name="logger">Fallback logger for structured host logging.</param>
     public ModelBindingLogFilter(IPluginLogService pluginLog, ILogger<ModelBindingLogFilter> logger)
     {

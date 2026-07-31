@@ -56,7 +56,7 @@ public sealed class ScoreExplanation
 
     /// <summary>
     ///     Blends this explanation with another using a linear interpolation factor.
-    ///     Result = (1 - alpha) Ã— this + alpha Ã— other.
+    ///     Result = (1 - alpha) Ã- this + alpha Ã- other.
     /// </summary>
     /// <param name="other">The other explanation to blend with.</param>
     /// <param name="alpha">The blending factor (0 = 100% this, 1 = 100% other).</param>
@@ -144,7 +144,7 @@ public sealed class ScoreExplanation
     /// <param name="userRatingContrib">User personal rating contribution.</param>
     /// <param name="recencyContrib">Recency contribution.</param>
     /// <param name="yearProxContrib">Year proximity contribution.</param>
-    /// <param name="interactionContrib">Interaction terms contribution (genreÃ—rating, genreÃ—collab, genreCount, isSeries, completion).</param>
+    /// <param name="interactionContrib">Interaction terms contribution (genreÃ-rating, genreÃ-collab, genreCount, isSeries, completion).</param>
     /// <param name="peopleContrib">People similarity contribution (actors/directors).</param>
     /// <param name="studioContrib">Studio match contribution.</param>
     /// <returns>The name of the dominant signal.</returns>

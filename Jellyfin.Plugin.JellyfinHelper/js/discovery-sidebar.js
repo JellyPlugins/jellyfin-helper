@@ -1,4 +1,4 @@
-// Jellyfin Helper — Discovery Custom Tab + Sidebar Script
+// Jellyfin Helper - Discovery Custom Tab + Sidebar Script
 // Injected into index.html via File Transformation plugin.
 // Custom Tab: Renders discovery into <div class="jellyfinhelper discovery"> (requires Custom Tabs plugin)
 // Sidebar: Also adds a "Seerr Discovery" link as fallback navigation
@@ -15,7 +15,7 @@
     var CUSTOM_TAB_SELECTOR = '.jellyfinhelper.discovery';
     var SECTION_CLASS = 'jellyfinHelperSection';
     var NAV_ITEM_CLASS = 'jfhelper-nav-discovery';
-    // No standalone page exists — discovery is rendered via Custom Tabs plugin.
+    // No standalone page exists - discovery is rendered via Custom Tabs plugin.
     // The sidebar click handler searches for the tab first; if not found,
     // it shows an inline message instead of navigating to a 404 page.
     var API_URL = '/JellyfinHelper/Discovery/My';
@@ -34,7 +34,7 @@
         if (typeof ApiClient === 'undefined' || !ApiClient.getCurrentUserId || !ApiClient.getCurrentUserId()) {
             _waitForApiRetries++;
             if (_waitForApiRetries > MAX_FAST_RETRIES + MAX_SLOW_RETRIES) {
-                // ApiClient did not become available within ~150 seconds — bail out to
+                // ApiClient did not become available within ~150 seconds - bail out to
                 // prevent an indefinite timer leak on unauthenticated/guest sessions.
                 return;
             }
@@ -49,7 +49,7 @@
     var _strings = null;
 
     function loadStrings(callback) {
-        // No lang parameter — the server returns the language configured in plugin settings
+        // No lang parameter - the server returns the language configured in plugin settings
         ApiClient.ajax({
             type: 'GET',
             url: ApiClient.getUrl('/JellyfinHelper/Translations'),
@@ -83,7 +83,7 @@
                 _seerrBaseUrl = data.SeerrUrl.replace(/\/+$/, '');
             }
         }).catch(function () {
-            // Non-critical — Seerr link option will be hidden in the popup
+            // Non-critical - Seerr link option will be hidden in the popup
         });
     }
 
@@ -155,7 +155,7 @@
                 if (parsed && parsed.Message) return parsed.Message;
             }
         } catch (e) {
-            // JSON parse failure — fall through to empty string
+            // JSON parse failure - fall through to empty string
         }
         return '';
     }
@@ -452,7 +452,7 @@
             dataType: 'json'
         }).then(function (permResult) {
             var result = permResult || { CanRequest: false };
-            // Only cache definitive responses — transient upstream failures (IsTransient)
+            // Only cache definitive responses - transient upstream failures (IsTransient)
             // should allow immediate retry on the next click instead of being sticky for 5 min.
             if (!result.IsTransient) {
                 result._ts = Date.now();
@@ -463,7 +463,7 @@
             decideAndSubmit(tmdbId, mediaType, btn, result);
         }).catch(function () {
             // On network error, try submitting with defaults (server will validate).
-            // Do NOT cache the fallback — a transient failure should allow retry on next click.
+            // Do NOT cache the fallback - a transient failure should allow retry on next click.
             btn.disabled = false;
             btn.textContent = t('discoveryRequest', 'Request');
             submitRequest(tmdbId, mediaType, null, null, null, btn);
@@ -917,20 +917,20 @@
         loadStrings(function () {
             // Check if Discovery is available before injecting UI elements.
             // If the admin disabled DiscoveryUserAccessEnabled or the task is deactivated,
-            // the API returns 403 or null — in that case, do not show the sidebar item
+            // the API returns 403 or null - in that case, do not show the sidebar item
             // or Custom Tab content to avoid confusing users with non-functional UI.
             ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl(API_URL), dataType: 'json' })
                 .then(function (data) {
                     if (!data || !data.Recommendations || data.Recommendations.length === 0) {
                         // No discovery data available (task deactivated/dry-run/no results yet)
                         // Still init Custom Tab so it can show "no results" message if container exists,
-                        // but do NOT inject sidebar navigation — no point advertising a feature with no content.
+                        // but do NOT inject sidebar navigation - no point advertising a feature with no content.
                         initCustomTab();
                         setTimeout(tryMountCustomTab, 500);
                         setTimeout(tryMountCustomTab, 1500);
                         return;
                     }
-                    // Discovery is active and has recommendations — full initialization.
+                    // Discovery is active and has recommendations - full initialization.
                     // Wait for external links config (Seerr URL) before rendering to ensure
                     // the Seerr link is available on the first card render.
                     loadExternalLinksConfig().finally(function () {
@@ -943,7 +943,7 @@
                     });
                 })
                 .catch(function () {
-                    // 403 (disabled) or network error — do not inject any Discovery UI
+                    // 403 (disabled) or network error - do not inject any Discovery UI
                 });
         });
     });

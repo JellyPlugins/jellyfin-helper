@@ -51,7 +51,7 @@ public class BackupController : ControllerBase
     ///     Includes configuration preferences, Arr integration settings, growth timeline,
     ///     and statistics history. Cleanup statistics are excluded (they reset on fresh installations).
     ///     By default API keys are omitted from the export. Pass <c>includeSecrets=true</c> to
-    ///     include plaintext credentials — store the resulting file securely.
+    ///     include plaintext credentials - store the resulting file securely.
     /// </summary>
     /// <param name="includeSecrets">
     ///     When <c>true</c>, API key values are included in the backup.
@@ -209,7 +209,7 @@ public class BackupController : ControllerBase
             }
             catch (OperationCanceledException)
             {
-                // Client disconnected or request was aborted — do not return a 400.
+                // Client disconnected or request was aborted - do not return a 400.
                 throw;
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or DecoderFallbackException)

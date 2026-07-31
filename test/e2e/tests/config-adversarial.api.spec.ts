@@ -3,7 +3,7 @@
  * PUT /Configuration and PUT /Configuration/LogLevel must fail cleanly (400,
  * never 500), never silently apply, and never corrupt the stored config.
  *
- * HTTP-only — runs everywhere (no container FS needed).
+ * HTTP-only - runs everywhere (no container FS needed).
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, assertPluginActive } from '../setup/api-client.ts';
@@ -89,7 +89,7 @@ test('oversized RadarrInstances array (10000) → 400, known-good list preserved
       .toContain('Known Good');
     await assertPluginActive(ctx);
   } finally {
-    // Restore the shared default so later specs see a working Radarr instance —
+    // Restore the shared default so later specs see a working Radarr instance -
     // even if an assertion above threw (else the rejected/huge state would bleed).
     await ctx.put(p('Configuration'), {
       headers: { 'Content-Type': 'application/json' },
@@ -105,7 +105,7 @@ test('XML-hostile ExcludedLibraries persists without corrupting the config on re
     data: JSON.stringify({ ExcludedLibraries: hostile }),
   });
   try {
-    // Either accepted (and round-trips) or rejected (400) — never a 500 / corrupt state.
+    // Either accepted (and round-trips) or rejected (400) - never a 500 / corrupt state.
     expect(res.status()).toBeLessThan(500);
     // Config must still be readable afterwards (proves the XML file didn't corrupt).
     const cfg = await getConfig();

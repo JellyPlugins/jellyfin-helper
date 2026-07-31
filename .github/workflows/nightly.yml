@@ -1,9 +1,9 @@
 name: Nightly Full Test Suite
 
-# Runs the ENTIRE test surface — every xUnit bucket (Unit, Security,
-# Performance) plus the Docker end-to-end suite — once a day, and on demand.
+# Runs the ENTIRE test surface - every xUnit bucket (Unit, Security,
+# Performance) plus the Docker end-to-end suite - once a day, and on demand.
 #
-# Why this exists: the per-PR workflows (pr.yml, e2e.yml) are tuned for speed —
+# Why this exists: the per-PR workflows (pr.yml, e2e.yml) are tuned for speed -
 # Performance tests are allowed to soft-fail on PRs, and nothing runs on a
 # schedule. This workflow is the "belt and suspenders" full run: nothing is
 # skipped, nothing soft-fails, so a regression that only shows up in the
@@ -11,7 +11,7 @@ name: Nightly Full Test Suite
 # touched the area.
 #
 # Manual runs (workflow_dispatch) take a `branch` input so you can point the
-# full suite at ANY branch — not just the default one the schedule uses.
+# full suite at ANY branch - not just the default one the schedule uses.
 
 on:
   schedule:
@@ -44,7 +44,7 @@ jobs:
     timeout-minutes: 30
 
     strategy:
-      # Run every bucket even if one fails — we want the full nightly picture,
+      # Run every bucket even if one fails - we want the full nightly picture,
       # not an early bail-out.
       fail-fast: false
       matrix:
@@ -55,14 +55,14 @@ jobs:
             filter: "Category=Security"
           - name: Performance
             filter: "Category=Performance"
-          # NOTE: unlike pr.yml, Performance is NOT continue-on-error here — a
+          # NOTE: unlike pr.yml, Performance is NOT continue-on-error here - a
           # nightly perf regression should turn the run red.
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # This job never pushes back to the repo — don't persist the token.
+          # This job never pushes back to the repo - don't persist the token.
           persist-credentials: false
           # On manual runs, test the branch the user picked; on the schedule,
           # this input is empty and checkout falls back to the ref the workflow
@@ -108,7 +108,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # This job never pushes back to the repo — don't persist the token.
+          # This job never pushes back to the repo - don't persist the token.
           persist-credentials: false
           ref: ${{ inputs.branch || github.ref }}
 

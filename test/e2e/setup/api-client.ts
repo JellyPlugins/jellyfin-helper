@@ -52,7 +52,7 @@ export async function normalUserContext(auth: AuthInfo): Promise<APIRequestConte
 
 /**
  * Guard for tests that require the provisioned non-admin user. Without one these
- * assertions cannot run — but silently skipping would let the most important
+ * assertions cannot run - but silently skipping would let the most important
  * authorization / user-facing checks vanish green if the fixture ever breaks.
  *
  * In CI we set E2E_REQUIRE_NORMAL_USER=1 so a missing user FAILS loudly; locally
@@ -65,7 +65,7 @@ export function requireNormalUser(user: APIRequestContext | null): void {
   if (user) return;
   if (process.env.E2E_REQUIRE_NORMAL_USER === '1') {
     throw new Error(
-      'non-admin user was not provisioned, but E2E_REQUIRE_NORMAL_USER=1 — this test ' +
+      'non-admin user was not provisioned, but E2E_REQUIRE_NORMAL_USER=1 - this test ' +
         'must not be allowed to skip. Check the global-setup provisioning logs.',
     );
   }
@@ -171,7 +171,7 @@ export async function runCleanupTask(ctx: APIRequestContext, timeoutMs = 90_000)
 
 /**
  * Run Jellyfin's built-in "Scan All Libraries" (RefreshLibrary) task to completion
- * so that files freshly written to disk become visible in Jellyfin's item model —
+ * so that files freshly written to disk become visible in Jellyfin's item model -
  * which is what the plugin's statistics / insights / growth-timeline read from
  * (they analyze what Jellyfin already knows, NOT the raw disk). global-setup does
  * this once at startup; behavioral specs that seed a new media file mid-run must
@@ -201,7 +201,7 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Assert the plugin is still loaded and Active (not Malfunctioned) — the key
+ * Assert the plugin is still loaded and Active (not Malfunctioned) - the key
  * "did this edge case take the server down?" check, run after hardening tests.
  */
 export async function assertPluginActive(ctx: APIRequestContext): Promise<void> {

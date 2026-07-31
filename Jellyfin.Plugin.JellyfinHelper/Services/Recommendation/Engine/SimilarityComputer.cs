@@ -76,7 +76,7 @@ internal sealed class SimilarityComputer
 
         // Fallback path: per-item GetPeople with client-side type filtering.
         // Kept identical to the pre-Jellyfin-12 behavior so that a single failing
-        // candidate cannot abort the entire lookup — only cancellation propagates.
+        // candidate cannot abort the entire lookup - only cancellation propagates.
         var lookup = BuildPeopleLookupPerItem(candidates);
         _pluginLog.LogDebug(
             "Recommendations",
@@ -96,7 +96,7 @@ internal sealed class SimilarityComputer
     {
         if (candidates.Count == 0)
         {
-            // Nothing to look up — return empty so the "fast path" branch is still taken.
+            // Nothing to look up - return empty so the "fast path" branch is still taken.
             return new Dictionary<Guid, HashSet<string>>();
         }
 
@@ -147,7 +147,7 @@ internal sealed class SimilarityComputer
     }
 
     /// <summary>
-    ///     Per-item people lookup — the pre-Jellyfin-12 implementation.
+    ///     Per-item people lookup - the pre-Jellyfin-12 implementation.
     ///     Used as a fallback when <see cref="TryBuildPeopleLookupBatch"/> fails.
     /// </summary>
     /// <param name="candidates">The candidate items.</param>
@@ -198,7 +198,7 @@ internal sealed class SimilarityComputer
                 // Graceful fallback: skip this candidate's people data rather than failing the entire lookup.
                 // Some item types or corrupted metadata may cause GetPeople to throw.
                 // OOM / stack overflow are excluded from the filter so they can propagate up as
-                // process-fatal errors instead of being silently absorbed here — matches the
+                // process-fatal errors instead of being silently absorbed here - matches the
                 // contract enforced centrally by BatchFallbackHelper for the batch path above.
                 if (_logger.IsEnabled(LogLevel.Debug))
                 {
@@ -344,8 +344,8 @@ internal sealed class SimilarityComputer
     /// <remarks>
     ///     Retained for the legacy unit-test suite that pins the overlap-coefficient contract
     ///     (see <c>RecommendationEngineTests.ComputePeopleSimilarity_*</c>). Production scoring
-    ///     paths — both live (<c>Engine.ScoreCandidate</c>) and training
-    ///     (<c>TrainingDataBuilder</c>, <c>TrainingFeatureComputer</c>) — call the WEIGHTED
+    ///     paths - both live (<c>Engine.ScoreCandidate</c>) and training
+    ///     (<c>TrainingDataBuilder</c>, <c>TrainingFeatureComputer</c>) - call the WEIGHTED
     ///     overload exclusively. Prefer that overload for any new call site; this one exists
     ///     only so historical behavioural tests keep pinning the plain overlap semantics.
     /// </remarks>
@@ -386,10 +386,10 @@ internal sealed class SimilarityComputer
     ///         cref="EngineConstants.WeightedPeopleSimilarityTopK"/> largest positive weights (the
     ///         full positive set when the user has fewer positive entries than <c>K</c>). Averaging
     ///         only the heavy hitters keeps the denominator anchored to the collaborators who
-    ///         actually drive the user's preference structure — averaging over the full positive
+    ///         actually drive the user's preference structure - averaging over the full positive
     ///         set would let two heavy-hitter matches saturate the score at 1.0 on 100-person
     ///         profiles dominated by one-off cameos. The floor guards two additional failure modes
-    ///         (sparse-user overshoot and empty-preferred short-circuit stability) — see the floor
+    ///         (sparse-user overshoot and empty-preferred short-circuit stability) - see the floor
     ///         constant's XML doc for the full rationale.
     ///     </para>
     ///     <para>
@@ -586,7 +586,7 @@ internal sealed class SimilarityComputer
     ///     franchise preference map. This is the single shared implementation called by BOTH the live
     ///     scoring path and the training path so the two cannot drift (train/serve parity).
     ///     <para>Returns 0.0 when the candidate has no collection name or the user has no franchise
-    ///     preference (empty map / unknown franchise) — never throws, never divides.</para>
+    ///     preference (empty map / unknown franchise) - never throws, never divides.</para>
     /// </summary>
     /// <param name="candidateFranchise">The candidate's TMDb collection name, or null/empty.</param>
     /// <param name="preferredFranchises">The user's normalized franchise → weight map.</param>
@@ -610,7 +610,7 @@ internal sealed class SimilarityComputer
     /// <summary>
     ///     Computes production-location affinity: weighted overlap of a candidate's production countries
     ///     with the user's country-preference map. Single shared implementation for live + training.
-    ///     <para>Returns 0.0 when the candidate has no countries or the user has no country preference —
+    ///     <para>Returns 0.0 when the candidate has no countries or the user has no country preference -
     ///     never throws, never divides (averages over the candidate's own country count only).</para>
     /// </summary>
     /// <param name="candidateCountries">The candidate's production countries.</param>
@@ -728,7 +728,7 @@ internal sealed class SimilarityComputer
     ///     candidate side carries per-person billing weights (top-billed cast count for more). Single
     ///     shared implementation for live + training. Scores the candidate's billed people against the
     ///     user's favoured billed-people map, weighting each match by the candidate's billing weight.
-    ///     <para>Returns 0.0 when either side is empty — never divides by zero (denominator floored).</para>
+    ///     <para>Returns 0.0 when either side is empty - never divides by zero (denominator floored).</para>
     /// </summary>
     /// <param name="candidateBilling">Candidate name → billing weight (top-billed → higher).</param>
     /// <param name="preferredBilledPeople">The user's favoured billed-people name → weight map.</param>
@@ -773,7 +773,7 @@ internal sealed class SimilarityComputer
     ///     Computes the genre/studio IDF rarity prior for a candidate: the mean inverse-document-frequency
     ///     of its genres and studios against a library-wide IDF table. Rare genres/studios score higher.
     ///     Single shared implementation for live + training.
-    ///     <para>Returns 0.0 when the candidate has no genres/studios or the IDF table is empty/unavailable —
+    ///     <para>Returns 0.0 when the candidate has no genres/studios or the IDF table is empty/unavailable -
     ///     never throws, never divides by zero (the table is pre-normalized to [0,1]).</para>
     /// </summary>
     /// <param name="candidateGenres">The candidate's genres.</param>
@@ -825,8 +825,8 @@ internal sealed class SimilarityComputer
     ///     Extracts billed cast/director names and their billing weights from an item's people list,
     ///     as two positionally-aligned lists suitable for caching on <c>WatchedItemInfo</c>. Billing
     ///     weight is derived from <see cref="PersonInfo.SortOrder"/> via
-    ///     <see cref="EngineConstants.ComputeBillingWeight"/> — the SAME formula the live scoring path
-    ///     uses — so a training example rebuilt from these cached lists yields an identical
+    ///     <see cref="EngineConstants.ComputeBillingWeight"/> - the SAME formula the live scoring path
+    ///     uses - so a training example rebuilt from these cached lists yields an identical
     ///     BillingWeightedPeople value (train/serve parity). Duplicate names keep the highest weight.
     ///     <para>Returns empty lists when no billable people are present (fail-soft).</para>
     /// </summary>

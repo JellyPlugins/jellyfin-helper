@@ -1,6 +1,6 @@
 /**
- * Behavioural filesystem tests for POST /Trash/Relocate — the four
- * absolute/relative quadrants — plus the POST /Trash/CheckAccess success path.
+ * Behavioural filesystem tests for POST /Trash/Relocate - the four
+ * absolute/relative quadrants - plus the POST /Trash/CheckAccess success path.
  *
  * The existing trash specs cover only Relocate's REFUSAL/error branches and a
  * loose rel→rel "or degrades cleanly" call that seeds nothing and asserts no FS
@@ -142,7 +142,7 @@ test.describe.serial('Trash/Relocate moves real content across all four quadrant
     expect(body.Moved, 'the absolute source moved once (to the first library)').toBe(1);
 
     // The controller relocates an absolute source WITHIN the library that contains
-    // it (deterministic, source-driven — not "whichever library enumerated first").
+    // it (deterministic, source-driven - not "whichever library enumerated first").
     expect(containerFileExists(`${MOVIES}/.jellyfin-trash-2/From Absolute/payload.mkv`)).toBe(true);
     expect(sha256(`${MOVIES}/.jellyfin-trash-2/From Absolute/payload.mkv`)).toBe(before);
     expect(containerDirExists(oldAbs), 'absolute source removed once empty').toBe(false);

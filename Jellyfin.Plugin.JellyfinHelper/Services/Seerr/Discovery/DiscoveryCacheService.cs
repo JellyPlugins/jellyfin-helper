@@ -69,7 +69,7 @@ public sealed class DiscoveryCacheService : IDisposable
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="DiscoveryCacheService"/> class with an
-    ///     explicit file path. Intended for testing — avoids the <see cref="Plugin.Instance"/>
+    ///     explicit file path. Intended for testing - avoids the <see cref="Plugin.Instance"/>
     ///     requirement.
     /// </summary>
     /// <param name="pluginLog">The plugin log service.</param>
@@ -106,7 +106,7 @@ public sealed class DiscoveryCacheService : IDisposable
     ///         <b>Deep copy guarantee:</b> each <see cref="DiscoveryResult"/> and each nested
     ///         <see cref="DiscoveryRecommendation"/> in the returned list is a detached clone
     ///         produced via <see cref="DiscoveryResult.Clone"/>. Callers may freely read or even
-    ///         mutate the returned objects — those changes will never propagate back to the live
+    ///         mutate the returned objects - those changes will never propagate back to the live
     ///         <see cref="_memoryCache"/> or the on-disk file. Authoritative mutation operations
     ///         (e.g. <see cref="MarkAsRequested"/>) must still go through this service so that
     ///         both the in-memory cache and the on-disk file are updated atomically under
@@ -146,7 +146,7 @@ public sealed class DiscoveryCacheService : IDisposable
 
     /// <summary>
     ///     Removes a specific TMDb item from the specified user's cached recommendation list.
-    ///     Called when a user dismisses an item — ensures the item disappears immediately
+    ///     Called when a user dismisses an item - ensures the item disappears immediately
     ///     (not just on the next scheduled task run) and stays gone across page reloads.
     /// </summary>
     /// <param name="tmdbId">The TMDb ID of the item to remove.</param>
@@ -236,7 +236,7 @@ public sealed class DiscoveryCacheService : IDisposable
             // We capture each removal candidate's ORIGINAL INDEX alongside the item itself so
             // that a rollback (transient IO error, cancellation) can reinsert the items at
             // their original ranking positions. AddRange-based rollback would silently
-            // reorder recommendations — a subsequent Save() would then persist that shuffled
+            // reorder recommendations - a subsequent Save() would then persist that shuffled
             // ranking, permanently degrading recommendation quality after a single failure.
             var recommendations = userResult.Recommendations;
             var itemsToRemove = new List<(int OriginalIndex, DiscoveryRecommendation Item)>();
@@ -304,7 +304,7 @@ public sealed class DiscoveryCacheService : IDisposable
                 // Rollback: re-insert removed items at their ORIGINAL positions so the
                 // ranking order is preserved. On next restart the disk state (which still
                 // has the items in their original order) will be loaded, so the user will
-                // see the item again — acceptable for a transient IO failure vs. silent
+                // see the item again - acceptable for a transient IO failure vs. silent
                 // data loss AND silent reordering.
                 ReinsertAtOriginalIndices(recommendations, itemsToRemove);
 
@@ -478,7 +478,7 @@ public sealed class DiscoveryCacheService : IDisposable
             else
             {
                 // Same rationale as the identical
-                // branch in RemoveItemLocked — the sync branch is only entered from the
+                // branch in RemoveItemLocked - the sync branch is only entered from the
                 // synchronous MarkAsRequested overload via .GetAwaiter().GetResult() on a
                 // background thread. Sync-over-async-over-sync would gain nothing.
 #pragma warning disable CA1849 // Call async methods when in an async method
@@ -504,7 +504,7 @@ public sealed class DiscoveryCacheService : IDisposable
             // can surface more than IOException/UnauthorizedAccessException (e.g. SecurityException,
             // NotSupportedException, ArgumentException from the OS path layer). Narrowing the
             // filter here would let those escape with AlreadyRequested=true still applied in
-            // _memoryCache while disk was never updated — a memory/disk divergence that survives
+            // _memoryCache while disk was never updated - a memory/disk divergence that survives
             // until restart. Matches the broad rollback filter in RemoveItemLocked.
             foreach (var (userIdx, recIdx) in indicesToMark)
             {
@@ -527,13 +527,13 @@ public sealed class DiscoveryCacheService : IDisposable
     ///     <para>
     ///         Iterates in <b>ascending</b> index order because the <c>OriginalIndex</c> values
     ///         were captured BEFORE any removals. When we reinsert item A at index 3, then item
-    ///         B at index 7, index 7 already refers to the shifted position that includes A —
+    ///         B at index 7, index 7 already refers to the shifted position that includes A -
     ///         which is exactly what we want. If we iterated in descending order, we'd have to
     ///         compensate for the shift caused by later reinserts and the arithmetic would drift.
     ///     </para>
     ///     <para>
     ///         Precondition: <paramref name="itemsToRemove"/> was produced by a linear scan of
-    ///         the source list, so its entries are already in ascending index order — no sort
+    ///         the source list, so its entries are already in ascending index order - no sort
     ///         needed. The <see cref="List{T}.Insert(int, T)"/> at each captured original index
     ///         restores the exact pre-removal state.
     ///     </para>
@@ -544,7 +544,7 @@ public sealed class DiscoveryCacheService : IDisposable
         List<DiscoveryRecommendation> recommendations,
         List<(int OriginalIndex, DiscoveryRecommendation Item)> itemsToRemove)
     {
-        // Ascending order matters — see the XML doc above for why.
+        // Ascending order matters - see the XML doc above for why.
         foreach (var (originalIndex, item) in itemsToRemove)
         {
             // Clamp to Count as a defensive guard: if some other mutation has trimmed the list
@@ -597,7 +597,7 @@ public sealed class DiscoveryCacheService : IDisposable
             }
             catch (Exception deleteEx) when (deleteEx is IOException or UnauthorizedAccessException)
             {
-                // Best effort — file may be locked by another process.
+                // Best effort - file may be locked by another process.
             }
 
             _memoryCache = [];

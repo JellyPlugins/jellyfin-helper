@@ -81,7 +81,7 @@ test.describe('MediaStatistics breakdowns reflect the known fixtures', () => {
   test('health: videos-without-subtitles count matches its detail-path list', async () => {
     const stats = await getStats();
     // The fixtures are largely sub-less, so this must be positive and internally
-    // consistent — the count equals the number of listed paths.
+    // consistent - the count equals the number of listed paths.
     expect(stats.TotalVideosWithoutSubtitles, 'some fixtures lack subtitles').toBeGreaterThan(0);
     expect(
       stats.TotalVideosWithoutSubtitlesPaths.length,

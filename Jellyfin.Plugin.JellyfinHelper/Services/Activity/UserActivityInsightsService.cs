@@ -270,13 +270,13 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     /// <summary>
     ///     Runs one batch call per user to pre-load their user data for every library item.
     ///     If a user's batch call fails, we record <c>null</c> in the outer dictionary as a
-    ///     "please fall back to per-item lookup for this user" marker — the caller checks
+    ///     "please fall back to per-item lookup for this user" marker - the caller checks
     ///     for this on every row. Cancellation propagation is handled by
     ///     <see cref="BatchFallbackHelper"/> to keep parity with the other batch call sites.
     ///     <para>
     ///         Cancellation semantics: <see cref="BatchFallbackHelper.TryRunBatch{T}"/> lets
     ///         <see cref="OperationCanceledException"/> propagate out of the batch delegate.
-    ///         When that happens mid-loop the entire method unwinds — earlier-user entries in
+    ///         When that happens mid-loop the entire method unwinds - earlier-user entries in
     ///         the local <c>result</c> dictionary are discarded together with the reference,
     ///         and the caller (<c>BuildActivityReport</c>) never receives a half-built report.
     ///         The invariant is: cancellation aborts the whole scan; a partial report is never
@@ -297,7 +297,7 @@ public class UserActivityInsightsService : IUserActivityInsightsService
     /// <param name="allItems">The library items to load user data against.</param>
     /// <returns>
     ///     A dictionary keyed by user ID. A <c>null</c> inner value signals batch failure
-    ///     for that user — the caller then falls back to per-item <c>GetUserData</c>.
+    ///     for that user - the caller then falls back to per-item <c>GetUserData</c>.
     /// </returns>
     private Dictionary<Guid, IReadOnlyDictionary<Guid, UserItemData>?> BuildUserDataLookup(
         List<Jellyfin.Database.Implementations.Entities.User> users,

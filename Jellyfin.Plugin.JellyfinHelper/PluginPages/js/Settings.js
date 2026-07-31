@@ -287,7 +287,7 @@ function refreshSaveBand() {
 // remove previously registered listeners before adding new ones to avoid
 // stacking handlers on repeated reloads.
 //
-// Two exclusive detach mechanisms — only one is ever active in a given runtime
+// Two exclusive detach mechanisms - only one is ever active in a given runtime
 // because `typeof AbortController === 'function'` is deterministic per browser:
 //   1. Preferred: AbortController (near-universal since ~2020).
 //      Stored in _dirtyTrackingController; abort() detaches both listeners atomically.
@@ -297,7 +297,7 @@ function refreshSaveBand() {
 // Test coverage note: the fallback branch is not covered by automated tests (the
 // repo has no JS test framework and modern browsers won't take that branch). The
 // invariant we rely on is "runtime picks one branch and stays there", which makes
-// interleaving impossible — a runtime that lacks AbortController on load will
+// interleaving impossible - a runtime that lacks AbortController on load will
 // keep lacking it, so mixed-state cleanup is not a real failure mode.
 var _dirtyDebounceTimer = null;
 var _dirtyTrackingController = null;
@@ -310,7 +310,7 @@ function attachDirtyTracking() {
 
     // Detach previous listeners before wiring new ones. Only one of the two
     // branches below will find non-null state in a given runtime, because
-    // typeof AbortController is deterministic — the other branch's tracking
+    // typeof AbortController is deterministic - the other branch's tracking
     // fields are guaranteed to still be their initial null.
     if (_dirtyTrackingController && typeof _dirtyTrackingController.abort === 'function') {
         try { _dirtyTrackingController.abort(); } catch (_e) { /* ignore */ }
@@ -365,7 +365,7 @@ function checkUnsavedAndProceed(onProceed) {
     d.btnRow.appendChild(createDialogBtn(T('discardChanges', 'Discard Changes'), 'danger', function () {
         removeDialogById('unsavedDialogOverlay');
         // Discard means the in-memory edits are thrown away and the form is
-        // reverted to the persisted values — not merely that the dirty flag is
+        // reverted to the persisted values - not merely that the dirty flag is
         // cleared. Blank the snapshot first so leaving the tab now doesn't
         // re-trigger this guard, proceed, then reload the form from the server
         // so a later return to Settings shows the original (un-edited) values.
@@ -514,7 +514,7 @@ function loadSettings() {
         h += '<div class="checkbox-row"><input type="checkbox" id="cfgDiscoveryUserAccess"' + (discoveryEnabled && cfg.DiscoveryUserAccessEnabled ? ' checked' : '') + (!discoveryEnabled ? ' disabled' : '') + '><label for="cfgDiscoveryUserAccess">' + escHtml(T('discoveryUserAccess', 'Allow users to view Discovery and submit requests')) + '</label></div>';
         h += '<div class="help-text">' + escHtml(T('discoveryUserAccessHelp', 'When enabled, non-admin users can see personalized download suggestions and request media via the Seerr Discovery page.')) + ' <button type="button" class="material-icons" id="btnToggleDiscoveryHint" style="color:#00a4dc;font-size:1em;cursor:pointer;vertical-align:middle;user-select:none;background:none;border:none;padding:0;line-height:1;' + (!discoveryEnabled ? 'display:none;' : '') + '" title="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '" aria-label="' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '">info</button></div>';
         h += '<div class="help-text discovery-access-disabled-hint" style="' + (discoveryEnabled ? 'display:none;' : '') + '">' + escHtml(T('discoveryAccessDisabledHint', 'Requires Recommendations set to Activate and Seerr configured.')) + '</div>';
-        // Discovery setup hint — collapsible panel (default: closed)
+        // Discovery setup hint - collapsible panel (default: closed)
         h += '<div class="discovery-setup-hint" style="margin:0.3em 0 0;' + (!discoveryEnabled ? 'display:none;' : '') + '">';
         h += '<div id="discoveryHintPanel" style="display:none;margin-top:0.5em;padding:0.7em 1em;background:rgba(0,164,220,0.06);border:1px solid rgba(0,164,220,0.2);border-radius:6px;font-size:0.85em;">';
         h += '<strong>' + escHtml(T('discoverySetupHintTitle', 'Setup Instructions')) + '</strong>';
@@ -683,12 +683,12 @@ function loadSettings() {
         updateRecsTabVisibility(cfg.RecommendationsTaskMode || 'DryRun');
 
         // Delegated dirty-check on the form: keeps the sticky-toolbar indicator
-        // in sync with any DOM edit — including auto-save fields (they trigger the
+        // in sync with any DOM edit - including auto-save fields (they trigger the
         // change event which the debounced handler picks up, then re-renders the
         // indicator to "clean" after the snapshot is refreshed by takeSettingsSnapshot).
         attachDirtyTracking();
 
-        // Take snapshot after settings are fully rendered (synchronous — all values are set above)
+        // Take snapshot after settings are fully rendered (synchronous - all values are set above)
         takeSettingsSnapshot();
     }, function () {
         form.innerHTML = '<div class="error-msg">' + escHtml(T('settingsLoadError', 'Failed to load settings.')) + '</div>';
@@ -796,7 +796,7 @@ function doSaveSettings(payload, options) {
     // PluginLogLevel used to be race-prone here: the Settings form captured it at page load, so a
     // concurrent change from the Logs tab would be silently overwritten on save. That race is now
     // closed on the SERVER (ConfigurationController.ApplyRequestToConfig ignores the field on POST;
-    // only PUT /Configuration/LogLevel mutates it). We therefore no longer need a preflight GET —
+    // only PUT /Configuration/LogLevel mutates it). We therefore no longer need a preflight GET -
     // whatever we send here is discarded server-side and the on-disk value is preserved.
     postSettingsPayload(payload, quiet, indicatorEl, btn, options);
 }
@@ -804,7 +804,7 @@ function doSaveSettings(payload, options) {
 /**
  * Internal: performs the actual POST once the caller has validated the payload. Extracted from
  * doSaveSettings mainly to keep the trash-path / recursion guards separate from the network call.
- * PluginLogLevel is intentionally NOT rewritten here — the server-side handler
+ * PluginLogLevel is intentionally NOT rewritten here - the server-side handler
  * (ConfigurationController.ApplyRequestToConfig) ignores that field, so whatever the client sends
  * is preserved server-side. See the block comment in doSaveSettings for the TOCTOU history.
  */
@@ -882,7 +882,7 @@ function postSettingsPayload(payload, quiet, indicatorEl, btn, options) {
             // (server message > proxy/network/auth hint > generic fallback).
             var band = getSaveBand();
             var errText = band ? band.querySelector('.settings-save-band-text') : null;
-            if (errText) errText.textContent = buildSaveErrorLabel(diag, errorMsg); // textContent intentional — prevents XSS from server error messages
+            if (errText) errText.textContent = buildSaveErrorLabel(diag, errorMsg); // textContent intentional - prevents XSS from server error messages
         }
 
         // When the HTTP layer looks like something between the browser and Jellyfin
@@ -1681,7 +1681,7 @@ function toggleLibraryDropdown(btn) {
     if (!panel) return;
     var isOpen = panel.style.display !== 'none';
     panel.style.display = isOpen ? 'none' : 'block';
-    // Chevron stays as expand_more (pointing down) regardless of state — matches native <select> behavior
+    // Chevron stays as expand_more (pointing down) regardless of state - matches native <select> behavior
 }
 
 /**
@@ -1811,7 +1811,7 @@ function attachTrashDaysInputHandler() {
  * @returns {string|null}
  */
 // Mirror of the server-side PathValidator.IsSensitiveSystemPath canonical list. Kept in
-// sync with Services/PathValidator.cs — a protected system/app directory that the trash
+// sync with Services/PathValidator.cs - a protected system/app directory that the trash
 // path (and the folder picker) must never point at. Only meaningful for ABSOLUTE paths;
 // a relative path like ".jellyfin-trash" is resolved under each library and is never
 // sensitive. Client-side check is UX only; the server enforces the real boundary.
@@ -1857,7 +1857,7 @@ function validateTrashPath(path, useTrash) {
     // 1b. An ABSOLUTE path must not point at a protected system / application directory
     // (Jellyfin's own /config, /data, /cache, OS roots like /etc, C:\Windows). Mirrors the
     // shared server-side guard (PathValidator.IsSensitiveSystemPath) so the user gets the
-    // same immediate, inline feedback the picker gives — before the save round-trips and is
+    // same immediate, inline feedback the picker gives - before the save round-trips and is
     // rejected with a 400. A relative path (the common ".jellyfin-trash") is never sensitive.
     if (isSensitiveSystemPath(trimmed)) {
         return T('trashPathSensitive', 'This is a protected system folder and cannot be used.');
@@ -1889,7 +1889,7 @@ function validateTrashPath(path, useTrash) {
     for (var i = 0; i < segments.length; i++) {
         var seg = segments[i];
 
-        // Empty segment (defensive — should not happen after double-slash check)
+        // Empty segment (defensive - should not happen after double-slash check)
         if (!seg) {
             return T('trashPathInvalid', 'The trash folder path is invalid.');
         }
@@ -1975,7 +1975,7 @@ function showTrashPathChangeDialog(payload, options) {
     apiPost('JellyfinHelper/Trash/FoldersForPath', {TrashFolderPath: oldPath}, function (data) {
         var paths = (data && data.Paths) || [];
         if (paths.length === 0) {
-            // No old content exists — save directly, update tracking on success.
+            // No old content exists - save directly, update tracking on success.
             // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
             _trashPathChangeHandled = true;
             doSaveSettings(payload, {
@@ -1998,7 +1998,7 @@ function showTrashPathChangeDialog(payload, options) {
         removeTrashDialog();
         var d = createDialogOverlay('trashDialogOverlay', T('trashPathChangeTitle', 'Trash Path Changed'), getCssVar('--color-primary', '#00a4dc'), bodyText);
 
-        // Cancel button — revert the path in the input
+        // Cancel button - revert the path in the input
         d.btnRow.appendChild(createDialogBtn(T('cancel', 'Cancel'), 'cancel', function () {
             removeTrashDialog();
             var input = document.getElementById('cfgTrashPath');
@@ -2053,7 +2053,7 @@ function showTrashPathChangeDialog(payload, options) {
             // Proactive access check on the NEW path before attempting relocation
             apiPost('JellyfinHelper/Trash/CheckAccess', {TrashFolderPath: newPath}, function (accessData) {
                 if (accessData && accessData.AllAccessible === false) {
-                    // Access check failed — show the specific error from the server
+                    // Access check failed - show the specific error from the server
                     var accessErrors = (accessData.Results || []).filter(function(r) { return !r.HasFullAccess; });
                     var errorDetail = accessErrors.length > 0 ? (accessErrors[0].ErrorMessage || '') : '';
                     var errorText = errorDetail || T('trashPathAccessDenied', 'Permission denied on new trash path.');
@@ -2063,7 +2063,7 @@ function showTrashPathChangeDialog(payload, options) {
                 }
                 doRelocateTrash();
             }, function () {
-                // CheckAccess API call failed — proceed with move anyway (graceful degradation)
+                // CheckAccess API call failed - proceed with move anyway (graceful degradation)
                 doRelocateTrash();
             });
         }));
@@ -2079,7 +2079,7 @@ function showTrashPathChangeDialog(payload, options) {
                     msg.innerHTML = '<div class="success-msg">' + mi('check_circle') + ' ' + escHtml(T('trashPathDeleteSuccess', 'Old trash content deleted.')) + '</div>';
                     setTimeout(function () { if (msg) msg.innerHTML = ''; }, 5000);
                 }
-                // Now save the new path — update tracking only on success.
+                // Now save the new path - update tracking only on success.
                 // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
                 _trashPathChangeHandled = true;
                 doSaveSettings(payload, {
@@ -2100,7 +2100,7 @@ function showTrashPathChangeDialog(payload, options) {
 
         document.body.appendChild(d.overlay);
     }, function () {
-        // API error checking old path — proceed with save anyway, update tracking on success.
+        // API error checking old path - proceed with save anyway, update tracking on success.
         // Set the re-entrancy guard so doSaveSettings() won't re-trigger this dialog.
         _trashPathChangeHandled = true;
         doSaveSettings(payload, {

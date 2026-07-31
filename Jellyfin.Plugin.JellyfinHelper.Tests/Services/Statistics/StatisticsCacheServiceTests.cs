@@ -103,15 +103,15 @@ public class StatisticsCacheServiceTests : IDisposable
 
     // -----------------------------------------------------------------------
     // Guard branches previously uncovered:
-    //   * LoadLatestResult when the file contains the literal "null" — must
+    //   * LoadLatestResult when the file contains the literal "null" - must
     //     round-trip to null without surfacing a JsonException to callers.
-    //   * LoadLatestResult on a zero-byte file — same requirement, different
+    //   * LoadLatestResult on a zero-byte file - same requirement, different
     //     serializer failure mode (JsonException.NoData).
     //   * SaveLatestResult when the raw JSON serializes but the atomic write
-    //     hits a directory-missing race — the outer catch must swallow it and
+    //     hits a directory-missing race - the outer catch must swallow it and
     //     log a warning without crashing the scheduled task caller.
     //   * SaveLatestResult with a valid payload after a corrupted previous
-    //     file — the overwrite path must succeed, replacing the corrupt state.
+    //     file - the overwrite path must succeed, replacing the corrupt state.
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -148,7 +148,7 @@ public class StatisticsCacheServiceTests : IDisposable
     [Fact]
     public void LoadLatestResult_FileContainsWhitespaceOnly_ReturnsNull()
     {
-        // BUG GUARD: whitespace-only file — deserializer sees "no JSON here" and
+        // BUG GUARD: whitespace-only file - deserializer sees "no JSON here" and
         // throws JsonException. Same recovery path as EmptyFile but exercises
         // a subtly different serializer branch (position > 0 vs = 0).
         var filePath = Path.Join(_tempDir, "jellyfin-helper-statistics-latest.json");
@@ -173,7 +173,7 @@ public class StatisticsCacheServiceTests : IDisposable
         fresh.Libraries.Add(new LibraryStatistics { VideoSize = 999 });
         _service.SaveLatestResult(fresh);
 
-        // Must now be valid AND contain the new payload — no residue of the
+        // Must now be valid AND contain the new payload - no residue of the
         // corrupted contents (which would produce a JSON parse error on read-back).
         var loaded = _service.LoadLatestResult();
         Assert.NotNull(loaded);
@@ -186,7 +186,7 @@ public class StatisticsCacheServiceTests : IDisposable
     {
         // BUG GUARD: UTF-8 no-BOM (AtomicFile default) must not corrupt multi-byte
         // sequences. Library names in real deployments include CJK, umlauts, emojis
-        // — a BOM-write regression would produce a garbled first character on read
+        // - a BOM-write regression would produce a garbled first character on read
         // via any tool that strips BOMs, and a wrong-encoding regression would
         // mojibake the whole payload.
         var stats = new MediaStatisticsResult();

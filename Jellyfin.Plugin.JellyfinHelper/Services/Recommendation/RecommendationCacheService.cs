@@ -92,7 +92,7 @@ public sealed class RecommendationCacheService : IRecommendationCacheService
             // exotic path syntax on non-Windows) that a portable xUnit run cannot reproduce.
             // The handler body is intentionally identical to the IOException/JsonException
             // path (log + swallow, no state mutation) so all six exception types share the
-            // same code path — extending the filter cannot introduce a new failure mode.
+            // same code path - extending the filter cannot introduce a new failure mode.
             catch (Exception ex) when (ex is IOException
                                         or UnauthorizedAccessException
                                         or JsonException

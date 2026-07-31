@@ -100,7 +100,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
     }
 
     // -----------------------------------------------------------------------
-    // TEST-10a: Warm cache — second sequential call must NOT hit the network.
+    // TEST-10a: Warm cache - second sequential call must NOT hit the network.
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -114,7 +114,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         var first = await sut.ResolveSeerrUserIdAsync(LinkedJellyfinUserId, CancellationToken.None);
         var callsAfterFirst = handler.CallCount;
 
-        // Second call — should be served from the in-memory cache.
+        // Second call - should be served from the in-memory cache.
         var second = await sut.ResolveSeerrUserIdAsync(LinkedJellyfinUserId, CancellationToken.None);
         var callsAfterSecond = handler.CallCount;
 
@@ -126,7 +126,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
     }
 
     // -----------------------------------------------------------------------
-    // TEST-10b: Stampede — concurrent cold-cache callers all fan out to HTTP
+    // TEST-10b: Stampede - concurrent cold-cache callers all fan out to HTTP
     //           (documents current "allow stampede" behaviour and verifies that
     //           once any caller has written the cache the result is consistent).
     // -----------------------------------------------------------------------
@@ -153,7 +153,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
         // Assert: every caller must receive the same, correct Seerr user ID.
         Assert.All(results, r => Assert.Equal(1, r));
 
-        // The current implementation does NOT coalesce concurrent fetches — each concurrent
+        // The current implementation does NOT coalesce concurrent fetches - each concurrent
         // caller independently reaches FetchSeerrUsersInternalAsync. Verify the call count
         // is consistent with the observed concurrency (at least 1, at most N). This assertion
         // documents the known stampede: it verifies the RESULT is always correct (no data
@@ -163,7 +163,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
     }
 
     // -----------------------------------------------------------------------
-    // TEST-10c: After the stampede settles the cache is warm — the NEXT call
+    // TEST-10c: After the stampede settles the cache is warm - the NEXT call
     //           (after all concurrent ones complete) must not re-fetch.
     // -----------------------------------------------------------------------
 
@@ -185,7 +185,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
 
         var callsAfterStampede = handler.CallCount;
 
-        // Act: one more call — cache should now be warm.
+        // Act: one more call - cache should now be warm.
         await sut.ResolveSeerrUserIdAsync(LinkedJellyfinUserId, CancellationToken.None);
 
         // Assert: handler call count must not have increased.
@@ -193,7 +193,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
     }
 
     // -----------------------------------------------------------------------
-    // TEST-10d: Incomplete fetch (upstream error) must NOT be written to cache —
+    // TEST-10d: Incomplete fetch (upstream error) must NOT be written to cache -
     //           callers must keep retrying rather than getting a stale empty list
     //           for the full TTL.
     // -----------------------------------------------------------------------
@@ -209,16 +209,16 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
             fetchDelayMs: 0);
         var sut = BuildSut(handler);
 
-        // Act: first call — upstream error, empty list returned, null resolved.
+        // Act: first call - upstream error, empty list returned, null resolved.
         var first = await sut.ResolveSeerrUserIdAsync(LinkedJellyfinUserId, CancellationToken.None);
 
-        // Second call — still failing, must retry rather than return cached empty.
+        // Second call - still failing, must retry rather than return cached empty.
         var second = await sut.ResolveSeerrUserIdAsync(LinkedJellyfinUserId, CancellationToken.None);
 
-        // Third call — success; must resolve correctly and cache the result.
+        // Third call - success; must resolve correctly and cache the result.
         var third = await sut.ResolveSeerrUserIdAsync(LinkedJellyfinUserId, CancellationToken.None);
 
-        // Fourth call — cache warm, no new HTTP request.
+        // Fourth call - cache warm, no new HTTP request.
         var callsBeforeFourth = handler.CallCount;
         var fourth = await sut.ResolveSeerrUserIdAsync(LinkedJellyfinUserId, CancellationToken.None);
 
@@ -234,7 +234,7 @@ public sealed class SeerrDiscoveryServiceCacheTests : IDisposable
 }
 
 // ---------------------------------------------------------------------------
-// FailableCountingHttpHandler — thread-safe scripted handler that counts /api/v1/user
+// FailableCountingHttpHandler - thread-safe scripted handler that counts /api/v1/user
 // GET calls and can inject a configurable per-response delay for stampede tests.
 // ---------------------------------------------------------------------------
 

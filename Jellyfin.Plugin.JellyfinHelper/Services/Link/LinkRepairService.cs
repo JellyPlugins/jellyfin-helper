@@ -288,7 +288,7 @@ public class LinkRepairService : ILinkRepairService
 
         fileResult.OriginalTargetPath = targetPath;
 
-        // Reject null bytes before normalization — .NET no longer throws ArgumentException
+        // Reject null bytes before normalization - .NET no longer throws ArgumentException
         // from Path.GetFullPath for embedded NULs on modern runtimes, so we must check
         // explicitly. A NUL byte is a structural path-grammar violation → InvalidContent.
         if (targetPath.Contains('\0', StringComparison.Ordinal))
@@ -351,7 +351,7 @@ public class LinkRepairService : ILinkRepairService
             }
 
             // (b) An ABSOLUTE target (or file:// URI) pointing at a sensitive system
-            // directory — Jellyfin's own /config, OS dirs like /etc, C:\Windows — is
+            // directory - Jellyfin's own /config, OS dirs like /etc, C:\Windows - is
             // refused so link repair never enumerates or rewrites toward host files
             // outside the media libraries (info-disclosure / traversal via absolute
             // targets). A cross-location absolute media target (another library / mount)
@@ -418,7 +418,7 @@ public class LinkRepairService : ILinkRepairService
         // Search the parent directory for media files, EXCLUDING the link file
         // itself. A symlink with a media extension (e.g. a broken "Movie.mkv"
         // symlink) would otherwise be enumerated as one of its own repair
-        // candidates and make every such folder look ambiguous — a link can never
+        // candidates and make every such folder look ambiguous - a link can never
         // legitimately repair to itself. (.strm links are already excluded from
         // the candidate filter by extension, so this only affects symlinks.)
         var mediaFiles = FindMediaFilesInDirectory(parentDir)
@@ -527,7 +527,7 @@ public class LinkRepairService : ILinkRepairService
     /// <summary>
     ///     True when an absolute target path is (or is inside) a sensitive system /
     ///     application directory that link repair must never read from or rewrite
-    ///     toward — Jellyfin's own <c>/config</c>, plus common OS directories. A
+    ///     toward - Jellyfin's own <c>/config</c>, plus common OS directories. A
     ///     cross-location media target (another library or mount) is not sensitive
     ///     and is allowed; only these locations are blocked.
     /// </summary>

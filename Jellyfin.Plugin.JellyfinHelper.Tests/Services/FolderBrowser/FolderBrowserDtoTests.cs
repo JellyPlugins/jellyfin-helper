@@ -48,7 +48,7 @@ public class FolderBrowserDtoTests
     [Fact]
     public void FolderEntry_TwoInstancesWithSameValues_AreNotEqualByValue()
     {
-        // The DTO is intentionally NOT a value/record type — two payloads with identical
+        // The DTO is intentionally NOT a value/record type - two payloads with identical
         // field values must not compare equal, so callers can safely use identity in
         // caches without collisions. `ReferenceEquals` alone cannot detect a switch to
         // `record` (records still fail ReferenceEquals on two allocations), so we
@@ -59,9 +59,9 @@ public class FolderBrowserDtoTests
 
         Assert.False(ReferenceEquals(a, b));
         // The key invariant: if someone converts FolderEntry to `record`, this line flips
-        // to true and the test fails — surfacing the semantic change before it ships.
+        // to true and the test fails - surfacing the semantic change before it ships.
         Assert.False(a.Equals(b), "FolderEntry must use reference equality (not value/record semantics)");
-        // Same instance still equals itself — guards against accidental override of
+        // Same instance still equals itself - guards against accidental override of
         // Equals to a constant false.
         Assert.True(a.Equals(a));
     }
@@ -140,7 +140,7 @@ public class FolderBrowserDtoTests
     [Fact]
     public void FolderBrowseResult_DirectoriesRespectsReadOnlyInterface()
     {
-        // IReadOnlyList<T> is exposed — arrays and lists should both fit.
+        // IReadOnlyList<T> is exposed - arrays and lists should both fit.
         var result = new FolderBrowseResult { Directories = new FolderEntry[] { new() { Name = "arr" } } };
         Assert.Single(result.Directories);
         Assert.Equal("arr", result.Directories[0].Name);

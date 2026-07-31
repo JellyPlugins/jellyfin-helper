@@ -1,7 +1,7 @@
 /* Arr comparison */
 
 /* ============================================================
-   Arr page — card layout (aligned with Settings + Health redesigns).
+   Arr page - card layout (aligned with Settings + Health redesigns).
    Rules below are ADDITIVE. Existing selectors (.arr-section,
    .arr-list, .arr-count, .arr-integration-instance-header) keep
    their behaviour so all existing initArrButtons + compareArr
@@ -32,7 +32,7 @@
 }
 /* noinspection CssUnusedSymbol */
 #arrResult > .arr-card:first-child {
-    /* Result card follows the buttons card — keep a comfortable gap
+    /* Result card follows the buttons card - keep a comfortable gap
        (default 1.2em) so the two cards read as separate blocks. */
     margin-top: 1.2em;
 }
@@ -57,7 +57,7 @@
 }
 
 /* ============================================================
-   Arr compare row — one dropdown + one compare button per type.
+   Arr compare row - one dropdown + one compare button per type.
    Replaces the old "N buttons of varying width per instance"
    layout so the Radarr and Sonarr rows always share the same
    visual footprint regardless of how many instances or how

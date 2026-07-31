@@ -579,7 +579,7 @@ public class ArrIntegrationServiceTests
     }
 
     // (Tested here via ArrIntegrationService which uses request.Headers.Add() directly on
-    //  per-request HttpRequestMessage — this is safe and does not need the fix.
+    //  per-request HttpRequestMessage - this is safe and does not need the fix.
     //  The SeerrIntegrationService-specific test lives in SeerrIntegrationServiceTests.cs
     //  via the existing TestConnection_SetsApiKeyHeader test that validates the header is set.)
 
@@ -618,7 +618,7 @@ public class ArrIntegrationServiceTests
     [Fact]
     public async Task TestConnection_HttpClientNotDisposed_FactoryClientCanBeReused()
     {
-        // IHttpClientFactory clients must NOT be disposed by callers — the factory manages handler lifetime.
+        // IHttpClientFactory clients must NOT be disposed by callers - the factory manages handler lifetime.
         // This test ensures the client returned by the factory is still usable after TestConnectionAsync returns,
         // which would throw ObjectDisposedException if the service had incorrectly called client.Dispose().
         var json = "{\"appName\":\"Radarr\",\"version\":\"5.0\"}";
@@ -630,7 +630,7 @@ public class ArrIntegrationServiceTests
 
         await service.TestConnectionAsync("http://arr.local", "apikey", CancellationToken.None);
 
-        // After the call, the client must NOT be disposed — reuse it to verify.
+        // After the call, the client must NOT be disposed - reuse it to verify.
         var ex = Record.Exception(() => httpClient.BaseAddress);
         Assert.Null(ex); // ObjectDisposedException would be thrown here if client was disposed
     }
@@ -871,7 +871,7 @@ public class ArrIntegrationServiceTests
     [Fact]
     public void CompareRadarr_OrdinalIgnoreCaseComparer_IsNotCopied()
     {
-        // Jellyfin folder in LOWERCASE, Arr path in MixedCase — only OrdinalIgnoreCase matches.
+        // Jellyfin folder in LOWERCASE, Arr path in MixedCase - only OrdinalIgnoreCase matches.
         // This ensures the ReferenceEquals fast-path actually exercises case-insensitive lookup,
         // not just a same-case coincidental match that would pass under any comparer.
         var jellyfinFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "movie a (2020)" };
@@ -885,7 +885,7 @@ public class ArrIntegrationServiceTests
     [Fact]
     public void CompareSonarr_OrdinalIgnoreCaseComparer_IsNotCopied()
     {
-        // Jellyfin folder in LOWERCASE, Arr path in MixedCase — only OrdinalIgnoreCase matches.
+        // Jellyfin folder in LOWERCASE, Arr path in MixedCase - only OrdinalIgnoreCase matches.
         var jellyfinFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "show a" };
         var series = new[] { new ArrSeries { Title = "Show A", Year = 2020, EpisodeFileCount = 5, TotalEpisodeCount = 10, Path = "/tv/Show A" } };
 

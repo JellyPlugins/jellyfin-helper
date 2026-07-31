@@ -30,13 +30,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests;
 ///     Tests for <see cref="PluginServiceRegistrator"/> to make sure every service the plugin
 ///     depends on is registered against the DI container. A regression in this file typically
 ///     surfaces as an unresolved-service <see cref="InvalidOperationException"/> at controller
-///     construction time in production — a nasty runtime-only failure. Catching it here is
+///     construction time in production - a nasty runtime-only failure. Catching it here is
 ///     cheap and catches accidental removal or rename of a registration.
 /// </summary>
 public class PluginServiceRegistratorTests
 {
     /// <summary>Registers all services against a fresh collection. Plugin.Instance may or may
-    /// not exist depending on test ordering — the registrator uses the null-conditional so it
+    /// not exist depending on test ordering - the registrator uses the null-conditional so it
     /// tolerates either state.</summary>
     private static IServiceCollection Register()
     {
@@ -57,14 +57,14 @@ public class PluginServiceRegistratorTests
     [Fact]
     public void RegisterServices_WithNullApplicationHost_ThrowsNothing_WhenAppHostProvided()
     {
-        // We pass a real Mock instance, not null — the interface contract does not permit null,
+        // We pass a real Mock instance, not null - the interface contract does not permit null,
         // but the registrator must not depend on any member of the host either.
         var ex = Record.Exception(() => Register());
         Assert.Null(ex);
     }
 
     // -----------------------------------------------------------------------
-    // HttpClients — three named clients with specific timeouts must be present
+    // HttpClients - three named clients with specific timeouts must be present
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -112,7 +112,7 @@ public class PluginServiceRegistratorTests
     }
 
     // -----------------------------------------------------------------------
-    // ILinkHandler is registered TWICE (Strm and Symlink) — must expose both.
+    // ILinkHandler is registered TWICE (Strm and Symlink) - must expose both.
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -169,7 +169,7 @@ public class PluginServiceRegistratorTests
 
         var provider = sc.BuildServiceProvider(validateScopes: true);
 
-        // A representative sample from every category — verifying each of these resolves
+        // A representative sample from every category - verifying each of these resolves
         // exercises the entire factory chain (loggers, config lookups, path composition).
         Assert.NotNull(provider.GetService<IScoringStrategy>());
         Assert.NotNull(provider.GetService<IStrategySelector>());
@@ -183,7 +183,7 @@ public class PluginServiceRegistratorTests
     public void RegisterServices_ResolvesRecommendationPlaylistService_WhenJellyfinDepsRegistered()
     {
         // BUG GUARD: RecommendationPlaylistService requires IPlaylistManager, IUserManager,
-        // and ILibraryManager — all Jellyfin-host interfaces not present in the plugin's own
+        // and ILibraryManager - all Jellyfin-host interfaces not present in the plugin's own
         // RegisterServices call. Jellyfin injects them via its own DI container at runtime.
         // This test simulates that: register mocks for the three Jellyfin deps, then verify
         // the full factory chain resolves without InvalidOperationException.
@@ -205,7 +205,7 @@ public class PluginServiceRegistratorTests
     {
         // The three named HttpClient registrations set specific timeouts. If someone
         // accidentally removes a name, the factory silently returns a default client
-        // with a 100-second timeout — dangerous for calls to Radarr/Sonarr/Seerr.
+        // with a 100-second timeout - dangerous for calls to Radarr/Sonarr/Seerr.
         var sc = Register();
         sc.AddLogging();
         var provider = sc.BuildServiceProvider();
@@ -232,7 +232,7 @@ public class PluginServiceRegistratorTests
         var provider = sc.BuildServiceProvider();
         var factory = provider.GetRequiredService<System.Net.Http.IHttpClientFactory>();
 
-        // "arrIntegration" is a subtle typo — must NOT match "ArrIntegration".
+        // "arrIntegration" is a subtle typo - must NOT match "ArrIntegration".
         var typo = factory.CreateClient("arrIntegration");
         // The default HttpClient timeout is 100 seconds.
         Assert.Equal(TimeSpan.FromSeconds(100), typo.Timeout);
@@ -254,7 +254,7 @@ public class PluginServiceRegistratorTests
     {
         // Filter is consumed via [ServiceFilter(typeof(ModelBindingLogFilter))] on the
         // ConfigurationController action. That attribute needs the CONCRETE type resolvable
-        // from DI — a rename or accidental removal here would surface as a runtime
+        // from DI - a rename or accidental removal here would surface as a runtime
         // InvalidOperationException on the first Settings save. Also pins Scoped lifetime:
         // Singleton would prevent request-scoped dependencies from being injected later,
         // Transient would spawn a fresh filter per invocation (fine functionally but wastes
@@ -271,7 +271,7 @@ public class PluginServiceRegistratorTests
         // Real re-entrancy guard: calling RegisterServices twice against the SAME
         // ServiceCollection is expected to append descriptors (Add* semantics, not
         // TryAdd*). If any registration silently switched to TryAdd, the second call
-        // would be a no-op and this test would fail — surfacing the subtle behaviour
+        // would be a no-op and this test would fail - surfacing the subtle behaviour
         // change instead of shipping it.
         //
         // Note: the registrator is called by Jellyfin exactly once, so this is a
@@ -290,7 +290,7 @@ public class PluginServiceRegistratorTests
 
         // Every Add* registration is duplicated by the second call. Named HttpClient
         // registrations use Configure<HttpClientFactoryOptions> which multiply on repeat
-        // invocation, so the exact ratio is not necessarily 2:1 — we assert only strict
+        // invocation, so the exact ratio is not necessarily 2:1 - we assert only strict
         // monotonic growth to keep this test resilient against future changes.
         Assert.True(
             countAfterSecond > countAfterFirst,

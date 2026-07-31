@@ -1,11 +1,11 @@
 /**
- * Behavioral coverage for GrowthTimeline — the storage-growth chart. The existing
+ * Behavioral coverage for GrowthTimeline - the storage-growth chart. The existing
  * trends spec only checks for garbage (no negative/future values). Here we prove
  * the timeline reflects the REAL scanned library with correct, coherent data.
  *
  * Why not "add a file and watch it grow": the timeline is append-only and buckets
  * by scan date, and its size/count come from a media-extension scan of what was
- * already captured — a file added mid-run does not deterministically produce a
+ * already captured - a file added mid-run does not deterministically produce a
  * fresh delta within one recompute. So we assert the invariants that DO hold:
  *   - The series is non-empty and its cumulative file count is monotonically
  *     non-decreasing (the defining property of a cumulative growth curve).

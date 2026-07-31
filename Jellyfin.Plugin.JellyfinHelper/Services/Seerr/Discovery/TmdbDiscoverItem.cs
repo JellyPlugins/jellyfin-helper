@@ -108,7 +108,7 @@ internal sealed class TmdbDiscoverItem
 
     /// <summary>
     ///     Gets or sets known people names (populated from search results where cast data is embedded).
-    ///     Not available from /discover endpoints — only from /search or /movie/{id}/credits.
+    ///     Not available from /discover endpoints - only from /search or /movie/{id}/credits.
     /// </summary>
     [JsonIgnore]
     public List<string>? KnownPeople { get; set; }

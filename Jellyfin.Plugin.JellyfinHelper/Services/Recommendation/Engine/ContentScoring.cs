@@ -22,7 +22,7 @@ internal static class ContentScoring
     ///     <para>
     ///         Incremented atomically. First non-zero value also emits a one-shot
     ///         <see cref="Trace.TraceWarning(string)"/> so the mismatch appears in the .NET
-    ///         trace listener chain even in Release builds — a plain Debug.Assert would be
+    ///         trace listener chain even in Release builds - a plain Debug.Assert would be
     ///         a no-op there and the fail-safe degradation would go completely unnoticed.
     ///     </para>
     /// </summary>
@@ -30,7 +30,7 @@ internal static class ContentScoring
 
     /// <summary>
     ///     Gets the number of parallel-array mismatches observed since process start.
-    ///     Test-only accessor — not part of the plugin's public API.
+    ///     Test-only accessor - not part of the plugin's public API.
     /// </summary>
     internal static long ParallelArrayMismatchCount => Interlocked.Read(ref _parallelArrayMismatchCount);
 
@@ -303,7 +303,7 @@ internal static class ContentScoring
 
         // Parallel-array invariant: all three lists MUST have the same length because they
         // are populated in the same loop in Engine.GenerateForUser() and the training data
-        // builders. A mismatch is always a bug — but throwing here would abort an entire
+        // builders. A mismatch is always a bug - but throwing here would abort an entire
         // training run for a single misconfigured user, and the neural pipeline would then
         // have no updated weights at all until a maintainer intervenes.
         //
@@ -317,7 +317,7 @@ internal static class ContentScoring
         // but compiles away in Release. To keep the failure observable there too, we also
         // increment a static counter (queryable via ParallelArrayMismatchCount for tests and
         // future diagnostics hooks) and emit a single Trace.TraceWarning on the FIRST
-        // mismatch — subsequent calls stay cheap while operators still get one observable
+        // mismatch - subsequent calls stay cheap while operators still get one observable
         // log entry through the standard .NET trace listener chain.
         var mismatch = watchedGenreSets.Count != watchedPeopleSets.Count
             || watchedGenreSets.Count != watchedStudioSets.Count;
@@ -333,7 +333,7 @@ internal static class ContentScoring
                 Trace.TraceWarning(
                     "ContentScoring.ComputeContentNearestNeighborScore observed a parallel-array length mismatch "
                     + "(genres={0}, people={1}, studios={2}). "
-                    + "This is always a bug — the score is degrading gracefully by treating missing entries as absent. "
+                    + "This is always a bug - the score is degrading gracefully by treating missing entries as absent. "
                     + "Subsequent mismatches are counted silently via ParallelArrayMismatchCount.",
                     watchedGenreSets.Count,
                     watchedPeopleSets.Count,

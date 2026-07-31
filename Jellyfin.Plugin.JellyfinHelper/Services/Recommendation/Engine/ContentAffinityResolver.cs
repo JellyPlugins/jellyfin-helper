@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine;
 ///     Shared, library-call-free resolvers for the candidate-invariant content-affinity source data
 ///     (TMDb collection, production countries, inherited tags, series lifecycle, writers). Centralising
 ///     them here guarantees the live scoring path (<c>Engine</c>), the per-snapshot precompute, and the
-///     watch-history profile build (<c>WatchHistoryService</c>) all extract these fields identically —
+///     watch-history profile build (<c>WatchHistoryService</c>) all extract these fields identically -
 ///     which is exactly the train/serve parity contract the content-affinity features depend on.
 ///     <para>
 ///         All methods are fail-soft: any non-fatal exception or missing metadata yields the neutral

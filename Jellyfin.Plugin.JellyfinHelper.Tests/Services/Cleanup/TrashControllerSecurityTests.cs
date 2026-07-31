@@ -100,7 +100,7 @@ public class TrashControllerSecurityTests : IDisposable
     /// <summary>
     ///     Regression (FS-escape bug): an absolute trash path that is OUTSIDE every
     ///     library and is a sensitive system directory (e.g. Jellyfin's own /config)
-    ///     must be rejected — previously it slipped through because the guard only
+    ///     must be rejected - previously it slipped through because the guard only
     ///     rejected the filesystem root and exact/parent library roots, so
     ///     DeleteTrashFolders would have recursively deleted the config directory.
     /// </summary>
@@ -109,7 +109,7 @@ public class TrashControllerSecurityTests : IDisposable
     public void DeleteTrashFolders_AbsolutePathIsSensitiveSystemDir_ReturnsBadRequest()
     {
         // Use a hardcoded sensitive-root string (a config/system dir, per OS) as the trash
-        // path while the only library lives elsewhere. No directory is created — the guard
+        // path while the only library lives elsewhere. No directory is created - the guard
         // must refuse any absolute path that is IsSensitiveSystemPath and not strictly inside
         // a library, regardless of whether it exists on disk.
         var sensitive = OperatingSystem.IsWindows() ? @"C:\Windows\Temp\jfh-x" : "/config/jfh-x";
@@ -214,7 +214,7 @@ public class TrashControllerSecurityTests : IDisposable
         // Act
         var result = controller.DeleteTrashFolders();
 
-        // Assert: library root cannot be deleted — controller returns 400
+        // Assert: library root cannot be deleted - controller returns 400
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
@@ -242,7 +242,7 @@ public class TrashControllerSecurityTests : IDisposable
         // Act
         var result = controller.DeleteTrashFolders();
 
-        // Assert: trash inside a library is safe — should succeed (200), not 400
+        // Assert: trash inside a library is safe - should succeed (200), not 400
         Assert.IsNotType<BadRequestObjectResult>(result);
         var okResult = Assert.IsType<OkObjectResult>(result);
         Assert.NotNull(okResult.Value);

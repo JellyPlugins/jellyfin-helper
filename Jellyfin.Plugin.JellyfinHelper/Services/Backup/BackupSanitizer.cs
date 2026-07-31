@@ -157,7 +157,7 @@ public static class BackupSanitizer
             return;
         }
 
-        // Drop any null entries FIRST — a backup JSON can contain `[null]` in the
+        // Drop any null entries FIRST - a backup JSON can contain `[null]` in the
         // instance array, which would otherwise NRE below (sanitize runs before
         // validation, so the validator's null guard hasn't executed yet). This must
         // precede the count cap so a leading null can't consume a valid instance's slot

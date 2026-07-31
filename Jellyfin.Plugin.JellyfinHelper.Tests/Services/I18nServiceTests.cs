@@ -474,7 +474,7 @@ public class I18NServiceTests : IDisposable
             Assert.NotEmpty(dict);
         }
 
-        // All dictionaries must contain identical key sets — verifying they all came
+        // All dictionaries must contain identical key sets - verifying they all came
         // from the same (single) factory invocation rather than independent loads.
         var referenceKeys = new HashSet<string>(results[0].Keys, StringComparer.Ordinal);
         for (var i = 1; i < results.Length; i++)

@@ -89,7 +89,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
 
     /// <summary>
     ///     Cached JSON serializer options for weight persistence.
-    ///     Compact (non-indented) output — the file is machine-read
+    ///     Compact (non-indented) output - the file is machine-read
     ///     only and roughly halves in size (~1.5 KB vs ~3 KB) with no loss of information.
     /// </summary>
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = false };
@@ -490,7 +490,7 @@ public sealed class LearnedScoringStrategy : IScoringStrategy, ITrainableStrateg
         } // release _syncRoot before disk I/O and ranking metrics to avoid blocking concurrent Score() calls
 
         // Compute ranking metrics OUTSIDE the lock - ComputeAll() calls Score() internally,
-        // which acquires _syncRoot. System.Threading.Lock is NOT reentrant — this call MUST
+        // which acquires _syncRoot. System.Threading.Lock is NOT reentrant - this call MUST
         // remain outside _syncRoot. Moving it inside the lock would cause a LockRecursionException.
         // This mirrors the pattern used by NeuralScoringStrategy.Train().
         //

@@ -188,7 +188,7 @@ public sealed class WatchHistoryServiceTests
     // The three tests below explicitly stub GetUserDataBatch so LookupUserData exercises the
     // "valid batch present" branch (lookup is not null) rather than falling back to per-item
     // GetUserData via Moq's implicit null default. Without this stub the tests would silently
-    // cover the fallback path only — a distinct contract already covered by
+    // cover the fallback path only - a distinct contract already covered by
     // GetUserWatchProfile_BatchApiThrows_FallsBackToPerItemGetUserData further below.
 
     [Fact]
@@ -287,7 +287,7 @@ public sealed class WatchHistoryServiceTests
             .Returns(new List<BaseItem>())
             .Returns(new List<BaseItem> { series });
 
-        // Batch returns an empty dictionary — the "missing key" case, distinct from a null batch.
+        // Batch returns an empty dictionary - the "missing key" case, distinct from a null batch.
         _mockUserDataManager
             .Setup(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), user))
             .Returns(new Dictionary<Guid, UserItemData>());
@@ -371,7 +371,7 @@ public sealed class WatchHistoryServiceTests
     }
 
     // =========================================================================
-    // BuildPeopleProfile / AggregatePeopleFromItem — actor/director aggregation
+    // BuildPeopleProfile / AggregatePeopleFromItem - actor/director aggregation
     // =========================================================================
 
     [Fact]
@@ -499,7 +499,7 @@ public sealed class WatchHistoryServiceTests
     public void BuildProfile_GetPeopleThrows_SkipsItemGracefully()
     {
         // BUG SURFACE: a corrupted library entry that makes GetPeople throw must NOT
-        // abort profile building — it should skip only the affected item.
+        // abort profile building - it should skip only the affected item.
         var user = CreateTestUser("eve");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var goodMovie = new Movie { Id = Guid.NewGuid(), Name = "Good", RunTimeTicks = 1 };
@@ -528,7 +528,7 @@ public sealed class WatchHistoryServiceTests
     [Fact]
     public void BuildProfile_GetPeopleCancelled_PropagatesOperationCanceled()
     {
-        // OperationCanceledException must propagate — parity contract with
+        // OperationCanceledException must propagate - parity contract with
         // SimilarityComputer.BuildCandidatePeopleLookup.
         var user = CreateTestUser("frank");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
@@ -604,7 +604,7 @@ public sealed class WatchHistoryServiceTests
     public void BuildProfile_PartiallyWatchedItem_BelowThreshold_ExcludedFromPeople()
     {
         // Items with < 15% playback progress are considered "abandoned" and must NOT
-        // contribute to the PeopleProfile — a bounced-off show should not shape preferences.
+        // contribute to the PeopleProfile - a bounced-off show should not shape preferences.
         var user = CreateTestUser("hank");
         _mockUserManager.Setup(m => m.GetUserById(user.Id)).Returns(user);
         var movie = new Movie
@@ -621,7 +621,7 @@ public sealed class WatchHistoryServiceTests
                 Key = "k",
                 Played = false,
                 IsFavorite = false,
-                // 5 minutes / 120 = 4% — well below the 15% "significant progress" threshold
+                // 5 minutes / 120 = 4% - well below the 15% "significant progress" threshold
                 PlaybackPositionTicks = TimeSpan.FromMinutes(5).Ticks
             });
         _mockLibraryManager.Setup(m => m.GetPeople(movie)).Returns(new List<PersonInfo>
@@ -656,7 +656,7 @@ public sealed class WatchHistoryServiceTests
                 Key = "k",
                 Played = false,
                 IsFavorite = false,
-                // 30 minutes / 100 = 30% — well above the 15% threshold
+                // 30 minutes / 100 = 30% - well above the 15% threshold
                 PlaybackPositionTicks = TimeSpan.FromMinutes(30).Ticks
             });
         _mockLibraryManager.Setup(m => m.GetPeople(movie)).Returns(new List<PersonInfo>
@@ -693,7 +693,7 @@ public sealed class WatchHistoryServiceTests
         };
 
         // First GetItemList call → video items (the episode)
-        // Second GetItemList call → series items (empty — series NOT in lookup)
+        // Second GetItemList call → series items (empty - series NOT in lookup)
         _mockLibraryManager
             .SetupSequence(m => m.GetItemList(It.IsAny<InternalItemsQuery>()))
             .Returns(new List<BaseItem> { episode })
@@ -734,7 +734,7 @@ public sealed class WatchHistoryServiceTests
     public void GetSeriesEpisodeCounts_CountsPlayableEpisodesPerSeries_SkippingPathlessAndOrphans()
     {
         // Two series, mixed playability. The count must include only episodes that have a
-        // non-empty Path AND a valid SeriesId — the exact rule the recommendation engine uses
+        // non-empty Path AND a valid SeriesId - the exact rule the recommendation engine uses
         // when building the progression-weighting map, so discovery genre preferences stay in
         // lock-step with the engine's training pipeline.
         var seriesA = Guid.NewGuid();
@@ -744,10 +744,10 @@ public sealed class WatchHistoryServiceTests
         {
             new Episode { Id = Guid.NewGuid(), SeriesId = seriesA, Path = "/media/a/s01e01.mkv" },
             new Episode { Id = Guid.NewGuid(), SeriesId = seriesA, Path = "/media/a/s01e02.mkv" },
-            // No Path (Arr placeholder before download) — must NOT be counted.
+            // No Path (Arr placeholder before download) - must NOT be counted.
             new Episode { Id = Guid.NewGuid(), SeriesId = seriesA, Path = null },
             new Episode { Id = Guid.NewGuid(), SeriesId = seriesB, Path = "/media/b/s01e01.mkv" },
-            // Orphan episode with no SeriesId — must NOT be counted.
+            // Orphan episode with no SeriesId - must NOT be counted.
             new Episode { Id = Guid.NewGuid(), SeriesId = Guid.Empty, Path = "/media/orphan.mkv" }
         };
 

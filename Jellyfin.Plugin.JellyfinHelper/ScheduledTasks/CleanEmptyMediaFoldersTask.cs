@@ -89,7 +89,7 @@ public class CleanEmptyMediaFoldersTask : BaseLibraryCleanupTask
         long bytesFreed = 0;
         var config = ConfigHelper.GetConfig();
 
-        // Hoist trash-path computation outside the loop — libraryPath is constant per call.
+        // Hoist trash-path computation outside the loop - libraryPath is constant per call.
         // Use case-sensitive comparison on Linux, case-insensitive on Windows/macOS,
         // matching the same pattern used by CleanTrickplayTask and CleanOrphanedSubtitlesTask.
         var trashPath = ConfigHelper.GetTrashPath(libraryPath);

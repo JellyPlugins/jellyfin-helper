@@ -2,7 +2,7 @@
  * Adversarial Arr/Seerr integration tests: SSRF attempts, non-HTTP schemes,
  * high-byte API keys, and misbehaving upstreams (slow-loris, over-large body,
  * garbage JSON via the mock's sentinel keys). The plugin must degrade to
- * 400/502/504 — never 200 on an SSRF target, never a 500/crash/hang — and never
+ * 400/502/504 - never 200 on an SSRF target, never a 500/crash/hang - and never
  * reflect internal content.
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
@@ -131,7 +131,7 @@ test('Arr Compare index overflow / negative / non-numeric → all handled, never
     headers: { 'Content-Type': 'application/json' },
     data: { RadarrInstances: [{ Name: 'Mock Radarr', Url: ARR, ApiKey: 'radarr-key' }] },
   });
-  // Assert the seed so the index sweep genuinely exercises the overflow paths — a
+  // Assert the seed so the index sweep genuinely exercises the overflow paths - a
   // rejected seed would leave no instance and make every index case trivially non-5xx.
   expect(seed.ok(), `RadarrInstances seed failed: ${seed.status()}`).toBeTruthy();
   for (const idx of ['-1', '2147483647', '2147483648', 'abc']) {

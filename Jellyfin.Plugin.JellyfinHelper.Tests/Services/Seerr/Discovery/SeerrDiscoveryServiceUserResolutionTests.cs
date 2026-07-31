@@ -68,7 +68,7 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
     [Fact]
     public void FindSeerrUserByJellyfinId_32CharMatch_LowerCase_ReturnsUser()
     {
-        // 32-char Seerr ID (no hyphens, lowercase) — the fast path.
+        // 32-char Seerr ID (no hyphens, lowercase) - the fast path.
         var guid = Guid.Parse("11111111-2222-3333-4444-555555555555");
         var users = new List<SeerrUser>
         {
@@ -82,7 +82,7 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
     [Fact]
     public void FindSeerrUserByJellyfinId_32CharMatch_UpperCase_ReturnsUser()
     {
-        // BUG GUARD: case-insensitive matching. Seerr occasionally stores IDs uppercased —
+        // BUG GUARD: case-insensitive matching. Seerr occasionally stores IDs uppercased -
         // the fast path (32 chars) must not require lowercase, otherwise every uppercase-storing
         // Seerr instance would report ALL users as "not linked to Seerr".
         var guid = Guid.Parse("aabbccdd-1122-3344-5566-778899aabbcc");
@@ -236,7 +236,7 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
     public void BuildAllowedProfileList_FullList_DeduplicatesRootFolderPaths()
     {
         // BUG GUARD: root folders with duplicate paths (mis-configured Seerr) must not
-        // produce duplicate emitted entries — the frontend would show the exact same choice twice.
+        // produce duplicate emitted entries - the frontend would show the exact same choice twice.
         var server = MakeServer(
             id: 1, name: "Radarr-1", activeProfileId: 100,
             profiles: [MakeProfile(100, "HD")],
@@ -286,7 +286,7 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
     [Fact]
     public void BuildAllowedProfileList_FullList_NoRootFoldersAndNoActiveDirectory_EmitsEmptyRootFolder()
     {
-        // Complete absence of both fields — we still emit the profile with RootFolder="".
+        // Complete absence of both fields - we still emit the profile with RootFolder="".
         // The controller then rejects any client-specified rootFolder and falls back to Seerr's server default.
         var server = MakeServer(
             id: 1, name: "Radarr-1", activeProfileId: 100,
@@ -341,7 +341,7 @@ public sealed class SeerrDiscoveryServiceUserResolutionTests
     }
 
     // ============================================================================
-    // Test helpers — small factory functions to keep test bodies focused on assertions.
+    // Test helpers - small factory functions to keep test bodies focused on assertions.
     // ============================================================================
 
     private static SeerrServiceInfo MakeServer(

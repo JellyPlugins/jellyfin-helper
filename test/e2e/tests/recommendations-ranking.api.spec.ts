@@ -1,12 +1,12 @@
 /**
- * Behavioral coverage for Recommendations — prove the engine consumes a REAL watch
+ * Behavioral coverage for Recommendations - prove the engine consumes a REAL watch
  * profile, not just that the route responds. The existing recommendations-playlist
  * spec proves playlist create/purge; contracts only checks guards. Here we assert
  * the ranking contract:
  *
  *   1. WatchProfile/{userId} reflects items actually marked played (count + the
  *      item appears in WatchedItems).
- *   2. Recommendations/{userId} EXCLUDES anything the user has watched — a hard,
+ *   2. Recommendations/{userId} EXCLUDES anything the user has watched - a hard,
  *      deterministic invariant of the engine (watched ids are removed from the
  *      candidate pool and fed into the preference vectors).
  *   3. Results are ranked: Score in [0,1], sorted descending.
@@ -77,7 +77,7 @@ test.describe.serial('Recommendations rank from a real watch profile', () => {
   test.beforeAll(async () => {
     await ctx.put(p('Configuration'), {
       headers: { 'Content-Type': 'application/json' },
-      // Activate the engine but keep playlist sync OFF — this spec only reads the
+      // Activate the engine but keep playlist sync OFF - this spec only reads the
       // recommendation/profile APIs and must NOT create managed playlists that would
       // bleed into the recommendations-playlist spec's baseline.
       data: { RecommendationsTaskMode: 'Activate', SyncRecommendationsToPlaylist: false },
@@ -87,7 +87,7 @@ test.describe.serial('Recommendations rank from a real watch profile', () => {
     expect(movies.length, 'need several movies to watch some and recommend others').toBeGreaterThan(3);
 
     // Mark the first three as played; favorite the first (applies the genre boost
-    // even though metadata is sparse — exercises the favorite path).
+    // even though metadata is sparse - exercises the favorite path).
     for (const m of movies.slice(0, 3)) {
       const mark = await ctx.post(`/UserPlayedItems/${m.id}?userId=${auth.userId}`);
       expect(mark.ok(), `mark-played ${m.name}: ${mark.status()}`).toBeTruthy();
@@ -134,8 +134,8 @@ test.describe.serial('Recommendations rank from a real watch profile', () => {
     }
     // NOTE: we deliberately do NOT assert strict score-descending order. The
     // diversity reranker (MMR + an exploration tail) intentionally promotes some
-    // lower-relevance items past higher-scoring ones — reordering by score is its
-    // whole job — so the list is ranked-ish, not monotonic. Watched-exclusion and
+    // lower-relevance items past higher-scoring ones - reordering by score is its
+    // whole job - so the list is ranked-ish, not monotonic. Watched-exclusion and
     // the [0,1] score bound are the invariants that actually hold.
   });
 

@@ -3,7 +3,7 @@
 # Generate a fake media library for the E2E tests.
 #
 # Runs INSIDE the Jellyfin container (which ships ffmpeg) so no host ffmpeg is
-# required — works identically locally and in CI. Invoked by scripts/run.sh via
+# required - works identically locally and in CI. Invoked by scripts/run.sh via
 # `docker compose exec jellyfin bash /media/.gen/gen-media.sh`.
 #
 # Produces tiny (~1s) real clips with varied codecs / resolutions / dynamic
@@ -91,8 +91,8 @@ printf '%s\n' "$ROOT/Movies/Repairable Link (2020)/Old Name (2020).mkv" \
 
 # =============================================================================
 # Behavioral / adversarial fixtures (added for the hardened E2E suite). These
-# exercise the discrimination logic — right thing removed/repaired, wrong thing
-# kept — and the safety guards, so the tests can assert real filesystem effects.
+# exercise the discrimination logic - right thing removed/repaired, wrong thing
+# kept - and the safety guards, so the tests can assert real filesystem effects.
 # =============================================================================
 
 # ---- Trickplay discrimination --------------------------------------------

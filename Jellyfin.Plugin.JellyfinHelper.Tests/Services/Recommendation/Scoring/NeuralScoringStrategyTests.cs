@@ -823,7 +823,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
     [Fact]
     public void Hidden1Size_MatchesExpansionFactor()
     {
-        // 76 ≈ 2× InputSize (38) — expansion factor for tabular MLPs.
+        // 76 ≈ 2× InputSize (38) - expansion factor for tabular MLPs.
         Assert.Equal(76, NeuralScoringStrategy.Hidden1Size);
     }
 
@@ -899,7 +899,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         // would mis-scale the hidden gradients and either stall learning or diverge. This test
         // trains well above MinExamplesForDropout on a learnable signal (label = genreSim > 0.5)
         // and asserts the model both (a) produces a finite validation loss and (b) actually learns
-        // the signal — the strongest black-box guard that the per-layer invKeep scaling is right.
+        // the signal - the strongest black-box guard that the per-layer invKeep scaling is right.
         var trainCount = NeuralScoringStrategy.MinExamplesForDropout * 6; // comfortably dropout-active
         Assert.True(trainCount >= NeuralScoringStrategy.MinExamplesForDropout);
 
@@ -908,7 +908,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 
         Assert.True(strategy.Train(examples));
 
-        // (a) Finite, non-negative validation loss — no NaN/Inf from mis-scaled gradients.
+        // (a) Finite, non-negative validation loss - no NaN/Inf from mis-scaled gradients.
         Assert.False(double.IsNaN(strategy.LastValidationLoss));
         Assert.False(double.IsInfinity(strategy.LastValidationLoss));
         Assert.True(strategy.LastValidationLoss >= 0.0);
@@ -936,7 +936,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         // Contract: dropout only kicks in when there are enough examples that
         // per-sample gradient starvation is unlikely. Requiring it to be strictly
         // greater than MinTrainingExamples ensures a training run that JUST hits
-        // MinTrainingExamples runs WITHOUT dropout — a safer default for cold start.
+        // MinTrainingExamples runs WITHOUT dropout - a safer default for cold start.
         Assert.True(
             NeuralScoringStrategy.MinExamplesForDropout > NeuralScoringStrategy.MinTrainingExamples,
             $"MinExamplesForDropout ({NeuralScoringStrategy.MinExamplesForDropout}) must be greater than "
@@ -1029,7 +1029,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 
         // Bit-identical output, and every mask value must be 1.0. See MaskEpsilon comment
         // for why we use approximate comparison on values that are literally assigned as 1.0
-        // in production code — the epsilon is a static-analyzer accommodation, not a
+        // in production code - the epsilon is a static-analyzer accommodation, not a
         // tolerance for numerical drift.
         Assert.Equal(expected, actual, 15);
         Assert.All(h1Mask, m => Assert.True(Math.Abs(m - 1.0) <= MaskEpsilon));
@@ -1186,7 +1186,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         // comparison is used on values that production code assigns as exact 0/1.
         Assert.Contains(h4Mask, m => Math.Abs(m - 0.0) <= MaskEpsilon);
         Assert.Contains(h4Mask, m => Math.Abs(m - 1.0) <= MaskEpsilon);
-        // Each mask entry must be exactly 0.0 or 1.0 — never in between.
+        // Each mask entry must be exactly 0.0 or 1.0 - never in between.
         Assert.All(h4Mask, m => Assert.True(
             Math.Abs(m - 0.0) <= MaskEpsilon || Math.Abs(m - 1.0) <= MaskEpsilon,
             $"Mask entry {m} is neither 0 nor 1"));
@@ -1205,14 +1205,14 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         //
         // The local function is `static` so it cannot capture the class-level MaskEpsilon
         // directly; we hardcode the same 1e-12 value here as a bit-exact mirror. Sharing
-        // the value via a parameter was tried but rejected — passing a wrong epsilon at a
+        // the value via a parameter was tried but rejected - passing a wrong epsilon at a
         // call site would silently invert the "dropped" / "kept" decision without any test
         // catching it. Keeping the value literal here + a comment cross-reference to
         // MaskEpsilon makes both call sites trivially auditable and eliminates the class
         // of "wrong-argument-passed" bugs entirely.
         static void AssertDropoutApplied(double[] pre, double[] act, double[] mask, double invKeepScale)
         {
-            // Mirror of MaskEpsilon (see class-level constant) — kept literal because static
+            // Mirror of MaskEpsilon (see class-level constant) - kept literal because static
             // locals can't capture instance/class members. Bit-exact equality would work but
             // triggers the same static-analyzer warning MaskEpsilon exists to silence.
             const double dropMaskEpsilon = 1e-12;
@@ -1353,7 +1353,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
         // We use exactly MinExamplesForDropout examples so that the training split
         // (which is ~80% of examples after the val split) just reaches the threshold.
         // The test verifies that the dropout gradient path (h4Err no longer multiplied
-        // by dropoutInvKeep — the bug that was fixed) does not produce NaN/Infinity and
+        // by dropoutInvKeep - the bug that was fixed) does not produce NaN/Infinity and
         // that weights do actually change from their initial Xavier values.
         var strategy = new NeuralScoringStrategy();
         var initialWH = strategy.CurrentWeightsHidden.ToArray();
@@ -1557,7 +1557,7 @@ public sealed class NeuralScoringStrategyTests : IDisposable
 }
 
 // TEST-2: A structurally valid weights JSON containing NaN or Infinity in a single weight
-// value must be rejected — the strategy must fall back to defaults and still return a
+// value must be rejected - the strategy must fall back to defaults and still return a
 // finite score rather than silently propagating NaN through forward-pass arithmetic.
 // TEST-3: ScoreVector() called concurrently with Train() must not observe partially-updated
 // weights and must always return a finite score.
@@ -1590,7 +1590,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
         strategy1.Train(examples);
 
         var json = File.ReadAllText(weightsPath);
-        // Replace the first numeric weight value with NaN — structurally valid JSON.
+        // Replace the first numeric weight value with NaN - structurally valid JSON.
         var corrupted = System.Text.RegularExpressions.Regex.Replace(
             json, @"""WeightsIH""\s*:\s*\[([^,\]]+)", m =>
                 m.Value.Replace(m.Groups[1].Value, "NaN"),
@@ -1598,7 +1598,7 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
             TimeSpan.FromSeconds(2));
         File.WriteAllText(weightsPath, corrupted);
 
-        // Load into a fresh strategy — must reject the NaN file and not crash.
+        // Load into a fresh strategy - must reject the NaN file and not crash.
         var strategy2 = new NeuralScoringStrategy(weightsPath);
         var score = strategy2.Score(new CandidateFeatures { GenreSimilarity = 0.7 });
 
@@ -1792,6 +1792,6 @@ public sealed class NeuralScoringStrategyRobustnessTests : IDisposable
         var normOn = deltaOn / examplesOn.Count;
         var ratio = normOn / normOff;
         Assert.True(ratio < 2.0,
-            $"Normalised gradient ratio (dropout-on/dropout-off) = {ratio:F4} exceeds 2.0 — compound dropoutInvKeep scaling bug likely present");
+            $"Normalised gradient ratio (dropout-on/dropout-off) = {ratio:F4} exceeds 2.0 - compound dropoutInvKeep scaling bug likely present");
     }
 }

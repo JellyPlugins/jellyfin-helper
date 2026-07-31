@@ -18,7 +18,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests <see cref="SeerrDiscoveryService.GenerateDiscoveryRecommendationsAsync"/> —
+///     Tests <see cref="SeerrDiscoveryService.GenerateDiscoveryRecommendationsAsync"/> -
 ///     the largest previously-uncovered method in the discovery module.
 ///     <para>
 ///         The HTTP happy paths are covered by <see cref="SeerrDiscoveryServiceHttpTests"/>,
@@ -156,7 +156,7 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
     [Fact]
     public async Task GenerateDiscoveryRecommendationsAsync_CancelledToken_Throws()
     {
-        // Cancellation must escape the per-user try/catch — a swallowed cancellation
+        // Cancellation must escape the per-user try/catch - a swallowed cancellation
         // would leave a task registered as still-running in Jellyfin's scheduler.
         Plugin.Instance!.Configuration.SeerrUrl = "https://seerr.example.com";
         Plugin.Instance!.Configuration.SeerrApiKey = "test-key";
@@ -202,7 +202,7 @@ public sealed class SeerrDiscoveryGenerationTests : IDisposable
     {
         // BUG GUARD: DryRun mode must NEVER persist to disk or record shown feedback.
         // A regression treating DryRun as "same as Activate but skip only the cache write"
-        // would still populate the feedback store — leaving stale training data from a
+        // would still populate the feedback store - leaving stale training data from a
         // preview run that never surfaced recommendations to users.
         Plugin.Instance!.Configuration.SeerrUrl = "https://seerr.example.com";
         Plugin.Instance!.Configuration.SeerrApiKey = "test-key";

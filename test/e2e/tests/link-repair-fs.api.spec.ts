@@ -31,7 +31,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await ctx.put(p('Configuration'), {
     headers: { 'Content-Type': 'application/json' },
-    // Reset LinkRepairTaskMode too — this suite activates it, and leaving it on
+    // Reset LinkRepairTaskMode too - this suite activates it, and leaving it on
     // would hand a destructive stage to later specs that run cleanup without
     // setting it explicitly.
     data: { LinkRepairTaskMode: 'DryRun', RecommendationsTaskMode: 'DryRun', UseTrash: false, OrphanMinAgeDays: 30 },

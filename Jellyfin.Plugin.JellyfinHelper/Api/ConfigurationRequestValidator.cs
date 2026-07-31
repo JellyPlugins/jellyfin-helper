@@ -98,7 +98,7 @@ public static class ConfigurationRequestValidator
     /// <summary>
     ///     Performs strict validation of the trash folder path and returns an error message for obviously
     ///     invalid paths (invalid characters, traversal patterns, only-slashes, etc.).
-    ///     This validation BLOCKS the save — the configuration will NOT be persisted.
+    ///     This validation BLOCKS the save - the configuration will NOT be persisted.
     /// </summary>
     /// <param name="trashFolderPath">The path value from the configuration update request.</param>
     /// <param name="useTrash">Whether the trash feature is enabled.</param>
@@ -125,7 +125,7 @@ public static class ConfigurationRequestValidator
             return $"Trash folder path '{trashFolderPath}' contains only invalid characters.";
         }
 
-        // Reject control characters (U+0000 to U+001F) — these are never valid in folder names
+        // Reject control characters (U+0000 to U+001F) - these are never valid in folder names
         // on any platform. This keeps the server-side filter in sync with the UI-side validation
         // which also blocks the full \x00-\x1F range.
         var firstControlChar = trashFolderPath.FirstOrDefault(static c => c < '\x20');
@@ -145,7 +145,7 @@ public static class ConfigurationRequestValidator
         }
 
         // Reject path traversal patterns (segment-aware to avoid false positives on names like "my..folder")
-        // Block both "." (current dir) and ".." (parent dir) as segments — these are navigation markers.
+        // Block both "." (current dir) and ".." (parent dir) as segments - these are navigation markers.
         // Note: literal folder names like "..." or "...." are valid on Linux and are intentionally allowed.
         var segments = trashFolderPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
         if (segments.Any(s => s is "." or ".."))
@@ -168,7 +168,7 @@ public static class ConfigurationRequestValidator
         // directory (Jellyfin's own /config, /data, OS roots like /etc, C:\Windows). A
         // relative path (the common ".jellyfin-trash") is resolved under each library at
         // runtime and is unaffected. This is the same shared guard the folder picker,
-        // link-repair and trash-deletion use — so a value the picker refuses can't be
+        // link-repair and trash-deletion use - so a value the picker refuses can't be
         // slipped in via a hand-typed absolute path either.
         if (Path.IsPathRooted(trashFolderPath)
             && PathValidator.IsSensitiveSystemPath(Path.GetFullPath(trashFolderPath)))
@@ -202,7 +202,7 @@ public static class ConfigurationRequestValidator
         }
 
         // Resolve against a dummy root to detect whether ".." sequences escape upward.
-        // We cannot use a real library root here — it is runtime state unknown at config-save time.
+        // We cannot use a real library root here - it is runtime state unknown at config-save time.
         // Use Path.GetTempPath() as a guaranteed-absolute, platform-correct anchor.
         // Path.GetFullPath(path, basePath) is used instead of Path.GetFullPath(Path.Combine(...))
         // to avoid the silent dropped-prefix pitfall when path is rooted (CA2249 / S4347).

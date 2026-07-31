@@ -41,7 +41,7 @@ public interface ISymlinkHelper
     /// <remarks>
     ///     Implementations MUST re-verify that <paramref name="destPath"/> is still a symbolic link
     ///     immediately before overwriting and throw <see cref="System.InvalidOperationException"/> if
-    ///     it is not — a real file may have taken its place since the scan, and overwriting it would
+    ///     it is not - a real file may have taken its place since the scan, and overwriting it would
     ///     be irreversible data loss. If <paramref name="destPath"/> no longer exists, the move proceeds.
     /// </remarks>
     /// <param name="sourcePath">The source symlink to move into place.</param>

@@ -40,7 +40,7 @@ public class ConfigurationResponseTests
     [Fact]
     public void FromConfig_SeerrApiKey_Whitespace_ReturnsEmpty()
     {
-        // Whitespace-only key is treated as "not configured" (IsNullOrWhiteSpace) — same
+        // Whitespace-only key is treated as "not configured" (IsNullOrWhiteSpace) - same
         // behaviour as the save-path in ApplyRequestToConfig. Masking it as "***" would
         // mislead operators into thinking the key is valid when it will fail all API calls.
         var config = new PluginConfiguration { SeerrApiKey = "   " };

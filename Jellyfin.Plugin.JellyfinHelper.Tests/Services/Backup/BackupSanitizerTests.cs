@@ -77,7 +77,7 @@ public class BackupSanitizerTests
     [Fact]
     public void Sanitize_SeerrCleanupAgeDays_Zero_PreservesZero()
     {
-        // 0 is the "immediate cleanup" sentinel — must not be clamped to 1.
+        // 0 is the "immediate cleanup" sentinel - must not be clamped to 1.
         var data = new BackupData { SeerrCleanupAgeDays = 0 };
         BackupSanitizer.Sanitize(data);
         Assert.Equal(0, data.SeerrCleanupAgeDays);

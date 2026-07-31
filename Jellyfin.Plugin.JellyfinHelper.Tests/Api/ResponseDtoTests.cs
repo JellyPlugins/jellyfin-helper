@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 
-// SA1402 is suppressed in jellyfin.tests.ruleset — multiple test classes per file is intentional here.
+// SA1402 is suppressed in jellyfin.tests.ruleset - multiple test classes per file is intentional here.
 
 public class ConnectionTestResponseTests
 {

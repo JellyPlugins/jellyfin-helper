@@ -138,7 +138,7 @@ async function seerrCount(): Promise<number> {
 // place Deactivate and DryRun are distinguishable when both leave disk untouched.
 // ---------------------------------------------------------------------------
 test.describe.serial('TaskMode is observable in the plugin log', () => {
-  test('Deactivate emits a skip line; DryRun emits a dry-run start line — never mixed up', async () => {
+  test('Deactivate emits a skip line; DryRun emits a dry-run start line - never mixed up', async () => {
     // Trickplay Deactivated, Empty-folder DryRun, in the SAME pass.
     await allStages({ TrickplayTaskMode: 'Deactivate', EmptyMediaFolderTaskMode: 'DryRun' });
     await clearLogs();
@@ -188,7 +188,7 @@ test.describe.serial('TaskMode drives the real on-disk outcome, per stage', () =
   });
 
   test('mixed pass: only the Activated stage deletes; DryRun and Deactivate leave their orphans', async () => {
-    // Trickplay=Activate, Subtitle=DryRun, Empty-folder=Deactivate — one pass.
+    // Trickplay=Activate, Subtitle=DryRun, Empty-folder=Deactivate - one pass.
     await allStages({
       TrickplayTaskMode: 'Activate',
       OrphanedSubtitleTaskMode: 'DryRun',
@@ -207,14 +207,14 @@ test.describe.serial('TaskMode drives the real on-disk outcome, per stage', () =
   });
 
   test('DryRun with UseTrash:true creates NO trash; a following Activate routes the orphan INTO trash', async () => {
-    // Phase 1 — DryRun. Even with trash enabled, a dry run must not move anything.
+    // Phase 1 - DryRun. Even with trash enabled, a dry run must not move anything.
     await allStages({ TrickplayTaskMode: 'DryRun', UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 30 });
     let result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
     expect(containerExists(TRICKPLAY_ORPHAN), 'DryRun must not remove the orphan').toBe(true);
     expect(containerExists(TRASH), 'DryRun must not create a trash folder').toBe(false);
 
-    // Phase 2 — Activate with the same trash config. Now the orphan is removed
+    // Phase 2 - Activate with the same trash config. Now the orphan is removed
     // from its folder AND a trash folder appears holding the moved item.
     await allStages({ TrickplayTaskMode: 'Activate', UseTrash: true, TrashFolderPath: '.jellyfin-trash', TrashRetentionDays: 30 });
     result = await runCleanupTask(ctx);
@@ -227,7 +227,7 @@ test.describe.serial('TaskMode drives the real on-disk outcome, per stage', () =
 });
 
 // ---------------------------------------------------------------------------
-// Seerr stage mode wording — the "it only logged, it didn't touch anything"
+// Seerr stage mode wording - the "it only logged, it didn't touch anything"
 // contract an operator reads to trust a dry run. Count is proven in
 // seerr-cleanup.api.spec.ts; here we prove the LOG says the right thing.
 // ---------------------------------------------------------------------------

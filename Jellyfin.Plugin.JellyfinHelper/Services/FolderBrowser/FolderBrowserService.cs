@@ -202,7 +202,7 @@ public class FolderBrowserService : IFolderBrowserService
             var entries = new List<FolderEntry>();
 
             // Enumerate immediate subdirectories, skipping those we can't access.
-            // EnumerateDirectories() returns a lazy iterator — exceptions from MoveNext()
+            // EnumerateDirectories() returns a lazy iterator - exceptions from MoveNext()
             // (e.g. UnauthorizedAccessException when accessing Attributes inside the
             // Where predicate) are thrown during foreach iteration, not at assignment time.
             // Therefore all filtering is done inside the per-entry try/catch to ensure a
@@ -313,7 +313,7 @@ public class FolderBrowserService : IFolderBrowserService
 
             // Refuse sensitive system / application directories (Jellyfin's own /config, /data,
             // OS roots like /etc, C:\Windows, …). The folder picker must never browse into or
-            // select these — mirrors the same guard used by link-repair and trash operations
+            // select these - mirrors the same guard used by link-repair and trash operations
             // (shared PathValidator.IsSensitiveSystemPath). Log a warning so a manual attempt to
             // reach a sensitive path leaves an audit trail (the explicit '..'/absolute rejects
             // above are benign typos; a sensitive-target request is worth recording).
@@ -325,11 +325,11 @@ public class FolderBrowserService : IFolderBrowserService
                 return "This is a protected system folder and cannot be browsed.";
             }
 
-            // Verify directory exists — use Attributes to distinguish access-denied from missing.
+            // Verify directory exists - use Attributes to distinguish access-denied from missing.
             // Directory.Exists() returns false for BOTH cases, which would collapse
             // permission errors into the wrong "does not exist" message. However, on modern .NET
             // DirectoryInfo.Attributes silently returns (FileAttributes)(-1) for non-existent paths
-            // rather than throwing DirectoryNotFoundException — so we probe existence first via
+            // rather than throwing DirectoryNotFoundException - so we probe existence first via
             // File.Exists/Directory.Exists (which agree on the "does the path exist at all" question)
             // and only fall through to the Attributes path to distinguish access-denied when the
             // entry appears to be missing.
@@ -337,7 +337,7 @@ public class FolderBrowserService : IFolderBrowserService
             {
                 if (Directory.Exists(normalized))
                 {
-                    // Path exists AND is a directory — happy path.
+                    // Path exists AND is a directory - happy path.
                     var attrs = new DirectoryInfo(normalized).Attributes;
                     if (attrs != (FileAttributes)(-1) && !attrs.HasFlag(FileAttributes.Directory))
                     {
@@ -370,7 +370,7 @@ public class FolderBrowserService : IFolderBrowserService
                 }
                 else
                 {
-                    // Path does not exist as file or directory — but Directory.Exists also returns
+                    // Path does not exist as file or directory - but Directory.Exists also returns
                     // false when the caller lacks read permission on the parent. Probe Attributes
                     // to distinguish the two cases: a permission-denied path will throw
                     // UnauthorizedAccessException/SecurityException/IOException, while a truly
@@ -382,7 +382,7 @@ public class FolderBrowserService : IFolderBrowserService
                         return "Directory does not exist.";
                     }
 
-                    // Attributes returned a real value but Directory.Exists said no — treat as
+                    // Attributes returned a real value but Directory.Exists said no - treat as
                     // "not a directory" (e.g. concurrent modification, or a non-directory entry).
                     return "Path must point to a directory.";
                 }
@@ -485,7 +485,7 @@ public class FolderBrowserService : IFolderBrowserService
     private static bool IsSystemOrHiddenCritical(DirectoryInfo dirInfo)
     {
         // Hide sensitive system / application directories from listings entirely, on every
-        // OS — Jellyfin's own /config, /data, /cache and OS roots like /etc, C:\Windows.
+        // OS - Jellyfin's own /config, /data, /cache and OS roots like /etc, C:\Windows.
         // Uses the shared PathValidator source of truth so the picker, link-repair and trash
         // guards all agree on what "sensitive" means. (This supersedes the narrow, Linux-only
         // DangerousLinuxPaths set below, which is kept for its /proc,/sys,… entries that are
@@ -513,7 +513,7 @@ public class FolderBrowserService : IFolderBrowserService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Cannot resolve the link (broken, permission, cyclic) — treat as unlistable/critical
+            // Cannot resolve the link (broken, permission, cyclic) - treat as unlistable/critical
             // so an unresolvable reparse point is never browsed into.
             return true;
         }
@@ -529,7 +529,7 @@ public class FolderBrowserService : IFolderBrowserService
         }
 
         // On Windows, filter out system-level hidden dirs (e.g. $RECYCLE.BIN, System Volume Information).
-        // Only hide dirs that are BOTH Hidden AND System — regular hidden folders like .jellyfin-trash
+        // Only hide dirs that are BOTH Hidden AND System - regular hidden folders like .jellyfin-trash
         // must remain visible so admins can configure them as trash targets.
         if (OperatingSystem.IsWindows())
         {

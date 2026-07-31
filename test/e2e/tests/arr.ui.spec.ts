@@ -1,7 +1,7 @@
 /**
  * ArrIntegration tab: the reachability indicator reacts to the dropdown, and
  * the Compare button renders a comparison result. Requires configured Radarr
- * instances — we set them up here via the API rather than relying on whatever
+ * instances - we set them up here via the API rather than relying on whatever
  * state a prior api spec happened to leave (hardening.api.spec.ts clears
  * RadarrInstances, so relying on leftover state made these tests skip).
  */
@@ -34,7 +34,7 @@ test('Arr tab: selecting an instance updates the reachability indicator', async 
   await switchTab(page, 'arr');
 
   const select = page.locator('#arrSelectRadarr');
-  // The beforeAll guarantees a Radarr instance, so the selector must exist —
+  // The beforeAll guarantees a Radarr instance, so the selector must exist -
   // its absence is now a real failure, not a skip.
   await expect(select).toBeVisible({ timeout: 15_000 });
 
@@ -51,7 +51,7 @@ test('Arr tab: Compare button renders a comparison card', async ({ page }) => {
   await switchTab(page, 'arr');
 
   const compareBtn = page.locator('#btnCompareRadarr');
-  // Guaranteed by beforeAll — absence is a real failure now.
+  // Guaranteed by beforeAll - absence is a real failure now.
   await expect(compareBtn).toBeVisible({ timeout: 15_000 });
 
   const [resp] = await Promise.all([

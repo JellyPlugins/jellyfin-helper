@@ -58,7 +58,7 @@ test('Settings: changing a task-mode auto-saves quietly (PUT, no unsaved band)',
   const next = current === 'Deactivate' ? 'DryRun' : 'Deactivate';
 
   // Changing a task-mode dropdown triggers a QUIET PUT /Configuration (auto-save)
-  // — distinct from the manual #btnSaveSettings path.
+  // - distinct from the manual #btnSaveSettings path.
   const [putResp] = await Promise.all([
     page.waitForResponse(
       (r) => r.url().includes('/JellyfinHelper/Configuration') && r.request().method() === 'PUT',
@@ -106,7 +106,7 @@ test('Settings: Seerr Test Connection button hits Seerr/Test', async ({ page }) 
   }
 
   // The handler reads the URL/key from the DOM inputs and short-circuits (no
-  // request) if either is blank — the stored key renders masked/empty, so fill
+  // request) if either is blank - the stored key renders masked/empty, so fill
   // both fields explicitly before clicking.
   await page.locator('#cfgSeerrUrl').fill(SEERR_URL);
   await page.locator('#cfgSeerrApiKey').fill('seerr-key');
@@ -122,7 +122,7 @@ test('Settings: Seerr Test Connection button hits Seerr/Test', async ({ page }) 
     testBtn.click(),
   ]);
   // The beforeAll configures a working mock-Seerr, so the Test call must genuinely
-  // succeed (2xx) — a 4xx/5xx here is a real config/mock regression, not tolerable noise.
+  // succeed (2xx) - a 4xx/5xx here is a real config/mock regression, not tolerable noise.
   expect(resp.ok(), `Seerr/Test failed: ${resp.status()}`).toBeTruthy();
 });
 
@@ -148,7 +148,7 @@ test('Settings: folder-browser opens for the trash path', async ({ page }: { pag
 
   const browseBtn = page.locator('#btnBrowseTrash');
   // #btnBrowseTrash lives inside <fieldset id="trashSettingsWrapper" disabled>
-  // when UseTrash is off — a disabled fieldset blocks the button. Enable trash
+  // when UseTrash is off - a disabled fieldset blocks the button. Enable trash
   // first so the browse control is interactive.
   const trashChk = page.locator('#cfgTrash');
   if (!(await trashChk.isChecked())) {

@@ -6,7 +6,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     Tests for the <see cref="TmdbDiscoverItem"/> DTO — the parsing surface between
+///     Tests for the <see cref="TmdbDiscoverItem"/> DTO - the parsing surface between
 ///     Seerr/TMDb JSON payloads and the recommendation engine. TMDb frequently returns
 ///     JSON that violates its own schema (empty-string dates, null arrays, missing
 ///     title/name); the tests below pin the graceful-fallback contract that keeps the
@@ -14,7 +14,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 /// </summary>
 public sealed class TmdbDiscoverItemTests
 {
-    // GenreIds setter null-coalesces to empty list — TMDb sometimes emits null here.
+    // GenreIds setter null-coalesces to empty list - TMDb sometimes emits null here.
     [Fact]
     public void GenreIds_SetToNull_ReturnsEmptyList()
     {
@@ -39,7 +39,7 @@ public sealed class TmdbDiscoverItemTests
         Assert.Empty(item.GenreIds);
     }
 
-    // DisplayTitle — prefers Title over Name over "Unknown".
+    // DisplayTitle - prefers Title over Name over "Unknown".
     [Fact]
     public void DisplayTitle_TitlePresent_ReturnsTitle()
     {
@@ -58,7 +58,7 @@ public sealed class TmdbDiscoverItemTests
     [Fact]
     public void DisplayTitle_BothNull_ReturnsUnknown()
     {
-        // BUG GUARD: rare but real — TMDb occasionally returns entries with neither
+        // BUG GUARD: rare but real - TMDb occasionally returns entries with neither
         // Title nor Name. The "Unknown" fallback prevents null-render exceptions.
         var item = new TmdbDiscoverItem { Title = null, Name = null };
         Assert.Equal("Unknown", item.DisplayTitle);
@@ -67,13 +67,13 @@ public sealed class TmdbDiscoverItemTests
     [Fact]
     public void DisplayTitle_TitleEmptyString_ReturnsEmptyStringNotName()
     {
-        // The fallback only kicks in on NULL, not on empty string — a future change
+        // The fallback only kicks in on NULL, not on empty string - a future change
         // to `?? "" ?? Name` would silently rename TV shows.
         var item = new TmdbDiscoverItem { Title = string.Empty, Name = "Fallback Name" };
         Assert.Equal(string.Empty, item.DisplayTitle);
     }
 
-    // EffectiveReleaseDate — prefers ReleaseDate over FirstAirDate.
+    // EffectiveReleaseDate - prefers ReleaseDate over FirstAirDate.
     [Fact]
     public void EffectiveReleaseDate_ReleaseDatePresent_ReturnsReleaseDate()
     {
@@ -86,7 +86,7 @@ public sealed class TmdbDiscoverItemTests
     [Fact]
     public void EffectiveReleaseDate_ReleaseDateNull_ReturnsFirstAirDate()
     {
-        // BUG GUARD: TV series only have FirstAirDate — recency scoring would break
+        // BUG GUARD: TV series only have FirstAirDate - recency scoring would break
         // for every TV candidate if this fallback disappeared.
         var firstAirDate = new DateTime(2008, 1, 20, 0, 0, 0, DateTimeKind.Utc);
         var item = new TmdbDiscoverItem { ReleaseDate = null, FirstAirDate = firstAirDate };
@@ -96,13 +96,13 @@ public sealed class TmdbDiscoverItemTests
     [Fact]
     public void EffectiveReleaseDate_BothNull_ReturnsNull()
     {
-        // Consumers must handle null EffectiveReleaseDate gracefully — silently synthesising
+        // Consumers must handle null EffectiveReleaseDate gracefully - silently synthesising
         // e.g. DateTime.MinValue would corrupt the recency-score ranking.
         var item = new TmdbDiscoverItem { ReleaseDate = null, FirstAirDate = null };
         Assert.Null(item.EffectiveReleaseDate);
     }
 
-    // Defaults — sanity guards.
+    // Defaults - sanity guards.
     [Fact]
     public void Defaults_MediaTypeIsMovie()
     {
@@ -113,7 +113,7 @@ public sealed class TmdbDiscoverItemTests
     [Fact]
     public void Defaults_KnownPeopleIsNull()
     {
-        // KnownPeople is not populated from /discover — only from /search or /credits.
+        // KnownPeople is not populated from /discover - only from /search or /credits.
         // Default of null lets consumer code distinguish "not enriched yet" vs "enriched but empty".
         var item = new TmdbDiscoverItem();
         Assert.Null(item.KnownPeople);
@@ -122,12 +122,12 @@ public sealed class TmdbDiscoverItemTests
     [Fact]
     public void Defaults_AdultIsFalse()
     {
-        // BUG GUARD: default false is the safe posture — TMDb must EXPLICITLY opt in.
+        // BUG GUARD: default false is the safe posture - TMDb must EXPLICITLY opt in.
         var item = new TmdbDiscoverItem();
         Assert.False(item.Adult);
     }
 
-    // JSON round-trip — the real integration surface.
+    // JSON round-trip - the real integration surface.
     [Fact]
     public void JsonDeserialize_EmptyReleaseDateString_HandledGracefully()
     {

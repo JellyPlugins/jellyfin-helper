@@ -24,7 +24,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 ///         refactors touch a single central seam instead of every test file.
 ///     </para>
 ///     <para>
-///         BUG SURFACE: These branches sit at the ENTRY of every recommendation flow —
+///         BUG SURFACE: These branches sit at the ENTRY of every recommendation flow -
 ///         a regression here is a hard failure for every user of the plugin, not a
 ///         subtle scoring drift. Getting them wrong is what generates 500s on the API
 ///         layer for "no such user" cases, or drops every recommendation for users
@@ -35,7 +35,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 public sealed class EngineInstanceTests
 {
     // ================================================================================
-    // GetRecommendations — outer contract
+    // GetRecommendations - outer contract
     // ================================================================================
 
     [Fact]
@@ -46,7 +46,7 @@ public sealed class EngineInstanceTests
         // straight back to the caller. The controller layer relies on this null to
         // decide between 200 (success) and 404 (no such user). Returning an empty
         // RecommendationResult would silently downgrade "no such user" to "no
-        // recommendations for this user" — indistinguishable on the wire.
+        // recommendations for this user" - indistinguishable on the wire.
         var harness = EngineTestFactory.Create();
         var result = harness.Engine.GetRecommendations(Guid.NewGuid(), 10, CancellationToken.None);
         Assert.Null(result);
@@ -57,7 +57,7 @@ public sealed class EngineInstanceTests
     {
         // The first line of GetRecommendations calls ThrowIfCancellationRequested().
         // A regression that omitted the check (or placed it AFTER the profile lookup)
-        // would silently do the full profile fetch on a cancelled request — a small
+        // would silently do the full profile fetch on a cancelled request - a small
         // but real correctness bug because the caller has already given up and the
         // resulting result would be thrown away anyway.
         var harness = EngineTestFactory.Create();
@@ -73,7 +73,7 @@ public sealed class EngineInstanceTests
     [InlineData(int.MinValue)]
     public void GetRecommendations_MaxResultsBelowOne_ClampedToPositive_DoesNotThrow(int badMax)
     {
-        // BUG GUARD: Math.Clamp(maxResults, 1, MaxRecommendationsPerUserLimit) — the
+        // BUG GUARD: Math.Clamp(maxResults, 1, MaxRecommendationsPerUserLimit) - the
         // clamp lifts nonsense inputs (including negative ones, from a decoded query
         // string) to 1 rather than propagating them into the downstream buffer
         // allocation which would either NRE or throw ArgumentOutOfRange. The user is
@@ -97,7 +97,7 @@ public sealed class EngineInstanceTests
     }
 
     // ================================================================================
-    // GetAllRecommendations — outer contract
+    // GetAllRecommendations - outer contract
     // ================================================================================
 
     [Fact]
@@ -138,7 +138,7 @@ public sealed class EngineInstanceTests
     }
 
     // ================================================================================
-    // TrainStrategy — early-exit contract
+    // TrainStrategy - early-exit contract
     // ================================================================================
 
     [Fact]
@@ -148,7 +148,7 @@ public sealed class EngineInstanceTests
         // strategy is NOT the EnsembleScoringStrategy, there is nothing to train on
         // and no cohort-feedback pass to run. TrainStrategy must return false rather
         // than degenerating into a no-op that still touches the watch-history service
-        // for the training loop — because that touch would trigger the O(U×M)
+        // for the training loop - because that touch would trigger the O(U×M)
         // watched-lookup materialisation with no user-visible benefit.
         //
         // We use the default harness (HeuristicScoringStrategy, non-trainable) so
@@ -168,7 +168,7 @@ public sealed class EngineInstanceTests
         // BUG GUARD: the incremental=true branch takes a different code path through
         // the underlying TrainingService (it merges the incoming examples with a
         // sample of historical examples). With an empty input list the merge still
-        // produces "no fresh signal" and training must be skipped, returning false —
+        // produces "no fresh signal" and training must be skipped, returning false -
         // NOT accidentally running a no-op train call that mutates the strategy's
         // metrics-history counter and interferes with the strategy-selector's
         // exploration-activation gate (which is keyed on that same counter).
@@ -184,7 +184,7 @@ public sealed class EngineInstanceTests
     }
 
     // ================================================================================
-    // TEST-1: TryPublishSnapshot — out-of-order write rejection
+    // TEST-1: TryPublishSnapshot - out-of-order write rejection
     // ================================================================================
 
     [Fact]
@@ -231,7 +231,7 @@ public sealed class EngineInstanceTests
     [Fact]
     public void TryPublishSnapshot_OldSequenceDoesNotReplaceNewer()
     {
-        // After rejection the newer snapshot must still be in the cache — the rejected
+        // After rejection the newer snapshot must still be in the cache - the rejected
         // publish must not have mutated the field at all.
         var harness = EngineTestFactory.Create();
         InvokeTryPublishSnapshot(harness.Engine, publicationSequence: 10);
@@ -244,7 +244,7 @@ public sealed class EngineInstanceTests
     }
 
     // ================================================================================
-    // TEST-8: GetAllRecommendations — one throwing user does not abort the batch
+    // TEST-8: GetAllRecommendations - one throwing user does not abort the batch
     // ================================================================================
 
     [Fact]
@@ -254,7 +254,7 @@ public sealed class EngineInstanceTests
         // warning, then continues processing remaining users. A regression that re-throws
         // or swallows the warning would either abort the batch or hide the failure.
         //
-        // Injection: make IStrategySelector.GetAlphaOffset throw for the failing user —
+        // Injection: make IStrategySelector.GetAlphaOffset throw for the failing user -
         // that call happens inside the parallel body (line 432) after the cold-start/
         // GenerateForUser branch decision, so it reliably exercises the catch block.
         var failingUserId = Guid.NewGuid();
@@ -280,7 +280,7 @@ public sealed class EngineInstanceTests
             .Setup(s => s.GetAlphaOffset(failingUserId))
             .Throws(new InvalidOperationException("simulated per-user failure"));
 
-        // Must not throw — the catch-and-continue contract absorbs it.
+        // Must not throw - the catch-and-continue contract absorbs it.
         var results = harness.Engine.GetAllRecommendations(10, CancellationToken.None);
         Assert.NotNull(results);
 
@@ -295,7 +295,7 @@ public sealed class EngineInstanceTests
     }
 
     // ================================================================================
-    // TEST-4: GetOrBuildCommunityPopularity — concurrent callers compute only once
+    // TEST-4: GetOrBuildCommunityPopularity - concurrent callers compute only once
     // ================================================================================
 
     [Fact]
@@ -306,8 +306,8 @@ public sealed class EngineInstanceTests
         // once. The _snapshotRefreshLock + ReferenceEquals guard in
         // GetOrBuildCommunityPopularity serialises the write-back, but the BUILD itself
         // can still run concurrently on multiple threads before any of them acquire the
-        // lock. This test verifies the observable contract — the snapshot's
-        // CommunityPopularityComputed flag is true after the first caller finishes —
+        // lock. This test verifies the observable contract - the snapshot's
+        // CommunityPopularityComputed flag is true after the first caller finishes -
         // rather than the exact call count (which depends on thread scheduling).
         //
         // We simulate the "concurrent misses" scenario by calling GetAllRecommendations

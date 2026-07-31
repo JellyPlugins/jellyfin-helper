@@ -78,7 +78,7 @@ internal static class ExternalCandidateFeatureBuilder
             // EffectiveReleaseDate, to stay bit-identical with the discovery TRAINING path
             // (DiscoveryFeedbackExampleBuilder), which only has the release year cached on the
             // feedback entry. Using the full date here would make the same title score a slightly
-            // different recency at train vs. serve — a subtle skew on this feature.
+            // different recency at train vs. serve - a subtle skew on this feature.
             RecencyScore = candidate.EffectiveReleaseDate is { } releaseDate
                                 && releaseDate.Year is >= 1 and <= 9999
                 ? ContentScoring.ComputeRecencyScore(new DateTime(releaseDate.Year, 7, 1))
@@ -125,7 +125,7 @@ internal static class ExternalCandidateFeatureBuilder
         // Discovery candidates are fetched by the user's top genres, so DominanceRatio is
         // typically high (deserved boost) while Underexposure/AffinityGap flag off-taste drift.
         // For users with insufficient history, the analysis is invalid and all three collapse
-        // to 0.0 — identical to the previous behavior, so short-history users are unaffected.
+        // to 0.0 - identical to the previous behavior, so short-history users are unaffected.
         var (underexposure, dominanceRatio, affinityGap) =
             PreferenceBuilder.ComputeGenreExposureFeatures(genres, genreExposure);
         features.GenreUnderexposure = underexposure;

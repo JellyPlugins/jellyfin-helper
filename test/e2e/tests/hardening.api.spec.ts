@@ -1,5 +1,5 @@
 /**
- * Hardening / edge cases — inputs that could crash or 500 the plugin. After
+ * Hardening / edge cases - inputs that could crash or 500 the plugin. After
  * each, we assert the plugin is still Active and the server still answers.
  * The point is graceful degradation, never an unhandled throw.
  */
@@ -12,7 +12,7 @@ let savedArr: { RadarrInstances: unknown; SonarrInstances: unknown } | null = nu
 test.beforeAll(async () => {
   ctx = await apiContext(loadAuth());
   // Snapshot the Arr integration config so the tests below that wipe/replace
-  // RadarrInstances/SonarrInstances can restore it — otherwise a later spec would
+  // RadarrInstances/SonarrInstances can restore it - otherwise a later spec would
   // inherit an empty SonarrInstances and a throwaway Radarr instance.
   const cfg = await ctx.get(p('Configuration')).then((r) => (r.ok() ? r.json() : null));
   if (cfg) {
@@ -29,7 +29,7 @@ test.afterAll(async () => {
 });
 
 // Setup helper: applies a config change and FAILS LOUDLY if the save itself
-// didn't succeed — so a broken precondition surfaces as a clear setup error
+// didn't succeed - so a broken precondition surfaces as a clear setup error
 // instead of an unrelated downstream assertion failure.
 async function putConfig(body: Record<string, unknown>) {
   const res = await ctx.put(p('Configuration'), {
@@ -136,7 +136,7 @@ test('concurrent HelperCleanup triggers do not corrupt state', async () => {
   // Jellyfin serialises task execution; the second trigger should be a no-op,
   // and the first must still complete cleanly.
   const first = runCleanupTask(ctx, 90_000);
-  // A second start attempt (best-effort) — we don't await its own completion.
+  // A second start attempt (best-effort) - we don't await its own completion.
   const list = await ctx.get('/ScheduledTasks').then((r) => r.json());
   const task = (list as Array<{ Id: string; Key: string }>).find((t) => t.Key === 'HelperCleanup');
   if (task) await ctx.post(`/ScheduledTasks/Running/${task.Id}`).catch(() => undefined);

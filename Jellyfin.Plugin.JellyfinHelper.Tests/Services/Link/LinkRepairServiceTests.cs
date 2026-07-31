@@ -624,7 +624,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void ProcessLinkFile_Strm_FileUriTarget_ValidFile_ReturnsValid()
     {
-        // file:// URIs must NOT be short-circuited by the URL bypass —
+        // file:// URIs must NOT be short-circuited by the URL bypass -
         // they reference local paths and must be validated normally.
         var movieFile = _fileSystem.Path.GetFullPath("/movies/FileUri/movie.mkv");
         _fileSystem.AddFile(movieFile, new MockFileData("video"));
@@ -673,7 +673,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void ProcessLinkFile_ReadTargetThrowsIOException_ReturnsInvalidContent_DoesNotPropagate()
     {
-        // A handler throwing IOException must be caught & mapped to InvalidContent —
+        // A handler throwing IOException must be caught & mapped to InvalidContent -
         // never propagate up and abort the whole library scan. The method name promises
         // IO-exception coverage, so we throw an actual IOException here (an
         // UnauthorizedAccessException hits a different catch clause and would not
@@ -715,7 +715,7 @@ public class LinkRepairServiceTests
     public void ProcessLinkFile_TargetWithNulByte_ReturnsInvalidContent()
     {
         // NUL bytes are universally invalid across .NET path APIs. The ArgumentException
-        // must be caught and mapped to InvalidContent — never bubble up as a crash.
+        // must be caught and mapped to InvalidContent - never bubble up as a crash.
         var handler = new Mock<ILinkHandler>();
         handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
         handler.Setup(x => x.SupportsUrlTargets).Returns(false);
@@ -790,7 +790,7 @@ public class LinkRepairServiceTests
     [Fact]
     public void FindLinkFiles_VisitedDirectoryLimit_StopsAndReturnsPartialResults()
     {
-        // Build a wide tree with many siblings (not deep) — verifies visited-set guard works
+        // Build a wide tree with many siblings (not deep) - verifies visited-set guard works
         var root = _fileSystem.Path.GetFullPath("/wide-root");
         var strmPaths = new List<string>();
         for (var i = 0; i < 10; i++)
@@ -818,13 +818,13 @@ public class LinkRepairServiceTests
     {
         // When libraryPaths is a non-replayable IEnumerable (yield-return),
         // the second enumeration in RepairLinks produced an empty normalizedLibraryPaths,
-        // which caused the path-traversal guard (Count > 0) to be skipped — so a relative
+        // which caused the path-traversal guard (Count > 0) to be skipped - so a relative
         // target that resolves outside the library root was silently treated as Broken instead
         // of InvalidContent. Materializing to a list before both uses must fix this.
         var libDir = _fileSystem.Path.GetFullPath("/series/Show1");
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
 
-        // Relative target that resolves to /etc/passwd — outside /series/Show1
+        // Relative target that resolves to /etc/passwd - outside /series/Show1
         _fileSystem.AddFile(linkFile, new MockFileData("../../../etc/passwd"));
 
         // Use a yield-return sequence so the second enumeration would be empty without the fix
@@ -847,7 +847,7 @@ public class LinkRepairServiceTests
         // When the visited-directory cap was hit inside FindLinkFilesRecursive,
         // the inner while-loop broke but FindLinkFiles continued iterating further library
         // paths. Each subsequent call immediately hit the accumulated cap and silently
-        // returned — processing no files from those paths. The fix propagates limitReached
+        // returned - processing no files from those paths. The fix propagates limitReached
         // out and breaks the outer foreach.
         //
         // A service subclass overrides VisitedDirectoryCap to 2 so the cap is hit while
@@ -1045,7 +1045,7 @@ public class LinkRepairServiceTests
         // The target must be a NON-sensitive relative sibling: an escaping target like
         // "../../../etc/passwd" resolves to /etc/passwd on Linux, which the sensitive-
         // system-target guard (IsSensitiveSystemTarget) correctly rejects as
-        // InvalidContent regardless of normalizedLibraryPaths — so it would NOT reach
+        // InvalidContent regardless of normalizedLibraryPaths - so it would NOT reach
         // the Broken (existence) path on a Linux CI runner. A plain missing sibling
         // exercises the guard-skipped → existence-check path identically on every OS.
         var linkFile = _fileSystem.Path.GetFullPath("/series/Show1/episode.strm");
@@ -1067,7 +1067,7 @@ public class LinkRepairServiceTests
     {
         // Even with the path-traversal guard skipped (normalizedLibraryPaths null), a
         // relative target that escapes to a sensitive system directory must still be
-        // refused as InvalidContent by the sensitive-system-target guard — link repair
+        // refused as InvalidContent by the sensitive-system-target guard - link repair
         // must never enumerate or rewrite toward host paths like /etc. This is the
         // cross-platform-sensitive counterpart to the missing-sibling case above; it is
         // meaningful only where the resolved path lands under a sensitive root, so it is
@@ -1243,7 +1243,7 @@ public class LinkRepairServiceTests
     public void ProcessLinkFile_PathTooLongTarget_ReturnsInvalidContent()
     {
         // A path exceeding the OS maximum (PathTooLongException from Path.GetFullPath)
-        // must be caught and mapped to InvalidContent — not propagated as a crash.
+        // must be caught and mapped to InvalidContent - not propagated as a crash.
         var handler = new Mock<ILinkHandler>();
         handler.Setup(x => x.CanHandle(It.IsAny<string>())).Returns(true);
         handler.Setup(x => x.SupportsUrlTargets).Returns(false);

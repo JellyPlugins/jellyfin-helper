@@ -108,7 +108,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     [Fact]
     public void Save_DetachesFromCallerList()
     {
-        // The cache must never alias the caller's list — subsequent mutations by the caller
+        // The cache must never alias the caller's list - subsequent mutations by the caller
         // must not leak into the persisted state.
         var input = new List<DiscoveryResult>
         {
@@ -130,7 +130,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         // REGRESSION GUARD (v3.0.0.0): MarkAsRequestedLocked applies AlreadyRequested=true in
         // memory BEFORE the atomic write, then rolls it back if the write fails. The catch filter
         // was broadened to `not OOM and not SO` (matching the sibling RemoveItemLocked) so that a
-        // write failure — of ANY non-fatal type — both rolls back the mutation AND is swallowed by
+        // write failure - of ANY non-fatal type - both rolls back the mutation AND is swallowed by
         // the sync overload rather than escaping unlogged and leaving the in-memory cache diverged
         // from disk until restart.
         //
@@ -368,7 +368,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
         // 50 MB of real data (slow, expensive on CI), we use FileStream.SetLength to
         // create a SPARSE file that reports > 50 MB via FileInfo.Length without actually
         // consuming disk blocks on filesystems that support sparse files. On filesystems
-        // that don't (e.g. FAT), SetLength still allocates the space — this is a one-shot
+        // that don't (e.g. FAT), SetLength still allocates the space - this is a one-shot
         // test so the cost is acceptable.
         Directory.CreateDirectory(Path.GetDirectoryName(_cacheFilePath)!);
         using (var stream = new FileStream(
@@ -377,7 +377,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
                    FileAccess.Write,
                    FileShare.None))
         {
-            // 50 MiB + 1 byte — strictly above the cap.
+            // 50 MiB + 1 byte - strictly above the cap.
             stream.SetLength((50L * 1024 * 1024) + 1);
         }
 
@@ -597,7 +597,7 @@ public sealed class DiscoveryCacheServiceTests : IDisposable
     // still work for Load() (because EnsureLoadedLocked would re-run and see
     // "no file, init empty"), but the *specific bug* it guards against is a
     // future refactoring that assumes _memoryCache is non-null after Load
-    // returned successfully — for example, a Save() path that skips the
+    // returned successfully - for example, a Save() path that skips the
     // detached-copy step because it thinks a valid cache is already loaded.
     //
     // NOTE: `Load_OversizedFile_DeletesFileAndReturnsEmpty` above already

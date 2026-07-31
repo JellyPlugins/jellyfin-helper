@@ -126,7 +126,7 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
         // DESIGN CONTRACT: PluginConfiguration.GetEffectiveRadarrInstances() filters out
         // instances with empty Url or ApiKey BEFORE the controller sees them. So a config
         // that only contains partially-filled instances is effectively "no instance
-        // configured" from the controller's perspective — the correct response is 400
+        // configured" from the controller's perspective - the correct response is 400
         // "At least one Radarr instance must be configured.", NOT a silent skip.
         //
         // The controller's inner `if (IsNullOrWhiteSpace(instance.Url)) continue;` is
@@ -302,7 +302,7 @@ public sealed class ArrIntegrationControllerExtendedTests : IDisposable
     [Fact]
     public async Task CompareSonarrAsync_AllInstancesHaveEmptyApiKey_ReturnsBadRequest()
     {
-        // Mirrors CompareRadarrAsync_AllInstancesHaveEmptyUrl_ReturnsBadRequest — the
+        // Mirrors CompareRadarrAsync_AllInstancesHaveEmptyUrl_ReturnsBadRequest - the
         // GetEffectiveSonarrInstances filter drops the partial instance, leaving Count==0
         // which the controller reports as 400 BadRequest.
         ConfigWithSonarr(("http://s", "", "Partial"));

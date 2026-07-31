@@ -3,8 +3,8 @@
  * the 503-guard, empty-GUID 400, and unknown-user 404 are tested; nothing seeds
  * real playback. Here we prove the DATA: mark a specific item PLAYED via Jellyfin's
  * own API, rebuild the activity cache (the HelperCleanup task builds it from
- * IUserDataManager), and assert that exact item surfaces as watched — in
- * UserActivity/Latest and in UserActivity/User/{userId} — with a matching play count.
+ * IUserDataManager), and assert that exact item surfaces as watched - in
+ * UserActivity/Latest and in UserActivity/User/{userId} - with a matching play count.
  *
  * Contract notes (verified against the running stack):
  *   - Both routes require an elevated token and return 503 when

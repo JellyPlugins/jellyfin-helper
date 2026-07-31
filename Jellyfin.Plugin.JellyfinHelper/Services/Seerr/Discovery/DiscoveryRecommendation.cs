@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 namespace Jellyfin.Plugin.JellyfinHelper.Services.Seerr.Discovery;
 
 /// <summary>
-///     A single discovery recommendation for a user — represents a media item
+///     A single discovery recommendation for a user - represents a media item
 ///     not yet in the library that the user would likely enjoy.
 /// </summary>
 public sealed class DiscoveryRecommendation
@@ -105,7 +105,7 @@ public sealed class DiscoveryRecommendation
     ///         Previously carried <see cref="JsonIgnoreAttribute"/> to hide the field from the
     ///         frontend. That was fragile: <see cref="DiscoveryCacheService"/> persists this DTO
     ///         to disk via <c>JsonSerializer</c>, so a <see cref="JsonIgnoreAttribute"/> would
-    ///         silently drop the value on every cache reload — leaving <c>RecordShown</c> to
+    ///         silently drop the value on every cache reload - leaving <c>RecordShown</c> to
     ///         backfill the feedback store with <c>Popularity=0</c> and quietly re-introducing
     ///         the train/serve skew this field was added to eliminate. Frontend consumers simply
     ///         ignore the extra field; the payload cost is a handful of bytes per recommendation.
@@ -122,7 +122,7 @@ public sealed class DiscoveryRecommendation
     ///     Returns a detached shallow copy of this recommendation. All scalar fields are copied
     ///     by value. <see cref="Genres"/> and <see cref="KnownPeople"/> are already
     ///     <see cref="IReadOnlyList{T}"/> of immutable <see cref="string"/> elements, so the
-    ///     references are safe to share — no string copy is needed.
+    ///     references are safe to share - no string copy is needed.
     /// </summary>
     /// <returns>A detached copy of this <see cref="DiscoveryRecommendation"/>.</returns>
     public DiscoveryRecommendation Clone() => new()

@@ -158,7 +158,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
         // Action filter for surfacing model-binding failures into the plugin log before
         // [ApiController]'s auto-400 short-circuits the request. Scoped is the recommended
-        // lifetime for filters resolved via [ServiceFilter(...)] — a new instance per request
+        // lifetime for filters resolved via [ServiceFilter(...)] - a new instance per request
         // matches the built-in filter lifecycle and avoids surprises when the filter ever
         // grows request-scoped dependencies.
         serviceCollection.AddScoped<ModelBindingLogFilter>();

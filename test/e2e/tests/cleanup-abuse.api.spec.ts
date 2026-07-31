@@ -1,5 +1,5 @@
 /**
- * Adversarial cleanup tests — prove the cleanup stages never delete data OUTSIDE
+ * Adversarial cleanup tests - prove the cleanup stages never delete data OUTSIDE
  * the media library, honour excluded libraries (incl. the trailing trash purge),
  * and document the unlisted-codec false-orphan edge.
  *
@@ -74,7 +74,7 @@ test.describe.serial('cleanup never escapes the media library', () => {
     // (which would look like a data-loss failure when nothing was ever created).
     test.skip(
       !containerFileExists('/srv/jfh-external/secret.mkv'),
-      '/srv not writable in this environment — cannot seed the external target',
+      '/srv not writable in this environment - cannot seed the external target',
     );
 
     containerMkdir(`${M}/Symlink Trap (2020)`);

@@ -12,13 +12,13 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests;
 
 /// <summary>
-///     Tests for <see cref="Plugin"/> — the plugin bootstrap that handles index.html script
+///     Tests for <see cref="Plugin"/> - the plugin bootstrap that handles index.html script
 ///     injection (fallback path), on-disk data-file cleanup during uninstall, and recommendation
 ///     playlist directory purge.
 ///     <para>
 ///         All tests here operate on a real temp filesystem: the code under test writes
 ///         index.html, deletes <c>jellyfin-helper-*.json</c> data files, and shells out to
-///         <c>Directory.GetDirectories</c> on the playlists path — pure filesystem operations
+///         <c>Directory.GetDirectories</c> on the playlists path - pure filesystem operations
 ///         with no viable mock path. Each test uses a unique <see cref="Path.GetTempPath"/>
 ///         subdirectory that is cleaned up in <see cref="IDisposable.Dispose"/>.
 ///     </para>
@@ -110,7 +110,7 @@ public sealed class PluginTests : IDisposable
     }
 
     // ================================================================================================
-    // ReportClampedConfigValues — the "clamped hand-edited XML" warning path
+    // ReportClampedConfigValues - the "clamped hand-edited XML" warning path
     // ================================================================================================
 
     [Fact]
@@ -118,7 +118,7 @@ public sealed class PluginTests : IDisposable
     {
         // An operator who hand-edits the XML config to an out-of-range value
         // (e.g. MaxRecommendationsPerUser=999) gets that value silently narrowed by the
-        // property setter. ReportClampedConfigValues is the ONLY visible feedback loop —
+        // property setter. ReportClampedConfigValues is the ONLY visible feedback loop -
         // without it, the operator sees the UI display "100" and has no idea why.
         // This test asserts the warning IS logged when a clamp happened.
         // Pre-materialise a PluginConfiguration with two clamped values, then inject it
@@ -169,7 +169,7 @@ public sealed class PluginTests : IDisposable
             "ReportClampedConfigValues",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
         Assert.NotNull(method);
-        // Reset the warning counter first — the ctor above may have logged from InjectScript.
+        // Reset the warning counter first - the ctor above may have logged from InjectScript.
         warningCount = 0;
         method!.Invoke(plugin, []);
 
@@ -285,7 +285,7 @@ public sealed class PluginTests : IDisposable
         var plugin = CreatePlugin();
         var result = plugin.UpdateIndexHtml(true);
 
-        // A missing </body> is a content/layout problem, not a permissions one — the fallback
+        // A missing </body> is a content/layout problem, not a permissions one - the fallback
         // reports NotApplicable so InjectScript does NOT suggest installing File Transformation.
         Assert.Equal(Plugin.IndexHtmlUpdateResult.NotApplicable, result);
         var content = File.ReadAllText(indexPath);
@@ -340,7 +340,7 @@ public sealed class PluginTests : IDisposable
         // never present, so the ctor's UpdateIndexHtml(true) writes a fresh script tag on our
         // behalf. To exercise the "no matching script → skip write" fast path we must first
         // strip that tag with UpdateIndexHtml(false), THEN snapshot the mtime, THEN invoke
-        // UpdateIndexHtml(false) once more — the second call is the real assertion target.
+        // UpdateIndexHtml(false) once more - the second call is the real assertion target.
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body>clean</body></html>");
 
@@ -353,7 +353,7 @@ public sealed class PluginTests : IDisposable
         var mtimeBefore = File.GetLastWriteTimeUtc(indexPath);
         System.Threading.Thread.Sleep(50);
 
-        plugin.UpdateIndexHtml(false); // second call — must be a strict no-op
+        plugin.UpdateIndexHtml(false); // second call - must be a strict no-op
 
         var content = File.ReadAllText(indexPath);
         Assert.Equal(contentAfterFirstRemove, content);
@@ -364,7 +364,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void UpdateIndexHtml_Remove_MultiplePluginScripts_StripsAll()
     {
-        // RemovalRegex.Replace must strip ALL matches — a naive
+        // RemovalRegex.Replace must strip ALL matches - a naive
         // IndexOf/Substring rewrite would miss the second tag.
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(
@@ -424,8 +424,8 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void UpdateIndexHtml_Inject_WhenFileCannotBeModified_ReturnsWriteFailed()
     {
-        // If index.html cannot be modified — here simulated
-        // by holding an exclusive OS handle so both the read and the atomic replace fail — the
+        // If index.html cannot be modified - here simulated
+        // by holding an exclusive OS handle so both the read and the atomic replace fail - the
         // fallback must swallow the IOException and report WriteFailed (never throw, never
         // half-write). This is the signal InjectScript turns into an actionable warning.
         var indexPath = Path.Combine(_webPath, "index.html");
@@ -450,7 +450,7 @@ public sealed class PluginTests : IDisposable
     {
         // With File Transformation absent AND the web dir unwritable, the plugin
         // must emit exactly one actionable warning naming "File Transformation" so the admin knows
-        // how to fix the missing sidebar — instead of a silent failure or a raw stack trace.
+        // how to fix the missing sidebar - instead of a silent failure or a raw stack trace.
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body></body></html>");
 
@@ -485,7 +485,7 @@ public sealed class PluginTests : IDisposable
         // The constructor injects once and the startup hosted service
         // re-runs InjectScript, so on a persistently read-only web dir the fallback fails more than
         // once per process. The actionable "install File Transformation" warning must fire only
-        // ONCE per plugin instance (server start) — never spam the log on each re-injection.
+        // ONCE per plugin instance (server start) - never spam the log on each re-injection.
         var indexPath = Path.Combine(_webPath, "index.html");
         File.WriteAllText(indexPath, "<html><body></body></html>");
 
@@ -660,7 +660,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void OnUninstalling_MissingPlaylistsDirectory_DoesNotThrow()
     {
-        // No playlists dir exists — must short-circuit without throwing.
+        // No playlists dir exists - must short-circuit without throwing.
         var plugin = CreatePlugin();
         var ex = Record.Exception(() => plugin.OnUninstalling());
         Assert.Null(ex);
@@ -683,7 +683,7 @@ public sealed class PluginTests : IDisposable
     }
 
     // ================================================================================================
-    // IsFileTransformationAssembly — precise, positive identity check for the File Transformation plugin
+    // IsFileTransformationAssembly - precise, positive identity check for the File Transformation plugin
     // ================================================================================================
 
     [Fact]
@@ -708,7 +708,7 @@ public sealed class PluginTests : IDisposable
         // BUG GUARD: our own assembly is "Jellyfin.Plugin.JellyfinHelper" and it CONTAINS a
         // ".FileTransformation" *namespace* (Services.FileTransformation). The old loose
         // FullName.Contains(".FileTransformation") check would have false-positived here; the
-        // precise simple-name check must NOT — otherwise the plugin would try to register a
+        // precise simple-name check must NOT - otherwise the plugin would try to register a
         // transformation against ITSELF.
         Assert.False(
             Plugin.IsFileTransformationAssembly(typeof(Plugin).Assembly),
@@ -718,7 +718,7 @@ public sealed class PluginTests : IDisposable
     [Fact]
     public void IsFileTransformationAssembly_DoesNotMatchSubstringOrSuffixNames()
     {
-        // Names that merely contain or extend the target must not match — the check is exact identity,
+        // Names that merely contain or extend the target must not match - the check is exact identity,
         // not a substring/prefix scan.
         foreach (var candidate in new[]
                  {

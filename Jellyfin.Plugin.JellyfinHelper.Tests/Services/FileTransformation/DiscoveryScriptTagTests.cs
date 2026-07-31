@@ -5,7 +5,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FileTransformation;
 
 /// <summary>
-///     Tests for <see cref="DiscoveryScriptTag"/> — the single source of truth for the
+///     Tests for <see cref="DiscoveryScriptTag"/> - the single source of truth for the
 ///     Discovery sidebar script injection contract.
 ///     Verifies:
 ///     <list type="bullet">
@@ -140,7 +140,7 @@ public class DiscoveryScriptTagTests
     [Fact]
     public void RemovalRegex_AllowsSingleQuotedPluginAttribute()
     {
-        // The regex should tolerate either quote style — the plugin attribute may have been
+        // The regex should tolerate either quote style - the plugin attribute may have been
         // rewritten by a proxy or by a differently-quoted HTML template.
         var html = "<script plugin='Jellyfin Helper' version='1.0' src='x'></script>after";
 

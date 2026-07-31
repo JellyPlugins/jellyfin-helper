@@ -346,7 +346,7 @@ public class RecommendationControllerTests
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var data = Assert.IsAssignableFrom<IReadOnlyList<RecommendationResult>>(ok.Value);
         Assert.Single(data);
-        // Same reference passthrough — no unnecessary allocation.
+        // Same reference passthrough - no unnecessary allocation.
         Assert.Same(original, data[0]);
     }
 
@@ -354,7 +354,7 @@ public class RecommendationControllerTests
     public void GetUserRecommendations_CachedUserLargerThanRequestedMax_ReturnsTrimmedCopy()
     {
         // BUG GUARD: the copy-on-trim path in GetUserRecommendations (Lines 145-157) must
-        // preserve all metadata (UserName, ScoringStrategy, GeneratedAt, Profile, Cohort) —
+        // preserve all metadata (UserName, ScoringStrategy, GeneratedAt, Profile, Cohort) -
         // not just the Recommendations. If a future refactor forgets one field, this test
         // catches it because we assert against every metadata property.
         var userId = Guid.NewGuid();
@@ -537,7 +537,7 @@ public class RecommendationControllerTests
         // Both should succeed with OK.
         Assert.All(results, r => Assert.IsType<OkObjectResult>(r.Result));
 
-        // Engine must have been called at most once — the second waiter sees the cache.
+        // Engine must have been called at most once - the second waiter sees the cache.
         _mockEngine.Verify(
             e => e.GetAllRecommendations(It.IsAny<int>(), It.IsAny<CancellationToken>()),
             Times.AtMostOnce());

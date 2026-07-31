@@ -199,7 +199,7 @@ public class CleanupConfigHelperTests
     public void IsDryRun_DeactivateMode_ReturnsFalse()
     {
         // Deactivate triggers an early-exit in the base task before IsDryRun is consulted.
-        // IsDryRun correctly returns false — only DryRun mode returns true.
+        // IsDryRun correctly returns false - only DryRun mode returns true.
         Assert.False(CleanupConfigHelper.IsDryRun(TaskMode.Deactivate));
     }
 
@@ -301,7 +301,7 @@ public class CleanupConfigHelperTests
         var cfg = new PluginConfiguration { TrashFolderPath = "../../sensitive" };
         var helper = CreateHelper(cfg);
         var result = helper.GetTrashPath(root);
-        // Path traversal must not escape the library root — must fall back to safe default.
+        // Path traversal must not escape the library root - must fall back to safe default.
         var expected = Path.GetFullPath(Path.Join(root, ".jellyfin-trash"));
         Assert.Equal(expected, result);
     }
@@ -309,7 +309,7 @@ public class CleanupConfigHelperTests
     [Fact]
     public void GetTrashPath_DotPath_FallsBackToDefault()
     {
-        // TrashFolderPath = "." resolves to the library root itself — must not be allowed.
+        // TrashFolderPath = "." resolves to the library root itself - must not be allowed.
         var root = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
         var cfg = new PluginConfiguration { TrashFolderPath = "." };
         var helper = CreateHelper(cfg);
@@ -579,7 +579,7 @@ public class CleanupConfigHelperTests
     {
         // The guard picks min(CreationTime, LastWriteTime) so that a directory whose
         // LastWriteTime was bumped recently is still considered old if it was created
-        // long ago — and vice versa.  We can only control LastWriteTime reliably in a
+        // long ago - and vice versa.  We can only control LastWriteTime reliably in a
         // test, so we verify the LastWriteTime branch: a directory created just now but
         // whose LastWriteTime is back-dated to > MinAgeDays ago must return true.
         var cfg = new PluginConfiguration { OrphanMinAgeDays = 30 };
@@ -765,7 +765,7 @@ public class CleanupConfigHelperTests
     [Fact]
     public void GetExistingTrashFoldersForPath_RelativePathEscape_IsRejected()
     {
-        // "../../etc" tries to escape the library root — must never be reported as valid trash.
+        // "../../etc" tries to escape the library root - must never be reported as valid trash.
         //
         // To make the test meaningful we ALSO materialise the target of the escape (a
         // sibling directory next to the library root that actually exists). Without this
@@ -789,7 +789,7 @@ public class CleanupConfigHelperTests
             ]);
 
             // Craft a relative path that ACTUALLY resolves to escapedSibling from lib.
-            // e.g. "../outside-lib" resolves out of the library root — the guard must
+            // e.g. "../outside-lib" resolves out of the library root - the guard must
             // still refuse to report it as a trash candidate even though the destination
             // path physically exists.
             var relativeEscape = ".." + Path.DirectorySeparatorChar + "outside-lib";

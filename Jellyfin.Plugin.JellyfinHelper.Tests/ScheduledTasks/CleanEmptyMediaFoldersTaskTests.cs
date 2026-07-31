@@ -796,11 +796,11 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             ("Active Movie (2021)", videoDir),
             ("Orphaned Movie (2019)", orphanDir));
 
-        // Video folder — has video file → must be skipped entirely
+        // Video folder - has video file → must be skipped entirely
         SetupFiles(videoDir, "movie.mkv", "movie.nfo");
         SetupTopLevelDirs(videoDir);
 
-        // Orphan folder — subtitle only → must be trashed
+        // Orphan folder - subtitle only → must be trashed
         SetupFiles(orphanDir, "movie.nfo", "movie.srt");
         SetupTopLevelDirs(orphanDir);
 
@@ -824,7 +824,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             t => t.RecordCleanup(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<ILogger>()),
             Times.Once);
 
-        // Bytes must equal exactly the orphan's bytes — video folder contributes nothing
+        // Bytes must equal exactly the orphan's bytes - video folder contributes nothing
         Assert.Equal(orphanBytes, capturedBytes);
 
         // MoveToTrash must never have been called on the video folder
@@ -852,7 +852,7 @@ public class CleanEmptyMediaFoldersTaskTests : CleanupTaskTestBase
             ("Good Movie (2022)", videoDir),
             ("Gone Movie (2018)", orphanDir));
 
-        // Uppercase extension — VideoExtensions.OrdinalIgnoreCase handles this directly
+        // Uppercase extension - VideoExtensions.OrdinalIgnoreCase handles this directly
         SetupFiles(videoDir, "movie.MKV");
         SetupTopLevelDirs(videoDir);
 

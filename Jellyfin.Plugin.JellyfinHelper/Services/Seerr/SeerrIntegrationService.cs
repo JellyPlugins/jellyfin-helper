@@ -208,7 +208,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
 
                 // Fail CLOSED on unknown creation date: only delete when we have a genuinely parsed,
                 // non-default timestamp strictly older than the cutoff. A missing/null createdAt
-                // (fork / reshaped API / reverse proxy) deserializes to null and MUST be preserved —
+                // (fork / reshaped API / reverse proxy) deserializes to null and MUST be preserved -
                 // otherwise brand-new requests get deleted and the maxAgeDays safety is bypassed.
                 // A future-dated timestamp is likewise not "expired".
                 var createdAt = request.CreatedAt;
@@ -221,7 +221,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                 }
 
                 // Allowlist, not denylist: only PENDING (1) and DECLINED (3) requests are ever safe
-                // to delete. A denylist ("skip 2/4/5") fails OPEN — a missing status field
+                // to delete. A denylist ("skip 2/4/5") fails OPEN - a missing status field
                 // (deserializes to 0) or a future/unknown Seerr status code would fall through and be
                 // deleted. Approved/available/failed/completed and any unrecognized status must be
                 // preserved, since Seerr uses them to track downloads and deleting them can trigger

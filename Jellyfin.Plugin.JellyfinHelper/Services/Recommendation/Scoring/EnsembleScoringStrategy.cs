@@ -156,7 +156,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
 
     /// <summary>
     ///     Cached JSON serializer options for ensemble state persistence.
-    ///     Compact (non-indented) output — the ensemble state file is small (~400 bytes with
+    ///     Compact (non-indented) output - the ensemble state file is small (~400 bytes with
     ///     defaults) and machine-read only, so indentation adds no operational value.
     ///     <para>
     ///         <see cref="JsonNumberHandling.AllowNamedFloatingPointLiterals"/> is required
@@ -225,7 +225,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         // Guard: the heuristic must have its genre penalty disabled (floor = 1.0) because
         // the ensemble applies the penalty centrally via ComputeSoftGenrePenalty after blending.
         // A default-configured heuristic (floor 0.10) would cause double-penalization. We
-        // compare with strict equality — the previous 0.001 epsilon window let hand-tuned
+        // compare with strict equality - the previous 0.001 epsilon window let hand-tuned
         // values like 0.999 slip through, silently reintroducing a tiny secondary penalty on
         // top of the ensemble's own; both sides of this check are compile-time constants or
         // caller-supplied, so representation drift is not a concern.
@@ -665,7 +665,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             {
                 // Track examples seen across training rounds. In production the scheduled task
                 // trains incrementally (new + subsampled-old examples per run), so this running
-                // total approximates "examples the ensemble has learned from over its lifetime" —
+                // total approximates "examples the ensemble has learned from over its lifetime" -
                 // exactly the quantity the alpha sigmoid and the neural-beta activation threshold
                 // are calibrated against. The value only feeds those two schedules; alpha is
                 // independently clamped to [alphaMin, alphaMax] and gated by validation quality,
@@ -715,7 +715,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
                         // Math.Max prevents beta from dropping below the ramp floor when trend
                         // damping and the ramp both apply within the same Train() call, but once
                         // the ramp has reached its ceiling (progress=1.0) trend-driven decay will
-                        // be re-absorbed by the ramp on the next run — which is intentional: if
+                        // be re-absorbed by the ramp on the next run - which is intentional: if
                         // neural quality remains good, the ramp is the dominant signal.
                         var progress = Math.Clamp(
                             (_trainingExampleCount - NeuralActivationThreshold) / 100.0,
@@ -1008,7 +1008,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         //
         // Case (a) is a genuine "control is optimal" signal and legitimately triggers anti-drift
         // decay. Case (b) is NOT: we have no exploration outcome to compare against, so any
-        // decay would be based purely on control-only data — a shift in the midpoint driven by
+        // decay would be based purely on control-only data - a shift in the midpoint driven by
         // no evidence about the alternatives it's shifting away from. Guard against that by
         // requiring at least one qualifying exploration cohort before decaying.
         if (highTotal < minRecsPerCohort && lowTotal < minRecsPerCohort)
@@ -1158,7 +1158,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             // was persisted with ValidationLoss = NaN (cold-start placeholder) round-trips
             // cleanly. Without AllowNamedFloatingPointLiterals on the deserialiser, the
             // "NaN" literal in the file would throw JsonException and lose the entire
-            // history — the exploration gate would then never open.
+            // history - the exploration gate would then never open.
             var data = JsonSerializer.Deserialize<EnsembleStateData>(json, SerializerOptions);
             if (data is null)
             {
@@ -1181,7 +1181,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
             // placeholder snapshots persists TrainingExampleCount = 0 (no successful training
             // happened yet) but non-empty MetricsHistory (each failed Train() call recorded one
             // placeholder row). Rejecting that on load would erase the exploration-history
-            // signal on every restart and re-lock the cold-start path — exactly the self-lock
+            // signal on every restart and re-lock the cold-start path - exactly the self-lock
             // the placeholder writes were introduced to break. Keeping the history alive as long
             // as either counter is non-empty lets exploration continue accumulating snapshots
             // across restarts until the first real training run flips TrainingExampleCount > 0.
@@ -1326,7 +1326,7 @@ public sealed class EnsembleScoringStrategy : IScoringStrategy, ITrainableStrate
         // Filter out cold-start placeholder rows (ValidationLoss = NaN) BEFORE selecting the
         // trailing window. A mixed history (e.g. 2 placeholders + 3 real snapshots followed by
         // 5 more real ones) would otherwise poison sums/means with NaN and collapse the whole
-        // analysis to Stable — even though there are enough real rows to detect a real trend.
+        // analysis to Stable - even though there are enough real rows to detect a real trend.
         // The Train() path guarantees placeholders carry NaN loss and 0 NDCG; real rows carry
         // finite loss. IsFinite() is therefore the right gate: it rejects NaN, ±Infinity, and
         // any other pathological value that would silently break the linear-regression math.

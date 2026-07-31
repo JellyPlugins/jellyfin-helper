@@ -25,7 +25,7 @@ internal static class DiscoveryFeedbackExampleBuilder
     /// <param name="seriesEpisodeCounts">
     ///     Per-series total-episode-count map, forwarded to <see cref="PreferenceBuilder.BuildGenrePreferenceVector"/>
     ///     so the discovery-feedback training examples apply the same progression weighting as the
-    ///     inference path. May be null/empty (neutral, unweighted) — see <c>TrainingDataBuilder.BuildExamples</c>.
+    ///     inference path. May be null/empty (neutral, unweighted) - see <c>TrainingDataBuilder.BuildExamples</c>.
     /// </param>
     /// <param name="cancellationToken">Token to cancel the operation.</param>
     /// <returns>A list of training examples and the count of discovery examples added.</returns>
@@ -58,7 +58,7 @@ internal static class DiscoveryFeedbackExampleBuilder
             profileById.TryGetValue(userFeedback.UserId, out var userProfile);
 
             // Build user-specific preferences for feature computation.
-            // Users without a watch profile get empty preferences — their explicit discovery
+            // Users without a watch profile get empty preferences - their explicit discovery
             // interactions (request/dismiss) are still valuable training signals even when
             // genre features default to zero/neutral.
             var genrePreferences = userProfile != null
@@ -220,7 +220,7 @@ internal static class DiscoveryFeedbackExampleBuilder
 
         // Popularity feature: route THROUGH the same normalisation helper inference uses so
         // the training path can never diverge from what the model sees at serve time.
-        //   call NormalizePopularity(entry.Popularity) directly — legacy
+        //   call NormalizePopularity(entry.Popularity) directly - legacy
         //     rows with Popularity==0 now produce PopularityScore==0.0, bit-identical to
         //     what ExternalCandidateFeatureBuilder.Build would compute at inference time.
         //     The reduced provenance is signalled to the training pipeline through the

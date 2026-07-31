@@ -71,7 +71,7 @@ public class TrashControllerAccessTests : IDisposable
         var config = new PluginConfiguration { UseTrash = true, TrashFolderPath = ".jellyfin-trash" };
         var controller = CreateController(config, new List<string> { _testRoot });
 
-        // Use a subdirectory of the library root — not the root itself, which IsPathSafeForDeletion
+        // Use a subdirectory of the library root - not the root itself, which IsPathSafeForDeletion
         // correctly rejects (a path equal to the library root would delete the library).
         var checkPath = Path.Join(_testRoot, ".jellyfin-trash");
         Directory.CreateDirectory(checkPath);

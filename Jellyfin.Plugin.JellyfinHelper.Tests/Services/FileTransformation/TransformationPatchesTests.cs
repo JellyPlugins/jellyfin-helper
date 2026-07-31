@@ -4,7 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FileTransformation;
 
 /// <summary>
-///     Tests for <see cref="TransformationPatches.IndexHtml"/> — the callback the File
+///     Tests for <see cref="TransformationPatches.IndexHtml"/> - the callback the File
 ///     Transformation plugin invokes when serving index.html. The method must:
 ///     <list type="bullet">
 ///         <item>Tolerate <c>null</c> payload / <c>null</c> / empty <c>Contents</c> without throwing.</item>
@@ -16,7 +16,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FileTransformation;
 ///               (idempotent re-serving).</item>
 ///         <item>Handle case-insensitive <c>&lt;/body&gt;</c> variants (some HTML minifiers uppercase tags).</item>
 ///     </list>
-///     Note: <see cref="Plugin.Instance"/> may be null during these tests — the code path guards
+///     Note: <see cref="Plugin.Instance"/> may be null during these tests - the code path guards
 ///     with <c>?.Version.ToString() ?? "unknown"</c>, so the resulting script tag will contain
 ///     <c>version="unknown"</c>. Assertions target invariants, not the specific version string.
 /// </summary>
@@ -58,7 +58,7 @@ public class TransformationPatchesTests
     public void IndexHtml_NoBodyTag_ReturnsContentUnchanged_NoInjection()
     {
         // If there is no </body> to anchor against, we must NOT append the script tag
-        // at some arbitrary location — that would produce invalid HTML.
+        // at some arbitrary location - that would produce invalid HTML.
         const string html = "<html><head></head></html>";
         var result = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = html });
         Assert.Equal(html, result);
@@ -104,7 +104,7 @@ public class TransformationPatchesTests
     {
         // File Transformation may re-invoke the callback whenever a client
         // reloads. Every invocation must produce a document with exactly one instance
-        // of the plugin script tag — not two, not three.
+        // of the plugin script tag - not two, not three.
         const string html = "<html><body></body></html>";
         var first = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = html });
         var second = TransformationPatches.IndexHtml(new PatchRequestPayload { Contents = first });
@@ -115,7 +115,7 @@ public class TransformationPatchesTests
     [Fact]
     public void IndexHtml_WithStaleOldVersionTag_ReplacesWithFreshTag()
     {
-        // Simulates upgrading the plugin — an old v0.9 tag is left behind and must
+        // Simulates upgrading the plugin - an old v0.9 tag is left behind and must
         // be removed by the RemovalRegex before the new tag goes in.
         const string html = "<html><body>" +
                             "<script plugin=\"Jellyfin Helper\" version=\"0.9\" src=\"stale?v=0.9\" defer></script>" +
@@ -150,7 +150,7 @@ public class TransformationPatchesTests
     [Fact]
     public void IndexHtml_WithLiteralBodyInsideComment_InjectsBeforeRealClosingBody()
     {
-        // Contract: the injection target is the REAL closing </body> — the last one.
+        // Contract: the injection target is the REAL closing </body> - the last one.
         // A stray literal `</body>` inside an HTML comment must NOT trap the injection
         // inside a non-executing region. This fixture places a literal `</body>` inside
         // an HTML comment BEFORE the real closing tag; the implementation must skip
@@ -174,7 +174,7 @@ public class TransformationPatchesTests
         // otherwise the test degenerates to a single-occurrence check.
         Assert.NotEqual(firstBody, lastBody);
         // Locked contract: the script MUST land BETWEEN the comment's `</body>` and the
-        // real closing `</body>` — i.e. after the comment occurrence, before the last.
+        // real closing `</body>` - i.e. after the comment occurrence, before the last.
         Assert.True(scriptIndex > firstBody,
             $"script must appear AFTER the </body> inside the comment (script={scriptIndex}, commentBody={firstBody})");
         Assert.True(scriptIndex < lastBody,
@@ -244,10 +244,10 @@ public class TransformationPatchesTests
         // For the "always run the disk fallback" design: when File
         // Transformation IS installed AND the disk fallback has ALSO already written the tag to
         // index.html, the File Transformation callback runs on that already-tagged on-disk content.
-        // It must de-duplicate to EXACTLY ONE tag — never stack a second copy.
+        // It must de-duplicate to EXACTLY ONE tag - never stack a second copy.
         //
         // The tag is built by DiscoveryScriptTag.Build(version) in BOTH paths, and the version is
-        // NOT hard-coded here on purpose — the plugin version changes every release and the
+        // NOT hard-coded here on purpose - the plugin version changes every release and the
         // de-duplication must never depend on it. We deliberately use a DIFFERENT (older) version
         // for the pre-existing on-disk tag than the callback will emit, to prove the RemovalRegex
         // matches our tag regardless of the version attribute (the real upgrade scenario), not just

@@ -2,9 +2,9 @@
  * Filesystem-assertion helpers for the E2E tests.
  *
  * The suite runs on the HOST (Playwright), but the plugin acts on the container's
- * filesystem. To prove a feature actually did the right thing on disk — deleted
+ * filesystem. To prove a feature actually did the right thing on disk - deleted
  * the orphan, kept the valid file, moved an item into trash, rewrote a .strm,
- * left a canary outside the library untouched — we shell into the running
+ * left a canary outside the library untouched - we shell into the running
  * Jellyfin container with `docker compose exec`.
  *
  * Everything here is best-effort about environment: if Docker isn't reachable
@@ -31,7 +31,7 @@ export interface ExecResult {
 
 /**
  * Run a shell command INSIDE the Jellyfin container and capture its result.
- * Never throws on a non-zero exit — returns the code so callers can assert on it
+ * Never throws on a non-zero exit - returns the code so callers can assert on it
  * (e.g. `test -e` exit codes). Throws only if `docker` itself can't be invoked.
  */
 export function execInContainer(cmd: string, timeoutMs = 20_000): ExecResult {
@@ -53,7 +53,7 @@ export function execInContainer(cmd: string, timeoutMs = 20_000): ExecResult {
 }
 
 /**
- * True when `docker compose exec` reaches the container. Cached — the answer
+ * True when `docker compose exec` reaches the container. Cached - the answer
  * can't change within a run. Use to gate FS-assertion tests.
  */
 let _dockerOk: boolean | undefined;
@@ -131,7 +131,7 @@ export function containerMkdir(path: string): void {
 /** Write text to a container file (creating parent dirs). */
 export function containerWriteFile(path: string, contents: string): void {
   // For a filesystem-root path like "/CANARY_ROOT.txt" the regex strips to "", so
-  // fall back to "/" — otherwise `mkdir -p ''` errors and the && short-circuits,
+  // fall back to "/" - otherwise `mkdir -p ''` errors and the && short-circuits,
   // silently never writing the file (which would drop the root canary from the
   // containment proof without any failure).
   const dir = path.replace(/\/[^/]*$/, '') || '/';
@@ -163,11 +163,11 @@ export function containerTimestamp(daysAgo = 0): string {
 
 /**
  * Canary files planted OUTSIDE the media library. Any destructive test must
- * leave every one of these byte-for-byte intact — that is the real proof that
+ * leave every one of these byte-for-byte intact - that is the real proof that
  * a misuse/abuse case did not delete or move data outside /media.
  */
 export const CANARY_PATHS = [
-  '/config/jfh-canary/marker.txt', // inside Jellyfin's own data dir — must NEVER be touched
+  '/config/jfh-canary/marker.txt', // inside Jellyfin's own data dir - must NEVER be touched
   '/srv/jfh-canary/secret.txt', // an arbitrary host dir outside /media and /config
   '/CANARY_ROOT.txt', // near the filesystem root
 ] as const;
@@ -182,7 +182,7 @@ const CANARY_CONTENT = 'CANARY-DO-NOT-TOUCH';
  *
  * NOTE: This runs in the Playwright `globalSetup` PROCESS, which is separate from
  * the worker processes that run the specs. Module state therefore does NOT cross
- * that boundary — which is exactly why {@link verifyCanaries} and
+ * that boundary - which is exactly why {@link verifyCanaries} and
  * {@link plantedCanaries} re-derive their answer by probing the container on disk
  * rather than trusting any in-memory list. Planting is an on-disk side effect, so
  * it is visible to the workers; a module-scoped "what did I plant" array would not
@@ -271,7 +271,7 @@ export function regenFixtures(): void {
  * worker that only ever *reads* module state would see none. Planting is an
  * idempotent on-disk write, so we (re-)plant here in the worker and then assert
  * at least one canary is present. This makes every later `verifyCanaries()`
- * assertion meaningful — it can no longer pass vacuously against an empty set.
+ * assertion meaningful - it can no longer pass vacuously against an empty set.
  *
  * When Docker is unreachable from the worker there is nothing to prove, so the
  * whole spec skips LOUDLY (never a silent green). Call once per destructive spec:
@@ -279,7 +279,7 @@ export function regenFixtures(): void {
  *   test.beforeAll(() => ensureCanariesPlanted());
  */
 export function ensureCanariesPlanted(): void {
-  test.skip(!hasDocker(), 'docker exec unavailable — cannot plant/verify canaries');
+  test.skip(!hasDocker(), 'docker exec unavailable - cannot plant/verify canaries');
   plantCanaries();
   expect(
     plantedCanaries().length,

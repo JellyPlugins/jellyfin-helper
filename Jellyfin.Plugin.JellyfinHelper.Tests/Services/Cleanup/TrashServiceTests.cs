@@ -231,7 +231,7 @@ public class TrashServiceTests : IDisposable
     {
         var trashPath = Path.Join(_testRoot, "trash");
 
-        // RetentionDays = 0 is the "disabled" sentinel — nothing should be purged,
+        // RetentionDays = 0 is the "disabled" sentinel - nothing should be purged,
         // regardless of how old the item is.
         var oldTimestamp = Now.AddDays(-9999).ToString(TimestampFormat, CultureInfo.InvariantCulture);
         var oldDir = Path.Join(trashPath, $"{oldTimestamp}_OldMovie");
@@ -248,7 +248,7 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_RetentionDaysZero_MaximallyOldItem_IsNeverPurged()
     {
-        // retentionDays = 0 is the "disabled" sentinel — purge should never run regardless of item age.
+        // retentionDays = 0 is the "disabled" sentinel - purge should never run regardless of item age.
         var trashPath = Path.Join(_testRoot, "trash");
 
         var ancientTimestamp = Now.AddDays(-9999).ToString(TimestampFormat, CultureInfo.InvariantCulture);
@@ -266,7 +266,7 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void PurgeExpiredTrash_RetentionDaysMinus1_Disabled()
     {
-        // retentionDays = -1 is an out-of-range / disabled value — nothing should be purged.
+        // retentionDays = -1 is an out-of-range / disabled value - nothing should be purged.
         var trashPath = Path.Join(_testRoot, "trash");
 
         var oldTimestamp = Now.AddDays(-365).ToString(TimestampFormat, CultureInfo.InvariantCulture);
@@ -627,7 +627,7 @@ public class TrashServiceTests : IDisposable
     [Fact]
     public void GetTrashContents_RetentionDaysZero_PurgeDateIsNull()
     {
-        // retentionDays = 0 means retention is disabled — PurgesAt must be null, not equal to TrashedAt.
+        // retentionDays = 0 means retention is disabled - PurgesAt must be null, not equal to TrashedAt.
         var trashPath = Path.Join(_testRoot, "trash");
         Directory.CreateDirectory(trashPath);
         File.WriteAllBytes(Path.Join(trashPath, "20260101-120000_test.txt"), new byte[10]);
@@ -643,7 +643,7 @@ public class TrashServiceTests : IDisposable
     public void GetTrashContents_RetentionZero_PurgesAtIsNull()
     {
         // A directory item with retentionDays=0 must have PurgesAt=null because
-        // zero is the "disabled" sentinel — no purge date should ever be projected.
+        // zero is the "disabled" sentinel - no purge date should ever be projected.
         var trashPath = Path.Join(_testRoot, "trash");
         var dirName = "20260315-140000_SomeMovie";
         var dir = Path.Join(trashPath, dirName);

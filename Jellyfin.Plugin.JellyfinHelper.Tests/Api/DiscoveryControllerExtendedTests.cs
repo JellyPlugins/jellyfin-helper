@@ -41,7 +41,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     // Storage isolation: DiscoveryCacheService derives its file path from
     // Plugin.Instance?.DataFolderPath at construction time. We initialise the singleton
     // BEFORE constructing the service so we always resolve against the same well-known
-    // temp directory owned by ControllerTestFactory.InitializePluginInstance — never
+    // temp directory owned by ControllerTestFactory.InitializePluginInstance - never
     // against the process's current working directory (which could be shared with any
     // other test class running in parallel via a different collection).
     //
@@ -91,7 +91,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
             }
             catch (IOException)
             {
-                // Best effort — a locking file would be surfaced by the next test's setup.
+                // Best effort - a locking file would be surfaced by the next test's setup.
             }
             catch (UnauthorizedAccessException)
             {
@@ -216,7 +216,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
 
         // Seed a matching recommendation so we can prove the persisted state transition,
         // not just the HTTP result. The controller's success path must also flip the
-        // cached item's AlreadyRequested flag via _cache.MarkAsRequestedAsync — a
+        // cached item's AlreadyRequested flag via _cache.MarkAsRequestedAsync - a
         // regression that drops that call would leave this flag false, and the item
         // would silently reappear on the next discovery-page refresh.
         var userId = Guid.NewGuid();
@@ -257,7 +257,7 @@ public sealed class DiscoveryControllerExtendedTests : IDisposable
     public async Task PostRequest_RootFolderIsTrimmed_BeforeForwardingToService()
     {
         // BUG GUARD: leading/trailing whitespace in rootFolder must be stripped before
-        // sending to Seerr — a Seerr backend that strictly matches its known root folders
+        // sending to Seerr - a Seerr backend that strictly matches its known root folders
         // would reject the request otherwise.
         string? capturedRootFolder = null;
         _discoveryMock.Setup(d => d.SubmitRequestAsync(

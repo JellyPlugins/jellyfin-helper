@@ -652,7 +652,7 @@ public class RecommendationEngineTests
 
         // uniqueItem should have accumulated weighted co-occurrence from both other users.
         // Each user shares 3/4 items (Jaccard = 0.75), but the actual score is further
-        // modulated by trust weight and IDF — so we verify presence and a positive score
+        // modulated by trust weight and IDF - so we verify presence and a positive score
         // rather than hard-coding a raw Jaccard total that would break on algorithm tuning.
         Assert.True(map.TryGetValue(uniqueItem, out var uniqueItemScore));
         Assert.True(uniqueItemScore > 0, $"Expected positive score for uniqueItem, got {uniqueItemScore}");
@@ -1316,7 +1316,7 @@ public class RecommendationEngineTests
         // not be confused with the half-watched sentinel. Verify the explicit assignment wins.
         var features = new CandidateFeatures();
 
-        // Default (before any assignment) is 0.5 — the neutral sentinel
+        // Default (before any assignment) is 0.5 - the neutral sentinel
         Assert.Equal(0.5, features.CompletionRatio);
 
         // After the engine sets it to 0.0 for a never-touched item, it must be 0.0
@@ -1351,7 +1351,7 @@ public class RecommendationEngineTests
         var features = new CandidateFeatures
         {
             HasUserInteraction = true,
-            CompletionRatio = 0.10 // 10% — below AbandonedThreshold (25%)
+            CompletionRatio = 0.10 // 10% - below AbandonedThreshold (25%)
         };
 
         var vector = features.ToVector();

@@ -92,7 +92,7 @@ public class RecommendationController : ControllerBase
             return Ok(trimmed);
         }
 
-        // No cache — acquire lock so only one caller generates at a time (double-check inside).
+        // No cache - acquire lock so only one caller generates at a time (double-check inside).
         var acquired = false;
         try
         {

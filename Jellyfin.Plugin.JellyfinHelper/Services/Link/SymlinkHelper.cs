@@ -35,14 +35,14 @@ public class SymlinkHelper : ISymlinkHelper
     ///     We must detect the LINK NODE itself, not follow it to the target. Using
     ///     <c>info.Exists</c> gates the check on the target being present, which:
     ///     <list type="bullet">
-    ///       <item>On Windows, <c>FileInfo.Exists</c> follows the link at check time — so a
+    ///       <item>On Windows, <c>FileInfo.Exists</c> follows the link at check time - so a
     ///         broken symlink is reported as NOT a symlink, silently hiding the very
     ///         class of link LinkRepairService is designed to fix.</item>
-    ///       <item>On Linux/macOS, <c>FileInfo.Exists</c> reports the link node — the check
+    ///       <item>On Linux/macOS, <c>FileInfo.Exists</c> reports the link node - the check
     ///         would work there, but relying on that is a portability hazard.</item>
     ///     </list>
     ///     <c>File.GetAttributes</c> inspects the entry itself without following it, and
-    ///     the <c>ReparsePoint</c> bit is a necessary — but NOT sufficient — indicator of a
+    ///     the <c>ReparsePoint</c> bit is a necessary - but NOT sufficient - indicator of a
     ///     symbolic link. On Windows the <c>ReparsePoint</c> bit is also set on entries that
     ///     are NOT symlinks: OneDrive / cloud "files on-demand" placeholders and
     ///     Windows Data-Deduplication stubs both carry it. Treating those as symlinks
@@ -53,7 +53,7 @@ public class SymlinkHelper : ISymlinkHelper
     ///       the stored target from the reparse data WITHOUT following it, so it is:
     ///       <list type="bullet">
     ///         <item>non-null for both valid and broken symlinks (the target string survives
-    ///           even after the target file is deleted — see IsSymlink_BrokenSymlink test),</item>
+    ///           even after the target file is deleted - see IsSymlink_BrokenSymlink test),</item>
     ///         <item>null for cloud/dedup reparse points, which .NET does not recognise as links.</item>
     ///       </list>
     ///     </para>

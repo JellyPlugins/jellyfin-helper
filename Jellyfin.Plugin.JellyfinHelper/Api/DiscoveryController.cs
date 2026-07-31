@@ -172,12 +172,12 @@ public sealed class DiscoveryController : ControllerBase
         //
         // Async variant is preferred here (over the legacy MarkAsRequested sync overload)
         // because it releases the request thread while AtomicFile's transient-IO retries
-        // sleep — the sync path can block for up to ~200 ms on AV/indexer contention,
+        // sleep - the sync path can block for up to ~200 ms on AV/indexer contention,
         // which would starve the request pool under a burst of user requests.
         //
         // ⚠️ CancellationToken is DELIBERATELY NOT forwarded here. Once Seerr has accepted
         // the request (a few lines above), the local cache MUST be updated regardless of
-        // whether the HTTP client has disconnected — otherwise the item silently reappears
+        // whether the HTTP client has disconnected - otherwise the item silently reappears
         // on the next discovery-page refresh, and the user gets a phantom "please request
         // this again" prompt for an item they already successfully requested. See the
         // similar rationale in UserDiscoveryController.SubmitMyRequest.

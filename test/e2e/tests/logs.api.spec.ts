@@ -1,5 +1,5 @@
 /**
- * Logs + Translations at the API layer — validation branches and response
+ * Logs + Translations at the API layer - validation branches and response
  * contracts the UI binds to, which logs.ui.spec.ts drives visually but never
  * asserts on the wire (query-param validation, envelope shape, download
  * headers, anonymous translations).
@@ -66,7 +66,7 @@ test('Logs source filter over 200 chars is rejected; 200 is the accepted boundar
 
 test('Logs/Download validates minLevel and serves a timestamped text file', async () => {
   // Bad minLevel is rejected. The endpoint is [Produces("text/plain")], so the
-  // JSON 400 body is content-negotiated to 406 when text/plain is requested —
+  // JSON 400 body is content-negotiated to 406 when text/plain is requested -
   // either rejection status is acceptable, never 200/500.
   const bad = await ctx.get(p('Logs/Download?minLevel=NOPE'), { headers: { Accept: 'text/plain' } });
   expect([400, 406]).toContain(bad.status());

@@ -1,7 +1,7 @@
 /**
  * Dashboard tab navigation: the 8 tabs render and switch, with no uncaught JS
  * errors. The Recommendations tab is only visible when RecommendationsTaskMode
- * != Deactivate, and the Arr tab shows content only when instances exist — the
+ * != Deactivate, and the Arr tab shows content only when instances exist - the
  * API specs run first (dependency) and leave both configured.
  */
 import { test, expect } from '@playwright/test';
@@ -20,10 +20,10 @@ test('all core tabs switch and activate without JS errors', async ({ page }) => 
     await expect(page.locator(`.tab-btn[data-tab="${tab}"]`)).toHaveClass(/active/);
   }
 
-  // NB: we intentionally do NOT switch to the Recommendations tab here — it has
+  // NB: we intentionally do NOT switch to the Recommendations tab here - it has
   // dedicated coverage in recommendations.ui.spec.ts.
   //
-  // Filter ONLY the benign Discovery/My 403 probe noise — not every failed-resource
+  // Filter ONLY the benign Discovery/My 403 probe noise - not every failed-resource
   // message. The plugin injects a page-wide user-facing Discovery widget that probes
   // GET Discovery/My; while DiscoveryUserAccessEnabled is off (the default, and what
   // partial config PUTs from other specs leave it as) that probe correctly returns

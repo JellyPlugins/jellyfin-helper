@@ -43,7 +43,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     private readonly IDiscoveryFeedbackStore _discoveryFeedbackStore;
     private readonly IItemRepository _itemRepository;
 
-    // Short-lived candidate-metadata cache — NOT a recommendation-result cache. Holds the
+    // Short-lived candidate-metadata cache - NOT a recommendation-result cache. Holds the
     // library-derived working set (candidate BaseItems, people lookup, BoxSet membership,
     // series episode counts) that is expensive to rebuild via the LibraryManager. Populated
     // by GetAllRecommendations (scheduled batch, both Activate and DryRun modes) and reused
@@ -60,17 +60,17 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     //
     // The TTL is orthogonal to the DryRun preview semantics: at inference time we always score
     // against whatever the snapshot currently holds, and expiring it forces a fresh library
-    // scan on the next call — which is exactly the behaviour DryRun users want when they add
+    // scan on the next call - which is exactly the behaviour DryRun users want when they add
     // a new film and check "what would happen if I activated recommendations".
     // Single-flight gate for on-demand snapshot rebuilds. When the cache is empty or expired
     // several concurrent live requests would otherwise each trigger their own LoadCandidateItems /
     // BuildCandidatePeopleLookup / BuildCandidateBoxSetLookupFresh pass, hammering the library
     // manager in lock-step. The gate serialises the FIRST rebuild; every waiter that arrives while
     // the winner is materialising reads the freshly published snapshot instead of doing its own
-    // scan. The scheduled batch path (GetAllRecommendations) intentionally bypasses this gate — it
+    // scan. The scheduled batch path (GetAllRecommendations) intentionally bypasses this gate - it
     // is the authoritative source of the snapshot and must not defer to a stale live-path build.
     // Declared before _cachedSnapshot so StyleCop's readonly-fields-first ordering (SA1214) is
-    // satisfied — the two fields are semantically paired.
+    // satisfied - the two fields are semantically paired.
     private readonly Lock _snapshotRefreshLock = new();
 
     // Stored as a single immutable snapshot to prevent concurrent readers from mixing data across batches.
@@ -165,7 +165,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // reads the freshly published data instead of racing to re-scan the library. Without
         // this gate a batch of near-simultaneous "GetRecommendations" calls right after TTL
         // expiry would each run LoadCandidateItems + BuildCandidatePeopleLookup +
-        // BuildCandidateBoxSetLookupFresh in parallel — a "stampede" that lands N heavy library
+        // BuildCandidateBoxSetLookupFresh in parallel - a "stampede" that lands N heavy library
         // scans on the LibraryManager in lock-step.
         var snapshot = GetOrRefreshLiveSnapshot();
 
@@ -180,7 +180,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             //
             // The previous formulation used `snapshot.CommunityPopularity ?? BuildCommunityPopularityForColdStart()`,
             // which had a fatal flaw: when the live path published a snapshot (which cannot compute
-            // the community map — it does not have all-user data at that moment), CommunityPopularity
+            // the community map - it does not have all-user data at that moment), CommunityPopularity
             // was null, and EVERY subsequent cold-start hit ran the full BuildCommunityPopularityForColdStart
             // scan again. In a single-user or empty-history deployment the helper legitimately returns null,
             // meaning the same null-then-recompute-yields-null cycle repeated on every HTTP request.
@@ -216,7 +216,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // path builds one). We therefore pass null and let GenerateForUser derive the aggregates
         // locally from precomputedUserSets (which is also null in the live path). The named
         // `ct:` argument is used because CollaborativeContext? sits before the CancellationToken
-        // in the parameter list — CA1068 forces the CancellationToken to be the last positional
+        // in the parameter list - CA1068 forces the CancellationToken to be the last positional
         // parameter, but we want to skip the optional context, so named-arg it is.
         return GenerateForUser(
             userProfile,
@@ -250,7 +250,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // Build the per-series total-episode-count map from the live library so the training
         // path applies the EXACT same progression multiplier as inference. Without this the
         // model trains on genre/people preference vectors weighted 1.0 while it is served
-        // vectors weighted 0.3–1.5 — a train/serve skew. Same source as LoadCandidateItems.
+        // vectors weighted 0.3–1.5 - a train/serve skew. Same source as LoadCandidateItems.
         var seriesEpisodeCounts = BuildSeriesEpisodeCounts();
 
         // Build the genre/studio IDF table now and reuse the SAME instance for both this training
@@ -336,7 +336,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // That duplicate is intentional: GetAllRecommendations is also entered standalone (DryRun, and
         // on-demand regeneration) where no preceding train ran, so it must always compute a fresh table
         // rather than trust a possibly-stale field. The cost is one extra pair of aggregate queries per
-        // batch — a fixed per-run cost, never amplified per user or per candidate — so a frailer
+        // batch - a fixed per-run cost, never amplified per user or per candidate - so a frailer
         // "reuse if fresh" guard is not worth the stale-data risk.
         _genreStudioIdf = BuildGenreStudioIdfTable();
 
@@ -369,7 +369,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // benefit from the collective "wisdom of the crowd" rather than only static
         // metadata (rating + release date). Items that many active users have watched
         // are more likely to be broadly appealing to newcomers.
-        // Only built once per batch run — reused across all cold-start users.
+        // Only built once per batch run - reused across all cold-start users.
         //
         // Delegated to BuildCommunityPopularityMap so the batch path (here) and the live
         // cold-start path (BuildCommunityPopularityForColdStart) share ONE source of truth
@@ -379,7 +379,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var communityPopularity = BuildCommunityPopularityMap(precomputedUserSets);
 
         // Publish the snapshot once, with the community-popularity map already included.
-        // Previously this was split into two TryPublishSnapshot calls — a partial publish
+        // Previously this was split into two TryPublishSnapshot calls - a partial publish
         // (CommunityPopularity = null) followed by a second publish once the map was ready.
         // That two-step approach introduced a race: a live cold-start request arriving between
         // the two publishes could read the partial snapshot, observe a different sequence
@@ -424,7 +424,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 {
                     // Combine the per-user id with the shared batch generation counter so every
                     // batch produces a fresh but user-stable exploration seed. Uses the same
-                    // ComputeStableSeed helper as the live path so the seed is process-independent —
+                    // ComputeStableSeed helper as the live path so the seed is process-independent -
                     // a Jellyfin restart between two batches of the same generation counter would
                     // otherwise reshuffle exploration outcomes.
                     var batchSeed = ComputeStableSeed(profile.UserId, batchGeneration);
@@ -530,7 +530,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         // Pre-compute the max community-popularity for normalization to [0, 1].
         // Using log1p compression so a single item watched by 100 users doesn't overshadow
-        // items watched by 5-10 users — we want a smooth gradient, not a winner-take-all signal.
+        // items watched by 5-10 users - we want a smooth gradient, not a winner-take-all signal.
         // Falls back gracefully when community data is unavailable (single-user deployments).
         var useCommunityPrior = communityPopularity is { Count: > 0 };
         var maxLogPopularity = 0.0;
@@ -563,7 +563,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             }
 
             // Cold-start rating term. ComputeCombinedCriticScore returns a NEUTRAL 0.5 for a fully
-            // unrated item — the right convention for the shared ML feature vector, but wrong for
+            // unrated item - the right convention for the shared ML feature vector, but wrong for
             // this standalone cold-start scalar formula: 0.5 would rank an unknown-quality title
             // ABOVE a title the community explicitly rated poorly (e.g. 3/10 → 0.30), a quality
             // inversion for zero-history users. Cold-start does NOT flow through the ML vector, so we
@@ -764,7 +764,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///         for the inference path, extracted so the training path (<see cref="TrainStrategy"/>)
     ///         can produce a byte-for-byte identical map. Keeping a single definition is what
     ///         guarantees train/serve parity of the progression-weighted genre/people preference
-    ///         vectors — a divergent copy here would silently reintroduce the skew.
+    ///         vectors - a divergent copy here would silently reintroduce the skew.
     ///     </para>
     /// </summary>
     /// <returns>A map of series id to its count of playable (non-empty <c>Path</c>) episodes.</returns>
@@ -828,7 +828,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     <c>ComputeStableSeed(userId, DateOnly.FromDateTime(DateTime.UtcNow).DayNumber)</c>,
     ///     batch runs pass <c>ComputeStableSeed(userId, batchGeneration)</c>. The stable-seed
     ///     helper is used instead of <see cref="HashCode.Combine{T1,T2}"/> so the value is
-    ///     process-independent — a Jellyfin restart does not reshuffle same-day exploration.
+    ///     process-independent - a Jellyfin restart does not reshuffle same-day exploration.
     /// </param>
     /// <param name="collaborativeContext">
     ///     Optional batch-scoped collaborative aggregates (item popularity + trust-gate flag)
@@ -967,7 +967,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         var preferredBilledPeople = preferredPeopleWeights;
 
         // Library-wide genre/studio IDF rarity table. Computed once per candidate snapshot (see
-        // Phase 2H — IItemRepository) and threaded through here; null until then, which makes
+        // Phase 2H - IItemRepository) and threaded through here; null until then, which makes
         // ComputeGenreStudioIdfPrior return a neutral 0.0 (no bias) rather than crash.
         var genreStudioIdf = _genreStudioIdf;
 
@@ -1099,7 +1099,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             {
                 // Resolve the candidate's content-affinity source data ONCE from the per-snapshot
                 // precompute (fallback to a live resolve only for a just-added candidate), then reuse
-                // it for all seven cached DTO fields below — no per-field GetPeople/GetInheritedTags.
+                // it for all seven cached DTO fields below - no per-field GetPeople/GetInheritedTags.
                 var content = contentAffinityLookup.TryGetValue(s.Item.Id, out var cachedContent)
                     ? cachedContent
                     : ResolveContentAffinity(s.Item);
@@ -1266,7 +1266,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         // per-snapshot `content` precompute resolved above (built once per candidate, never per
         // user), so this hot path performs no GetInheritedTags() traversal and no GetPeople
         // round-trip. Every shared SimilarityComputer helper returns a neutral value (0.0, or 0.5
-        // for completability) for empty input — a missing field is a silent no-op, never a crash —
+        // for completability) for empty input - a missing field is a silent no-op, never a crash -
         // and these are the SAME shared helpers the training path uses (train/serve parity).
         var franchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(
             content.TmdbCollectionName, preferredFranchises);
@@ -1319,7 +1319,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 watchedStudioSets),
             LanguageAffinity = languageAffinity,
             // Collection/BoxSet progression: uses pre-resolved BoxSet IDs from candidateBoxSetLookup.
-            // No per-candidate parent traversal needed — all BoxSet memberships resolved once during batch init.
+            // No per-candidate parent traversal needed - all BoxSet memberships resolved once during batch init.
             CollectionProgressionBoost = ComputeCollectionProgressionBoostLive(
                 candidateBoxSetLookup.TryGetValue(candidate.Id, out var candidateBoxSets) ? candidateBoxSets : [],
                 watchedBoxSetCounts),
@@ -1463,7 +1463,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         {
             var streams = candidate.GetMediaStreams();
 
-            // Series items have no direct media streams — resolve from first child episode as fallback.
+            // Series items have no direct media streams - resolve from first child episode as fallback.
             // This enables LanguageAffinity and SubtitleLanguageAffinity to produce real signals
             // for series candidates instead of defaulting to 0.5 (neutral).
             if ((streams is null || streams.Count == 0) && candidate is Series series)
@@ -1632,7 +1632,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     Pre-computes, once per candidate snapshot, ALL candidate-invariant content-affinity source
     ///     data for every candidate: the five metadata fields (TMDb collection, production countries,
     ///     inherited tags, series status, series end date) plus the writer names and billing-weight map.
-    ///     These values depend only on the candidate — never on the user — so computing them once here,
+    ///     These values depend only on the candidate - never on the user - so computing them once here,
     ///     outside the per-user scoring loop, replaces what would otherwise be a
     ///     <c>GetInheritedTags()</c> parent-traversal and a <see cref="ILibraryManager.GetPeople(BaseItem)"/>
     ///     round-trip PER (candidate × user). Mirrors how <c>BuildCandidatePeopleLookup</c> /
@@ -1640,10 +1640,10 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     <para>
     ///         There is no batch API that exposes <see cref="PersonInfo.SortOrder"/> (the name-only
     ///         <c>GetPeopleNamesByItems</c> cannot feed billing), so the per-item GetPeople call is
-    ///         unavoidable — but it now happens exactly once per item at snapshot-build time.
+    ///         unavoidable - but it now happens exactly once per item at snapshot-build time.
     ///     </para>
     ///     The lookup is DENSE: every candidate that was read successfully gets an entry, even when its
-    ///     writer list or billing map is empty. This is deliberate — a present-but-empty entry lets the
+    ///     writer list or billing map is empty. This is deliberate - a present-but-empty entry lets the
     ///     scoring path short-circuit to a neutral value WITHOUT a live re-resolve, so a metadata-sparse
     ///     item (e.g. cast but no writer credits) does not silently reintroduce per-user library calls.
     ///     Only a candidate genuinely absent from the snapshot (added between build and scoring) falls
@@ -1664,7 +1664,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             }
             catch (Exception ex) when (!ex.IsFatal())
             {
-                people = null; // People unreadable — still cache the metadata fields below.
+                people = null; // People unreadable - still cache the metadata fields below.
             }
 
             lookup[candidate.Id] = new CandidateContentAffinity(
@@ -1737,8 +1737,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     /// <summary>
     ///     Aligns a pre-resolved billing-weight map to a people-name set (the same set cached as
     ///     <see cref="RecommendedItem.PeopleNames"/>), producing an index-aligned weight list for
-    ///     parity-safe consumption at training time. Operates purely on the supplied map — no library
-    ///     call — so it reuses the per-snapshot precompute rather than issuing a fresh <c>GetPeople</c>.
+    ///     parity-safe consumption at training time. Operates purely on the supplied map - no library
+    ///     call - so it reuses the per-snapshot precompute rather than issuing a fresh <c>GetPeople</c>.
     ///     Names absent from the billing map (e.g. writers, or people the library reports without
     ///     SortOrder) receive weight 0.0.
     /// </summary>
@@ -1999,7 +1999,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     </para>
     ///     <para>
     ///         Double-check inside the lock guards against the race where two threads read
-    ///         "cache is null/expired" from the volatile field simultaneously — the second
+    ///         "cache is null/expired" from the volatile field simultaneously - the second
     ///         thread must re-verify after acquiring the lock so that only the first one
     ///         performs the rebuild.
     ///     </para>
@@ -2017,7 +2017,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
         {
             // Re-check under the lock: a competing thread may already have completed a
             // refresh while we were waiting. Publishing the winner's snapshot is what makes
-            // the rest of the batch a no-op — the "cost" of a stampede is paid at most once.
+            // the rest of the batch a no-op - the "cost" of a stampede is paid at most once.
             snapshot = _cachedSnapshot;
             if (snapshot is not null && DateTime.UtcNow - snapshot.CreatedAtUtc <= CandidateSnapshotMaxAge)
             {
@@ -2041,7 +2041,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
                 boxSetLookup,
                 seriesEpisodeCounts,
                 null,
-                CommunityPopularityComputed: false, // live rebuild has no all-user data yet — first cold-start hit will fill this in
+                CommunityPopularityComputed: false, // live rebuild has no all-user data yet - first cold-start hit will fill this in
                 BatchGeneration: 0, // live-refresh writes carry BatchGeneration=0; kept for exploration-seed semantics only
                 PublicationSequence: seq,
                 ObservedSequence: seq, // built and published under the same lock; the guard never applies here
@@ -2063,7 +2063,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     Publishes a snapshot to <see cref="_cachedSnapshot"/> while enforcing monotonic
     ///     ordering by <see cref="CandidateSnapshot.PublicationSequence"/>. Rejects the write
     ///     when the currently-cached snapshot has a strictly-larger publication sequence, so
-    ///     an older publish that finishes late cannot clobber a newer one — regardless of
+    ///     an older publish that finishes late cannot clobber a newer one - regardless of
     ///     whether it originated from a batch run or a live-refresh.
     ///     <para>
     ///         Ordering is decided by <see cref="CandidateSnapshot.PublicationSequence"/>
@@ -2095,8 +2095,8 @@ public sealed class Engine : IRecommendationEngine, IDisposable
             // Stale-guard: reject this publish if a strictly-newer snapshot was published AFTER
             // this candidate's builder observed the sequence counter (captured at build-start via
             // candidate.ObservedSequence, before the slow load). Comparing the currently-cached
-            // sequence against that build-start watermark — rather than a value re-read inside this
-            // lock — is what makes the guard reachable: a slow batch that began before a live-refresh
+            // sequence against that build-start watermark - rather than a value re-read inside this
+            // lock - is what makes the guard reachable: a slow batch that began before a live-refresh
             // published will see current.PublicationSequence > its ObservedSequence and back off,
             // so it cannot roll the cache back to older candidates.
             var current = _cachedSnapshot;
@@ -2149,7 +2149,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///         and therefore sets <c>CommunityPopularityComputed = false</c>,
     ///         <c>CommunityPopularity = null</c>) would call
     ///         <see cref="BuildCommunityPopularityForColdStart"/> anew, re-running
-    ///         <c>GetAllUserWatchProfiles</c> + <c>PrecomputeUserWatchSets</c> — an O(U×M) scan —
+    ///         <c>GetAllUserWatchProfiles</c> + <c>PrecomputeUserWatchSets</c> - an O(U×M) scan -
     ///         on every single HTTP hit. Persisting even a <c>null</c> result (with the flag set
     ///         to <c>true</c>) short-circuits future requests during the TTL window when fewer
     ///         than two users have watch history.
@@ -2159,7 +2159,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///         because the underlying record is immutable and a racy double-compute is harmless
     ///         (both racing threads produce the same map from the same source). The write-back
     ///         is performed under <see cref="_snapshotRefreshLock"/> so we do not overwrite a
-    ///         newer batch snapshot published concurrently — we only republish if the currently
+    ///         newer batch snapshot published concurrently - we only republish if the currently
     ///         cached instance is still the one we started reading from
     ///         (<see cref="object.ReferenceEquals"/>).
     ///     </para>
@@ -2227,7 +2227,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
         // Find the best progression signal across all BoxSets the candidate belongs to.
         // The formula itself is delegated to EngineConstants so the training path uses
-        // exactly the same implementation — guaranteeing train/serve parity by construction.
+        // exactly the same implementation - guaranteeing train/serve parity by construction.
         var bestBoost = 0.0;
         foreach (var boxSetId in candidateBoxSetIds)
         {
@@ -2378,7 +2378,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     Matches the exact logic and two-user gate applied by
     ///     <see cref="GetAllRecommendations"/> so on-demand cold-start requests get the same
     ///     community-blended ranking that the batch path would have produced.
-    ///     Returns null when fewer than two users have any watch history — callers then fall
+    ///     Returns null when fewer than two users have any watch history - callers then fall
     ///     back to the classic rating + recency formula unchanged.
     ///     <para>
     ///         Only owns the "load profiles → precompute sets" step; the actual counting and
@@ -2403,7 +2403,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     (<see cref="GetAllRecommendations"/>) and the live cold-start path
     ///     (<see cref="BuildCommunityPopularityForColdStart"/>). Centralises the two-user gate
     ///     and the item-counting loop so a future change to either rule automatically
-    ///     propagates to both callers — historically these two loops were duplicated inline
+    ///     propagates to both callers - historically these two loops were duplicated inline
     ///     and drifted at least once during refactoring.
     ///     <para>
     ///         At least two users must contribute at least one watched item each before
@@ -2460,7 +2460,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     seed after each Jellyfin restart. Diversity exploration would then reshuffle within
     ///     the same day, defeating the purpose of the daily seed contract. This helper folds
     ///     the Guid's 128 bits through a stable mix and combines them with the suffix using
-    ///     a fixed multiplier — no cryptographic strength required, only determinism.
+    ///     a fixed multiplier - no cryptographic strength required, only determinism.
     /// </summary>
     /// <param name="id">The user (or entity) identifier.</param>
     /// <param name="suffix">A secondary integer key (UTC day number, batch generation, ...).</param>
@@ -2517,7 +2517,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
 
     /// <summary>
     ///     Writes the current batch-generation counter to disk. Best-effort: a failure here
-    ///     never blocks the batch — worst case is a repeated seed after the next reload,
+    ///     never blocks the batch - worst case is a repeated seed after the next reload,
     ///     which is the state we started from.
     /// </summary>
     private void PersistBatchGeneration(int value)
@@ -2555,7 +2555,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///         <b>Policy for unrated items:</b> Items with a null
     ///         <see cref="BaseItem.InheritedParentalRatingValue"/> are treated as restricted
     ///         (excluded) for users who have a max parental rating configured. This is the
-    ///         conservative safe default — recently-added or metadata-incomplete content that
+    ///         conservative safe default - recently-added or metadata-incomplete content that
     ///         has not yet received a rating from a provider will not appear in recommendations
     ///         for restricted profiles until a rating is assigned. Operators who prefer to allow
     ///         unrated content should leave the user's MaxParentalRating unset.
@@ -2642,7 +2642,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///         <item>The compute step has not run yet on this snapshot (e.g. the live path just
     ///         rebuilt the snapshot but does not have all-user data at that moment).</item>
     ///         <item>The compute step has run and legitimately produced no map (fewer than two
-    ///         users have any watch history — single-user or empty-history deployment).</item>
+    ///         users have any watch history - single-user or empty-history deployment).</item>
     ///     </list>
     ///     The <see cref="CommunityPopularityComputed"/> flag disambiguates these two cases so
     ///     callers can tell "not yet computed → compute now" from "already computed as null →
@@ -2670,7 +2670,7 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     for snapshots produced by the live-refresh path (which is not part of any batch
     ///     lineage). Monotonically increasing per batch. Consumed by the exploration-seed
     ///     derivation (<see cref="ComputeStableSeed"/>) to make per-user seeds stable across
-    ///     the users of a single batch. NOT used for publish-ordering decisions — see
+    ///     the users of a single batch. NOT used for publish-ordering decisions - see
     ///     <see cref="PublicationSequence"/> for that.
     /// </param>
     /// <param name="PublicationSequence">
@@ -2688,9 +2688,9 @@ public sealed class Engine : IRecommendationEngine, IDisposable
     ///     <c>BuildCandidate*Lookup</c> work, outside the publish lock). This is the freshness
     ///     watermark the stale-guard in <see cref="TryPublishSnapshot"/> compares against: if a
     ///     concurrent publish landed a strictly-newer sequence AFTER this builder observed the
-    ///     counter, the batch is stale and its publish is dropped. Capturing it at build-start —
+    ///     counter, the batch is stale and its publish is dropped. Capturing it at build-start -
     ///     rather than re-reading inside the publish lock, where it would trivially equal the
-    ///     cached value and make the guard unreachable — is what gives the guard real teeth.
+    ///     cached value and make the guard unreachable - is what gives the guard real teeth.
     /// </param>
     /// <param name="ContentAffinityLookup">Item ID → per-candidate content-affinity source data (5 metadata fields + writers + billing), pre-computed once per snapshot.</param>
     private sealed record CandidateSnapshot(

@@ -181,7 +181,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task SubmitRequestAsync_FtpBaseUrl_ReturnsFailure()
     {
-        // Only http/https allowed — file://, ftp://, javascript: etc must be rejected.
+        // Only http/https allowed - file://, ftp://, javascript: etc must be rejected.
         Plugin.Instance!.Configuration.SeerrUrl = "ftp://seerr.example.com";
 
         var (success, _) = await _sut.SubmitRequestAsync(
@@ -219,7 +219,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     public async Task SubmitRequestAsync_UserIdIncludedInPayloadWhenPositive()
     {
         // BUG GUARD: the earlier version of this test asserted `Contains("42")` on the
-        // raw JSON string, which also matches the existing mediaId 1234 — so a broken
+        // raw JSON string, which also matches the existing mediaId 1234 - so a broken
         // implementation that dropped the userId field entirely (or wrote the wrong
         // value) would still pass. We now parse the payload as JSON and assert the
         // strongly-typed value of the `userId` property.
@@ -234,7 +234,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         Assert.True(payload.RootElement.TryGetProperty("userId", out var userIdElement),
             $"payload missing 'userId' property; body was: {_handler.LastRequestBody}");
         Assert.Equal(42, userIdElement.GetInt32());
-        // Sanity: the mediaId was serialised alongside as expected — this makes the
+        // Sanity: the mediaId was serialised alongside as expected - this makes the
         // parsing sanity check tight and future-proofs against accidental field renames.
         Assert.True(payload.RootElement.TryGetProperty("mediaId", out var mediaIdElement));
         Assert.Equal(1234, mediaIdElement.GetInt32());
@@ -243,7 +243,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task SubmitRequestAsync_ZeroSeerrUserId_NotIncludedInPayload()
     {
-        // Contract: only positive user IDs are forwarded — 0 or null means "use API key owner".
+        // Contract: only positive user IDs are forwarded - 0 or null means "use API key owner".
         // A defensive test to prevent the payload from carrying a nonsense userId=0.
         _handler.RegisterResponse(HttpMethod.Post, "/api/v1/request", HttpStatusCode.Created, "{}");
 
@@ -525,7 +525,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     [Fact]
     public async Task GetUserRequestPermissionsAsync_UsersListEmpty_ReturnsTransient()
     {
-        // Empty roster (upstream error) means "temporary unavailable" — must set IsTransient=true.
+        // Empty roster (upstream error) means "temporary unavailable" - must set IsTransient=true.
         _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.InternalServerError, "");
 
         var result = await _sut.GetUserRequestPermissionsAsync(
@@ -582,7 +582,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     {
         // BUG GUARD: user is correctly linked (jellyfinUserId matches) but their permissions
         // bitmask does NOT include Request (32), RequestMovie (1024), RequestTv (2048), or
-        // Admin (2). The service MUST refuse the request with a NON-transient denial —
+        // Admin (2). The service MUST refuse the request with a NON-transient denial -
         // upgrading them to "transient" would let a client-side retry loop hammer Seerr
         // indefinitely on what is really a persistent authorization failure.
         var json = $$"""
@@ -621,7 +621,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
         }
         """;
         _handler.RegisterResponse(HttpMethod.Get, "/api/v1/user", HttpStatusCode.OK, userJson);
-        // Successful fetch but empty list — this is the "configured Seerr with no Arr servers" case.
+        // Successful fetch but empty list - this is the "configured Seerr with no Arr servers" case.
         _handler.RegisterResponse(HttpMethod.Get, "/api/v1/service/radarr", HttpStatusCode.OK, "[]");
 
         var result = await _sut.GetUserRequestPermissionsAsync(
@@ -636,7 +636,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     public async Task GetUserRequestPermissionsAsync_UserCanRequest_ServiceLookupFails_StillAllowsRequestWithoutProfiles()
     {
         // BUG GUARD: user has Request perm, but Seerr's /service/radarr endpoint fails
-        // (500 Internal Server Error). This is a TRANSIENT failure — the service must
+        // (500 Internal Server Error). This is a TRANSIENT failure - the service must
         // still allow the request (with empty profiles = Seerr server-side defaults)
         // rather than blocking the user on what could be a 5-second outage. Blocking
         // here would produce visible "we can't verify your Seerr" errors on every retry
@@ -661,7 +661,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     }
 
     // -----------------------------------------------------------------------
-    // Step 4 — quality-profile exposure depends on user's permission level.
+    // Step 4 - quality-profile exposure depends on user's permission level.
     //
     // Admin / ManageRequests / RequestAdvanced  → filterToDefault=false → ALL profiles.
     // Normal Request-only user                  → filterToDefault=true  → default profile only.
@@ -676,7 +676,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
     {
         // BUG GUARD: admin users must receive ALL configured profiles (filterToDefault=false).
         // A regression that forces filterToDefault=true for admins would silently strip profile
-        // choice from every admin request form — they would see only the server's active profile
+        // choice from every admin request form - they would see only the server's active profile
         // and have no way to override quality without knowing the workaround.
         //
         // Permissions=2 → Admin. Service list: one Radarr server, two profiles (HD=100, 4K=200).
@@ -707,7 +707,7 @@ public sealed class SeerrDiscoveryServiceHttpTests : IDisposable
             LinkedJellyfinUserId, "movie", "radarr", CancellationToken.None);
 
         Assert.True(result.CanRequest);
-        // Admin → all profiles exposed: HD (default) + 4K (non-default) — both for the single root folder.
+        // Admin → all profiles exposed: HD (default) + 4K (non-default) - both for the single root folder.
         Assert.Equal(2, result.Profiles.Count);
         Assert.Contains(result.Profiles, p => p.ProfileId == 100);
         Assert.Contains(result.Profiles, p => p.ProfileId == 200);

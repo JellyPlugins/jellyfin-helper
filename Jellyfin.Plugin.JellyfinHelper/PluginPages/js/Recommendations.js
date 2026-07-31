@@ -343,7 +343,7 @@ function loadDiscoveryForUser(index) {
         return;
     }
 
-    // Cache expired — invalidate ALL per-user caches so fresh data is fetched
+    // Cache expired - invalidate ALL per-user caches so fresh data is fetched
     if (_discoveryAllUsersCache !== undefined && cacheAge >= _discoveryCacheTtlMs) {
         _discoveryAllUsersCache = undefined;
         for (var k = 0; k < results.length; k++) {

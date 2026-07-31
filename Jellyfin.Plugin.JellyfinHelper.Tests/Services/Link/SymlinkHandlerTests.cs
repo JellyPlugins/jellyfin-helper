@@ -77,7 +77,7 @@ public class SymlinkHandlerTests
         _symlinkHelper.Verify(h => h.GetSymlinkTarget("/some/path"), Times.Once);
     }
 
-    // ===== WriteTarget — atomic replace path =====
+    // ===== WriteTarget - atomic replace path =====
 
     [Fact]
     public void WriteTarget_CreatesAtTempThenReplaces()

@@ -129,7 +129,7 @@ internal static class TrainingFeatureComputer
     }
 
     /// <summary>
-    ///     Core implementation — accepts a pre-built genre set to avoid re-allocating it when
+    ///     Core implementation - accepts a pre-built genre set to avoid re-allocating it when
     ///     computing both DayOfWeek and HourOfDay affinity for the same candidate in one call chain.
     /// </summary>
     internal static double ComputeTrainingTemporalAffinity(
@@ -245,7 +245,7 @@ internal static class TrainingFeatureComputer
         // Series progression boost: hardcoded 0.0 to mirror the live inference path
         // (Engine.ScoreCandidate writes a constant 0.0 for this channel). Aggregated series
         // examples describe series the user has already interacted with meaningfully, so the
-        // watchedSeriesIds filter permanently excludes them from live candidate scoring —
+        // watchedSeriesIds filter permanently excludes them from live candidate scoring -
         // emitting a graded value here would train a signal the network can never observe.
         const double seriesProgressionBoost = 0.0;
 
@@ -363,7 +363,7 @@ internal static class TrainingFeatureComputer
             SubtitleLanguageAffinity = 0.5,
             // Content-affinity signals aggregated across the series' episodes (same shared helpers as
             // live scoring). BillingWeightedPeople uses the per-episode billing weights aggregated above,
-            // scored against the user's preferred-people map — matching the live series-candidate path.
+            // scored against the user's preferred-people map - matching the live series-candidate path.
             FranchiseAffinity = SimilarityComputer.ComputeFranchiseAffinity(seriesFranchise, preferredFranchises),
             ProductionLocationAffinity = SimilarityComputer.ComputeProductionLocationAffinity([.. seriesCountries], preferredCountries),
             InheritedTagSimilarity = SimilarityComputer.ComputeInheritedTagSimilarity([.. seriesInheritedTags], preferredInheritedTags),
@@ -371,7 +371,7 @@ internal static class TrainingFeatureComputer
             WriterAffinity = SimilarityComputer.ComputeWriterAffinity([.. seriesWriters], preferredWriterWeights),
             // BillingWeightedPeople is neutralized (0.0) for aggregated-series examples: billed people are
             // deliberately NOT cached per episode (people are aggregated at series level to avoid guest-cast
-            // noise — see WatchHistoryService, which skips GetPeople for Episodes), so no per-episode billing
+            // noise - see WatchHistoryService, which skips GetPeople for Episodes), so no per-episode billing
             // exists to aggregate here. A watched (non-favourite) series therefore contributes neutral billing;
             // favourite series carry real series-level billing via their synthetic WatchedItemInfo (organic path).
             BillingWeightedPeople = 0.0,
@@ -436,7 +436,7 @@ internal static class TrainingFeatureComputer
     ///     cached lists, for the BillingWeightedPeople feature. This is the training-side mirror of the
     ///     live <c>Engine.ResolveBillingWeightMap</c>, keeping train/serve parity.
     ///     <para>Returns an empty map (→ neutral 0.0 downstream) when the lists are empty OR their
-    ///     lengths do not match — the latter is the legacy signal for cache entries written before
+    ///     lengths do not match - the latter is the legacy signal for cache entries written before
     ///     billing weights were persisted, so old data self-neutralizes instead of misaligning.</para>
     /// </summary>
     /// <param name="peopleNames">Cached people names.</param>

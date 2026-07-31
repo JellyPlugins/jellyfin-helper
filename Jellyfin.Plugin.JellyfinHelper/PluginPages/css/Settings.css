@@ -10,7 +10,7 @@
 }
 
 /* Guarantee the Settings tab spans the full width of the centered page
-   container. These id-scoped rules (Settings tab only — they cannot affect
+   container. These id-scoped rules (Settings tab only - they cannot affect
    any other tab) use id specificity to override any narrower max-width that
    Jellyfin core might apply to inner config-page content. box-sizing keeps
    fields from overflowing on small / mobile screens. */
@@ -367,7 +367,7 @@
 }
 
 /* ============================================================
-   Settings redesign — cards + sticky toolbar + responsive grid.
+   Settings redesign - cards + sticky toolbar + responsive grid.
    All rules below are ADDITIVE. No pre-existing selector changes
    its behaviour, so autosave overlays, folder browser positioning,
    and every existing event handler continue to work as before.
@@ -503,7 +503,7 @@
     margin-top: 0.4em;
 }
 
-/* Inside a card, the section-title acts as the card header — kill the
+/* Inside a card, the section-title acts as the card header - kill the
    huge default top margin the section-title uses. */
 /* noinspection CssUnusedSymbol */
 .settings-card > .section-title:first-child {

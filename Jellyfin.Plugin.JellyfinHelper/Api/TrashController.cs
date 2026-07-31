@@ -255,7 +255,7 @@ public class TrashController : ControllerBase
 
         // Basic input sanity: cap length and reject obvious path-traversal sequences.
         // Full path-safety validation (library-root containment, filesystem-root rejection)
-        // is enforced by GetExistingTrashFoldersForPath itself — this check is a
+        // is enforced by GetExistingTrashFoldersForPath itself - this check is a
         // defence-in-depth guard only.
         if (queryPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Any(s => s is "." or "..") || queryPath.Length > 512)
         {
@@ -494,7 +494,7 @@ public class TrashController : ControllerBase
         // path that CONTAINS a library root (deleting/moving it would take the library
         // with it). This must run to completion before any allow, otherwise an early
         // "strictly inside library A" allow could short-circuit a later "contains library
-        // B" reject for a nested library — approving a delete/relocate that wipes B.
+        // B" reject for a nested library - approving a delete/relocate that wipes B.
         foreach (var libraryRoot in libraryRoots)
         {
             if (string.Equals(normalizedPath, libraryRoot, comparison)
@@ -541,7 +541,7 @@ public class TrashController : ControllerBase
         // Pick the LONGEST (most specific) containing library root, not the first one
         // enumerated. With nested libraries (e.g. /media and /media/movies both
         // registered) a source could be strictly inside both; returning whichever the
-        // unsorted GetVirtualFolders enumerated first would be non-deterministic — the
+        // unsorted GetVirtualFolders enumerated first would be non-deterministic - the
         // same order-dependence just fixed in IsPathSafeForDeletion. For a single or
         // sibling-only library layout this is a no-op (exactly one match).
         string? best = null;
@@ -565,7 +565,7 @@ public class TrashController : ControllerBase
 
     /// <summary>
     /// True when the path is (or is inside) a well-known system / application directory
-    /// that must never be a trash-deletion or relocation target — most importantly
+    /// that must never be a trash-deletion or relocation target - most importantly
     /// Jellyfin's own <c>/config</c>, plus common OS directories on Linux and Windows.
     /// Delegates to the shared <see cref="PathValidator.IsSensitiveSystemPath"/> (single
     /// source of truth; the OS-appropriate comparison is chosen there).
@@ -625,7 +625,7 @@ public class TrashController : ControllerBase
                 "API",
                 accessResult.HasFullAccess
                     ? $"Trash path access check passed: {queryPath}"
-                    : $"Trash path access check FAILED: {queryPath} — {accessResult.ErrorMessage}",
+                    : $"Trash path access check FAILED: {queryPath} - {accessResult.ErrorMessage}",
                 _logger);
             allAccessible &= accessResult.HasFullAccess;
             results.Add(new TrashAccessEntry
@@ -656,7 +656,7 @@ public class TrashController : ControllerBase
                     "API",
                     accessResult.HasFullAccess
                         ? $"Trash path access check passed: {resolvedPath} (library: {folder})"
-                        : $"Trash path access check FAILED: {resolvedPath} (library: {folder}) — {accessResult.ErrorMessage}",
+                        : $"Trash path access check FAILED: {resolvedPath} (library: {folder}) - {accessResult.ErrorMessage}",
                     _logger);
                 allAccessible &= accessResult.HasFullAccess;
                 results.Add(new TrashAccessEntry

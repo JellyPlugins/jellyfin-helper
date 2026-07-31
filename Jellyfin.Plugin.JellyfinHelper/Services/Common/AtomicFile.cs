@@ -18,7 +18,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 ///         <list type="bullet">
 ///             <item>
 ///                 <description>
-///                     <see cref="WriteAllText"/> — synchronous, uses <see cref="Thread.Sleep(int)"/> for
+///                     <see cref="WriteAllText"/> - synchronous, uses <see cref="Thread.Sleep(int)"/> for
 ///                     retry backoff. A fully retrying call blocks the caller for up to ~200 ms with the
 ///                     default 5 attempts (4 sleeps: 20 + 40 + 60 + 80 ms; the final attempt
 ///                     propagates immediately without sleeping). Intended for background scheduled-task
@@ -27,7 +27,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.Common;
 ///             </item>
 ///             <item>
 ///                 <description>
-///                     <see cref="WriteAllTextAsync"/> — asynchronous, uses
+///                     <see cref="WriteAllTextAsync"/> - asynchronous, uses
 ///                     <see cref="Task.Delay(int, CancellationToken)"/> for backoff so the caller's request
 ///                     thread is released while the retry sleeps. Required for ASP.NET request handlers
 ///                     (e.g. discovery dismissal / requested-state persistence) which invoke this from
@@ -64,7 +64,7 @@ internal static class AtomicFile
     ///     Retries the temp-write-then-move on transient <see cref="IOException"/> /
     ///     <see cref="UnauthorizedAccessException"/> up to <paramref name="maxAttempts"/> times.
     ///     If every attempt fails, the last transient error propagates so the caller's existing
-    ///     best-effort <c>try/catch</c> can log it — behavior is never worse than a single attempt.
+    ///     best-effort <c>try/catch</c> can log it - behavior is never worse than a single attempt.
     ///     <para>
     ///         Blocks the calling thread for up to ~200 ms across all retries with the default
     ///         attempt count. See the class-level remarks for the constraint on caller contexts.
@@ -86,7 +86,7 @@ internal static class AtomicFile
         }
 
         // Ensure the target directory exists before attempting to write the temp file.
-        // CreateDirectory is idempotent — it does nothing if the directory already exists.
+        // CreateDirectory is idempotent - it does nothing if the directory already exists.
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
         {
@@ -100,7 +100,7 @@ internal static class AtomicFile
             var tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
-                // Explicit UTF-8 (no BOM) — see the class-level Encoding note.
+                // Explicit UTF-8 (no BOM) - see the class-level Encoding note.
                 File.WriteAllText(tempPath, contents, Utf8NoBom);
                 if (File.Exists(path))
                 {
@@ -187,7 +187,7 @@ internal static class AtomicFile
             var tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
-                // Explicit UTF-8 (no BOM) — see the class-level Encoding note. The async write
+                // Explicit UTF-8 (no BOM) - see the class-level Encoding note. The async write
                 // also honours the cancellation token natively, so a cancellation while writing
                 // the temp file will propagate through here without needing the outer check.
                 await File.WriteAllTextAsync(tempPath, contents, Utf8NoBom, cancellationToken).ConfigureAwait(false);
@@ -211,7 +211,7 @@ internal static class AtomicFile
             catch (OperationCanceledException)
             {
                 // Cancellation during the async write: clean up the temp file and propagate.
-                // We do NOT retry on cancellation — that would defeat cooperative cancellation.
+                // We do NOT retry on cancellation - that would defeat cooperative cancellation.
                 TryDeleteQuietly(tempPath);
                 throw;
             }

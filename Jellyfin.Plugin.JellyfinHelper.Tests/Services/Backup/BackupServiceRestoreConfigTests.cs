@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Backup;
 
 /// <summary>
 ///     Focused tests for the RestoreBackup + RestoreConfiguration path when
-///     <see cref="IPluginConfigurationService.IsInitialized"/> returns <c>true</c> — this
+///     <see cref="IPluginConfigurationService.IsInitialized"/> returns <c>true</c> - this
 ///     exercises the full config-restore pipeline that the existing tests deliberately
 ///     skip (they set <c>IsInitialized = false</c> so only the file I/O paths run).
 ///     Covers sanitization/validation edge cases: invalid language falls back to "en",
@@ -129,7 +129,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     {
         // BUG GUARD: If the persisted language is corrupted or from a newer version that
         // introduced language codes the current version doesn't know, the plugin must NOT
-        // apply the untrusted value — it must fall back to "en" to keep the UI usable.
+        // apply the untrusted value - it must fall back to "en" to keep the UI usable.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
         backup.Language = "klingon-KL";
@@ -191,7 +191,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     public void RestoreBackup_EmptyTrashFolderPath_UsesDefault()
     {
         // BUG GUARD: If the persisted trash path is missing/blank, RestoreConfiguration must
-        // inject the sensible default ".jellyfin-trash" — leaving it empty would break
+        // inject the sensible default ".jellyfin-trash" - leaving it empty would break
         // subsequent trash operations that assume a valid folder name.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
@@ -310,7 +310,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     public void RestoreBackup_EmptyArrApiKeyInBackup_PreservesLiveKey()
     {
         // When the backup has an empty key for a named instance that already has a key
-        // configured live, the live key must be preserved — not wiped.
+        // configured live, the live key must be preserved - not wiped.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.RadarrInstances.Add(new ArrInstanceConfig
             { Name = "R1", Url = "http://r:7878", ApiKey = "live-key" });
@@ -349,7 +349,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.SeerrCleanupAgeDays = 45;
         var backup = MakeMinimalValidBackup();
-        backup.SeerrCleanupAgeDays = 0; // explicit zero — must be applied, not skipped
+        backup.SeerrCleanupAgeDays = 0; // explicit zero - must be applied, not skipped
 
         service.RestoreBackup(backup);
 
@@ -544,7 +544,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void CreateBackup_ArrInstanceApiKeys_AreIncludedInExport()
     {
-        // Same rationale — Radarr/Sonarr keys must be included for a lossless round-trip.
+        // Same rationale - Radarr/Sonarr keys must be included for a lossless round-trip.
         var liveConfig = new PluginConfiguration();
         liveConfig.RadarrInstances.Add(new ArrInstanceConfig
             { Name = "R1", Url = "http://r:7878", ApiKey = "radarr-secret" });
@@ -572,7 +572,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_EmptySeerrApiKeyInBackup_PreservesLiveKey()
     {
-        // Empty SeerrApiKey in the backup (normal case — key was omitted on export)
+        // Empty SeerrApiKey in the backup (normal case - key was omitted on export)
         // must leave whatever key is already configured on the server untouched.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.SeerrApiKey = "live-key-must-survive";
@@ -588,7 +588,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     public void RestoreBackup_NonEmptySeerrApiKeyInBackup_OverwritesLiveKey()
     {
         // A non-empty SeerrApiKey in the backup (e.g. a manually-crafted import) must
-        // be applied — the operator chose to restore credentials explicitly.
+        // be applied - the operator chose to restore credentials explicitly.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.SeerrApiKey = "old-live-key";
         var backup = MakeMinimalValidBackup();
@@ -602,7 +602,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreBackup_EmptyArrApiKeyInBackup_PreservesEmptyKey()
     {
-        // Arr instance restored from a normal export has empty ApiKey — the empty
+        // Arr instance restored from a normal export has empty ApiKey - the empty
         // value is stored as-is (there is no existing live key for a newly-added instance).
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         var backup = MakeMinimalValidBackup();
@@ -654,7 +654,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     public void RestoreBackup_EmptySeerrApiKey_NoAuditWarning()
     {
         // When the backup has an empty key (normal export case) no audit warning
-        // should fire — there is nothing being overwritten.
+        // should fire - there is nothing being overwritten.
         var pluginLogMock = new Mock<Jellyfin.Plugin.JellyfinHelper.Services.PluginLog.IPluginLogService>();
         var liveConfig = new PluginConfiguration();
         var configMock = new Mock<IPluginConfigurationService>();
@@ -710,7 +710,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     [Fact]
     public void RestoreConfiguration_SeerrCleanupAgeDays_WhenNull_LeavesExistingValue()
     {
-        // When the backup carries null (field absent — e.g. older plugin version that did not
+        // When the backup carries null (field absent - e.g. older plugin version that did not
         // export this field), the live config value must be left completely unchanged.
         var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
         liveConfig.SeerrCleanupAgeDays = 77;
@@ -788,7 +788,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
     {
         // HARDENING-2 ordering: data files are written first, THEN config is updated.
         // If file I/O fails (no timeline/baseline in this backup), RestoreConfiguration
-        // must still run — the config restore is independent of data-file success.
+        // must still run - the config restore is independent of data-file success.
         // This test verifies the production ordering by checking that config fields
         // are applied even when the backup carries no timeline/baseline data.
         var (service, liveConfig, configMock) = CreateServiceWithInitializedConfig();

@@ -122,7 +122,7 @@ public static class BackupValidator
         }
 
         // Timestamp sanity
-        // Normalise Kind before comparing — JSON without a 'Z' suffix deserialises as Unspecified,
+        // Normalise Kind before comparing - JSON without a 'Z' suffix deserialises as Unspecified,
         // which .NET does NOT automatically treat as UTC in comparisons, causing incorrect results.
         if (backup.CreatedAt.Kind == DateTimeKind.Unspecified)
         {
@@ -205,7 +205,7 @@ public static class BackupValidator
                 $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 0–{MaxRetentionDays}.");
         }
 
-        // Path validation for trash folder — defence in depth, run UNCONDITIONALLY so a restore is
+        // Path validation for trash folder - defence in depth, run UNCONDITIONALLY so a restore is
         // never weaker than the live save API (ConfigurationRequestValidator.Validate calls
         // ValidateTrashPathStrict regardless of UseTrash). Previously gating on UseTrash let a crafted
         // backup with UseTrash=false persist an arbitrary/sensitive/traversal TrashFolderPath into

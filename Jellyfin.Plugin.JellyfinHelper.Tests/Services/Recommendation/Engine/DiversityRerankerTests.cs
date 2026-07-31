@@ -121,7 +121,7 @@ public class DiversityRerankerTests
         // caller passes seed=null (the default), the method must still return a valid, complete
         // recommendation list rather than throwing. Two runs are almost certain to differ in the
         // tail because Random.Shared is not deterministic across invocations. We only assert the
-        // fallback is reachable and produces valid output — the "does the shape differ" check
+        // fallback is reachable and produces valid output - the "does the shape differ" check
         // is intentionally loose because process-wide entropy could theoretically produce a
         // collision (extremely unlikely with 320-element pools).
         var candidates = BuildLinearlyDecreasingCandidates(400);
@@ -416,7 +416,7 @@ public class DiversityRerankerTests
     public void DeduplicateSeries_PreservesReasonAndRelatedItemOfWinner()
     {
         // When replacing the loser with the winner, ALL tuple fields must be
-        // carried over (Reason, ReasonKey, RelatedItem) — not just the Score. Otherwise the
+        // carried over (Reason, ReasonKey, RelatedItem) - not just the Score. Otherwise the
         // UI could show the loser's reason attached to the winner's score.
         var seriesId = Guid.NewGuid();
         var lowEp = new Episode { Id = Guid.NewGuid(), SeriesId = seriesId };

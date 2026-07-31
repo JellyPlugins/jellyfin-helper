@@ -22,8 +22,8 @@ internal static class DiversityReranker
 
     /// <summary>
     ///     Multiplier for the wider "exploration" candidate band. For <c>count = 20</c> the widened
-    ///     band spans ranks <c>20 × MmrPoolFactor</c> .. <c>20 × ExplorationPoolFactor</c> — i.e.
-    ///     100..400 — so exploration picks can reach beyond MMR's cluster.
+    ///     band spans ranks <c>20 × MmrPoolFactor</c> .. <c>20 × ExplorationPoolFactor</c> - i.e.
+    ///     100..400 - so exploration picks can reach beyond MMR's cluster.
     /// </summary>
     internal const int ExplorationPoolFactor = 20;
 
@@ -87,7 +87,7 @@ internal static class DiversityReranker
     /// <param name="seed">
     ///     Optional deterministic seed for the exploration sampler.
     ///     Callers MUST use a process-stable hash (e.g. <c>Engine.ComputeStableSeed(userId, dayNumber)</c>
-    ///     or <c>Engine.ComputeStableSeed(userId, batchGeneration)</c>) — <see cref="HashCode.Combine{T1,T2}"/>
+    ///     or <c>Engine.ComputeStableSeed(userId, batchGeneration)</c>) - <see cref="HashCode.Combine{T1,T2}"/>
     ///     is randomised per process and would reshuffle the same (userId, day) tuple after every
     ///     Jellyfin restart, defeating the "stable within one day" contract exploration relies on.
     /// </param>
@@ -171,11 +171,11 @@ internal static class DiversityReranker
         // Multi-dimensional similarity between two items.
         // Dimensions: genre (50%), studio (30%), era (20%, Gaussian with σ=10yr).
         //
-        // Renormalisation policy (asymmetric — closes two opposing failure modes):
+        // Renormalisation policy (asymmetric - closes two opposing failure modes):
         //   * When at least one STRONG dimension (genre or studio) is available on both
         //     items, we renormalise over the actually-available weight. Sparse-metadata
         //     libraries (custom items, home videos) that carry genres but no studio/year
-        //     therefore no longer cap at similarity=0.5 — a near-duplicate pair with
+        //     therefore no longer cap at similarity=0.5 - a near-duplicate pair with
         //     matching genres now scores near 1.0 as expected, closing the diversity leak
         //     that motivated the renormalisation in the first place.
         //   * When ONLY year is available, we do NOT renormalise. Year alone is a very
@@ -226,7 +226,7 @@ internal static class DiversityReranker
             }
 
             // Year-only case: skip renormalisation. Renormalising here would let two same-
-            // year items score 1.0 and be treated as duplicates by MMR — production year
+            // year items score 1.0 and be treated as duplicates by MMR - production year
             // alone is a much weaker signal than genre or studio, so we return the raw
             // 0.2·yearSim contribution as an intentionally sub-1.0 similarity ceiling.
             if (!hasStrongDimension)
@@ -351,12 +351,12 @@ internal static class DiversityReranker
                 // for offline batches or Engine.ComputeStableSeed(userId, DayNumber) for live requests, so
                 // exploration picks are reproducible per user/context and unit tests can pin behaviour.
                 // ComputeStableSeed is used instead of System.HashCode.Combine because HashCode.Combine is
-                // randomised per-process — the same (userId, day) tuple would hash to a different seed
+                // randomised per-process - the same (userId, day) tuple would hash to a different seed
                 // after each Jellyfin restart, which would reshuffle exploration within a day and break
                 // the "stable within one day" contract.
                 //
                 // The Random.Shared fallback is a deliberate opt-in to non-deterministic exploration
-                // — callers that omit the seed argument (currently only exists for callers outside
+                // - callers that omit the seed argument (currently only exists for callers outside
                 // the recommendation engine's own two paths, which both pass a seed) are announcing
                 // they want fresh randomness on every invocation. If you introduce a new caller and
                 // want reproducibility, thread a seed through instead of relying on this fallback.

@@ -14,7 +14,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.ScheduledTasks;
 
 /// <summary>
-///     Focused tests for <see cref="RepairLinksTask"/> — every branch of its
+///     Focused tests for <see cref="RepairLinksTask"/> - every branch of its
 ///     <c>ExecuteAsync</c> orchestration. The task itself is thin (delegates to
 ///     <see cref="ILinkRepairService"/>) so we assert on behaviour + progress reporting
 ///     without touching the filesystem.
@@ -180,7 +180,7 @@ public sealed class RepairLinksTaskTests
     [Fact]
     public async Task ExecuteAsync_ProgressReporter_ReceivesMonotonicallyNonDecreasingValues()
     {
-        // Locks the invariant that progress values never go backwards — a subtle but
+        // Locks the invariant that progress values never go backwards - a subtle but
         // important UX property. If a future refactor reorders progress.Report() calls
         // (e.g. reports 90 before 10), this test surfaces it.
         var libraryPaths = new List<string> { "/media" };

@@ -54,7 +54,7 @@ public class MediaStatisticsService : IMediaStatisticsService
     {
         var result = new MediaStatisticsResult();
 
-        // Resolve trash folder name once — constant for the entire scan.
+        // Resolve trash folder name once - constant for the entire scan.
         var scanConfig = _configHelper.GetConfig();
         var scanTrashFolderName = (scanConfig.TrashFolderPath ?? string.Empty).Trim()
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -340,7 +340,7 @@ public class MediaStatisticsService : IMediaStatisticsService
             var resolvedTrashFolderName = trashFolderName ?? string.Empty;
 
             // resolvedFullTrashPath is computed once at the top-level call site and threaded
-            // through every recursive call — no config re-read on each directory.
+            // through every recursive call - no config re-read on each directory.
             foreach (var subDir in subDirs)
             {
                 var normalizedSubDirFullName = Path.GetFullPath(subDir.FullName)

@@ -215,7 +215,7 @@ public static class DefaultWeights
 
     /// <summary>
     ///     Weight for inherited-tag similarity signal. Same magnitude as the leaf-tag
-    ///     <see cref="TagSimilarity"/> (0.015) — a parallel Jaccard channel over inherited tags.
+    ///     <see cref="TagSimilarity"/> (0.015) - a parallel Jaccard channel over inherited tags.
     /// </summary>
     public const double InheritedTagSimilarity = 0.015;
 
@@ -227,7 +227,7 @@ public static class DefaultWeights
 
     /// <summary>
     ///     Weight for writer/creator affinity signal. Deliberately below <see cref="PeopleSimilarity"/>
-    ///     (0.050) — writers are less predictive than cast/director; kept in a separate profile so it
+    ///     (0.050) - writers are less predictive than cast/director; kept in a separate profile so it
     ///     does not dilute the people channel.
     /// </summary>
     public const double WriterAffinity = 0.030;

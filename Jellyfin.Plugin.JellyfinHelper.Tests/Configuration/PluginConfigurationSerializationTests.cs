@@ -335,7 +335,7 @@ public class PluginConfigurationSerializationTests
         Assert.Equal(TaskMode.Activate, restored.RecommendationsTaskMode);
         Assert.Equal(50, restored.MaxRecommendationsPerUser);
         Assert.True(restored.SyncRecommendationsToPlaylist);
-        // Use precision-based comparison for doubles — this is xUnit's idiomatic style
+        // Use precision-based comparison for doubles - this is xUnit's idiomatic style
         // and stays robust against any future serializer-format tweaks.
         Assert.Equal(0.4, restored.EnsembleAlphaMin, 5);
         Assert.Equal(0.6, restored.EnsembleAlphaMax, 5);
@@ -378,7 +378,7 @@ public class PluginConfigurationSerializationTests
         // Simulates the real-world case: an admin hand-edits the plugin config XML file
         // and puts values outside the valid ranges. The XmlSerializer must run every
         // setter (which is where the clamping lives), so the loaded configuration should
-        // come back with values pinned to the documented bounds — no exceptions, no
+        // come back with values pinned to the documented bounds - no exceptions, no
         // corrupt state.
         const string xml = @"<?xml version=""1.0"" encoding=""utf-16""?>
 <PluginConfiguration xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance"" xmlns:xsd=""http://www.w3.org/2001/XMLSchema"">
@@ -499,7 +499,7 @@ public class PluginConfigurationSerializationTests
     [Fact]
     public void NormalizeAlphaRange_MinGreaterThanMax_SwappedAutomaticallyByMaxSetter()
     {
-        // Set Max=0.8 first, then Min=0.3 — both setters call NormalizeAlphaRange.
+        // Set Max=0.8 first, then Min=0.3 - both setters call NormalizeAlphaRange.
         // Setting Max first establishes the upper bound; Min below it stays valid.
         var config = new PluginConfiguration
         {
@@ -518,7 +518,7 @@ public class PluginConfigurationSerializationTests
     [Fact]
     public void NormalizeAlphaRange_CalledManually_IsIdempotentWhenAlreadyOrdered()
     {
-        // Set Max first, then Min below it — both setters now call NormalizeAlphaRange,
+        // Set Max first, then Min below it - both setters now call NormalizeAlphaRange,
         // so after construction Min <= Max invariant holds.
         // Calling NormalizeAlphaRange() again must be a no-op.
         var config = new PluginConfiguration

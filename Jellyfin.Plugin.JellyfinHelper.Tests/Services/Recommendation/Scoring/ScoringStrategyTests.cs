@@ -1573,7 +1573,7 @@ public sealed class ScoringStrategyTests : IDisposable
         // Verify the weight array sum matches the exact expected total from all DefaultWeights constants.
         // This is NOT 1.0 because the weight vector includes negative penalty weights (IsAbandoned,
         // GenreUnderexposure, GenreAffinityGap). The test catches any accidental weight change
-        // that breaks the total balance — if a new weight is added or an existing one is modified,
+        // that breaks the total balance - if a new weight is added or an existing one is modified,
         // this assertion will fail, forcing the developer to verify the change was intentional.
         var expectedSum =
             DefaultWeights.GenreSimilarity + DefaultWeights.CollaborativeScore +

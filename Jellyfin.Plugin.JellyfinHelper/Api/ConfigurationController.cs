@@ -54,7 +54,7 @@ public class ConfigurationController : ControllerBase
     /// <param name="configService">The plugin configuration service for read/write access.</param>
     /// <param name="seerrService">The Seerr integration service for connection testing.</param>
     /// <param name="libraryManager">The Jellyfin library manager for listing available libraries.</param>
-    /// <param name="ensemble">The ensemble scoring strategy — notified on config save so alpha bounds take effect without restart.</param>
+    /// <param name="ensemble">The ensemble scoring strategy - notified on config save so alpha bounds take effect without restart.</param>
     public ConfigurationController(
         IArrIntegrationService arrService,
         IPluginLogService pluginLog,
@@ -80,7 +80,7 @@ public class ConfigurationController : ControllerBase
     ///     API keys are replaced with a masked placeholder (<c>***</c>) so they
     ///     never leave the server in plain text. Clients that need to change a key must
     ///     send the real value via POST /Configuration; receiving the mask means the key
-    ///     is already set. Sending the mask back via POST is a no-op — the real stored
+    ///     is already set. Sending the mask back via POST is a no-op - the real stored
     ///     key is preserved.
     /// </summary>
     /// <returns>The masked plugin configuration response.</returns>
@@ -201,11 +201,11 @@ public class ConfigurationController : ControllerBase
         // Model-binding and null-body diagnostics are handled by ModelBindingLogFilter, which
         // runs with Order = int.MinValue so it fires *before* [ApiController]'s built-in
         // ModelStateInvalidFilter. Any 400 for a malformed payload therefore comes with a
-        // matching WARNING entry in the plugin log — see ModelBindingLogFilter for the details.
+        // matching WARNING entry in the plugin log - see ModelBindingLogFilter for the details.
         //
         // Defense-in-depth: if someone ever detaches the filter, we still want to reject a
         // null request rather than NRE. The log line is intentionally absent here because the
-        // filter is the single source of truth for that diagnostic — we don't want duplicate
+        // filter is the single source of truth for that diagnostic - we don't want duplicate
         // entries if both paths ever fire together.
         if (request is null)
         {
@@ -320,7 +320,7 @@ public class ConfigurationController : ControllerBase
         var seerrUrl = request.SeerrUrl.Trim();
         var seerrApiKey = request.SeerrApiKey.Trim();
 
-        // When the client echoes back the mask sentinel, the key was not changed — skip the test.
+        // When the client echoes back the mask sentinel, the key was not changed - skip the test.
         // ApplyRequestToConfig already preserved the real stored key; using "***" as a live
         // credential would produce a guaranteed 401 from Seerr and a misleading warning.
         if (string.Equals(seerrApiKey, ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
@@ -385,7 +385,7 @@ public class ConfigurationController : ControllerBase
                 continue;
             }
 
-            // Skip the live test when the client echoed back the mask sentinel — same guard as
+            // Skip the live test when the client echoed back the mask sentinel - same guard as
             // TestSeerrConnectionAsync. Sending "***" to Radarr/Sonarr produces a 401 and a
             // spurious warning even though the real stored key is perfectly valid.
             if (string.Equals(instance.ApiKey.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
@@ -492,7 +492,7 @@ public class ConfigurationController : ControllerBase
 
         // Seerr settings
         config.SeerrUrl = string.IsNullOrWhiteSpace(request.SeerrUrl) ? string.Empty : request.SeerrUrl.Trim();
-        // If the client echoes back the mask sentinel ("***"), the key was not changed — preserve the stored value.
+        // If the client echoes back the mask sentinel ("***"), the key was not changed - preserve the stored value.
         // Trim before comparing so a client that pads the sentinel (e.g. " *** ") is still recognised correctly
         // and never overwrites the real stored key with a literal "***".
         if (!string.Equals(request.SeerrApiKey?.Trim(), ConfigurationResponse.ApiKeyMask, StringComparison.Ordinal))
@@ -560,7 +560,7 @@ public class ConfigurationController : ControllerBase
     ///     Resolves the API key for an incoming <see cref="ArrInstanceConfig"/> from a configuration update.
     ///     When the client echoes back the mask sentinel (<see cref="ConfigurationResponse.ApiKeyMask"/>),
     ///     the stored key is recovered by matching on Name+URL first (handles same-URL collision),
-    ///     then URL only (handles renames — admin keeps key without re-entering).
+    ///     then URL only (handles renames - admin keeps key without re-entering).
     ///     When the client sends a real key, that value is used as-is.
     /// </summary>
     private static string ResolveApiKey(

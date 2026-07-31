@@ -112,7 +112,7 @@ public sealed class FeatureParityTests
     {
         // Serve side: WatchHistoryService caches (names, weights) via ExtractBilledPeople.
         // Train side: TrainingFeatureComputer rebuilds the billing map from those cached lists.
-        // The rebuilt map must equal the map ExtractBillingWeightMap would have produced live —
+        // The rebuilt map must equal the map ExtractBillingWeightMap would have produced live -
         // this is the train/serve parity contract for BillingWeightedPeople on organic examples.
         var people = new List<PersonInfo>
         {

@@ -76,7 +76,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <summary>
     ///     Maximum Jellyfin parental rating value that triggers the child-account discovery path.
-    ///     Corresponds to FSK-6 / G / PG — users with this rating or below receive only
+    ///     Corresponds to FSK-6 / G / PG - users with this rating or below receive only
     ///     Family/Kids/Animation content from discovery queries.
     /// </summary>
     private const int ChildAccountMaxParentalRating = 60;
@@ -213,7 +213,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         var excludedTmdbIds = await BuildExclusionSetAsync(config, cancellationToken).ConfigureAwait(false);
         _pluginLog.LogDebug(
             "SeerrDiscovery",
-            $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library only — per-user dismissed/requested merged later).",
+            $"Built exclusion set with {excludedTmdbIds.Count} TMDb IDs (library only - per-user dismissed/requested merged later).",
             _logger);
 
         // Per-series total-episode-count map, built ONCE per discovery run and shared across all
@@ -221,7 +221,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // vector is progression-weighted identically to the engine's training pipeline
         // (DiscoveryFeedbackExampleBuilder passes the same map). Without it, discovery inference
         // computed genre preferences without progression weighting while the model was trained
-        // with it — a train/serve skew on GenreSimilarity, topGenres and genreExposure.
+        // with it - a train/serve skew on GenreSimilarity, topGenres and genreExposure.
         var seriesEpisodeCounts = _watchHistoryService.GetSeriesEpisodeCounts();
 
         // Step 2: Process each user
@@ -755,7 +755,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             if (seerrUsers.Count == 0)
             {
                 // Empty list means either Seerr is unavailable or a partial fetch occurred.
-                // Return null — callers on the admin request path (DiscoveryController) treat this
+                // Return null - callers on the admin request path (DiscoveryController) treat this
                 // as "omit userId" which falls back to the API-key owner. This is acceptable
                 // for admin-initiated requests but NOT for user-scoped requests (UserDiscoveryController),
                 // which should use GetUserRequestPermissionsAsync for proper tri-state handling.
@@ -837,7 +837,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
             _pluginLog.LogDebug(
                 "SeerrDiscovery",
-                $"Permission check: Jellyfin user {jellyfinUserId} — {deniedReason}",
+                $"Permission check: Jellyfin user {jellyfinUserId} - {deniedReason}",
                 _logger);
 
             return new UserRequestPermissionResult
@@ -866,7 +866,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // Step 3: Determine which quality profiles to expose.
         // Distinguish between "no services configured" (empty result from a successful lookup)
         // and "service lookup failed" (transient error). On transient failure, still allow the
-        // request but without profile selection — Seerr's own server defaults will apply.
+        // request but without profile selection - Seerr's own server defaults will apply.
         // This prevents a temporary Seerr outage from incorrectly routing requests to a wrong
         // server/profile while still allowing the request to proceed (Seerr validates internally).
         var (services, servicesFetchSucceeded) = await GetServiceInfoWithStatusAsync(serviceType, cancellationToken).ConfigureAwait(false);
@@ -883,7 +883,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     _logger);
             }
 
-            // No services configured or transient failure — user can still request with server defaults
+            // No services configured or transient failure - user can still request with server defaults
             return new UserRequestPermissionResult
             {
                 CanRequest = true,
@@ -891,7 +891,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             };
         }
 
-        // Step 4: Expose quality profiles — all profiles for advanced users, default only for normal users.
+        // Step 4: Expose quality profiles - all profiles for advanced users, default only for normal users.
         var filterToDefault = !seerrUser.CanSelectQualityProfile();
         var profiles = BuildAllowedProfileList(services, filterToDefault);
         return new UserRequestPermissionResult
@@ -926,7 +926,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
 
             // Fast path: if the Seerr ID is already 32 chars (no hyphens), compare directly
-            // without allocating a new string. Seerr stores Jellyfin IDs inconsistently —
+            // without allocating a new string. Seerr stores Jellyfin IDs inconsistently -
             // some have hyphens (36 chars), some don't (32 chars).
             var seerrId = user.JellyfinUserId;
             if (seerrId.Length == 32)
@@ -938,7 +938,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
             }
             else if (seerrId.Length == 36)
             {
-                // Has hyphens — must normalize (allocates, but only for 36-char IDs)
+                // Has hyphens - must normalize (allocates, but only for 36-char IDs)
                 var normalized = seerrId.Replace("-", string.Empty, StringComparison.Ordinal);
                 if (string.Equals(normalizedJellyfinId, normalized, StringComparison.OrdinalIgnoreCase))
                 {
@@ -953,7 +953,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <summary>
     ///     Builds the list of <see cref="AllowedQualityProfile"/> entries from the service info.
     ///     When <paramref name="filterToDefault"/> is <c>true</c>, only the server's active (default)
-    ///     profile is included per server — this is the path for normal users without advanced permissions.
+    ///     profile is included per server - this is the path for normal users without advanced permissions.
     /// </summary>
     private static List<AllowedQualityProfile> BuildAllowedProfileList(
         IReadOnlyList<SeerrServiceInfo> services,
@@ -989,7 +989,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                 // Advanced users: all profiles on all servers.
                 // Expose each available root folder per profile so the user can select any valid
                 // combination. The controller's SubmitMyRequest validates (ServerId, ProfileId, RootFolder)
-                // as an exact-match triple — so we must emit a separate entry for each allowed path.
+                // as an exact-match triple - so we must emit a separate entry for each allowed path.
                 var rootFolderPaths = server.RootFolders
                     .Where(rf => !string.IsNullOrEmpty(rf.Path))
                     .Select(rf => rf.Path)
@@ -1023,7 +1023,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
                     }
                     else
                     {
-                        // No root folders at all — emit with empty RootFolder.
+                        // No root folders at all - emit with empty RootFolder.
                         // SubmitMyRequest will reject any client-specified rootFolder for this profile,
                         // and the request falls back to Seerr's server-configured default.
                         result.Add(new AllowedQualityProfile
@@ -1063,7 +1063,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
         // Slow path: refresh from Seerr API (outside lock to avoid blocking during I/O).
         // Uses the internal tuple helper so that the completeness flag is coupled
-        // to THIS call's result — eliminates the race condition where a concurrent
+        // to THIS call's result - eliminates the race condition where a concurrent
         // partial fetch could overwrite _lastFetchWasComplete before we read it.
         var (freshUsers, complete) = await FetchSeerrUsersInternalAsync(cancellationToken).ConfigureAwait(false);
 
@@ -1132,7 +1132,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         // GenreDominanceRatio / GenreAffinityGap features are computed identically to the
         // discovery TRAINING pipeline (DiscoveryFeedbackExampleBuilder). Without this, those
         // three features stayed at 0.0 during inference while the model was trained on their
-        // real values — a train/serve skew that suppressed the intended core-taste boost.
+        // real values - a train/serve skew that suppressed the intended core-taste boost.
         var genreExposure = PreferenceBuilder.BuildGenreExposureAnalysis(genrePreferences, profile);
 
         var isChildAccount = profile.MaxParentalRating.HasValue && profile.MaxParentalRating.Value <= ChildAccountMaxParentalRating;
@@ -1520,7 +1520,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         bool isChildAccount)
     {
         // Use (Id, MediaType) tuple for deduplication because TMDb movie IDs and TV IDs
-        // occupy separate ID spaces — the same integer can refer to both a movie and a TV show.
+        // occupy separate ID spaces - the same integer can refer to both a movie and a TV show.
         var seen = new HashSet<(int Id, string MediaType)>();
         var result = new List<TmdbDiscoverItem>();
 
@@ -1626,8 +1626,8 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
         if (profile.LanguageProfile.TryGetValue(primaryLang, out var entry) && entry.ChosenCount >= 3)
         {
             var lang = primaryLang.ToLowerInvariant();
-            // Validate ISO 639-1 format here — the canonical place that owns the "primary language"
-            // decision — so downstream URL-building receives a pre-validated code.
+            // Validate ISO 639-1 format here - the canonical place that owns the "primary language"
+            // decision - so downstream URL-building receives a pre-validated code.
             return lang.Length == 2 && char.IsAsciiLetter(lang[0]) && char.IsAsciiLetter(lang[1]) ? lang : null;
         }
 
@@ -1800,7 +1800,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
     /// <summary>
     ///     Validates the Seerr base URL and API key and returns a pre-computed base
     ///     <see cref="Uri"/> and the sanitised key.  Does NOT retrieve or mutate an
-    ///     <see cref="HttpClient"/> — callers obtain the client separately via
+    ///     <see cref="HttpClient"/> - callers obtain the client separately via
     ///     <see cref="GetSeerrClient"/> and attach headers per-request with
     ///     <see cref="BuildRequest"/>.
     /// </summary>
@@ -1828,7 +1828,7 @@ public sealed class SeerrDiscoveryService : ISeerrDiscoveryService
 
     /// <summary>
     ///     Returns a non-owning <see cref="HttpClient"/> from the factory.
-    ///     The client must NOT be disposed — its lifetime is managed by
+    ///     The client must NOT be disposed - its lifetime is managed by
     ///     <see cref="IHttpClientFactory"/>.
     /// </summary>
     private HttpClient GetSeerrClient() =>

@@ -47,7 +47,7 @@ public class LinkRepairSecurityTests
         // On Linux this traversal resolves to /etc/passwd and is refused as
         // InvalidContent (sensitive system dir); on Windows the target resolves to a
         // non-sensitive drive-relative path that doesn't exist → Broken. Either way it
-        // must never be repaired or treated as valid — that is the security property.
+        // must never be repaired or treated as valid - that is the security property.
         Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
         Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
         Assert.NotEqual(LinkFileStatus.Valid, result.Status);
@@ -84,7 +84,7 @@ public class LinkRepairSecurityTests
 
         // On Linux this resolves to /etc/passwd → InvalidContent (sensitive system
         // dir); on Windows it resolves to a non-existent drive-relative path → Broken.
-        // Never repaired, never valid — that is the security property under test.
+        // Never repaired, never valid - that is the security property under test.
         Assert.Contains(result.Status, new[] { LinkFileStatus.Broken, LinkFileStatus.InvalidContent });
         Assert.NotEqual(LinkFileStatus.Repaired, result.Status);
         Assert.NotEqual(LinkFileStatus.Valid, result.Status);
@@ -270,7 +270,7 @@ public class LinkRepairSecurityTests
         var result = _service.ProcessLinkFile(linkFile, _strmHandler, true);
 
         // The service must handle null bytes gracefully without throwing and must classify the
-        // entry as InvalidContent — a NUL byte is a structural violation of the path grammar,
+        // entry as InvalidContent - a NUL byte is a structural violation of the path grammar,
         // not merely a missing file. Prior versions returned Broken because .NET no longer
         // throws ArgumentException from Path.GetFullPath for embedded NULs; the explicit
         // guard now catches it before normalisation runs and produces the correct classification.

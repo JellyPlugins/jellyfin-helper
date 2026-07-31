@@ -53,7 +53,7 @@ public sealed class RecommendationCacheServiceExtendedTests : IDisposable
     [Fact]
     public void SaveResults_NullArgument_Throws()
     {
-        // ArgumentNullException.ThrowIfNull must fire — otherwise a null argument would
+        // ArgumentNullException.ThrowIfNull must fire - otherwise a null argument would
         // silently write a "null" JSON literal to the cache file, corrupting the next Load.
         var service = CreateService(_tempDir);
         Assert.Throws<ArgumentNullException>(() => service.SaveResults(null!));
@@ -86,7 +86,7 @@ public sealed class RecommendationCacheServiceExtendedTests : IDisposable
     public void LoadResults_FileContainsLiteralNull_ReturnsNullWithoutThrowing()
     {
         // BUG GUARD: JsonSerializer.Deserialize returns null for the literal "null" JSON
-        // value. The service must handle this without throwing (it logs a warning) — the
+        // value. The service must handle this without throwing (it logs a warning) - the
         // caller then treats it as "no cache".
         var service = CreateService(_tempDir);
         // Seed an empty save so the cache file exists at the right path.
@@ -102,7 +102,7 @@ public sealed class RecommendationCacheServiceExtendedTests : IDisposable
     [Fact]
     public void LoadResults_FileContainsEmptyArray_ReturnsEmptyList()
     {
-        // Empty array is a valid state — must return an empty list, not null.
+        // Empty array is a valid state - must return an empty list, not null.
         var service = CreateService(_tempDir);
         service.SaveResults(new Collection<RecommendationResult>());
         var cacheFile = Directory.GetFiles(_tempDir, "*.json").Single();

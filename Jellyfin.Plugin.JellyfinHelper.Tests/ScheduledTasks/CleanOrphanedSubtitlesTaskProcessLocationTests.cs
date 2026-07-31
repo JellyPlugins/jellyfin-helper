@@ -36,7 +36,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
             MockTrashService.Object);
     }
 
-    // ===== Chunk 1: Happy path — orphan detection & keep-if-matched =====
+    // ===== Chunk 1: Happy path - orphan detection & keep-if-matched =====
 
     [Fact]
     public async Task Execute_OrphanedSubtitleInDirWithVideo_IsDetectedInDryRun()
@@ -188,7 +188,7 @@ public sealed class CleanOrphanedSubtitlesTaskProcessLocationTests : CleanupTask
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        // Verify the move was actually attempted for the orphan subtitle — otherwise a
+        // Verify the move was actually attempted for the orphan subtitle - otherwise a
         // "Deleted 0 files" summary could just mean the task never processed the file at all.
         MockTrashService.Verify(
             t => t.MoveFileToTrash(

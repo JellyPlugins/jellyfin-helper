@@ -1,5 +1,5 @@
 /**
- * User-facing request submission — POST /Discovery/My/Request authorization.
+ * User-facing request submission - POST /Discovery/My/Request authorization.
  *
  * This is the security-critical path that stops a non-admin user from routing a
  * download to an arbitrary quality profile / root folder. The controller
@@ -14,7 +14,7 @@
  *
  * The non-admin user is linked in global-setup to the mock's second Seerr user
  * (Bob) with the Request permission (bit 32), so it has exactly ONE allowed
- * profile — the server default. We read that allowed profile from
+ * profile - the server default. We read that allowed profile from
  * RequestPermissions rather than hard-coding the mock's ids, so the assertions
  * stay correct if the mock's profile fixture changes.
  *
@@ -28,7 +28,7 @@ import { apiContext, normalUserContext, requireNormalUser, loadAuth, p, assertPl
 
 const MOCK = process.env.MOCK_SEERR_PUBLIC_URL ?? 'http://localhost:5055';
 // 10s window + margin; the controller uses Math.Ceiling so a 10.0s wait can still
-// round to a 1s Retry-After — wait comfortably past it.
+// round to a 1s Retry-After - wait comfortably past it.
 const RATE_WINDOW_MS = 11_500;
 
 const auth = loadAuth();
@@ -97,7 +97,7 @@ test.afterAll(async () => {
   await user?.dispose();
 });
 
-test.describe.serial('POST /Discovery/My/Request — authorization branches', () => {
+test.describe.serial('POST /Discovery/My/Request - authorization branches', () => {
   let allowed: AllowedProfile;
 
   test('the non-admin user resolves to exactly one allowed (default) profile', async () => {
@@ -105,9 +105,9 @@ test.describe.serial('POST /Discovery/My/Request — authorization branches', ()
     const res = await user!.get(p('Discovery/My/RequestPermissions/radarr?mediaType=movie'));
     expect(res.ok(), `RequestPermissions failed: ${res.status()}`).toBeTruthy();
     const perms = (await res.json()) as PermissionResult;
-    // If the mock link/permission seeding didn't take, this user can't request —
+    // If the mock link/permission seeding didn't take, this user can't request -
     // fail loudly rather than assert vacuously on an empty profile set.
-    expect(perms.CanRequest, `user cannot request (transient=${perms.IsTransient}) — seed-user2 link/permission missing`).toBe(true);
+    expect(perms.CanRequest, `user cannot request (transient=${perms.IsTransient}) - seed-user2 link/permission missing`).toBe(true);
     expect(perms.Profiles.length, 'a Request-only user should get exactly the default profile').toBeGreaterThan(0);
     allowed = perms.Profiles[0];
     expect(typeof allowed.ProfileId).toBe('number');
@@ -170,7 +170,7 @@ test.describe.serial('POST /Discovery/My/Request — authorization branches', ()
     expect(last.requests[0].mediaId, 'forwarded TmdbId').toBe(27205);
     expect(last.requests[0].mediaType, 'forwarded mediaType').toBe('movie');
     // The caller's resolved Seerr user id (Bob = mock id 4) is forwarded, never a
-    // spoofed/absent id — the identity guard.
+    // spoofed/absent id - the identity guard.
     expect(last.requests[0].userId, 'forwarded caller SeerrUserId').toBe(4);
     await assertPluginActive(admin);
   });
@@ -188,7 +188,7 @@ test.describe.serial('POST /Discovery/My/Request — authorization branches', ()
   });
 });
 
-test.describe.serial('POST /Discovery/My/Request — per-user rate limit', () => {
+test.describe.serial('POST /Discovery/My/Request - per-user rate limit', () => {
   test('a second request inside the 10s window is 429 with Retry-After, and does not extend the window', async () => {
     requireNormalUser(user);
     await resetMock();

@@ -606,7 +606,7 @@ public class CleanTrickplayTaskTests : CleanupTaskTestBase
 
         await _task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
 
-        // Inner catch logs a Warning and returns (0, 0) — outer catch would log an Error.
+        // Inner catch logs a Warning and returns (0, 0) - outer catch would log an Error.
         VerifyLogContains("Could not enumerate subdirectories of", LogLevel.Warning);
         VerifyLogNeverContains("Error scanning directory", LogLevel.Error);
     }

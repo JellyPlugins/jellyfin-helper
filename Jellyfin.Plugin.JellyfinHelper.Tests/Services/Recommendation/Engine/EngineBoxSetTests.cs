@@ -14,14 +14,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 ///         that surfaces the next installment of a collection to the user. The formula is shared
 ///         with the training-time <c>ComputeCollectionProgressionBoostWithCounts</c> in
 ///         <c>TrainingDataBuilder</c>, but both call into the same <see cref="EngineConstants.ComputeCollectionProgressionBoost"/>
-///         helper — so the golden vectors below (which pin the formula shape at inference time)
+///         helper - so the golden vectors below (which pin the formula shape at inference time)
 ///         also protect train/serve parity by construction.
 ///     </para>
 /// </summary>
 public sealed class EngineBoxSetTests
 {
     // ============================================================================
-    // BuildWatchedBoxSetCounts — inverts (item → boxSets) into (boxSet → watchedCount).
+    // BuildWatchedBoxSetCounts - inverts (item → boxSets) into (boxSet → watchedCount).
     // ============================================================================
 
     [Fact]
@@ -132,7 +132,7 @@ public sealed class EngineBoxSetTests
     }
 
     // ============================================================================
-    // ComputeCollectionProgressionBoostLive — reads the counts and produces a boost.
+    // ComputeCollectionProgressionBoostLive - reads the counts and produces a boost.
     // Delegates the FORMULA to EngineConstants.ComputeCollectionProgressionBoost.
     // ============================================================================
 
@@ -150,7 +150,7 @@ public sealed class EngineBoxSetTests
     [Fact]
     public void ComputeCollectionProgressionBoostLive_EmptyCandidateBoxSets_ReturnsZero()
     {
-        // The candidate isn't in ANY BoxSet — no signal applies.
+        // The candidate isn't in ANY BoxSet - no signal applies.
         var boost = InvokeComputeCollectionProgressionBoostLive(
             [],
             new Dictionary<Guid, int> { [Guid.NewGuid()] = 5 });
@@ -187,7 +187,7 @@ public sealed class EngineBoxSetTests
     [Fact]
     public void ComputeCollectionProgressionBoostLive_MonotonicWithCount_UpToClamp()
     {
-        // As watched-count grows, the boost must weakly increase — the underlying formula
+        // As watched-count grows, the boost must weakly increase - the underlying formula
         // is `0.3 + (n-1) × 0.2, clamped [0,1]`, so growth stops at some finite n.
         var boxSet = Guid.NewGuid();
         var boost1 = InvokeComputeCollectionProgressionBoostLive(
@@ -205,7 +205,7 @@ public sealed class EngineBoxSetTests
     [Fact]
     public void ComputeCollectionProgressionBoostLive_MultipleBoxSets_PicksHighestBoost()
     {
-        // Candidate lives in two BoxSets — user has watched 1 item in one and 5 in the other.
+        // Candidate lives in two BoxSets - user has watched 1 item in one and 5 in the other.
         // The wrapper must return the HIGHER of the two individual boosts (best-progression rule).
         var lowBox = Guid.NewGuid();
         var highBox = Guid.NewGuid();
@@ -227,14 +227,14 @@ public sealed class EngineBoxSetTests
     {
         // BUG GUARD: the underlying formula clamps to 1.0. If a maintainer removed the clamp
         // in a refactor, a user with 100 watched items in a mega-BoxSet would produce a
-        // boost > 1.0 and dominate every other feature — the ensemble would then always
+        // boost > 1.0 and dominate every other feature - the ensemble would then always
         // recommend the same tail-end of the collection. The clamp is what keeps the boost
         // a "signal", not a "verdict".
         var boxSet = Guid.NewGuid();
         var boost = InvokeComputeCollectionProgressionBoostLive(
             [boxSet],
             new Dictionary<Guid, int> { [boxSet] = 100 });
-        // The clamp is the actual contract — not "somewhere in [0,1]" but "exactly 1.0"
+        // The clamp is the actual contract - not "somewhere in [0,1]" but "exactly 1.0"
         // for saturating inputs. A range check would still pass if the clamp got weaker
         // (e.g. saturated at 0.9), and we would silently lose the signal ceiling.
         Assert.Equal(1.0, boost);

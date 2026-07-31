@@ -109,12 +109,12 @@ internal static class EngineConstants
     ///     Rating prior substituted for a FULLY unrated candidate (no community and no critic rating)
     ///     in the cold-start scalar ranking formula only. The shared
     ///     <see cref="ContentScoring.ComputeCombinedCriticScore"/> returns a neutral 0.5 for unrated
-    ///     items — correct for the ML feature vector, but in the standalone cold-start formula a 0.5
+    ///     items - correct for the ML feature vector, but in the standalone cold-start formula a 0.5
     ///     ranked an unknown-quality title ABOVE one the community explicitly rated poorly (a 3/10
-    ///     maps to 0.30, and 0.5 &gt; 0.30 — a quality inversion). Set to 0.30 so an "unknown quality"
+    ///     maps to 0.30, and 0.5 &gt; 0.30 - a quality inversion). Set to 0.30 so an "unknown quality"
     ///     item scores exactly at the bottom of the mediocre band: it no longer outranks a 3/10 (they
     ///     tie on the rating term and any real rating ≥ 3.0/10 wins), while genuinely bad titles
-    ///     (&lt; 3/10) still rank below the unknown — a defensible ordering — and recency/popularity
+    ///     (&lt; 3/10) still rank below the unknown - a defensible ordering - and recency/popularity
     ///     still surface brand-new, not-yet-rated additions rather than burying them.
     /// </summary>
     internal const double ColdStartUnratedRatingPrior = 0.30;
@@ -212,7 +212,7 @@ internal static class EngineConstants
     ///     the default <see cref="ExplorationSlotCount"/> ratio, exploration is capped at
     ///     <c>Math.Max(1, count / ExplorationSlotDivisor)</c> so small
     ///     <c>MaxRecommendationsPerUser</c> configurations (3-5 items) don't degenerate
-    ///     into 50-66% random picks. 10 keeps exploration at ~10% of the list — matching
+    ///     into 50-66% random picks. 10 keeps exploration at ~10% of the list - matching
     ///     what count=20 configurations have always seen (2/20).
     /// </summary>
     internal const int ExplorationSlotDivisor = 10;
@@ -229,25 +229,25 @@ internal static class EngineConstants
 
     /// <summary>
     ///     Training label for discovery items that were shown but the user took no action.
-    ///     Identical to <see cref="ExposureLabel"/> — passive non-engagement.
+    ///     Identical to <see cref="ExposureLabel"/> - passive non-engagement.
     /// </summary>
     internal const double DiscoveryShownLabel = ExposureLabel;
 
     /// <summary>
     ///     Training label for discovery items that the user explicitly dismissed.
-    ///     Stronger negative signal than mere exposure — active rejection.
+    ///     Stronger negative signal than mere exposure - active rejection.
     /// </summary>
     internal const double DiscoveryDismissedLabel = 0.0;
 
     /// <summary>
     ///     Training label for discovery items that the user requested via Seerr.
-    ///     Strong explicit positive signal — the user actively wants this content.
+    ///     Strong explicit positive signal - the user actively wants this content.
     /// </summary>
     internal const double DiscoveryRequestedLabel = 0.75;
 
     /// <summary>
     ///     Training label for discovery items that were requested AND subsequently watched.
-    ///     Strongest positive signal — confirmed interest through consumption.
+    ///     Strongest positive signal - confirmed interest through consumption.
     /// </summary>
     internal const double DiscoveryRequestedAndWatchedLabel = 0.90;
 
@@ -258,7 +258,7 @@ internal static class EngineConstants
     /// </summary>
     internal const double DiscoveryFeedbackSampleWeight = 0.6;
 
-    // === CollectionProgressionBoost — shared inference/training formula ===
+    // === CollectionProgressionBoost - shared inference/training formula ===
 
     /// <summary>
     ///     Base contribution for a single watched sibling in a BoxSet: 0.3.
@@ -280,17 +280,17 @@ internal static class EngineConstants
     internal const double SeriesCompletabilityNeutral = 0.5;
 
     /// <summary>
-    ///     Completability value for a finished ("Ended") series — a fully watchable, bounded arc.
+    ///     Completability value for a finished ("Ended") series - a fully watchable, bounded arc.
     /// </summary>
     internal const double SeriesCompletabilityEnded = 1.0;
 
     /// <summary>
-    ///     Completability value for an ongoing ("Continuing") series — watchable but open-ended.
+    ///     Completability value for an ongoing ("Continuing") series - watchable but open-ended.
     /// </summary>
     internal const double SeriesCompletabilityContinuing = 0.5;
 
     /// <summary>
-    ///     Completability value for an unreleased series — nothing to watch yet.
+    ///     Completability value for an unreleased series - nothing to watch yet.
     /// </summary>
     internal const double SeriesCompletabilityUnreleased = 0.0;
 
@@ -317,13 +317,13 @@ internal static class EngineConstants
     ///     <list type="bullet">
     ///         <item>
     ///             <description>
-    ///                 <b>Sparse-user overshoot</b> — a brand-new user with a single 2-weight entry
+    ///                 <b>Sparse-user overshoot</b> - a brand-new user with a single 2-weight entry
     ///                 could otherwise ride a single cast match to a full 1.0 score.
     ///             </description>
     ///         </item>
     ///         <item>
     ///             <description>
-    ///                 <b>Empty-preferred short-circuit stability</b> — if all positive weights
+    ///                 <b>Empty-preferred short-circuit stability</b> - if all positive weights
     ///                 disappear after filtering, the floor prevents a divide-by-tiny-value blow-up.
     ///             </description>
     ///         </item>

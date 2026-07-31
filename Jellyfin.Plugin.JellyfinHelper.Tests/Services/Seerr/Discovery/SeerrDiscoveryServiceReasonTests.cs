@@ -13,7 +13,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 ///         frontend surfaces underneath each recommendation card ("Because you liked Nolan",
 ///         "Because you liked Sci-Fi", "Trending now", "Popular"). Getting this wrong produces
 ///         confusing UX (attributing a recommendation to a person the user has never watched) or,
-///         worse, silently regresses the "Person > Genre > Trending > Popular" priority — which
+///         worse, silently regresses the "Person > Genre > Trending > Popular" priority - which
 ///         hides the strongest available signal from the user.
 ///     </para>
 ///     <para>
@@ -27,14 +27,14 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 ///     </para>
 ///     <para>
 ///         Reflection-based access is used because <c>DetermineReason</c> is <c>private static</c>
-///         on a <c>sealed</c> class — the alternative (widening to internal for tests) would leak
+///         on a <c>sealed</c> class - the alternative (widening to internal for tests) would leak
 ///         a decision surface that has no legitimate call site outside the discovery pipeline.
 ///     </para>
 /// </summary>
 public sealed class SeerrDiscoveryServiceReasonTests
 {
     // ============================================================================
-    // Person branch — the strongest signal, gates on BOTH threshold AND membership.
+    // Person branch - the strongest signal, gates on BOTH threshold AND membership.
     // ============================================================================
 
     [Fact]
@@ -57,7 +57,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     {
         // BUG GUARD: the gate is strictly `> 0.3`. An exact 0.3 must NOT trip the person branch.
         // A regression to `>= 0.3` would fire the person reason on the boundary sample and
-        // subtly shift the reason distribution across all users at once — hard to notice in QA
+        // subtly shift the reason distribution across all users at once - hard to notice in QA
         // because the actual recommendations don't change, only the explanatory text does.
         var features = new CandidateFeatures { PeopleSimilarity = 0.3, GenreSimilarity = 0.0 };
         var candidate = new TmdbDiscoverItem { KnownPeople = ["Christopher Nolan"] };
@@ -89,7 +89,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     {
         // BUG GUARD: the person branch requires the CANDIDATE to have KnownPeople.
         // A candidate item without any cast/crew info (TMDb sometimes omits credits on
-        // low-metadata items) must NOT surface "reasonPersonNamed" with a null related info —
+        // low-metadata items) must NOT surface "reasonPersonNamed" with a null related info -
         // that would render as "Because you liked  " in the UI (double space, no name).
         var features = new CandidateFeatures { PeopleSimilarity = 0.9 };
         var candidate = new TmdbDiscoverItem { KnownPeople = null };
@@ -104,7 +104,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     [Fact]
     public void DetermineReason_PersonSimilarityHigh_ButCandidateHasEmptyKnownPeople_FallsThrough()
     {
-        // Empty-but-non-null KnownPeople must be treated the same as null — the `is { Count: > 0 }`
+        // Empty-but-non-null KnownPeople must be treated the same as null - the `is { Count: > 0 }`
         // pattern must gate on the actual size.
         var features = new CandidateFeatures { PeopleSimilarity = 0.9 };
         var candidate = new TmdbDiscoverItem { KnownPeople = [] };
@@ -119,7 +119,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     public void DetermineReason_PersonSimilarityHigh_KnownPeoplePresent_ButNoPreferredMatch_FallsThrough()
     {
         // BUG GUARD: the CRITICAL person-branch guard. Historically this code returned the
-        // first known person regardless of whether they were in the preferred set — that
+        // first known person regardless of whether they were in the preferred set - that
         // produced explanations like "Because you liked Kevin Feige" when the user had never
         // even indicated a Marvel preference. The current implementation requires
         // FirstOrDefault(preferred.Contains) to return non-null; if a maintainer accidentally
@@ -139,7 +139,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     public void DetermineReason_PersonPreferredPeopleSetIsEmpty_FallsThrough()
     {
         // Cold-start user (empty preferred people): even with high similarity and full cast,
-        // the person branch must not fire — the "match" clause cannot succeed against ∅.
+        // the person branch must not fire - the "match" clause cannot succeed against ∅.
         var features = new CandidateFeatures { PeopleSimilarity = 0.9 };
         var candidate = new TmdbDiscoverItem { KnownPeople = ["Christopher Nolan"] };
         var preferredPeople = new HashSet<string>();
@@ -176,7 +176,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     public void DetermineReason_PersonMatchIsFirstInPreferredIntersection()
     {
         // BUG GUARD: when MULTIPLE cast members are in the preferred set, the helper returns
-        // the FIRST-in-KnownPeople-order that matches — this deterministic tie-break keeps
+        // the FIRST-in-KnownPeople-order that matches - this deterministic tie-break keeps
         // the UI text stable across regenerations. A rewrite to LINQ .Where().Last() or a
         // hash-set iteration order would produce visibly flapping explanations.
         var features = new CandidateFeatures { PeopleSimilarity = 0.9 };
@@ -194,7 +194,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     }
 
     // ============================================================================
-    // Genre branch — gates on GenreSimilarity > 0.7 AND topGenres.Count > 0
+    // Genre branch - gates on GenreSimilarity > 0.7 AND topGenres.Count > 0
     // ============================================================================
 
     [Fact]
@@ -207,7 +207,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
         var (reasonKey, relatedInfo) = InvokeDetermineReason(features, candidate, topGenres, new HashSet<string>());
 
         Assert.Equal("reasonGenre", reasonKey);
-        // Only the FIRST top-genre is surfaced — this must be the user's dominant preference.
+        // Only the FIRST top-genre is surfaced - this must be the user's dominant preference.
         Assert.Equal("Sci-Fi", relatedInfo);
     }
 
@@ -256,7 +256,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     }
 
     // ============================================================================
-    // Trending branch — gates on Recency > 0.8 AND CombinedCriticScore > 0.7
+    // Trending branch - gates on Recency > 0.8 AND CombinedCriticScore > 0.7
     // ============================================================================
 
     [Fact]
@@ -269,7 +269,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
             features, candidate, new List<string>(), new HashSet<string>());
 
         Assert.Equal("reasonTrending", reasonKey);
-        // Trending is title-agnostic — the RelatedInfo hint must be null so the UI shows
+        // Trending is title-agnostic - the RelatedInfo hint must be null so the UI shows
         // just "Trending now" without an appended (misleading) piece of context.
         Assert.Null(relatedInfo);
     }
@@ -303,7 +303,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
     [Fact]
     public void DetermineReason_HighRecency_LowCritic_FallsThrough()
     {
-        // BUG GUARD: recency alone is not enough — a fresh but critically panned title
+        // BUG GUARD: recency alone is not enough - a fresh but critically panned title
         // must NOT be labelled "trending". The AND-gate protects the recommendation from
         // surfacing low-quality flavour-of-the-month releases as trending.
         var features = new CandidateFeatures { RecencyScore = 0.95, CombinedCriticScore = 0.3 };
@@ -330,13 +330,13 @@ public sealed class SeerrDiscoveryServiceReasonTests
     }
 
     // ============================================================================
-    // Priority overall — trending beats popular, genre beats trending, etc.
+    // Priority overall - trending beats popular, genre beats trending, etc.
     // ============================================================================
 
     [Fact]
     public void DetermineReason_GenreBranchTakesPrecedenceOverTrending()
     {
-        // Both branches would independently fire — genre is higher priority so it wins.
+        // Both branches would independently fire - genre is higher priority so it wins.
         var features = new CandidateFeatures
         {
             GenreSimilarity = 0.9,
@@ -425,7 +425,7 @@ public sealed class SeerrDiscoveryServiceReasonTests
         // Value tuples are returned as boxed System.ValueTuple<string, string?> from Reflection.
         // Rather than depend on the tuple's public generic API (which requires a strong reference to
         // the exact typed-generic definition matching production nullability), we read the two
-        // fields by name — this keeps the test robust against future nullable-annotation changes
+        // fields by name - this keeps the test robust against future nullable-annotation changes
         // on the production signature.
         var type = result.GetType();
         var item1 = (string)type.GetField("Item1")!.GetValue(result)!;

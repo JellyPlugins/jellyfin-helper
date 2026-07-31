@@ -131,7 +131,7 @@ public class SeerrDiscoveryServiceTests
     public async Task SubmitRequestAsync_TvMediaType_SeerrNotConfigured_ReturnsFalse()
     {
         // Symmetric counterpart to the "movie" not-configured test. The media-type gate
-        // ("movie" or "tv") must pass before the config check is reached — this verifies
+        // ("movie" or "tv") must pass before the config check is reached - this verifies
         // that "tv" is accepted as a valid type and the pipeline continues to the config check.
         var prevUrl = Plugin.Instance?.Configuration?.SeerrUrl;
         var prevKey = Plugin.Instance?.Configuration?.SeerrApiKey;
@@ -146,7 +146,7 @@ public class SeerrDiscoveryServiceTests
             var service = CreateService();
             var (success, message) = await service.SubmitRequestAsync(456, "tv", null, null, null, null, CancellationToken.None);
             Assert.False(success);
-            // Must fail on "not configured", NOT on "mediaType" — proves "tv" passes the type gate.
+            // Must fail on "not configured", NOT on "mediaType" - proves "tv" passes the type gate.
             Assert.Contains("not configured", message);
             Assert.DoesNotContain("mediaType", message);
         }
@@ -194,7 +194,7 @@ public class SeerrDiscoveryServiceTests
     [Fact]
     public async Task SubmitRequestAsync_NullMediaType_ReturnsFalse()
     {
-        // Null mediaType must be treated the same as an invalid type string — the
+        // Null mediaType must be treated the same as an invalid type string - the
         // null-coalescing in `mediaType?.Trim().ToLowerInvariant() ?? string.Empty` turns it
         // into "", which is neither "movie" nor "tv".
         var service = CreateService();

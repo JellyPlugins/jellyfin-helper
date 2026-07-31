@@ -5,7 +5,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
 ///     Tests for the internal <see cref="StrategySelector" /> cohort router. The class ties three
-///     concerns together — exploration-gate activation, deterministic user-hash bucketing, and the
+///     concerns together - exploration-gate activation, deterministic user-hash bucketing, and the
 ///     mapping from bucket-integer to cohort name / alpha-offset. Each of these has hard invariants
 ///     that break user experience if regressed:
 ///     <list type="bullet">
@@ -108,7 +108,7 @@ public class StrategySelectorTests
         // With a bare ensemble, exploration is inactive and EVERY GUID maps to "control".
         // Self-comparing the same GUID twice therefore proves stability of the cohort
         // NAME, but tells us nothing about whether the underlying ComputeBucket function
-        // is stable — the whole function could be replaced with a constant "control"
+        // is stable - the whole function could be replaced with a constant "control"
         // return and this test would still pass.
         //
         // We activate the ensemble here so ComputeBucket actually runs, then assert

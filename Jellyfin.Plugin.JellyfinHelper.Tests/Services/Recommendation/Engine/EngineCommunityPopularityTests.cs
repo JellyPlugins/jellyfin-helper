@@ -6,7 +6,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
-///     Tests for <c>Engine.BuildCommunityPopularityMap</c> — the shared cold-start
+///     Tests for <c>Engine.BuildCommunityPopularityMap</c> - the shared cold-start
 ///     community-popularity computation used by both the batch path and the live
 ///     cold-start path.
 ///     <para>
@@ -19,7 +19,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 ///         re-duplication.
 ///     </para>
 ///     <para>
-///         The helper is <c>private static</c> so we reach it via reflection — the
+///         The helper is <c>private static</c> so we reach it via reflection - the
 ///         test project already has <c>InternalsVisibleTo</c> but private members
 ///         still need reflection. The alternative (making it internal) would leak
 ///         an implementation detail; keeping the surface tight and testing via
@@ -44,7 +44,7 @@ public sealed class EngineCommunityPopularityTests
     [Fact]
     public void BuildCommunityPopularityMap_SingleUserWithNoHistory_ReturnsNull()
     {
-        // One user in the map but they have no watch data — no community signal.
+        // One user in the map but they have no watch data - no community signal.
         var input = new Dictionary<Guid, HashSet<Guid>>
         {
             [Guid.NewGuid()] = []
@@ -57,7 +57,7 @@ public sealed class EngineCommunityPopularityTests
     public void BuildCommunityPopularityMap_SingleUserWithHistory_ReturnsNull()
     {
         // BUG GUARD: one user with real watch data must NOT be treated as "the community".
-        // The two-user gate is the whole point — if we return a map here, cold-start
+        // The two-user gate is the whole point - if we return a map here, cold-start
         // recommendations degenerate into "the only user's own preferences" and defeat
         // the "wisdom of the crowd" premise.
         var input = new Dictionary<Guid, HashSet<Guid>>
@@ -71,7 +71,7 @@ public sealed class EngineCommunityPopularityTests
     [Fact]
     public void BuildCommunityPopularityMap_TwoUsers_OneEmpty_ReturnsNull()
     {
-        // The gate requires TWO users with actual watch history — one active + one empty
+        // The gate requires TWO users with actual watch history - one active + one empty
         // still counts as "essentially a single-user deployment" from a community-signal POV.
         var input = new Dictionary<Guid, HashSet<Guid>>
         {

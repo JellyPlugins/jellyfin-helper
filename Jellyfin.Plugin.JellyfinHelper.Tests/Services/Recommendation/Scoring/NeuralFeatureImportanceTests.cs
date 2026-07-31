@@ -5,7 +5,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Scoring;
 
 /// <summary>
-///     Tests for <see cref="NeuralFeatureImportance"/> — the permutation-importance analyzer
+///     Tests for <see cref="NeuralFeatureImportance"/> - the permutation-importance analyzer
 ///     used to inspect which features drive the neural scoring model's predictions.
 ///     The class is internal, but the test assembly has <c>InternalsVisibleTo</c> access.
 ///     Focus areas:
@@ -101,7 +101,7 @@ public class NeuralFeatureImportanceTests
     [Fact]
     public void ComputePermutationImportance_SingleExample_ReturnsEmptyDictionary()
     {
-        // A single sample has no variance to shuffle — must not divide by zero.
+        // A single sample has no variance to shuffle - must not divide by zero.
         var result = NeuralFeatureImportance.ComputePermutationImportance(
             CreateStrategy(),
             BuildExamples(1));
@@ -175,7 +175,7 @@ public class NeuralFeatureImportanceTests
     }
 
     // -----------------------------------------------------------------------
-    // Determinism — seeded RNG must produce identical results on repeat calls.
+    // Determinism - seeded RNG must produce identical results on repeat calls.
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -203,7 +203,7 @@ public class NeuralFeatureImportanceTests
     {
         // Sanity: different sampleSize must be able to affect the outcome, otherwise
         // the sampling is a no-op. Merely comparing dictionary sizes proves nothing
-        // (both are always FeatureCount) — we assert that AT LEAST ONE feature
+        // (both are always FeatureCount) - we assert that AT LEAST ONE feature
         // importance value differs between the two runs. If the sampling ever became
         // a no-op (e.g. sampleSize ignored), every feature would produce identical
         // scores and this test would fail.
@@ -222,7 +222,7 @@ public class NeuralFeatureImportanceTests
         // over a permutation-based algorithm, statistical variance across even the
         // most stable feature is essentially guaranteed. We use a tiny epsilon so
         // pure floating-point noise on identical inputs would still not count as a
-        // difference — only a real distributional shift does.
+        // difference - only a real distributional shift does.
         var anyDifferent = small.Any(kv => Math.Abs(kv.Value - full[kv.Key]) > 1e-9);
         Assert.True(
             anyDifferent,

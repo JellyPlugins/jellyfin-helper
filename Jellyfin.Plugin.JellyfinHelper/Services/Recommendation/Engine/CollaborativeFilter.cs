@@ -37,14 +37,14 @@ internal static class CollaborativeFilter
     /// <summary>
     ///     Pre-computes the batch-scoped <see cref="CollaborativeContext"/> in one pass over
     ///     the provided user sets. Currently this materialises only the item-popularity map
-    ///     — the popularity IDF prior is a pure deployment-wide quantity (how many users
+    ///     - the popularity IDF prior is a pure deployment-wide quantity (how many users
     ///     have watched item X, deployment-wide) so folding it out of the per-user loop
     ///     saves an O(U×M) pass on every downstream <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/>
     ///     invocation.
     ///     <para>
     ///         The trust-gate decision is deliberately NOT precomputed here: it is a per-target-user
     ///         question ("does the target's NEIGHBOURHOOD contain at least one rich profile?"),
-    ///         not a deployment-wide one. Excluding the target from the scan is essential —
+    ///         not a deployment-wide one. Excluding the target from the scan is essential -
     ///         otherwise a 28-watch anchor with a 4-watch neighbour would flip its own trust
     ///         gate on and dampen the sparse neighbour's contribution, which is the exact
     ///         opposite of the "cold-start release" behaviour the gate exists for. The
@@ -54,7 +54,7 @@ internal static class CollaborativeFilter
     ///     </para>
     /// </summary>
     /// <param name="userSets">
-    ///     User watch sets from <see cref="PrecomputeUserWatchSets"/>. Reused directly — the
+    ///     User watch sets from <see cref="PrecomputeUserWatchSets"/>. Reused directly - the
     ///     caller retains ownership so no defensive copy is made.
     /// </param>
     /// <returns>A batch-scoped aggregate context bundle.</returns>
@@ -64,7 +64,7 @@ internal static class CollaborativeFilter
         // Item popularity: how many users have watched each item. Feeds the IDF factor in
         // BuildCollaborativeMap (log2(1 + count)^-1) so shared niche watches contribute more
         // than shared mainstream watches. Iterating userSets.Values is the same O(U×M) pass
-        // the previous per-user path performed — done once here, reused N times downstream.
+        // the previous per-user path performed - done once here, reused N times downstream.
         var itemPopularity = new Dictionary<Guid, int>(userSets.Count);
         foreach (var userSet in userSets.Values)
         {
@@ -106,7 +106,7 @@ internal static class CollaborativeFilter
         var combined = new HashSet<Guid>();
         foreach (var w in profile.WatchedItems)
         {
-            // Include every item the user meaningfully interacted with — played, favorited,
+            // Include every item the user meaningfully interacted with - played, favorited,
             // re-watched (PlayCount) OR in-progress (PlaybackPositionTicks). This MUST use the
             // same centralized HasMeaningfulInteraction predicate the engine's routing gate and
             // WatchHistoryService admission use: otherwise a user whose only signal is in-progress
@@ -198,7 +198,7 @@ internal static class CollaborativeFilter
 
         // Trust-gate is per-target-user (excludes the target from the scan). We intentionally
         // do NOT precompute this in CollaborativeContext because the target's own watch count
-        // would flip its own gate on — the sparse-neighbour attenuation and cold-start release
+        // would flip its own gate on - the sparse-neighbour attenuation and cold-start release
         // behaviours both hinge on the "NEIGHBOURS ONLY" restriction. The scan is O(profiles),
         // dwarfed by the co-occurrence loop below, so keeping it per-user is essentially free.
         var trustGateActive = false;
@@ -290,7 +290,7 @@ internal static class CollaborativeFilter
             // Accumulate Jaccard-weighted co-occurrence for items the other user watched but we haven't.
             // This includes both episode IDs AND series IDs, so series candidates get collaborative scores.
             // The geometric mean lives in <c>[min(a,b), max(a,b)]</c>, so it cannot fall below the
-            // smaller of the two factors — a mathematically cleaner "combined damping" that
+            // smaller of the two factors - a mathematically cleaner "combined damping" that
             // preserves the ordering guarantees of both factors:
             //   • trust=1.0, idf=1.0 → modifier=1.0                       (rich neighbour, niche item)
             //   • trust=0.86, idf=0.18 → modifier=0.394 (was 0.155)       (~2.5× stronger signal)
@@ -315,7 +315,7 @@ internal static class CollaborativeFilter
                     idfFactor = 1.0 / Math.Log2(1.0 + userCount);
                 }
 
-                // Geometric mean of trust and IDF — one combined damping instead of stacking two.
+                // Geometric mean of trust and IDF - one combined damping instead of stacking two.
                 var combinedModifier = Math.Sqrt(neighbourTrust * idfFactor);
                 var weight = jaccardWeight * combinedModifier;
 
@@ -332,7 +332,7 @@ internal static class CollaborativeFilter
     ///     <see cref="BuildCollaborativeMap(UserWatchProfile, Collection{UserWatchProfile}, CollaborativeContext)"/>
     ///     invocation in a single scheduled run. Bundles the per-user watch sets with the
     ///     precomputed item-popularity map (for IDF weighting) so the O(U×M) popularity scan
-    ///     is performed exactly once — not N times per user as it would be if it were rebuilt
+    ///     is performed exactly once - not N times per user as it would be if it were rebuilt
     ///     on every call.
     ///     <para>
     ///         The trust-gate decision is intentionally NOT part of this record because it is

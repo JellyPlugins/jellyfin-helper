@@ -308,7 +308,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     ///     Returns the relevant date for a recent entry: the LATER of created/modified. Using the max
     ///     (rather than "modified when changed, created when added") guarantees the recency filter can
     ///     never hide a genuinely new item behind a stale, preserved mtime that predates its created
-    ///     time (common when media is copied with -p / restored from backup — the mtime is older than
+    ///     time (common when media is copied with -p / restored from backup - the mtime is older than
     ///     the moment Jellyfin first saw the file).
     /// </summary>
     private static DateTime GetRelevantDate(LibraryInsightEntry entry)
@@ -325,7 +325,7 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     internal static string DetermineChangeType(DateTime createdUtc, DateTime modifiedUtc)
     {
         // Signed, not Math.Abs: a modified time EARLIER than created (a stale/preserved mtime) is not
-        // a real "change" — it must classify as "added" so GetRelevantDate ranks it by the newer
+        // a real "change" - it must classify as "added" so GetRelevantDate ranks it by the newer
         // created time. Only a modified time that is genuinely later than created by the threshold
         // counts as "changed".
         var hoursAfterCreation = (modifiedUtc - createdUtc).TotalHours;

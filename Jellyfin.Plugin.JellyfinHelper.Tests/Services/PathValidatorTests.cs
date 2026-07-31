@@ -93,7 +93,7 @@ public class PathValidatorTests
         Assert.Equal("file.txt", result);
     }
 
-    // TEST-5: IsSafePath(base, base) must return true — the path IS the allowed root.
+    // TEST-5: IsSafePath(base, base) must return true - the path IS the allowed root.
     [Fact]
     public void IsSafePath_PathEqualsBase_ReturnsTrue()
     {
@@ -128,7 +128,7 @@ public class PathValidatorTests
 
     /// <summary>
     /// A path whose folder name contains ".." as a substring (but has no ".." segment)
-    /// must not be rejected — that would be a false positive.
+    /// must not be rejected - that would be a false positive.
     /// </summary>
     [Fact]
     public void IsPathSafeForDeletion_PathWithDotDotInName_NotFalsePositive()
@@ -189,7 +189,7 @@ public class PathValidatorTests
     [InlineData("/media/Movies")]
     [InlineData("/mnt/library2")]
     [InlineData("/srv/media")]
-    [InlineData("/configuration")] // NOT /config — must not false-match on a prefix
+    [InlineData("/configuration")] // NOT /config - must not false-match on a prefix
     [InlineData("/etcetera")] // NOT /etc
     public void IsSensitiveSystemPath_MediaAndLookalikes_ReturnFalse(string path)
         => Assert.False(PathValidator.IsSensitiveSystemPath(path));

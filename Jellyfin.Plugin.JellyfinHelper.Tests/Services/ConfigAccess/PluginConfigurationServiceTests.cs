@@ -6,7 +6,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.ConfigAccess;
 
 /// <summary>
 ///     Tests for <see cref="PluginConfigurationService"/>. The service depends on the
-///     <c>Plugin.Instance</c> singleton — a piece of process-wide state that other tests
+///     <c>Plugin.Instance</c> singleton - a piece of process-wide state that other tests
 ///     may leave in either the initialised or the uninitialised state. To make the
 ///     branches deterministic we go through the internal <c>IPluginAccessor</c> seam
 ///     (exposed via <c>InternalsVisibleTo</c>) with a per-test fake so both the
@@ -15,7 +15,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.ConfigAccess;
 public class PluginConfigurationServiceTests
 {
     /// <summary>
-    ///     Deterministic accessor stub — replaces the real Plugin.Instance lookup with
+    ///     Deterministic accessor stub - replaces the real Plugin.Instance lookup with
     ///     fields we control, so the tests are independent of process-wide singleton
     ///     state and can be run in parallel without racing against any other suite.
     /// </summary>
@@ -71,7 +71,7 @@ public class PluginConfigurationServiceTests
 
         var cfg = sut.GetConfiguration();
 
-        // Same reference — the service returns the live shared object so callers have the
+        // Same reference - the service returns the live shared object so callers have the
         // authoritative view. Mutation must go through ReadAndMutate, not via this reference.
         Assert.Same(owned, cfg);
         Assert.Equal("de", cfg.Language);
@@ -107,7 +107,7 @@ public class PluginConfigurationServiceTests
         sut.SaveConfiguration();
         sut.SaveConfiguration();
 
-        // Every call must be forwarded — the service must not deduplicate or throttle.
+        // Every call must be forwarded - the service must not deduplicate or throttle.
         Assert.Equal(2, accessor.SaveCallCount);
     }
 
@@ -143,7 +143,7 @@ public class PluginConfigurationServiceTests
         // We verify PluginVersion but do NOT call GetConfiguration() because
         // GetConfiguration() throws InvalidOperationException when not initialized.
         //
-        // NOTE: We intentionally do NOT invoke SaveConfiguration() here — that would
+        // NOTE: We intentionally do NOT invoke SaveConfiguration() here - that would
         // touch the real Plugin.Instance persistence layer (ambient disk I/O) and could
         // race with other tests running in parallel. Save-path behaviour is covered by
         // the accessor-mock tests below.

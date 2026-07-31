@@ -72,7 +72,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
         // A "finite & in-range" assertion alone would still pass if the constructor
         // silently ignored the invalid values altogether. Pin the actual clamp by
         // comparing against an instance configured explicitly at the expected boundary
-        // (alphaMax == alphaMin) — both must produce the same score.
+        // (alphaMax == alphaMin) - both must produce the same score.
         var invalid = new EnsembleScoringStrategy(alphaMin: 0.6, alphaMax: 0.2);
         var clamped = new EnsembleScoringStrategy(alphaMin: 0.6, alphaMax: 0.6);
         var features = new CandidateFeatures { GenreSimilarity = 0.5, CombinedCriticScore = 0.5 };
@@ -363,7 +363,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
 
         var scoreBefore = ensemble.Score(features);
 
-        // Allow more ML influence — score should stay in [0,1] after reconfigure
+        // Allow more ML influence - score should stay in [0,1] after reconfigure
         ensemble.Reconfigure(alphaMin: 0.5, alphaMax: 0.8, genrePenaltyFloor: 0.1);
         var scoreAfter = ensemble.Score(features);
 
@@ -375,7 +375,7 @@ public sealed class EnsembleScoringStrategyAdvancedTests
     public void Reconfigure_AlphaMinAboveMax_ClampedToSameValue()
     {
         var ensemble = new EnsembleScoringStrategy();
-        // Passing min > max — implementation clamps max to min
+        // Passing min > max - implementation clamps max to min
         ensemble.Reconfigure(alphaMin: 0.8, alphaMax: 0.3, genrePenaltyFloor: 0.1);
         Assert.InRange(ensemble.CurrentAlpha, 0.0, 1.0);
     }

@@ -7,7 +7,7 @@
  * Honest caveat: recommendation GENERATION depends on the ML engine finding
  * something to recommend from the (small, freshly-scanned) fake library. If a
  * run produces zero playlists we SKIP the purge assertion with a clear message
- * rather than assert vacuously — a green purge test against nothing is worthless.
+ * rather than assert vacuously - a green purge test against nothing is worthless.
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask, sleep } from '../setup/api-client.ts';
@@ -35,7 +35,7 @@ async function putConfig(body: Record<string, unknown>) {
 /** Count Jellyfin playlists whose name starts with the managed prefix. */
 async function managedPlaylistCount(): Promise<number> {
   const res = await ctx.get('/Items?IncludeItemTypes=Playlist&Recursive=true');
-  // Fail loudly on a transient 401/500 rather than mapping it to 0 — a swallowed
+  // Fail loudly on a transient 401/500 rather than mapping it to 0 - a swallowed
   // error here would read as "no playlists" and make the purge assertion pass falsely.
   expect(res.ok(), `playlist query failed: ${res.status()}`).toBeTruthy();
   const body = (await res.json()) as { Items?: Array<{ Name?: string }> };
@@ -83,7 +83,7 @@ test.describe.serial('recommendations playlist create → purge', () => {
     await sleep(2000); // let Jellyfin persist the playlist items
 
     const created = await managedPlaylistCount();
-    test.skip(created === 0, 'engine produced no recommendation playlists on this library — purge assertion would be vacuous');
+    test.skip(created === 0, 'engine produced no recommendation playlists on this library - purge assertion would be vacuous');
 
     // Deactivate → the purge branch must remove every managed playlist.
     await putConfig({ RecommendationsTaskMode: 'Deactivate' });
@@ -100,7 +100,7 @@ test.describe.serial('recommendations playlist create → purge', () => {
   });
 
   test('Activate writes the recommendation cache file; DryRun does not', async () => {
-    test.skip(!hasDocker(), 'docker exec unavailable — cannot inspect the cache file');
+    test.skip(!hasDocker(), 'docker exec unavailable - cannot inspect the cache file');
     const cache = '/config/data/jellyfin-helper-recommendations-latest.json';
 
     // Activate → cache present and non-empty.

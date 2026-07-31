@@ -198,7 +198,7 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
-        // retentionDays <= 0 is treated as "disabled" — never purge anything.
+        // retentionDays <= 0 is treated as "disabled" - never purge anything.
         // Callers that want to purge everything immediately should pass retentionDays = 1
         // (or use a positive value). Zero and negative values are sentinel "off" states
         // consistent with how SeerrCleanupAgeDays = 0 means "feature disabled".
@@ -226,7 +226,7 @@ public class TrashService : ITrashService
                     if (dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
                     {
                         // Delete only the symlink/junction itself, not what it points to.
-                        // Size is 0 — only the link entry is removed, not the target data.
+                        // Size is 0 - only the link entry is removed, not the target data.
                         dirInfo.Delete();
                         itemsPurged++;
                         _pluginLog.LogInfo(
@@ -315,7 +315,7 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _pluginLog.LogWarning("Trash", $"Partial trash summary — could not fully enumerate {trashBasePath}: {ex.Message}", ex, logger);
+            _pluginLog.LogWarning("Trash", $"Partial trash summary - could not fully enumerate {trashBasePath}: {ex.Message}", ex, logger);
         }
 
         return (totalSize, itemCount);
@@ -389,7 +389,7 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            _pluginLog.LogWarning("Trash", $"Partial trash contents — could not fully enumerate {trashBasePath}: {ex.Message}", ex, logger);
+            _pluginLog.LogWarning("Trash", $"Partial trash contents - could not fully enumerate {trashBasePath}: {ex.Message}", ex, logger);
         }
 
         // Sort by trashed date descending (newest first)
@@ -410,7 +410,7 @@ public class TrashService : ITrashService
             return (0, 0);
         }
 
-        // Normalize paths and create destination — guard against invalid/malformed paths
+        // Normalize paths and create destination - guard against invalid/malformed paths
         string normalizedOld;
         string normalizedNew;
         try
@@ -680,7 +680,7 @@ public class TrashService : ITrashService
         var availableForBase = maxNameSize - suffixSize;
         if (availableForBase <= 0)
         {
-            // Suffix alone fills the budget — truncate suffix as last resort.
+            // Suffix alone fills the budget - truncate suffix as last resort.
             var truncatedSuffix = TruncateToSize(suffix, Math.Max(0, maxNameSize));
             return Path.Join(directory, truncatedSuffix);
         }
@@ -703,7 +703,7 @@ public class TrashService : ITrashService
         var maxNameSize = GetMaxComponentSize(directory);
         if (maxNameSize <= 0)
         {
-            // Directory itself is already at or over the limit — nothing safe to do;
+            // Directory itself is already at or over the limit - nothing safe to do;
             // return the path as-is and let the caller's IOException handler log it.
             return path;
         }
@@ -718,7 +718,7 @@ public class TrashService : ITrashService
         // Trash entries carry a fixed 16-char "yyyyMMdd-HHmmss_" prefix that PurgeExpiredTrash and
         // the trash UI parse to recover the trashed-at time. Naively truncating the WHOLE name from
         // the end would chop into (or off) that prefix once the per-component budget drops below the
-        // original name length, producing an entry that TryParseTrashTimestamp rejects — so it is
+        // original name length, producing an entry that TryParseTrashTimestamp rejects - so it is
         // never purged (retention silently defeated) and shows no date in the UI. Preserve the prefix
         // intact and truncate ONLY the original-name portion after it. Non-trash names (no valid
         // prefix) fall through to the previous whole-name truncation, so other callers are unchanged.
@@ -727,7 +727,7 @@ public class TrashService : ITrashService
         {
             if (maxNameSize <= trashPrefixLength)
             {
-                // Cannot even keep the parseable prefix — refuse rather than emit an unpurgeable,
+                // Cannot even keep the parseable prefix - refuse rather than emit an unpurgeable,
                 // date-less entry. Mirrors the fail-fast IOException the collision resolver throws
                 // when the directory budget is exhausted.
                 throw new IOException(
@@ -828,7 +828,7 @@ public class TrashService : ITrashService
             }
             else
             {
-                // Isolated surrogate or invalid — treat as replacement char (3 bytes in UTF-8)
+                // Isolated surrogate or invalid - treat as replacement char (3 bytes in UTF-8)
                 runeByteCount = 3;
                 charsConsumed = 1;
             }
@@ -904,7 +904,7 @@ public class TrashService : ITrashService
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            _pluginLog.LogWarning("Trash", $"Path access check failed — invalid path: {path} ({ex.Message})", ex, logger);
+            _pluginLog.LogWarning("Trash", $"Path access check failed - invalid path: {path} ({ex.Message})", ex, logger);
             return new TrashPathAccessResult
             {
                 Exists = false,
@@ -938,7 +938,7 @@ public class TrashService : ITrashService
             return new TrashPathAccessResult { Exists = true, CanRead = true, CanWrite = true };
         }
 
-        // Path does not exist — walk up to the nearest existing parent and check if we can create there.
+        // Path does not exist - walk up to the nearest existing parent and check if we can create there.
         var parent = fullPath;
         while (!string.IsNullOrEmpty(parent))
         {
@@ -1011,7 +1011,7 @@ public class TrashService : ITrashService
         {
             using (File.Create(probePath))
             {
-                // File created successfully — write access confirmed.
+                // File created successfully - write access confirmed.
             }
 
             created = true;

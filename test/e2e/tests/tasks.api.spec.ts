@@ -2,7 +2,7 @@
  * Scheduled task behaviour across all modes.
  *
  * Architecture reminder (from the source map): there is ONE Jellyfin scheduled
- * task — `HelperCleanup` — that orchestrates 8 stages. Each stage's mode is
+ * task - `HelperCleanup` - that orchestrates 8 stages. Each stage's mode is
  * chosen from config (Deactivate/DryRun/Activate), NOT by triggering stages
  * individually. So the pattern is: set config -> run HelperCleanup -> assert.
  *
@@ -133,7 +133,7 @@ test.describe.serial('HelperCleanup across modes', () => {
 
   test('Recommendations Deactivate is safe after being active (playlist purge path)', async () => {
     // First enable recs so there may be playlists, then deactivate to hit the
-    // "remove all recommendation playlists" branch — must complete cleanly.
+    // "remove all recommendation playlists" branch - must complete cleanly.
     await putConfig({ RecommendationsTaskMode: 'Activate', SyncRecommendationsToPlaylist: true });
     let result = await runCleanupTask(ctx);
     expect(result.LastExecutionResult?.Status).toBe('Completed');
@@ -146,7 +146,7 @@ test.describe.serial('HelperCleanup across modes', () => {
 
   test('Seerr cleanup Activate against mock → completes, deletes expired requests', async () => {
     // Reset the mock to a known set, then read the starting count. The mock is a
-    // hard dependency of this test — if it's unreachable we must fail loudly, not
+    // hard dependency of this test - if it's unreachable we must fail loudly, not
     // skip the deletion assertions and let the test pass vacuously.
     const mock = await pwRequest.newContext();
     try {

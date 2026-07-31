@@ -605,7 +605,7 @@ public sealed class GrowthTimelineService : IGrowthTimelineService, IDisposable
                         continue;
                     }
 
-                    // Never follow symlinks or junction points — they can form cycles (A → B → A).
+                    // Never follow symlinks or junction points - they can form cycles (A → B → A).
                     FileAttributes attributes;
                     try
                     {

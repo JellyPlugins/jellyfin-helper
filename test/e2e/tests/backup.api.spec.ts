@@ -3,7 +3,7 @@
  *   - Backup is JSON (distinct from the plugin's XML config file).
  *   - Export redacts API keys unless includeSecrets=true.
  *   - Some fields are intentionally NOT exported (MaxRecommendationsPerUser,
- *     ensemble tuning, cumulative stats) — a round-trip must not claim to
+ *     ensemble tuning, cumulative stats) - a round-trip must not claim to
  *     restore them.
  *   - Import validates: garbage/oversized/broken JSON is rejected (400), and
  *     the server + plugin survive it (hardening).
@@ -69,7 +69,7 @@ test('round-trip: export → change config → import restores exported values',
   const changed = await ctx.get(p('Configuration')).then((r) => r.json());
   expect(changed.Language).toBe('fr');
 
-  // Import the earlier backup — should restore language + age.
+  // Import the earlier backup - should restore language + age.
   const res = await importBackup(backup);
   expect(res.ok(), `import failed: ${res.status()} ${await res.text()}`).toBeTruthy();
   const summary = (await res.json()) as { summary: { ConfigurationRestored: boolean } };
@@ -99,7 +99,7 @@ test('unknown task-mode string falls back safely (no crash)', async () => {
   backup.trickplayTaskMode = 'TotallyInvalidMode';
 
   const res = await importBackup(backup);
-  // Sanitizer/validator either repairs to a default or rejects — must not 500.
+  // Sanitizer/validator either repairs to a default or rejects - must not 500.
   expect(res.status()).toBeLessThan(500);
   await assertPluginActive(ctx);
 });
@@ -126,7 +126,7 @@ test('import rejects a JSON array (wrong shape)', async () => {
 });
 
 test('import tolerates/repairs missing fields without crashing', async () => {
-  // A minimal object with only backupVersion — sanitizer should fill defaults.
+  // A minimal object with only backupVersion - sanitizer should fill defaults.
   const res = await importBackup({ backupVersion: 1 });
   expect(res.status()).toBeLessThan(500);
   await assertPluginActive(ctx);
@@ -149,7 +149,7 @@ test('HARDENING: backup with negative trends values is sanitized (clamped to 0),
     expect(res.status(), 'must not throw a server error on negative values').toBeLessThan(500);
     await assertPluginActive(ctx);
 
-    // The trends endpoint must not surface negative garbage — the sanitizer clamped
+    // The trends endpoint must not surface negative garbage - the sanitizer clamped
     // the imported -5000 / -3 to 0 before they were ever persisted to the cache.
     const trends = await ctx.get(p('GrowthTimeline'));
     if (trends.ok()) {
@@ -165,7 +165,7 @@ test('HARDENING: backup with negative trends values is sanitized (clamped to 0),
     // Belt-and-suspenders hygiene: recompute a fresh timeline from the real library so
     // downstream specs read library-derived data rather than this test's single planted
     // (now clamped-to-0) point. Tolerate the 30s recompute rate-limit (429) with one retry.
-    // NOTE: recompute alone would NOT purge a negative if one had persisted — the
+    // NOTE: recompute alone would NOT purge a negative if one had persisted - the
     // append-only path keeps historical points; the real guarantee is the import-time clamp.
     let refresh = await ctx.get(p('GrowthTimeline?forceRefresh=true'));
     if (refresh.status() === 429) {

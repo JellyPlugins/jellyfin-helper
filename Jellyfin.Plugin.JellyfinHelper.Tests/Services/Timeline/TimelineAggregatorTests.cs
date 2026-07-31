@@ -123,7 +123,7 @@ public sealed class TimelineAggregatorTests
         var now = new DateTime(2025, 1, 31, 0, 0, 0, DateTimeKind.Utc);
 
         long delta = (long)int.MaxValue;
-        long expectedTotal = delta * 2; // 4_294_967_294 — exceeds int range
+        long expectedTotal = delta * 2; // 4_294_967_294 - exceeds int range
 
         var entries = new List<GrowthTimelineService.FileEntry>
         {

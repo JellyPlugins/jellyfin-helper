@@ -1,7 +1,7 @@
 /**
  * Mock Radarr + Sonarr server for the Jellyfin Helper E2E tests.
  *
- * One process serves BOTH Radarr and Sonarr APIs — they only differ by path
+ * One process serves BOTH Radarr and Sonarr APIs - they only differ by path
  * (/api/v3/movie vs /api/v3/series) and the appName in /system/status, so the
  * plugin can point two "instances" at this one server. The plugin authenticates
  * with `X-Api-Key`; we accept any non-empty key (and expose a way to force a
@@ -10,7 +10,7 @@
  * Only the fields the plugin actually deserializes are included; extra fields
  * are harmless (the plugin is case-insensitive and non-strict).
  *
- * No external dependencies — Node built-in http only.
+ * No external dependencies - Node built-in http only.
  */
 import http from 'node:http';
 
@@ -32,7 +32,7 @@ const sonarrStatus = { appName: 'Sonarr', version: '4.0.9.2244' };
 
 // Movie folder names are the LAST path segment; the plugin matches them against
 // Jellyfin library folder names. Our fake library has "Aurora Skies (2019)" and
-// "Nebula Drift (2021)" — so "Inception (2010)" lands in InArrOnly (hasFile) and
+// "Nebula Drift (2021)" - so "Inception (2010)" lands in InArrOnly (hasFile) and
 // "Missing Film (2099)" in InArrOnlyMissing (no file).
 const radarrMovies = [
   { title: 'Aurora Skies', year: 2019, imdbId: 'tt0001', tmdbId: 111, hasFile: true, path: '/movies/Aurora Skies (2019)' },

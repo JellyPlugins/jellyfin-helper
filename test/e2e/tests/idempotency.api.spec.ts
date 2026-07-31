@@ -1,20 +1,20 @@
 /**
- * Idempotency — repeating the SAME mutation must converge to the same state,
+ * Idempotency - repeating the SAME mutation must converge to the same state,
  * not accumulate or drift. This surface had no coverage before.
  *
  * Each block asserts a LOAD-BEARING signal, deliberately avoiding the vacuous
  * traps the source review flagged:
  *   - Backup re-import: CredentialsChanged flips true→false on the 2nd import of
  *     the same secrets backup (run 1 sees a new key, run 2 the key already
- *     matches). Asserting ConfigurationRestored===true would be vacuous — it is
+ *     matches). Asserting ConfigurationRestored===true would be vacuous - it is
  *     true on every valid import regardless of change. We also prove the stored
  *     config values are identical after both imports.
  *   - Config PUT: two identical PUTs → identical GET state. Keys are sent MASKED
  *     ('***') so no live Arr/Seerr connection test runs (its Warnings[] are
- *     network-dependent and would be flaky — we assert stored state, not warnings).
+ *     network-dependent and would be flaky - we assert stored state, not warnings).
  *   - Discovery (admin) Request: the plugin does NOT dedupe the Seerr submission.
  *     The correct, non-vacuous assertion is that a repeated request reaches the
- *     mock AGAIN (count increments) — a test expecting dedupe would be wrong.
+ *     mock AGAIN (count increments) - a test expecting dedupe would be wrong.
  *   - Trash/Relocate: a 2nd relocate of an already-drained source is a clean
  *     no-op (Moved:0, Failed:0, 200). Requires the container FS; skips loudly.
  */
@@ -191,7 +191,7 @@ test.describe.serial('Discovery admin request does NOT dedupe (repeat forwards a
     // A configured mock accepts the request; if Seerr is unreachable this is 502.
     // Either way it must NOT 500, and a success must be a real 200.
     expect(first.status(), `1st request status ${first.status()}`).toBeLessThan(500);
-    test.skip(first.status() === 502, 'mock-Seerr unreachable — cannot exercise the forward path');
+    test.skip(first.status() === 502, 'mock-Seerr unreachable - cannot exercise the forward path');
     expect(first.ok(), '1st admin request should succeed against the mock').toBeTruthy();
     expect(await mockRequestCount(), 'one request forwarded after the 1st call').toBe(1);
 
@@ -200,7 +200,7 @@ test.describe.serial('Discovery admin request does NOT dedupe (repeat forwards a
       data: JSON.stringify(reqBody),
     });
     expect(second.ok(), '2nd identical admin request also succeeds').toBeTruthy();
-    // The plugin performs NO dedupe of the Seerr submission — the correct behavior
+    // The plugin performs NO dedupe of the Seerr submission - the correct behavior
     // is that the identical request is forwarded AGAIN. (Local cache/feedback
     // bookkeeping dedupes, but the upstream submission does not.)
     expect(await mockRequestCount(), 'the repeated request is forwarded again (no dedupe)').toBe(2);
@@ -240,7 +240,7 @@ test.describe.serial('Trash/Relocate is a clean no-op when the source is already
   }
 
   test('relocating an already-moved (now-empty) source returns Moved:0, Failed:0', async () => {
-    // Seed one entry and relocate it once — this drains + removes the source.
+    // Seed one entry and relocate it once - this drains + removes the source.
     containerWriteFile(`${OLD}/Entry (2001)/payload.mkv`, 'IDEM-CONTENT');
 
     const first = await relocate(OLD, NEW);
@@ -251,7 +251,7 @@ test.describe.serial('Trash/Relocate is a clean no-op when the source is already
     expect(containerFileExists(`${NEW}/Entry (2001)/payload.mkv`), 'content at destination').toBe(true);
     expect(containerDirExists(OLD), 'source removed once drained').toBe(false);
 
-    // Relocate the SAME (now absent) source again — a clean no-op, not an error.
+    // Relocate the SAME (now absent) source again - a clean no-op, not an error.
     const second = await relocate(OLD, NEW);
     expect(second.ok(), `2nd relocate status ${second.status()}`).toBeTruthy();
     const secondBody = (await second.json()) as RelocateResponse;

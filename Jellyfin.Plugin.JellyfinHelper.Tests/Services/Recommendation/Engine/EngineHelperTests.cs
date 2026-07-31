@@ -20,7 +20,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 public sealed class EngineHelperTests
 {
     // ================================================================================================
-    // ComputeStableSeed — deterministic, process-independent seed for the exploration RNG.
+    // ComputeStableSeed - deterministic, process-independent seed for the exploration RNG.
     // The whole point of this helper is that a Jellyfin restart within the same (userId, day) tuple
     // must produce IDENTICAL seeds; System.HashCode.Combine is randomised per-process and would
     // reshuffle exploration outcomes on every restart, which is exactly the bug this helper prevents.
@@ -63,7 +63,7 @@ public sealed class EngineHelperTests
     [Fact]
     public void ComputeStableSeed_EmptyGuid_ProducesDeterministicSeed()
     {
-        // Guid.Empty is a legitimate value (all-zero user id) — the helper must not throw
+        // Guid.Empty is a legitimate value (all-zero user id) - the helper must not throw
         // and must still produce a stable seed.
         var a = InvokeComputeStableSeed(Guid.Empty, 0);
         var b = InvokeComputeStableSeed(Guid.Empty, 0);
@@ -73,7 +73,7 @@ public sealed class EngineHelperTests
     [Fact]
     public void ComputeStableSeed_NegativeSuffix_ProducesDeterministicSeed()
     {
-        // Suffix comes from int operators (e.g. hash folding) and can be negative — must not throw.
+        // Suffix comes from int operators (e.g. hash folding) and can be negative - must not throw.
         var id = Guid.Parse("11111111-2222-3333-4444-555555555555");
         var a = InvokeComputeStableSeed(id, -1);
         var b = InvokeComputeStableSeed(id, -1);
@@ -83,7 +83,7 @@ public sealed class EngineHelperTests
     [Fact]
     public void ComputeStableSeed_MaxAndMinSuffix_DoNotThrow_AndAreDistinct()
     {
-        // Verifies the `unchecked` block truly wraps as intended — this used to be a subtle bug
+        // Verifies the `unchecked` block truly wraps as intended - this used to be a subtle bug
         // when the multiplier crossed int.MaxValue in a `checked` context.
         var id = Guid.Parse("11111111-2222-3333-4444-555555555555");
         var minSeed = InvokeComputeStableSeed(id, int.MinValue);
@@ -97,7 +97,7 @@ public sealed class EngineHelperTests
         // BEHAVIOUR PIN, not a golden literal: recomputing (guidHash * 397) here and comparing
         // to the SUT is a tautology if the SUT ever silently changes to a different formula
         // (both sides would move together). To avoid that trap we instead lock down the
-        // *observable relationship* between the seed and its suffix — namely, XOR with a
+        // *observable relationship* between the seed and its suffix - namely, XOR with a
         // second suffix must round-trip:
         //     ComputeStableSeed(id, 0) XOR suffix  ==  ComputeStableSeed(id, suffix)
         // This holds ONLY if the algorithm is exactly `(guidHash * 397) ^ suffix`. Any other
@@ -107,7 +107,7 @@ public sealed class EngineHelperTests
         var baseSeed = InvokeComputeStableSeed(id, 0);
 
         // Sample a spread of suffix values (positive, negative, prime, power-of-two) to make
-        // sure the invariant holds across the full int32 range — not just an easy corner.
+        // sure the invariant holds across the full int32 range - not just an easy corner.
         foreach (var suffix in new[] { 1, -1, 42, 1 << 16, int.MinValue, int.MaxValue })
         {
             var seeded = InvokeComputeStableSeed(id, suffix);
@@ -142,7 +142,7 @@ public sealed class EngineHelperTests
     }
 
     // ================================================================================================
-    // Reflection helpers — Engine.ComputeStableSeed is `internal static` and the test project has
+    // Reflection helpers - Engine.ComputeStableSeed is `internal static` and the test project has
     // InternalsVisibleTo, so we call it directly. Using MethodInfo instead of a direct call avoids
     // hard-coding a dependency on the exact signature if it ever needs a defensive rename.
     // ================================================================================================

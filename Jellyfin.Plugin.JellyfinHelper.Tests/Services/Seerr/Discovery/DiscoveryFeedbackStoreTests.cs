@@ -218,7 +218,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         };
         store.RecordShown(userId, "TestUser", items);
 
-        // Dismiss with mixed-case media type — should still match
+        // Dismiss with mixed-case media type - should still match
         store.RecordDismissed(userId, 999, "Movie");
 
         var result = store.LoadForUser(userId);
@@ -240,7 +240,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         };
         store.RecordShown(userId, "TestUser", items);
 
-        // Request with uppercase media type — should still match
+        // Request with uppercase media type - should still match
         store.RecordRequested(userId, 888, "TV");
 
         var result = store.LoadForUser(userId);
@@ -262,7 +262,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         };
         store.RecordShown(userId, "TestUser", items);
 
-        // Dismiss with whitespace-padded media type — should still match after normalization
+        // Dismiss with whitespace-padded media type - should still match after normalization
         store.RecordDismissed(userId, 777, " movie ");
 
         var result = store.LoadForUser(userId);
@@ -311,7 +311,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         var result = store2.LoadForUser(userId);
         Assert.NotNull(result);
         Assert.Equal(userId, result!.UserId);
-        // UserName is [JsonIgnore] (PII not persisted to disk) — expected to be empty after round-trip.
+        // UserName is [JsonIgnore] (PII not persisted to disk) - expected to be empty after round-trip.
         Assert.Equal(string.Empty, result.UserName);
         Assert.Equal(2, result.Entries.Count);
 
@@ -623,7 +623,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Contains(all, r => r.UserId == u2);
 
         // Prove defensive copy: mutating the returned list must not affect the store.
-        // Look up u1's returned record explicitly rather than relying on `all[0]` — the
+        // Look up u1's returned record explicitly rather than relying on `all[0]` - the
         // dictionary-backed store makes no ordering guarantee, and picking the wrong
         // record would let a shallow-copy regression pass by mutating u2 while asserting
         // only against u1's later state.
@@ -638,7 +638,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.Contains(freshU1.Entries, e => e.TmdbId == 1);
         Assert.DoesNotContain(freshU1.Entries, e => e.TmdbId == 9999);
 
-        // And u2 is untouched too — a defensive-copy regression that only affected
+        // And u2 is untouched too - a defensive-copy regression that only affected
         // its own record would sneak past a u1-only assertion.
         var freshU2 = fresh.First(r => r.UserId == u2);
         Assert.Contains(freshU2.Entries, e => e.TmdbId == 2);
@@ -794,13 +794,13 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     // Bounds enforcement: MaxFileSizeBytes / MaxEntriesPerUser / MaxEntryAgeDays
     //
     // These branches guard against three separate DoS-style corruption modes:
-    //   1. A rogue writer inflates the feedback file past 30 MB — the store must
+    //   1. A rogue writer inflates the feedback file past 30 MB - the store must
     //      delete it and start over rather than OOM'ing on the next read.
     //   2. A user's entry list grows unbounded because show/dismiss/request cycles
-    //      accumulate over years — the store must cap at MaxEntriesPerUser=200 and
+    //      accumulate over years - the store must cap at MaxEntriesPerUser=200 and
     //      keep the most-recently-active entries, so training data reflects recent
     //      user preferences instead of ancient noise.
-    //   3. Very old entries (>365 days) survive indefinitely — the store must evict
+    //   3. Very old entries (>365 days) survive indefinitely - the store must evict
     //      them so the JSON file doesn't grow by ~50 bytes per shown item forever.
     //
     // The current tests exercise none of these paths (all use tiny in-memory sets
@@ -811,7 +811,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
     public void LoadForUser_OversizeFile_DeletesFileAndReturnsNull()
     {
         // Any file larger than MaxFileSizeBytes (30 MB) must be treated
-        // as poisoned — deserializing a 30 MB+ JSON payload can OOM small deployments
+        // as poisoned - deserializing a 30 MB+ JSON payload can OOM small deployments
         // (e.g. Raspberry Pi hosts) and even valid content that grows this large is
         // a sign the eviction logic silently broke. The store must delete the file
         // and log a warning so the operator sees the recovery.
@@ -823,7 +823,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         using (var stream = File.Create(filePath))
         {
             // Prefix with a valid empty-array so a code path that skipped the size guard
-            // would still deserialize cleanly — makes the test specifically prove the
+            // would still deserialize cleanly - makes the test specifically prove the
             // size-guard fires FIRST, not the JSON parser bailing on garbage input.
             stream.Write("[]"u8);
             var padding = new byte[8192];
@@ -867,12 +867,12 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         //
         // We force a mixture of "shown-only" entries with staggered ShownAtUtc to
         // avoid entries getting the same timestamp (which would make the eviction
-        // ordering ambiguous — LINQ OrderByDescending is stable but the input order
+        // ordering ambiguous - LINQ OrderByDescending is stable but the input order
         // has to be non-degenerate for the test to be meaningful).
         var store = CreateStore();
         var userId = Guid.NewGuid();
 
-        // Show 250 items in one batch — RecordShown assigns DateTime.UtcNow to all
+        // Show 250 items in one batch - RecordShown assigns DateTime.UtcNow to all
         // of them, but the eviction code uses GetLatestActivityUtc which will tie.
         // To make eviction deterministic we do two batches with a small wait between.
         var oldBatch = new List<DiscoveryRecommendation>();
@@ -990,7 +990,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
 
         var store = CreateStore();
 
-        // Trigger a save by touching the live user — eviction runs during the save.
+        // Trigger a save by touching the live user - eviction runs during the save.
         store.RecordShown(liveUser, "Live", new List<DiscoveryRecommendation>
         {
             new() { TmdbId = 3, MediaType = "movie" }
@@ -1120,7 +1120,7 @@ public class DiscoveryFeedbackStoreTests : IDisposable
         Assert.NotNull(first);
         var originalShownAt = first!.Entries[0].ShownAtUtc;
 
-        // Mutate the returned object — simulates what RecordShown/RecordDismissed do.
+        // Mutate the returned object - simulates what RecordShown/RecordDismissed do.
         first.Entries[0].ShownAtUtc = DateTime.UtcNow.AddYears(10);
 
         // A second load must return the original unmodified value from the cache.

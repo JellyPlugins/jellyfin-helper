@@ -233,7 +233,7 @@ public sealed class ExternalCandidateFeatureBuilderTests
     {
         // Entries persisted before the Popularity field existed have Popularity == 0.
         //
-        // Three-step contract evolution — this test asserts the current (v3) contract
+        // Three-step contract evolution - this test asserts the current (v3) contract
         // and explicitly rules out regressions to either earlier failure mode:
         //
         //   * v1 (initial, broken): the fallback used entry.Score (the model's own past

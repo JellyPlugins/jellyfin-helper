@@ -488,7 +488,7 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void ComputePeopleSimilarityWeighted_SparseProfileSingleMatch_DoesNotOvershoot()
     {
-        // v3 C2 hardening pass — Sparse-user overshoot fix.
+        // v3 C2 hardening pass - Sparse-user overshoot fix.
         // Old min-based formula: preferred={Alice=2}, |candidate|=10, matched=2
         //   → min(10, 2)=2 → 2/2 = 1.0 !  A brand-new profile with a single 2-weight entry could
         //   ride any single match to a perfect score, making every candidate that shared one
@@ -512,7 +512,7 @@ public sealed class SimilarityComputerTests
     [Fact]
     public void ComputePeopleSimilarityWeighted_RichProfileMultipleHeavyMatches_PreservesMonotonicOrdering()
     {
-        // v3 C2 hardening pass — Ceiling-compression fix.
+        // v3 C2 hardening pass - Ceiling-compression fix.
         // The old min-based formula collapsed all candidates whose matched-weight exceeded
         // |candidate| onto the same 1.0 clamp, so a 2-match and a 5-match candidate scored
         // identically and became indistinguishable to the ML feature. The weighted-budget
@@ -525,7 +525,7 @@ public sealed class SimilarityComputerTests
         // ComputePeopleSimilarity averages over the top-K entries only
         // (K = WeightedPeopleSimilarityTopK = 20), NOT the whole 205-entry set. Sorted
         // descending, the top 20 are: HeavyDirector (8), HeavyActor (5), then 18 of the
-        // 200 filler-3.0 rows — sum = 8 + 5 + 18·3 = 67, average = 67/20 = 3.35.
+        // 200 filler-3.0 rows - sum = 8 + 5 + 18·3 = 67, average = 67/20 = 3.35.
         // With |candidate| = 10 the weighted budget denominator is therefore ≈ 33.5.
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < 200; i++)

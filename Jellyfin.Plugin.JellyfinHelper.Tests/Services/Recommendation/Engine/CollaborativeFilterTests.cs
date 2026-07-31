@@ -64,7 +64,7 @@ public class CollaborativeFilterTests
         // REGRESSION GUARD (audit finding collaborative-filter-1): the combined watch set MUST use
         // the same HasMeaningfulInteraction predicate as the engine's routing gate. An item with only
         // playback progress (Played=false, IsFavorite=false, PlayCount=0, PlaybackPositionTicks>0) is
-        // routed into the collaborative path, so it must also appear in the collaborative watch set —
+        // routed into the collaborative path, so it must also appear in the collaborative watch set -
         // otherwise such a user gets an empty set (zero collaborative signal) AND is denied cold-start.
         var inProgress = Guid.NewGuid();
         var rewatched = Guid.NewGuid();
@@ -401,7 +401,7 @@ public class CollaborativeFilterTests
     {
         // A sparse-history neighbour (4 watches, below the 20-watch trust ceiling) is
         // down-weighted but must still produce a positive score
-        // — we do not want to silently drop legitimate signal, only to attenuate it.
+        // - we do not want to silently drop legitimate signal, only to attenuate it.
         var shared = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
         var unique = Guid.NewGuid();
 
@@ -436,7 +436,7 @@ public class CollaborativeFilterTests
         // Approach: hold the neighbour identity constant (same watched IDs, same Jaccard) and
         // toggle the trust gate on/off by swapping the gatekeeper profile. When the gate is
         // OFF (all-sparse deployment) trust=1.0. When the gate is ON (at least one rich profile
-        // exists) trust=1-exp(-4/CollaborativeTrustScale) — a large attenuation for a 4-watch
+        // exists) trust=1-exp(-4/CollaborativeTrustScale) - a large attenuation for a 4-watch
         // neighbour. Anything else (score identical, or gated ≥ ungated) means the trust factor
         // is broken.
         var shared = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
@@ -449,7 +449,7 @@ public class CollaborativeFilterTests
                 .Select(id => new WatchedItemInfo { ItemId = id, Played = true })
                 .ToList());
 
-        // Identical sparse neighbour in both scenarios — same watched IDs, same total count (4).
+        // Identical sparse neighbour in both scenarios - same watched IDs, same total count (4).
         // This means the Jaccard, overlap, and popularity contributions are byte-for-byte equal
         // across the two BuildCollaborativeMap invocations; only the trust factor differs.
         var sparseNeighbourIds = shared.Append(recommendedItem).ToArray();
@@ -497,7 +497,7 @@ public class CollaborativeFilterTests
         Assert.True(scoreB > 0.0, "Scenario B (gate engaged, trust attenuated) score must still be positive");
         Assert.True(
             scoreB < scoreA,
-            $"Trust factor must attenuate the sparse neighbour when the gate is engaged (Scenario B) — " +
+            $"Trust factor must attenuate the sparse neighbour when the gate is engaged (Scenario B) - " +
             $"expected scoreB ({scoreB:F4}) < scoreA ({scoreA:F4}). If they're equal, trust is a no-op; " +
             $"if scoreB > scoreA, the trust factor is inverted.");
     }

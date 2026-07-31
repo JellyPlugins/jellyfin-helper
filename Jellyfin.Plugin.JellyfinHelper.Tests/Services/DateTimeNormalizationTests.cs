@@ -4,7 +4,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services;
 
 /// <summary>
-///     Tests for <see cref="DateTimeNormalization"/> — every branch of the UTC coercion
+///     Tests for <see cref="DateTimeNormalization"/> - every branch of the UTC coercion
 ///     logic. Coverage here is critical because this helper is called from every result
 ///     DTO's timestamp setter, so a subtle bug (e.g. converting Local via SpecifyKind
 ///     instead of ToUniversalTime) would silently corrupt cache timestamps across the
@@ -28,7 +28,7 @@ public class DateTimeNormalizationTests
     {
         // BUG GUARD: Local values MUST be CONVERTED to UTC (subtract the local offset),
         // not just relabeled. If a future refactor uses SpecifyKind on Local values,
-        // this test surfaces it — the resulting Utc would differ from the expected
+        // this test surfaces it - the resulting Utc would differ from the expected
         // universal representation.
         var local = new DateTime(2024, 6, 15, 12, 0, 0, DateTimeKind.Local);
         var expected = local.ToUniversalTime();
@@ -43,7 +43,7 @@ public class DateTimeNormalizationTests
     public void ToUtc_UnspecifiedKind_LabelsAsUtcWithoutConversion()
     {
         // BUG GUARD: Unspecified DateTimes are treated as ALREADY BEING in UTC and just
-        // relabeled — NOT converted. If a future refactor accidentally calls
+        // relabeled - NOT converted. If a future refactor accidentally calls
         // ToUniversalTime() on Unspecified values, this test flags the regression
         // (the ticks would shift by the local timezone offset).
         var unspecified = new DateTime(2024, 6, 15, 12, 0, 0, DateTimeKind.Unspecified);
@@ -51,7 +51,7 @@ public class DateTimeNormalizationTests
         var result = DateTimeNormalization.ToUtc(unspecified);
 
         Assert.Equal(DateTimeKind.Utc, result.Kind);
-        // Ticks must be unchanged — the value is relabeled, not shifted.
+        // Ticks must be unchanged - the value is relabeled, not shifted.
         Assert.Equal(unspecified.Ticks, result.Ticks);
     }
 

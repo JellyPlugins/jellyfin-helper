@@ -1,5 +1,5 @@
 /**
- * User-facing Discovery (Discovery/My/*) — the non-admin sidebar flow.
+ * User-facing Discovery (Discovery/My/*) - the non-admin sidebar flow.
  *
  * These endpoints require an authenticated NON-admin user AND the
  * DiscoveryUserAccessEnabled config toggle. We provisioned a normal user in
@@ -113,12 +113,12 @@ test.describe.serial('Discovery/My access gating', () => {
     requireNormalUser(user);
     await setDiscoveryAccess(true);
 
-    // My cached recs — must succeed (2xx) once enabled; the body may be null
+    // My cached recs - must succeed (2xx) once enabled; the body may be null
     // (no cached recs yet) but the request itself must not fail.
     const my = await user!.get(p('Discovery/My'));
     expect(my.ok(), `Discovery/My failed: ${my.status()}`).toBeTruthy();
 
-    // External links returns the configured (mock) Seerr URL — a green-path 2xx.
+    // External links returns the configured (mock) Seerr URL - a green-path 2xx.
     const links = await user!.get(p('Discovery/My/ExternalLinks'));
     expect(links.ok(), `Discovery/My/ExternalLinks failed: ${links.status()}`).toBeTruthy();
 
@@ -129,19 +129,19 @@ test.describe.serial('Discovery/My access gating', () => {
     requireNormalUser(user);
     await setDiscoveryAccess(true);
 
-    // RequestPermissions resolves the linked Seerr user against the mock — 2xx.
+    // RequestPermissions resolves the linked Seerr user against the mock - 2xx.
     const perms = await user!.get(p('Discovery/My/RequestPermissions/radarr?mediaType=movie'));
     expect(perms.ok(), `RequestPermissions failed: ${perms.status()}`).toBeTruthy();
 
     const services = await user!.get(p('Discovery/My/Services/radarr'));
     // 200 (service list) or 503 (user lacks the Seerr permission to select a
-    // service) are both legitimate; anything else — esp. 400/500/403 — is a bug.
+    // service) are both legitimate; anything else - esp. 400/500/403 - is a bug.
     expect([200, 503], `Services status ${services.status()}`).toContain(services.status());
     await assertPluginActive(admin);
   });
 
   test('/My/script is served anonymously (embedded JS, no auth header)', async () => {
-    // [AllowAnonymous] — must be reachable with NO Authorization header at all
+    // [AllowAnonymous] - must be reachable with NO Authorization header at all
     // (the sidebar script loads before the user is known). Use a bare context so
     // anonymity is actually exercised, not an admin token.
     const anon = await pwRequest.newContext({ baseURL: auth.baseUrl });
@@ -164,7 +164,7 @@ test.describe.serial('Discovery/My access gating', () => {
       data: { TmdbId: 27205, MediaType: 'movie' },
     });
     // A well-formed dismissal for an enabled user must be recorded (2xx). A
-    // 400 here would mean the valid payload was rejected — a real regression.
+    // 400 here would mean the valid payload was rejected - a real regression.
     expect(res.ok(), `Dismiss failed: ${res.status()}`).toBeTruthy();
     await assertPluginActive(admin);
   });

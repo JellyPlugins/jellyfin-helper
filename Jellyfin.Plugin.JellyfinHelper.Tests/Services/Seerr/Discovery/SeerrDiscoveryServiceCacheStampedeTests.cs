@@ -18,13 +18,13 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 
 /// <summary>
-///     TEST-10 — Concurrent correctness tests for <c>GetCachedSeerrUsersAsync</c> (exercised
+///     TEST-10 - Concurrent correctness tests for <c>GetCachedSeerrUsersAsync</c> (exercised
 ///     through the public <see cref="SeerrDiscoveryService.GetSeerrUsersAsync"/> entry point).
 ///
 ///     The current implementation does NOT use a single-flight / mutex-around-fetch pattern:
 ///     the lock is released before the network call, so multiple concurrent callers that
 ///     arrive when the cache is cold may each issue their own HTTP request to
-///     <c>/api/v1/user</c>.  These tests therefore do NOT assert "exactly one HTTP call" —
+///     <c>/api/v1/user</c>.  These tests therefore do NOT assert "exactly one HTTP call" -
 ///     they assert that:
 ///       • all concurrent callers receive a valid, non-empty result,
 ///       • all callers receive an identical user list,
@@ -121,7 +121,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
     [Fact]
     public async Task GetSeerrUsersAsync_WarmCache_SecondCallMakesNoHttpRequest()
     {
-        // Arrange: one response queued — only the first call should consume it.
+        // Arrange: one response queued - only the first call should consume it.
         using var handler = new CountingHttpHandler();
         handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);
         var sut = BuildService(handler);
@@ -207,7 +207,7 @@ public sealed class SeerrDiscoveryServiceCacheStampedeTests : IDisposable
     public async Task GetSeerrUsersAsync_FailedFetch_NotCached_NextCallRetries()
     {
         // Arrange: first call fails (500), second call succeeds.
-        // The failed (empty) result must NOT be cached — the next caller must retry.
+        // The failed (empty) result must NOT be cached - the next caller must retry.
         using var handler = new CountingHttpHandler();
         handler.EnqueueResponse("/api/v1/user", HttpStatusCode.InternalServerError, "boom");
         handler.EnqueueResponse("/api/v1/user", HttpStatusCode.OK, SinglePageUserJson);

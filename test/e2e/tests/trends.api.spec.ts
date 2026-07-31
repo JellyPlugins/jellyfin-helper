@@ -1,5 +1,5 @@
 /**
- * Trends + statistics integrity — the "is there garbage in there?" check.
+ * Trends + statistics integrity - the "is there garbage in there?" check.
  *
  * After the library scan (global-setup) the growth timeline, media statistics,
  * and library insights should contain coherent, non-garbage data:

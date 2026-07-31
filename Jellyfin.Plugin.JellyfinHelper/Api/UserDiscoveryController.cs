@@ -18,7 +18,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Api;
 
 /// <summary>
 ///     User-facing API controller for Seerr Discovery.
-///     Does NOT require admin elevation — any authenticated Jellyfin user can access these endpoints
+///     Does NOT require admin elevation - any authenticated Jellyfin user can access these endpoints
 ///     (gated by the <c>DiscoveryUserAccessEnabled</c> configuration toggle).
 /// </summary>
 [ApiController]
@@ -219,7 +219,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         // GetUserRequestPermissionsAsync already evaluated CanSelectQualityProfile and
         // built the allowed profiles list from GetServiceInfoAsync internally.
-        // If no profiles were returned, the user should use server defaults — return empty.
+        // If no profiles were returned, the user should use server defaults - return empty.
         if (permissions.Profiles.Count == 0)
         {
             return Ok(Array.Empty<SeerrServiceInfo>());
@@ -266,7 +266,7 @@ public sealed class UserDiscoveryController : ControllerBase
     /// <remarks>
     ///     AllowAnonymous is required because the script tag in index.html loads
     ///     before Jellyfin's authentication context is established. The script itself
-    ///     uses authenticated API calls internally — no sensitive data is exposed here.
+    ///     uses authenticated API calls internally - no sensitive data is exposed here.
     /// </remarks>
     /// <returns>The discovery-sidebar.js content.</returns>
     [HttpGet("script")]
@@ -394,7 +394,7 @@ public sealed class UserDiscoveryController : ControllerBase
         {
             // At this point GetUserRequestPermissionsAsync already confirmed the user exists
             // in Seerr (CanRequest=true). A null here indicates a transient cache/network issue
-            // between the two calls — use 502 to signal a retriable upstream failure.
+            // between the two calls - use 502 to signal a retriable upstream failure.
             return StatusCode(502, new RequestResult
             {
                 Success = false,
@@ -426,7 +426,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
             // Validate root folder against the matched profile.
             // When the profile has no specific root folder (empty/null), accept both null and empty
-            // from the client — the request will use Seerr's server default.
+            // from the client - the request will use Seerr's server default.
             // When the profile HAS a root folder, the client must provide an exact match.
             var profileHasRootFolder = !string.IsNullOrEmpty(matchedProfile.RootFolder);
             if (profileHasRootFolder)
@@ -438,7 +438,7 @@ public sealed class UserDiscoveryController : ControllerBase
             }
             else if (rootFolder != null)
             {
-                // Profile has no root folder constraint — reject if client sends a non-empty
+                // Profile has no root folder constraint - reject if client sends a non-empty
                 // root folder (trying to override to an arbitrary path when none is configured).
                 return StatusCode(403, new RequestResult { Success = false, Message = "You are not authorized to use this root folder." });
             }
@@ -460,7 +460,7 @@ public sealed class UserDiscoveryController : ControllerBase
 
         // ⚠️ CancellationToken is DELIBERATELY NOT forwarded to the cache / feedback-store
         // updates below. Once Seerr has accepted the request above, the local bookkeeping
-        // MUST run regardless of whether the HTTP client has disconnected — otherwise:
+        // MUST run regardless of whether the HTTP client has disconnected - otherwise:
         //   1. The requested item silently reappears on the next discovery-page refresh
         //      because MarkAsRequestedAsync never wrote the AlreadyRequested flag.
         //   2. The DiscoveryFeedbackStore misses a positive-signal training example, so the
@@ -469,7 +469,7 @@ public sealed class UserDiscoveryController : ControllerBase
         // the tab or lost its connection immediately after clicking "Request".
         //
         // Async variant is preferred (over the legacy sync overload) because it releases
-        // the request thread while AtomicFile's transient-IO retries sleep — the sync path
+        // the request thread while AtomicFile's transient-IO retries sleep - the sync path
         // can block for up to ~200 ms on AV/indexer contention, which would starve the
         // request pool under a burst of user requests.
         try
@@ -478,7 +478,7 @@ public sealed class UserDiscoveryController : ControllerBase
         }
         catch (Exception ex) when (!ex.IsFatal())
         {
-            // Best-effort cache update — log but do not fail the request.
+            // Best-effort cache update - log but do not fail the request.
             _logger.LogWarning(ex, "[Discovery] Failed to mark item {TmdbId}/{MediaType} as requested in cache for user {UserId}", dto.TmdbId, SanitizeForLog(mediaType), currentJellyfinUserId);
         }
 

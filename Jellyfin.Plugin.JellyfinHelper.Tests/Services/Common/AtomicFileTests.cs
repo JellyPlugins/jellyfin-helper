@@ -59,7 +59,7 @@ public sealed class AtomicFileTests : IDisposable
     {
         var path = Path.Join(_tempDir, "no-bom.txt");
         // Non-ASCII ensures UTF-8 encoding path is exercised
-        var payload = "Héllo — Ümlauts. 🎬";
+        var payload = "Héllo - Ümlauts. 🎬";
 
         AtomicFile.WriteAllText(path, payload);
 
@@ -303,7 +303,7 @@ public sealed class AtomicFileTests : IDisposable
         //                 (write won); never partial content, never missing.
         //
         // Additionally, we require that at LEAST ONE iteration observes cancellation.
-        // Without that observation the "cleanup on cancel" branch is never exercised —
+        // Without that observation the "cleanup on cancel" branch is never exercised -
         // exactly the code path the review flagged as untested. To make this reliable:
         //   * enough iterations (16) to overcome scheduler jitter on fast disks,
         //   * a very large payload (32 MB) to make the write take real wall-clock time,
@@ -312,7 +312,7 @@ public sealed class AtomicFileTests : IDisposable
         var path = Path.Join(_tempDir, "cancel-mid.txt");
         File.WriteAllText(path, "OLD");
 
-        // 32 MB payload — large enough that on realistic disk I/O the async write yields
+        // 32 MB payload - large enough that on realistic disk I/O the async write yields
         // several times before completion, giving the cancellation timer a real window.
         var payload = new string('X', 32 * 1024 * 1024);
 
@@ -357,7 +357,7 @@ public sealed class AtomicFileTests : IDisposable
             Assert.Empty(orphans);
 
             // Invariant #2: target file always exists, and only ever holds OLD or the
-            // full new payload — never a partial or truncated write.
+            // full new payload - never a partial or truncated write.
             Assert.True(File.Exists(path));
             var final = await File.ReadAllTextAsync(path);
             Assert.True(
@@ -395,7 +395,7 @@ public sealed class AtomicFileTests : IDisposable
     public async Task WriteAllTextAsync_DirectoryDoesNotExist_CreatesDirectoryAndWrites()
     {
         // Write to a path inside a non-existent subdirectory that is a direct child of
-        // Path.GetTempPath() — deliberately outside _tempDir so the directory is guaranteed
+        // Path.GetTempPath() - deliberately outside _tempDir so the directory is guaranteed
         // not to exist before the call.
         var subdir = Path.Combine(Path.GetTempPath(), "AtomicFileTests_NewDir_" + Guid.NewGuid().ToString("N"));
         var path = Path.Combine(subdir, "output.txt");

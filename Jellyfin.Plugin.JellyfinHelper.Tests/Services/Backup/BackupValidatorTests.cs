@@ -37,7 +37,7 @@ public class BackupValidatorTests
     [Fact]
     public void Validate_SeerrCleanupAgeDays_Zero_NoError()
     {
-        // Explicit zero means "immediate cleanup" — must be accepted as valid.
+        // Explicit zero means "immediate cleanup" - must be accepted as valid.
         var backup = CreateValidBackup();
         backup.SeerrCleanupAgeDays = 0;
 

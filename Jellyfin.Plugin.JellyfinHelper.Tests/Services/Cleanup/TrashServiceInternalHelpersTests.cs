@@ -31,7 +31,7 @@ public sealed class TrashServiceInternalHelpersTests
     [Fact]
     public void MeasureString_Null_ReturnsZero()
     {
-        // Null must never crash MeasureString — it is called with directory names
+        // Null must never crash MeasureString - it is called with directory names
         // that Path.GetDirectoryName can legitimately return as null (e.g. bare filenames).
         Assert.Equal(0, TrashService.MeasureString(null!));
     }
@@ -47,7 +47,7 @@ public sealed class TrashServiceInternalHelpersTests
     {
         const string value = "hello-world";
         var measured = TrashService.MeasureString(value);
-        // For pure ASCII, char length and UTF-8 byte count coincide — the platform
+        // For pure ASCII, char length and UTF-8 byte count coincide - the platform
         // divergence doesn't manifest, so we can assert both invariants at once.
         Assert.Equal(value.Length, measured);
         Assert.Equal(Encoding.UTF8.GetByteCount(value), measured);
@@ -114,7 +114,7 @@ public sealed class TrashServiceInternalHelpersTests
     [Fact]
     public void TruncateToSize_ZeroMaxSize_ReturnsEmpty()
     {
-        // A zero budget must not produce a single-char result — otherwise callers
+        // A zero budget must not produce a single-char result - otherwise callers
         // would try to Directory.Move to an over-budget path and hit IOException.
         Assert.Equal(string.Empty, TrashService.TruncateToSize("anything", 0));
     }
@@ -188,7 +188,7 @@ public sealed class TrashServiceInternalHelpersTests
         var truncated = TrashService.TruncateToSize(value, 8);
         Assert.Equal("日本", truncated);
 
-        // Round-trip through UTF-8 must succeed — verifies we didn't emit a broken sequence.
+        // Round-trip through UTF-8 must succeed - verifies we didn't emit a broken sequence.
         var reEncoded = Encoding.UTF8.GetString(Encoding.UTF8.GetBytes(truncated));
         Assert.Equal(truncated, reEncoded);
     }
@@ -253,7 +253,7 @@ public sealed class TrashServiceInternalHelpersTests
     public void ExtractOriginalName_TooShort_ReturnsUnchanged()
     {
         // Anything shorter than "yyyyMMdd-HHmmss_" (16 chars) cannot possibly carry a
-        // timestamp prefix — it must pass through unchanged.
+        // timestamp prefix - it must pass through unchanged.
         const string tiny = "short";
         Assert.Equal(tiny, TrashService.ExtractOriginalName(tiny));
     }
@@ -261,7 +261,7 @@ public sealed class TrashServiceInternalHelpersTests
     [Fact]
     public void ExtractOriginalName_ExactlyLengthOfTimestampFormat_ReturnsUnchanged()
     {
-        // 15 chars = exactly the format length — but with no trailing underscore + original name
+        // 15 chars = exactly the format length - but with no trailing underscore + original name
         // the guard "trashItemName.Length <= TimestampFormat.Length + 1" fires and we pass through.
         const string boundary = "20260601-120000"; // exactly 15 chars
         Assert.Equal(boundary, TrashService.ExtractOriginalName(boundary));
@@ -270,7 +270,7 @@ public sealed class TrashServiceInternalHelpersTests
     [Fact]
     public void ExtractOriginalName_NoUnderscoreAfterTimestamp_ReturnsUnchanged()
     {
-        // 16 chars but the 16th is not "_" — pattern doesn't match, pass through unchanged.
+        // 16 chars but the 16th is not "_" - pattern doesn't match, pass through unchanged.
         // BUG GUARD: a naive substring approach would produce garbage here.
         const string bogus = "20260601-1200000"; // 16 chars, no underscore
         Assert.Equal(bogus, TrashService.ExtractOriginalName(bogus));
@@ -367,14 +367,14 @@ public sealed class TrashServiceInternalHelpersTests
     [Fact]
     public void TryParseTrashTimestamp_MissingSeparator_ReturnsFalse()
     {
-        // Missing dash between date and time — pattern won't match.
+        // Missing dash between date and time - pattern won't match.
         var ok = TrashService.TryParseTrashTimestamp("20260601 120000_bad", out var ts);
         Assert.False(ok);
         Assert.Equal(DateTime.MinValue, ts);
     }
 
     // ============================================================================
-    // PathComparison — platform-aware string comparison used for path prefix checks.
+    // PathComparison - platform-aware string comparison used for path prefix checks.
     // ============================================================================
 
     [Fact]

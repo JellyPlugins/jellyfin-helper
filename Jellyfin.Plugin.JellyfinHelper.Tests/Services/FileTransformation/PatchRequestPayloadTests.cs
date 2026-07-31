@@ -5,7 +5,7 @@ using Xunit;
 namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.FileTransformation;
 
 /// <summary>
-///     Tests for <see cref="PatchRequestPayload"/> — a JSON DTO used by the File Transformation
+///     Tests for <see cref="PatchRequestPayload"/> - a JSON DTO used by the File Transformation
 ///     plugin callback. The property must map to <c>"contents"</c> (lowercase-camel) so upstream
 ///     payloads deserialize correctly.
 /// </summary>
@@ -14,7 +14,7 @@ public class PatchRequestPayloadTests
     [Fact]
     public void Deserialize_LowercaseContentsProperty_PopulatesContents()
     {
-        // The File Transformation plugin sends {"contents":"<html>..."} — property name is lowercase.
+        // The File Transformation plugin sends {"contents":"<html>..."} - property name is lowercase.
         var json = "{\"contents\":\"<html>hello</html>\"}";
         var payload = JsonSerializer.Deserialize<PatchRequestPayload>(json);
         Assert.NotNull(payload);

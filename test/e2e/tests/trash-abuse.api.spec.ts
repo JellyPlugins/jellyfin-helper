@@ -1,5 +1,5 @@
 /**
- * Adversarial trash tests — prove misuse can't touch data outside the media
+ * Adversarial trash tests - prove misuse can't touch data outside the media
  * library. These exercise the containment fix directly: an absolute trash path
  * pointing at a sensitive dir (e.g. Jellyfin's /config) must be REFUSED, and the
  * library-external canaries must survive every attempt.
@@ -44,7 +44,7 @@ test.describe.serial('trash operations never escape the media library', () => {
   test('an absolute /config trash path is refused at save, and DELETE never wipes config', async () => {
     // Containment now happens at CONFIG-SAVE time: persisting an absolute sensitive
     // trash path (Jellyfin's own /config) is rejected with 400, so the dangerous value
-    // never lands — a strictly stronger defense than catching it later at delete time.
+    // never lands - a strictly stronger defense than catching it later at delete time.
     const put = await ctx.put(p('Configuration'), {
       headers: { 'Content-Type': 'application/json' },
       data: { UseTrash: true, TrashFolderPath: '/config', TrashRetentionDays: 30 },
@@ -82,7 +82,7 @@ test.describe.serial('trash operations never escape the media library', () => {
   test('Trash/Relocate into an absolute /config destination is refused', async () => {
     // Seed a real relative trash source so only the DESTINATION is the problem. A
     // relative old + absolute new routes to the "old-relative/new-absolute" branch
-    // where only the destination guard fires — genuinely exercising the target
+    // where only the destination guard fires - genuinely exercising the target
     // rejection instead of duplicating the source-guard tests above.
     containerMkdir('/media/Movies/.jellyfin-trash');
     const res = await ctx.post(p('Trash/Relocate'), {

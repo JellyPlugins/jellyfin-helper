@@ -8,11 +8,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 ///     authorization gate for Discovery requests, every branch and every "admin bypass" contract
 ///     must be locked down against accidental changes:
 ///     <list type="bullet">
-///         <item>Zero-flag guard — <c>HasFlag(None)</c> must NEVER pass.</item>
-///         <item>Admin bypass — an admin user must satisfy every check.</item>
+///         <item>Zero-flag guard - <c>HasFlag(None)</c> must NEVER pass.</item>
+///         <item>Admin bypass - an admin user must satisfy every check.</item>
 ///         <item>Granular per-media-type flags must be respected only when general flag is missing.</item>
 ///         <item>Unknown media types must be rejected even for admins (defense in depth).</item>
-///         <item>Null user must throw — no silent authorization.</item>
+///         <item>Null user must throw - no silent authorization.</item>
 ///     </list>
 /// </summary>
 public class SeerrPermissionExtensionsTests

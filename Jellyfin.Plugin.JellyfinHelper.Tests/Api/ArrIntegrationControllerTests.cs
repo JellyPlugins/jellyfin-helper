@@ -149,7 +149,7 @@ public class ArrIntegrationControllerTests : IDisposable
 
         var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);
 
-        // Must not return 400 — the request reached the service layer
+        // Must not return 400 - the request reached the service layer
         Assert.IsNotType<BadRequestObjectResult>(result);
         var okResult = Assert.IsType<OkObjectResult>(result);
         var payload = Assert.IsType<ConnectionTestResponse>(okResult.Value);
@@ -159,7 +159,7 @@ public class ArrIntegrationControllerTests : IDisposable
     [Fact]
     public async Task TestArrConnectionAsync_EmptyUrl_Returns400()
     {
-        // Empty URL fails URI parsing — the SSRF guard returns 400 before reaching the service layer
+        // Empty URL fails URI parsing - the SSRF guard returns 400 before reaching the service layer
         var request = new ArrTestConnectionRequest { Url = "", ApiKey = "key" };
 
         var result = await _controller.TestArrConnectionAsync(request, CancellationToken.None);

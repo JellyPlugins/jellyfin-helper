@@ -469,7 +469,7 @@ public class RecommendationPlaylistServiceTests
     {
         // Critical defense: a playlist named for another user whose username is a prefix
         // of the current user's must NOT be deleted (this is the case the "AllDigit" check
-        // was explicitly introduced to prevent — see the guard comment in the SUT).
+        // was explicitly introduced to prevent - see the guard comment in the SUT).
         // Setup: current user is "Alice"; playlist name uses "Al" prefix instead of "Alice".
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Alice");
@@ -705,7 +705,7 @@ public class RecommendationPlaylistServiceTests
     public async Task UpdatePlaylists_CreationReturnsEmptyId_CountsAsFailureAndPreservesOldPlaylists()
     {
         // Jellyfin's CreatePlaylist can return an empty ID under edge conditions
-        // (e.g. permission failure). This must count as a failure — and critically,
+        // (e.g. permission failure). This must count as a failure - and critically,
         // old playlists must be PRESERVED so we don't leave the user without anything.
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Alice");
@@ -734,7 +734,7 @@ public class RecommendationPlaylistServiceTests
     public async Task UpdatePlaylists_CreationThrows_PreservesOldPlaylists()
     {
         // When creation throws, we count it as a failure and MUST NOT delete old
-        // playlists — otherwise a transient error would wipe the user's playlist.
+        // playlists - otherwise a transient error would wipe the user's playlist.
         var userId = Guid.NewGuid();
         SetupUserManagerSingleUser(userId, "Alice");
 

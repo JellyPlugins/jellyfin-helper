@@ -30,7 +30,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ///     Serializes the read-modify-write in <see cref="UpdateIndexHtml"/>. Injection runs from
     ///     both the constructor and the startup hosted service (and could overlap under real
     ///     parallelism), so without this lock two threads could both read the pre-injection
-    ///     content, both insert the tag, and race the write — risking a duplicated tag or a lost
+    ///     content, both insert the tag, and race the write - risking a duplicated tag or a lost
     ///     update. The lock makes "check whether our tag is already present, and only write if it
     ///     changed" a single atomic section.
     /// </summary>
@@ -75,7 +75,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         /// <summary>
         ///     The file could not be modified for a reason that installing File Transformation would
-        ///     resolve — most importantly the web directory being read-only (the write threw
+        ///     resolve - most importantly the web directory being read-only (the write threw
         ///     <see cref="UnauthorizedAccessException"/>/<see cref="IOException"/>), but also a
         ///     missing <c>index.html</c> that we cannot create on a read-only image.
         /// </summary>
@@ -172,7 +172,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     private void ReportClampedConfigValues()
     {
-        // BasePlugin<T>.Configuration is lazily materialised — in the real host it is populated
+        // BasePlugin<T>.Configuration is lazily materialised - in the real host it is populated
         // before this ctor runs, but tests spin up a bare Plugin instance without a serializer
         // wiring, so Configuration may still be null here. Skip silently in that case.
         PluginConfiguration? config = null;
@@ -228,12 +228,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ///         registered: "registered" does not prove the transformation is actually being applied
     ///         to the served response (the plugin could be a stale/incompatible build, or the
     ///         registration could silently no-op). Relying on registration alone is exactly what
-    ///         made the sidebar silently absent on a fresh server. The two paths are safe together —
+    ///         made the sidebar silently absent on a fresh server. The two paths are safe together -
     ///         <see cref="TransformationPatches.IndexHtml"/> strips any existing tag via
     ///         <see cref="DiscoveryScriptTag.RemovalRegex"/> before inserting, so a disk-injected tag
     ///         is de-duplicated in the served output; and <see cref="UpdateIndexHtml"/> is idempotent
     ///         (skips the write when the file already carries the current tag). The only case the disk
-    ///         write cannot cover — a read-only web dir — is precisely where File Transformation is
+    ///         write cannot cover - a read-only web dir - is precisely where File Transformation is
     ///         needed, and we surface that as one actionable warning.
     ///     </para>
     /// </summary>
@@ -247,7 +247,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         // Always attempt the disk fallback too. It is idempotent (no write when the tag is already
         // present) and de-duplicated by the File Transformation callback, so writing it while a
-        // transformation is also registered is harmless — but it guarantees the sidebar appears even
+        // transformation is also registered is harmless - but it guarantees the sidebar appears even
         // when File Transformation is absent, or registered-but-not-actually-applying.
         var result = UpdateIndexHtml(true);
 
@@ -264,7 +264,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             && !registered
             && Interlocked.Exchange(ref _readOnlyWarningEmitted, 1) == 0)
         {
-            // The disk fallback could not write (read-only web dir — the common case on Jellyfin 12
+            // The disk fallback could not write (read-only web dir - the common case on Jellyfin 12
             // / Docker) AND File Transformation is not available to rewrite the response instead.
             // Emit ONE actionable warning per server start (not a raw stack trace, not on every
             // re-injection attempt) so the admin knows exactly what to do.
@@ -277,8 +277,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ///     Determines whether a loaded assembly is the File Transformation plugin, matching on its
     ///     exact simple assembly name (<c>Jellyfin.Plugin.FileTransformation</c>).
     ///     <para>
-    ///         This is a precise, positive identity check — not a loose substring scan of the full
-    ///         assembly name — so an unrelated assembly that merely happens to contain the text
+    ///         This is a precise, positive identity check - not a loose substring scan of the full
+    ///         assembly name - so an unrelated assembly that merely happens to contain the text
     ///         ".FileTransformation" somewhere (including this plugin's own
     ///         <c>...Services.FileTransformation</c> namespace, which is a namespace, not an assembly
     ///         name) can never be mistaken for the File Transformation plugin. Getting this wrong in
@@ -506,7 +506,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
                 // CA1873: guard every LogDebug in this method consistently.
                 // These particular calls use constant messages (no expensive argument evaluation),
-                // so the runtime win is negligible — the value of the guard here is _consistency_:
+                // so the runtime win is negligible - the value of the guard here is _consistency_:
                 // it prevents future maintainers from adding a parameterized LogDebug to this
                 // block and accidentally regressing the CA1873 pattern the class opted into.
                 if (_logger.IsEnabled(LogLevel.Debug))
@@ -636,7 +636,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ///     uniquely-named <c>index.html.&lt;guid&gt;.tmp</c> before renaming it over the target;
     ///     it cleans that temp file up in-process on failure, but a hard process kill
     ///     (OOM / container SIGKILL) between the write and the rename orphans it. Because the
-    ///     name is unique per attempt, such orphans would otherwise accumulate forever —
+    ///     name is unique per attempt, such orphans would otherwise accumulate forever -
     ///     <see cref="CleanupDataFiles"/> only sweeps <c>DataPath</c>, never <c>WebPath</c>.
     ///     Swept on uninstall and at the start of each <see cref="UpdateIndexHtml"/> run so
     ///     leftovers cannot build up across crashes/restarts.

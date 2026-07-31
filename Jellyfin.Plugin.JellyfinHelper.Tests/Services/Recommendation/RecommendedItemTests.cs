@@ -14,11 +14,11 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation;
 ///         <item>Cache round-trips through <c>JsonSerializer</c> could set the field to <c>null</c>
 ///               when the persisted JSON omits or explicitly nulls the array.</item>
 ///         <item>Downstream callers (<c>TrainingDataBuilder</c>, <c>ScoringHelper</c>, etc.) iterate
-///               these lists directly with <c>foreach</c> or <c>Contains</c> — a <c>null</c> would
+///               these lists directly with <c>foreach</c> or <c>Contains</c> - a <c>null</c> would
 ///               throw <c>NullReferenceException</c> deep inside a scheduled task.</item>
 ///     </list>
 ///     <para>
-///         Every collection setter therefore has TWO branches — "value was null" and
+///         Every collection setter therefore has TWO branches - "value was null" and
 ///         "value was non-null". Only the non-null branch is exercised by "happy path"
 ///         test suites elsewhere. These tests pin the null branch for each property so
 ///         a regression removing the <c>?? []</c> coalescing surfaces immediately.

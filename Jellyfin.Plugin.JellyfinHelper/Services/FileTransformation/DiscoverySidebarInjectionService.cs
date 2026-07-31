@@ -10,16 +10,16 @@ namespace Jellyfin.Plugin.JellyfinHelper.Services.FileTransformation;
 ///     built and Jellyfin's web root is mounted.
 ///     <para>
 ///         <see cref="Plugin"/>'s constructor already calls <see cref="Plugin.InjectScript"/>, but
-///         the constructor runs very early during plugin discovery — before the File Transformation
+///         the constructor runs very early during plugin discovery - before the File Transformation
 ///         plugin is guaranteed to be loaded and before the web assets are reliably in place. This
 ///         hosted service runs the same injection again at a robust point in the startup sequence,
 ///         which also self-heals the disk-write fallback after a Jellyfin web update overwrites
 ///         <c>index.html</c> (the injected tag returns on the next server start).
 ///     </para>
 ///     <para>
-///         The injection is idempotent — <see cref="Services.FileTransformation.DiscoveryScriptTag.RemovalRegex"/>
+///         The injection is idempotent - <see cref="Services.FileTransformation.DiscoveryScriptTag.RemovalRegex"/>
 ///         strips any prior tag before re-inserting, and <see cref="Plugin.UpdateIndexHtml"/> skips
-///         the write when the file already matches — so running it from both the constructor and
+///         the write when the file already matches - so running it from both the constructor and
 ///         here never double-injects or churns the file.
 ///     </para>
 /// </summary>
@@ -40,7 +40,7 @@ public sealed class DiscoverySidebarInjectionService : IHostedService
     public Task StartAsync(CancellationToken cancellationToken)
     {
         // Plugin.Instance is set in the plugin constructor, which always runs before hosted
-        // services start, so it is expected to be non-null here. Guard anyway — a null instance
+        // services start, so it is expected to be non-null here. Guard anyway - a null instance
         // simply means there is nothing to inject, which is a no-op rather than an error.
         var plugin = Plugin.Instance;
         if (plugin == null)

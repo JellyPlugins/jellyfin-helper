@@ -436,7 +436,7 @@ public class UserActivityInsightsServiceTests
 
         Assert.Throws<OperationCanceledException>(() => svc.BuildActivityReport());
         // Both users' batch calls must have fired exactly once so the assertion actually
-        // exercises "cancellation after a partial preload" — not the shortcut where the
+        // exercises "cancellation after a partial preload" - not the shortcut where the
         // scan aborts before ever reaching Bob. Alice's successful batch proves the loop
         // was already several iterations in before Bob's cancellation propagated.
         ud.Verify(m => m.GetUserDataBatch(It.IsAny<IReadOnlyList<BaseItem>>(), alice), Times.Once);

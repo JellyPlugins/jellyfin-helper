@@ -1,16 +1,16 @@
 /**
- * Concurrency — invariants that must hold under genuinely concurrent requests
+ * Concurrency - invariants that must hold under genuinely concurrent requests
  * (Promise.all against the one shared server process; the suite is workers:1 so
  * files are serial, but requests inside a test race for real).
  *
- * Every assertion here is an INVARIANT that holds under ANY interleaving — never
+ * Every assertion here is an INVARIANT that holds under ANY interleaving - never
  * a probabilistic "usually" check. The hazards these guard were named in the
  * coverage audit (GrowthTimeline overlapping compute/double-write; serialized
  * config mutation). Assertions verified against source:
  *   - GrowthTimelineController serializes forceRefresh through a process-static
  *     semaphore + a 30s MinRefreshInterval, so at most ONE concurrent recompute
  *     runs; the rest get 429 + Retry-After. (We assert the interleaving-safe form,
- *     NOT a strict [200,429] pair — _lastRefreshTime is process-static and a prior
+ *     NOT a strict [200,429] pair - _lastRefreshTime is process-static and a prior
  *     spec's refresh in the last 30s could make both 429.)
  *   - PUT /Configuration/LogLevel serializes through ReadAndMutate, so racing
  *     writes of two valid levels leave exactly one of them stored, never garbage.
@@ -45,7 +45,7 @@ test('concurrent GrowthTimeline forceRefresh: at most one recomputes, the rest 4
   // Fire several forceRefresh recomputes at once. The controller's semaphore +
   // 30s throttle must let AT MOST ONE through (200); every rejected one is a 429
   // carrying Retry-After. This holds regardless of prior process state: if a
-  // recompute already ran in the last 30s, ALL of these may 429 — still valid.
+  // recompute already ran in the last 30s, ALL of these may 429 - still valid.
   const responses = await Promise.all(
     Array.from({ length: 4 }, () => ctx.get(p('GrowthTimeline?forceRefresh=true'))),
   );
@@ -55,7 +55,7 @@ test('concurrent GrowthTimeline forceRefresh: at most one recomputes, the rest 4
   const okCount = statuses.filter((s) => s === 200).length;
   expect(okCount, `at most one 200 (got statuses ${statuses.join(',')})`).toBeLessThanOrEqual(1);
 
-  // Invariant 2: every non-200 is a throttle 429 with a numeric Retry-After — not a
+  // Invariant 2: every non-200 is a throttle 429 with a numeric Retry-After - not a
   // 500 or any other error (a broken/absent semaphore could 500 or let two compute).
   for (const r of responses) {
     if (r.status() === 200) continue;
@@ -66,7 +66,7 @@ test('concurrent GrowthTimeline forceRefresh: at most one recomputes, the rest 4
     expect(retryAfter).toBeLessThanOrEqual(30);
   }
 
-  // Invariant 3: the persisted timeline read back (cache, no refresh) is coherent —
+  // Invariant 3: the persisted timeline read back (cache, no refresh) is coherent -
   // no torn write from the race: parseable, and cumulative size is non-decreasing.
   const cached = await ctx.get(p('GrowthTimeline'));
   if (cached.ok()) {
@@ -85,7 +85,7 @@ test('concurrent GrowthTimeline forceRefresh: at most one recomputes, the rest 4
 
 test('racing PUT /Configuration/LogLevel between two valid levels leaves exactly one, never garbage', async () => {
   // ReadAndMutate serializes each write. Alternate DEBUG/ERROR across N concurrent
-  // PUTs; the stored level must be one of the two (last-writer-wins) — never a torn
+  // PUTs; the stored level must be one of the two (last-writer-wins) - never a torn
   // value, never invalid, never a 500.
   const levels = ['DEBUG', 'ERROR'] as const;
   const puts = Array.from({ length: 10 }, (_, i) =>

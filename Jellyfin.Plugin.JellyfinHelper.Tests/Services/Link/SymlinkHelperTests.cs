@@ -42,7 +42,7 @@ public sealed class SymlinkHelperTests : IDisposable
     ///     privileges; certain sandboxed CI environments also reject them.
     ///     <para>
     ///         When this returns <c>false</c>, the calling test performs an early <c>return</c>
-    ///         and the test reports as <b>passed</b> (not skipped) — xUnit 2.9 has no runtime
+    ///         and the test reports as <b>passed</b> (not skipped) - xUnit 2.9 has no runtime
     ///         Assert.Skip API, and the currently referenced packages do not include a
     ///         third-party SkippableFact package. The trade-off is deliberate: a hard
     ///         <c>Assert.Fail</c> on unsupported environments would break the CI matrix
@@ -76,7 +76,7 @@ public sealed class SymlinkHelperTests : IDisposable
     ///     Meta-test: guarantees that at least one environment in the CI matrix actually
     ///     exercises the symlink path. On Linux/macOS symlinks are guaranteed to work in
     ///     a per-test <c>Path.GetTempPath()</c> directory, so if this ever fails there we
-    ///     know the probe itself is broken — before every other symlink test silently
+    ///     know the probe itself is broken - before every other symlink test silently
     ///     degenerates to "passed by skipping".
     /// </summary>
     [Fact]
@@ -84,7 +84,7 @@ public sealed class SymlinkHelperTests : IDisposable
     {
         if (OperatingSystem.IsWindows())
         {
-            // Windows CI without Developer Mode legitimately cannot create symlinks —
+            // Windows CI without Developer Mode legitimately cannot create symlinks -
             // the return-on-unsupported pattern in the other tests is the right answer
             // there.
             return;
@@ -98,14 +98,14 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     // -----------------------------------------------------------------------
-    // IsSymlink — must never throw on non-existent / permission-denied paths.
+    // IsSymlink - must never throw on non-existent / permission-denied paths.
     // -----------------------------------------------------------------------
 
     [Fact]
     public void IsSymlink_NonExistentPath_ReturnsFalse_DoesNotThrow()
     {
         // An early implementation used FileInfo(...).LinkTarget directly
-        // without an Exists guard, which threw on missing paths — turning a routine
+        // without an Exists guard, which threw on missing paths - turning a routine
         // "does this file need repair?" check into a fatal error.
         var path = Path.Join(_tempDir, "does-not-exist.txt");
         Assert.False(_sut.IsSymlink(path));
@@ -122,7 +122,7 @@ public sealed class SymlinkHelperTests : IDisposable
     [Fact]
     public void IsSymlink_Directory_ReturnsFalse()
     {
-        // FileInfo pointed at a directory has Exists=false — the helper must handle this
+        // FileInfo pointed at a directory has Exists=false - the helper must handle this
         // silently rather than throwing.
         var subDir = Path.Join(_tempDir, "subdir");
         Directory.CreateDirectory(subDir);
@@ -134,7 +134,7 @@ public sealed class SymlinkHelperTests : IDisposable
     {
         if (!SymlinksSupported())
         {
-            return; // skip — environment can't create symlinks
+            return; // skip - environment can't create symlinks
         }
 
         var target = Path.Join(_tempDir, "target.txt");
@@ -143,7 +143,7 @@ public sealed class SymlinkHelperTests : IDisposable
         File.CreateSymbolicLink(link, target);
 
         Assert.True(_sut.IsSymlink(link));
-        // The target itself is NOT a symlink — this is the tightest disambiguation.
+        // The target itself is NOT a symlink - this is the tightest disambiguation.
         Assert.False(_sut.IsSymlink(target));
     }
 
@@ -316,7 +316,7 @@ public sealed class SymlinkHelperTests : IDisposable
     }
 
     // -----------------------------------------------------------------------
-    // DeleteSymlink — the interesting one: the guard clause must fail loudly
+    // DeleteSymlink - the interesting one: the guard clause must fail loudly
     // on non-symlinks so we never accidentally delete a real file.
     // -----------------------------------------------------------------------
 
@@ -369,13 +369,13 @@ public sealed class SymlinkHelperTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => _sut.DeleteSymlink(path));
     }
 
-    // ReplaceSymlink — TOCTOU data-loss guard (audit finding link-service-1)
+    // ReplaceSymlink - TOCTOU data-loss guard (audit finding link-service-1)
 
     [Fact]
     public void ReplaceSymlink_DestIsRealFile_ThrowsAndDoesNotOverwrite()
     {
         // DATA-LOSS GUARD: if a REAL media file has replaced the symlink at destPath since the scan
-        // (e.g. an import wrote the finished download there), the repair must REFUSE — overwriting it
+        // (e.g. an import wrote the finished download there), the repair must REFUSE - overwriting it
         // with the temp symlink would destroy the bytes irreversibly. The real file must be untouched.
         if (!SymlinksSupported())
         {

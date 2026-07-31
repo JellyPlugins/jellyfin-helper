@@ -249,7 +249,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     public void ValidatePath_SensitiveCheckPrecedesExistence()
     {
         // The sensitive-path refusal must fire regardless of whether the dir exists on the
-        // test host — /config need not exist on a Windows dev box for the guard to apply.
+        // test host - /config need not exist on a Windows dev box for the guard to apply.
         if (OperatingSystem.IsWindows()) return;
         Assert.Equal(
             "This is a protected system folder and cannot be browsed.",
@@ -637,7 +637,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     [Fact]
     public void GetChildren_BrokenSymlink_DoesNotAbortListing()
     {
-        // A dangling symlink target should not crash the listing — other siblings must still show up.
+        // A dangling symlink target should not crash the listing - other siblings must still show up.
         var validSibling = Path.Combine(_tempRoot, "valid");
         var brokenLink = Path.Combine(_tempRoot, "broken-link");
         Directory.CreateDirectory(validSibling);
@@ -704,7 +704,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     {
         if (!OperatingSystem.IsWindows()) return;
 
-        // Non-existent UNC path — the exact error message can be one of several depending on
+        // Non-existent UNC path - the exact error message can be one of several depending on
         // network config, but it must never be null.
         var result = _service.ValidatePath(@"\\this-share-does-not-exist-xyz\share");
 
@@ -775,7 +775,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
         else
         {
             // On non-Windows the Windows branch can filter everything out. Only assert
-            // shape (no drives with malformed paths) — this documents that we still
+            // shape (no drives with malformed paths) - this documents that we still
             // exercise the code without falsely claiming to test drive filtering.
             Assert.All(result.Directories, e => Assert.False(string.IsNullOrEmpty(e.Path)));
         }
@@ -822,7 +822,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
     }
 
     // ===================================================================
-    // Access-denied path — Windows-only using ACL manipulation.
+    // Access-denied path - Windows-only using ACL manipulation.
     // Exercises the "Cannot access this directory" branches in both
     // ValidatePath and GetChildren.
     // ===================================================================
@@ -846,7 +846,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
             var result = _service.GetChildren(restricted);
 
             // Either the validation layer rejects it (Cannot access) or the enumeration layer does.
-            // Both are acceptable — the invariant is that we never leak a success payload.
+            // Both are acceptable - the invariant is that we never leak a success payload.
             Assert.NotNull(result.Error);
         }
         finally
@@ -876,7 +876,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
             // On most Windows environments TryDenyReadAccess blocks the current user and
             // ValidatePath returns the access error. On runners with elevated privileges
             // (e.g. SYSTEM/Administrator) the ACL denial may be bypassed, in which case
-            // ValidatePath returns null (no error). Both outcomes are permitted — the
+            // ValidatePath returns null (no error). Both outcomes are permitted - the
             // assertion ensures we never return a *different* unexpected error string.
             Assert.True(
                 result is null or "Cannot access this directory.",
@@ -943,7 +943,7 @@ public sealed class FolderBrowserServiceTests : IDisposable
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException
                                        or System.Security.SecurityException or PlatformNotSupportedException)
         {
-            // Best-effort — the tempdir cleanup will still try to delete.
+            // Best-effort - the tempdir cleanup will still try to delete.
         }
     }
 }

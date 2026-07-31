@@ -17,7 +17,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 ///     invalid-structure, and validation-failure branches that were previously uncovered.
 ///     <para>
 ///         These tests deliberately push the controller through pathways that a real client
-///         would only hit if the client is buggy, hostile, or the file is corrupted mid-upload —
+///         would only hit if the client is buggy, hostile, or the file is corrupted mid-upload -
 ///         situations where a silent partial import would be worst-case for user data integrity.
 ///     </para>
 /// </summary>
@@ -26,7 +26,7 @@ public class BackupControllerExtendedTests
     private readonly PluginLogService _log = TestMockFactory.CreatePluginLogService();
 
     // ================================================================================================
-    // Malformed JSON — must fail with 400 + informative message; MUST NOT crash the controller.
+    // Malformed JSON - must fail with 400 + informative message; MUST NOT crash the controller.
     // ================================================================================================
 
     [Fact]
@@ -50,7 +50,7 @@ public class BackupControllerExtendedTests
             var payloadJson = JsonSerializer.Serialize(badRequest.Value);
             Assert.Contains("Invalid backup file", payloadJson, StringComparison.Ordinal);
 
-            // Either surface response is acceptable — both cover the "corrupted JSON" contract.
+            // Either surface response is acceptable - both cover the "corrupted JSON" contract.
             // The important guarantee is 400, not 500, and a client-visible "Invalid backup file"
             // prefix so the frontend can display a consistent error banner regardless of which
             // branch the parse failure took.
@@ -68,7 +68,7 @@ public class BackupControllerExtendedTests
     }
 
     // ================================================================================================
-    // Structurally valid JSON that fails to deserialize into BackupData — must return 400.
+    // Structurally valid JSON that fails to deserialize into BackupData - must return 400.
     // ================================================================================================
 
     [Fact]
@@ -76,7 +76,7 @@ public class BackupControllerExtendedTests
     {
         // BUG GUARD: DeserializeBackup returns null when the payload deserializes to a null
         // reference (JSON literal "null"). Without the explicit null guard the RestoreBackup
-        // call downstream would fail on a NullReferenceException — a 500, not a 400.
+        // call downstream would fail on a NullReferenceException - a 500, not a 400.
         _log.Clear();
         var tempDir = CreateTempDir();
         try
@@ -107,7 +107,7 @@ public class BackupControllerExtendedTests
     {
         // BUG GUARD: a hostile client can lie in Content-Length and send more. Or, more
         // realistically, a chunked-transfer request has no Content-Length at all. The chunk
-        // loop's inline size check is the only defence — if it ever regresses to unbounded
+        // loop's inline size check is the only defence - if it ever regresses to unbounded
         // buffering, memory exhaustion becomes trivially exploitable.
         _log.Clear();
         var tempDir = CreateTempDir();
@@ -140,7 +140,7 @@ public class BackupControllerExtendedTests
     }
 
     // ================================================================================================
-    // Whitespace-only body — must be treated as "empty" (currently is, via IsNullOrWhiteSpace).
+    // Whitespace-only body - must be treated as "empty" (currently is, via IsNullOrWhiteSpace).
     // ================================================================================================
 
     [Fact]

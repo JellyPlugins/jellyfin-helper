@@ -48,7 +48,7 @@ jobs:
         run: bash test/e2e/scripts/run.sh
         env:
           CI: "true"
-          # In CI the non-admin fixture MUST provision — a missing one fails the
+          # In CI the non-admin fixture MUST provision - a missing one fails the
           # run instead of silently skipping the authorization / user-facing tests.
           E2E_REQUIRE_NORMAL_USER: "1"
 

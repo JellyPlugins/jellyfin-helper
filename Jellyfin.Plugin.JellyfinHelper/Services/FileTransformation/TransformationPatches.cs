@@ -41,7 +41,7 @@ public static class TransformationPatches
         {
             Plugin.Instance?.Logger.LogWarning(
                 ex,
-                "[Discovery Sidebar] RemovalRegex timed out on index.html content — returning unmodified content");
+                "[Discovery Sidebar] RemovalRegex timed out on index.html content - returning unmodified content");
             return content.Contents;
         }
 

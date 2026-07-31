@@ -16,13 +16,13 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests;
 ///         <c>Jellyfin.Plugin.JellyfinHelper/</c> and
 ///         <c>Jellyfin.Plugin.JellyfinHelper.Tests/</c>. Build output (<c>bin/</c>,
 ///         <c>obj/</c>) and the generated <c>PluginPages/configPage.html</c> (git-ignored,
-///         composed at build time) are excluded — they are not source and must not be
+///         composed at build time) are excluded - they are not source and must not be
 ///         documented.
 ///     </para>
 ///     <para>
 ///         To satisfy this when adding a file: add its filename to the appropriate
 ///         tree in CONTRIBUTING.md (Project Structure or Test Structure). A bare
-///         <c>│   ├── Foo.cs</c> line is enough — the guard only checks the filename
+///         <c>│   ├── Foo.cs</c> line is enough - the guard only checks the filename
 ///         is present, not that it carries a description.
 ///     </para>
 /// </summary>
@@ -68,7 +68,7 @@ public sealed class ContributingDocCoverageTests
                     continue;
                 }
 
-                // Skip build output — never source.
+                // Skip build output - never source.
                 var relative = Path.GetRelativePath(repoRoot!, file);
                 if (IsInBuildOutput(relative) || IsExcluded(relative))
                 {
@@ -86,7 +86,7 @@ public sealed class ContributingDocCoverageTests
 
         Assert.True(
             undocumented.Count == 0,
-            "These source/test files are not listed in CONTRIBUTING.md — add each to the "
+            "These source/test files are not listed in CONTRIBUTING.md - add each to the "
             + "Project Structure / Test Structure tree (a bare `│   ├── <file>` line is enough):"
             + Environment.NewLine
             + string.Join(Environment.NewLine, undocumented.OrderBy(p => p, StringComparer.Ordinal)));

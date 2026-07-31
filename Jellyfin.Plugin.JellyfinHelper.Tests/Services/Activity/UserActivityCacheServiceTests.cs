@@ -124,7 +124,7 @@ public sealed class UserActivityCacheServiceTests : IDisposable
         Assert.Single(item.UserActivities);
 
         var activity = item.UserActivities[0];
-        // UserName is [JsonIgnore] — not persisted to disk; resolves from IUserManager at API layer
+        // UserName is [JsonIgnore] - not persisted to disk; resolves from IUserManager at API layer
         Assert.Equal(string.Empty, activity.UserName);
         Assert.Equal(5, activity.PlayCount);
         Assert.True(activity.Played);
@@ -178,14 +178,14 @@ public sealed class UserActivityCacheServiceTests : IDisposable
 
     // -----------------------------------------------------------------------
     // Guard-branch coverage (was untested before this batch):
-    //   * SaveResult(null) — must throw before the lock is taken so the caller
+    //   * SaveResult(null) - must throw before the lock is taken so the caller
     //     surfaces the NRE via its normal test/observability tooling, not as
     //     a corrupted "empty JSON" cache file.
-    //   * LoadResult on a JSON file that deserializes to literal null — the
+    //   * LoadResult on a JSON file that deserializes to literal null - the
     //     helper is expected to log a warning AND return null so the caller
     //     falls through to the "no cache" recovery path instead of crashing
     //     on a null-dereference.
-    //   * SaveResult when the parent directory is missing — the helper must
+    //   * SaveResult when the parent directory is missing - the helper must
     //     auto-create the directory chain so a first-boot deployment doesn't
     //     lose its very first result.
     // -----------------------------------------------------------------------
@@ -193,7 +193,7 @@ public sealed class UserActivityCacheServiceTests : IDisposable
     [Fact]
     public void SaveResult_NullResult_ThrowsArgumentNullException()
     {
-        // BUG GUARD: the guard clause is a "throw before lock" — if a maintainer
+        // BUG GUARD: the guard clause is a "throw before lock" - if a maintainer
         // moved it inside the lock, a concurrent LoadResult would still spin
         // waiting for the lock while the NRE propagated. The pre-lock throw
         // means we fail fast and do not hold the semaphore on the failure path.
@@ -206,7 +206,7 @@ public sealed class UserActivityCacheServiceTests : IDisposable
         // BUG GUARD: a corrupt-but-parseable JSON payload containing the
         // literal token `null` deserializes to a null UserActivityResult.
         // Historically this collapsed with the "no cache file" branch and
-        // silently returned null — no diagnostics for the operator. The
+        // silently returned null - no diagnostics for the operator. The
         // implementation now logs a warning specifically for this case,
         // pinned by this test with a mock captured on the IPluginLogService.
         var mockPaths = new Mock<IApplicationPaths>();
@@ -263,11 +263,11 @@ public sealed class UserActivityCacheServiceTests : IDisposable
     {
         // BUG GUARD: an empty file (e.g. a zero-byte artefact of a crash during
         // a previous save) must NOT crash the caller with a JsonException at the
-        // top of the LoadResult method — the try/catch must swallow it and
+        // top of the LoadResult method - the try/catch must swallow it and
         // return null. Without this test a regression that narrows the catch
         // filter would silently break next-boot recovery. We also lock the
         // "logs a warning" contract by constructing a service with a captured
-        // IPluginLogService mock — the class-level _cacheService is built with
+        // IPluginLogService mock - the class-level _cacheService is built with
         // its own log-service mock the tests cannot reach, so we build a
         // dedicated instance here (same pattern as the literal-null test above).
         var mockPaths = new Mock<IApplicationPaths>();

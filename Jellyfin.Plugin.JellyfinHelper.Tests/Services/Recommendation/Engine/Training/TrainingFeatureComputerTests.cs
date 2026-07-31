@@ -749,7 +749,7 @@ public class TrainingFeatureComputerTests
     }
 
     // -----------------------------------------------------------------------
-    // AddAggregatedSeriesExample — the biggest uncovered slab of this file (0%).
+    // AddAggregatedSeriesExample - the biggest uncovered slab of this file (0%).
     //
     // Business meaning: an episode-heavy series would otherwise flood the training data with
     // one row per episode, biasing the model toward series with many episodes. This helper
@@ -879,7 +879,7 @@ public class TrainingFeatureComputerTests
     public void AddAggregatedSeriesExample_FavoriteOnlyNoPlayback_UsesFavoriteLabel()
     {
         // When a series has zero played episodes but at least one favourite,
-        // the label must be 0.65 (explicit-interest signal) — NOT the abandoned label (0.0).
+        // the label must be 0.65 (explicit-interest signal) - NOT the abandoned label (0.0).
         // A regression here would silently teach the model that favourited series are bad.
         var (seriesId, profile, episodes) = BuildSeriesEpisodes(
             totalEpisodes: 3, playedEpisodes: 0, anyFavorite: true, anyPartial: false);
@@ -1016,7 +1016,7 @@ public class TrainingFeatureComputerTests
     [Fact]
     public void AddAggregatedSeriesExample_NoStudioOverlap_LeavesStudioMatchFalse()
     {
-        // Wire-check: when preferredStudios is empty, StudioMatch must be false — never
+        // Wire-check: when preferredStudios is empty, StudioMatch must be false - never
         // silently true. An accidental `preferredStudios.Any()` inversion could
         // flip the sign.
         var (seriesId, profile, episodes) = BuildSeriesEpisodes(totalEpisodes: 2, playedEpisodes: 2);

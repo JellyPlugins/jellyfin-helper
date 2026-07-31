@@ -22,7 +22,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Api;
 ///     Validation paths (400 responses) are covered by the equivalent admin
 ///     <see cref="DiscoveryControllerTests"/> which shares the same DTO validation logic.
 ///     Full integration tests covering the enabled-access path require a running
-///     Jellyfin host with Plugin.Instance initialized — those are exercised by
+///     Jellyfin host with Plugin.Instance initialized - those are exercised by
 ///     <see cref="UserDiscoveryControllerAccessEnabledTests"/> and
 ///     <see cref="UserDiscoveryControllerSubmitTests"/> which flip the toggle on.
 ///     <para>

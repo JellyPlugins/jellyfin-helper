@@ -70,7 +70,7 @@ internal static class BatchFallbackHelper
         {
             // The whole reason this helper exists is that callers always get fallbackValue
             // back on non-cancellation failures. If onFailure itself throws (e.g. a
-            // logging provider blew up), swallow it — a broken logger must not break
+            // logging provider blew up), swallow it - a broken logger must not break
             // the graceful-degradation contract that all three call sites rely on.
             try
             {
@@ -78,7 +78,7 @@ internal static class BatchFallbackHelper
             }
             catch (OperationCanceledException)
             {
-                // Callback observed cancellation — must bubble out of the graceful-degradation path.
+                // Callback observed cancellation - must bubble out of the graceful-degradation path.
                 throw;
             }
             catch (AggregateException agg) when (ContainsOperationCanceled(agg))

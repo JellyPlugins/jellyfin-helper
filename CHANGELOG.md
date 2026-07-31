@@ -101,7 +101,7 @@ test suite that runs the plugin inside a real Jellyfin server on every change.
 ## [2.1.0.4] - 2026-05-24
 
 ### Fixed
-- **IUserManager API Upgrade** - Upgraded from deprecated `IUserManager.Users` property (removed in Jellyfin 10.11.8) to the stable `IUserManager.GetUsers()` method (10.11.9+ API). Resolves `MissingMethodException: Method not found 'IUserManager.get_Users()'` on all Jellyfin 10.11.8+ installations. Zero reflection — direct compile-time API call. Also fixed the same issue in `UserActivityInsightsService.BuildActivityReport()`.
+- **IUserManager API Upgrade** - Upgraded from deprecated `IUserManager.Users` property (removed in Jellyfin 10.11.8) to the stable `IUserManager.GetUsers()` method (10.11.9+ API). Resolves `MissingMethodException: Method not found 'IUserManager.get_Users()'` on all Jellyfin 10.11.8+ installations. Zero reflection - direct compile-time API call. Also fixed the same issue in `UserActivityInsightsService.BuildActivityReport()`.
 - **Trickplay Trash Re-Trashing Loop** - Fixed a critical bug where `CleanTrickplayTask` would recursively scan into the trash folder, re-detect previously trashed `.trickplay` directories as orphans, and move them to trash again on every scheduled run. Each cycle prepended a new timestamp prefix (`yyyyMMdd-HHmmss_`) to the folder name, eventually exceeding the OS path length limit (PATH_MAX) and causing an `IOException`. The task now excludes the configured trash folder (including custom paths) from its directory scan. A defense-in-depth guard in `TrashService.MoveToTrash()` additionally rejects any source path that already resides inside the trash folder.
 
 ### Changed
@@ -152,7 +152,7 @@ test suite that runs the plugin inside a real Jellyfin server on every change.
 - **Admin Discovery API** - Endpoints for viewing all user results, listing Seerr users, querying Radarr/Sonarr service info, and submitting requests with server/profile overrides (`/JellyfinHelper/Discovery`).
 - **Seerr User Mapping** - Jellyfin user IDs are automatically resolved to Seerr user IDs so requests appear under the correct account.
 - **Discovery User Access Toggle** - New `DiscoveryUserAccessEnabled` setting allows admins to control whether regular users can access Discovery.
-- **Discovery Feedback Loop for ML Training** - User interactions with Discovery recommendations (shown, dismissed, requested, watched) are persisted as training data. The recommendation engine uses this feedback in Phase 4 of training: items that were requested and later watched produce strong positive signals, dismissed items produce negative signals, and merely shown items serve as weak negatives — continuously improving recommendation quality over time.
+- **Discovery Feedback Loop for ML Training** - User interactions with Discovery recommendations (shown, dismissed, requested, watched) are persisted as training data. The recommendation engine uses this feedback in Phase 4 of training: items that were requested and later watched produce strong positive signals, dismissed items produce negative signals, and merely shown items serve as weak negatives - continuously improving recommendation quality over time.
 
 ### Tests
 - Total: **2190 tests**.

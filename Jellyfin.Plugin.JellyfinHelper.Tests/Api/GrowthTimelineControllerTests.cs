@@ -72,10 +72,10 @@ public class GrowthTimelineControllerTests
             .Setup(s => s.ComputeTimelineAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(timeline);
 
-        // Act: first call — should succeed because the window is clear.
+        // Act: first call - should succeed because the window is clear.
         var firstResult = await _controller.GetGrowthTimelineAsync(forceRefresh: true, CancellationToken.None);
 
-        // Act: second call immediately — still within the 30-second rate-limit window.
+        // Act: second call immediately - still within the 30-second rate-limit window.
         var secondResult = await _controller.GetGrowthTimelineAsync(forceRefresh: true, CancellationToken.None);
 
         // Assert first call returns 200 OK.

@@ -273,7 +273,7 @@ public sealed class UserDiscoveryControllerSubmitTests : IDisposable
     [Fact]
     public async Task SubmitMyRequest_RootFolderMismatch_Returns403()
     {
-        // Security: profile has a specific RootFolder — client MUST match it exactly.
+        // Security: profile has a specific RootFolder - client MUST match it exactly.
         var userId = Guid.NewGuid();
         _discoveryMock
             .Setup(d => d.GetUserRequestPermissionsAsync(userId, "movie", "radarr", It.IsAny<CancellationToken>()))

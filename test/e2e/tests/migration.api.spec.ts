@@ -1,5 +1,5 @@
 /**
- * Backup version-gating & config schema-evolution — the "what happens to an old
+ * Backup version-gating & config schema-evolution - the "what happens to an old
  * or forward-dated backup / an older-shaped config" surface, which had ZERO
  * behavioral coverage before.
  *
@@ -17,7 +17,7 @@
  *
  * NOT covered here (and why): the restore partial-failure / "manual recovery"
  * branch (BackupService.RestoreBackup) can only trigger when a file write
- * succeeds and a later step throws — and validated HTTP input can't make the
+ * succeeds and a later step throws - and validated HTTP input can't make the
  * config-restore step throw (every value is clamped/sanitized first). It needs
  * filesystem/permission tampering, so it is deliberately out of scope for an
  * HTTP-only spec rather than faked with a vacuous assertion.
@@ -109,7 +109,7 @@ test('a non-numeric backupVersion fails to parse with a DISTINCT 400 body', asyn
   expect(res.status(), 'unparseable version → 400').toBe(400);
   const body = (await res.json()) as { message: string; errors?: string[] };
   expect(body.message).toMatch(/could not parse/i);
-  // This branch is the parse failure, NOT the validation branch — so no errors[].
+  // This branch is the parse failure, NOT the validation branch - so no errors[].
   expect(body.errors, 'parse-error 400 has no validation errors[] array').toBeUndefined();
   await assertPluginActive(ctx);
 });

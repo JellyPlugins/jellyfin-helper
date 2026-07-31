@@ -457,7 +457,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     }
 
     // Fail-CLOSED on unknown creation date (audit finding seerr-external-1). A missing/null/default/
-    // future createdAt must NEVER be treated as expired — non-dry-run so a regression would DELETE.
+    // future createdAt must NEVER be treated as expired - non-dry-run so a regression would DELETE.
 
     private static string MakeRawRequestPage(string requestObjectJson, int totalResults = 1) =>
         "{\"pageInfo\":{\"page\":1,\"pages\":1,\"results\":" + totalResults
@@ -947,7 +947,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     [Fact]
     public async Task ResolveMediaTitleAsync_MediaNull_ReturnsUnknown_NoHttpCall()
     {
-        // Direct-invocation test of the internal helper — the null-guard branch must
+        // Direct-invocation test of the internal helper - the null-guard branch must
         // short-circuit BEFORE any HTTP call.
         var mock = new Mock<HttpMessageHandler>();
         mock.Protected()
@@ -976,7 +976,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     [Fact]
     public async Task ResolveMediaTitleAsync_ZeroTmdbId_ReturnsUnknown_NoHttpCall()
     {
-        // TMDB ids <= 0 must short-circuit — an HTTP call would waste Seerr API quota
+        // TMDB ids <= 0 must short-circuit - an HTTP call would waste Seerr API quota
         // on a request that cannot possibly resolve.
         var mock = new Mock<HttpMessageHandler>();
         mock.Protected()
@@ -1071,7 +1071,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     [Fact]
     public async Task TestConnection_ApiKeyWithInternalSpace_DoesNotThrow()
     {
-        // RFC 7230 forbids whitespace inside header values — Add() throws FormatException.
+        // RFC 7230 forbids whitespace inside header values - Add() throws FormatException.
         // TryAddWithoutValidation() must silently pass it through so the server can reject
         // the key with a proper HTTP error instead of crashing the plugin.
         var handler = CreateMockHandler(HttpStatusCode.Unauthorized, string.Empty);
@@ -1105,7 +1105,7 @@ public class SeerrIntegrationServiceTests : IDisposable
         // variable number of items actually returned in a page.
 
         var page1Requests = Enumerable.Range(1, 30)
-            .Select(i => (i, DateTimeOffset.UtcNow.AddDays(-10))) // young — not expired
+            .Select(i => (i, DateTimeOffset.UtcNow.AddDays(-10))) // young - not expired
             .ToList();
 
         // Build a page JSON with 30 results but totalResults=80 so pagination continues.
@@ -1319,7 +1319,7 @@ public class SeerrIntegrationServiceTests : IDisposable
     public async Task Cleanup_Page2FetchFails_SkipsDeletion_EvenWhenPage1HadExpiredItems()
     {
         // This test pins the most critical safety guarantee in the service: when Phase 1
-        // pagination does not complete cleanly, Phase 2 must not delete anything — acting
+        // pagination does not complete cleanly, Phase 2 must not delete anything - acting
         // on a partial snapshot would permanently remove requests whose expiry status could
         // not be confirmed from the missing pages.
         //
@@ -1336,14 +1336,14 @@ public class SeerrIntegrationServiceTests : IDisposable
                 {
                     id = 1,
                     createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"),
-                    status = 1, // pending — would normally be deleted
+                    status = 1, // pending - would normally be deleted
                     media = new { mediaType = "movie", tmdbId = 100, status = 1 }
                 },
                 new
                 {
                     id = 2,
                     createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"),
-                    status = 3, // declined — would normally be deleted
+                    status = 3, // declined - would normally be deleted
                     media = new { mediaType = "movie", tmdbId = 200, status = 3 }
                 }
             }
@@ -1361,14 +1361,14 @@ public class SeerrIntegrationServiceTests : IDisposable
                 callCount++;
                 if (callCount == 1)
                 {
-                    // First call: page 1 succeeds — two expired deletable requests
+                    // First call: page 1 succeeds - two expired deletable requests
                     return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                     {
                         Content = new System.Net.Http.StringContent(page1, System.Text.Encoding.UTF8, "application/json")
                     });
                 }
 
-                // Second call: page 2 fetch fails — pagination is incomplete
+                // Second call: page 2 fetch fails - pagination is incomplete
                 throw new HttpRequestException("connection reset by peer");
             });
 
@@ -1412,7 +1412,7 @@ public class SeerrIntegrationServiceTests : IDisposable
                 {
                     id = 7,
                     createdAt = DateTimeOffset.UtcNow.AddDays(-400).ToString("O"),
-                    status = 1, // pending — must be deleted
+                    status = 1, // pending - must be deleted
                     media = new { mediaType = "movie", tmdbId = 700, status = 1 }
                 }
             }

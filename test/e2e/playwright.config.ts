@@ -8,9 +8,9 @@ import { defineConfig, devices } from '@playwright/test';
  * wizard, grabs an admin token, creates the library and triggers a scan.
  *
  * Two projects share that setup:
- *   - "api"  — HTTP-level assertions (endpoints, task modes, backup, trends,
+ *   - "api"  - HTTP-level assertions (endpoints, task modes, backup, trends,
  *              hardening/edge cases). No browser.
- *   - "ui"   — Playwright browser tests of the config dashboard.
+ *   - "ui"   - Playwright browser tests of the config dashboard.
  *
  * Base URL and token are passed to tests via env (written by global-setup).
  */

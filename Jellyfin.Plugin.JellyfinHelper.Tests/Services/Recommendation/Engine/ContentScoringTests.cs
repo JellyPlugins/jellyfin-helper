@@ -6,7 +6,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 
 /// <summary>
 ///     xUnit collection marker for tests that touch process-global state related to
-///     <see cref="ContentScoring"/> — the static
+///     <see cref="ContentScoring"/> - the static
 ///     <see cref="ContentScoring.ParallelArrayMismatchCount"/> counter and the
 ///     <see cref="Trace.Listeners"/> chain used by <see cref="Debug.Assert(bool)"/>.
 ///     xUnit executes tests inside the same collection sequentially, which prevents a
@@ -25,7 +25,7 @@ public sealed class ContentScoringGlobalStateCollection
 ///     <para>
 ///         The previously-tested
 ///         <c>TrainingDataBuilder.ComputeCollectionProgressionBoostFromCache</c> legacy method
-///         was removed because it was dead code — only reflection-based tests referenced it and
+///         was removed because it was dead code - only reflection-based tests referenced it and
 ///         its 0.0/0.3/0.5 flat heuristic had already been superseded by the diminishing-returns
 ///         <c>ComputeCollectionProgressionBoostWithCounts</c> used in both Phase 1 and Phase 3
 ///         of <c>TrainingDataBuilder</c>. The remaining formula is covered end-to-end via the
@@ -138,7 +138,7 @@ public sealed class ContentScoringTests
         //
         // Debug.Assert in Debug builds would abort the test run via the default trace listener,
         // so we scope a listener swap that swallows the assertion while the method runs. The
-        // Trace.TraceWarning emitted on the first mismatch is orthogonal to this — we do not
+        // Trace.TraceWarning emitted on the first mismatch is orthogonal to this - we do not
         // assert on its exact wording (that would be brittle), only on the counter delta.
         var candidateGenres = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Action", "SciFi" };
         var watchedGenres = new List<HashSet<string>>
@@ -172,7 +172,7 @@ public sealed class ContentScoringTests
 
             // Genre-only path: candidate {Action, SciFi} vs first watched {Action} → Jaccard 1/2
             // (Action shared, SciFi only in candidate). Second watched {SciFi, Drama} vs candidate
-            // gives 1/3 (SciFi shared). Max composite is 0.5 × 0.5 = 0.25 from the first row —
+            // gives 1/3 (SciFi shared). Max composite is 0.5 × 0.5 = 0.25 from the first row -
             // the people/studio contributions are 0 due to the mismatch guard degrading them.
             Assert.InRange(score, 0.0, 1.0);
             Assert.True(score > 0.0, $"Score must reflect the surviving genre signal, got {score}");

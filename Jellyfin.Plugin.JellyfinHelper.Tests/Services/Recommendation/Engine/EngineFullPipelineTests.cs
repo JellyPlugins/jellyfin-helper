@@ -93,7 +93,7 @@ public sealed class EngineFullPipelineTests
     public void GetRecommendations_ColdStartUser_EmptyLibrary_ReturnsResultWithEmptyRecommendations()
     {
         // BUG GUARD: cold-start on an empty library must not throw and must produce a
-        // valid — if empty — RecommendationResult. Entry test for GenerateColdStartRecommendations.
+        // valid - if empty - RecommendationResult. Entry test for GenerateColdStartRecommendations.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId))
@@ -114,13 +114,13 @@ public sealed class EngineFullPipelineTests
         // REGRESSION GUARD (audit finding coldstart-05-rating): the cold-start scalar formula must
         // NOT let a fully-unrated candidate outrank a candidate the community explicitly rated poorly.
         // Previously ComputeCombinedCriticScore returned the neutral 0.5 for unrated items, so an
-        // unrated title scored 0.6*0.5=0.30 (rating term) while a real 3/10 scored 0.6*0.30=0.18 —
+        // unrated title scored 0.6*0.5=0.30 (rating term) while a real 3/10 scored 0.6*0.30=0.18 -
         // a 0.12 quality inversion. The fix substitutes the 0.30 unrated prior LOCALLY in cold-start.
         //
         // We pin BOTH boundaries of the calibration so a future mis-set prior is caught:
-        //   * unrated must TIE a 3/10 exactly (0.30 prior == 3.0/10) — a one-sided "<=" would let an
+        //   * unrated must TIE a 3/10 exactly (0.30 prior == 3.0/10) - a one-sided "<=" would let an
         //     over-penalizing regression (e.g. prior=0.0) ship undetected, so we assert equality.
-        //   * unrated must STRICTLY OUTRANK genuinely-bad content (2/10) — an unknown title is not
+        //   * unrated must STRICTLY OUTRANK genuinely-bad content (2/10) - an unknown title is not
         //     worse than trash, and this lower-bound assertion fails if the prior is pushed too low.
         // All three movies share genre + year, so recency and diversity-reranking are equal and the
         // rating term is the sole differentiator. We assert on Score (not list position) so an
@@ -155,7 +155,7 @@ public sealed class EngineFullPipelineTests
         Assert.NotNull(unratedRec);
 
         // Upper boundary: unrated ties a 3/10 exactly (0.30 prior maps to the same rating term as
-        // community 3.0/10). Asserting equality — not just "<=" — catches an over-penalizing regression.
+        // community 3.0/10). Asserting equality - not just "<=" - catches an over-penalizing regression.
         Assert.Equal(mediocreRec!.Score, unratedRec!.Score, 4);
 
         // Lower boundary: unrated strictly outranks genuinely-bad (2/10) content. Fails if the prior

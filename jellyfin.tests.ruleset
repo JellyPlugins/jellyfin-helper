@@ -2,39 +2,39 @@
 <RuleSet Name="Rules for Jellyfin.Plugin.JellyfinHelper.Tests" Description="Inherits the production ruleset and suppresses rules that fire legitimately in test code." ToolsVersion="14.0">
     <Include Path="jellyfin.ruleset" Action="Default" />
     <Rules AnalyzerId="StyleCop.Analyzers" RuleNamespace="StyleCop.Analyzers">
-        <!-- SA0001: XML comment analysis disabled — test project intentionally has no doc generation -->
+        <!-- SA0001: XML comment analysis disabled - test project intentionally has no doc generation -->
         <Rule Id="SA0001" Action="None" />
-        <!-- SA1005: Single-line comment must begin with a space — fires on commented-out Arrange/Act/Assert blocks -->
+        <!-- SA1005: Single-line comment must begin with a space - fires on commented-out Arrange/Act/Assert blocks -->
         <Rule Id="SA1005" Action="None" />
-        <!-- SA1010: Opening square bracket should not be preceded by a space — collection expressions in test data -->
+        <!-- SA1010: Opening square bracket should not be preceded by a space - collection expressions in test data -->
         <Rule Id="SA1010" Action="None" />
-        <!-- SA1025: Multiple whitespace — alignment spacing in test data tables -->
+        <!-- SA1025: Multiple whitespace - alignment spacing in test data tables -->
         <Rule Id="SA1025" Action="None" />
         <!-- SA1028: Trailing whitespace -->
         <Rule Id="SA1028" Action="None" />
         <!-- SA1107: Code should not contain multiple statements on one line -->
         <Rule Id="SA1107" Action="None" />
-        <!-- SA1116/SA1117/SA1122: Parameter alignment — test methods legitimately have many parameters -->
+        <!-- SA1116/SA1117/SA1122: Parameter alignment - test methods legitimately have many parameters -->
         <Rule Id="SA1116" Action="None" />
         <Rule Id="SA1117" Action="None" />
         <Rule Id="SA1122" Action="None" />
-        <!-- SA1201: Elements should appear in the correct order — test helper classes after test class -->
+        <!-- SA1201: Elements should appear in the correct order - test helper classes after test class -->
         <Rule Id="SA1201" Action="None" />
         <!-- SA1203: Constants must appear before fields -->
         <Rule Id="SA1203" Action="None" />
         <!-- SA1208: System using directives must be placed before other using directives -->
         <Rule Id="SA1208" Action="None" />
-        <!-- SA1313: Parameter name should begin with lower-case letter — record positional params -->
+        <!-- SA1313: Parameter name should begin with lower-case letter - record positional params -->
         <Rule Id="SA1313" Action="None" />
         <!-- SA1316: Tuple element names should use correct casing -->
         <Rule Id="SA1316" Action="None" />
-        <!-- SA1402: File may only contain a single type — test helpers collocated with test class -->
+        <!-- SA1402: File may only contain a single type - test helpers collocated with test class -->
         <Rule Id="SA1402" Action="None" />
         <!-- SA1407: Arithmetic expressions should declare precedence -->
         <Rule Id="SA1407" Action="None" />
         <!-- SA1414: Tuple types in signatures should have element names -->
         <Rule Id="SA1414" Action="None" />
-        <!-- SA1500/SA1501/SA1502/SA1503: Brace formatting — test methods use compact style -->
+        <!-- SA1500/SA1501/SA1502/SA1503: Brace formatting - test methods use compact style -->
         <Rule Id="SA1500" Action="None" />
         <Rule Id="SA1501" Action="None" />
         <Rule Id="SA1502" Action="None" />
@@ -45,7 +45,7 @@
         <Rule Id="SA1516" Action="None" />
         <Rule Id="SA1518" Action="None" />
         <Rule Id="SA1519" Action="None" />
-        <!-- SA1649: File name should match first type name — suppressed because SA1402 is already off -->
+        <!-- SA1649: File name should match first type name - suppressed because SA1402 is already off -->
         <Rule Id="SA1649" Action="None" />
     </Rules>
 </RuleSet>

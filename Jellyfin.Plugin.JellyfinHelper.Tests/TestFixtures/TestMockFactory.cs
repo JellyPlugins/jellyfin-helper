@@ -80,7 +80,7 @@ public static class TestMockFactory
     /// <summary>
     /// Creates a new <see cref="Mock{ILogger}"/> where <c>IsEnabled(...)</c> always returns
     /// <c>false</c>. Use this in tests that specifically want to exercise the
-    /// <c>logger.IsEnabled(...) == false</c> branch — for example to prove that a guarded
+    /// <c>logger.IsEnabled(...) == false</c> branch - for example to prove that a guarded
     /// <c>Log(...)</c> call is skipped without side effects (an <c>ILoggerProvider</c> that
     /// throws when disabled would surface here). The main <see cref="CreateLogger()"/>
     /// helper deliberately returns <c>true</c> so the common test path exercises the

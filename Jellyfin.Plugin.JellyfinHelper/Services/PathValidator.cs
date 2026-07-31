@@ -23,13 +23,13 @@ internal static class PathValidator
     /// <summary>
     /// Canonical set of sensitive system directories that plugin features must never
     /// read from, write to, delete, browse into, or repair links toward. This is the
-    /// single source of truth — previously each of LinkRepairService, TrashController
+    /// single source of truth - previously each of LinkRepairService, TrashController
     /// and FolderBrowserService kept its own (drifting) copy. Includes Jellyfin's own
     /// data/config/cache mounts and OS system roots on both Linux and Windows. The
     /// Windows roots include C: literals (defense-in-depth, matched even on non-Windows
     /// hosts) plus the OS-resolved locations via <see cref="Environment.GetFolderPath(Environment.SpecialFolder)"/>
     /// so a server installed on a drive other than C: is still protected.
-    /// NOTE: "/data" is deliberately listed — this plugin's containers mount media at
+    /// NOTE: "/data" is deliberately listed - this plugin's containers mount media at
     /// "/media", and "/data" is a Jellyfin-internal location that unit and e2e canary
     /// tests require to be refused. Do not remove it.
     /// </summary>
@@ -48,7 +48,7 @@ internal static class PathValidator
         };
 
         // Additionally resolve the real Windows system dirs from the OS, so a server installed
-        // on a drive other than C: (e.g. D:\Windows) is also protected — the literals above
+        // on a drive other than C: (e.g. D:\Windows) is also protected - the literals above
         // only cover C:.
         if (OperatingSystem.IsWindows())
         {
@@ -196,7 +196,7 @@ internal static class PathValidator
     /// Determines whether a fully-normalized absolute path equals, or is inside, a
     /// sensitive system directory (see <see cref="SensitiveSystemRoots"/>). Callers pass
     /// an already-normalized path (e.g. from <see cref="Path.GetFullPath(string)"/>).
-    /// A cross-location media target (another library / mount) is NOT sensitive — only
+    /// A cross-location media target (another library / mount) is NOT sensitive - only
     /// the well-known system/config locations are refused.
     /// </summary>
     /// <param name="normalizedPath">A normalized absolute path.</param>

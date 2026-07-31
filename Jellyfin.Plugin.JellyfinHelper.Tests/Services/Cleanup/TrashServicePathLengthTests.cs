@@ -104,7 +104,7 @@ public class TrashServicePathLengthTests : IDisposable
         var nameLen = maxLen - dirPrefixSize;
         if (nameLen <= 0)
         {
-            // Test root is already too long for this platform — skip gracefully.
+            // Test root is already too long for this platform - skip gracefully.
             return;
         }
 
@@ -191,7 +191,7 @@ public class TrashServicePathLengthTests : IDisposable
             return;
         }
 
-        // 260 chars > 255 (NAME_MAX) but far below 4095 (PATH_MAX) — exercises the component cap.
+        // 260 chars > 255 (NAME_MAX) but far below 4095 (PATH_MAX) - exercises the component cap.
         var path = Path.Join(_testRoot, new string('d', 260));
         var result = TrashService.ResolveCollision(path);
 
@@ -223,7 +223,7 @@ public class TrashServicePathLengthTests : IDisposable
         var componentByteCount = System.Text.Encoding.UTF8.GetByteCount(resultComponent);
         Assert.True(componentByteCount <= 255,
             $"Component byte length {componentByteCount} exceeds NAME_MAX 255 bytes");
-        // Verify we didn't lose everything — should still have some content
+        // Verify we didn't lose everything - should still have some content
         Assert.True(resultComponent.Length > 0, "Truncated component should not be empty");
     }
 
@@ -239,11 +239,11 @@ public class TrashServicePathLengthTests : IDisposable
 
         Directory.CreateDirectory(_testRoot);
 
-        // Use 80 CJK chars (240 bytes) — fits in 255 but after adding suffix would need truncation
+        // Use 80 CJK chars (240 bytes) - fits in 255 but after adding suffix would need truncation
         var multibyteComponent = new string('日', 80);
         var path = Path.Join(_testRoot, multibyteComponent);
 
-        // Create the original to force collision resolution — but only if it fits NAME_MAX
+        // Create the original to force collision resolution - but only if it fits NAME_MAX
         var componentBytes = System.Text.Encoding.UTF8.GetByteCount(multibyteComponent);
         if (componentBytes <= 255)
         {
@@ -280,7 +280,7 @@ public class TrashServicePathLengthTests : IDisposable
         var componentByteCount = System.Text.Encoding.UTF8.GetByteCount(resultComponent);
         Assert.True(componentByteCount <= 255,
             $"Emoji component byte length {componentByteCount} exceeds NAME_MAX 255 bytes");
-        // Verify no broken surrogates — re-encoding should round-trip cleanly
+        // Verify no broken surrogates - re-encoding should round-trip cleanly
         var reEncoded = System.Text.Encoding.UTF8.GetString(
             System.Text.Encoding.UTF8.GetBytes(resultComponent));
         Assert.Equal(resultComponent, reEncoded);

@@ -22,7 +22,7 @@
 .gitignore text eol=lf
 .gitattributes text eol=lf
 
-# Binary files — do not touch.
+# Binary files - do not touch.
 *.png binary
 *.gif binary
 *.jpg binary

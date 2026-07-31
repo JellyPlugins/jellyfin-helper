@@ -84,7 +84,7 @@ internal static class EngineTestFactory
         // GetItemList is called from LoadCandidateItems (batch path) and UpdateDiscoveryWatchedStatus.
         // Default TestMockFactory setup only wires GetVirtualFolders; Moq's default for
         // reference-type returns is null, which the Engine's downstream loops treat as
-        // iterables — a null would produce an NRE the moment the batch path enters the
+        // iterables - a null would produce an NRE the moment the batch path enters the
         // `foreach (var movie in movies)` block. Wire the empty-list return so the batch
         // path stays inside its normal control flow even in the no-library scenario.
         libraryManager

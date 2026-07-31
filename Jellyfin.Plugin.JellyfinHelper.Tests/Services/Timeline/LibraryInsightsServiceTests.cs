@@ -48,7 +48,7 @@ public class LibraryInsightsServiceTests
     {
         // A modified time EARLIER than created is a stale/preserved mtime (e.g. media copied with
         // -p, or restored from backup), NOT a real change. It must classify as "added" so the
-        // recency date is driven by the newer created time — otherwise GetRelevantDate would return
+        // recency date is driven by the newer created time - otherwise GetRelevantDate would return
         // the stale older mtime and the recent-filter would hide genuinely new media. (Previously
         // this used Math.Abs and wrongly returned "changed".)
         var created = new DateTime(2025, 6, 5, 12, 0, 0, DateTimeKind.Utc);

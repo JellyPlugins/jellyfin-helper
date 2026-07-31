@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 ///     TMDb/Seerr responses frequently contain empty strings (<c>""</c>) or malformed
 ///     date values for optional fields like <c>release_date</c> or <c>first_air_date</c>.
 ///     A stock <c>JsonSerializer</c> would throw <see cref="JsonException"/> in that case
-///     and drop the entire response — this converter must degrade gracefully.
+///     and drop the entire response - this converter must degrade gracefully.
 /// </summary>
 public class NullableDateTimeConverterTests
 {
@@ -75,7 +75,7 @@ public class NullableDateTimeConverterTests
     }
 
     // -----------------------------------------------------------------------
-    // Read: graceful degradation — the core motivation for this converter
+    // Read: graceful degradation - the core motivation for this converter
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -206,7 +206,7 @@ public class NullableDateTimeConverterTests
         var json = JsonSerializer.Serialize(container, CreateOptions());
         // Must be a JSON string, not a number, not null.
         Assert.Contains("\"Value\":\"", json, StringComparison.Ordinal);
-        // The wire format itself carries the UTC marker ("Z") — proof that Write emitted UTC.
+        // The wire format itself carries the UTC marker ("Z") - proof that Write emitted UTC.
         Assert.Contains("Z\"", json, StringComparison.Ordinal);
 
         // Round-trip: the absolute point in time and (with DateTimeStyles.RoundtripKind
@@ -270,7 +270,7 @@ public class NullableDateTimeConverterTests
 
         // Kind must survive round-trip.
         Assert.Equal(DateTimeKind.Utc, back.Value!.Value.Kind);
-        // Ticks must be identical — no timezone shift happens.
+        // Ticks must be identical - no timezone shift happens.
         Assert.Equal(container.Value.Value.Ticks, back.Value.Value.Ticks);
         // Full equality (including Kind) holds now.
         Assert.Equal(container.Value, back.Value);
@@ -281,7 +281,7 @@ public class NullableDateTimeConverterTests
     {
         // NOTE on .NET semantics: with DateTimeStyles.RoundtripKind, "+00:00" is treated as
         // "local timezone with offset 0" and becomes Kind=Local, whereas the trailing "Z" is
-        // treated as UTC and becomes Kind=Utc. This is intentional in .NET — offsets carry
+        // treated as UTC and becomes Kind=Utc. This is intentional in .NET - offsets carry
         // wall-clock information, "Z" carries the UTC marker.
         // The instant is identical either way, which is what matters for callers doing
         // absolute comparisons via ToUniversalTime().
@@ -315,7 +315,7 @@ public class NullableDateTimeConverterTests
     [Fact]
     public void Read_DateOnlyIsoString_YieldsUnspecifiedKind()
     {
-        // "YYYY-MM-DD" carries no timezone info — must not be assumed to be UTC or Local.
+        // "YYYY-MM-DD" carries no timezone info - must not be assumed to be UTC or Local.
         var json = "{\"Value\":\"2024-06-15\"}";
         var result = JsonSerializer.Deserialize<Container>(json, CreateOptions());
         Assert.NotNull(result);
@@ -332,7 +332,7 @@ public class NullableDateTimeConverterTests
         // Seerr responses.
         //
         // The previous version of this test used an ISO-8601 payload ("2024-06-15T…Z")
-        // which parses identically in every culture — so it could not detect a
+        // which parses identically in every culture - so it could not detect a
         // regression that removed the InvariantCulture argument. We now use the
         // US-format "6/15/2024" which is:
         //   * unambiguous under InvariantCulture (June 15, 2024)
@@ -361,7 +361,7 @@ public class NullableDateTimeConverterTests
     }
 
     // -----------------------------------------------------------------------
-    // Direct converter API (bypassing JsonSerializer) — exercises Write() edge cases
+    // Direct converter API (bypassing JsonSerializer) - exercises Write() edge cases
     // -----------------------------------------------------------------------
 
     [Fact]

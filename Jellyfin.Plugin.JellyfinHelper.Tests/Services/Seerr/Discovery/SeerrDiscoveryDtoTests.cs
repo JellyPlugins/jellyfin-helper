@@ -142,7 +142,7 @@ public class SeerrDiscoveryDtoTests
     }
 
     // -----------------------------------------------------------------------
-    // SeerrUser (public — no reflection needed)
+    // SeerrUser (public - no reflection needed)
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -214,7 +214,7 @@ public class SeerrDiscoveryDtoTests
         var obj = Activator.CreateInstance(t)!;
         Assert.NotNull(GetProp(obj, "Results"));
         Assert.Empty((IEnumerable)GetProp(obj, "Results")!);
-        // PageInfo may be null when not populated — accepted.
+        // PageInfo may be null when not populated - accepted.
     }
 
     [Fact]
@@ -236,7 +236,7 @@ public class SeerrDiscoveryDtoTests
     }
 
     // -----------------------------------------------------------------------
-    // TmdbDiscoverResponse — has a non-trivial Results setter that coalesces null → []
+    // TmdbDiscoverResponse - has a non-trivial Results setter that coalesces null → []
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -348,7 +348,7 @@ public class SeerrDiscoveryDtoTests
     }
 
     // -----------------------------------------------------------------------
-    // UserRequestPermissionResult (public — used by the DiscoveryController response contract)
+    // UserRequestPermissionResult (public - used by the DiscoveryController response contract)
     // -----------------------------------------------------------------------
 
     [Fact]
@@ -414,7 +414,7 @@ public class SeerrDiscoveryDtoTests
     }
 
     // -----------------------------------------------------------------------
-    // DiscoveryFeedbackEntry — MediaType normalisation + GetStatus() state machine
+    // DiscoveryFeedbackEntry - MediaType normalisation + GetStatus() state machine
     // -----------------------------------------------------------------------
 
     [Theory]

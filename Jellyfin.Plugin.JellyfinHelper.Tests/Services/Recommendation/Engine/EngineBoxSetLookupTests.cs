@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 ///     <see cref="Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine"/>:
 ///     <c>BuildCandidateBoxSetLookupFresh</c> and <c>ResolveBoxSetIds</c>.
 ///     <para>
-///         Both helpers sit on the recommendation hot path — <c>ResolveBoxSetIds</c> is
+///         Both helpers sit on the recommendation hot path - <c>ResolveBoxSetIds</c> is
 ///         invoked once per candidate on every batch run (typically 5k–50k candidates in
 ///         a real deployment) and <c>BuildCandidateBoxSetLookupFresh</c> is the O(N)
 ///         driver that materialises the per-candidate lookup consumed by
@@ -26,7 +26,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 ///         not OutOfMemoryException and not StackOverflowException)</c> so that a badly-
 ///         constructed <c>BaseItem</c> (e.g. one whose <c>GetParent()</c> throws because
 ///         the LibraryManager static hook is not initialised in a test host) NEVER blows
-///         up the pipeline — the empty list is the fail-soft default. These tests pin
+///         up the pipeline - the empty list is the fail-soft default. These tests pin
 ///         that contract by feeding raw <c>Movie()</c> instances that HAVE no parent and
 ///         verifying the helpers still produce sensible output rather than throwing.
 ///     </para>
@@ -51,14 +51,14 @@ public sealed class EngineBoxSetLookupTests
     [Fact]
     public void BuildCandidateBoxSetLookupFresh_MovieWithoutParent_IsSkipped_NotInLookup()
     {
-        // BUG GUARD: the helper's contract is SPARSE — only candidates that resolve to
+        // BUG GUARD: the helper's contract is SPARSE - only candidates that resolve to
         // at least one BoxSet are stored. A raw Movie() without any parent hierarchy
         // must produce a 0-item lookup, NOT a `{ movie.Id → [] }` entry.
         //
         // Motivation for the sparsity: downstream code does a `TryGetValue(itemId, out var boxSets)`
         // and treats "key missing" as "no signal". Storing empty lists as values would
         // still satisfy the TryGetValue call but push the enumeration into a wasted
-        // `foreach` over zero items — multiplied by tens of thousands of candidates in a
+        // `foreach` over zero items - multiplied by tens of thousands of candidates in a
         // real library that becomes measurable overhead on every batch run.
         var movie = new Movie { Id = Guid.NewGuid() };
         var result = InvokeBuildCandidateBoxSetLookupFresh([movie]);
@@ -68,7 +68,7 @@ public sealed class EngineBoxSetLookupTests
     [Fact]
     public void BuildCandidateBoxSetLookupFresh_MultipleMoviesWithoutParents_ReturnsEmpty()
     {
-        // Ensures the sparsity guarantee holds at scale — a list of 100 orphan movies
+        // Ensures the sparsity guarantee holds at scale - a list of 100 orphan movies
         // must still yield a completely empty lookup rather than 100 empty-list entries.
         var movies = new List<BaseItem>();
         for (var i = 0; i < 100; i++)
@@ -91,7 +91,7 @@ public sealed class EngineBoxSetLookupTests
         // a loop). A movie without a parent must produce an empty list, not throw.
         // Note: in the test host the LibraryManager static hook is not fully wired, so
         // this exercises the graceful fallback path via the `catch (Exception ...)` in
-        // ResolveBoxSetIds — which is exactly the branch that protects production from
+        // ResolveBoxSetIds - which is exactly the branch that protects production from
         // corrupted parent references in third-party metadata plugins.
         var movie = new Movie { Id = Guid.NewGuid() };
         var result = InvokeResolveBoxSetIds(movie);
@@ -115,7 +115,7 @@ public sealed class EngineBoxSetLookupTests
     }
 
     // ================================================================================
-    // Reflection glue — both methods are `private static`.
+    // Reflection glue - both methods are `private static`.
     // ================================================================================
 
     private static Dictionary<Guid, List<Guid>> InvokeBuildCandidateBoxSetLookupFresh(List<BaseItem> candidates)

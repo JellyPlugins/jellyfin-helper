@@ -19,7 +19,7 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Recommendation.Engine;
 ///     <see cref="Jellyfin.Plugin.JellyfinHelper.Services.Recommendation.Engine.Engine"/>
 ///     when the user's watch history contains episodes.
 ///     <para>
-///         The engine's <c>allCandidates</c> list contains Movies and Series only — never
+///         The engine's <c>allCandidates</c> list contains Movies and Series only - never
 ///         Episodes. When watch-history rows represent episodes, their <c>ItemId</c> has no
 ///         entry in <c>peopleLookup</c> or <c>candidateLookup</c>. The SeriesId fallback
 ///         resolves people and studios from the parent Series, ensuring that episode watch
@@ -213,7 +213,7 @@ public sealed class EngineEpisodicWatchHistoryTests
                 new()
                 {
                     ItemId = episodeId,
-                    SeriesId = null, // no parent series — fallback must be skipped cleanly
+                    SeriesId = null, // no parent series - fallback must be skipped cleanly
                     Name = "Standalone Special",
                     ItemType = "Episode",
                     Played = true,
@@ -228,7 +228,7 @@ public sealed class EngineEpisodicWatchHistoryTests
             .Returns(new Collection<UserWatchProfile> { profile });
 
         // Must complete without throwing regardless of whether a recommendation
-        // is produced — the empty watched-people set is a valid degraded state.
+        // is produced - the empty watched-people set is a valid degraded state.
         var result = harness.Engine.GetRecommendations(userId, 10, CancellationToken.None);
 
         Assert.NotNull(result);

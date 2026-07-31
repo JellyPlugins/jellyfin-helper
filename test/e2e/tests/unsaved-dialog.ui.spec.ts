@@ -1,5 +1,5 @@
 /**
- * Unsaved-changes dialog — the explicitly requested behaviour: change a setting
+ * Unsaved-changes dialog - the explicitly requested behaviour: change a setting
  * (e.g. the retention/days number), do NOT save, then try to leave the settings
  * tab → the "unsaved changes" dialog must appear. Counter-checks: after saving,
  * no dialog; Cancel keeps you on the tab with the change intact; Discard leaves.
@@ -40,14 +40,14 @@ test('leaving the settings tab while dirty shows the unsaved-changes dialog', as
   await openSettings(page);
   await makeDirty(page);
 
-  // Try to switch to another tab — the guard should intercept.
+  // Try to switch to another tab - the guard should intercept.
   await page.locator('.tab-btn[data-tab="overview"]').click();
 
   const dialog = page.locator('#unsavedDialogOverlay');
   await expect(dialog, 'unsaved-changes dialog must appear').toBeVisible({ timeout: 5000 });
 
   // Cancel keeps us on settings with the change intact. Check count() first (like the
-  // Discard lookup below) rather than click().catch() — otherwise a locale mismatch
+  // Discard lookup below) rather than click().catch() - otherwise a locale mismatch
   // would burn the full ~30s default click timeout before the fallback runs.
   const cancelBtn = dialog.getByRole('button').filter({ hasText: /cancel|abbrechen/i }).first();
   if (await cancelBtn.count()) {
@@ -63,11 +63,11 @@ test('after saving, leaving the tab does NOT show the dialog', async ({ page }) 
   await openSettings(page);
   await makeDirty(page);
 
-  // Save via the band button, and wait for the PUT to actually complete — not
+  // Save via the band button, and wait for the PUT to actually complete - not
   // just for the band to drop is-unsaved. The band flips out of is-unsaved the
   // instant saving STARTS (renderSaveBand('saving')), but the dirty-baseline
   // snapshot only updates after the PUT /Configuration succeeds. Switching tabs
-  // in that window would still be seen as dirty and (correctly) pop the dialog —
+  // in that window would still be seen as dirty and (correctly) pop the dialog -
   // a test race, not an app bug.
   const [saveResp] = await Promise.all([
     page.waitForResponse(
@@ -80,7 +80,7 @@ test('after saving, leaving the tab does NOT show the dialog', async ({ page }) 
   // Band should also have left the unsaved state.
   await expect(page.locator('#settingsSaveBand')).not.toHaveClass(/is-unsaved/, { timeout: 10_000 });
 
-  // Now switching tabs should be clean — no dialog.
+  // Now switching tabs should be clean - no dialog.
   await page.locator('.tab-btn[data-tab="overview"]').click();
   await expect(page.locator('#tab-overview')).toHaveClass(/active/, { timeout: 10_000 });
   await expect(page.locator('#unsavedDialogOverlay')).toBeHidden();

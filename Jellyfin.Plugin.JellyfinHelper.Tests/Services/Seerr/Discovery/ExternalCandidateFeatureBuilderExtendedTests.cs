@@ -103,7 +103,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
     {
         // BUG GUARD: TMDb returns names like "leonardo dicaprio" while the profile stores
         // "Leonardo DiCaprio". Without the defensive rebuild the case-sensitive HashSet
-        // silently yields zero overlap and drops PeopleSimilarity to 0.0 — invisibly
+        // silently yields zero overlap and drops PeopleSimilarity to 0.0 - invisibly
         // corrupting the score. This test forces the rebuild branch by passing a
         // case-sensitive Ordinal comparer with a populated set.
         var profile = BuildProfile();
@@ -170,11 +170,11 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
     {
         // BUG GUARD: TV items typically have FirstAirDate populated while ReleaseDate is
         // empty. The TmdbDiscoverItem.EffectiveReleaseDate property falls back to
-        // FirstAirDate — this test locks the contract that a TV item DOES receive a
+        // FirstAirDate - this test locks the contract that a TV item DOES receive a
         // non-neutral recency signal (i.e. RecencyScore differs from the "no date at all"
         // fallback of exactly 0.5), proving that the fallback chain fired.
         //
-        // NOTE: The exact recency curve shape is intentionally not asserted here — the
+        // NOTE: The exact recency curve shape is intentionally not asserted here - the
         // ContentScoring.ComputeRecencyScore behaviour is covered by
         // ContentScoringTests. What matters for THIS test is that the FirstAirDate is
         // actually used (i.e. the code took the non-null branch) rather than falling
@@ -184,7 +184,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
         var exposure = PreferenceBuilder.BuildGenreExposureAnalysis(prefs, profile);
 
         // Two candidates with different FirstAirDate values so we can prove the score
-        // varies with the date — that alone forces the non-null branch through and rules
+        // varies with the date - that alone forces the non-null branch through and rules
         // out "always returns 0.5" regressions.
         var recent = new TmdbDiscoverItem
         {
@@ -215,7 +215,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
 
         Assert.True(recentFeatures.IsSeries);
         Assert.True(oldFeatures.IsSeries);
-        // The recent TV MUST score strictly higher than the ancient one — that proves
+        // The recent TV MUST score strictly higher than the ancient one - that proves
         // FirstAirDate was consulted (rather than both falling through to a constant).
         Assert.True(
             recentFeatures.RecencyScore > oldFeatures.RecencyScore,
@@ -225,7 +225,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
     [Fact]
     public void Build_MediaTypeCaseInsensitive_TreatsUpperCaseTvAsSeries()
     {
-        // The `IsSeries` computation uses OrdinalIgnoreCase — verify the branch by feeding
+        // The `IsSeries` computation uses OrdinalIgnoreCase - verify the branch by feeding
         // a payload with an unusual casing that a strict-equality regression would miss.
         var profile = BuildProfile();
         var prefs = PreferenceBuilder.BuildGenrePreferenceVector(profile);
@@ -234,7 +234,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
         var candidate = new TmdbDiscoverItem
         {
             Id = 702,
-            MediaType = "TV", // uppercase — spec allows either case
+            MediaType = "TV", // uppercase - spec allows either case
             Name = "Uppercase TV",
             GenreIds = [ActionTmdbGenreId],
             VoteAverage = 7.0,
@@ -342,7 +342,7 @@ public sealed class ExternalCandidateFeatureBuilderExtendedTests
     public void ComputePeopleSimilarityFromNames_FiltersWhitespaceAndDedupes()
     {
         // "Alice" appears three times (director credit, writer credit, executive-producer
-        // credit) — a naive Count() would double-boost the score. Plus one whitespace
+        // credit) - a naive Count() would double-boost the score. Plus one whitespace
         // entry which must be filtered out.
         var preferred = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Alice", "Bob", "Carol", "Dan", "Eve" };
         string[] known = ["Alice", "alice", "ALICE", "   ", "", "Bob"];

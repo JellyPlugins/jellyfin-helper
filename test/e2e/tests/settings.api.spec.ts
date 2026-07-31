@@ -1,5 +1,5 @@
 /**
- * Settings persistence + "does it take effect" — flips settings via
+ * Settings persistence + "does it take effect" - flips settings via
  * PUT /Configuration, reloads via GET, and asserts they stuck. Covers the
  * gotchas the research flagged:
  *   - API keys masked as *** on GET; sending *** preserves the stored key.
@@ -59,7 +59,7 @@ test('OrphanMinAgeDays persists and clamps out-of-range values', async () => {
 
   // Over-max clamps to 3650 rather than crashing or persisting garbage.
   const res = await putConfig({ OrphanMinAgeDays: 999999 });
-  // Validator hard-blocks out-of-range with 400 OR clamps — accept either, but
+  // Validator hard-blocks out-of-range with 400 OR clamps - accept either, but
   // the persisted value must never exceed the cap.
   if (res.ok()) {
     expect((await getConfig()).OrphanMinAgeDays).toBeLessThanOrEqual(3650);
@@ -84,7 +84,7 @@ test('trash settings persist and toggle', async () => {
 
 test('Seerr API key mask (***): stored key is preserved on re-save (functionally proven)', async () => {
   // The admin Discovery/Request path submits to the mock using the STORED key and
-  // returns a non-2xx if that key is rejected — a cache-immune, per-call probe
+  // returns a non-2xx if that key is rejected - a cache-immune, per-call probe
   // (unlike Discovery/Users, which caches for 5 min and swallows upstream 401s).
   // The mock now 401s a literal '***' (mocks/seerr-server.js), so a wipe-to-mask
   // is detectable: the submission would fail AND never reach the mock.
@@ -112,14 +112,14 @@ test('Seerr API key mask (***): stored key is preserved on re-save (functionally
     expect((await resetAndSubmit()).recorded, 'stored key must reach the mock (baseline)').toBe(1);
 
     // Re-save echoing the mask: '***' must mean "keep the stored key", never
-    // persist the literal mask. Prove it — a submission must still reach the mock.
+    // persist the literal mask. Prove it - a submission must still reach the mock.
     const resaveMask = await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: '***', SeerrCleanupAgeDays: 30 });
     expect(resaveMask.ok(), `mask re-save failed: ${resaveMask.status()}`).toBeTruthy();
     expect((await getConfig()).SeerrApiKey).toBe('***');
     expect((await resetAndSubmit()).recorded, "stored key was WIPED by a '***' re-save").toBe(1);
 
     // Same guarantee for a whitespace-padded mask ' *** ' (server trims before the
-    // sentinel compare — ConfigurationController preserves the key here too).
+    // sentinel compare - ConfigurationController preserves the key here too).
     const resavePadded = await putConfig({ SeerrUrl: 'http://mock-seerr:5055', SeerrApiKey: ' *** ', SeerrCleanupAgeDays: 30 });
     expect(resavePadded.ok(), `padded-mask re-save failed: ${resavePadded.status()}`).toBeTruthy();
     expect((await resetAndSubmit()).recorded, "stored key was WIPED by a ' *** ' re-save").toBe(1);

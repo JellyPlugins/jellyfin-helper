@@ -15,19 +15,19 @@ namespace Jellyfin.Plugin.JellyfinHelper.Tests.Services.Seerr.Discovery;
 ///         These helpers encode the "how do we sort/filter/normalise candidate items before we score
 ///         them?" rules of the discovery pipeline. They are exercised only indirectly by the
 ///         <c>SeerrDiscoveryServiceHttpTests</c> (which pump a scripted <see cref="System.Net.Http.HttpClient"/>
-///         through the full generation flow) — so a subtle behaviour change in one of these helpers
+///         through the full generation flow) - so a subtle behaviour change in one of these helpers
 ///         silently changes what the frontend sees without any HTTP-level test failing.
 ///     </para>
 ///     <para>
 ///         All helpers are <c>private static</c> on a <c>sealed</c> class so we reach them via reflection.
-///         The alternative — making them internal purely for testing — would leak implementation details
+///         The alternative - making them internal purely for testing - would leak implementation details
 ///         into <c>InternalsVisibleTo</c> consumers.
 ///     </para>
 /// </summary>
 public sealed class SeerrDiscoveryServiceHelperTests
 {
     // ============================================================================
-    // StampMediaType — defensive normalisation of items from typed TMDb endpoints.
+    // StampMediaType - defensive normalisation of items from typed TMDb endpoints.
     // ============================================================================
 
     [Fact]
@@ -56,7 +56,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     public void StampMediaType_OverwritesExistingMediaType()
     {
         // BUG GUARD: the helper explicitly OVERWRITES rather than filling in only when missing.
-        // The design is defensive — even when TMDb correctly emits mediaType, we must stamp our
+        // The design is defensive - even when TMDb correctly emits mediaType, we must stamp our
         // known type. If a maintainer refactored this to "only fill when null/empty", cross-media
         // items (e.g. an anime series returned by a TV endpoint but tagged mediaType="movie" by
         // TMDb) would end up in the wrong bucket.
@@ -71,7 +71,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     }
 
     // ============================================================================
-    // BuildGenreIdList — genre-name → TMDb-int → invariant-culture string.
+    // BuildGenreIdList - genre-name → TMDb-int → invariant-culture string.
     // ============================================================================
 
     [Fact]
@@ -126,7 +126,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     }
 
     // ============================================================================
-    // GetPrimaryLanguageForDiscovery — user's primary language for /discover/xxx/language/{lang}
+    // GetPrimaryLanguageForDiscovery - user's primary language for /discover/xxx/language/{lang}
     // Requires ChosenCount >= 3 to filter out "forced by only option available".
     // ============================================================================
 
@@ -154,7 +154,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     [Fact]
     public void GetPrimaryLanguageForDiscovery_ChosenCountAtThreshold_ReturnsLowercased()
     {
-        // Exactly 3 hits the threshold — boundary condition. Any refactor to strict > 3 breaks here.
+        // Exactly 3 hits the threshold - boundary condition. Any refactor to strict > 3 breaks here.
         // Also verifies the ToLowerInvariant contract: we seed uppercase "DE", expect lowercase "de".
         var profile = new UserWatchProfile();
         profile.LanguageProfile["DE"] = new LanguageProfileEntry { ChosenCount = 3 };
@@ -184,7 +184,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     }
 
     // ============================================================================
-    // BuildPreferredPeopleSet — top-N people with case-insensitive comparer.
+    // BuildPreferredPeopleSet - top-N people with case-insensitive comparer.
     // ============================================================================
 
     [Fact]
@@ -227,7 +227,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     }
 
     // ============================================================================
-    // DeduplicateAndFilter — the discovery pipeline's core filter.
+    // DeduplicateAndFilter - the discovery pipeline's core filter.
     // Signature: (List<TmdbDiscoverItem>, HashSet<(int, string)>, int? maxParentalRating,
     //            double minVoteAverage, double avgYear, bool isChildAccount)
     // ============================================================================
@@ -242,7 +242,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     [Fact]
     public void DeduplicateAndFilter_DropsItemsWithIdZeroOrNegative()
     {
-        // Id <= 0 is unresolvable — TMDb never returns such IDs on a healthy connection,
+        // Id <= 0 is unresolvable - TMDb never returns such IDs on a healthy connection,
         // but a corrupt cache could. Silently dropping them is safer than surfacing garbage.
         var candidates = new List<TmdbDiscoverItem>
         {
@@ -273,11 +273,11 @@ public sealed class SeerrDiscoveryServiceHelperTests
     [Fact]
     public void DeduplicateAndFilter_DropsItemsInExcludedSet()
     {
-        // Excluded via (Id, MediaType) tuple — verifies both keys participate in the lookup.
+        // Excluded via (Id, MediaType) tuple - verifies both keys participate in the lookup.
         var candidates = new List<TmdbDiscoverItem>
         {
             new() { Id = 1, VoteAverage = 8.0, MediaType = "movie" },
-            new() { Id = 1, VoteAverage = 8.0, MediaType = "tv" }, // same Id, different MediaType — must survive
+            new() { Id = 1, VoteAverage = 8.0, MediaType = "tv" }, // same Id, different MediaType - must survive
             new() { Id = 2, VoteAverage = 8.0, MediaType = "movie" }
         };
         var excluded = new HashSet<(int, string)> { (1, "movie") };
@@ -297,8 +297,8 @@ public sealed class SeerrDiscoveryServiceHelperTests
         var candidates = new List<TmdbDiscoverItem>
         {
             new() { Id = 42, VoteAverage = 8.0, MediaType = "movie" },
-            new() { Id = 42, VoteAverage = 8.0, MediaType = "movie" }, // duplicate — must be dropped
-            new() { Id = 42, VoteAverage = 8.0, MediaType = "tv" }     // different MediaType — must survive
+            new() { Id = 42, VoteAverage = 8.0, MediaType = "movie" }, // duplicate - must be dropped
+            new() { Id = 42, VoteAverage = 8.0, MediaType = "tv" }     // different MediaType - must survive
         };
         var result = InvokeDeduplicateAndFilter(candidates, [], null, 5.0, 0, false);
         Assert.Equal(2, result.Count);
@@ -309,7 +309,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     [Fact]
     public void DeduplicateAndFilter_MediaTypeNull_TreatedAsMovie()
     {
-        // The dedup key uses `candidate.MediaType ?? "movie"` — a null MediaType must
+        // The dedup key uses `candidate.MediaType ?? "movie"` - a null MediaType must
         // fall into the "movie" bucket, not create a phantom third bucket.
         var candidates = new List<TmdbDiscoverItem>
         {
@@ -323,7 +323,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     [Fact]
     public void DeduplicateAndFilter_MediaTypeCaseInsensitive_TreatedAsSame()
     {
-        // ToLowerInvariant() on the key — different casings of "MOVIE" vs "movie" must dedup.
+        // ToLowerInvariant() on the key - different casings of "MOVIE" vs "movie" must dedup.
         var candidates = new List<TmdbDiscoverItem>
         {
             new() { Id = 9, VoteAverage = 8.0, MediaType = "MOVIE" },
@@ -338,7 +338,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     public void DeduplicateAndFilter_ChildAccountBypassesYearFilter()
     {
         // Year-based filter is intentionally disabled for child accounts (child films are
-        // often decades old — Disney classics etc. — and dropping them would be wrong).
+        // often decades old - Disney classics etc. - and dropping them would be wrong).
         var oldClassic = new TmdbDiscoverItem
         {
             Id = 100,
@@ -391,7 +391,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
     public void DeduplicateAndFilter_NoAvgYear_NoYearFilterApplied()
     {
         // BUG GUARD: when avgYear == 0 (cold-start / no watch history) the year filter MUST be
-        // disabled — otherwise cold-start users would get zero results from any pre-2000 title.
+        // disabled - otherwise cold-start users would get zero results from any pre-2000 title.
         var reallyOldMovie = new TmdbDiscoverItem
         {
             Id = 1,
@@ -462,7 +462,7 @@ public sealed class SeerrDiscoveryServiceHelperTests
             BindingFlags.Static | BindingFlags.NonPublic);
         Assert.NotNull(method);
 
-        // The production signature is HashSet<(int TmdbId, string MediaType)> — tuple element names
+        // The production signature is HashSet<(int TmdbId, string MediaType)> - tuple element names
         // are metadata only, so a plain HashSet<(int, string)> is castable. Reflection.Invoke doesn't
         // care about the names either. We box everything into object? for the parameter array.
         return (List<TmdbDiscoverItem>)method!.Invoke(null,

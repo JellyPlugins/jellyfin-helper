@@ -22,7 +22,7 @@ services:
     # Overridable via JELLYFIN_UID/GID (defaults keep it simple locally).
     user: "${JELLYFIN_UID:-0}:${JELLYFIN_GID:-0}"
     ports:
-      # Bind to loopback like the mock services — the first-run wizard is
+      # Bind to loopback like the mock services - the first-run wizard is
       # unauthenticated until setup completes, so don't expose it on all interfaces.
       - "127.0.0.1:${JELLYFIN_PORT:-8096}:8096"
     environment:
@@ -40,7 +40,7 @@ services:
       - ./runtime/media:/media
     healthcheck:
       # Jellyfin exposes an unauthenticated /health endpoint that returns "Healthy".
-      # Use curl if present, else wget — the RC image may ship only one of them.
+      # Use curl if present, else wget - the RC image may ship only one of them.
       test:
         - CMD-SHELL
         - >-
@@ -66,7 +66,7 @@ services:
     container_name: jfh-e2e-mock-arr
     command: ["node", "arr-server.js"]
     # Exposed to the host so host-side tests can hit the mock's test hooks.
-    # Bound to loopback: these are unauthenticated, state-mutating test mocks —
+    # Bound to loopback: these are unauthenticated, state-mutating test mocks -
     # publishing them on all interfaces would let any reachable process reset
     # fixtures. Host-side setup still reaches them via localhost.
     ports:

@@ -147,7 +147,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         }
         catch (OperationCanceledException)
         {
-            // HttpClient.Timeout elapsed — not a user cancellation; warn that the instance is unreachable.
+            // HttpClient.Timeout elapsed - not a user cancellation; warn that the instance is unreachable.
             _pluginLog.LogWarning("ArrIntegration", $"Request to {baseUrl} timed out", null, _logger);
             return null;
         }
@@ -205,7 +205,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
         }
         catch (OperationCanceledException)
         {
-            // HttpClient.Timeout elapsed — not a user cancellation; warn that the instance is unreachable.
+            // HttpClient.Timeout elapsed - not a user cancellation; warn that the instance is unreachable.
             _pluginLog.LogWarning("ArrIntegration", $"Request to {baseUrl} timed out", null, _logger);
             return null;
         }
@@ -426,7 +426,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
         /// <summary>
         ///     Gets or sets the TMDb ID provided by Sonarr v4+ API (added in v4.0.12.2823, June 2024).
-        ///     Sonarr v3 does NOT include this field — value remains at default 0.
+        ///     Sonarr v3 does NOT include this field - value remains at default 0.
         /// </summary>
         public int TmdbId { get; set; }
 
@@ -444,7 +444,7 @@ public sealed class ArrIntegrationService : IArrIntegrationService
 
     private sealed class LimitedStream : Stream
     {
-        // CA2213 suppressed: _inner is a borrowed reference — ReadLimitedAsync's outer
+        // CA2213 suppressed: _inner is a borrowed reference - ReadLimitedAsync's outer
         // `using var stream` owns the lifetime. Disposing here would cause a double-dispose.
 #pragma warning disable CA2213
         private readonly Stream _inner;

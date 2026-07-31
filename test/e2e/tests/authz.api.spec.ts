@@ -1,5 +1,5 @@
 /**
- * Authorization gating — every admin controller carries
+ * Authorization gating - every admin controller carries
  * [Authorize(Policy = "RequiresElevation")], but no other spec ever calls them
  * as a non-admin. A regression that relaxes a policy would pass silently. This
  * asserts the whole matrix denies a normal (non-elevated) user, with an admin
@@ -53,7 +53,7 @@ const getGated = [
 const postGated: Array<{ path: string; body: unknown }> = [
   { path: p('Backup/Import'), body: { backupVersion: 1 } },
   { path: p('Trash/CheckAccess'), body: { TrashFolderPath: '.jellyfin-trash' } },
-  // The two most destructive gated mutations — a relaxed policy here would let a
+  // The two most destructive gated mutations - a relaxed policy here would let a
   // non-admin move/scan trash folders. Previously absent from this sweep.
   { path: p('Trash/Relocate'), body: { OldTrashPath: '.jellyfin-trash', NewTrashPath: '.jellyfin-trash-2' } },
   { path: p('Trash/FoldersForPath'), body: { TrashFolderPath: '.jellyfin-trash' } },

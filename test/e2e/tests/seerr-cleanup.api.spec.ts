@@ -2,7 +2,7 @@
  * Seerr request-cleanup correctness against the mock. Complements the single
  * existing "count dropped" test with: exact-id deletion, status 2/4/5 protection,
  * DryRun non-deletion, and the age-threshold boundary. Uses the mock's exact-id
- * /count hook — no container FS needed, so this runs everywhere.
+ * /count hook - no container FS needed, so this runs everywhere.
  */
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { apiContext, loadAuth, p, runCleanupTask } from '../setup/api-client.ts';
@@ -126,7 +126,7 @@ test.describe.serial('Seerr cleanup selects exactly the right requests', () => {
 
   test('page-2 fetch failure mid-pagination deletes nothing (incomplete snapshot guard)', async () => {
     // Stronger than the force-fail case above: page 1 SUCCEEDS (and would yield
-    // deletable ids 101/102/108), but page 2 fails — so the snapshot is incomplete
+    // deletable ids 101/102/108), but page 2 fails - so the snapshot is incomplete
     // and the guard must abort ALL deletions, not just delete what page 1 covered.
     await armPageTwoFailure();
     const before = await count();
@@ -141,14 +141,14 @@ test.describe.serial('Seerr cleanup selects exactly the right requests', () => {
     // Page-2 failure is swallowed into result.Failed; the task still Completes.
     expect(result.LastExecutionResult?.Status).toBe('Completed');
 
-    // Nothing was deleted — the full seeded id set survives, including the ids that
+    // Nothing was deleted - the full seeded id set survives, including the ids that
     // page 1 alone would have marked deletable (101/102/108).
     const after = await count();
     expect(after.count, 'incomplete snapshot must delete nothing').toBe(before.count);
     expect(after.ids.sort((a, b) => a - b)).toEqual(before.ids.sort((a, b) => a - b));
 
     // Prove this genuinely exercised the page-2 branch: page 1 (skip=0) returned 200
-    // AND page 2 (skip=50) returned 500 — distinguishing it from a page-1 failure.
+    // AND page 2 (skip=50) returned 500 - distinguishing it from a page-1 failure.
     const calls = await listCalls();
     expect(calls.some((c) => c.skip === 0 && c.status === 200), 'page 1 succeeded').toBe(true);
     expect(calls.some((c) => c.skip === 50 && c.status === 500), 'page 2 failed').toBe(true);

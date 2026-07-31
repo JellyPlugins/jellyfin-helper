@@ -8,7 +8,7 @@
  * State: an in-memory list of requests so DELETE actually removes one and the
  * cleanup task's "Deleted" count is real. Reset via GET /reset (test hook).
  *
- * No external dependencies — Node built-in http only.
+ * No external dependencies - Node built-in http only.
  */
 import http from 'node:http';
 
@@ -53,7 +53,7 @@ let submittedRequests = [];
 
 // Partial-pagination-failure test hook: when armed, GET /api/v1/request reports
 // more results than one page holds (so the plugin fetches page 2 at skip=50) and
-// then 500s that page-2 fetch — simulating "page 1 OK, page 2 fails mid-scan".
+// then 500s that page-2 fetch - simulating "page 1 OK, page 2 fails mid-scan".
 // listCalls records the (skip, status) of every request-list call so a test can
 // prove BOTH page 1 (200) and page 2 (500) were actually observed.
 let failListSkip = null; // when a number, GET /request with this skip → 500
@@ -81,7 +81,7 @@ const users = [
     avatar: '/avatarproxy/def.png',
     // Overwritten via /seed-user2 for the second (non-admin) test user.
     jellyfinUserId: '11111111111111111111111111111111',
-    permissions: 0, // no Request permission — used for permission-denied cases
+    permissions: 0, // no Request permission - used for permission-denied cases
   },
 ];
 
@@ -154,7 +154,7 @@ const server = http.createServer(async (req, res) => {
   if (path === '/count') { send(res, 200, { count: requests.length, ids: requests.map((r) => r.id) }); return done(200); }
   // Arm the partial-pagination failure: page 1 (skip=0) succeeds but claims a 2nd
   // page exists; page 2 (skip=50) then 500s. Uses a normal green-path key so the
-  // connection test and title lookups still work — only the page-2 list fetch fails.
+  // connection test and title lookups still work - only the page-2 list fetch fails.
   if (path === '/force-fail-page2') {
     failListSkip = 50;
     inflateResults = true;
@@ -186,7 +186,7 @@ const server = http.createServer(async (req, res) => {
   // A literal mask value is never a real key. The plugin masks a stored key as
   // '***' in GET /Configuration; if a save regression ever persisted that mask
   // AS the key, a connection test would otherwise still "succeed" against a mock
-  // that accepts any non-empty key — hiding a credential wipe. Reject it (and its
+  // that accepts any non-empty key - hiding a credential wipe. Reject it (and its
   // whitespace-padded form) with 401 so the round-trip test can prove the real
   // stored key was preserved, not overwritten with the mask.
   if (String(apiKey).trim() === '***') { send(res, 401, { error: 'masked placeholder is not a valid api key' }); return done(401); }
@@ -281,7 +281,7 @@ const server = http.createServer(async (req, res) => {
     return done(200);
   }
 
-  // Se4. users (paginated) — single page.
+  // Se4. users (paginated) - single page.
   if (path === '/api/v1/user' && method === 'GET') {
     send(res, 200, { pageInfo: { pages: 1, results: users.length }, results: users });
     return done(200);
