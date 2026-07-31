@@ -368,4 +368,103 @@ public sealed class SymlinkHelperTests : IDisposable
         var path = Path.Join(_tempDir, "ghost.txt");
         Assert.Throws<InvalidOperationException>(() => _sut.DeleteSymlink(path));
     }
+
+    // ReplaceSymlink — TOCTOU data-loss guard (audit finding link-service-1)
+
+    [Fact]
+    public void ReplaceSymlink_DestIsRealFile_ThrowsAndDoesNotOverwrite()
+    {
+        // DATA-LOSS GUARD: if a REAL media file has replaced the symlink at destPath since the scan
+        // (e.g. an import wrote the finished download there), the repair must REFUSE — overwriting it
+        // with the temp symlink would destroy the bytes irreversibly. The real file must be untouched.
+        if (!SymlinksSupported())
+        {
+            return;
+        }
+
+        var newTarget = Path.Join(_tempDir, "new-target.mkv");
+        File.WriteAllText(newTarget, "the real new target");
+        var source = Path.Join(_tempDir, "repair.jfh-tmp");
+        _sut.CreateSymlink(source, newTarget);
+
+        var dest = Path.Join(_tempDir, "special.mkv");
+        File.WriteAllText(dest, "REAL MEDIA BYTES"); // a real file now sits where the symlink was
+
+        Assert.Throws<InvalidOperationException>(() => _sut.ReplaceSymlink(source, dest));
+
+        // The real file survived intact and was NOT turned into a symlink.
+        Assert.Equal("REAL MEDIA BYTES", File.ReadAllText(dest));
+        Assert.False(_sut.IsSymlink(dest), "a real file must never be replaced by the repair symlink");
+        Assert.True(_sut.IsSymlink(source), "the temp symlink is left for the caller's cleanup");
+    }
+
+    [Fact]
+    public void ReplaceSymlink_DestIsBrokenSymlink_RepairsSuccessfully()
+    {
+        // The LEGITIMATE repair case (renamed target): the symlink at destPath is broken because its
+        // target moved. destPath is still a symbolic link, so the guard allows the move and the link
+        // is repaired to the new target. This is the primary flow the feature exists for and must
+        // NOT be blocked by the data-loss guard.
+        if (!SymlinksSupported())
+        {
+            return;
+        }
+
+        var oldTarget = Path.Join(_tempDir, "old-name.mkv");
+        var dest = Path.Join(_tempDir, "special.mkv");
+        _sut.CreateSymlink(dest, oldTarget); // oldTarget never created → broken symlink
+        Assert.True(_sut.IsSymlink(dest), "precondition: dest is a (broken) symlink");
+
+        var newTarget = Path.Join(_tempDir, "new-name.mkv");
+        File.WriteAllText(newTarget, "renamed target");
+        var source = Path.Join(_tempDir, "repair.jfh-tmp");
+        _sut.CreateSymlink(source, newTarget);
+
+        _sut.ReplaceSymlink(source, dest);
+
+        Assert.True(_sut.IsSymlink(dest), "dest is still a symlink after repair");
+        Assert.Equal(newTarget, new FileInfo(dest).LinkTarget);
+        Assert.False(File.Exists(source), "source moved into place");
+    }
+
+    [Fact]
+    public void ReplaceSymlink_DestDoesNotExist_MovesSuccessfully()
+    {
+        // Nothing at destPath → nothing to lose → the move proceeds and creates the link.
+        if (!SymlinksSupported())
+        {
+            return;
+        }
+
+        var newTarget = Path.Join(_tempDir, "target.mkv");
+        File.WriteAllText(newTarget, "target");
+        var source = Path.Join(_tempDir, "repair.jfh-tmp");
+        _sut.CreateSymlink(source, newTarget);
+        var dest = Path.Join(_tempDir, "brand-new.mkv"); // does not exist
+
+        _sut.ReplaceSymlink(source, dest);
+
+        Assert.True(_sut.IsSymlink(dest));
+        Assert.False(File.Exists(source));
+    }
+
+    [Fact]
+    public void ReplaceSymlink_DestIsRealFile_MessageMentionsDataLoss()
+    {
+        if (!SymlinksSupported())
+        {
+            return;
+        }
+
+        var newTarget = Path.Join(_tempDir, "t.mkv");
+        File.WriteAllText(newTarget, "t");
+        var source = Path.Join(_tempDir, "r.jfh-tmp");
+        _sut.CreateSymlink(source, newTarget);
+        var dest = Path.Join(_tempDir, "real.mkv");
+        File.WriteAllText(dest, "real");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => _sut.ReplaceSymlink(source, dest));
+        Assert.Contains(dest, ex.Message, StringComparison.Ordinal);
+        Assert.Contains("data loss", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

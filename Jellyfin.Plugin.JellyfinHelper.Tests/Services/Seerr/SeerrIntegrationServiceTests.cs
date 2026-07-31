@@ -456,6 +456,77 @@ public class SeerrIntegrationServiceTests : IDisposable
         Assert.Equal(1, result.Deleted);
     }
 
+    // Fail-CLOSED on unknown creation date (audit finding seerr-external-1). A missing/null/default/
+    // future createdAt must NEVER be treated as expired — non-dry-run so a regression would DELETE.
+
+    private static string MakeRawRequestPage(string requestObjectJson, int totalResults = 1) =>
+        "{\"pageInfo\":{\"page\":1,\"pages\":1,\"results\":" + totalResults
+        + ",\"pageSize\":50},\"results\":[" + requestObjectJson + "]}";
+
+    [Fact]
+    public async Task Cleanup_MissingCreatedAt_PendingStatus_IsNotDeleted()
+    {
+        // No createdAt key at all → previously deserialized to MinValue → wrongly deleted. Must be kept.
+        var page = MakeRawRequestPage("{\"id\":1,\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}");
+        var handler = CreateMockHandler(HttpStatusCode.OK, page);
+        var service = CreateService(handler.Object, out _, out _);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 90, false, CancellationToken.None);
+
+        Assert.Equal(1, result.TotalChecked);
+        Assert.Equal(0, result.ExpiredFound);
+        Assert.Equal(0, result.Deleted);
+    }
+
+    [Fact]
+    public async Task Cleanup_NullCreatedAt_IsNotDeleted()
+    {
+        var page = MakeRawRequestPage("{\"id\":1,\"createdAt\":null,\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}");
+        var handler = CreateMockHandler(HttpStatusCode.OK, page);
+        var service = CreateService(handler.Object, out _, out _);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 90, false, CancellationToken.None);
+
+        Assert.Equal(0, result.Deleted);
+    }
+
+    [Fact]
+    public async Task Cleanup_DefaultMinValueCreatedAt_IsNotDeleted()
+    {
+        var page = MakeRawRequestPage("{\"id\":1,\"createdAt\":\"0001-01-01T00:00:00+00:00\",\"status\":1,\"media\":{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}");
+        var handler = CreateMockHandler(HttpStatusCode.OK, page);
+        var service = CreateService(handler.Object, out _, out _);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 90, false, CancellationToken.None);
+
+        Assert.Equal(0, result.Deleted);
+    }
+
+    [Fact]
+    public async Task Cleanup_FutureCreatedAt_IsNotDeleted()
+    {
+        var future = DateTimeOffset.UtcNow.AddDays(5).ToString("O");
+        var page = MakeRawRequestPage($"{{\"id\":1,\"createdAt\":\"{future}\",\"status\":1,\"media\":{{\"mediaType\":\"movie\",\"tmdbId\":100,\"status\":1}}}}");
+        var handler = CreateMockHandler(HttpStatusCode.OK, page);
+        var service = CreateService(handler.Object, out _, out _);
+
+        var result = await service.CleanupExpiredRequestsAsync(
+            BaseUrl, ApiKey, 90, false, CancellationToken.None);
+
+        Assert.Equal(0, result.Deleted);
+    }
+
+    [Fact]
+    public void SeerrRequest_MissingCreatedAt_DeserializesToNull()
+    {
+        var request = JsonSerializer.Deserialize<SeerrRequest>("{\"id\":1,\"status\":1}");
+        Assert.NotNull(request);
+        Assert.Null(request!.CreatedAt);
+    }
+
     [Fact]
     public async Task Cleanup_MaxAgeDaysZero_ThrowsArgumentOutOfRange()
     {
@@ -555,10 +626,11 @@ public class SeerrIntegrationServiceTests : IDisposable
 
         Assert.NotNull(request);
         Assert.Equal(1, request!.Id);
-        Assert.Equal(2024, request.CreatedAt.Year);
-        Assert.Equal(1, request.CreatedAt.Month);
-        Assert.Equal(15, request.CreatedAt.Day);
-        Assert.Equal(TimeSpan.Zero, request.CreatedAt.Offset);
+        Assert.NotNull(request.CreatedAt);
+        Assert.Equal(2024, request.CreatedAt!.Value.Year);
+        Assert.Equal(1, request.CreatedAt.Value.Month);
+        Assert.Equal(15, request.CreatedAt.Value.Day);
+        Assert.Equal(TimeSpan.Zero, request.CreatedAt.Value.Offset);
     }
 
     [Fact]

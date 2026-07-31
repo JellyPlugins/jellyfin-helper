@@ -466,7 +466,7 @@ public class LinkRepairService : ILinkRepairService
                             handler.WriteTarget(fileResult.LinkFilePath, newTargetPath);
                             fileResult.Status = LinkFileStatus.Repaired;
                         }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException or InvalidOperationException)
                         {
                             _pluginLog.LogError(
                                 "LinkRepair",

@@ -208,15 +208,38 @@ public class HelperCleanupTask : IScheduledTask
                 var libraryLocations = _configHelper.GetFilteredLibraryLocations(_libraryManager);
                 long totalBytesFreed = 0;
                 var totalItemsPurged = 0;
+
+                // Resolve each library's trash path, then purge the DISTINCT set so a shared absolute
+                // TrashFolderPath is purged exactly once. Reject only a path that resolves to a library
+                // root itself (never a valid trash folder); an absolute trash path OUTSIDE every root is
+                // a supported configuration and MUST be purged, else TrashRetentionDays is silently
+                // defeated. Deletion stays bounded regardless: PurgeExpiredTrash only removes entries
+                // whose names match the strict "yyyyMMdd-HHmmss_" trash-timestamp prefix, so even a
+                // misconfigured absolute path loses nothing that is not a real trash entry.
+                var pathComparer = OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
+
+                var libraryRoots = new HashSet<string>(pathComparer);
                 foreach (var location in libraryLocations)
                 {
-                    var candidatePath = _configHelper.GetTrashPath(location);
-                    var libraryRoot = Path.GetFullPath(location).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    var trashPath = Path.GetFullPath(candidatePath);
-                    var pathComparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-                    if (!trashPath.StartsWith(libraryRoot + Path.DirectorySeparatorChar, pathComparison))
+                    libraryRoots.Add(Path.GetFullPath(location).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                }
+
+                var purgedPaths = new HashSet<string>(pathComparer);
+                foreach (var location in libraryLocations)
+                {
+                    var trashPath = Path.GetFullPath(_configHelper.GetTrashPath(location));
+                    var trashPathTrimmed = trashPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                    // Defense in depth: never purge a library root even if GetTrashPath ever regressed.
+                    if (libraryRoots.Contains(trashPathTrimmed))
                     {
-                        _pluginLog.LogWarning("HelperCleanup", $"Trash purge skipped for {location}: resolved trash path {trashPath} is outside library root.", logger: _logger);
+                        _pluginLog.LogWarning("HelperCleanup", $"Trash purge skipped for {location}: resolved trash path {trashPath} is a library root.", logger: _logger);
+                        continue;
+                    }
+
+                    // Dedup a shared absolute trash path so it is purged only once.
+                    if (!purgedPaths.Add(trashPathTrimmed))
+                    {
                         continue;
                     }
 

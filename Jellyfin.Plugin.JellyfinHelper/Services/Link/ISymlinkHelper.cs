@@ -38,7 +38,14 @@ public interface ISymlinkHelper
     ///     <paramref name="sourcePath"/>. On Linux this maps to <c>rename(2)</c>;
     ///     on Windows it uses <see cref="System.IO.File.Move(string,string,bool)"/> with overwrite.
     /// </summary>
+    /// <remarks>
+    ///     Implementations MUST re-verify that <paramref name="destPath"/> is still a symbolic link
+    ///     immediately before overwriting and throw <see cref="System.InvalidOperationException"/> if
+    ///     it is not — a real file may have taken its place since the scan, and overwriting it would
+    ///     be irreversible data loss. If <paramref name="destPath"/> no longer exists, the move proceeds.
+    /// </remarks>
     /// <param name="sourcePath">The source symlink to move into place.</param>
     /// <param name="destPath">The destination path to overwrite atomically.</param>
+    /// <exception cref="System.InvalidOperationException">Thrown when destPath exists but is no longer a symbolic link.</exception>
     void ReplaceSymlink(string sourcePath, string destPath);
 }

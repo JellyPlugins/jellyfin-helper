@@ -85,6 +85,31 @@ public class SymlinkHelper : ISymlinkHelper
     /// <inheritdoc />
     public void ReplaceSymlink(string sourcePath, string destPath)
     {
+        // TOCTOU guard (data-loss prevention): between LinkRepairService reading the broken
+        // target and this move, an import (Sonarr/Radarr) can replace the placeholder symlink
+        // at destPath with the REAL downloaded media file. Moving our temp symlink over it with
+        // overwrite:true would destroy the real bytes with no trash/backup. Re-stat destPath and
+        // refuse unless it is still a symbolic link (reparse point WITH a non-null LinkTarget).
+        // If destPath no longer exists we allow the move (nothing to lose).
+        FileAttributes destAttrs;
+        try
+        {
+            destAttrs = File.GetAttributes(destPath);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // Destination vanished since the scan; safe to move into place.
+            File.Move(sourcePath, destPath, overwrite: true);
+            return;
+        }
+
+        if (!IsSymlinkFromAttributes(destPath, destAttrs))
+        {
+            throw new InvalidOperationException(
+                $"Refusing to overwrite '{destPath}': it is no longer a symbolic link "
+                + "(likely replaced by a real file since the scan). Aborting repair to avoid data loss.");
+        }
+
         File.Move(sourcePath, destPath, overwrite: true);
     }
 

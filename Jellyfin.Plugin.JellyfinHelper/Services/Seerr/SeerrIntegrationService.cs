@@ -206,8 +206,16 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
             {
                 result.TotalChecked++;
 
-                // Compare dates in UTC to avoid timezone issues
-                if (request.CreatedAt >= cutoffDate)
+                // Fail CLOSED on unknown creation date: only delete when we have a genuinely parsed,
+                // non-default timestamp strictly older than the cutoff. A missing/null createdAt
+                // (fork / reshaped API / reverse proxy) deserializes to null and MUST be preserved —
+                // otherwise brand-new requests get deleted and the maxAgeDays safety is bypassed.
+                // A future-dated timestamp is likewise not "expired".
+                var createdAt = request.CreatedAt;
+                if (createdAt is null
+                    || createdAt.Value == default
+                    || createdAt.Value >= cutoffDate
+                    || createdAt.Value > DateTimeOffset.UtcNow)
                 {
                     continue;
                 }
@@ -249,18 +257,21 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            // Guaranteed non-null: every item in expiredRequests passed the fail-closed age guard above.
+            var createdAt = request.CreatedAt!.Value;
+
             var mediaTitle = await ResolveMediaTitleCachedAsync(client, baseUri, key, request.Media, titleCache, cancellationToken).ConfigureAwait(false);
             var mediaInfo = request.Media != null
                 ? $"\"{mediaTitle}\" ({request.Media.MediaType}, TMDB: {request.Media.TmdbId})"
                 : $"request #{request.Id}";
 
-            var ageDays = (DateTimeOffset.UtcNow - request.CreatedAt).Days;
+            var ageDays = (DateTimeOffset.UtcNow - createdAt).Days;
 
             if (dryRun)
             {
                 _pluginLog.LogInfo(
                     "SeerrCleanup",
-                    $"[Dry Run] Would delete expired request #{request.Id} ({mediaInfo}), created {request.CreatedAt:O}, age {ageDays} days",
+                    $"[Dry Run] Would delete expired request #{request.Id} ({mediaInfo}), created {createdAt:O}, age {ageDays} days",
                     _logger);
             }
             else
@@ -275,7 +286,7 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                         result.Deleted++;
                         _pluginLog.LogInfo(
                             "SeerrCleanup",
-                            $"Deleted expired request #{request.Id} ({mediaInfo}), created {request.CreatedAt:O}, age {ageDays} days",
+                            $"Deleted expired request #{request.Id} ({mediaInfo}), created {createdAt:O}, age {ageDays} days",
                             _logger);
                     }
                     else

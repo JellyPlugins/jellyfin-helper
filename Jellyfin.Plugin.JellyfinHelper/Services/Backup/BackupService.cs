@@ -416,10 +416,13 @@ public sealed class BackupService : IBackupService
             // Trash settings
             config.UseTrash = backup.UseTrash;
             // Reject traversal sequences so a crafted backup cannot escape the library root.
+            // Split on the LITERAL ['/', '\\'] (not Path.DirectorySeparatorChar/AltDirectorySeparatorChar,
+            // which both collapse to '/' on Unix and would let a Windows-style "foo\..\bar" slip through
+            // on a Linux host), and reject "." as well as ".." — matching the validators.
             var rawTrashPath = backup.TrashFolderPath;
             var hasTraversal = !string.IsNullOrWhiteSpace(rawTrashPath) &&
-                rawTrashPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                            .Any(s => s is "..");
+                rawTrashPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
+                            .Any(s => s is "." or "..");
             config.TrashFolderPath = string.IsNullOrWhiteSpace(rawTrashPath) || hasTraversal
                 ? ".jellyfin-trash"
                 : rawTrashPath;

@@ -16,9 +16,12 @@ internal sealed class SeerrRequest
 
     /// <summary>
     ///     Gets or sets the creation timestamp of the request (ISO 8601 UTC).
+    ///     Nullable: an absent <c>createdAt</c> key deserializes to <c>null</c> rather than
+    ///     <see cref="DateTimeOffset.MinValue"/>, so the cleanup age gate can fail CLOSED
+    ///     (preserve the request) instead of treating an unknown date as ancient and deleting it.
     /// </summary>
     [JsonPropertyName("createdAt")]
-    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? CreatedAt { get; set; }
 
     /// <summary>
     ///     Gets or sets the request status.
