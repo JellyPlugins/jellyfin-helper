@@ -103,7 +103,11 @@ public class SeerrControllerTests
         Assert.Equal(StatusCodes.Status502BadGateway, objectResult.StatusCode);
         var payload = Assert.IsType<ConnectionTestResponse>(objectResult.Value);
         Assert.False(payload.Success);
-        Assert.Equal("Auth failed", payload.Message);
+        // The detailed upstream reason ("Auth failed") is logged server-side but MUST NOT be
+        // reflected to the client: reflecting the raw upstream status/reason turns this endpoint
+        // into an internal-reachability oracle. A generic failure message is returned instead.
+        Assert.Equal("Connection failed. Please verify URL and API Key and try again.", payload.Message);
+        Assert.DoesNotContain("Auth failed", payload.Message, StringComparison.Ordinal);
     }
 
     [Fact]

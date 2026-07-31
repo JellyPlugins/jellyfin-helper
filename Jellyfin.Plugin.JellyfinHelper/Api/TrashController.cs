@@ -257,7 +257,7 @@ public class TrashController : ControllerBase
         // Full path-safety validation (library-root containment, filesystem-root rejection)
         // is enforced by GetExistingTrashFoldersForPath itself - this check is a
         // defence-in-depth guard only.
-        if (queryPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Any(s => s is "." or "..") || queryPath.Length > 512)
+        if (HasTraversalSegment(queryPath) || queryPath.Length > 512)
         {
             return BadRequest(new { Error = "TrashFolderPath must not contain path-traversal sequences." });
         }
@@ -297,8 +297,7 @@ public class TrashController : ControllerBase
         var oldPath = request.OldTrashPath.Trim();
         var newPath = request.NewTrashPath.Trim();
 
-        if (oldPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Any(s => s is "." or "..") ||
-            newPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Any(s => s is "." or ".."))
+        if (HasTraversalSegment(oldPath) || HasTraversalSegment(newPath))
         {
             return BadRequest("Path traversal not allowed");
         }
@@ -427,7 +426,19 @@ public class TrashController : ControllerBase
     // === Private helpers ===
 
     /// <summary>
-    /// Resolves a relative trash path against a library root folder.
+    /// Segment-aware path-traversal check shared by every body-taking trash endpoint
+    /// (CheckAccess, FoldersForPath, Relocate) so they enforce identical input rules.
+    /// Splits on both path separators and rejects only whole "." / ".." segments, so a
+    /// legitimate directory name that merely contains ".." (e.g. "my..archive") is allowed
+    /// while real traversal components are rejected. Downstream containment / sensitive-path
+    /// checks remain as defence in depth.
+    /// </summary>
+    /// <param name="path">The caller-supplied path to screen.</param>
+    /// <returns><c>true</c> if any segment is "." or ".."; otherwise <c>false</c>.</returns>
+    private static bool HasTraversalSegment(string path)
+        => path.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Any(s => s is "." or "..");
+
+    /// <summary>
     /// Returns null if the resolved path escapes the library root or is invalid.
     /// </summary>
     /// <param name="libraryRoot">The library root folder.</param>
@@ -597,7 +608,10 @@ public class TrashController : ControllerBase
 
         var queryPath = request.TrashFolderPath.Trim();
 
-        if (queryPath.Contains("..", StringComparison.Ordinal) || queryPath.Length > 512)
+        // Segment-aware traversal check (shared with the other body-taking trash endpoints). A plain
+        // Contains("..") would also reject legitimate names like "my..archive"; splitting on the path
+        // separators and matching whole segments rejects only real "." / ".." traversal components.
+        if (HasTraversalSegment(queryPath) || queryPath.Length > 512)
         {
             return BadRequest("Invalid path");
         }

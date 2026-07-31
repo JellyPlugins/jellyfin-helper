@@ -75,8 +75,12 @@ public class ArrIntegrationController : ControllerBase
     {
         var url = request.Url ?? string.Empty;
 
-        // SSRF guard: only allow HTTP/HTTPS scheme so callers cannot trigger requests
-        // to file://, ftp://, ldap://, or other internal-network protocols.
+        // Scheme guard only: reject non-HTTP(S) schemes (file://, ftp://, ...). We deliberately do
+        // NOT block loopback/private/link-local hosts here: Radarr/Sonarr almost always run on the
+        // same host or LAN as Jellyfin (localhost:7878, 192.168.x.y), so an internal-IP block would
+        // break the plugin's primary legitimate configuration. The endpoint is admin-only, does not
+        // follow redirects, caps the response size, and never reflects the response body — so the
+        // residual "internal reachability oracle" risk is low and accepted for a LAN-integration tool.
         if (!Uri.TryCreate(url, UriKind.Absolute, out var parsedUrl) ||
             (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
         {
@@ -90,7 +94,11 @@ public class ArrIntegrationController : ControllerBase
 
         if (!success)
         {
-            return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = message });
+            // Log the detailed upstream message server-side but return a GENERIC one to the client,
+            // so the endpoint cannot be used to distinguish internal host/port states (reachability
+            // oracle). The generic string matches the Seerr connection-test for consistency.
+            _pluginLog.LogWarning("API", $"Arr connection test failed: {message}", logger: _logger);
+            return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
         }
 
         return Ok(new ConnectionTestResponse { Success = true, Message = message });

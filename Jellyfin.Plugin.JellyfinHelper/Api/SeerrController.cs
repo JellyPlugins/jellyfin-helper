@@ -63,6 +63,12 @@ public class SeerrController : ControllerBase
             return BadRequest(new ConnectionTestResponse { Success = false, Message = "URL and API Key are required." });
         }
 
+        // Scheme guard only: reject non-HTTP(S) schemes. We deliberately do NOT block loopback/
+        // private/link-local hosts: Seerr/Jellyseerr typically runs on the same host or LAN as
+        // Jellyfin, so an internal-IP block would break the plugin's normal configuration. The
+        // endpoint is admin-only, does not follow redirects, caps response size, and (below) returns
+        // a generic failure message rather than reflecting upstream status — keeping the residual
+        // internal-reachability-oracle risk low and accepted for a LAN-integration tool.
         if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var parsedUrl) ||
             (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
         {
@@ -84,8 +90,11 @@ public class SeerrController : ControllerBase
             }
             else
             {
+                // Log the detailed upstream message server-side, but return a GENERIC message to the
+                // client. Reflecting the raw upstream status/reason (e.g. "HTTP 401" vs "connection
+                // refused" vs "no such host") turns this endpoint into an internal-reachability oracle.
                 _pluginLog.LogWarning("API", $"Connection test failed for Seerr: {message}", logger: _logger);
-                return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = success, Message = message });
+                return StatusCode(StatusCodes.Status502BadGateway, new ConnectionTestResponse { Success = false, Message = "Connection failed. Please verify URL and API Key and try again." });
             }
         }
         catch (HttpRequestException ex)
