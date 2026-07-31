@@ -62,6 +62,33 @@ public class StrmLinkHandler : ILinkHandler
     /// <exception cref="UnauthorizedAccessException">Thrown when write access to the file is denied.</exception>
     public void WriteTarget(string filePath, string targetPath)
     {
-        _fileSystem.File.WriteAllText(filePath, targetPath);
+        // Crash-safe write: stage the new content in a sibling temp file and atomically move it
+        // over the target. An in-place File.WriteAllText truncates first, so an interrupted write
+        // (crash, power loss, process kill) would leave a truncated/empty .strm — the original
+        // target pointer is destroyed by the truncate and, on the next run, reads back empty →
+        // InvalidContent, permanently losing the pointer. The temp+atomic-move gives .strm repair
+        // the same durability guarantee SymlinkHandler already has.
+        var tempPath = filePath + ".jfh-tmp";
+        try
+        {
+            _fileSystem.File.WriteAllText(tempPath, targetPath);
+            _fileSystem.File.Move(tempPath, filePath, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            try
+            {
+                if (_fileSystem.File.Exists(tempPath))
+                {
+                    _fileSystem.File.Delete(tempPath);
+                }
+            }
+            catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
+            {
+                // Best-effort cleanup of the temp file; the original .strm was never truncated.
+            }
+
+            throw;
+        }
     }
 }

@@ -715,6 +715,32 @@ public class TrashService : ITrashService
             return path;
         }
 
+        // Trash entries carry a fixed 16-char "yyyyMMdd-HHmmss_" prefix that PurgeExpiredTrash and
+        // the trash UI parse to recover the trashed-at time. Naively truncating the WHOLE name from
+        // the end would chop into (or off) that prefix once the per-component budget drops below the
+        // original name length, producing an entry that TryParseTrashTimestamp rejects — so it is
+        // never purged (retention silently defeated) and shows no date in the UI. Preserve the prefix
+        // intact and truncate ONLY the original-name portion after it. Non-trash names (no valid
+        // prefix) fall through to the previous whole-name truncation, so other callers are unchanged.
+        const int trashPrefixLength = 15 + 1; // TimestampFormat length + '_' separator; all ASCII (1 byte/char)
+        if (TryParseTrashTimestamp(name, out _))
+        {
+            if (maxNameSize <= trashPrefixLength)
+            {
+                // Cannot even keep the parseable prefix — refuse rather than emit an unpurgeable,
+                // date-less entry. Mirrors the fail-fast IOException the collision resolver throws
+                // when the directory budget is exhausted.
+                throw new IOException(
+                    $"Trash path directory is too deep to preserve the timestamp prefix for '{name}' "
+                    + $"(budget {maxNameSize} <= required {trashPrefixLength}).");
+            }
+
+            var prefix = name[..trashPrefixLength];
+            var originalName = name[trashPrefixLength..];
+            var truncatedOriginal = TruncateToSize(originalName, maxNameSize - trashPrefixLength);
+            return Path.Join(directory, prefix + truncatedOriginal);
+        }
+
         var truncatedName = TruncateToSize(name, maxNameSize);
         return Path.Join(directory, truncatedName);
     }
@@ -831,12 +857,22 @@ public class TrashService : ITrashService
         try
         {
             var dirInfo = new DirectoryInfo(path);
-            foreach (var fi in dirInfo.EnumerateFiles("*", SearchOption.AllDirectories))
+
+            // AttributesToSkip = ReparsePoint prunes directory symlinks/junctions DURING recursion,
+            // so the walk never descends INTO a linked tree. SearchOption.AllDirectories does not do
+            // this: it follows directory junctions, which inflates the byte total for a link pointing
+            // at a large tree and can loop unboundedly on a cyclic junction. It also skips reparse
+            // files, so the size only counts real files physically under this trash entry.
+            var options = new EnumerationOptions
             {
-                if ((fi.Attributes & FileAttributes.ReparsePoint) == 0)
-                {
-                    size += fi.Length;
-                }
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+                IgnoreInaccessible = true
+            };
+
+            foreach (var fi in dirInfo.EnumerateFiles("*", options))
+            {
+                size += fi.Length;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

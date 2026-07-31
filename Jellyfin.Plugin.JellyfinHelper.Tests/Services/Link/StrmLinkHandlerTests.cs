@@ -119,4 +119,21 @@ public class StrmLinkHandlerTests
 
         Assert.Equal("/new/path.mkv", _fileSystem.File.ReadAllText(linkFile));
     }
+
+    [Fact]
+    public void WriteTarget_LeavesNoTempFileAndDoesNotTruncateInPlace()
+    {
+        // Crash-safety guard: the write must stage to a sibling temp and atomically move it over the
+        // target (never truncate-then-write in place, which loses the pointer on an interrupted write).
+        // After a successful write the temp file must not linger, and the content must be exact.
+        var linkFile = _fileSystem.Path.GetFullPath("/series/episode.strm");
+        _fileSystem.AddFile(linkFile, new MockFileData("/old/path.mkv"));
+
+        _handler.WriteTarget(linkFile, "/new/path.mkv");
+
+        Assert.Equal("/new/path.mkv", _fileSystem.File.ReadAllText(linkFile));
+        Assert.False(
+            _fileSystem.File.Exists(linkFile + ".jfh-tmp"),
+            "the staging temp file must not remain after a successful atomic write");
+    }
 }

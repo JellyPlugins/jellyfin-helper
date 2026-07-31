@@ -305,13 +305,15 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     }
 
     /// <summary>
-    ///     Returns the relevant date for a recent entry: ModifiedUtc for "changed", CreatedUtc for "added".
+    ///     Returns the relevant date for a recent entry: the LATER of created/modified. Using the max
+    ///     (rather than "modified when changed, created when added") guarantees the recency filter can
+    ///     never hide a genuinely new item behind a stale, preserved mtime that predates its created
+    ///     time (common when media is copied with -p / restored from backup — the mtime is older than
+    ///     the moment Jellyfin first saw the file).
     /// </summary>
     private static DateTime GetRelevantDate(LibraryInsightEntry entry)
     {
-        return string.Equals(entry.ChangeType, "changed", StringComparison.OrdinalIgnoreCase)
-            ? entry.ModifiedUtc
-            : entry.CreatedUtc;
+        return entry.ModifiedUtc > entry.CreatedUtc ? entry.ModifiedUtc : entry.CreatedUtc;
     }
 
     /// <summary>
@@ -319,11 +321,15 @@ public sealed class LibraryInsightsService : ILibraryInsightsService
     /// </summary>
     /// <param name="createdUtc">The creation date in UTC.</param>
     /// <param name="modifiedUtc">The last modified date in UTC.</param>
-    /// <returns>"added" if both dates are close together, otherwise "changed".</returns>
+    /// <returns>"changed" only when modified is meaningfully AFTER created; otherwise "added".</returns>
     internal static string DetermineChangeType(DateTime createdUtc, DateTime modifiedUtc)
     {
-        var diff = Math.Abs((modifiedUtc - createdUtc).TotalHours);
-        return diff < AddedVsChangedThresholdHours ? "added" : "changed";
+        // Signed, not Math.Abs: a modified time EARLIER than created (a stale/preserved mtime) is not
+        // a real "change" — it must classify as "added" so GetRelevantDate ranks it by the newer
+        // created time. Only a modified time that is genuinely later than created by the threshold
+        // counts as "changed".
+        var hoursAfterCreation = (modifiedUtc - createdUtc).TotalHours;
+        return hoursAfterCreation >= AddedVsChangedThresholdHours ? "changed" : "added";
     }
 
     private static bool IsMovieType(string collectionType)

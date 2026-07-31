@@ -212,11 +212,14 @@ public sealed class SeerrIntegrationService : ISeerrIntegrationService
                     continue;
                 }
 
-                // Never delete approved or available requests — Seerr uses these to track
-                // what was downloaded; deleting them breaks status tracking and may trigger
-                // duplicate re-requests. Only pending (1) and declined (3) are safe to remove.
-                //   2 = approved, 4 = available, 5 = partially available
-                if (request.Status is 2 or 4 or 5)
+                // Allowlist, not denylist: only PENDING (1) and DECLINED (3) requests are ever safe
+                // to delete. A denylist ("skip 2/4/5") fails OPEN — a missing status field
+                // (deserializes to 0) or a future/unknown Seerr status code would fall through and be
+                // deleted. Approved/available/failed/completed and any unrecognized status must be
+                // preserved, since Seerr uses them to track downloads and deleting them can trigger
+                // duplicate re-requests. (Current Jellyseerr: 1=pending, 2=approved, 3=declined,
+                // 4=failed, 5=completed.)
+                if (request.Status is not (1 or 3))
                 {
                     continue;
                 }

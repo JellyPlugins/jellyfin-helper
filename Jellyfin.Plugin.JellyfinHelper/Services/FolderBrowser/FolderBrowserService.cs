@@ -343,6 +343,25 @@ public class FolderBrowserService : IFolderBrowserService
                     {
                         return "Path must point to a directory.";
                     }
+
+                    // Symlink escape guard: the lexical IsSensitiveSystemPath check above cannot see
+                    // through a directory link whose own path is innocuous but which points at a
+                    // sensitive target (e.g. /media/movies/peek -> /etc). Path.GetFullPath does not
+                    // dereference symlinks on .NET, so resolve the final target and re-apply the guard,
+                    // refusing a browse INTO a link that lands on a protected directory. Guarded on a
+                    // valid, existing directory so it never runs against the (FileAttributes)(-1)
+                    // sentinel returned for missing paths.
+                    if (attrs != (FileAttributes)(-1) && (attrs & FileAttributes.ReparsePoint) != 0)
+                    {
+                        var resolved = new DirectoryInfo(normalized).ResolveLinkTarget(returnFinalTarget: true);
+                        if (resolved is not null && PathValidator.IsSensitiveSystemPath(resolved.FullName))
+                        {
+                            _logger.LogWarning(
+                                "Folder-browse request refused: {Path} is a link to a sensitive system path",
+                                SanitizeForLog(path));
+                            return "This is a protected system folder and cannot be browsed.";
+                        }
+                    }
                 }
                 else if (File.Exists(normalized))
                 {
@@ -473,6 +492,29 @@ public class FolderBrowserService : IFolderBrowserService
         // also covered here.)
         if (PathValidator.IsSensitiveSystemPath(dirInfo.FullName))
         {
+            return true;
+        }
+
+        // Symlink/junction escape guard: IsSensitiveSystemPath is purely lexical and Path.GetFullPath
+        // does NOT dereference symlinks on .NET, so a directory link whose OWN path is innocuous
+        // (e.g. /media/movies/peek -> /etc) would otherwise be listed and browsed into, exposing the
+        // target's contents. Resolve the final link target and re-apply the sensitive-path guard so a
+        // link pointing at /etc, /config, C:\Windows, etc. is hidden just like the real directory.
+        try
+        {
+            if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                var resolved = dirInfo.ResolveLinkTarget(returnFinalTarget: true);
+                if (resolved is not null && PathValidator.IsSensitiveSystemPath(resolved.FullName))
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Cannot resolve the link (broken, permission, cyclic) — treat as unlistable/critical
+            // so an unresolvable reparse point is never browsed into.
             return true;
         }
 

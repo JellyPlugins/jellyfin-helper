@@ -44,11 +44,24 @@ public class LibraryInsightsServiceTests
     }
 
     [Fact]
-    public void DetermineChangeType_ModifiedBeforeCreated_UsesAbsoluteDiff()
+    public void DetermineChangeType_ModifiedBeforeCreated_IsAdded()
     {
-        // Edge case: modified is before created (filesystem quirk)
+        // A modified time EARLIER than created is a stale/preserved mtime (e.g. media copied with
+        // -p, or restored from backup), NOT a real change. It must classify as "added" so the
+        // recency date is driven by the newer created time — otherwise GetRelevantDate would return
+        // the stale older mtime and the recent-filter would hide genuinely new media. (Previously
+        // this used Math.Abs and wrongly returned "changed".)
         var created = new DateTime(2025, 6, 5, 12, 0, 0, DateTimeKind.Utc);
         var modified = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
+        Assert.Equal("added", LibraryInsightsService.DetermineChangeType(created, modified));
+    }
+
+    [Fact]
+    public void DetermineChangeType_ModifiedWellAfterCreated_IsChanged()
+    {
+        // A modified time meaningfully AFTER created is a genuine change.
+        var created = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
+        var modified = new DateTime(2025, 6, 5, 12, 0, 0, DateTimeKind.Utc);
         Assert.Equal("changed", LibraryInsightsService.DetermineChangeType(created, modified));
     }
 

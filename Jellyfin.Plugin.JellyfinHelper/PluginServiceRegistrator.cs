@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.IO.Abstractions;
+using System.Net.Http;
 using Jellyfin.Plugin.JellyfinHelper.Api;
 using Jellyfin.Plugin.JellyfinHelper.Services.Activity;
 using Jellyfin.Plugin.JellyfinHelper.Services.Arr;
@@ -36,18 +37,34 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         _ = applicationHost; // Required by interface but unused
+
+        // Hardening for all outbound named clients (Arr / Seerr):
+        //  * MaxResponseContentBufferSize caps how much a response body can buffer, so a
+        //    compromised/MITM'd upstream cannot stream a multi-GB body into a single string and
+        //    OOM the Jellyfin process (Seerr reads used unbounded ReadAsStringAsync).
+        //  * AllowAutoRedirect=false stops a hostile 3xx from redirecting an admin-configured LAN
+        //    request to an arbitrary internal address (blind-SSRF hardening); 3xx then surfaces as a
+        //    non-success status the callers already handle.
+        const long maxResponseBytes = 100L * 1024 * 1024; // 100 MB, matching ArrIntegration's LimitedStream cap
+
+        static HttpMessageHandler NoRedirectHandler() =>
+            new SocketsHttpHandler { AllowAutoRedirect = false };
+
         serviceCollection.AddHttpClient("ArrIntegration", client =>
         {
             client.Timeout = TimeSpan.FromSeconds(15);
-        });
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
         serviceCollection.AddHttpClient("SeerrIntegration", client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
-        });
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
         serviceCollection.AddHttpClient("SeerrDiscovery", client =>
         {
             client.Timeout = TimeSpan.FromSeconds(30);
-        });
+            client.MaxResponseContentBufferSize = maxResponseBytes;
+        }).ConfigurePrimaryHttpMessageHandler(NoRedirectHandler);
         serviceCollection.AddSingleton<ICleanupConfigHelper, CleanupConfigHelper>();
         serviceCollection.AddSingleton<ICleanupTrackingService, CleanupTrackingService>();
         serviceCollection.AddSingleton<ITrashService, TrashService>();

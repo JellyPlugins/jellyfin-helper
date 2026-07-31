@@ -462,21 +462,36 @@ public sealed class BackupService : IBackupService
         BackupRestoreSummary summary)
     {
         // Snapshot existing keys (truncated to MaxApiKeyLength for apples-to-apples comparison).
+        // Case-INSENSITIVE name lookup: the "empty backup key means preserve the live key" rule keys
+        // off the instance Name, so a case-only rename between export and import (e.g. "Radarr" ->
+        // "radarr") would miss the lookup and silently wipe the live key. Ordinal-ignore-case keeps
+        // the preserve rule working across such renames.
         var previousKeys = liveInstances
             .ToLookup(
                 i => i.Name,
-                i => BackupSanitizer.TruncateString(i.ApiKey, BackupValidator.MaxApiKeyLength));
+                i => BackupSanitizer.TruncateString(i.ApiKey, BackupValidator.MaxApiKeyLength),
+                StringComparer.OrdinalIgnoreCase);
 
         var newList = new List<ArrInstanceConfig>();
         var keysChanged = 0;
+        var silentWipes = 0;
 
         foreach (var instance in backupInstances.Take(BackupValidator.MaxArrInstances))
         {
             // An empty backup key means "preserve the live key" — fall back to the previously
             // stored key for this instance name, consistent with the SeerrApiKey guard above.
-            var apiKey = string.IsNullOrEmpty(instance.ApiKey)
+            var backupKeyEmpty = string.IsNullOrEmpty(instance.ApiKey);
+            var apiKey = backupKeyEmpty
                 ? (previousKeys[instance.Name].FirstOrDefault() ?? string.Empty)
                 : BackupSanitizer.TruncateString(instance.ApiKey, BackupValidator.MaxApiKeyLength);
+
+            // "Preserve the live key" that matched nothing → the instance ends up with an empty key.
+            // Surface it instead of letting the wipe pass silently (the keysChanged audit below is
+            // gated on a NON-empty key, so it never reports this case).
+            if (backupKeyEmpty && string.IsNullOrEmpty(apiKey))
+            {
+                silentWipes++;
+            }
 
             // Detect credential change: non-empty incoming key not found in any prior entry
             // for this name. Both sides are truncated to the same length so a key that was
@@ -497,6 +512,15 @@ public sealed class BackupService : IBackupService
 
         liveInstances.Clear();
         liveInstances.AddRange(newList);
+
+        if (silentWipes > 0)
+        {
+            _pluginLog.LogWarning(
+                "Backup",
+                $"{label}: {silentWipes} instance(s) had an empty backup API key with no matching live key to preserve. "
+                + "Their API key is now empty and must be re-entered.",
+                logger: _logger);
+        }
 
         if (keysChanged > 0)
         {
