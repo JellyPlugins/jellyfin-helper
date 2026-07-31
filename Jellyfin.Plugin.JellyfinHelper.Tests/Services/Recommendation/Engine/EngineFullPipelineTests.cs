@@ -109,29 +109,37 @@ public sealed class EngineFullPipelineTests
     }
 
     [Fact]
-    public void GetRecommendations_ColdStart_UnratedItem_DoesNotOutrankKnownMediocre()
+    public void GetRecommendations_ColdStart_UnratedItem_TiesKnownMediocre_ButOutranksTrash()
     {
         // REGRESSION GUARD (audit finding coldstart-05-rating): the cold-start scalar formula must
         // NOT let a fully-unrated candidate outrank a candidate the community explicitly rated poorly.
         // Previously ComputeCombinedCriticScore returned the neutral 0.5 for unrated items, so an
         // unrated title scored 0.6*0.5=0.30 (rating term) while a real 3/10 scored 0.6*0.30=0.18 —
-        // a 0.12 quality inversion. The fix substitutes a 0.30 unrated prior LOCALLY in cold-start,
-        // so an unknown-quality item now ties a 3/10 on the rating term and never outranks it.
-        // Both movies share genre + year, so recency and diversity-reranking are equal and the
-        // rating term is the only differentiator; we assert on Score (not list position) so an
-        // equal-score tie is not flipped by the reranker's deterministic ordering.
+        // a 0.12 quality inversion. The fix substitutes the 0.30 unrated prior LOCALLY in cold-start.
+        //
+        // We pin BOTH boundaries of the calibration so a future mis-set prior is caught:
+        //   * unrated must TIE a 3/10 exactly (0.30 prior == 3.0/10) — a one-sided "<=" would let an
+        //     over-penalizing regression (e.g. prior=0.0) ship undetected, so we assert equality.
+        //   * unrated must STRICTLY OUTRANK genuinely-bad content (2/10) — an unknown title is not
+        //     worse than trash, and this lower-bound assertion fails if the prior is pushed too low.
+        // All three movies share genre + year, so recency and diversity-reranking are equal and the
+        // rating term is the sole differentiator. We assert on Score (not list position) so an
+        // exact-score tie is not flipped by the reranker's deterministic ordering. This is the
+        // classic single-user branch (no community prior), which the test harness exercises.
         var harness = EngineTestFactory.Create();
         var userId = Guid.NewGuid();
         harness.WatchHistory.Setup(w => w.GetUserWatchProfile(userId))
             .Returns(new UserWatchProfile { UserId = userId, UserName = "newbie", WatchedItems = [] });
 
         var mediocre = MakeMovie("Known Mediocre", 2020, ["Action"], communityRating: 3.0f);
+        var trash = MakeMovie("Known Trash", 2020, ["Action"], communityRating: 2.0f);
         var unrated = MakeMovie("Unknown Quality", 2020, ["Action"], communityRating: null);
-        // Ensure the "unrated" item truly has NEITHER rating, and the mediocre item has only the 3/10.
+        // Ensure the "unrated" item truly has NEITHER rating; rated items carry only their community score.
         unrated.CriticRating = null;
         mediocre.CriticRating = null;
+        trash.CriticRating = null;
 
-        WireLibrary(harness, [mediocre, unrated]);
+        WireLibrary(harness, [mediocre, trash, unrated]);
 
         var result = harness.Engine.GetRecommendations(userId, 10, CancellationToken.None);
 
@@ -140,16 +148,22 @@ public sealed class EngineFullPipelineTests
         Assert.NotEmpty(result.Recommendations);
 
         var mediocreRec = result.Recommendations.FirstOrDefault(r => r.ItemId == mediocre.Id);
+        var trashRec = result.Recommendations.FirstOrDefault(r => r.ItemId == trash.Id);
         var unratedRec = result.Recommendations.FirstOrDefault(r => r.ItemId == unrated.Id);
         Assert.NotNull(mediocreRec);
+        Assert.NotNull(trashRec);
         Assert.NotNull(unratedRec);
 
-        // Core anti-inversion contract: the unrated item must NOT score higher than the 3/10 item.
-        // With the 0.30 prior and identical recency they tie exactly; the old neutral-0.5 prior made
-        // the unrated item beat the 3/10 by ~0.12, which this assertion would have caught.
+        // Upper boundary: unrated ties a 3/10 exactly (0.30 prior maps to the same rating term as
+        // community 3.0/10). Asserting equality — not just "<=" — catches an over-penalizing regression.
+        Assert.Equal(mediocreRec!.Score, unratedRec!.Score, 4);
+
+        // Lower boundary: unrated strictly outranks genuinely-bad (2/10) content. Fails if the prior
+        // is pushed below the trash band (e.g. a future 0.0), which the equality assertion alone
+        // would not catch.
         Assert.True(
-            unratedRec!.Score <= mediocreRec!.Score,
-            $"Unrated item (score={unratedRec.Score}) must not outrank the community-rated 3/10 item (score={mediocreRec.Score}).");
+            unratedRec.Score > trashRec!.Score,
+            $"Unrated item (score={unratedRec.Score}) must strictly outrank the community-rated 2/10 item (score={trashRec.Score}).");
     }
 
     [Fact]
