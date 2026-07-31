@@ -5,7 +5,7 @@
 A [Jellyfin](https://jellyfin.org/) plugin that provides automated cleanup tasks, media library statistics, ML-powered smart recommendations, user activity insights, health checks, and Arr stack integration - all from a single, multi-tab dashboard.
 
 [![GitHub Release](https://img.shields.io/github/v/release/JellyPlugins/jellyfin-helper?style=flat-square)](https://github.com/JellyPlugins/jellyfin-helper/releases)
-[![Tests](https://img.shields.io/badge/tests-4332%20passed-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
+[![Tests](https://img.shields.io/badge/tests-4335%20passed-brightgreen?style=flat-square)](Jellyfin.Plugin.JellyfinHelper.Tests/)
 [![E2E](https://img.shields.io/badge/e2e-268%20tests-brightgreen?style=flat-square)](test/e2e/)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
 [![Jellyfin](https://img.shields.io/badge/Jellyfin-12.0+-00A4DC?style=flat-square&logo=jellyfin&logoColor=white)](https://jellyfin.org/)

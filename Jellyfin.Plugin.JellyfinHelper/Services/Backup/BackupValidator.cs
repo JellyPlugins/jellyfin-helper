@@ -205,25 +205,28 @@ public static class BackupValidator
                 $"SeerrCleanupAgeDays out of range: {backup.SeerrCleanupAgeDays}. Must be 0–{MaxRetentionDays}.");
         }
 
-        // Path validation for trash folder - defence in depth, run UNCONDITIONALLY so a restore is
-        // never weaker than the live save API (ConfigurationRequestValidator.Validate calls
-        // ValidateTrashPathStrict regardless of UseTrash). Previously gating on UseTrash let a crafted
-        // backup with UseTrash=false persist an arbitrary/sensitive/traversal TrashFolderPath into
-        // live config. ValidateTrashPathStrict returns null for empty/whitespace regardless of
-        // useTrash, so an empty path + UseTrash=false still passes; the UseTrash=true + empty-required
-        // error is preserved; only genuinely dangerous non-empty paths are newly rejected.
-        //   1. ValidatePathSafety catches injection patterns (|, `, ;, $(...), ${...}) non-empty only.
+        // Path validation for trash folder - defence in depth:
+        //   1. ValidatePathSafety catches injection patterns (|, `, ;, $(...), ${...}).
         //   2. ValidateTrashPathStrict applies the same structural rules as the settings save API.
-        if (!string.IsNullOrEmpty(backup.TrashFolderPath))
+        // Gated on UseTrash by design: a restore must ALWAYS succeed (never hard-400). An unsafe
+        // trash path in a backup is DEFANGED to the default during RestoreConfiguration rather than
+        // rejected here, so this hard error only fires when the operator is actively enabling trash.
+        // The defang in BackupService.RestoreConfiguration is what keeps a traversal/sensitive/
+        // absolute path from ever reaching live config when UseTrash=false. See the e2e contract
+        // "import defangs a traversal trash path (UseTrash off) to the default".
+        if (backup.UseTrash)
         {
-            ValidatePathSafety(result, backup.TrashFolderPath, "TrashFolderPath");
-        }
+            if (!string.IsNullOrEmpty(backup.TrashFolderPath))
+            {
+                ValidatePathSafety(result, backup.TrashFolderPath, "TrashFolderPath");
+            }
 
-        var trashPathError = ConfigurationRequestValidator.ValidateTrashPathStrict(
-            backup.TrashFolderPath, backup.UseTrash);
-        if (trashPathError != null)
-        {
-            result.Errors.Add($"TrashFolderPath: {trashPathError}");
+            var trashPathError = ConfigurationRequestValidator.ValidateTrashPathStrict(
+                backup.TrashFolderPath, backup.UseTrash);
+            if (trashPathError != null)
+            {
+                result.Errors.Add($"TrashFolderPath: {trashPathError}");
+            }
         }
 
         // Arr instances validation

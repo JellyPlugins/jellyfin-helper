@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Jellyfin.Plugin.JellyfinHelper.Configuration;
+using Jellyfin.Plugin.JellyfinHelper.Services;
 using Jellyfin.Plugin.JellyfinHelper.Services.Common;
 using Jellyfin.Plugin.JellyfinHelper.Services.ConfigAccess;
 using Jellyfin.Plugin.JellyfinHelper.Services.PluginLog;
@@ -415,15 +416,23 @@ public sealed class BackupService : IBackupService
 
             // Trash settings
             config.UseTrash = backup.UseTrash;
-            // Reject traversal sequences so a crafted backup cannot escape the library root.
+            // Defang an unsafe trash path from a crafted backup to the default, rather than hard-failing
+            // the whole restore (a restore must always succeed; validation only hard-errors when the
+            // operator actively enables trash via the live save API). Two dangers are neutralised:
+            //   * traversal ("..", ".") that could escape the library root, and
+            //   * a sensitive absolute system path (/etc, C:\Windows, the Jellyfin /config, ...) that
+            //     must never land in live config even with UseTrash=false.
             // Split on the LITERAL ['/', '\\'] (not Path.DirectorySeparatorChar/AltDirectorySeparatorChar,
             // which both collapse to '/' on Unix and would let a Windows-style "foo\..\bar" slip through
-            // on a Linux host), and reject "." as well as ".." - matching the validators.
+            // on a Linux host). IsSensitiveSystemPath is lexical, so feed it the raw path (a legitimate
+            // RELATIVE custom path like ".custom-trash" is neither traversal nor sensitive and survives).
             var rawTrashPath = backup.TrashFolderPath;
             var hasTraversal = !string.IsNullOrWhiteSpace(rawTrashPath) &&
                 rawTrashPath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries)
                             .Any(s => s is "." or "..");
-            config.TrashFolderPath = string.IsNullOrWhiteSpace(rawTrashPath) || hasTraversal
+            var isSensitive = !string.IsNullOrWhiteSpace(rawTrashPath) &&
+                PathValidator.IsSensitiveSystemPath(rawTrashPath);
+            config.TrashFolderPath = string.IsNullOrWhiteSpace(rawTrashPath) || hasTraversal || isSensitive
                 ? ".jellyfin-trash"
                 : rawTrashPath;
             config.TrashRetentionDays = Math.Clamp(backup.TrashRetentionDays, 0, BackupValidator.MaxRetentionDays);

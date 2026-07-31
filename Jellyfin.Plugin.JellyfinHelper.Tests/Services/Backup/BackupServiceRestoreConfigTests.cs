@@ -65,7 +65,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         return (service, liveConfig, configMock);
     }
 
-    private static BackupData MakeMinimalValidBackup()
+    private static BackupData MakeMinimalValidBackup(bool useTrash = true)
     {
         return new BackupData
         {
@@ -85,7 +85,7 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
             SeerrUrl = "https://seerr.example.com",
             SeerrApiKey = "test-key",
             SeerrCleanupAgeDays = 30,
-            UseTrash = true,
+            UseTrash = useTrash,
             TrashFolderPath = ".trash",
             TrashRetentionDays = 14,
             SyncRecommendationsToPlaylist = true,
@@ -212,6 +212,51 @@ public sealed class BackupServiceRestoreConfigTests : IDisposable
         service.RestoreBackup(backup);
 
         Assert.Equal(".jellyfin-trash", liveConfig.TrashFolderPath);
+    }
+
+    [Fact]
+    public void RestoreBackup_TraversalTrashPath_TrashOff_DefangsToDefault()
+    {
+        // AUDIT GUARD (backup-01): a crafted backup with UseTrash=false must NOT hard-fail the
+        // restore, but the traversal path must be defanged to the default so it can never reach
+        // live config. Matches the e2e contract
+        // "import defangs a traversal trash path (UseTrash off) to the default".
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup(useTrash: false);
+        backup.TrashFolderPath = "../../etc";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(".jellyfin-trash", liveConfig.TrashFolderPath);
+    }
+
+    [Fact]
+    public void RestoreBackup_SensitiveAbsoluteTrashPath_TrashOff_DefangsToDefault()
+    {
+        // AUDIT GUARD (backup-01): a sensitive absolute system path with UseTrash=false must be
+        // defanged to the default rather than persisted into live config. This is the actual attack
+        // the audit finding raised (a /etc or C:\Windows path landing in config with trash disabled).
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup(useTrash: false);
+        backup.TrashFolderPath = OperatingSystem.IsWindows() ? "C:\\Windows" : "/etc";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(".jellyfin-trash", liveConfig.TrashFolderPath);
+    }
+
+    [Fact]
+    public void RestoreBackup_LegitimateRelativeTrashPath_TrashOff_IsPreserved()
+    {
+        // The defang must NOT over-reach: a legitimate relative custom path (neither traversal nor
+        // sensitive) survives a UseTrash=false restore unchanged.
+        var (service, liveConfig, _) = CreateServiceWithInitializedConfig();
+        var backup = MakeMinimalValidBackup(useTrash: false);
+        backup.TrashFolderPath = ".custom-trash";
+
+        service.RestoreBackup(backup);
+
+        Assert.Equal(".custom-trash", liveConfig.TrashFolderPath);
     }
 
     [Fact]
