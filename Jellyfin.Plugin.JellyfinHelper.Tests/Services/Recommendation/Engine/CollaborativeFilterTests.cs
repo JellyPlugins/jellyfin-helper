@@ -59,6 +59,32 @@ public class CollaborativeFilterTests
     }
 
     [Fact]
+    public void PrecomputeUserWatchSets_IncludesInProgressItems()
+    {
+        // REGRESSION GUARD (audit finding collaborative-filter-1): the combined watch set MUST use
+        // the same HasMeaningfulInteraction predicate as the engine's routing gate. An item with only
+        // playback progress (Played=false, IsFavorite=false, PlayCount=0, PlaybackPositionTicks>0) is
+        // routed into the collaborative path, so it must also appear in the collaborative watch set —
+        // otherwise such a user gets an empty set (zero collaborative signal) AND is denied cold-start.
+        var inProgress = Guid.NewGuid();
+        var rewatched = Guid.NewGuid();
+        var profile = new UserWatchProfile
+        {
+            UserId = Guid.NewGuid(),
+            WatchedItems =
+            [
+                new WatchedItemInfo { ItemId = inProgress, Played = false, IsFavorite = false, PlaybackPositionTicks = 5_000_000 },
+                new WatchedItemInfo { ItemId = rewatched, Played = false, IsFavorite = false, PlayCount = 2 }
+            ]
+        };
+
+        var sets = CollaborativeFilter.PrecomputeUserWatchSets([profile]);
+
+        Assert.Contains(inProgress, sets[profile.UserId]);
+        Assert.Contains(rewatched, sets[profile.UserId]);
+    }
+
+    [Fact]
     public void PrecomputeUserWatchSets_IncludesSeriesIdFromEpisodes()
     {
         var episodeId = Guid.NewGuid();

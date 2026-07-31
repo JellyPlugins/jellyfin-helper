@@ -106,8 +106,15 @@ internal static class CollaborativeFilter
         var combined = new HashSet<Guid>();
         foreach (var w in profile.WatchedItems)
         {
-            // Include items that are played OR favorited
-            if (w is { Played: false, IsFavorite: false })
+            // Include every item the user meaningfully interacted with — played, favorited,
+            // re-watched (PlayCount) OR in-progress (PlaybackPositionTicks). This MUST use the
+            // same centralized HasMeaningfulInteraction predicate the engine's routing gate and
+            // WatchHistoryService admission use: otherwise a user whose only signal is in-progress
+            // items is routed into the collaborative path (gate sees meaningful interaction) yet
+            // builds an EMPTY watch set here (narrower Played||IsFavorite test), getting zero
+            // collaborative signal while also being denied the cold-start fallback. In-progress
+            // watches would likewise never contribute to overlap counting or the popularity/IDF map.
+            if (!w.HasMeaningfulInteraction())
             {
                 continue;
             }

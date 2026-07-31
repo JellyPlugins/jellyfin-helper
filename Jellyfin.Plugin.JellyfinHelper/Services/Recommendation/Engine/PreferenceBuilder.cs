@@ -972,20 +972,19 @@ internal static class PreferenceBuilder
         var underexposedCount = 0;
         var dominantCount = 0;
         var candidateWeightSum = 0.0;
-        var validCount = 0;
 
-        foreach (var genre in candidateGenres)
+        // De-duplicate candidate genres case-insensitively BEFORE counting, mirroring the sibling
+        // SimilarityComputer.ComputeGenreSimilarity. Without this, a candidate carrying duplicate
+        // genre entries (e.g. ["Action","Action","Drama"] from a metadata provider) would inflate
+        // validCount / dominantCount / candidateWeightSum, corrupting all three exposure features and
+        // making them disagree with the deduping GenreSimilarity on the same item's effective genre set.
+        var distinctGenres = new HashSet<string>(
+            candidateGenres.Where(static g => !string.IsNullOrWhiteSpace(g)),
+            StringComparer.OrdinalIgnoreCase);
+        var validCount = distinctGenres.Count;
+
+        foreach (var genre in distinctGenres)
         {
-            // Guard against null/whitespace entries that may come from external metadata providers.
-            // TryGetValue would throw ArgumentNullException on null keys, and empty strings
-            // would dilute the underexposure/dominance ratios.
-            if (string.IsNullOrWhiteSpace(genre))
-            {
-                continue;
-            }
-
-            validCount++;
-
             if (analysis.UnderexposedGenres.Contains(genre))
             {
                 underexposedCount++;
