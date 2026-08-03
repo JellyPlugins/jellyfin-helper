@@ -57,7 +57,12 @@ test.describe.serial('cleanup never escapes the media library', () => {
   test.beforeEach(() => {
     ensureCanariesPlanted(); // skips loudly w/o docker; guarantees a canary exists
     regenFixtures();
-    containerWriteFile('/srv/jfh-external/secret.mkv', 'EXTERNAL-DATA');
+    // Seed under /config (the plugin's own data mount) rather than /srv: /config is
+    // writable by the non-root container UID in CI, whereas /srv lives on the
+    // container's root-owned rootfs and the seed silently fails there (skipping the
+    // test). /config is still OUTSIDE the media library, so the symlink-escape guard
+    // is exercised for real. Distinct subdir from the /config/jfh-canary canary.
+    containerWriteFile('/config/jfh-external/secret.mkv', 'EXTERNAL-DATA');
   });
 
   test.afterEach(() => {
@@ -69,16 +74,17 @@ test.describe.serial('cleanup never escapes the media library', () => {
     // A folder whose only "content" is a symlink to an external dir. Whatever the
     // cleanup decides about the folder, the EXTERNAL target's data must survive.
     // (The external target is seeded once in beforeEach.)
-    // On CI the container runs as a non-root UID that may not be able to write to /srv;
-    // if the external seed didn't land, skip loudly rather than assert on a phantom file
-    // (which would look like a data-loss failure when nothing was ever created).
+    // On CI the container runs as a non-root UID; /config is the writable data
+    // mount (unlike /srv on the root-owned rootfs). If the external seed still
+    // didn't land, skip loudly rather than assert on a phantom file (which would
+    // look like a data-loss failure when nothing was ever created).
     test.skip(
-      !containerFileExists('/srv/jfh-external/secret.mkv'),
-      '/srv not writable in this environment - cannot seed the external target',
+      !containerFileExists('/config/jfh-external/secret.mkv'),
+      '/config/jfh-external not writable in this environment - cannot seed the external target',
     );
 
     containerMkdir(`${M}/Symlink Trap (2020)`);
-    const linkRes = execInContainer(`ln -s /srv/jfh-external "${M}/Symlink Trap (2020)/external"`);
+    const linkRes = execInContainer(`ln -s /config/jfh-external "${M}/Symlink Trap (2020)/external"`);
     test.skip(linkRes.code !== 0, 'symlink creation unsupported on this filesystem');
 
     await isolateStage({
@@ -89,7 +95,7 @@ test.describe.serial('cleanup never escapes the media library', () => {
     expect(result.LastExecutionResult?.Status).toBe('Completed');
 
     // The external target and its data MUST still exist (no follow-the-symlink delete).
-    expect(containerFileExists('/srv/jfh-external/secret.mkv'), 'external data must survive').toBe(true);
+    expect(containerFileExists('/config/jfh-external/secret.mkv'), 'external data must survive').toBe(true);
     await assertPluginActive(ctx);
   });
 
