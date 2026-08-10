@@ -2,6 +2,10 @@ name: PR Build & Test
 
 on:
   pull_request:
+  push:
+    # Codecov reports the DEFAULT-branch coverage, so main must produce its own
+    # report - otherwise the badge stays "unknown" no matter how many PRs run.
+    branches: [main]
   workflow_dispatch:
 
 permissions: {}
@@ -108,6 +112,7 @@ jobs:
     needs: build
     permissions:
       contents: read
+      pull-requests: write
 
     strategy:
       fail-fast: false
@@ -180,6 +185,7 @@ jobs:
       if: always() && env.COVERAGE_FILE != ''
       uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
       with:
+        token: ${{ secrets.CODECOV_TOKEN }}
         files: ${{ env.COVERAGE_FILE }}
         flags: ${{ matrix.bucket.name }}
         name: ${{ matrix.bucket.name }}
