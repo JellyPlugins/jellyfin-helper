@@ -145,7 +145,9 @@ jobs:
       run: |
         dotnet test --configuration Release --no-build --verbosity normal \
           --filter "$TEST_FILTER" \
-          --logger "trx;LogFileName=${{ matrix.bucket.name }}.trx"
+          --logger "trx;LogFileName=${{ matrix.bucket.name }}.trx" \
+          --collect:"XPlat Code Coverage" \
+          --results-directory "./TestResults/${{ matrix.bucket.name }}"
 
     - name: Upload test results
       if: always()
@@ -154,6 +156,35 @@ jobs:
         name: test-results-${{ matrix.bucket.name }}
         path: "**/TestResults/*.trx"
         retention-days: 7
+
+    # `--collect:"XPlat Code Coverage"` writes to a GUID subfolder we can't name
+    # ahead of time. Flatten it to a fixed path so Codecov gets an exact file and
+    # we don't depend on glob expansion behaviour in the action.
+    - name: Collect coverage report
+      if: always()
+      run: |
+        set -euo pipefail
+        src=$(find "./TestResults/${{ matrix.bucket.name }}" -name 'coverage.cobertura.xml' | head -n1)
+        if [ -n "$src" ]; then
+          cp "$src" "./coverage.${{ matrix.bucket.name }}.cobertura.xml"
+          echo "COVERAGE_FILE=./coverage.${{ matrix.bucket.name }}.cobertura.xml" >> "$GITHUB_ENV"
+        else
+          echo "::warning::No coverage report found for the ${{ matrix.bucket.name }} bucket."
+        fi
+
+    # Codecov merges reports that share a repo/commit, so all three buckets (Unit,
+    # Security, Performance) roll up into one figure; the flag keeps per-bucket
+    # breakdowns available on the Codecov UI. Skipped when the collect step found
+    # no report (e.g. the Performance bucket soft-failed before producing one).
+    - name: Upload coverage to Codecov
+      if: always() && env.COVERAGE_FILE != ''
+      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+      with:
+        files: ${{ env.COVERAGE_FILE }}
+        flags: ${{ matrix.bucket.name }}
+        name: ${{ matrix.bucket.name }}
+        disable_search: true
+        fail_ci_if_error: false
 
   # Deploy a live preview of the dashboard demo for this PR
   demo-preview:
