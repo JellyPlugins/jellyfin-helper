@@ -93,7 +93,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: nightly-test-results-${{ matrix.bucket.name }}
-          path: "**/TestResults/*.trx"
+          path: "**/TestResults/**/*.trx"
           retention-days: 14
 
   # --- end-to-end (Docker + real Jellyfin 12 + mock Arr/Seerr) --------------
