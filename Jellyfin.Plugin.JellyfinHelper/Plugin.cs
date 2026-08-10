@@ -37,6 +37,28 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly object _indexHtmlLock = new();
 
     /// <summary>
+    ///     Data files this plugin persists to <see cref="IApplicationPaths.DataPath"/> that do
+    ///     <b>not</b> follow the <c>jellyfin-helper-*.json</c> naming convention and therefore
+    ///     would not be matched by the prefix glob in <see cref="CleanupDataFiles"/>. Listed by
+    ///     exact name so uninstall removes them without widening the glob (which would risk
+    ///     deleting unrelated files):
+    ///     <list type="bullet">
+    ///         <item><c>ml_weights.json</c> - learned scoring weights (<see cref="PluginServiceRegistrator"/>)</item>
+    ///         <item><c>neural_weights.json</c> - neural scoring weights (<see cref="PluginServiceRegistrator"/>)</item>
+    ///         <item><c>ensemble_state.json</c> - ensemble alpha/state (<see cref="PluginServiceRegistrator"/>)</item>
+    ///         <item><c>jellyfin-helper-batch-generation.txt</c> - batch-generation counter (has the
+    ///         prefix but a <c>.txt</c> extension the glob's extension guard excludes)</item>
+    ///     </list>
+    /// </summary>
+    private static readonly string[] UnprefixedDataFiles =
+    [
+        "ml_weights.json",
+        "neural_weights.json",
+        "ensemble_state.json",
+        "jellyfin-helper-batch-generation.txt",
+    ];
+
+    /// <summary>
     ///     Guards the "install File Transformation" warning so it is emitted at most once per
     ///     server start, even though <see cref="InjectScript"/> runs both from the constructor and
     ///     again from the startup hosted service (and could be retried). <c>0</c> = not yet warned,
@@ -582,7 +604,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <summary>
     ///     Deletes all persistent data files created by this plugin from the Jellyfin data directory.
-    ///     All plugin data files follow the naming convention <c>jellyfin-helper-*.json</c>:
+    ///     Most plugin data files follow the naming convention <c>jellyfin-helper-*.json</c>:
     ///     <list type="bullet">
     ///         <item><c>jellyfin-helper-statistics-latest.json</c> - media statistics cache</item>
     ///         <item><c>jellyfin-helper-recommendations-latest.json</c> - recommendation results cache</item>
@@ -590,7 +612,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     ///         <item><c>jellyfin-helper-growth-timeline.json</c> - library growth timeline data</item>
     ///         <item><c>jellyfin-helper-growth-baseline.json</c> - library growth baseline snapshot</item>
     ///     </list>
-    ///     Also removes any leftover <c>.tmp</c> files from atomic write operations.
+    ///     Also removes any leftover <c>.tmp</c> files from atomic write operations, plus the
+    ///     recommendation ML/state artifacts that predate the naming convention (see
+    ///     <see cref="UnprefixedDataFiles"/>).
     /// </summary>
     private void CleanupDataFiles()
     {
@@ -614,19 +638,36 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     continue;
                 }
 
-                try
+                DeleteDataFile(file);
+            }
+
+            // Recommendation ML/state artifacts that don't match the prefix+extension glob above
+            // (unprefixed .json weights, and the .txt batch-generation counter). Deleted by exact
+            // name so we never widen the glob and catch unrelated files.
+            foreach (var name in UnprefixedDataFiles)
+            {
+                var file = Path.Combine(dataPath, name);
+                if (File.Exists(file))
                 {
-                    File.Delete(file);
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    _logger.LogWarning(ex, "Failed to clean up data file");
+                    DeleteDataFile(file);
                 }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             // Best effort - if the data directory is inaccessible, nothing we can do.
+        }
+    }
+
+    private void DeleteDataFile(string file)
+    {
+        try
+        {
+            File.Delete(file);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Failed to clean up data file");
         }
     }
 

@@ -591,6 +591,36 @@ public sealed class PluginTests : IDisposable
     }
 
     [Fact]
+    public void OnUninstalling_DeletesUnprefixedMlAndStateArtifacts()
+    {
+        // Regression: CleanupDataFiles' "jellyfin-helper-*" + .json/.tmp glob does NOT match the
+        // recommendation ML/state artifacts, which are written to DataPath either without the
+        // prefix (ml_weights.json, neural_weights.json, ensemble_state.json - see
+        // PluginServiceRegistrator) or with the prefix but a .txt extension the glob excludes
+        // (jellyfin-helper-batch-generation.txt - see Engine). Before the fix all four survived
+        // uninstall, orphaning trained model state on disk. Assert every plugin artifact is gone.
+        var mlWeights = Path.Combine(_dataPath, "ml_weights.json");
+        var neuralWeights = Path.Combine(_dataPath, "neural_weights.json");
+        var ensembleState = Path.Combine(_dataPath, "ensemble_state.json");
+        var batchGeneration = Path.Combine(_dataPath, "jellyfin-helper-batch-generation.txt");
+        var prefixedCache = Path.Combine(_dataPath, "jellyfin-helper-recommendations-latest.json");
+        File.WriteAllText(mlWeights, "{}");
+        File.WriteAllText(neuralWeights, "{}");
+        File.WriteAllText(ensembleState, "{}");
+        File.WriteAllText(batchGeneration, "3");
+        File.WriteAllText(prefixedCache, "{}");
+
+        var plugin = CreatePlugin();
+        plugin.OnUninstalling();
+
+        Assert.False(File.Exists(mlWeights), "ml_weights.json must be removed on uninstall");
+        Assert.False(File.Exists(neuralWeights), "neural_weights.json must be removed on uninstall");
+        Assert.False(File.Exists(ensembleState), "ensemble_state.json must be removed on uninstall");
+        Assert.False(File.Exists(batchGeneration), "batch-generation counter must be removed on uninstall");
+        Assert.False(File.Exists(prefixedCache));
+    }
+
+    [Fact]
     public void OnUninstalling_PreservesUnrelatedFilesInDataPath()
     {
         // A wildcard change to "jellyfin-*" or "*.json" would nuke unrelated files.

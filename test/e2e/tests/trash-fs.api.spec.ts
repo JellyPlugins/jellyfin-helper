@@ -187,3 +187,70 @@ test.describe.serial('trash move + retention purge', () => {
     containerRm(target);
   });
 });
+
+/**
+ * DELETE /Trash/Folders GREEN PATH - the on-disable bulk removal actually wipes the
+ * per-library trash folders on disk and reports a non-zero Deleted count.
+ *
+ * Elsewhere this endpoint is only ever seen in its NEGATIVE branches: authz.api.spec
+ * asserts non-admin denial, and trash-abuse.api.spec asserts an absolute /config
+ * path is refused (and then runs against the safe default with NOTHING seeded, so it
+ * proves a no-op, not a removal). The scheduled PurgeExpiredTrash path (above) is a
+ * different code path (timestamp-name retention, not the endpoint's
+ * Directory.Delete(recursive) loop). So the success branch - seed real trash, DELETE,
+ * assert Deleted>0 AND the folders are gone - had no coverage.
+ */
+test.describe.serial('DELETE /Trash/Folders bulk removal (green path)', () => {
+  test.beforeEach(() => {
+    ensureCanariesPlanted(); // skips loudly w/o docker; guarantees a canary exists
+    regenFixtures();
+    containerRm(TRASH);
+  });
+
+  test.afterEach(() => {
+    containerRm(TRASH);
+    expect(verifyCanaries(), 'canary files outside /media must be intact').toEqual([]);
+  });
+
+  test('deletes seeded per-library trash folders on disk and reports Deleted>0', async () => {
+    // Default (relative/blank) trash path → the endpoint targets <library>/.jellyfin-trash,
+    // gated to stay under the library root. Seed a real trash folder with content.
+    await putConfig({ UseTrash: true, TrashFolderPath: '.jellyfin-trash' });
+
+    const entryA = `${TRASH}/${containerTimestamp(1)}_DoomedA`;
+    const entryB = `${TRASH}/${containerTimestamp(2)}_DoomedB`;
+    containerMkdir(entryA);
+    containerWriteFile(`${entryA}/a.txt`, 'doomed-a');
+    containerMkdir(entryB);
+    containerWriteFile(`${entryB}/b.mkv`, 'doomed-b');
+    expect(containerDirExists(TRASH), 'precondition: trash folder seeded').toBe(true);
+    expect(containerFindCount(TRASH), 'precondition: trash has content').toBeGreaterThan(0);
+
+    const res = await ctx.delete(p('Trash/Folders'));
+    expect(res.ok(), `DELETE /Trash/Folders failed: ${res.status()}`).toBeTruthy();
+    const body = (await res.json()) as { Deleted: number; Failed: number };
+    expect(body.Deleted, 'at least one trash folder must be reported deleted').toBeGreaterThanOrEqual(1);
+    expect(body.Failed, 'no deletion should fail on a writable seeded folder').toBe(0);
+
+    // The whole trash folder is gone from disk...
+    expect(containerDirExists(TRASH), 'trash folder must be removed from disk').toBe(false);
+    expect(containerExists(entryA), 'trashed entry A must be gone').toBe(false);
+    expect(containerExists(entryB), 'trashed entry B must be gone').toBe(false);
+    // ...but the library root that CONTAINED it is untouched.
+    expect(containerDirExists(M), 'library root must survive the trash wipe').toBe(true);
+    expect(containerFindCount(M), 'library media must survive the trash wipe').toBeGreaterThan(0);
+  });
+
+  test('is a clean no-op when there is no trash folder to delete', async () => {
+    await putConfig({ UseTrash: true, TrashFolderPath: '.jellyfin-trash' });
+    expect(containerDirExists(TRASH), 'precondition: no trash folder').toBe(false);
+
+    const res = await ctx.delete(p('Trash/Folders'));
+    expect(res.ok(), `DELETE /Trash/Folders failed: ${res.status()}`).toBeTruthy();
+    const body = (await res.json()) as { Deleted: number; Failed: number };
+    // Nothing on disk to remove → Deleted 0, Failed 0, no error, library intact.
+    expect(body.Deleted).toBe(0);
+    expect(body.Failed).toBe(0);
+    expect(containerDirExists(M), 'library root must survive a no-op delete').toBe(true);
+  });
+});

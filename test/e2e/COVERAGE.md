@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it -
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **246 tests** (API + UI) across 38 spec files
+every UI interaction. **273 tests** (API + UI) across 44 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -77,6 +77,21 @@ Beyond "does it route / does the UI render", the suite now proves features
 - Concurrent task triggers; rate-limit 429 + Retry-After.
 - (Setup putConfig calls fail loudly if a precondition save didn't succeed.)
 
+## 7a. Upstream DOWN - resilience under an unreachable Arr/Seerr → `upstream-down.api.spec.ts`
+Distinct from the *reachable-but-errors* coverage (`force-fail` = HTTP 500,
+`force-slow` = timeout): here the plugin is pointed at a **dead port**
+(`127.0.0.1:1`, nothing listening) so the HTTP client raises **connection-refused**
+(`HttpRequestException`) - a separate catch branch from the upstream-500 path.
+Contract: behaviour **degrades but nothing breaks** (bounded time, never 500/hang,
+plugin stays Active after every call).
+- **Arr `TestConnection`** against a dead host → clean failed test (`Success:false`,
+  generic non-oracle message), not 500.
+- **Arr `Compare/Radarr`** against a dead host → **502 naming the instance**
+  (`DeadBox`) - the connection-refused branch, which `integrations.api.spec.ts`'s
+  reachable-500 `FailBox` test does not exercise.
+- **Seerr-dependent `Discovery/Services`** read path against a dead host → graceful
+  200/204 or transient 502/503/504, **never 500**, plugin survives.
+
 ## 7b. Authorization gating → `authz.api.spec.ts`
 - **Non-admin denied (401/403) on every `[RequiresElevation]` controller** - GET, PUT/DELETE
   and POST matrices across Configuration, Backup, Trash (incl. the destructive
@@ -104,6 +119,17 @@ Beyond "does it route / does the UI render", the suite now proves features
 - Out-of-range numerics clamp to a 200 restore (not 400); persisted values stay in-range.
 - Import success summary is a PascalCase four-field object; `CredentialsChanged` flips on a new key.
 - Wrong Content-Type rejected (400/415) before body read.
+
+## 7e. Trash contract & path-safety → `trash.api.spec.ts`
+- `Trash/Folders` shape (`IsAbsolute`, `Paths[]`); `Trash/Contents` shape (`UseTrash`, `RetentionDays`, `Libraries[]`).
+- `CheckAccess` rejects traversal + overlong; missing body/field → 400 `{Error}`.
+- `Relocate` error-body contract: traversal → bare string, missing field → `{Error}` object.
+
+## 7f. Logs & Translations API → `logs.api.spec.ts`
+- Logs envelope `{TotalBuffered, Returned, Entries}` with `Returned === Entries.length`; entry `Level` in the valid set.
+- Invalid `minLevel` → 400; lowercase level accepted (OrdinalIgnoreCase); `limit` clamped; `source` >200 → 400 (200 boundary OK).
+- `Logs/Download` validates `minLevel` and serves timestamped `text/plain`.
+- Translations happy-path returns a non-empty string map for `en`/`de`.
 
 ## 7g. Backup versioning & config schema-evolution → `migration.api.spec.ts`
 - Forward-dated `backupVersion` (2) → 400 with an `errors[]` naming the unsupported version
@@ -144,17 +170,6 @@ Beyond "does it route / does the UI render", the suite now proves features
   id set survives, including ids 101/102/108 that page 1 alone would have marked deletable. A `/list-calls`
   hook proves page 1 (200) AND page 2 (500) were both observed, so this genuinely exercises the page-2
   branch (unlike the existing `force-fail` test, which 500s the very first call).
-
-## 7e. Trash contract & path-safety → `trash.api.spec.ts`
-- `Trash/Folders` shape (`IsAbsolute`, `Paths[]`); `Trash/Contents` shape (`UseTrash`, `RetentionDays`, `Libraries[]`).
-- `CheckAccess` rejects traversal + overlong; missing body/field → 400 `{Error}`.
-- `Relocate` error-body contract: traversal → bare string, missing field → `{Error}` object.
-
-## 7f. Logs & Translations API → `logs.api.spec.ts`
-- Logs envelope `{TotalBuffered, Returned, Entries}` with `Returned === Entries.length`; entry `Level` in the valid set.
-- Invalid `minLevel` → 400; lowercase level accepted (OrdinalIgnoreCase); `limit` clamped; `source` >200 → 400 (200 boundary OK).
-- `Logs/Download` validates `minLevel` and serves timestamped `text/plain`.
-- Translations happy-path returns a non-empty string map for `en`/`de`.
 
 ## 8. Integrations (mock green-path + validation) → `integrations.api.spec.ts` (extended)
 - Radarr/Sonarr connection test + Compare bucketing; Seerr connection test.

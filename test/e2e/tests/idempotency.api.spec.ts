@@ -188,10 +188,13 @@ test.describe.serial('Discovery admin request does NOT dedupe (repeat forwards a
       headers: { 'Content-Type': 'application/json' },
       data: JSON.stringify(reqBody),
     });
-    // A configured mock accepts the request; if Seerr is unreachable this is 502.
-    // Either way it must NOT 500, and a success must be a real 200.
-    expect(first.status(), `1st request status ${first.status()}`).toBeLessThan(500);
-    test.skip(first.status() === 502, 'mock-Seerr unreachable - cannot exercise the forward path');
+    // The mock is a HARD dependency here, not an optional one: its reachability is
+    // already proven loudly elsewhere in a green run (settings.api.spec.ts asserts
+    // res.ok() + recorded===1 for the same admin Discovery/Request forward). So a
+    // 502 here is NOT "mock unreachable" - it is a regression in the forward wiring
+    // that would otherwise silently drop this file's sole no-dedupe assertion. Fail
+    // loudly instead of test.skip, matching tasks.api.spec.ts's treatment of the mock.
+    expect(first.status(), `1st request status ${first.status()} - mock must be reachable for the dedupe proof`).not.toBe(502);
     expect(first.ok(), '1st admin request should succeed against the mock').toBeTruthy();
     expect(await mockRequestCount(), 'one request forwarded after the 1st call').toBe(1);
 
