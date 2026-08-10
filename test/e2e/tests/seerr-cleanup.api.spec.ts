@@ -174,15 +174,20 @@ test.describe.serial('Seerr cleanup stage skip-guards', () => {
     await clearLogs();
   });
 
-  test('enabled run with a blank Seerr key skips with "not configured" and deletes nothing', async () => {
+  test('enabled run with Seerr not configured skips with "not configured" and deletes nothing', async () => {
     // Guard 1 in RunSeerrCleanup: blank SeerrUrl OR SeerrApiKey → log "Seerr not
     // configured. Skipping." + report(100) + return, before any upstream call. The
     // stage is Activate (enabled) so it actually runs and reaches the guard - a
     // Deactivate run would skip the whole stage and never exercise it.
+    //
+    // We reach the not-configured state by clearing BOTH url + key: the config
+    // validator rejects a URL-set-but-key-blank save (400 "Seerr API key is required
+    // when a Seerr URL is configured"), so an empty key alone is not a persistable
+    // state. Clearing both is the real "not configured" the guard checks for.
     const before = await count();
     await putConfig({
-      SeerrUrl: 'http://mock-seerr:5055',
-      SeerrApiKey: '', // blank → not configured
+      SeerrUrl: '',
+      SeerrApiKey: '',
       SeerrCleanupTaskMode: 'Activate',
     });
     const result = await runCleanupTask(ctx);

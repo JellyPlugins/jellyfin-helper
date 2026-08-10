@@ -206,6 +206,7 @@ test('Configuration/Libraries returns {Libraries[]} with Name + CollectionType',
 test.describe.serial('Configuration/Libraries exclusion filter', () => {
   const BOXSET_NAME = 'ZZ Boxset Collection';
   let admin: APIRequestContext;
+  let boxsetPresent = false;
 
   test.beforeAll(async () => {
     const auth = loadAuth();
@@ -218,8 +219,17 @@ test.describe.serial('Configuration/Libraries exclusion filter', () => {
       headers: { 'Content-Type': 'application/json' },
       data: { LibraryOptions: { PathInfos: [{ Path: '/media/Movies' }] } },
     });
-    // 204/200 = created; a 4xx on a warm container means it already exists (fine).
+    // 204/200 = created; a 4xx on a warm container may mean it already exists.
     expect([200, 204, 400, 409], `create boxset lib: ${res.status()}`).toContain(res.status());
+    // Confirm the boxset library actually EXISTS as a VirtualFolder now (created here
+    // or pre-existing). Only then is the exclusion assertion load-bearing; if the
+    // create genuinely failed and it's absent, the not-contains check would pass
+    // vacuously - so we skip it loudly rather than pretend the filter was proven.
+    const list = await admin.get('/Library/VirtualFolders');
+    if (list.ok()) {
+      const folders = (await list.json()) as Array<{ Name: string }>;
+      boxsetPresent = folders.some((f) => f.Name === BOXSET_NAME);
+    }
   });
 
   test.afterAll(async () => {
@@ -234,14 +244,23 @@ test.describe.serial('Configuration/Libraries exclusion filter', () => {
     const body = (await res.json()) as { Libraries: Array<{ Name: string; CollectionType?: string }> };
     const names = body.Libraries.map((l) => l.Name);
 
-    // The boxset library must be filtered out entirely.
-    expect(names, `boxset lib must be excluded; got ${names.join(', ')}`).not.toContain(BOXSET_NAME);
-    // The cleanable movies library survives and carries its CollectionType.
+    // Load-bearing exclusion check ONLY when the excludable library actually exists;
+    // otherwise skip loudly so this can't pass vacuously (see beforeAll).
+    if (boxsetPresent) {
+      expect(names, `boxset lib must be excluded; got ${names.join(', ')}`).not.toContain(BOXSET_NAME);
+    } else {
+      test.info().annotations.push({
+        type: 'skip-reason',
+        description: 'boxset library could not be provisioned - exclusion assertion skipped (not vacuously passed)',
+      });
+    }
+
+    // Unconditional invariants: the cleanable movies library survives with its
+    // CollectionType, and names are ordered case-insensitively (OrderBy OrdinalIgnoreCase).
     const movies = body.Libraries.find((l) => l.Name === 'Movies');
     expect(movies, 'Movies library should be present').toBeTruthy();
     expect((movies?.CollectionType ?? '').toLowerCase()).toContain('movie');
 
-    // Names are ordered case-insensitively (OrderBy OrdinalIgnoreCase).
     const sorted = [...names].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
     expect(names).toEqual(sorted);
   });
