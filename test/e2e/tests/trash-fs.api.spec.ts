@@ -25,6 +25,8 @@ import {
 
 const M = '/media/Movies';
 const TRASH = `${M}/.jellyfin-trash`;
+const SHOWS = '/media/Shows';
+const SHOWS_TRASH = `${SHOWS}/.jellyfin-trash`;
 
 let ctx: APIRequestContext;
 
@@ -252,5 +254,51 @@ test.describe.serial('DELETE /Trash/Folders bulk removal (green path)', () => {
     expect(body.Deleted).toBe(0);
     expect(body.Failed).toBe(0);
     expect(containerDirExists(M), 'library root must survive a no-op delete').toBe(true);
+  });
+});
+
+/**
+ * GET Trash/Summary AGGREGATION - TotalSize/TotalItems are summed across libraries
+ * and shared trash paths are de-duplicated. Existing coverage (tasks.api.spec.ts)
+ * asserts only res.ok() + TotalSize/TotalItems >= 0, which any non-crashing (even
+ * always-zero or double-counting) implementation satisfies. Here we seed a KNOWN
+ * trash payload across two library trash folders and assert the EXACT totals, so a
+ * regression in summing or the per-item count is caught.
+ *
+ * An item = each top-level entry (dir or file) under a trash base; TotalSize = sum
+ * of bytes (dirs counted recursively). ASCII contents give exact byte lengths.
+ */
+test.describe.serial('GET Trash/Summary aggregation across libraries', () => {
+  test.beforeEach(() => {
+    ensureCanariesPlanted();
+    regenFixtures();
+    containerRm(TRASH);
+    containerRm(SHOWS_TRASH);
+  });
+
+  test.afterEach(() => {
+    containerRm(TRASH);
+    containerRm(SHOWS_TRASH);
+    expect(verifyCanaries(), 'canary files outside /media must be intact').toEqual([]);
+  });
+
+  test('sums item counts and byte sizes across the Movies and Shows trash folders', async () => {
+    await putConfig({ UseTrash: true, TrashFolderPath: '.jellyfin-trash' });
+
+    // Movies trash: one folder (with a 5-byte file) + one loose 3-byte file = 2 items, 8 bytes.
+    containerMkdir(`${TRASH}/entryDir`);
+    containerWriteFile(`${TRASH}/entryDir/inner.txt`, 'AAAAA'); // 5 bytes
+    containerWriteFile(`${TRASH}/loose.txt`, 'BBB'); // 3 bytes
+    // Shows trash: one folder with a 4-byte file = 1 item, 4 bytes.
+    containerMkdir(`${SHOWS_TRASH}/showEntry`);
+    containerWriteFile(`${SHOWS_TRASH}/showEntry/ep.txt`, 'CCCC'); // 4 bytes
+
+    const res = await ctx.get(p('Trash/Summary'));
+    expect(res.ok(), `Trash/Summary failed: ${res.status()}`).toBeTruthy();
+    const body = (await res.json()) as { TotalSize: number; TotalItems: number };
+
+    // Aggregated across BOTH libraries: 2 + 1 items, 8 + 4 bytes. Exact, not >=0.
+    expect(body.TotalItems, 'top-level entries summed across libraries').toBe(3);
+    expect(body.TotalSize, 'bytes summed across libraries (dirs recursive)').toBe(12);
   });
 });

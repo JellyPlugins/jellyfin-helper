@@ -197,6 +197,56 @@ test('Configuration/Libraries returns {Libraries[]} with Name + CollectionType',
   }
 });
 
+// --- Configuration/Libraries: the EXCLUSION filter actually fires ------------
+// The shape test above passes vacuously because the fixture only has Movies+Shows
+// (nothing excludable). Here we create a real boxset-type library so the
+// music/boxsets exclusion branch is genuinely exercised, then assert it is hidden
+// from the cleanup picker while the normal movies library still appears with its
+// CollectionType, and that Names come back sorted case-insensitively.
+test.describe.serial('Configuration/Libraries exclusion filter', () => {
+  const BOXSET_NAME = 'ZZ Boxset Collection';
+  let admin: APIRequestContext;
+
+  test.beforeAll(async () => {
+    const auth = loadAuth();
+    admin = await apiContext(auth);
+    // Reuse an existing on-disk path (Jellyfin requires the path to exist); the
+    // collectionType 'boxsets' is what triggers the server-side exclusion.
+    const qs = new URLSearchParams({ name: BOXSET_NAME, collectionType: 'boxsets', refreshLibrary: 'false' });
+    qs.append('paths', '/media/Movies');
+    const res = await admin.post(`/Library/VirtualFolders?${qs.toString()}`, {
+      headers: { 'Content-Type': 'application/json' },
+      data: { LibraryOptions: { PathInfos: [{ Path: '/media/Movies' }] } },
+    });
+    // 204/200 = created; a 4xx on a warm container means it already exists (fine).
+    expect([200, 204, 400, 409], `create boxset lib: ${res.status()}`).toContain(res.status());
+  });
+
+  test.afterAll(async () => {
+    await admin.delete(`/Library/VirtualFolders?${new URLSearchParams({ name: BOXSET_NAME }).toString()}`)
+      .catch(() => undefined);
+    await admin.dispose();
+  });
+
+  test('excludes the boxset library, keeps movies with CollectionType, sorts case-insensitively', async () => {
+    const res = await ctx.get(p('Configuration/Libraries'));
+    expect(res.ok()).toBeTruthy();
+    const body = (await res.json()) as { Libraries: Array<{ Name: string; CollectionType?: string }> };
+    const names = body.Libraries.map((l) => l.Name);
+
+    // The boxset library must be filtered out entirely.
+    expect(names, `boxset lib must be excluded; got ${names.join(', ')}`).not.toContain(BOXSET_NAME);
+    // The cleanable movies library survives and carries its CollectionType.
+    const movies = body.Libraries.find((l) => l.Name === 'Movies');
+    expect(movies, 'Movies library should be present').toBeTruthy();
+    expect((movies?.CollectionType ?? '').toLowerCase()).toContain('movie');
+
+    // Names are ordered case-insensitively (OrderBy OrdinalIgnoreCase).
+    const sorted = [...names].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    expect(names).toEqual(sorted);
+  });
+});
+
 test('Configuration/LibraryPaths returns {LibraryPaths[]} with Name + Path', async () => {
   const res = await ctx.get(p('Configuration/LibraryPaths'));
   expect(res.ok()).toBeTruthy();

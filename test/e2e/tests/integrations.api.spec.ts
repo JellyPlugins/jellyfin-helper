@@ -152,3 +152,74 @@ test('Arr Compare 502 aggregation names the failing instance', async () => {
   }
   await assertPluginActive(ctx);
 });
+
+// --- Sonarr Compare error-branch parity with Radarr ------------------------
+// Compare/Sonarr is a duplicated code block from Compare/Radarr; the two can drift
+// independently. Radarr's three error branches are asserted (empty→400,
+// out-of-range→400, failing-instance→502-naming-instance); mirror them for Sonarr
+// so a copy-paste regression (wrong status, missing instance name) can't hide.
+
+test('Sonarr Compare with no instances → 400 naming the requirement', async () => {
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { SonarrInstances: [] },
+  });
+  try {
+    const res = await ctx.get(p('ArrIntegration/Compare/Sonarr'));
+    expect(res.status()).toBe(400);
+    expect(await res.text()).toContain('At least one Sonarr instance');
+  } finally {
+    await ctx.put(p('Configuration'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: { SonarrInstances: [{ Name: 'Mock Sonarr', Url: ARR_URL, ApiKey: 'sonarr-key' }] },
+    });
+  }
+  await assertPluginActive(ctx);
+});
+
+test('Sonarr Compare with out-of-range index → 400 with the range message', async () => {
+  // Exactly one instance configured (restored above) → valid range is 0-0.
+  const res = await ctx.get(p('ArrIntegration/Compare/Sonarr?index=99'));
+  expect(res.status()).toBe(400);
+  expect(await res.text()).toContain('Invalid instance index 99. Valid range: 0-0.');
+  await assertPluginActive(ctx);
+});
+
+test('Sonarr Compare 502 aggregation names the failing instance', async () => {
+  await ctx.put(p('Configuration'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { SonarrInstances: [{ Name: 'FailBoxS', Url: ARR_URL, ApiKey: 'force-fail' }] },
+  });
+  try {
+    const res = await ctx.get(p('ArrIntegration/Compare/Sonarr?index=0'));
+    expect(res.status()).toBe(502);
+    const body = await res.text();
+    expect(body).toContain('FailBoxS');
+    expect(body).toContain('Sonarr instance(s)');
+  } finally {
+    await ctx.put(p('Configuration'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: { SonarrInstances: [{ Name: 'Mock Sonarr', Url: ARR_URL, ApiKey: 'sonarr-key' }] },
+    });
+  }
+  await assertPluginActive(ctx);
+});
+
+test('Seerr/Test against a reachable-but-failing upstream → 502 with a generic non-leaking message', async () => {
+  // The mock's 'force-fail' key returns HTTP 500 on every authed call: a REACHABLE
+  // upstream failure (distinct from the dead-port HttpRequestException in hardening).
+  // The controller must return 502 with a fixed generic message and must NOT reflect
+  // the raw upstream error text (internal-reachability-oracle suppression).
+  const res = await ctx.post(p('Seerr/Test'), {
+    headers: { 'Content-Type': 'application/json' },
+    data: { Url: SEERR_URL, ApiKey: 'force-fail' },
+  });
+  expect(res.status()).toBe(502);
+  const body = (await res.json()) as { Success: boolean; Message: string };
+  expect(body.Success).toBe(false);
+  expect(body.Message).toBe('Connection failed. Please verify URL and API Key and try again.');
+  // Must not leak the mock's upstream error wording.
+  expect(body.Message.toLowerCase()).not.toContain('forced');
+  expect(body.Message).not.toContain('500');
+  await assertPluginActive(ctx);
+});

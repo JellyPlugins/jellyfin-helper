@@ -2,7 +2,7 @@
 
 What the end-to-end suite exercises, mapped to the test that covers it -
 endpoints, task modes, settings, backup, trends, trash, authorization, and
-every UI interaction. **273 tests** (API + UI) across 44 spec files
+every UI interaction. **283 tests** (API + UI) across 44 spec files
 (authoritative count: `cd test/e2e && npx playwright test --list`).
 
 Beyond "does it route / does the UI render", the suite now proves features
@@ -124,6 +124,17 @@ plugin stays Active after every call).
 - `Trash/Folders` shape (`IsAbsolute`, `Paths[]`); `Trash/Contents` shape (`UseTrash`, `RetentionDays`, `Libraries[]`).
 - `CheckAccess` rejects traversal + overlong; missing body/field → 400 `{Error}`.
 - `Relocate` error-body contract: traversal → bare string, missing field → `{Error}` object.
+- **Null-body branch:** a literal `null` body to `Relocate`, `CheckAccess`, and `FoldersForPath`
+  → a clean **400 with a body** (never 500/NRE) - tolerating whichever shape `[ApiController]`
+  produces (problem-details envelope or the `{Error}` guard). Distinct from the `{}` field-blank
+  branch every other test exercises.
+- **Absolute-path CheckAccess containment** (`trash-abuse.api.spec.ts`): a fully-qualified `/config`
+  path → **400** `Path is outside of the permitted library trash directories.` **before** any probe
+  write - the config canary survives and no probe file is planted (the CheckAccess twin of the
+  Relocate/DELETE `/config` guards).
+- **`Trash/Summary` aggregation** (`trash-fs.api.spec.ts`): seed a KNOWN payload across the Movies and
+  Shows trash folders and assert the **exact** `TotalItems`/`TotalSize` (summed across libraries,
+  dirs counted recursively) - not the vacuous `>=0` the routing tests assert.
 
 ## 7f. Logs & Translations API → `logs.api.spec.ts`
 - Logs envelope `{TotalBuffered, Returned, Entries}` with `Returned === Entries.length`; entry `Level` in the valid set.
@@ -170,16 +181,33 @@ plugin stays Active after every call).
   id set survives, including ids 101/102/108 that page 1 alone would have marked deletable. A `/list-calls`
   hook proves page 1 (200) AND page 2 (500) were both observed, so this genuinely exercises the page-2
   branch (unlike the existing `force-fail` test, which 500s the very first call).
+- **Stage skip-guard - "Seerr not configured":** an **enabled** (Activate) cleanup run with a **blank
+  SeerrApiKey** logs `Seerr not configured. Skipping.` (source=`SeerrCleanup`), deletes nothing, and makes
+  **zero** upstream request-list calls (guard returns before any fetch). (The sibling `SeerrCleanupAgeDays<=0`
+  skip-guard is unreachable via `PUT /Configuration` - the config-save clamps age to `[1,3650]` whenever a
+  URL is set - so it is only reachable through a backup import and is left to unit coverage.)
 
 ## 8. Integrations (mock green-path + validation) → `integrations.api.spec.ts` (extended)
 - Radarr/Sonarr connection test + Compare bucketing; Seerr connection test.
 - `Seerr/Test` scheme guard (non-HTTP(S) → 400 exact message); blank URL/key/null body → 400.
 - Arr Compare 502 aggregation names the failing instance (force-fail key).
+- **Sonarr Compare error-branch parity with Radarr:** no-instances → 400 (`At least
+  one Sonarr instance`); out-of-range index → 400 (`Invalid instance index 99. Valid
+  range: 0-0.`); force-fail instance → 502 naming `FailBoxS` + `Sonarr instance(s)`.
+- **`Seerr/Test` reachable-but-failing upstream** (force-fail = HTTP 500) → **502 with
+  the exact generic message** `Connection failed. Please verify URL and API Key and
+  try again.` and **no upstream detail leaked** (no `forced`/`500` in the body) -
+  pinning the internal-reachability-oracle suppression, distinct from the dead-port
+  case in `hardening`/`upstream-down`.
 
 ## 8. User-facing Discovery → `discovery-my.api.spec.ts` + `discovery-request-auth.api.spec.ts`
 - **403 gating:** every `Discovery/My/*` endpoint returns 403 when
   `DiscoveryUserAccessEnabled` is off (tested as a real **non-admin user**).
 - **Enabled flow:** My, ExternalLinks, RequestPermissions, Services respond (not 403).
+- **Populated-cache filtering:** after a real discovery-generation run (Seerr Discovery
+  stage of `HelperCleanup` against the mock), `GET Discovery/My` for the non-admin user
+  exercises the filter/cap path (not just the empty-cache branch): the visible pool is
+  **capped at `MaxVisiblePerUser` (10)** and **no `AlreadyRequested` item leaks through**.
 - `Discovery/My/script` is served **anonymously** - fetched with **no auth header**
   (a bare context, not the admin token) and must return JS, not 401/403.
 - `Discovery/My/Dismiss` records dismissal.
@@ -230,8 +258,14 @@ through:
   envelope from `[ApiController]` (TmdbId/MediaType messages), plus the null-body 400.
 - `Ping` → `{Ok:true, Plugin:"JellyfinHelper", Version}` liveness contract.
 - `Translations` no-`lang` → configured-language fallback (non-empty map); malformed `lang` → **400** pinned.
-- `Configuration/Libraries` + `Configuration/LibraryPaths` response shapes.
+- `Configuration/Libraries` + `Configuration/LibraryPaths` response shapes; **exclusion filter proven**
+  by creating a real `boxsets`-type library and asserting it is **filtered out** of `Libraries[]` while
+  `Movies` survives with its `CollectionType`, and names come back **sorted case-insensitively** (no longer
+  a vacuous `not-contains('boxset')` over a fixture that has nothing excludable).
 - `GrowthTimeline?forceRefresh=true` recompute path (200 or 429 + `Retry-After`).
+- **Arr Compare out-of-range index → 400** with the exact `Invalid instance index 99. Valid range: 0-0.`
+  message (`hardening.api.spec.ts`) - a hard reject, not the old `status<500` that would have tolerated a
+  silent clamp to the wrong instance.
 
 ---
 

@@ -58,10 +58,13 @@ test('Arr Compare with no configured instances returns 400 (not 500)', async () 
   await assertPluginActive(ctx);
 });
 
-test('Arr Compare with out-of-range index is handled', async () => {
+test('Arr Compare with out-of-range index is rejected with the range message', async () => {
   await putConfig({ RadarrInstances: [{ Name: 'R', Url: 'http://mock-arr:9000', ApiKey: 'k' }] });
   const res = await ctx.get(p('ArrIntegration/Compare/Radarr?index=99'));
-  expect(res.status()).toBeLessThan(500);
+  // Must REJECT (400) with the range message - not silently clamp to a valid
+  // instance (which a `status < 500` check would wrongly tolerate as 200).
+  expect(res.status()).toBe(400);
+  expect(await res.text()).toContain('Invalid instance index 99. Valid range: 0-0.');
   await assertPluginActive(ctx);
 });
 

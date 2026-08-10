@@ -60,6 +60,19 @@ async function listCalls(): Promise<Array<{ skip: number; status: number }>> {
   return body.calls;
 }
 
+/** All SeerrCleanup-sourced log messages since the last clear (newest-first). */
+async function seerrLog(): Promise<string[]> {
+  const res = await ctx.get(p('Logs?source=SeerrCleanup&limit=2000'));
+  expect(res.ok(), `GET Logs failed: ${res.status()}`).toBeTruthy();
+  const body = (await res.json()) as { Entries: Array<{ Message: string }> };
+  return body.Entries.map((e) => e.Message);
+}
+
+async function clearLogs() {
+  const res = await ctx.delete(p('Logs'));
+  expect([200, 204], `Logs DELETE status ${res.status()}`).toContain(res.status());
+}
+
 test.describe.serial('Seerr cleanup selects exactly the right requests', () => {
   test.beforeEach(async () => {
     await resetMock();
@@ -152,5 +165,44 @@ test.describe.serial('Seerr cleanup selects exactly the right requests', () => {
     const calls = await listCalls();
     expect(calls.some((c) => c.skip === 0 && c.status === 200), 'page 1 succeeded').toBe(true);
     expect(calls.some((c) => c.skip === 50 && c.status === 500), 'page 2 failed').toBe(true);
+  });
+});
+
+test.describe.serial('Seerr cleanup stage skip-guards', () => {
+  test.beforeEach(async () => {
+    await resetMock();
+    await clearLogs();
+  });
+
+  test('enabled run with a blank Seerr key skips with "not configured" and deletes nothing', async () => {
+    // Guard 1 in RunSeerrCleanup: blank SeerrUrl OR SeerrApiKey → log "Seerr not
+    // configured. Skipping." + report(100) + return, before any upstream call. The
+    // stage is Activate (enabled) so it actually runs and reaches the guard - a
+    // Deactivate run would skip the whole stage and never exercise it.
+    const before = await count();
+    await putConfig({
+      SeerrUrl: 'http://mock-seerr:5055',
+      SeerrApiKey: '', // blank → not configured
+      SeerrCleanupTaskMode: 'Activate',
+    });
+    const result = await runCleanupTask(ctx);
+    expect(result.LastExecutionResult?.Status).toBe('Completed');
+
+    const log = await seerrLog();
+    expect(log.some((m) => m.includes('Seerr not configured. Skipping.')), `SeerrCleanup log: ${log.join(' | ')}`).toBe(true);
+    // Nothing deleted, and no request-list call was made (guard returns before fetch).
+    const after = await count();
+    expect(after.count, 'not-configured skip must delete nothing').toBe(before.count);
+    expect((await listCalls()).length, 'guard returns before any upstream fetch').toBe(0);
+  });
+
+  test.afterAll(async () => {
+    // Restore a working, configured Seerr for any later spec in the same worker.
+    await putConfig({
+      SeerrUrl: 'http://mock-seerr:5055',
+      SeerrApiKey: 'e2e-seerr-key',
+      SeerrCleanupTaskMode: 'Deactivate',
+      SeerrCleanupAgeDays: 30,
+    });
   });
 });

@@ -106,6 +106,28 @@ test.describe.serial('trash operations never escape the media library', () => {
     await assertPluginActive(ctx);
   });
 
+  test('CheckAccess with an absolute /config path is refused BEFORE any probe write', async () => {
+    // The absolute-path containment guard (TrashController.CheckAccess) fires on a
+    // fully-qualified path and returns 400 with the bare-string body BEFORE
+    // CheckPathAccess runs - so the plugin must never create a probe file under
+    // /config. Every other CheckAccess test uses a relative path and cannot reach
+    // this arm; the sibling Relocate/DELETE /config guards are covered but this one
+    // was not. A probe artifact is a directory-listing/write oracle into a
+    // library-external dir, so proving "rejected AND nothing written" matters.
+    const probeBefore = '/config/.jfh-access-probe'; // best-effort: name-agnostic canary check below is the real guard
+    const res = await ctx.post(p('Trash/CheckAccess'), {
+      headers: { 'Content-Type': 'application/json' },
+      data: { TrashFolderPath: '/config' },
+    });
+    expect(res.status(), 'absolute /config CheckAccess must be refused').toBe(400);
+    expect(await res.text()).toContain('Path is outside of the permitted library trash directories.');
+    // The guard returns before CheckPathAccess, so /config is untouched: the canary
+    // (and any config content) survives, and no probe file was planted there.
+    expect(containerFileExists('/config/jfh-canary/marker.txt'), 'config canary intact').toBe(true);
+    expect(containerFileExists(probeBefore), 'no probe file may be written under /config').toBe(false);
+    await assertPluginActive(ctx);
+  });
+
   test('Windows/UNC path strings on a Linux container do not create odd media dirs', async () => {
     for (const p2 of ['C:\\Windows', '\\\\host\\share\\trash']) {
       const res = await ctx.post(p('Trash/Relocate'), {
