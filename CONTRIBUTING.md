@@ -1285,7 +1285,7 @@ Plugin starts → Plugin.InjectScript()  (from the ctor AND again from
 **Injection runs unconditionally, twice per server start:** once from the `Plugin` constructor (very early during plugin discovery) and once from `DiscoverySidebarInjectionService` (an `IHostedService`) after DI is built and the web root is mounted. The second run is the robust one - it also self-heals the disk-write fallback after a Jellyfin web update overwrites `index.html`. Injection is idempotent (`DiscoveryScriptTag.RemovalRegex` strips any prior tag; `UpdateIndexHtml` skips the write when the file already matches), so running it twice never stacks tags or churns the file. Whether the user actually *sees* the sidebar item is a separate, client-side decision in `discovery-sidebar.js` (see below) - the `<script>` tag is always injected regardless of `RecommendationsTaskMode`.
 
 **Companion plugins (optional):**
-- [Custom Tab Plugin](https://github.com/IAmParadox27/jellyfin-plugin-custom-tabs) - Provides the `.jellyfinhelper.discovery` container on the home page
+- [Custom Tabs Plugin](https://github.com/IAmParadox27/jellyfin-plugin-custom-tabs) - Provides the `.jellyfinhelper.discovery` container on the home page
 - [File Transformation Plugin](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation) - On-the-fly `index.html` patching without write access
 
 **Deployment Scenarios & Graceful Degradation:**
